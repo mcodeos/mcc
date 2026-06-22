@@ -1,0 +1,22 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "mcc",
+            "type": "lldb",
+            "request": "launch",
+            "program": "${workspaceFolder}/target/debug/mcc",
+            "args": [
+                "mc/projects/hbl/hbl.mc"
+            ],
+            "env": {
+                "RUST_BACKTRACE": "1",
+                "MCC_SYSTEM_ROOT": "${workspaceFolder}/mc"
+            },
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal",
+            "preLaunchTask": "rust: cargo build",
+            "sourceLanguages": ["rust"]
+        }
+    ]
+}
