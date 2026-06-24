@@ -22,15 +22,12 @@
 use crate::cli::rpc_client::RpcClient;
 use crate::cli::ParseArgs;
 use crate::cmds::manifest;
-use crate::cmds::print::{
-    print_connections, print_module_inst, print_net_summary, print_nets, print_phrase_members,
-};
 use crate::output::{
     self,
     builder::ResultBuilder,
     diagnostic::{batch_from_mcc, PhaseTracker},
     envelope::{
-        ComponentInfo, ConnectionEntry, DefinitionRef, DefinitionsIndex, Envelope, ExtractData,
+        ComponentInfo, ConnectionEntry, DefinitionRef, DefinitionsIndex, Envelope,
         InstanceNode, LoadedFile, NetEntry, Pass0Report, Pass1Report, Pass2Report, Phase, PinInfo,
         PortInfo, RpcError, ViewData, VizData, WorkspaceRef,
     },

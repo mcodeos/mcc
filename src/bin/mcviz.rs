@@ -28,11 +28,8 @@ use mcc::{
 };
 
 // ─── New P2 pipeline ─────────────────────────────────────────────
-use mcc::viz::api::{render, render_with, RenderOpts};
+use mcc::viz::api::{render_with, RenderOpts};
 use mcc::viz::template::wrap_document;
-
-// ─── Legacy pipeline (used with --legacy) ──────────────────────────────
-use mcc::viz::render::SvgRenderer;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -185,7 +182,7 @@ fn main() {
 }
 
 /// Legacy pipeline (preserved for compare verification)
-fn run_legacy(mut graph: mcc::vector::graph::McVecGraph, json_mode: bool) -> String {
+fn run_legacy(graph: mcc::vector::graph::McVecGraph, json_mode: bool) -> String {
     if json_mode {
         graph.to_json_pretty()
     } else {

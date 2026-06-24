@@ -162,7 +162,7 @@ fn cmd_list(format: OutputFormat) -> Result<()> {
 // install
 // ============================================================================
 
-fn cmd_install(name: &str, from: &str, version: Option<&str>, format: OutputFormat) -> Result<()> {
+fn cmd_install(name: &str, from: &str, version: Option<&str>, _format: OutputFormat) -> Result<()> {
     let src = PathBuf::from(from);
     if !src.exists() {
         anyhow::bail!("lib install: source path does not exist '{}'", from);
@@ -197,7 +197,7 @@ fn cmd_install(name: &str, from: &str, version: Option<&str>, format: OutputForm
 // load
 // ============================================================================
 
-fn cmd_load(name: &str, format: OutputFormat) -> Result<()> {
+fn cmd_load(name: &str, _format: OutputFormat) -> Result<()> {
     // First check whether it has already been loaded
     if let Some(info) = mcc::mcb_lib_info(name) {
         eprintln!(
@@ -243,7 +243,7 @@ fn cmd_load(name: &str, format: OutputFormat) -> Result<()> {
 // unload
 // ============================================================================
 
-fn cmd_unload(name: &str, format: OutputFormat) -> Result<()> {
+fn cmd_unload(name: &str, _format: OutputFormat) -> Result<()> {
     let ok = mcc::mcb_unload_lib(name);
     if !ok {
         anyhow::bail!("lib unload: '{}' is not loaded", name);
@@ -433,7 +433,7 @@ fn cmd_search(pattern: &str, format: OutputFormat) -> Result<()> {
 // uninstall
 // ============================================================================
 
-fn cmd_uninstall(name: &str, force: bool, format: OutputFormat) -> Result<()> {
+fn cmd_uninstall(name: &str, force: bool, _format: OutputFormat) -> Result<()> {
     // First check whether it has already been loaded into memory
     let loaded = mcc::mcb_loaded_libs();
     let is_loaded = loaded.contains(&name.to_string());

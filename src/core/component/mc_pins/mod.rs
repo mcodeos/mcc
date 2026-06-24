@@ -7,7 +7,7 @@ pub mod dynamic;
 use crate::builder::diagnostic::dlog_trace;
 use crate::builder::mcb_get_cmie;
 use crate::core::basic::mc_bus::McBus;
-use crate::core::basic::mc_ida::{IdaSegment, McIda};
+use crate::core::basic::mc_ida::IdaSegment;
 use crate::core::basic::mc_ids::IdsSegment;
 use crate::core::component::mc_attr::{McAttrVal, McAttribute};
 use crate::core::mc_ifs::Mc2Interface;
@@ -617,7 +617,7 @@ impl McPins {
                             }
                         }
 
-                        let expanded_inst_names: Vec<String> = declare.name.expand();
+                        let _expanded_inst_names: Vec<String> = declare.name.expand();
                         let subname = derive_interface_subnames(&declare.name, &iface_pins);
 
                         match &pinids {
@@ -635,7 +635,7 @@ impl McPins {
                                 }
 
                                 // check if need to merge same-type single-pin interfaces
-                                let base_iface_name = declare.base_name();
+                                let _base_iface_name = declare.base_name();
                                 let pin_cnt = declare.base.pins.names_to_id.len();
                                 let inst_pins: Vec<String> = pids.to_vec();
 
@@ -1201,7 +1201,7 @@ impl McPins {
             Some(existing) => {
                 // Base exists, merge this pin into it
                 match existing {
-                    McPinPort::Single(old_pid) => {
+                    McPinPort::Single(_old_pid) => {
                         // Don't convert to Multi, leave as Single for now
                         // The Bus creation logic will handle converting to Bus
                     }
@@ -1378,7 +1378,7 @@ impl std::fmt::Display for McPins {
                 if let McPinPort::Interface(iface) = port {
                     let ifc_name = iface.name.to_string();
                     let base_name = iface.base.name.to_string();
-                    let name_str = if name.starts_with('[') && name.ends_with(']') {
+                    let _name_str = if name.starts_with('[') && name.ends_with(']') {
                         let inner = &name[1..name.len() - 1];
                         format!("{{{}}}", inner.replace(", ", ","))
                     } else {
@@ -1457,10 +1457,8 @@ impl McPinNames {
         if node.get_type() != MCAST_PIN_NAMES {
             return None;
         }
-        let mut n = 0;
         let mut cur = node.get_sub_node();
         while let Some(c) = cur {
-            n += 1;
             cur = c.get_next();
         }
         let Some(name_nodes) = node.get_sub_node() else {
@@ -1472,7 +1470,7 @@ impl McPinNames {
             has_param_ref: false,
         };
 
-        'declare_loop: for each_name_option in
+        for each_name_option in
             name_nodes.iter().filter(|n| n.get_type() == MCAST_PIN_NAME)
         {
             // mc_pins_name:
@@ -1654,15 +1652,14 @@ impl McPinNames {
                                     continue;
                                 }
 
-                                if let pname = expr.expand() {
-                                    match pname.len() {
-                                        1 => {
-                                            myself.options.push(McPinPort::Single(pname[0].clone()))
-                                        }
-                                        2.. => myself.options.push(McPinPort::Multi(pname)),
-                                        _ => {
-                                            dlog_error(1203, &exp_node, "Pin name count error");
-                                        }
+                                let pname = expr.expand();
+                                match pname.len() {
+                                    1 => {
+                                        myself.options.push(McPinPort::Single(pname[0].clone()))
+                                    }
+                                    2.. => myself.options.push(McPinPort::Multi(pname)),
+                                    _ => {
+                                        dlog_error(1203, &exp_node, "Pin name count error");
                                     }
                                 }
                             }

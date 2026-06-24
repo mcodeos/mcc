@@ -25,7 +25,7 @@ use crate::output::{
     self, builder::ResultBuilder, diagnostic::PhaseTracker, envelope::*, renderer, OutputFormatExt,
 };
 use anyhow::{Context, Result};
-use mcc::{McIds, McURI};
+use mcc::McIds;
 use serde_json::json;
 use std::path::{Path, PathBuf};
 

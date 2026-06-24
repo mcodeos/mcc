@@ -480,7 +480,7 @@ impl McParamBinding {
             .position(|m: &String| m == member_name)?;
 
         // 3. Extract the value at the corresponding index from the actual argument value
-        let value = self.get_value()?;
+        let _value = self.get_value()?;
         None
     }
 

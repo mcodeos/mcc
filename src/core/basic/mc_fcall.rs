@@ -438,7 +438,7 @@ impl McFuncCall {
                                             let anon_name = context.gen_anon_name(&class_name_str);
 
                                             // Check for NC parameter using instance_params
-                                            let is_nc = instance_params
+                                            let _is_nc = instance_params
                                                 .iter()
                                                 .any(|p| matches!(p, McParamValue::NC(_)));
 
@@ -529,7 +529,7 @@ impl McFuncCall {
                                     let anon_name = context.gen_anon_name(&inst_name);
 
                                     // Check for NC parameter
-                                    let is_nc = instance_params
+                                    let _is_nc = instance_params
                                         .iter()
                                         .any(|p| matches!(p, McParamValue::NC(_)));
 
@@ -903,7 +903,7 @@ impl McFuncCall {
         // Check if func_name is a Component or Module definition (function call form instantiation)
         // e.g., CAP(10uF, ...).Cap(...) - creates anonymous instance of CAP
         if caller.is_none() {
-            let cmie_result = mcb_get_cmie(&func_name, context.uri()).is_some();
+            let _cmie_result = mcb_get_cmie(&func_name, context.uri()).is_some();
             // eprintln!("[FC-PARSE-BARE] func_name='{}' cmie_found={}", func_name, cmie_result);
             if let Some(cmie) = mcb_get_cmie(&func_name, context.uri()) {
                 match cmie {

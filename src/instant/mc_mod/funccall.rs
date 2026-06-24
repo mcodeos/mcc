@@ -67,7 +67,7 @@ impl McModuleInst {
         caller: Option<&McPhrase>,
     ) -> Result<FuncCallInst, InstError> {
         // ── Add diagnostic info ──
-        let caller_kind = caller
+        let _caller_kind = caller
             .as_ref()
             .map(|c| match c {
                 McPhrase::FuncCall(_) => "FuncCall",
@@ -80,13 +80,12 @@ impl McModuleInst {
                 McPhrase::Lead => "Lead",
                 McPhrase::Member(_, _) => "Member",
                 McPhrase::Multiple(_) => "Multiple",
-                _ => "Other",
             })
             .unwrap_or("None");
         let func_name_str = func_name.to_string();
-        let sub_mod_hit = self.sub_modules.iter().any(|m| m.name == func_name_str);
-        let comp_hit = self.components.iter().any(|c| c.name == func_name_str);
-        let cmie_hit =
+        let _sub_mod_hit = self.sub_modules.iter().any(|m| m.name == func_name_str);
+        let _comp_hit = self.components.iter().any(|c| c.name == func_name_str);
+        let _cmie_hit =
             crate::builder::mcb_get_cmie(func_name, &crate::current_uri::get()).is_some();
 
         let name_str = func_name.to_string();
@@ -236,9 +235,7 @@ impl McModuleInst {
                 match standard_alias.or(bare_alias) {
                     Some(canonical) => {
                         let canon_ids = crate::core::basic::mc_ids::McIds::from(canonical.as_str());
-                        let hit = mcb_get_cmie(&canon_ids, &current_uri::get());
-                        hit.is_some();
-                        hit
+                        mcb_get_cmie(&canon_ids, &current_uri::get())
                     }
                     None => None,
                 }
@@ -456,7 +453,7 @@ impl McModuleInst {
         for e in &elements {
             targets.extend(self.expand_node_element(e));
         }
-        let found = self.components.iter().any(|c| c.name == inst_name);
+        let _found = self.components.iter().any(|c| c.name == inst_name);
 
         // `.Cap(_)` → all args are underscores → pin2 implicitly connects to GND
         // ── P1-1: implicit GND rule ─────────────────────────────────────

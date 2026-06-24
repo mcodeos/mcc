@@ -1132,7 +1132,7 @@ fn parse_slew_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
 }
 
 fn parse_noise_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
-    let (value, unit_str) = extract_value_and_unit(node, data)?;
+    let (value, _unit_str) = extract_value_and_unit(node, data)?;
 
     // For noise density, we just store the value as-is with the appropriate unit
     Some(McUnitValue {

@@ -17,7 +17,7 @@ use crate::output::{
     envelope::{Envelope, Pass0Report, Phase, RpcError},
     OutputFormatExt,
 };
-use anyhow::{Context, Result};
+use anyhow::Result;
 use mcc::McURI;
 use serde_json::json;
 use std::path::{Path, PathBuf};
@@ -53,7 +53,7 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
     mcc::mcc_init_no_lib();
     manifest::load_libs(&args.lib);
 
-    let uri: McURI = if let Some(t) = &args.target {
+    let _uri: McURI = if let Some(t) = &args.target {
         let p = Path::new(t);
         if p.is_dir() {
             match manifest::build_from_manifest(p, None, None) {

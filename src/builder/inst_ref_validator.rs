@@ -252,7 +252,7 @@ fn validate_module_port_ref(
     base_name: &str,
     members: &[String],
     module: &crate::core::module::Mc2Module,
-    context: &mut dyn HasFindInst,
+    _context: &mut dyn HasFindInst,
     node: &AstNode,
 ) -> Option<McPhrase> {
     let port_names = module.base.insts.get_all_names();
@@ -315,7 +315,7 @@ fn validate_interface_member_ref(
     base_name: &str,
     members: &[String],
     iface: &crate::core::mc_ifs::Mc2Interface,
-    context: &mut dyn HasFindInst,
+    _context: &mut dyn HasFindInst,
     node: &AstNode,
 ) -> Option<McPhrase> {
     // ★ FIX (Issue #1804):
@@ -422,7 +422,7 @@ pub fn validate_inst_reference(
         None => return None,
     };
 
-    let kind = match context.find_inst(&base_name) {
+    let _kind = match context.find_inst(&base_name) {
         Some(crate::core::mc_inst::McInstance::Module(_)) => "Module",
         Some(crate::core::mc_inst::McInstance::Component(_)) => "Component",
         Some(crate::core::mc_inst::McInstance::Label(_)) => "Label",

@@ -216,7 +216,7 @@ fn list_all(args: &ShowArgs) -> Result<()> {
                 "count": names.len(),
                 "list": names,
             });
-            output_json(&data, args.format);
+            output_json(&data, args.format)?;
         }
         ShowTarget::Module => {
             let modules: Vec<(String, String)> = mcc::mcb_iter_modules();
@@ -226,7 +226,7 @@ fn list_all(args: &ShowArgs) -> Result<()> {
                 "count": names.len(),
                 "list": names,
             });
-            output_json(&data, args.format);
+            output_json(&data, args.format)?;
         }
         ShowTarget::Interface => {
             let ifaces: Vec<(String, String)> = mcc::mcb_iter_interfaces();
@@ -236,7 +236,7 @@ fn list_all(args: &ShowArgs) -> Result<()> {
                 "count": names.len(),
                 "list": names,
             });
-            output_json(&data, args.format);
+            output_json(&data, args.format)?;
         }
         ShowTarget::Net => {
             // File already loaded in run_local; build netlist: prefer --top, otherwise get first module
@@ -301,7 +301,7 @@ fn list_all(args: &ShowArgs) -> Result<()> {
                 "count": items.len(),
                 "nets": items,
             });
-            output_json(&data, args.format);
+            output_json(&data, args.format)?;
         }
         ShowTarget::File => {
             // File type is used via show file <path>
@@ -309,7 +309,7 @@ fn list_all(args: &ShowArgs) -> Result<()> {
                 "type": "file",
                 "note": "Use 'mcc show file <path>' to view all elements in file",
             });
-            output_json(&data, args.format);
+            output_json(&data, args.format)?;
         }
     }
     Ok(())

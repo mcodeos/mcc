@@ -17,8 +17,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{debug, trace, warn};
 
-/// Re-entry guard: records (class_name, uri) pairs currently being parsed,
-/// prevents mcb_get_cmie → parse_pass1_modules → McModule::new → mcb_get_cmie infinite recursion
+// Re-entry guard: records (class_name, uri) pairs currently being parsed,
+// prevents mcb_get_cmie → parse_pass1_modules → McModule::new → mcb_get_cmie infinite recursion
+
 thread_local! {
     static CMIE_RESOLVING: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
 }
@@ -351,7 +352,7 @@ pub fn mcb_loaded_file_count() -> usize {
 
 /// Print list of loaded files
 pub fn mcb_print_loaded_files() {
-    for entry in workspace::WORKSPACE.mcodes.borrow().iter() {}
+    for _entry in workspace::WORKSPACE.mcodes.borrow().iter() {}
 }
 
 /// Unload project file
@@ -881,25 +882,25 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     //     name_str, uri
     // );
     {
-        let mod_keys: Vec<String> = workspace::WORKSPACE
+        let _mod_keys: Vec<String> = workspace::WORKSPACE
             .modules
             .borrow()
             .iter()
             .map(|e| format!("{}@{}", e.key().ident, e.key().uri))
             .collect();
-        let comp_keys: Vec<String> = workspace::WORKSPACE
+        let _comp_keys: Vec<String> = workspace::WORKSPACE
             .components
             .borrow()
             .iter()
             .map(|e| format!("{}@{}", e.key().ident, e.key().uri))
             .collect();
-        let ifs_keys: Vec<String> = workspace::WORKSPACE
+        let _ifs_keys: Vec<String> = workspace::WORKSPACE
             .interfaces
             .borrow()
             .iter()
             .map(|e| format!("{}@{}", e.key().ident, e.key().uri))
             .collect();
-        let mcode_keys: Vec<String> = workspace::WORKSPACE
+        let _mcode_keys: Vec<String> = workspace::WORKSPACE
             .mcodes
             .borrow()
             .iter()

@@ -10,6 +10,8 @@
 //!
 //! Priority: Project > Global
 
+#![allow(dead_code)]
+
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -417,6 +419,7 @@ pub fn set_log_stream_applier(f: LogApplier) {
     }
 }
 
+#[allow(static_mut_refs)]
 fn apply_log_streams() {
     if let Ok(s) = get_log_streams().read() {
         if let Some(ref f) = unsafe { LOG_APPLIER.as_ref() } {

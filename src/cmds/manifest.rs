@@ -25,7 +25,6 @@
 //! 3. `mcc_load_project(entry)` → `mcc_build(top)`
 //! 4. Output envelope
 
-use crate::cli::data_dir;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

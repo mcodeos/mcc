@@ -113,7 +113,7 @@ impl McComponentInst {
         let bindings = self.get_param_bindings();
         let dynamic_pins = self.def.pins.resolve_dynamic_pins(&bindings);
 
-        for (pin_id, pin_name, iotype) in dynamic_pins {
+        for (pin_id, _pin_name, iotype) in dynamic_pins {
             let path = format!("{}.{}", self.name, pin_id);
             let net_point = NetPoint::with_owner(&path, &self.name, iotype);
             self.pins.insert(pin_id.to_string(), net_point);
@@ -370,7 +370,7 @@ impl McComponentInst {
         if self.def.name.to_string().contains("US513_20_F")
             || self.def.name.to_string().contains("GD25Q32E")
         {
-            let n2i: Vec<String> = self
+            let _n2i: Vec<String> = self
                 .def
                 .pins
                 .names_to_id

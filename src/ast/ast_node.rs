@@ -627,13 +627,13 @@ fn extract_ida(ida: &str) -> Vec<String> {
     let mut tmp_segment = Vec::<String>::new(); // [] internal parsed part
     let mut parsing_separator = false; // Whether current character is a separator or space
     let mut in_slice = false; // Whether current character is a slice colon
-    let slice_left: usize = 0; // Left value of slice when parsing slice colon part
+    let _slice_left: usize = 0; // Left value of slice when parsing slice colon part
     let mut end: usize = 0; // Current character end position + 1
     let mut in_prior_mult = false;
     let mut waiting_double_lsquare = false;
     let mut waiting_double_rsquare = false;
 
-    let mut in_bracket = false; // Whether current character is in a bracket
+    let mut _in_bracket = false; // Whether current character is in a bracket
     let mut bracket_start = 0; // Bracket start position
 
     for (index, ch) in ida.char_indices() {
@@ -650,7 +650,7 @@ fn extract_ida(ida: &str) -> Vec<String> {
                     }
                     // Record bracket start position
                     bracket_start = index;
-                    in_bracket = true;
+                    _in_bracket = true;
                     // start;
                     assert!(tmp_segment.is_empty());
                     parsing_separator = true;
@@ -665,7 +665,7 @@ fn extract_ida(ida: &str) -> Vec<String> {
                     waiting_double_rsquare = false;
                     in_prior_mult = false;
                     start = index + 1;
-                    in_bracket = false;
+                    _in_bracket = false;
                 } else {
                     if !parsing_separator {
                         parsing_separator = true;
@@ -692,7 +692,7 @@ fn extract_ida(ida: &str) -> Vec<String> {
                     start = index + 1;
                     tmp_segment = Vec::new();
                     waiting_double_rsquare = false;
-                    in_bracket = false;
+                    _in_bracket = false;
                 }
             }
             ',' => {
