@@ -10,6 +10,8 @@
 //!
 //! Use curl command to implement HTTP communication
 
+#![allow(dead_code)]
+
 use anyhow::{anyhow, Context, Result};
 use serde_json::json;
 use serde_json::Value;

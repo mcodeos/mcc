@@ -946,7 +946,7 @@ impl McInstances {
                 // MCAST_INSTANCE structure: instance_id (MCAST_PARAMS)?
                 // MCAST_PARAMS children are MCAST_PARAM, MCAST_PARAM children may be MCAST_OPD_NC
                 // Note: For instances without sub node, check if inst_node itself has next sibling
-                let is_nc = if let Some(next_sibling) = inst_node.get_next() {
+                let _is_nc = if let Some(next_sibling) = inst_node.get_next() {
                     if next_sibling.get_type() == MCAST_PARAMS {
                         if let Some(params_node) = next_sibling.get_sub_node() {
                             params_node.iter().any(|p| {
@@ -1072,7 +1072,7 @@ impl McInstances {
                                 Mc2Interface::new(inst_ids.clone(), iface_def.clone());
                             if new_interface.pin_count() == 1 {
                                 // Single-pin interface, check if same-name Interface already exists
-                                if let Some((existing_iotype, existing_inst)) =
+                                if let Some((_existing_iotype, existing_inst)) =
                                     self.insts.get(&iface_name)
                                 {
                                     if let McInstance::Interface(existing_iface) = existing_inst {

@@ -48,7 +48,7 @@ pub fn run(action: &crate::cli::ConfigAction) -> Result<()> {
                 if key.starts_with("trace.") {
                     if let Some(ref c) = client {
                         let bool_value = parse_bool(&value)?;
-                        let result = c.call(
+                        let _result = c.call(
                             "trace.set",
                             serde_json::json!({ "name": key, "value": bool_value }),
                         )?;

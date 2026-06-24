@@ -386,7 +386,7 @@ impl McModuleInst {
 
     pub(super) fn instantiate_lines_resilient(&mut self) {
         let lines = self.def.lines.clone();
-        for (i, l) in lines.iter().enumerate() {}
+        for (_i, _l) in lines.iter().enumerate() {}
         for (idx, line) in lines.iter().enumerate() {
             // ── Iter-6.S4.3 ──────────────────────────────────────────────
             // **per-line auto_inst_map scope reset**
@@ -476,8 +476,7 @@ impl McModuleInst {
                 kept.push(conn);
             }
         }
-        let removed = before - kept.len();
-        removed > 0;
+        let _removed = before - kept.len();
         self.connections = kept;
     }
 
@@ -569,7 +568,7 @@ impl McModuleInst {
                     }
                 });
             }
-            let how = if chosen.is_some() {
+            let _how = if chosen.is_some() {
                 "voltage"
             } else {
                 "positional"
@@ -945,7 +944,7 @@ impl McModuleInst {
         // ── P4-b: isolate anonymous instance entries across body lines within the same func ──
         let conn_start = self.connections.len(); // ← P4 backstop start point
         let outer_auto_inst = self.auto_inst_map.clone();
-        for (li, line) in func.lines.iter().enumerate() {
+        for (_li, line) in func.lines.iter().enumerate() {
             self.auto_inst_map = outer_auto_inst.clone();
             let substituted = Self::substitute_line(line, &bindings, None);
             let prefixed = Self::prefix_instance_line_with_skip(&substituted, inst_name, &skip);

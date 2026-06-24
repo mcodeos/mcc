@@ -390,7 +390,7 @@ pub fn handle_build_full(params: Option<Value>) -> RpcResult {
         );
     }
 
-    let root = PathBuf::from(&root_str);
+    let _root = PathBuf::from(&root_str);
     let entry_path = match kind.as_str() {
         "Project" => resolve_project_entry(&id, p.entry.as_deref())?,
         _ => return Err(JsonRpcError::custom(-32102, "unknown workspace kind")),
@@ -477,7 +477,7 @@ fn run_pass1(
                 if module_def.lines.is_empty() {
                     info!(target: "mcc::pass1", "|   (no connections)");
                 } else {
-                    for (i, line) in module_def.lines.iter().enumerate() {
+                    for (i, _line) in module_def.lines.iter().enumerate() {
                         info!(target: "mcc::pass1", "|");
                         info!(target: "mcc::pass1", "|   +--- Series[{}] ----------", i);
                     }
@@ -630,7 +630,7 @@ fn run_pass1_from_memory(
         crate::mcc_load_from_string(&file_uri, content);
     }
 
-    let mc_uri = McURI::from(entry_uri.as_str());
+    let _mc_uri = McURI::from(entry_uri.as_str());
     let pass1 = collect_pass1(&entry_uri, include_system);
 
     let module_count = crate::mcb_module_count();
@@ -1003,7 +1003,7 @@ pub fn handle_check(params: Option<Value>) -> RpcResult {
             cwd.join(&entry_path)
         };
 
-        let uri = McURI::from(abs_entry.to_string_lossy().as_ref() as &str);
+        let _uri = McURI::from(abs_entry.to_string_lossy().as_ref() as &str);
 
         return run_full_build(&abs_entry, None, "check", "file", &id, false);
     }
@@ -1046,7 +1046,7 @@ pub fn handle_extract(params: Option<Value>) -> RpcResult {
         return extract_from_uri(&abs_entry, p.top.as_deref(), &p.target);
     }
 
-    let root = PathBuf::from(&root_str);
+    let _root = PathBuf::from(&root_str);
     let entry_path = match kind.as_str() {
         "Project" => resolve_project_entry(&id, p.entry.as_deref())?,
         _ => {
@@ -1328,7 +1328,7 @@ fn extract_tar_entries<R: std::io::Read>(
     Ok(extracted)
 }
 
-fn resolve_project_entry(name: &str, entry: Option<&str>) -> Result<PathBuf, JsonRpcError> {
+fn resolve_project_entry(_name: &str, entry: Option<&str>) -> Result<PathBuf, JsonRpcError> {
     let (_, _, root_str) = crate::workspace_info();
     let root = PathBuf::from(&root_str);
     let src_root = root.join("src");
@@ -1529,7 +1529,7 @@ pub fn handle_parse(params: Option<Value>) -> RpcResult {
             cwd.join(&entry_path)
         };
 
-        let uri = McURI::from(abs_entry.to_string_lossy().as_ref() as &str);
+        let _uri = McURI::from(abs_entry.to_string_lossy().as_ref() as &str);
 
         return run_pass1(&abs_entry, "parse", "file", &id, p.include_system);
     }
@@ -1634,7 +1634,7 @@ pub fn handle_show_interface_list(params: Option<Value>) -> RpcResult {
     }))
 }
 
-pub fn handle_show_net_list(params: Option<Value>) -> RpcResult {
+pub fn handle_show_net_list(_params: Option<Value>) -> RpcResult {
     Ok(json!({
         "type": "net",
         "count": 0,

@@ -346,7 +346,7 @@ fn assign_ranks(
 /// First row: by ID ascending (stable starting point)
 /// Row r: by "average x index of previous row's neighbors" ascending ── make connections more vertical, reduce crossings
 fn group_by_rank_sorted(
-    graph: &McVecGraph,
+    _graph: &McVecGraph,
     ranks: &HashMap<i64, usize>,
     adj: &HashMap<i64, Vec<i64>>,
 ) -> Vec<Vec<i64>> {

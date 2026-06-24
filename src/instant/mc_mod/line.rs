@@ -136,9 +136,9 @@ impl McModuleInst {
             .map(|(m, _)| m)
             .collect();
         for pair in non_shunt.windows(2) {
-            let raw_lp = self.get_right_points(pair[0]).unwrap_or_default();
-            let raw_rp = self.get_left_points(pair[1]).unwrap_or_default();
-            let kind = |m: &McPhrase| -> String {
+            let _raw_lp = self.get_right_points(pair[0]).unwrap_or_default();
+            let _raw_rp = self.get_left_points(pair[1]).unwrap_or_default();
+            let _kind = |m: &McPhrase| -> String {
                 match m {
                     McPhrase::Multiple(inner) => format!("Multiple(n={})", inner.len()),
                     McPhrase::Endpoint(McEndpoint::Single(ir)) => match &ir.base {
@@ -674,7 +674,7 @@ impl McModuleInst {
         right_member: &McPhrase,
     ) -> Result<(), InstError> {
         // ── P1-diag: detailed adjacent wiring diagnostic ─────────────────────────────────
-        let l_kind = match left_member {
+        let _l_kind = match left_member {
             McPhrase::FuncCall(f) => format!(
                 "FuncCall(fn={}, caller={}, right_n={})",
                 f.func_name,
@@ -689,7 +689,7 @@ impl McModuleInst {
             McPhrase::Group(g) => format!("Group(opds={})", g.opds.len()),
             _ => format!("{:?}", std::mem::discriminant(left_member)),
         };
-        let r_kind = match right_member {
+        let _r_kind = match right_member {
             McPhrase::FuncCall(f) => {
                 format!("FuncCall(fn={}, right_n={})", f.func_name, f.right.len())
             }
@@ -782,7 +782,7 @@ impl McModuleInst {
         let mut opd_lefts: Vec<Vec<NetPoint>> = Vec::with_capacity(lines.len());
         let mut opd_rights: Vec<Vec<NetPoint>> = Vec::with_capacity(lines.len());
 
-        for (idx, opd) in lines.iter().enumerate() {
+        for (_idx, opd) in lines.iter().enumerate() {
             // ── Skip Lead placeholder ────────────────────────────────────────
             // In Parallel with `_` like `(_, A, B)`, `_` is parsed as Lead,
             // doesn't participate in parallel wiring.
@@ -792,7 +792,7 @@ impl McModuleInst {
                 continue;
             }
             // ── Diagnostic: print opd phrase form ──────────────────────────────
-            let opd_kind = match opd {
+            let _opd_kind = match opd {
                 McPhrase::Endpoint(McEndpoint::Single(ir)) => match &ir.base {
                     McInstance::Label(s) => format!("Label('{s}')"),
                     McInstance::Bus(b) => format!("Bus('{}', mem={:?})", b.name, b.member),
@@ -887,7 +887,7 @@ impl McModuleInst {
 
         // [R2-DIAG2] Unconditionally print each parallel's opd form + point extraction
         {
-            let kinds: Vec<String> = lines
+            let _kinds: Vec<String> = lines
                 .iter()
                 .map(|o| match o {
                     McPhrase::Endpoint(_) => "Endpoint".to_string(),

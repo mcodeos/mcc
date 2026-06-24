@@ -128,7 +128,7 @@ impl McModule {
 
     pub(crate) fn parse_body(&mut self, body: &AstNode) {
         if let Some(clauses) = body.get_sub_node() {
-            for (idx, clause) in clauses.iter().enumerate() {
+            for (_idx, clause) in clauses.iter().enumerate() {
                 let _sub = clause.get_sub_node().map(|s| s.get_type());
                 let _kids: Vec<u16> = clause
                     .get_sub_node()
@@ -501,8 +501,6 @@ impl HasFindInst for McModule {
                 let fn_base = base.to_string();
                 bus.add_member(&member);
                 let full_members_clone = bus.full_members.clone();
-                drop(bus);
-                drop(inst);
                 if !self.insts.contains(&fn_base) {
                     let bus_to_add = McBus::new_with_members(&fn_base, full_members_clone);
                     self.insts
@@ -659,7 +657,7 @@ impl Mc2Module {
     /// Find externally exposed ports
     pub fn find_port(&self, id: &str) -> Option<McPhrase> {
         // 1. Find in interface definitions
-        if let Some(port) = self.base.insts.find_port(id) {
+        if let Some(_port) = self.base.insts.find_port(id) {
             return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
                 McInstance::Bus(McBus::new_with_members(
                     &self.name.to_string(),
@@ -670,7 +668,7 @@ impl Mc2Module {
 
         // 2. Support dot-path lookup (e.g. "in.data")
         if let Some((first, rest)) = id.split_once('.') {
-            if let Some((iotype, port)) = self.base.insts.get_with_iotype(first) {
+            if let Some((_iotype, port)) = self.base.insts.get_with_iotype(first) {
                 // Find in port's sub-members
                 for member_name in port.members() {
                     if member_name == rest {

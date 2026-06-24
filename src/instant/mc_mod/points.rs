@@ -982,7 +982,7 @@ impl McModuleInst {
         // ── [DIAG-io] P4 phantom tracing ───────────────────────────────────────
         // Record whether any endpoint with last segment in/out passes through this function, and first segment
         // find_component/find_submodule hit status (used to determine why [FIX-C] doesn't isolate `<host>.in`).
-        if let Some((fp, rest)) = element.name.split_once('.') {
+        if let Some((_fp, rest)) = element.name.split_once('.') {
             if rest == "in" || rest == "out" || rest.ends_with(".in") || rest.ends_with(".out") {}
         }
 
@@ -1402,17 +1402,17 @@ impl McModuleInst {
         // won't print, reflected by [TCA-diag]), or reached but owner's port bus_members
         // empty / port name mismatch (anonymous [A,GND] port).
         {
-            if let Some((owner, port_raw)) = name.split_once('.') {
-                let sub_ports: Option<Vec<(String, Vec<String>)>> =
+            if let Some((owner, _port_raw)) = name.split_once('.') {
+                let _sub_ports: Option<Vec<(String, Vec<String>)>> =
                     self.find_submodule(owner).map(|s| {
                         s.ports
                             .iter()
                             .map(|p| (p.name.clone(), p.bus_members.clone()))
                             .collect()
                     });
-                let comp_has = self.find_component(owner).map(|c| c.name.clone());
+                let _comp_has = self.find_component(owner).map(|c| c.name.clone());
             } else {
-                let self_ports: Vec<(String, Vec<String>)> = self
+                let _self_ports: Vec<(String, Vec<String>)> = self
                     .ports
                     .iter()
                     .map(|p| (p.name.clone(), p.bus_members.clone()))

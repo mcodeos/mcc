@@ -2,6 +2,8 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+#![allow(dead_code)]
+
 //1. lib internal
 use crate::builder::diagnostic::Diagnostic;
 use std::env;
@@ -466,7 +468,7 @@ fn print_member_info_indent(member: &LineMemberInfo, indent: usize, idx: usize) 
         LineMemberInfo::Parallel { lines } => {
             eprintln!("{}[{}] Parallel({} phrases)", pad, idx, lines.len());
         }
-        LineMemberInfo::Transposed { inner } => {
+        LineMemberInfo::Transposed { inner: _ } => {
             eprintln!("{pad}[{idx}] Transposed:");
         }
         LineMemberInfo::FuncCall {

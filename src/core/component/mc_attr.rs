@@ -162,7 +162,7 @@ impl McAttribute {
         })
     }
 
-    fn parse_square_vec_kvs(attr_id: &McIds, square_vec: &AstNode) -> Option<Vec<McAttrVal>> {
+    fn parse_square_vec_kvs(_attr_id: &McIds, square_vec: &AstNode) -> Option<Vec<McAttrVal>> {
         let sub = square_vec.get_sub_node()?;
         let kvs_list = Self::extract_kvs_from_iter(sub.iter());
 

@@ -75,7 +75,7 @@ impl McModuleInst {
                 _ => None,
             };
             // ── Iter-6.S5.2-diag ──
-            let base_kind = match &iref.base {
+            let _base_kind = match &iref.base {
                 McInstance::Label(s) => format!("Label('{s}')"),
                 McInstance::Bus(b) => format!("Bus(name='{}', mem={:?})", b.name, b.member),
                 McInstance::Component(c) => format!("Component('{}')", c.name),

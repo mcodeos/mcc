@@ -114,7 +114,7 @@ fn extract_instances(uri: &McURI, top_name: &str, ident: &McIds, args: &ExtractA
     emit_extract(args, "instances", json!(items))
 }
 
-fn extract_nets(uri: &McURI, top_name: &str, ident: &McIds, args: &ExtractArgs) -> Result<()> {
+fn extract_nets(uri: &McURI, _top_name: &str, ident: &McIds, args: &ExtractArgs) -> Result<()> {
     let inst = mcc::mcc_build(ident, uri).map_err(|e| anyhow::anyhow!("build failed: {}", e))?;
 
     use std::collections::BTreeMap;

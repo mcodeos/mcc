@@ -610,7 +610,7 @@ impl McPhrase {
                 let left_opd = Self::new(&subnode1, context)?;
                 let right = subnode2.to_id_or_ida_or_num();
 
-                let left_kind = match &left_opd {
+                let _left_kind = match &left_opd {
                     McPhrase::Endpoint(McEndpoint::Single(ir)) => match &ir.base {
                         McInstance::Label(s) => format!("Label('{s}')"),
                         McInstance::Bus(b) => format!("Bus('{}', mem={:?})", b.name, b.member),
@@ -618,7 +618,7 @@ impl McPhrase {
                         McInstance::Module(m) => format!("Module('{}')", m.name),
                         McInstance::Interface(i) => format!("Interface('{}')", i.name),
                         McInstance::List(l) => format!("List('{}', mem={:?})", l.name, l.member),
-                        McInstance::BusRef { component, bus } => todo!(),
+                        McInstance::BusRef { component: _, bus: _ } => todo!(),
                     },
                     _ => format!("{:?}", std::mem::discriminant(&left_opd)),
                 };
@@ -707,7 +707,7 @@ impl McPhrase {
                     .flat_map(|n| n.to_id_or_ida_or_num())
                     .collect();
 
-                let left_kind = match &left_opd {
+                let _left_kind = match &left_opd {
                     McPhrase::Endpoint(McEndpoint::Single(ir)) => match &ir.base {
                         McInstance::Label(s) => format!("Label('{s}')"),
                         McInstance::Bus(b) => format!("Bus('{}', mem={:?})", b.name, b.member),
@@ -715,7 +715,7 @@ impl McPhrase {
                         McInstance::Module(m) => format!("Module('{}')", m.name),
                         McInstance::Interface(i) => format!("Interface('{}')", i.name),
                         McInstance::List(l) => format!("List('{}', mem={:?})", l.name, l.member),
-                        McInstance::BusRef { component, bus } => todo!(),
+                        McInstance::BusRef { component: _, bus: _ } => todo!(),
                     },
                     _ => format!("{:?}", std::mem::discriminant(&left_opd)),
                 };
@@ -1896,13 +1896,6 @@ impl McPhrase {
                 ))))
             }
             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
-                base: McInstance::Interface(_),
-                ..
-            })) => {
-                dlog_trace(1171, "Dot operator does not apply for Interface");
-                None
-            }
-            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
                 base: McInstance::List(mut list),
                 ..
             })) => {
@@ -1963,7 +1956,7 @@ impl McPhrase {
                 }
                 Self::access_node_element_members(&f.right, member_names)
             }
-            McPhrase::Endpoint(ref ep) => {
+            McPhrase::Endpoint(_ep) => {
                 dlog_trace(1175, "Dot operator does not apply for Endpoint");
                 None
             }

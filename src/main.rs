@@ -18,6 +18,8 @@
 //!   - `mcc_set_project_root()`: Project command once
 //!
 
+#![allow(dead_code)]
+
 use anyhow::Result;
 use clap::Parser;
 use std::env;

@@ -111,7 +111,7 @@ impl McModuleInst {
             .cloned()
             .collect();
         if left.len() != left_filtered.len() || right.len() != right_filtered.len() {
-            let dropped: Vec<&str> = left
+            let _dropped: Vec<&str> = left
                 .iter()
                 .chain(right.iter())
                 .filter(|e| is_placeholder(e))
@@ -148,7 +148,7 @@ impl McModuleInst {
             .cloned()
             .collect();
         if left.len() != left_filtered.len() || right.len() != right_filtered.len() {
-            let dropped: Vec<&str> = left
+            let _dropped: Vec<&str> = left
                 .iter()
                 .chain(right.iter())
                 .filter(|e| is_placeholder(e))
@@ -372,7 +372,7 @@ impl McModuleInst {
         &mut self,
         func_def: McFunction,
         params: &[McParamValue],
-        left: &[McBus],
+        _left: &[McBus],
         right: &[McBus],
         caller_inst_name: Option<&str>,
     ) -> Result<FuncCallInst, InstError> {
@@ -395,7 +395,7 @@ impl McModuleInst {
             // circuits); entries from outer lines remain because they are in the
             // snapshot (preserves the chained return `X6.setup(...).XTAL`).
             let outer_auto_inst = self.auto_inst_map.clone();
-            for (li, line) in func_def.lines.iter().enumerate() {
+            for (_li, line) in func_def.lines.iter().enumerate() {
                 self.auto_inst_map = outer_auto_inst.clone();
                 // Substitute formal params -> actual args in each connection line
                 // Also substitute 'this' with caller_inst_name
@@ -462,7 +462,7 @@ impl McModuleInst {
     /// useful than failing outright while the user is still iterating.
     fn emit_endpoint_return_bridges(
         this: &mut Self,
-        func_def: &McFunction,
+        _func_def: &McFunction,
         bindings: &McParamBindings,
         endpoint_phrase: &McPhrase,
         right: &[McBus],
@@ -489,9 +489,6 @@ impl McModuleInst {
                 vec![ext_pt, ep_pt],
             ));
         }
-
-        right.len();
-        endpoint_buses.len();
 
         Ok(FuncCallInst::Components {
             new_components: Vec::new(),
@@ -600,7 +597,7 @@ impl McModuleInst {
             //    in the same func ──
             // (This is a sub-module; snapshot-reset sub.auto_inst_map)
             let outer = sub.auto_inst_map.clone();
-            for (li, line) in func_def.lines.iter().enumerate() {
+            for (_li, line) in func_def.lines.iter().enumerate() {
                 sub.auto_inst_map = outer.clone();
                 let substituted = if value_bindings.is_empty() {
                     line.clone()
@@ -609,7 +606,7 @@ impl McModuleInst {
                     // refers to the sub-module itself
                     Self::substitute_line(line, &value_bindings, None)
                 };
-                if let Err(e) = sub.process_line(&substituted) {
+                if let Err(_e) = sub.process_line(&substituted) {
                     // Sub-module's own diagnostics surface with flattening;
                     // here only log, do not abort
                 }
@@ -722,8 +719,8 @@ impl McModuleInst {
         }
         // ── P4-b: Isolate anonymous instance entries for each body line in the same func ──
         let conn_start = self.connections.len(); // ← P4 backstop start point
-        let outer_auto_inst = self.auto_inst_map.clone();
-        for (li, line) in func_def.lines.iter().enumerate() {
+        let _outer_auto_inst = self.auto_inst_map.clone();
+        for (_li, line) in func_def.lines.iter().enumerate() {
             // Do not reset auto_inst_map; let it accumulate line by line inside
             // the function body! This way components created in the previous line
             // can still be resolved correctly in subsequent lines!
@@ -771,15 +768,14 @@ impl McModuleInst {
         let in_name = format!("{inst_name}.in");
         let out_name = format!("{inst_name}.out");
         let mut tail = self.connections.split_off(conn_start);
-        let mut stripped = 0usize;
+        let mut _stripped = 0usize;
         for conn in tail.iter_mut() {
             let before = conn.points.len();
             conn.points
                 .retain(|p| p.path != in_name && p.path != out_name);
-            stripped += before - conn.points.len();
+            _stripped += before - conn.points.len();
         }
         let kept: Vec<_> = tail.into_iter().filter(|c| c.points.len() >= 2).collect();
-        stripped > 0;
         self.connections.extend(kept);
     }
 

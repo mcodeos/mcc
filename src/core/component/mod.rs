@@ -59,7 +59,7 @@ impl McComponent {
                 .expect(MISSING_SUBNODE),
         )?;
 
-        let mut newComp = Self {
+        let mut new_comp = Self {
             name: comp_name.clone(),
             params: McParamDeclares::new(),
             attrs: McAttributes::new(),
@@ -74,7 +74,7 @@ impl McComponent {
         let _ = &subnodes
             .iter()
             .find(|x| x.is_type(MCAST_PARAMS))
-            .map(|param_node| newComp.params.parse(&param_node));
+            .map(|param_node| new_comp.params.parse(&param_node));
 
         //3. body
         if let Some(body) = subnodes.iter().find(|x| x.is_type(MCAST_BODY)) {
@@ -85,9 +85,9 @@ impl McComponent {
                     .filter(|x| x.is_type(MCAST_ATTRIBUTE))
                     .for_each(|x| {
                         if let Some(built_layout) = mc_layout::McLayout::new(&x) {
-                            newComp.layout = built_layout;
+                            new_comp.layout = built_layout;
                         } else {
-                            newComp.attrs.parse(&x);
+                            new_comp.attrs.parse(&x);
                         }
                     });
 
@@ -96,7 +96,7 @@ impl McComponent {
                     .iter()
                     .filter(|x| x.is_type(MCAST_ATTRIBUTE_PIN) || x.is_type(MCAST_ATTRIBUTE_PINADD))
                     .collect();
-                pin_nodes.iter().for_each(|x| newComp.pins.parse(x));
+                pin_nodes.iter().for_each(|x| new_comp.pins.parse(x));
 
                 // ── [P2-DEF] temporary probe: commented out
                 // if comp_name.to_string().contains("US513") {
@@ -110,27 +110,27 @@ impl McComponent {
                 //     eprintln!(
                 //         "[P2-DEF] comp={} pin_nodes_found={} pin_node_types={:?} static_count_after_parse={}",
                 //         comp_name.to_string(), pin_nodes.len(), pin_node_types,
-                //         newComp.pins.count()
+                //         new_comp.pins.count()
                 //     );
                 // }
 
                 //5. functions (parse header + body with context)
-                // Use raw pointer to avoid conflicting borrows of newComp
+                // Use raw pointer to avoid conflicting borrows of new_comp
                 let context =
-                    unsafe { &mut *(&mut newComp as *mut McComponent) as &mut dyn HasFindInst };
+                    unsafe { &mut *(&mut new_comp as *mut McComponent) as &mut dyn HasFindInst };
                 body_nodes
                     .iter()
                     .filter(|x| x.is_type(MCAST_FUNCTION))
-                    .for_each(|x| newComp.funcs.parse(&x, context));
+                    .for_each(|x| new_comp.funcs.parse(&x, context));
 
                 //6. todo: role
                 //7. conds
-                Self::parse_cond_pins_with_defaults(&mut newComp.pins, &body, &newComp.params);
+                Self::parse_cond_pins_with_defaults(&mut new_comp.pins, &body, &new_comp.params);
                 //8. todo: net not supported
             }
         }
 
-        Some(newComp)
+        Some(new_comp)
     }
 
     fn parse_cond_pins_with_defaults(

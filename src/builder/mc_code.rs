@@ -206,11 +206,9 @@ impl McCode {
                     && !crate::cli::config::is_system_lib_loading()
                     && !AST_VISIT_DONE.swap(true, Ordering::SeqCst)
                 {
-                    unsafe {
-                        crate::ast::c_bindings::mcc_visit_tree_color(
-                            ast.get_ptr() as *mut McValueFFI
-                        );
-                    }
+                    crate::ast::c_bindings::mcc_visit_tree_color(
+                        ast.get_ptr() as *mut McValueFFI
+                    );
                 }
                 self.ast = ast;
             }
@@ -308,11 +306,9 @@ impl McCode {
                     && !crate::cli::config::is_system_lib_loading()
                     && !AST_VISIT_DONE.swap(true, Ordering::SeqCst)
                 {
-                    unsafe {
-                        crate::ast::c_bindings::mcc_visit_tree_color(
-                            ast.get_ptr() as *mut McValueFFI
-                        );
-                    }
+                    crate::ast::c_bindings::mcc_visit_tree_color(
+                        ast.get_ptr() as *mut McValueFFI
+                    );
                 }
                 self.ast = ast;
             }
@@ -742,7 +738,7 @@ impl McCode {
     /// Phase 1b: parse all module definitions (at this point all component/interface/enum are already registered)
     pub fn parse_pass1_modules(&mut self) {
         // eprintln!("[DEBUG parse_pass1_modules] uri={}", self.uri);
-        for (i, node) in self.ast.iter().enumerate() {
+        for (_i, node) in self.ast.iter().enumerate() {
             let node_type = node.get_type();
             if node_type == MCAST_MODULE {
                 if let Some(module) = McModule::new(&node, &self.uri) {
