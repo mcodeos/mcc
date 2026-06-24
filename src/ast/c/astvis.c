@@ -178,7 +178,7 @@ static void visit_tree_color_recursive(mc_value* node, int depth) {
 
             if (data != NULL && data[0] != '\0') {
                 printf("%s[%s%s%s]%s ",
-                       COLOR_DIM, COLOR_RESET, color, name, COLOR_DIM, COLOR_RESET);
+                       COLOR_DIM, COLOR_RESET, color, name, COLOR_DIM);
                 fwrite(data, 1, strlen(data), stdout);
                 printf(COLOR_RESET "\n");
             } else {
