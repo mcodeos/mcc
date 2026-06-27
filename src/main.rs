@@ -17,6 +17,20 @@
 //!   - `mcc_set_system_root()`: Server startup once
 //!   - `mcc_set_project_root()`: Project command once
 //!
+//! ## Installation
+//!
+//!   1. Build the project with `cargo build --release`.
+//!   2. Create a symlink to the binary/bin`:
+//!
+//!     ```bash
+//!     sudo ln -sf ./target/release/mcc /usr/local/bin/mcc
+//!     ```
+//!
+//!     Alternatively, you can add the project directory to your `$PATH`.
+//!
+//!     ```bash
+//!     export PATH=$PWD:$PATH
+//!     ```
 
 #![allow(dead_code)]
 
