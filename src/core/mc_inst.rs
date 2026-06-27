@@ -9,7 +9,7 @@ use crate::core::basic::mc_bus::{McBus, McList};
 use crate::core::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::core::basic::mc_ida::McIda;
 use crate::core::basic::mc_ids::{IdsSegment, McIds};
-use crate::core::basic::mc_literal::McInt;
+use crate::core::basic::mc_literal::{McInt, McString};
 use crate::core::basic::mc_param::McParamValue;
 use crate::core::basic::mc_phrase::McPhrase;
 use crate::core::common::IOType;
@@ -68,6 +68,15 @@ fn collect_ctor_params(inst_node: &AstNode, inst_id_node: &AstNode) -> Vec<McPar
                     if let Some(v) = McInt::new(&sub) {
                         out.push(McParamValue::Int(v));
                     }
+                }
+                MCAST_STRING => {
+                    let val = sub.to_string().unwrap_or_default();
+                    let clean_val = if val.starts_with('"') && val.ends_with('"') && val.len() >= 2 {
+                        val[1..val.len() - 1].to_string()
+                    } else {
+                        val
+                    };
+                    out.push(McParamValue::String(McString::from(clean_val.as_str())));
                 }
                 MCAST_OPD_NC => out.push(McParamValue::NC(String::from("NC"))),
                 // net-ref / identifier (V3V3, V1V2, [VDD,GND], flash.SPI ...) —— robust extraction
@@ -843,6 +852,15 @@ impl McInstances {
                                             if let Some(int_val) = McInt::new(&sub) {
                                                 instance_params.push(McParamValue::Int(int_val));
                                             }
+                                        }
+                                        MCAST_STRING => {
+                                            let val = sub.to_string().unwrap_or_default();
+                                            let clean_val = if val.starts_with('"') && val.ends_with('"') && val.len() >= 2 {
+                                                val[1..val.len() - 1].to_string()
+                                            } else {
+                                                val
+                                            };
+                                            instance_params.push(McParamValue::String(McString::from(clean_val.as_str())));
                                         }
                                         MCAST_OPD_NC => {
                                             instance_params

@@ -7,6 +7,7 @@
 //! McComponentInst
 
 use super::mc_net::{InstError, NetPoint};
+use crate::core::basic::mc_conds::McConds;
 use crate::core::basic::mc_param::{McParamBindings, McParamValue};
 use crate::core::common::IOType;
 use crate::core::component::McComponent;
@@ -103,6 +104,51 @@ impl McComponentInst {
 
         if self.def.pins.has_dynamic_pins() {
             self.init_dynamic_pins();
+        }
+
+        // Evaluate conditional pin blocks that were deferred from parse time
+        self.init_cond_pins();
+    }
+
+    /// Evaluate conditional pin blocks stored in the component definition
+    fn init_cond_pins(&mut self) {
+        if self.def.cond_pins.is_empty() {
+            return;
+        }
+
+        let eval_params = self.params.to_params_for_eval();
+        if eval_params.is_empty() {
+            return;
+        }
+
+        for cond_pins in &self.def.cond_pins {
+            let mut matched = false;
+            for (condition, pins) in &cond_pins.if_blocks {
+                if McConds::check_condition(condition, &eval_params) {
+                    for pin_id in pins.get_all_pins() {
+                        if !self.pins.contains_key(&pin_id) {
+                            let path = format!("{}.{}", self.name, pin_id);
+                            let iotype = pins.get_pin_io(&pin_id).unwrap_or(IOType::None);
+                            let net_point = NetPoint::with_owner(&path, &self.name, iotype);
+                            self.pins.insert(pin_id, net_point);
+                        }
+                    }
+                    matched = true;
+                    break;
+                }
+            }
+            if !matched {
+                if let Some(else_pins) = &cond_pins.else_pins {
+                    for pin_id in else_pins.get_all_pins() {
+                        if !self.pins.contains_key(&pin_id) {
+                            let path = format!("{}.{}", self.name, pin_id);
+                            let iotype = else_pins.get_pin_io(&pin_id).unwrap_or(IOType::None);
+                            let net_point = NetPoint::with_owner(&path, &self.name, iotype);
+                            self.pins.insert(pin_id, net_point);
+                        }
+                    }
+                }
+            }
         }
     }
 

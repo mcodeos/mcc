@@ -687,6 +687,18 @@ impl McParamBindings {
         self.bindings.iter().find(|b| b.declare.match_name(name))
     }
 
+    /// Convert bindings to (McIds, String) pairs for condition evaluation
+    pub fn to_params_for_eval(&self) -> Vec<(McIds, String)> {
+        self.bindings
+            .iter()
+            .filter_map(|b| {
+                let name = b.declare.get_primary_name()?;
+                let value = b.get_value().map(|v| format!("{v}")).unwrap_or_default();
+                Some((McIds::from(name.as_str()), value))
+            })
+            .collect()
+    }
+
     /// Get all bindings
     pub fn iter(&self) -> impl Iterator<Item = &McParamBinding> {
         self.bindings.iter()

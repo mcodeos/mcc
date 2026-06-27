@@ -10,7 +10,7 @@ use self::mc_attr::McAttributes;
 use self::mc_layout::McLayout;
 use self::mc_pins::McPins;
 use super::{
-    basic::mc_conds::McConds,
+    basic::mc_conds::{McCondition, McConds},
     basic::mc_endpoint::{McEndpoint, McInstanceRef},
     basic::mc_param::McParamDeclares,
     basic::mc_phrase::McPhrase,
@@ -31,6 +31,13 @@ use crate::{
 };
 use std::sync::Arc;
 
+/// A conditional pin block: a condition and its parsed pins
+#[derive(Debug, Clone)]
+pub struct CondPins {
+    pub if_blocks: Vec<(McCondition, McPins)>,
+    pub else_pins: Option<McPins>,
+}
+
 #[derive(Debug)]
 pub struct McComponent {
     pub name: McIds,
@@ -41,6 +48,9 @@ pub struct McComponent {
     pub insts: McInstances,
     pub layout: McLayout,
     pub uri: McURI,
+    /// Conditional pin blocks that could not be evaluated at parse time
+    /// (because parameters have no default values). Evaluated at instantiation time.
+    pub cond_pins: Vec<CondPins>,
 }
 
 impl McComponent {
@@ -68,6 +78,7 @@ impl McComponent {
             insts: McInstances::new(),
             uri: uri.clone(),
             layout: McLayout::empty(),
+            cond_pins: Vec::new(),
         };
 
         //2. param
@@ -125,7 +136,12 @@ impl McComponent {
 
                 //6. todo: role
                 //7. conds
-                Self::parse_cond_pins_with_defaults(&mut new_comp.pins, &body, &new_comp.params);
+                Self::parse_cond_pins_with_defaults(
+                    &mut new_comp.pins,
+                    &body,
+                    &new_comp.params,
+                    &mut new_comp.cond_pins,
+                );
                 //8. todo: net not supported
             }
         }
@@ -137,26 +153,54 @@ impl McComponent {
         pins: &mut McPins,
         body_node: &AstNode,
         params: &McParamDeclares,
+        cond_pins: &mut Vec<CondPins>,
     ) {
         let default_params = params.get_params_with_defaults();
-
-        if default_params.is_empty() {
-            return;
-        }
 
         if let Some(body_subnodes) = body_node.get_sub_node() {
             for child in body_subnodes.iter() {
                 let child_type = child.get_type();
                 if child_type == MCAST_COND_IF || child_type == MCAST_COND_ELSE {
-                    if let Some(conds) = McConds::new(&child) {
-                        if let Some(selected_block) = conds.evaluate(&default_params) {
-                            let block_type = selected_block.get_type();
+                    if let Some(conds_obj) = McConds::new(&child) {
+                        // Try to evaluate with default params first
+                        if !default_params.is_empty() {
+                            if let Some(selected_block) = conds_obj.evaluate(&default_params) {
+                                let block_type = selected_block.get_type();
+                                if block_type == MCAST_ATTRIBUTE_PIN
+                                    || block_type == MCAST_ATTRIBUTE_PINADD
+                                {
+                                    pins.parse(&selected_block);
+                                    continue;
+                                }
+                            }
+                        }
+                        // If not evaluated (no defaults or condition didn't match),
+                        // parse the pin blocks now and store for later evaluation
+                        let mut if_blocks = Vec::new();
+                        for cond in &conds_obj.if_blocks {
+                            let mut block_pins = McPins::new();
+                            let block_type = cond.block.get_type();
                             if block_type == MCAST_ATTRIBUTE_PIN
                                 || block_type == MCAST_ATTRIBUTE_PINADD
                             {
-                                pins.parse(&selected_block);
+                                block_pins.parse(&cond.block);
                             }
+                            if_blocks.push((cond.condition.clone(), block_pins));
                         }
+                        let else_pins = conds_obj.else_block.as_ref().map(|block| {
+                            let mut block_pins = McPins::new();
+                            let block_type = block.get_type();
+                            if block_type == MCAST_ATTRIBUTE_PIN
+                                || block_type == MCAST_ATTRIBUTE_PINADD
+                            {
+                                block_pins.parse(block);
+                            }
+                            block_pins
+                        });
+                        cond_pins.push(CondPins {
+                            if_blocks,
+                            else_pins,
+                        });
                     }
                 }
             }

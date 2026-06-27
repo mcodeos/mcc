@@ -39,6 +39,10 @@ pub enum McCondition {
         left: McCondOperand,
         right: McCondOperand,
     },
+    In {
+        left: McCondOperand,
+        values: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -120,11 +124,26 @@ impl McConds {
                 || node_type == MCAST_JUDGE_GREATERTHAN
                 || node_type == MCAST_JUDGE_LESSEQTHAN
                 || node_type == MCAST_JUDGE_GREATEREQTHAN
+                || node_type == MCAST_JUDGE_IN
             {
                 condition_node = Some(child);
                 has_condition = true;
             } else if node_type == MCAST_COND_BLOCK {
                 block_node = Some(child.clone());
+            } else if node_type == MCAST_BODY {
+                // Some parser paths wrap the pin block in MCAST_BODY
+                // Look inside for ATTRIBUTE_PIN or ATTRIBUTE_PINADD
+                if let Some(body_sub) = child.get_sub_node() {
+                    for inner in body_sub.iter() {
+                        let inner_type = inner.get_type();
+                        if inner_type == MCAST_ATTRIBUTE_PIN
+                            || inner_type == MCAST_ATTRIBUTE_PINADD
+                        {
+                            block_node = Some(inner.clone());
+                            break;
+                        }
+                    }
+                }
             } else if has_condition
                 && block_node.is_none()
                 && (node_type == MCAST_ATTRIBUTE_PIN || node_type == MCAST_ATTRIBUTE_PINADD)
@@ -172,10 +191,24 @@ impl McConds {
                 || child_type == MCAST_JUDGE_GREATERTHAN
                 || child_type == MCAST_JUDGE_LESSEQTHAN
                 || child_type == MCAST_JUDGE_GREATEREQTHAN
+                || child_type == MCAST_JUDGE_IN
             {
                 condition_node = Some(child);
             } else if child_type == MCAST_COND_BLOCK {
                 block_node = Some(child.clone());
+            } else if child_type == MCAST_BODY {
+                // Some parser paths wrap the pin block in MCAST_BODY
+                if let Some(body_sub) = child.get_sub_node() {
+                    for inner in body_sub.iter() {
+                        let inner_type = inner.get_type();
+                        if inner_type == MCAST_ATTRIBUTE_PIN
+                            || inner_type == MCAST_ATTRIBUTE_PINADD
+                        {
+                            else_if_block_node = Some(inner.clone());
+                            break;
+                        }
+                    }
+                }
             } else if child_type == MCAST_ATTRIBUTE_PIN || child_type == MCAST_ATTRIBUTE_PINADD {
                 else_if_block_node = Some(child.clone());
             }
@@ -202,12 +235,18 @@ impl McConds {
             MCAST_JUDGE_GREATERTHAN => Some(">"),
             MCAST_JUDGE_LESSEQTHAN => Some("<="),
             MCAST_JUDGE_GREATEREQTHAN => Some(">="),
+            MCAST_JUDGE_IN => Some("in"),
             _ => None,
         };
 
         let Some(op_type_str) = op_type else {
             return None;
         };
+
+        // Handle "in" operator specially: extract the array of values
+        if op_type_str == "in" {
+            return Self::parse_in_condition(node);
+        }
 
         let mut operands: Vec<McCondOperand> = Vec::new();
 
@@ -254,6 +293,43 @@ impl McConds {
                             }
                         }
                     }
+                    // Handle array operand: "param in [A, B, C]" parsed as "param == [A, B, C]"
+                    // by the C parser. Detect this and convert to In condition.
+                    MCAST_OPD_SQUARE_VEC => {
+                        let mut values = Vec::new();
+                        if let Some(vec_first) = child.get_sub_node() {
+                            let mut current = Some(vec_first);
+                            while let Some(item) = current {
+                                if item.get_type() == MCAST_STRING {
+                                    unsafe {
+                                        let c_str = std::ffi::CStr::from_ptr(
+                                            item.get_data() as *const std::ffi::c_char,
+                                        );
+                                        if let Ok(str_value) = c_str.to_str() {
+                                            let val = str_value.to_string();
+                                            let clean_val = if val.starts_with('"')
+                                                && val.ends_with('"')
+                                                && val.len() >= 2
+                                            {
+                                                val[1..val.len() - 1].to_string()
+                                            } else {
+                                                val
+                                            };
+                                            values.push(clean_val);
+                                        }
+                                    }
+                                }
+                                current = item.get_next();
+                            }
+                        }
+                        // If we have a left operand and values, this is an "in" condition
+                        if !operands.is_empty() && !values.is_empty() {
+                            return Some(McCondition::In {
+                                left: operands[0].clone(),
+                                values,
+                            });
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -277,6 +353,64 @@ impl McConds {
         }
     }
 
+    /// Parse "in" condition: `param in ["val1", "val2", ...]`
+    fn parse_in_condition(node: &AstNode) -> Option<McCondition> {
+        let first_child = node.get_sub_node()?;
+
+        // First child may be wrapped in MCAST_OPD, unwrap it
+        let (id_node, next_sibling) = if first_child.get_type() == MCAST_OPD {
+            let inner = first_child.get_sub_node()?;
+            (inner, first_child.get_next())
+        } else {
+            let next = first_child.get_next();
+            (first_child, next)
+        };
+
+        // First child is the left operand (identifier)
+        let left = if id_node.get_type() == MCAST_ID
+            || id_node.get_type() == MCAST_IDA
+            || id_node.get_type() == MCAST_IDS
+        {
+            McIds::new(&id_node).map(McCondOperand::Ident)
+        } else {
+            None
+        }?;
+
+        // Second child is MCAST_OPD_SQUARE_VEC containing the array of strings
+        let right_child = next_sibling?;
+        let mut values = Vec::new();
+
+        if right_child.get_type() == MCAST_OPD_SQUARE_VEC {
+            if let Some(vec_first) = right_child.get_sub_node() {
+                let mut current = Some(vec_first);
+                while let Some(item) = current {
+                    if item.get_type() == MCAST_STRING {
+                        unsafe {
+                            let c_str = std::ffi::CStr::from_ptr(
+                                item.get_data() as *const std::ffi::c_char,
+                            );
+                            if let Ok(str_value) = c_str.to_str() {
+                                let val = str_value.to_string();
+                                let clean_val = if val.starts_with('"')
+                                    && val.ends_with('"')
+                                    && val.len() >= 2
+                                {
+                                    val[1..val.len() - 1].to_string()
+                                } else {
+                                    val
+                                };
+                                values.push(clean_val);
+                            }
+                        }
+                    }
+                    current = item.get_next();
+                }
+            }
+        }
+
+        Some(McCondition::In { left, values })
+    }
+
     pub fn evaluate(&self, params: &[(McIds, String)]) -> Option<AstNode> {
         for cond in &self.if_blocks {
             if Self::check_condition(&cond.condition, params) {
@@ -291,7 +425,13 @@ impl McConds {
         None
     }
 
-    fn check_condition(cond: &McCondition, params: &[(McIds, String)]) -> bool {
+    pub fn check_condition(cond: &McCondition, params: &[(McIds, String)]) -> bool {
+        // Handle "in" condition separately (different structure)
+        if let McCondition::In { left, values } = cond {
+            let left_val = Self::resolve_operand(left, params);
+            return values.iter().any(|v| v == &left_val);
+        }
+
         let (left_val, right_val) = match cond {
             McCondition::Eq { left, right } => (
                 Self::resolve_operand(left, params),
@@ -317,6 +457,7 @@ impl McConds {
                 Self::resolve_operand(left, params),
                 Self::resolve_operand(right, params),
             ),
+            McCondition::In { .. } => unreachable!(),
         };
 
         match cond {
@@ -340,6 +481,7 @@ impl McConds {
                 let cmp = Self::compare_values(&left_val, &right_val);
                 cmp == std::cmp::Ordering::Greater || cmp == std::cmp::Ordering::Equal
             }
+            McCondition::In { .. } => unreachable!(),
         }
     }
 
