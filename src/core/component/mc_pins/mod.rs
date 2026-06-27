@@ -1519,7 +1519,7 @@ impl McPinNames {
                                     if let Some(members) = pname.list_members() {
                                         myself.options.push(McPinPort::List(full_name, members));
                                     }
-                                } else if pname.count() == 2
+                                } else if pname.segments.len() == 2
                                     && matches!(pname.segments[0], IdsSegment::Ida(_))
                                     && matches!(pname.segments[1], IdsSegment::Ida(_))
                                 {
