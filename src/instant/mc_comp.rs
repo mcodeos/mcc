@@ -33,6 +33,9 @@ pub struct McComponentInst {
     /// Pin instances (pin_name -> NetPoint)
     pub pins: HashMap<String, NetPoint>,
 
+    /// Pin names from conditional pin blocks (pin_id -> names)
+    pub cond_pin_names: HashMap<String, Vec<String>>,
+
     /// NC (Not Connected) instance
     pub nc: bool,
 }
@@ -45,6 +48,7 @@ impl McComponentInst {
             def: def.clone(),
             params: McParamBindings::new(),
             pins: HashMap::new(),
+            cond_pin_names: HashMap::new(),
             nc: false,
         };
 
@@ -70,6 +74,7 @@ impl McComponentInst {
             def: def.clone(),
             params,
             pins: HashMap::new(),
+            cond_pin_names: HashMap::new(),
             nc,
         };
 
@@ -84,6 +89,7 @@ impl McComponentInst {
             def: def.clone(),
             params: McParamBindings::new(),
             pins: HashMap::new(),
+            cond_pin_names: HashMap::new(),
             nc: true,
         };
 
@@ -126,6 +132,10 @@ impl McComponentInst {
             for (condition, pins) in &cond_pins.if_blocks {
                 if McConds::check_condition(condition, &eval_params) {
                     for pin_id in pins.get_all_pins() {
+                        // Copy pin names from conditional block to instance
+                        if let Some(names) = pins.pin_id_to_names.get(&pin_id) {
+                            self.cond_pin_names.insert(pin_id.clone(), names.clone());
+                        }
                         if !self.pins.contains_key(&pin_id) {
                             let path = format!("{}.{}", self.name, pin_id);
                             let iotype = pins.get_pin_io(&pin_id).unwrap_or(IOType::None);
@@ -140,6 +150,9 @@ impl McComponentInst {
             if !matched {
                 if let Some(else_pins) = &cond_pins.else_pins {
                     for pin_id in else_pins.get_all_pins() {
+                        if let Some(names) = else_pins.pin_id_to_names.get(&pin_id) {
+                            self.cond_pin_names.insert(pin_id.clone(), names.clone());
+                        }
                         if !self.pins.contains_key(&pin_id) {
                             let path = format!("{}.{}", self.name, pin_id);
                             let iotype = else_pins.get_pin_io(&pin_id).unwrap_or(IOType::None);
