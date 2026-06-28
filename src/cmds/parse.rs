@@ -671,11 +671,23 @@ fn run_viz(
         renderer.viz_written(p, output_text.len());
         Some(p.clone())
     } else if !json_mode_viz {
-        let path = "circuit.html".to_string();
+        // Derive output path from input file: <input_dir>/<input_name>.html
+        let path = args
+            .target
+            .as_ref()
+            .filter(|t| Path::new(t).exists() && Path::new(t).is_file())
+            .map(|t| {
+                let p = Path::new(t);
+                let stem = p.file_stem().unwrap().to_string_lossy();
+                let parent = p.parent().unwrap_or(Path::new(""));
+                parent.join(format!("{}.html", stem))
+            })
+            .unwrap_or_else(|| Path::new("circuit.html").to_path_buf());
+        let path_str = path.to_string_lossy().to_string();
         std::fs::write(&path, &output_text)
-            .with_context(|| format!("Failed to write file: {}", path))?;
-        renderer.viz_written(&path, output_text.len());
-        Some(path)
+            .with_context(|| format!("Failed to write file: {}", path_str))?;
+        renderer.viz_written(&path_str, output_text.len());
+        Some(path_str)
     } else {
         None
     };
