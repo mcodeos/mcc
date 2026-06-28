@@ -180,17 +180,17 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                 mcc::mcb_interface_count(),
             );
             for (name, module_uri) in mcc::mcb_iter_modules() {
-                let ident = McIds::from(name.as_str());
-                let module_mc_uri = McURI::from(module_uri.as_str());
-                if let Some(cmie) = mcc::get_def(&ident, &module_mc_uri) {
-                    if let McCMIE::Module(def) = cmie {
-                        renderer.module_ports(&def);
-                        renderer.module_symbols(&def);
-                        renderer.module_lines(&def);
-                    }
-                }
-            }
-        }
+                 let ident = McIds::from(name.as_str());
+                 let module_mc_uri = McURI::from(module_uri.as_str());
+                 if let Some(cmie) = mcc::get_def(&ident, &module_mc_uri) {
+                     if let McCMIE::Module(def) = cmie {
+                         renderer.module_ports(&def);
+                         renderer.module_symbols(&def);
+                         renderer.module_lines(&def);
+                     }
+                 }
+             }
+         }
 
         let pass1 = public_collect_pass1(&uri, &mut tracker);
         builder.set_pass1(pass1);

@@ -5,7 +5,7 @@
 use crate::{
     ast::{ast_node::AstNode, c_macros::*, error::message::*},
     builder::diagnostic::dlog_error,
-    core::{basic::mc_expr::McExpression, basic::mc_kvs::McKVS, basic::mc_literal::McLiteral},
+    core::{basic::mc_expr::McExpression, basic::mc_kvs::McKVS, basic::mc_literal::McLiteral, basic::mc_uval::McUnitValue},
     McIds, McOpd,
 };
 use std::vec;
@@ -268,9 +268,20 @@ impl McAttribute {
                     }
                 }
 
-                MCAST_EXPRESSION | MCAST_RANGE_PLUSMINUS => {
+                MCAST_RANGE_PLUSMINUS => {
+                    // ±15kV → Range(-15kV, +15kV)
+                    if let Some(uval) = McUnitValue::new(&each) {
+                        let neg_expr = McExpression::UnitValue(uval.negated());
+                        let pos_expr = McExpression::UnitValue(uval);
+                        values.push(McAttrVal::AttrExpr(McExpression::Range(
+                            Box::new(neg_expr),
+                            Box::new(pos_expr),
+                        )));
+                    }
+                }
+
+                MCAST_EXPRESSION => {
                     // Check if this is a KVS expression like volt:[low:0V ~ 0.7V, high:0.7V ~ 5V]
-                    // Structure: MCAST_EXPRESSION -> MCAST_OPD_COLON -> (left: MCAST_IDS, right: MCAST_OPD_SQUARE_VEC)
                     if let Some(kvs_result) = Self::try_parse_kvs_expression(&each) {
                         if let Some(kvs_list) = kvs_result {
                             for kvs in kvs_list {
