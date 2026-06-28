@@ -1769,9 +1769,10 @@ impl McPinNames {
                                     .push(McPinPort::Interface(Arc::new(mc2_iface)));
                             } else {
                                 // 1304: mcb_get_cmie did not find the interface corresponding to class_name.
-                                //      Still fall back to Single alias (compatible with alias mode like `_CS | CS`),
-                                //      but emit a dlog_warning to inform the user that this is not a real interface
-                                //      binding — if interface was intended, the class name is likely misspelled or not `use`d.
+                                //      Still fall back to alias, but emit a dlog_warning to inform the user.
+                                // - Square bracket form [SCL,SDA]::I2C(): push Multi for 1:1 zip with pin IDs
+                                // - Curly brace form I2C2{SCL,SDA}::I2C(): push Multi for 1:1 zip with pin IDs
+                                // - Instance name form I2C1::I2C(): push Single, assign to all pins
                                 let class_str = class_name.to_string();
                                 let inst_str = inst_name.to_string();
                                 let is_likely_alias =
@@ -1788,9 +1789,23 @@ impl McPinNames {
                                         ),
                                     );
                                 }
-                                myself
-                                    .options
-                                    .push(McPinPort::Single(inst_name.to_string()));
+                                if inst_name.is_list() {
+                                    if let Some(members) = inst_name.list_members() {
+                                        myself.options.push(McPinPort::Multi(members));
+                                    }
+                                } else if inst_name.is_bus() {
+                                    if let Some((busname, members)) = inst_name.as_bus() {
+                                        let prefixed: Vec<String> = members
+                                            .iter()
+                                            .map(|m| format!("{busname}.{m}"))
+                                            .collect();
+                                        myself.options.push(McPinPort::Multi(prefixed));
+                                    }
+                                } else {
+                                    myself
+                                        .options
+                                        .push(McPinPort::Single(inst_name.to_string()));
+                                }
                             }
                         }
                         MCAST_OPD_FCALL => {
@@ -1804,13 +1819,12 @@ impl McPinNames {
                             let mut current = exp_node.get_sub_node();
                             while let Some(node) = current {
                                 match node.get_type() {
-                                    MCAST_CLASS => {
-                                        // Get class name from first sub-node (which should be MCAST_IDS)
+                                    MCAST_NAME => {
                                         if let Some(class_id_node) = node.get_sub_node() {
                                             class_name = McIds::new(&class_id_node);
                                         }
                                     }
-                                    MCAST_INSTANCE => {
+                                    MCAST_INSTANCE | MCAST_PARAMS_PRE => {
                                         if let Some(inst_id_node) = node.get_sub_node() {
                                             inst_ids = McIds::new(&inst_id_node);
                                         }
