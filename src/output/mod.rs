@@ -292,7 +292,7 @@ mod tests {
     fn text_renders_minimal_envelope() {
         let e = Envelope::ok(CommandResult {
             command: "mcc load".into(),
-            workspace: WorkspaceRef::anonymous(),
+            workspace: WorkspaceRef::project("test"),
             ..Default::default()
         });
         let s = render_envelope_text(&e, false);

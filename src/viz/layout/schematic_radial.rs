@@ -746,7 +746,9 @@ fn place_isolated(graph: &mut McVecGraph, isolated: &[i64], center: (f64, f64)) 
 mod tests {
     use super::*;
     use crate::vector::graph::net_def::IoDirection;
-    use crate::vector::graph::{EndpointRef, EntryPoint, EntrySide, IoSummary, NetKind, VizNet};
+    use crate::vector::graph::{
+        EndpointRef, EntryPoint, EntrySide, IoSummary, McVecBox, NetKind, VizNet,
+    };
 
     fn mk_box(id: i64, name: &str, kind: BoxKind, sym: Symbol, pins: usize) -> McVecBox {
         let mut b = McVecBox::new_v2(

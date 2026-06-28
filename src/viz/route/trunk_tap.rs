@@ -637,6 +637,7 @@ mod tests {
             BuildOptions {
                 trunk_overhang: 0.0,
                 obstacles: Some(&obstacles),
+                ..Default::default()
             },
         );
         // Should at least have stubs + trunk + junctions

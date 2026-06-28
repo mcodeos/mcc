@@ -284,7 +284,7 @@ mod tests {
             module_path: "main".into(),
             net_name: "VCC".into(),
             failed_points: vec!["a.b".into(), "c.d".into()],
-            resolved_count: 3,
+            resolved_point_count: 3,
         });
         assert_eq!(r.warn_count(), 2);
     }
