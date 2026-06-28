@@ -37,9 +37,6 @@ pub struct IcShape;
 
 impl BoxShape for IcShape {
     fn render(&self, b: &McVecBox) -> String {
-        let cx = b.x + b.w / 2.0;
-        let cy = b.y + b.h / 2.0;
-
         // ── Main body frame ──
         let body = format!(
             r##"<rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}" rx="3"
@@ -57,27 +54,24 @@ impl BoxShape for IcShape {
             b.y + 7.0
         );
 
-        // ── Main name (centered, large) ──
-        // When class_name is present, shift name up to make room for the "class name" line (three stacked lines: name / class / designator).
-        let has_class = !b.class_name.is_empty();
-        let name_y = if has_class { cy - 10.0 } else { cy - 4.0 };
+        // ── Instance name + class name (top-left, outside the box) ──
+        let label_x = b.x;
+        let name_y = b.y - 14.0;
         let name = format!(
-            r##"<text x="{:.1}" y="{:.1}" text-anchor="middle" dominant-baseline="central"
-            font-size="13" font-weight="700" fill="#1A237E">{}</text>"##,
-            cx,
+            r##"<text x="{:.1}" y="{:.1}" text-anchor="start" dominant-baseline="auto"
+            font-size="12" font-weight="700" fill="#1A237E">{}</text>"##,
+            label_x,
             name_y,
             escape_xml(&b.name)
         );
 
-        // ── Class name / part number (below the name, small, indigo) ──
-        // This is the spot that fulfils the user request to "draw the classname too". Empty if no class.
-        let class_svg = if has_class {
+        let class_svg = if !b.class_name.is_empty() {
             format!(
-                r##"    <text class="class-name" x="{:.1}" y="{:.1}" text-anchor="middle"
-            dominant-baseline="central" font-size="9" fill="#5C6BC0">{}</text>
+                r##"    <text class="class-name" x="{:.1}" y="{:.1}" text-anchor="start"
+            dominant-baseline="auto" font-size="9" fill="#5C6BC0">{}</text>
 "##,
-                cx,
-                cy + 3.0,
+                label_x,
+                b.y - 2.0,
                 escape_xml(&b.class_name)
             )
         } else {
