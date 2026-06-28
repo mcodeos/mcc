@@ -190,6 +190,22 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                      }
                  }
              }
+
+            // ── Debug: print all component attributes (readable format) ──
+            for (comp_name, comp_uri) in mcc::mcb_iter_components() {
+                let ident = McIds::from(comp_name.as_str());
+                let mc_uri = McURI::from(comp_uri.as_str());
+                if let Some(cmie) = mcc::get_def(&ident, &mc_uri) {
+                    if let McCMIE::Component(comp) = cmie {
+                        if !comp.attrs.is_empty() {
+                            eprintln!("[attrs] {}:", comp_name);
+                            for attr in comp.attrs.iter() {
+                                eprintln!("  {}", attr);
+                            }
+                        }
+                    }
+                }
+            }
          }
 
         let pass1 = public_collect_pass1(&uri, &mut tracker);

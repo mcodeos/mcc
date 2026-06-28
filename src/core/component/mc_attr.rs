@@ -117,6 +117,21 @@ pub enum McAttrVal {
     KVS(McKVS),
 }
 
+impl std::fmt::Display for McAttrVal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            McAttrVal::AttrLiteral(lit) => write!(f, "{lit}"),
+            McAttrVal::AttrVariable(opd) => write!(f, "{opd}"),
+            McAttrVal::AttrExpr(expr) => write!(f, "{expr}"),
+            McAttrVal::Attributes(attrs) => {
+                let inner: Vec<String> = attrs.iter().map(|a| format!("{a}")).collect();
+                write!(f, "[{}]", inner.join(", "))
+            }
+            McAttrVal::KVS(kvs) => write!(f, "{kvs}"),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct McAttribute {
     pub no: i32,
@@ -348,7 +363,12 @@ impl PartialEq for McAttribute {
 
 impl std::fmt::Display for McAttribute {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.id)
+        if self.values.is_empty() {
+            write!(f, "{}", self.id)
+        } else {
+            let vals: Vec<String> = self.values.iter().map(|v| format!("{v}")).collect();
+            write!(f, "{} = {}", self.id, vals.join(", "))
+        }
     }
 }
 

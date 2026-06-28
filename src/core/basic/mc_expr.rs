@@ -16,6 +16,33 @@ pub struct McUnitValueAt {
     pub right: McUnitValue,
 }
 
+impl McUnitValueAt {
+    /// Parse MCAST_UVALUE_AT node (e.g., 1Mbps@0.5m)
+    /// AST: MCAST_UVALUE_AT -> MCAST_UVAL_AT -> [MCAST_UVAL_BAUD, MCAST_UVAL_LEN]
+    pub fn new(node: &AstNode) -> Option<Self> {
+        // AST: MCAST_UVALUE_AT -> MCAST_UVAL_AT -> [MCAST_UVAL_BAUD, MCAST_UVAL_LEN] (siblings)
+        // Each has its value data embedded directly (no subnode wrapper)
+        let sub = node.get_sub_node()?;
+        let left_node = &sub;
+        let right_node = left_node.get_next()?;
+
+        let data_str = || -> Option<&'static str> {
+            let ptr = left_node.get_data() as *const i8;
+            // SAFETY: the pointer is valid for the lifetime of this call
+            unsafe { std::ffi::CStr::from_ptr(ptr).to_str().ok() }
+        };
+        let data_str2 = || -> Option<&'static str> {
+            let ptr = right_node.get_data() as *const i8;
+            // SAFETY: the pointer is valid for the lifetime of this call
+            unsafe { std::ffi::CStr::from_ptr(ptr).to_str().ok() }
+        };
+
+        let left = McUnitValue::from_data_and_type(left_node, data_str()?)?;
+        let right = McUnitValue::from_data_and_type(&right_node, data_str2()?)?;
+        Some(Self { left, right })
+    }
+}
+
 // McExpression enum
 #[derive(Debug, Clone)]
 pub enum McExpression {
@@ -70,8 +97,11 @@ impl McExpression {
             // Constant: keyword constant
             MCAST_CONST => Some(McExpression::Const(McConst::new(node)?)),
             // Constant: unit value
-            MCAST_UVALUE | MCAST_UVALUE_AT | MCAST_RANGE_PLUSMINUS => {
+            MCAST_UVALUE | MCAST_RANGE_PLUSMINUS => {
                 Some(McExpression::UnitValue(McUnitValue::new(node)?))
+            }
+            MCAST_UVALUE_AT => {
+                Some(McExpression::UnitValueAt(McUnitValueAt::new(node)?))
             }
 
             // Variable: received by McOpd
