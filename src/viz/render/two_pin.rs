@@ -27,8 +27,10 @@ impl BoxShape for TwoPinShape {
             r##"  <g class="comp two-pin" data-id="{id}">
     <rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}" rx="3"
           fill="#fff" stroke="{col}" stroke-width="1.2"/>
-    <text x="{cx:.1}" y="{cy:.1}" text-anchor="middle" dominant-baseline="central"
+    <text x="{cx:.1}" y="{t1:.1}" text-anchor="middle"
           font-size="11" font-weight="500" fill="{col}">{name}</text>
+    <text x="{cx:.1}" y="{t2:.1}" text-anchor="middle"
+          font-size="8" fill="#999">{cls}</text>
   </g>
 "##,
             id = b.id,
@@ -37,9 +39,11 @@ impl BoxShape for TwoPinShape {
             w = b.w,
             h = b.h,
             cx = cx,
-            cy = cy,
+            t1 = cy - 5.0,
+            t2 = cy + 10.0,
             col = color,
             name = b.name,
+            cls = b.class_name,
         )
     }
 }
