@@ -258,12 +258,112 @@ pub fn run(args: &ParseArgs) -> Result<()> {
 
     // ── 9. Viz assembly ──
     if stages.viz_html || stages.viz_json {
-        match run_viz(&ident, &uri, args, stages.viz_json, &*renderer) {
-            Ok(viz) => {
-                builder.set_viz(viz);
+        let has_explicit_top = forced_top.is_some() || args.top.is_some();
+        if has_explicit_top {
+            match run_viz(&ident, &uri, args, stages.viz_json, &*renderer) {
+                Ok(viz) => {
+                    builder.set_viz(viz);
+                }
+                Err(e) => {
+                    return emit_error(args, RpcError::internal_error(format!("viz: {}", e)));
+                }
             }
-            Err(e) => {
-                return emit_error(args, RpcError::internal_error(format!("viz: {}", e)));
+        } else {
+            // No --top specified: render all modules in the file
+            let all_modules: Vec<(String, String)> = mcc::mcb_iter_modules()
+                .into_iter()
+                .filter(|(_, module_uri)| {
+                    // Only modules from the target file
+                    module_uri == uri.as_str() || module_uri.ends_with(uri.as_str())
+                })
+                .collect();
+
+            if all_modules.is_empty() {
+                // Fallback: render the auto-selected top module
+                match run_viz(&ident, &uri, args, stages.viz_json, &*renderer) {
+                    Ok(viz) => {
+                        builder.set_viz(viz);
+                    }
+                    Err(e) => {
+                        return emit_error(args, RpcError::internal_error(format!("viz: {}", e)));
+                    }
+                }
+            } else {
+                let mut total_boxes = 0;
+                let mut total_edges = 0;
+                let mut svgs: Vec<(String, String)> = Vec::new(); // (module_name, svg_string)
+
+                for (mod_name, module_uri) in &all_modules {
+                    let mod_ident = McIds::from(mod_name.as_str());
+                    let mod_mc_uri = McURI::from(module_uri.as_str());
+
+                    let (inst, table) = match mcc::mcc_build_flat(&mod_ident, &mod_mc_uri, 1000) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("[viz] skip module '{}': mcc_build_flat failed: {}", mod_name, e);
+                            continue;
+                        }
+                    };
+
+                    mcc::vector::builder::reset_np_warn_count();
+                    let vec_block = mcc::build_mc_vec(&inst, &table);
+                    let graph = mcc::build_mc_vec_graph(&vec_block, &table);
+                    let graph_box_count = graph.boxes.len();
+                    let graph_edge_count = graph.edges.len();
+
+                    let opts = mcc::viz::api::RenderOpts::default();
+                    let doc = mcc::viz::api::render_with(graph, opts);
+
+                    total_boxes += graph_box_count;
+                    total_edges += graph_edge_count;
+
+                    // Extract the SVG from the root layer
+                    if let Some(root_layer) = doc.root_layer() {
+                        svgs.push((mod_name.clone(), root_layer.svg.clone()));
+                    }
+                }
+
+                if svgs.is_empty() {
+                    return emit_error(args, RpcError::internal_error("viz: no modules rendered"));
+                }
+
+                // Combine all SVGs into one big SVG, stacked vertically
+                let combined_svg = combine_svgs(&svgs);
+
+                // Build a single-layer VizDocument with the combined SVG
+                let mut doc = mcc::viz::doc::VizDocument::new(1000, "all_modules".into());
+                let mut layer = mcc::viz::layer::VizLayer::new(1000, "all_modules".into(), None);
+                layer.svg = combined_svg;
+                doc.add_layer(layer);
+
+                let output_text = if stages.viz_json {
+                    doc.to_json()
+                } else {
+                    mcc::viz::template::wrap_document(&doc)
+                };
+
+                let out_path = if let Some(ref p) = args.output {
+                    Path::new(p).to_path_buf()
+                } else {
+                    let p = Path::new(args.target.as_ref().unwrap());
+                    let stem = p.file_stem().unwrap().to_string_lossy();
+                    let parent = p.parent().unwrap_or(Path::new(""));
+                    parent.join(format!("{}.html", stem))
+                };
+                let path_str = out_path.to_string_lossy().to_string();
+
+                std::fs::write(&out_path, &output_text)
+                    .with_context(|| format!("Failed to write file: {}", path_str))?;
+                eprintln!("[viz] wrote {} ({} bytes, {} modules)", path_str, output_text.len(), svgs.len());
+
+                builder.set_viz(VizData {
+                    format: if stages.viz_json { "json".into() } else { "html".into() },
+                    written_to: Some(path_str),
+                    bytes: output_text.len(),
+                    layers: 1,
+                    boxes: total_boxes,
+                    edges: total_edges,
+                });
             }
         }
     }
@@ -614,6 +714,111 @@ fn walk_nets(
 // ============================================================================
 // Viz pipeline (keep as-is, add quiet/json_mode guards)
 // ============================================================================
+
+/// Combine multiple SVG strings into one large SVG, stacked vertically with module labels.
+///
+/// Each input SVG's content is extracted from its `<svg>` tag and placed in a
+/// nested `<svg>` group with a title label. The combined canvas is sized to fit all.
+fn combine_svgs(svgs: &[(String, String)]) -> String {
+    let gap = 40.0; // vertical gap between modules
+    let label_height = 20.0;
+    let margin = 20.0;
+
+    // Parse each SVG to extract viewBox dimensions and inner content
+    let mut items: Vec<(String, f64, f64, String)> = Vec::new(); // (name, w, h, inner)
+    let mut max_w: f64 = 0.0;
+
+    for (name, svg) in svgs {
+        // Extract viewBox
+        let vb = extract_viewbox(svg);
+        let w = vb.0.max(1.0);
+        let h = vb.1.max(1.0);
+        max_w = max_w.max(w);
+
+        // Extract inner content (everything between <svg ...> and </svg>)
+        let inner = extract_svg_inner(svg);
+        items.push((name.clone(), w, h, inner));
+    }
+
+    let total_w = max_w + margin * 2.0;
+    let mut total_h = margin;
+    for (_, _, h, _) in &items {
+        total_h += label_height + *h + gap;
+    }
+    total_h += margin;
+
+    let mut out = format!(
+        r#"<svg viewBox="0 0 {:.1} {:.1}" xmlns="http://www.w3.org/2000/svg"
+     font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+     style="background:transparent">
+"#,
+        total_w, total_h
+    );
+
+    let mut y = margin;
+    for (name, w, h, inner) in &items {
+        // Module label
+        out.push_str(&format!(
+            r##"  <text x="{:.1}" y="{:.1}" font-size="16" font-weight="700" fill="#333">{}</text>
+"##,
+            margin, y + 16.0, escape_xml_viz(name)
+        ));
+        y += label_height;
+
+        // Nested SVG group, centered horizontally
+        let x_offset = (max_w - w) / 2.0 + margin;
+        out.push_str(&format!(
+            r##"  <g transform="translate({:.1},{:.1})">
+{}
+  </g>
+"##,
+            x_offset, y, inner
+        ));
+        y += h + gap;
+    }
+
+    out.push_str("</svg>\n");
+    out
+}
+
+/// Extract (width, height) from an SVG viewBox attribute.
+fn extract_viewbox(svg: &str) -> (f64, f64) {
+    // Find viewBox="0 0 W H"
+    if let Some(start) = svg.find("viewBox=\"") {
+        let rest = &svg[start + 9..];
+        if let Some(end) = rest.find('"') {
+            let vb = &rest[..end];
+            let parts: Vec<&str> = vb.split_whitespace().collect();
+            if parts.len() >= 4 {
+                let w = parts[2].parse::<f64>().unwrap_or(200.0);
+                let h = parts[3].parse::<f64>().unwrap_or(100.0);
+                return (w, h);
+            }
+        }
+    }
+    (200.0, 100.0)
+}
+
+/// Extract the inner content of an SVG (everything between the opening <svg...> and closing </svg>).
+fn extract_svg_inner(svg: &str) -> String {
+    // Find the first '>' after '<svg'
+    if let Some(start) = svg.find("<svg") {
+        if let Some(gt) = svg[start..].find('>') {
+            let inner_start = start + gt + 1;
+            if let Some(end) = svg.rfind("</svg>") {
+                return svg[inner_start..end].trim().to_string();
+            }
+        }
+    }
+    svg.to_string()
+}
+
+fn escape_xml_viz(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
 
 fn run_viz(
     ident: &McIds,
