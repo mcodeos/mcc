@@ -36,6 +36,9 @@ pub struct McComponentInst {
     /// Pin names from conditional pin blocks (pin_id -> names)
     pub cond_pin_names: HashMap<String, Vec<String>>,
 
+    /// Attributes resolved from conditional attribute blocks
+    pub cond_attrs: Vec<crate::core::component::mc_attr::McAttribute>,
+
     /// NC (Not Connected) instance
     pub nc: bool,
 }
@@ -49,6 +52,7 @@ impl McComponentInst {
             params: McParamBindings::new(),
             pins: HashMap::new(),
             cond_pin_names: HashMap::new(),
+            cond_attrs: Vec::new(),
             nc: false,
         };
 
@@ -75,6 +79,7 @@ impl McComponentInst {
             params,
             pins: HashMap::new(),
             cond_pin_names: HashMap::new(),
+            cond_attrs: Vec::new(),
             nc,
         };
 
@@ -90,6 +95,7 @@ impl McComponentInst {
             params: McParamBindings::new(),
             pins: HashMap::new(),
             cond_pin_names: HashMap::new(),
+            cond_attrs: Vec::new(),
             nc: true,
         };
 
@@ -114,6 +120,8 @@ impl McComponentInst {
 
         // Evaluate conditional pin blocks that were deferred from parse time
         self.init_cond_pins();
+        // Evaluate conditional attribute blocks that were deferred from parse time
+        self.init_cond_attrs();
     }
 
     /// Evaluate conditional pin blocks stored in the component definition
@@ -159,6 +167,38 @@ impl McComponentInst {
                             let net_point = NetPoint::with_owner(&path, &self.name, iotype);
                             self.pins.insert(pin_id, net_point);
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Evaluate conditional attribute blocks stored in the component definition
+    fn init_cond_attrs(&mut self) {
+        if self.def.cond_attrs.is_empty() {
+            return;
+        }
+
+        let eval_params = self.params.to_params_for_eval();
+        if eval_params.is_empty() {
+            return;
+        }
+
+        for cond_attrs in &self.def.cond_attrs {
+            let mut matched = false;
+            for (condition, attrs) in &cond_attrs.if_blocks {
+                if McConds::check_condition(condition, &eval_params) {
+                    for attr in attrs.iter() {
+                        self.cond_attrs.push(attr.clone());
+                    }
+                    matched = true;
+                    break;
+                }
+            }
+            if !matched {
+                if let Some(else_attrs) = &cond_attrs.else_attrs {
+                    for attr in else_attrs.iter() {
+                        self.cond_attrs.push(attr.clone());
                     }
                 }
             }
