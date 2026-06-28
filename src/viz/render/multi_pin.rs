@@ -12,29 +12,40 @@ pub struct MultiPinShape;
 
 impl BoxShape for MultiPinShape {
     fn render(&self, b: &McVecBox) -> String {
-        let cx = b.x + b.w / 2.0;
-        let cy = b.y + b.h / 2.0;
+        let name_label = format!(
+            r##"    <text x="{:.1}" y="{:.1}" text-anchor="start"
+          font-size="13" font-weight="600" fill="#311B92">{name}</text>
+"##,
+            b.x,
+            b.y - 14.0,
+            name = b.name,
+        );
+        let cls_label = if !b.class_name.is_empty() {
+            format!(
+                r##"    <text x="{:.1}" y="{:.1}" text-anchor="start"
+          font-size="9" fill="#7E57C2">{cls}</text>
+"##,
+                b.x,
+                b.y - 2.0,
+                cls = b.class_name,
+            )
+        } else {
+            String::new()
+        };
+
         format!(
             r##"  <g class="comp multi-pin" data-id="{id}">
-    <rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}" rx="4"
+{name_label}{cls_label}    <rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}" rx="4"
           fill="#EDE7F6" stroke="#5E35B1" stroke-width="1.2"/>
-    <text x="{cx:.1}" y="{t1:.1}" text-anchor="middle"
-          font-size="13" font-weight="600" fill="#311B92">{name}</text>
-    <text x="{cx:.1}" y="{t2:.1}" text-anchor="middle"
-          font-size="9" fill="#7E57C2">{cls} {p}p</text>
   </g>
 "##,
             id = b.id,
+            name_label = name_label,
+            cls_label = cls_label,
             x = b.x,
             y = b.y,
             w = b.w,
             h = b.h,
-            cx = cx,
-            t1 = cy - 5.0,
-            name = b.name,
-            t2 = cy + 10.0,
-            cls = b.class_name,
-            p = b.pin_count,
         )
     }
 }
