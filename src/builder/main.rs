@@ -1519,6 +1519,7 @@ fn register_builtin_primitives() {
             },
             uri: builtin_uri.clone(),
             cond_pins: Vec::new(),
+            cond_attrs: Vec::new(),
         };
 
         let comp_arc = Arc::new(comp);

@@ -38,6 +38,13 @@ pub struct CondPins {
     pub else_pins: Option<McPins>,
 }
 
+/// A conditional attribute block: a condition and its parsed attributes
+#[derive(Debug, Clone)]
+pub struct CondAttrs {
+    pub if_blocks: Vec<(McCondition, McAttributes)>,
+    pub else_attrs: Option<McAttributes>,
+}
+
 #[derive(Debug)]
 pub struct McComponent {
     pub name: McIds,
@@ -51,6 +58,9 @@ pub struct McComponent {
     /// Conditional pin blocks that could not be evaluated at parse time
     /// (because parameters have no default values). Evaluated at instantiation time.
     pub cond_pins: Vec<CondPins>,
+    /// Conditional attribute blocks that could not be evaluated at parse time
+    /// (because parameters have no default values). Evaluated at instantiation time.
+    pub cond_attrs: Vec<CondAttrs>,
 }
 
 impl McComponent {
@@ -79,6 +89,7 @@ impl McComponent {
             uri: uri.clone(),
             layout: McLayout::empty(),
             cond_pins: Vec::new(),
+            cond_attrs: Vec::new(),
         };
 
         //2. param
@@ -136,11 +147,13 @@ impl McComponent {
 
                 //6. todo: role
                 //7. conds
-                Self::parse_cond_pins_with_defaults(
+                Self::parse_cond_blocks(
                     &mut new_comp.pins,
+                    &mut new_comp.attrs,
                     &body,
                     &new_comp.params,
                     &mut new_comp.cond_pins,
+                    &mut new_comp.cond_attrs,
                 );
                 //8. todo: net not supported
             }
@@ -149,11 +162,13 @@ impl McComponent {
         Some(new_comp)
     }
 
-    fn parse_cond_pins_with_defaults(
+    fn parse_cond_blocks(
         pins: &mut McPins,
+        attrs: &mut McAttributes,
         body_node: &AstNode,
         params: &McParamDeclares,
         cond_pins: &mut Vec<CondPins>,
+        cond_attrs: &mut Vec<CondAttrs>,
     ) {
         let default_params = params.get_params_with_defaults();
 
@@ -172,11 +187,27 @@ impl McComponent {
                                     pins.parse(&selected_block);
                                     continue;
                                 }
+                                if block_type == MCAST_ATTRIBUTE {
+                                    attrs.parse(&selected_block);
+                                    continue;
+                                }
+                                if block_type == MCAST_COND_BLOCK {
+                                    if let Some(sub) = selected_block.get_sub_node() {
+                                        for inner in sub.iter() {
+                                            if inner.get_type() == MCAST_ATTRIBUTE {
+                                                attrs.parse(&inner);
+                                            }
+                                        }
+                                    }
+                                    continue;
+                                }
                             }
                         }
                         // If not evaluated (no defaults or condition didn't match),
-                        // parse the pin blocks now and store for later evaluation
-                        let mut if_blocks = Vec::new();
+                        // parse the blocks now and store for later evaluation
+
+                        // ── Conditional pins ──
+                        let mut if_pin_blocks = Vec::new();
                         for cond in &conds_obj.if_blocks {
                             let mut block_pins = McPins::new();
                             let block_type = cond.block.get_type();
@@ -185,7 +216,7 @@ impl McComponent {
                             {
                                 block_pins.parse(&cond.block);
                             }
-                            if_blocks.push((cond.condition.clone(), block_pins));
+                            if_pin_blocks.push((cond.condition.clone(), block_pins));
                         }
                         let else_pins = conds_obj.else_block.as_ref().map(|block| {
                             let mut block_pins = McPins::new();
@@ -198,8 +229,47 @@ impl McComponent {
                             block_pins
                         });
                         cond_pins.push(CondPins {
-                            if_blocks,
+                            if_blocks: if_pin_blocks,
                             else_pins,
+                        });
+
+                        // ── Conditional attributes ──
+                        let mut if_attr_blocks = Vec::new();
+                        for cond in &conds_obj.if_blocks {
+                            let mut block_attrs = McAttributes::new();
+                            let block_type = cond.block.get_type();
+                            if block_type == MCAST_ATTRIBUTE {
+                                block_attrs.parse(&cond.block);
+                            } else if block_type == MCAST_COND_BLOCK {
+                                if let Some(sub) = cond.block.get_sub_node() {
+                                    for inner in sub.iter() {
+                                        if inner.get_type() == MCAST_ATTRIBUTE {
+                                            block_attrs.parse(&inner);
+                                        }
+                                    }
+                                }
+                            }
+                            if_attr_blocks.push((cond.condition.clone(), block_attrs));
+                        }
+                        let else_attrs = conds_obj.else_block.as_ref().map(|block| {
+                            let mut block_attrs = McAttributes::new();
+                            let block_type = block.get_type();
+                            if block_type == MCAST_ATTRIBUTE {
+                                block_attrs.parse(block);
+                            } else if block_type == MCAST_COND_BLOCK {
+                                if let Some(sub) = block.get_sub_node() {
+                                    for inner in sub.iter() {
+                                        if inner.get_type() == MCAST_ATTRIBUTE {
+                                            block_attrs.parse(&inner);
+                                        }
+                                    }
+                                }
+                            }
+                            block_attrs
+                        });
+                        cond_attrs.push(CondAttrs {
+                            if_blocks: if_attr_blocks,
+                            else_attrs,
                         });
                     }
                 }

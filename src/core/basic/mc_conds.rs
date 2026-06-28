@@ -132,12 +132,13 @@ impl McConds {
                 block_node = Some(child.clone());
             } else if node_type == MCAST_BODY {
                 // Some parser paths wrap the pin block in MCAST_BODY
-                // Look inside for ATTRIBUTE_PIN or ATTRIBUTE_PINADD
+                // Look inside for ATTRIBUTE_PIN, ATTRIBUTE_PINADD, or ATTRIBUTE
                 if let Some(body_sub) = child.get_sub_node() {
                     for inner in body_sub.iter() {
                         let inner_type = inner.get_type();
                         if inner_type == MCAST_ATTRIBUTE_PIN
                             || inner_type == MCAST_ATTRIBUTE_PINADD
+                            || inner_type == MCAST_ATTRIBUTE
                         {
                             block_node = Some(inner.clone());
                             break;
@@ -146,7 +147,9 @@ impl McConds {
                 }
             } else if has_condition
                 && block_node.is_none()
-                && (node_type == MCAST_ATTRIBUTE_PIN || node_type == MCAST_ATTRIBUTE_PINADD)
+                && (node_type == MCAST_ATTRIBUTE_PIN
+                    || node_type == MCAST_ATTRIBUTE_PINADD
+                    || node_type == MCAST_ATTRIBUTE)
             {
                 block_node = Some(child.clone());
             }
@@ -203,13 +206,17 @@ impl McConds {
                         let inner_type = inner.get_type();
                         if inner_type == MCAST_ATTRIBUTE_PIN
                             || inner_type == MCAST_ATTRIBUTE_PINADD
+                            || inner_type == MCAST_ATTRIBUTE
                         {
                             else_if_block_node = Some(inner.clone());
                             break;
                         }
                     }
                 }
-            } else if child_type == MCAST_ATTRIBUTE_PIN || child_type == MCAST_ATTRIBUTE_PINADD {
+            } else if child_type == MCAST_ATTRIBUTE_PIN
+                || child_type == MCAST_ATTRIBUTE_PINADD
+                || child_type == MCAST_ATTRIBUTE
+            {
                 else_if_block_node = Some(child.clone());
             }
         }
