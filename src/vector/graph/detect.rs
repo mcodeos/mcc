@@ -183,8 +183,8 @@ fn guess_chip_pin_count(class_name: &str) -> usize {
             return 2;
         }
     }
-    // Default: typical IC chip, use 5 (MultiPin threshold: pin_count > 2)
-    5
+    // Default: unknown component with no declared pins, use 0 (no placeholder pins)
+    0
 }
 
 // ============================================================================
