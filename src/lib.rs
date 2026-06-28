@@ -166,10 +166,6 @@ pub fn mcc_init() {
 /// mcc interface (don't load system library, optional at server startup)
 pub fn mcc_init_no_lib() {
     builder::mcb_init();
-    // ★ Even if not loading disk system library, must register built-in 2-pin components (CAP/RES/IND/DIO/DIO.ESD),
-    //   otherwise inline passive components `CAP(..)`/`RES(..)` in connection wires can't find class definition during funccall phase,
-    //   degrade to `@?CAP_1` stub, entire net parsing is lost (see builder REPORT dropped nets).
-    builder::mcb_register_builtins();
 }
 
 /// mcc interface mcc_add
