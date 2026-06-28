@@ -481,15 +481,17 @@ impl McPins {
 
                     McPinPort::List(list_name, members) => {
                         // PDM[CLK, DATA] -> register list_name and each member
+                        // e.g. I[A,B,C,D] -> IA, IB, IC, ID
                         match &pinids {
                             McPinPort::Multi(pids) => {
-                                // register each member to corresponding pin
+                                // register each member to corresponding pin with prefix
                                 let names_cycle = members.iter().cycle();
                                 for (pid, name) in pids.iter().zip(names_cycle) {
+                                    let full_name = format!("{list_name}{name}");
                                     self.register_pin(
                                         iotype.clone(),
                                         pid,
-                                        &[name.clone()],
+                                        &[full_name],
                                         &values,
                                     );
                                 }

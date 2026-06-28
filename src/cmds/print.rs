@@ -235,10 +235,16 @@ pub fn print_module_inst(inst: &MccProjectTree, depth: usize, sort_mode: PinSort
                 .pins
                 .keys()
                 .map(|pid| {
-                    let alias = comp.def.pins.pin_id_to_names.get(pid).and_then(|names| {
-                        // Select longest (most informative) alias, None if not available
-                        names.iter().max_by_key(|n| n.len()).cloned()
-                    });
+                    // First check cond_pin_names (conditional pin blocks), then def.pins.pin_id_to_names
+                    let alias = comp
+                        .cond_pin_names
+                        .get(pid)
+                        .and_then(|names| names.iter().max_by_key(|n| n.len()).cloned())
+                        .or_else(|| {
+                            comp.def.pins.pin_id_to_names.get(pid).and_then(|names| {
+                                names.iter().max_by_key(|n| n.len()).cloned()
+                            })
+                        });
                     match alias {
                         Some(n) if n.as_str() != pid.as_str() => format!("{pid}({n})"),
                         _ => pid.clone(),

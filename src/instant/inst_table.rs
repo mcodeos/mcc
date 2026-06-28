@@ -399,11 +399,16 @@ impl InstTable {
                     //   "1" — carry it together — both outer pin number and inner
                     //   function name are drawn.
                     let pin_func_name = comp
-                        .def
-                        .pins
-                        .pin_id_to_names
+                        .cond_pin_names
                         .get(pin_name)
                         .and_then(|names| names.first())
+                        .or_else(|| {
+                            comp.def
+                                .pins
+                                .pin_id_to_names
+                                .get(pin_name)
+                                .and_then(|names| names.first())
+                        })
                         .cloned()
                         .unwrap_or_default();
                     self.register(

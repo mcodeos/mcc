@@ -18,3 +18,4 @@
 
 - Use clear, descriptive commit messages.
 - Start with a verb (e.g., "Add", "Fix", "Refactor").
+
