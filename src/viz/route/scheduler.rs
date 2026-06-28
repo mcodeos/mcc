@@ -586,7 +586,7 @@ fn merge_same_name_power_ground_nets(graph: &mut crate::vector::graph::McVecGrap
 mod tests {
     use super::*;
     use crate::vector::graph::net_def::IoDirection;
-    use crate::vector::graph::{BoxKind, EndpointRef, IoSummary, McVecBox, Symbol};
+    use crate::vector::graph::{BoxKind, EndpointRef, IoSummary, McVecBox};
 
     fn mk_box(id: i64, x: f64, y: f64, w: f64, h: f64) -> McVecBox {
         let mut b = McVecBox::new(
@@ -645,8 +645,8 @@ mod tests {
             "s1".into(),
             NetKind::Signal,
             vec![
-                EndpointRef::with_io(1, 11, "p11".into(), IoDirection::Output),
-                EndpointRef::with_io(2, 21, "p21".into(), IoDirection::Input),
+                EndpointRef::with_io(1, 11, "p11", IoDirection::Output),
+                EndpointRef::with_io(2, 21, "p21", IoDirection::Input),
             ],
         ));
 
@@ -672,8 +672,8 @@ mod tests {
             "ortho_big".into(),
             NetKind::Signal,
             vec![
-                EndpointRef::with_io(1, 1, "p1".into(), IoDirection::Output),
-                EndpointRef::with_io(3, 1, "p1".into(), IoDirection::Input),
+                EndpointRef::with_io(1, 1, "p1", IoDirection::Output),
+                EndpointRef::with_io(3, 1, "p1", IoDirection::Input),
             ],
         ));
 
@@ -683,8 +683,8 @@ mod tests {
             "bus_small".into(),
             NetKind::Bus(4),
             vec![
-                EndpointRef::with_io(1, 2, "p2".into(), IoDirection::Bidir),
-                EndpointRef::with_io(2, 1, "p1".into(), IoDirection::Bidir),
+                EndpointRef::with_io(1, 2, "p2", IoDirection::Bidir),
+                EndpointRef::with_io(2, 1, "p1", IoDirection::Bidir),
             ],
         ));
 

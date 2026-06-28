@@ -200,7 +200,16 @@ mod tests {
             components: vec![ComponentInfo {
                 name: "R1".into(),
                 class_name: "RES".into(),
-                pins: vec!["1".into(), "2".into()],
+                pins: vec![
+                    PinInfo {
+                        id: "1".into(),
+                        name: "1".into(),
+                    },
+                    PinInfo {
+                        id: "2".into(),
+                        name: "2".into(),
+                    },
+                ],
                 nc: false,
             }],
             sub_modules: vec![InstanceNode {
