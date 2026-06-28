@@ -77,6 +77,18 @@ impl McInt {
     }
 }
 
+impl std::fmt::Display for McLiteral {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            McLiteral::Int(i) => write!(f, "{i}"),
+            McLiteral::Float(fl) => write!(f, "{fl}"),
+            McLiteral::String(s) => write!(f, "{s}"),
+            McLiteral::Const(c) => write!(f, "{c}"),
+            McLiteral::Uval(u) => write!(f, "{u}"),
+        }
+    }
+}
+
 impl McHex {
     pub fn new(node: &AstNode) -> Option<Self> {
         if node.get_type() != MCAST_HEX {
@@ -205,6 +217,12 @@ impl McString {
             },
             _ => None,
         }
+    }
+}
+
+impl std::fmt::Display for McString {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "\"{}\"", self.value)
     }
 }
 

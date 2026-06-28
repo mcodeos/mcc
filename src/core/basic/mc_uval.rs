@@ -215,6 +215,40 @@ impl McUnitValue {
         neg.value = -neg.value;
         neg
     }
+
+    /// Parse a unit value from a data string + type node (when data is embedded directly)
+    pub fn from_data_and_type(node: &AstNode, data: &str) -> Option<Self> {
+        match node.get_type() {
+            MCAST_UVAL_VOLT => parse_volt_unit(node, data),
+            MCAST_UVAL_AMP => parse_amp_unit(node, data),
+            MCAST_UVAL_CAP => parse_capc_unit(node, data),
+            MCAST_UVAL_IND => parse_induct_unit(node, data),
+            MCAST_UVAL_TIME => parse_time_unit(node, data),
+            MCAST_UVAL_LEN => parse_length_unit(node, data),
+            MCAST_UVAL_WAT => parse_power_unit(node, data),
+            MCAST_UVAL_OHM => parse_resist_unit(node, data),
+            MCAST_UVAL_TEMP => parse_temperature_unit(node, data),
+            MCAST_UVAL_HZ => parse_freq_unit(node, data),
+            MCAST_UVAL_DB => parse_gain_unit(node, data),
+            MCAST_UVAL_PPM => parse_ppm_unit(node, data),
+            MCAST_UVAL_PERCENT => parse_percent_unit(node, data),
+            MCAST_UVAL_BAUD => parse_comm_speed_unit(node, data),
+            MCAST_UVAL_DATASIZE => parse_data_size_unit(node, data),
+            MCAST_UVAL_SPS => parse_sps_unit(node, data),
+            MCAST_UVAL_SIEMENS => parse_conductance_unit(node, data),
+            MCAST_UVAL_RESPONSIVITY => parse_responsivity_unit(node, data),
+            MCAST_UVAL_ANGLE => parse_angle_unit(node, data),
+            MCAST_UVAL_ANGULAR_RATE => parse_angular_rate_unit(node, data),
+            MCAST_UVAL_ENERGY => parse_energy_unit(node, data),
+            MCAST_UVAL_EFIELD => parse_efield_unit(node, data),
+            MCAST_UVAL_HFIELD => parse_hfield_unit(node, data),
+            MCAST_UVAL_FLUX => parse_flux_unit(node, data),
+            MCAST_UVAL_BFIELD => parse_bfield_unit(node, data),
+            MCAST_UVAL_SLEW => parse_slew_unit(node, data),
+            MCAST_UVAL_NOISE => parse_noise_unit(node, data),
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Debug for McUnitValue {

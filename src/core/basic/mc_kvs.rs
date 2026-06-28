@@ -18,10 +18,32 @@ pub enum KVSValue {
     Nested(Vec<McKVS>),
 }
 
+impl std::fmt::Display for KVSValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            KVSValue::Const(c) => write!(f, "{c}"),
+            KVSValue::Square(vals) => {
+                let inner: Vec<String> = vals.iter().map(|v| format!("{v}")).collect();
+                write!(f, "[{}]", inner.join(", "))
+            }
+            KVSValue::Nested(kvs_list) => {
+                let inner: Vec<String> = kvs_list.iter().map(|k| format!("{k}")).collect();
+                write!(f, "[{}]", inner.join(", "))
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct McKVS {
     pub key: McIds,
     pub value: KVSValue,
+}
+
+impl std::fmt::Display for McKVS {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.key, self.value)
+    }
 }
 
 impl McKVS {
