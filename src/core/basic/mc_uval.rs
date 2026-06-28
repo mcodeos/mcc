@@ -208,6 +208,13 @@ impl McUnitValue {
     pub fn value(&self) -> f64 {
         self.value
     }
+
+    /// Returns a new McUnitValue with the negated value (for ± prefix support)
+    pub fn negated(&self) -> Self {
+        let mut neg = self.clone();
+        neg.value = -neg.value;
+        neg
+    }
 }
 
 impl std::fmt::Debug for McUnitValue {
@@ -217,7 +224,7 @@ impl std::fmt::Debug for McUnitValue {
 }
 
 fn extract_value_and_unit<'a>(node: &'a AstNode, data: &'a str) -> Option<(f64, &'a str)> {
-    let re = Regex::new(r"^([+-]?\d*\.?\d+(?:[eE][+-]?\d+)?)(.*)$").unwrap();
+    let re = Regex::new(r"^([±+\-]?\d*\.?\d+(?:[eE][+\-]?\d+)?)(.*)$").unwrap();
 
     let Some(captures) = re.captures(data) else {
         dlog_error(1803, node, "Invalid unit value format.");
@@ -231,7 +238,10 @@ fn extract_value_and_unit<'a>(node: &'a AstNode, data: &'a str) -> Option<(f64, 
         dlog_error(304, node, "Invalid unit.");
         return None;
     };
-    let Ok(value) = value_str.as_str().parse::<f64>() else {
+    let value_str = value_str.as_str();
+    // Handle ± prefix (Unicode U+00B1): treat as magnitude (e.g. ±15kV → 15)
+    let value_str = value_str.strip_prefix('±').unwrap_or(value_str);
+    let Ok(value) = value_str.parse::<f64>() else {
         dlog_error(1803, node, "Invalid float format.");
         return None;
     };
