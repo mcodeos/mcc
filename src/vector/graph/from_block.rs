@@ -353,6 +353,49 @@ fn build_mc_vec_graph_inner(
         }
     }
 
+    // ── ★ Phase 1.45: module with ports but no box → create SubModule box ─────────────────────
+    //
+    // When a module has port declarations but the module itself is not in box_ids_set (either
+    // because it has no internal instances, or its ports are referenced by connections but the
+    // module was never created as a box), Phase 1.5's endpoint walk-up will skip the module's
+    // own ports (parent_id = module bid, but module not in box_ids_set → "Skipping unresolved
+    // endpoint").
+    //
+    // This phase creates a SubModule box for the module itself, with its ports as pins, so the
+    // viz can render a module frame with port pins on the edges.
+    if block.bid >= 0 {
+        let mod_id = block.bid as u32;
+        if !box_ids_set.contains(&mod_id) {
+            if let Some(mod_entry) = table.get_entry(mod_id) {
+                let ports = table.get_ports_of(mod_id);
+                if !ports.is_empty() {
+                    let class_name = mod_entry.class_name.clone();
+                    let io = compute_io(&ports);
+                    let box_pins = build_box_pins(&ports, &class_name);
+                    let port_count = ports.len();
+                    eprintln!(
+                        "[graph] ✓ Phase 1.45: module '{}' (bid={}) has {} ports, creating SubModule box",
+                        root_name, mod_id, port_count
+                    );
+                    let mut b = McVecBox::new_v2(
+                        mod_id as i64,
+                        root_name.clone(),
+                        class_name,
+                        BoxKind::SubModule,
+                        Symbol::Module,
+                        None,
+                        None,
+                        port_count,
+                        io,
+                    );
+                    b.set_pins(box_pins);
+                    graph.boxes.push(b);
+                    box_ids_set.insert(mod_id);
+                }
+            }
+        }
+    }
+
     // ── Phase 1.5: supplement missing boxes from block.nets endpoints ──
     //
     // ## Key: 3 cases when endpoint doesn't belong to a known box
@@ -634,43 +677,6 @@ fn build_mc_vec_graph_inner(
                 IoSummary::new(),
             ));
             box_ids_set.insert(u);
-        }
-    }
-
-    // ── ★ Phase 1.55: empty module with ports → create SubModule box ─────────────────────────
-    //
-    // When a module has only port declarations (no internal instances), Phase 1 creates no boxes
-    // and Phase 1.5 finds no net endpoints to synthesize. The result is an empty graph → empty SVG.
-    //
-    // This phase creates a SubModule box for the module itself, with its ports as pins, so the
-    // viz can render a module frame with port pins on the edges.
-    if graph.boxes.is_empty() && block.bid >= 0 {
-        let mod_id = block.bid as u32;
-        if let Some(mod_entry) = table.get_entry(mod_id) {
-            let ports = table.get_ports_of(mod_id);
-            if !ports.is_empty() {
-                let class_name = mod_entry.class_name.clone();
-                let io = compute_io(&ports);
-                let box_pins = build_box_pins(&ports, &class_name);
-                let port_count = ports.len();
-                eprintln!(
-                    "[graph] ✓ Phase 1.55: empty module '{}' (bid={}) has {} ports, creating SubModule box",
-                    root_name, mod_id, port_count
-                );
-                let mut b = McVecBox::new_v2(
-                    mod_id as i64,
-                    root_name.clone(),
-                    class_name,
-                    BoxKind::SubModule,
-                    Symbol::Module,
-                    None,
-                    None,
-                    port_count,
-                    io,
-                );
-                b.set_pins(box_pins);
-                graph.boxes.push(b);
-            }
         }
     }
 
