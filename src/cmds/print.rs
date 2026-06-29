@@ -301,6 +301,18 @@ pub fn print_module_inst(inst: &MccProjectTree, depth: usize, sort_mode: PinSort
                 nc_str,
                 pins.join(", ")
             );
+
+            // Print resolved attrs for this instance
+            if !comp.resolved_attrs.is_empty() {
+                for attr in &comp.resolved_attrs {
+                    println!(
+                        "{}       {} = {}",
+                        indent,
+                        attr.id,
+                        attr.values.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(", ")
+                    );
+                }
+            }
         }
     }
 
