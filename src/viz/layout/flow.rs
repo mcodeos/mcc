@@ -1663,7 +1663,7 @@ fn edge_midpoint(b: &McVecBox, side: &EntrySide) -> (f64, f64) {
 }
 
 /// Pin's absolute coordinates (by side + offset)
-fn pin_abs(b: &McVecBox, side: &EntrySide, offset: f64) -> (f64, f64) {
+pub(crate) fn pin_abs(b: &McVecBox, side: &EntrySide, offset: f64) -> (f64, f64) {
     match side {
         EntrySide::Top => (b.x + b.w * offset, b.y),
         EntrySide::Bottom => (b.x + b.w * offset, b.y + b.h),
