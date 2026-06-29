@@ -185,6 +185,27 @@ impl McModuleInst {
         }
 
         if left_size == right_size {
+            // ── D5: BUS_ORDER_MISMATCH detection ──────────────────────────────
+            // When two multi-point lists are connected 1:1, compare the last
+            // segment of each path at the same index. If they differ, the bus
+            // member order may be misaligned.
+            if left_size >= 2 {
+                let mut mismatches: Vec<String> = Vec::new();
+                for (i, (l, r)) in left_points.iter().zip(right_points.iter()).enumerate() {
+                    let l_name = l.path.rsplit('.').next().unwrap_or(&l.path);
+                    let r_name = r.path.rsplit('.').next().unwrap_or(&r.path);
+                    if l_name != r_name {
+                        mismatches.push(format!("#{}: {}↔{}", i, l_name, r_name));
+                    }
+                }
+                if !mismatches.is_empty() && mismatches.len() == left_size {
+                    crate::velog!(
+                        "[D5] BUS_ORDER_MISMATCH: all {} pairs have mismatched member names: [{}]. \
+                         This may indicate bus member order misalignment between the two sides.",
+                        left_size, mismatches.join(", ")
+                    );
+                }
+            }
             for (l, r) in left_points.into_iter().zip(right_points.into_iter()) {
                 let conn = ConnectionInst::new(self.next_conn_id(), vec![l, r]);
                 self.connections.push(conn);

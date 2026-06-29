@@ -1650,7 +1650,7 @@ impl McModuleInst {
                         let caller_key = Self::member_key(caller_box.as_ref());
                         let map_hit = self.auto_inst_map.get(&caller_key).cloned();
                         if let Some(caller_inst_name) = map_hit {
-                            self.wire_builtin_twopin(&caller_inst_name, &fc.params)?;
+                            self.wire_builtin_twopin(&caller_inst_name, &fc.params, &fc.func_name.to_string())?;
                             self.auto_inst_map.insert(key, caller_inst_name);
                             return Ok(());
                         }
@@ -1669,7 +1669,7 @@ impl McModuleInst {
                             if let McInstance::Component(c) = &ir.base {
                                 let caller_inst_name = c.name.to_string();
                                 if !caller_inst_name.is_empty() {
-                                    self.wire_builtin_twopin(&caller_inst_name, &fc.params)?;
+                                    self.wire_builtin_twopin(&caller_inst_name, &fc.params, &fc.func_name.to_string())?;
                                     self.auto_inst_map.insert(key, caller_inst_name);
                                     return Ok(());
                                 } else if !c.params.is_empty() {
@@ -1689,7 +1689,7 @@ impl McModuleInst {
                                             let inst_name = inst.name.clone();
                                             self.components.push(inst);
                                             self.connections.extend(new_connections);
-                                            self.wire_builtin_twopin(&inst_name, &fc.params)?;
+                                            self.wire_builtin_twopin(&inst_name, &fc.params, &fc.func_name.to_string())?;
                                             self.auto_inst_map.insert(key, inst_name);
                                             return Ok(());
                                         }
@@ -1724,7 +1724,7 @@ impl McModuleInst {
                                 })
                             }) {
                                 let caller_inst_name = comp.name.clone();
-                                self.wire_builtin_twopin(&caller_inst_name, &fc.params)?;
+                                self.wire_builtin_twopin(&caller_inst_name, &fc.params, &fc.func_name.to_string())?;
                                 self.auto_inst_map.insert(key, caller_inst_name);
                                 return Ok(());
                             }

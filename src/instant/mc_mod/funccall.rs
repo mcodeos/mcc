@@ -443,6 +443,7 @@ impl McModuleInst {
         &mut self,
         inst_name: &str,
         params: &[McParamValue],
+        func_name: &str,
     ) -> Result<(), InstError> {
         // 1. Flatten all params into a McBus list, then expand to NetPoint
         let mut elements: Vec<McBus> = Vec::new();
@@ -454,6 +455,46 @@ impl McModuleInst {
             targets.extend(self.expand_node_element(e));
         }
         let _found = self.components.iter().any(|c| c.name == inst_name);
+
+        // ── D7: PULLUP_DEGENERATE detection ──────────────────────────────────
+        // For Pullup/Pulldown, the two ends should be (signal, rail).
+        // If both explicit targets are non-rail nets, the pullup degenerates
+        // into a signal-signal bridge (e.g. SCL-SDA bridge instead of SCL-VDD).
+        let last_seg = func_name.rsplit('.').next().unwrap_or(func_name);
+        let is_pull = last_seg.eq_ignore_ascii_case("Pullup")
+            || last_seg.eq_ignore_ascii_case("Pulldown");
+        if is_pull && targets.len() >= 2 {
+            let is_rail = |p: &NetPoint| -> bool {
+                let name = p.path.rsplit('.').next().unwrap_or(&p.path);
+                let upper = name.to_uppercase();
+                // Power rails
+                upper.starts_with("VDD")
+                    || upper.starts_with("VCC")
+                    || upper.starts_with("V3V")
+                    || upper.starts_with("V5")
+                    || upper.starts_with("V33")
+                    || upper.starts_with("VIN")
+                    || upper.starts_with("VBAT")
+                    || upper.starts_with("VSYS")
+                    || upper.starts_with("VREF")
+                    // Ground rails
+                    || upper == "GND"
+                    || upper == "VSS"
+                    || upper == "AGND"
+                    || upper == "DGND"
+                    || upper == "PGND"
+                    || matches!(p.iotype, IOType::Power)
+            };
+            let t1_is_rail = is_rail(&targets[0]);
+            let t2_is_rail = is_rail(&targets[1]);
+            if !t1_is_rail && !t2_is_rail {
+                crate::velog!(
+                    "[D7] PULLUP_DEGENERATE: '{}' both ends are non-rail nets ({} ~ {}). \
+                     Pullup/Pulldown may have degenerated into a signal-signal bridge instead of (signal, rail).",
+                    func_name, targets[0].path, targets[1].path
+                );
+            }
+        }
 
         // `.Cap(_)` → all args are underscores → pin2 implicitly connects to GND
         // ── P1-1: implicit GND rule ─────────────────────────────────────

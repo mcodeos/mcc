@@ -929,6 +929,24 @@ fn ep_from_layout(
 ) -> Vec<EntryPoint> {
     use std::collections::BTreeMap;
 
+    // Validate: warn about layout entries that don't match any actual pin on this box
+    for side_entries in [
+        ("left", &layout.left),
+        ("right", &layout.right),
+        ("top", &layout.top),
+        ("bottom", &layout.bottom),
+    ] {
+        for entry in side_entries.1 {
+            let matched = b.pins.iter().any(|p| &p.pin_id == entry || &p.description == entry);
+            if !matched {
+                eprintln!(
+                    "[layout] WARN: box '{}' layout {} references pin '{}' which does not exist on this box — ignored",
+                    b.name, side_entries.0, entry
+                );
+            }
+        }
+    }
+
     // side → pins on that side (in layout order), encode side as 0/1/2/3 for BTreeMap stable sorting
     let mut by_side: BTreeMap<u8, Vec<(i64, String)>> = BTreeMap::new();
     let mut leftover: Vec<(i64, String)> = Vec::new();

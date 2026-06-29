@@ -97,6 +97,8 @@ pub struct VizNet {
     pub endpoints: Vec<EndpointRef>,
     /// Route result (filled by router, `None` when not routed)
     pub route: Option<Route>,
+    /// Source position in the AST (for diagnostic source-line reporting)
+    pub src_pos: Option<i32>,
 }
 
 impl VizNet {
@@ -108,6 +110,7 @@ impl VizNet {
             kind,
             endpoints,
             route: None,
+            src_pos: None,
         }
     }
 
