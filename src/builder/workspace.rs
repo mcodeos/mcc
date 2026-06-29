@@ -156,6 +156,24 @@ impl WorkspaceManager {
         self.meta.borrow().clone()
     }
 
+    /// Look up a component by its class name (ident string).
+    /// Checks workspace project tables first, then falls back to global system tables.
+    /// Returns `None` if no component with that class name is registered.
+    pub fn component_by_class(&self, class_name: &str) -> Option<Arc<McComponent>> {
+        for entry in self.components.borrow().iter() {
+            if entry.key().ident.to_string() == class_name {
+                return Some(entry.value().clone());
+            }
+        }
+        // Fallback: check global system component table
+        for entry in crate::builder::global::mcc_components.borrow().iter() {
+            if entry.key().ident.to_string() == class_name {
+                return Some(entry.value().clone());
+            }
+        }
+        None
+    }
+
     pub fn list(&self) -> Vec<(String, WorkspaceKind)> {
         let mut result = Vec::new();
         {

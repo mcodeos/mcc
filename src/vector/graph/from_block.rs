@@ -108,14 +108,26 @@ fn apply_reserved_overrides(b: &mut McVecBox) {
     }
 }
 
-/// ★ Reserved interface ①: query a component class's custom pin layout. **To be wired** -- currently
-/// returns None (falls through to heuristic edge assignment).
+/// ★ Reserved interface ①: query a component class's custom pin layout.
 ///
-/// Activate: use class_name to get `McComponent` (workspace component table), convert
-/// `comp.layout` (core `McLayout{left,right,top,bottom}`) four edges to drawing-side [`PinLayout`]
-/// (after confirming `McLayout`'s edge element types, map to `Vec<String>`).
-fn component_pin_layout(_class_name: &str) -> Option<PinLayout> {
-    None
+/// Looks up the component by class_name in workspace + global tables, reads `comp.layout`
+/// (core `McLayout{left,right,top,bottom}`) and converts each edge's `Vec<u32>` pin numbers
+/// to `Vec<String>` for drawing-side [`PinLayout`].
+///
+/// Returns `None` when the component is not found or all four layout edges are empty
+/// (falls through to heuristic edge assignment).
+fn component_pin_layout(class_name: &str) -> Option<PinLayout> {
+    let comp = crate::builder::workspace::WORKSPACE.component_by_class(class_name)?;
+    let layout = &comp.layout;
+    if layout.left.is_empty() && layout.right.is_empty() && layout.top.is_empty() && layout.bottom.is_empty() {
+        return None;
+    }
+    Some(PinLayout {
+        left: layout.left.iter().map(|n| n.to_string()).collect(),
+        right: layout.right.iter().map(|n| n.to_string()).collect(),
+        top: layout.top.iter().map(|n| n.to_string()).collect(),
+        bottom: layout.bottom.iter().map(|n| n.to_string()).collect(),
+    })
 }
 
 /// ★ Reserved interface ②: query user-uploaded custom symbols for this component class.
@@ -1064,6 +1076,26 @@ fn generate_viznets_from_block(
         for pid in net.all_point_ids() {
             if let Some(e) = make_endpoint(pid) {
                 endpoints.push(e);
+            } else if pid >= 0 {
+                // ── D4: GHOST_PORT detection ────────────────────────────────
+                // Check if endpoint references a placeholder pin (high id ≥ 8e9)
+                // or a pin that can't be mapped to any box in the current layer.
+                const PLACEHOLDER_BASE: i64 = 8_000_000_000;
+                if pid >= PLACEHOLDER_BASE {
+                    let pos = net.src_pos.unwrap_or(0) as u32;
+                    crate::builder::diagnostic::diagnotic_log(
+                        2004,
+                        crate::builder::diagnostic::DiagnosticLevel::Error,
+                        pos,
+                        1,
+                        &format!(
+                            "GHOST_PORT: net '{}' endpoint id={} is a placeholder pin (≥{}). \
+                             This pin crosses module boundary and is not properly exposed as a port.",
+                            net.name, pid, PLACEHOLDER_BASE
+                        ),
+                        &[],
+                    );
+                }
             }
         }
 

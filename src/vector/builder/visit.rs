@@ -36,6 +36,8 @@ use super::super::model::McVecBlock;
 use super::builder_report::{
     BuildMode, BuilderError, BuilderReport, DroppedNet, PartialNet, ResolutionOutcome,
 };
+use crate::builder::diagnostic::{diagnotic_log, DiagnosticLevel};
+
 use super::connection::{merge_pairs_to_vecnet, ConnPair, NetGroupMap};
 use super::debug;
 use super::resolve::resolve_netpoint_v2;
@@ -348,6 +350,76 @@ impl<'a> McVecBuilder<'a> {
                     members,
                     is_bracket,
                 });
+            }
+
+            // ── D2: FLOATING_PLACEHOLDER detection ──────────────────────────
+            // Check if any `_` placeholder (path = "(lead)") failed to resolve.
+            for (i, p) in conn.points.iter().enumerate() {
+                if p.path == "(lead)" {
+                    if let Some(pr) = per_point.get(i) {
+                        if pr.ids.is_empty() {
+                            let pos = p.src_pos.unwrap_or(0) as u32;
+                            diagnotic_log(
+                                2002,
+                                DiagnosticLevel::Error,
+                                pos,
+                                1,
+                                &format!(
+                                    "FLOATING_PLACEHOLDER: '_' placeholder in net '{}' (module '{}') \
+                                     could not be bound to any existing pin. The placeholder is floating.",
+                                    net_name, module_path
+                                ),
+                                &[],
+                            );
+                        }
+                    }
+                }
+            }
+
+            // ── D3: MERGED_SHORT detection ──────────────────────────────────
+            // Check if two different point paths resolve to the same id, indicating
+            // a port without bit width causing signal merging.
+            {
+                let mut id_to_paths: HashMap<i64, Vec<&String>> = HashMap::new();
+                for (i, pr) in per_point.iter().enumerate() {
+                    for &id in &pr.ids {
+                        id_to_paths.entry(id).or_default().push(&conn.points[i].path);
+                    }
+                }
+                for (id, paths) in &id_to_paths {
+                    let unique_paths: Vec<&&String> = {
+                        let mut seen: std::collections::HashSet<&&String> =
+                            std::collections::HashSet::new();
+                        paths.iter().filter(|p| seen.insert(*p)).collect()
+                    };
+                    if unique_paths.len() >= 2 {
+                        let all_power = unique_paths.iter().all(|p| {
+                            let upper = p.to_uppercase();
+                            crate::vector::graph::naming::is_power_rail(&upper)
+                        });
+                        if !all_power {
+                            let pos = conn
+                                .points
+                                .iter()
+                                .find(|p| unique_paths.contains(&&p.path))
+                                .and_then(|p| p.src_pos)
+                                .unwrap_or(0) as u32;
+                            diagnotic_log(
+                                2003,
+                                DiagnosticLevel::Error,
+                                pos,
+                                1,
+                                &format!(
+                                    "MERGED_SHORT: net '{}' (module '{}') has multiple distinct signal \
+                                     endpoints resolving to the same node (id={}). Paths: {:?}. \
+                                     This may indicate a port declared without bit width causing signal merging.",
+                                    net_name, module_path, id, unique_paths
+                                ),
+                                &[],
+                            );
+                        }
+                    }
+                }
             }
 
             let resolved_point_count: usize = per_point.iter().map(|pr| pr.ids.len()).sum();

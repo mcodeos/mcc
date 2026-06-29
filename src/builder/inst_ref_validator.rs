@@ -163,6 +163,62 @@ fn validate_component_pin_ref(
         }
     }
 
+    // ── D1: SORT_HAZARD detection ──────────────────────────────────────────
+    // Check if members match a Bus entry's full_members in names_to_id.
+    // When pin numbers are non-monotonic (e.g. [5,2]=VOUT{Vout,GND}),
+    // the sorted BTreeMap may cause member→pin mapping to be incorrect.
+    let mut bus_member_hit: Option<&String> = None;
+    for (bus_name, port) in comp.base.pins.names_to_id.iter() {
+        if let McPinPort::Bus(bus) = port {
+            let member_set: std::collections::BTreeSet<&String> = members.iter().collect();
+            let full_set: std::collections::BTreeSet<&String> =
+                bus.full_members.iter().collect();
+            if member_set == full_set {
+                bus_member_hit = Some(bus_name);
+                // Look up pin numbers for each member in declaration order
+                let mut pin_ids: Vec<String> = Vec::new();
+                for member in members {
+                    let full_name = format!("{bus_name}.{member}");
+                    if let Some(McPinPort::Single(pid)) =
+                        comp.base.pins.names_to_id.get(&full_name)
+                    {
+                        pin_ids.push(pid.clone());
+                    }
+                }
+                // Check if pin numbers are non-monotonic (not in ascending numeric order)
+                if pin_ids.len() == members.len() && pin_ids.len() >= 2 {
+                    let sorted: Vec<String> = {
+                        let mut s = pin_ids.clone();
+                        s.sort_by(|a, b| {
+                            let na: i64 = a.parse().unwrap_or(0);
+                            let nb: i64 = b.parse().unwrap_or(0);
+                            na.cmp(&nb)
+                        });
+                        s
+                    };
+                    if pin_ids != sorted {
+                        let binding: Vec<String> = members
+                            .iter()
+                            .zip(pin_ids.iter())
+                            .map(|(m, pid)| format!("{m}→pin{pid}"))
+                            .collect();
+                        dlog_error(
+                            2001,
+                            node,
+                            &format!(
+                                "SORT_HAZARD: pin numbers in component '{}' bus '{}' are non-monotonic. \
+                                 Member→pin binding: [{}]. Pin declaration order differs from member order, \
+                                 which may cause incorrect mapping after sorting.",
+                                base_name, bus_name, binding.join(", ")
+                            ),
+                        );
+                    }
+                }
+                break;
+            }
+        }
+    }
+
     // Whether all pin information is completely unavailable (three maps are empty).
     // This usually happens when CMIE parsing fails / system library is not loaded,
     // leading to empty base stub.
@@ -188,6 +244,10 @@ fn validate_component_pin_ref(
             // ── P0-1: Interface user alias hit ──
             // E.g. "Vin" is alias in DC declaration `[Vin, GND]::DC()`
             valid_members.push(member.clone());
+        } else if bus_member_hit.is_some() {
+            // ── D1: Bus member hit ──
+            // Members match a Bus entry's full_members (e.g. LDO{Vout,GND} matching VOUT{Vout,GND})
+            valid_members.push(member.clone());
         } else if pins_unavailable {
             // When all pin information is unavailable, treat `Bus | Label | List` pins loosely.
             valid_members.push(member.clone());
@@ -197,12 +257,20 @@ fn validate_component_pin_ref(
     }
 
     if !invalid_members.is_empty() {
+        let bus_members: Vec<&str> = bus_member_hit
+            .and_then(|bn| comp.base.pins.names_to_id.get(bn))
+            .and_then(|p| match p {
+                McPinPort::Bus(b) => Some(b.full_members.iter().map(|s| s.as_str()).collect::<Vec<_>>()),
+                _ => None,
+            })
+            .unwrap_or_default();
         let all_valid: Vec<&str> = valid_pin_names
             .iter()
             .map(|s| s.as_str())
             .chain(pin_id_to_names.keys().map(|s| s.as_str()))
             .chain(pins_map.keys().map(|s| s.as_str()))
             .chain(iface_alias_to_key.keys().map(|s| s.as_str()))
+            .chain(bus_members.into_iter())
             .collect();
         let all_valid_str = all_valid.join(", ");
         dlog_error(

@@ -18,7 +18,7 @@ use crate::{
     ast::{ast_node::AstNode, c_macros::*, error::message::*},
     builder::{
         diagnostic::{
-            dlog_error, dlog_trace,
+            dlog_error, dlog_trace, dlog_warning,
             message_templates::{CANNOT_TRANSPOSE, SHAPE_MISMATCH},
         },
         inst_ref_validator::validate_inst_reference,
@@ -244,6 +244,28 @@ impl McPhrase {
                                             .collect();
                                         Some(McPhrase::Multiple(phrases))
                                     } else {
+                                        // ── D6: DROPPED_STATEMENT detection ──────────────────────
+                                        // When NAME[k] form (e.g. GPIO[2]) is used as an indexed
+                                        // alias and the expanded name is not a known instance, the
+                                        // statement will produce no nets/constraints.
+                                        if ids.segments.len() >= 2 {
+                                            if let Some(expanded_name) = expanded.first() {
+                                                if context.find_inst(expanded_name).is_none()
+                                                    && context.find_inst(&ids.to_string()).is_none()
+                                                {
+                                                    dlog_error(
+                                                        2006,
+                                                        node,
+                                                        &format!(
+                                                            "DROPPED_STATEMENT: indexed alias '{}' expands to '{}' which is not a known instance. \
+                                                             The statement may produce no nets or constraints.",
+                                                            ids.to_string(),
+                                                            expanded_name
+                                                        ),
+                                                    );
+                                                }
+                                            }
+                                        }
                                         context.add_label(ids.to_string())
                                     }
                                 }
@@ -970,6 +992,9 @@ impl McPhrase {
             }
 
             MCAST_OPD_PLUS => {
+                // ── D8: AMBIGUOUS_PRECEDENCE detection ──────────────────────
+                check_ambiguous_precedence(node);
+
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
                 let opd2_node = opd1_node.get_next().expect(MISSING_SUBNODE);
 
@@ -1032,6 +1057,9 @@ impl McPhrase {
             }
 
             MCAST_OPD_MINUS => {
+                // ── D8: AMBIGUOUS_PRECEDENCE detection ──────────────────────
+                check_ambiguous_precedence(node);
+
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
                 let opd2_node = opd1_node.get_next().expect(MISSING_SUBNODE);
 
@@ -1058,6 +1086,9 @@ impl McPhrase {
             }
 
             MCAST_OPD_RIGHTARROW => {
+                // ── D8: AMBIGUOUS_PRECEDENCE detection ──────────────────────
+                check_ambiguous_precedence(node);
+
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
                 let opd2_node = opd1_node.get_next().expect(MISSING_SUBNODE);
                 let opd1 = McPhrase::new(&opd1_node, context);
@@ -2314,6 +2345,92 @@ impl std::fmt::Display for McPhrase {
 // ============================================================================
 // Auxiliary functions
 // ============================================================================
+
+/// ── D8: AMBIGUOUS_PRECEDENCE detection ─────────────────────────────────
+/// Walk the AST subtree to check if the expression mixes `+`, `-`, `->`
+/// operators without explicit parentheses (Group), spanning more than 2
+/// leaf components. If so, emit a warning because the intended grouping
+/// may differ from the parser's precedence.
+fn check_ambiguous_precedence(node: &AstNode) {
+    let (leaf_count, has_plus, has_minus, has_arrow) = analyze_expr_tree(node);
+    let mixed = (has_plus as u8 + has_minus as u8 + has_arrow as u8) >= 2;
+    if mixed && leaf_count > 2 {
+        dlog_warning(
+            2008,
+            node,
+            &format!(
+                "AMBIGUOUS_PRECEDENCE: expression mixes +,-,-> operators without parentheses \
+                 and spans {leaf_count} components (>2). Consider adding explicit parentheses \
+                 (Group) to clarify the intended grouping."
+            ),
+        );
+    }
+}
+
+/// Walk the AST subtree and return (leaf_count, has_plus, has_minus, has_arrow).
+fn analyze_expr_tree(node: &AstNode) -> (usize, bool, bool, bool) {
+    let t = node.get_type();
+    match t {
+        MCAST_OPD_PLUS | MCAST_OPD_MINUS | MCAST_OPD_RIGHTARROW | MCAST_OPD_LEFTARROW => {
+            let is_plus = t == MCAST_OPD_PLUS;
+            let is_minus = t == MCAST_OPD_MINUS;
+            let is_arrow = t == MCAST_OPD_RIGHTARROW || t == MCAST_OPD_LEFTARROW;
+            let mut total = 0usize;
+            let mut hp = is_plus;
+            let mut hm = is_minus;
+            let mut ha = is_arrow;
+            if let Some(sub) = node.get_sub_node() {
+                let (c, p, m, a) = analyze_expr_tree(&sub);
+                total += c;
+                hp |= p;
+                hm |= m;
+                ha |= a;
+                if let Some(next) = sub.get_next() {
+                    let (c, p, m, a) = analyze_expr_tree(&next);
+                    total += c;
+                    hp |= p;
+                    hm |= m;
+                    ha |= a;
+                }
+            }
+            if total == 0 {
+                total = 1; // degenerate case: count as at least 1
+            }
+            (total, hp, hm, ha)
+        }
+        MCAST_OPD_GROUP => {
+            // Group (parentheses) resets the ambiguity scope — treat as a single leaf
+            (1, false, false, false)
+        }
+        _ => {
+            // Leaf component: count as 1, recursively check children for nested operators
+            let mut total = 1usize;
+            let mut hp = false;
+            let mut hm = false;
+            let mut ha = false;
+            if let Some(sub) = node.get_sub_node() {
+                let (c, p, m, a) = analyze_expr_tree(&sub);
+                // Don't add to total for non-operator children (they're part of this leaf)
+                hp |= p;
+                hm |= m;
+                ha |= a;
+                let _ = c; // child count absorbed into this leaf
+                // Check siblings
+                let mut next = sub.get_next();
+                while let Some(n) = next {
+                    let (c, p, m, a) = analyze_expr_tree(&n);
+                    total += c;
+                    hp |= p;
+                    hm |= m;
+                    ha |= a;
+                    next = n.get_next();
+                }
+            }
+            (total, hp, hm, ha)
+        }
+    }
+}
+
 fn infer_shape_and_upgrade(
     opd1: McPhrase,
     opd2: McPhrase,

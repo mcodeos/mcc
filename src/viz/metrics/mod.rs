@@ -145,9 +145,18 @@ impl MetricsAccumulator {
             if let Some(lh) = &b.layout_hint {
                 let listed = lh.left.len() + lh.right.len() + lh.top.len() + lh.bottom.len();
                 self.authored_sides_total += listed;
-                // [P1 placeholder] 03 tightens to cross-check against actual layout side;
-                // for now, written == honored
-                self.authored_sides_honored += listed;
+                // Count honored: for each entry point, check if its actual side matches the layout-specified side
+                let honored = b
+                    .entry_points
+                    .iter()
+                    .filter(|ep| {
+                        b.find_pin(ep.pin_id).is_some_and(|p| {
+                            lh.side_of(&p.pin_id) == Some(ep.side.clone())
+                                || lh.side_of(&p.description) == Some(ep.side.clone())
+                        })
+                    })
+                    .count();
+                self.authored_sides_honored += honored;
             }
         }
     }

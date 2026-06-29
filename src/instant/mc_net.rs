@@ -36,6 +36,9 @@ pub struct NetPoint {
 
     /// IO direction (None for ports/labels)
     pub iotype: IOType,
+
+    /// Source position in the AST (for diagnostic source-line reporting)
+    pub src_pos: Option<i32>,
 }
 
 impl NetPoint {
@@ -45,6 +48,7 @@ impl NetPoint {
             path: path.to_string(),
             owner: None,
             iotype,
+            src_pos: None,
         }
     }
 
@@ -54,7 +58,14 @@ impl NetPoint {
             path: path.to_string(),
             owner: Some(owner.to_string()),
             iotype,
+            src_pos: None,
         }
+    }
+
+    /// Set source position (for diagnostic source-line reporting)
+    pub fn with_src_pos(mut self, pos: i32) -> Self {
+        self.src_pos = Some(pos);
+        self
     }
 }
 
@@ -892,6 +903,7 @@ impl NetTable {
             path: path.to_string(),
             owner,
             iotype,
+            src_pos: None,
         });
         self.parent.push(idx);
         idx
