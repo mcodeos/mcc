@@ -314,7 +314,14 @@ pub fn straighten_rail_passives(graph: &mut McVecGraph) {
     if passive_set.is_empty() || rail_ids.is_empty() {
         return;
     }
-    let passive_ids: Vec<i64> = passive_set.iter().copied().collect();
+    let passive_ids: Vec<i64> = {
+        // [P0-DET] iterate in deterministic id order, not HashSet order: the loop
+        // below allocates synthetic pin ids (`synth`) per passive, so iteration
+        // order leaks into routing if left to HashSet randomization.
+        let mut v: Vec<i64> = passive_set.iter().copied().collect();
+        v.sort_unstable();
+        v
+    };
     let mut synth = RAIL_PIN_BASE;
     let mut moved = 0usize;
 

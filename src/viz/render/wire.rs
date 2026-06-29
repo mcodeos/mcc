@@ -200,7 +200,14 @@ fn build_polylines(route: &Route) -> Vec<Vec<(f64, f64)>> {
 
     let mut used: HashSet<(Node, Node)> = HashSet::new();
     let mut chains: Vec<Vec<Node>> = Vec::new();
-    let nodes: Vec<Node> = adj.keys().copied().collect();
+    // [P0-DET] sort nodes: chain-walk start order (and thus emitted path order/direction)
+    // must not depend on HashMap key iteration order, or the same route renders to
+    // byte-different SVG across runs. Node = (i64,i64) is Ord.
+    let nodes: Vec<Node> = {
+        let mut v: Vec<Node> = adj.keys().copied().collect();
+        v.sort_unstable();
+        v
+    };
 
     // 1. Start from non-degree-2 nodes (endpoints/intersections) and walk the longest chain
     for &start in &nodes {
