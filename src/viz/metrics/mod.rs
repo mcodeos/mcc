@@ -131,7 +131,15 @@ impl MetricsAccumulator {
 
         for b in &graph.boxes {
             self.pins_total += b.pins.len();
-            self.pins_rendered += b.entry_points.len();
+            // Count physical pins that actually got an entry_point (matched by id).
+            // Flag / synthetic / split entry_points have no corresponding BoxPin and
+            // must not inflate pins_rendered. Placeholder pins (id ≥ 8e9) are dropped
+            // by merge_box_pins and will be excluded from total in 02/03.
+            self.pins_rendered += b
+                .pins
+                .iter()
+                .filter(|p| b.entry_points.iter().any(|e| e.pin_id == p.id))
+                .count();
             self.off_grid_penalty += off_grid(b.x) + off_grid(b.y);
 
             if let Some(lh) = &b.layout_hint {
