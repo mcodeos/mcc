@@ -31,7 +31,7 @@ use super::components::{
 };
 use super::entry_points::assign_entry_points;
 use super::normalize::{compute_canvas, normalize_positions, CANVAS_MARGIN};
-use super::overlap::resolve_overlaps_iterative;
+use super::optimize::PlaceOptimizer;
 use super::radial::{
     bfs_rings_in_subset, find_hub_in_subset, place_ring, place_ring2, place_unconnected,
     set_center, RING1_RADIUS, RING2_RADIUS,
@@ -154,7 +154,7 @@ impl Layouter for RadialLayouter {
         }
 
         // 6. Cross-component overlap removal
-        resolve_overlaps_iterative(graph, 30);
+        PlaceOptimizer::default().run(graph);
 
         // 7. Normalize coordinates + compute canvas
         let _ = CANVAS_MARGIN; // (from normalize, here just to avoid dead_code warning on the use)

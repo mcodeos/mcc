@@ -33,6 +33,7 @@ pub mod grid;
 pub mod hierarchical;
 pub mod multi_strategy;
 pub mod normalize;
+pub mod optimize;
 pub mod overlap;
 pub mod passive_inline;
 pub mod radial;
