@@ -795,8 +795,13 @@ impl NetTable {
         }
 
         // Build result
+        // [P0-DET] sorted root order: auto-number naming (__net_N) depends on
+        // insertion order, so HashMap iteration order would leak into net names.
         let mut nets = HashMap::new();
-        for (_, indices) in groups {
+        let mut roots: Vec<usize> = groups.keys().copied().collect();
+        roots.sort();
+        for root in roots {
+            let indices = &groups[&root];
             let group_points: Vec<NetPoint> =
                 indices.iter().map(|&i| self.points[i].clone()).collect();
 

@@ -137,7 +137,7 @@ pub fn build_from_manifest(
         (entry, top)
     } else {
         let entry = cli_entry
-            .map(|s| PathBuf::from(s))
+            .map(|s| project_root.join(s))
             .ok_or_else(|| anyhow::anyhow!("build: no manifest and no entry file specified"))?;
         let top = cli_top.map(|s| s.to_string());
         (entry, top)
