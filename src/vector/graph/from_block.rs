@@ -1082,11 +1082,10 @@ fn generate_viznets_from_block(
                 // or a pin that can't be mapped to any box in the current layer.
                 const PLACEHOLDER_BASE: i64 = 8_000_000_000;
                 if pid >= PLACEHOLDER_BASE {
-                    let pos = net.src_pos.unwrap_or(0) as u32;
                     crate::builder::diagnostic::diagnotic_log(
                         2004,
                         crate::builder::diagnostic::DiagnosticLevel::Error,
-                        pos,
+                        0,
                         1,
                         &format!(
                             "GHOST_PORT: net '{}' endpoint id={} is a placeholder pin (≥{}). \

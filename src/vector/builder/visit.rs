@@ -387,11 +387,16 @@ impl<'a> McVecBuilder<'a> {
                     }
                 }
                 for (id, paths) in &id_to_paths {
-                    let unique_paths: Vec<&&String> = {
-                        let mut seen: std::collections::HashSet<&&String> =
+                    let mut unique_paths: Vec<&String> = Vec::new();
+                    {
+                        let mut seen: std::collections::HashSet<&String> =
                             std::collections::HashSet::new();
-                        paths.iter().filter(|p| seen.insert(*p)).collect()
-                    };
+                        for p in paths.iter() {
+                            if seen.insert(p) {
+                                unique_paths.push(p);
+                            }
+                        }
+                    }
                     if unique_paths.len() >= 2 {
                         let all_power = unique_paths.iter().all(|p| {
                             let upper = p.to_uppercase();
@@ -401,7 +406,7 @@ impl<'a> McVecBuilder<'a> {
                             let pos = conn
                                 .points
                                 .iter()
-                                .find(|p| unique_paths.contains(&&p.path))
+                                .find(|p| unique_paths.iter().any(|up| **up == p.path))
                                 .and_then(|p| p.src_pos)
                                 .unwrap_or(0) as u32;
                             diagnotic_log(

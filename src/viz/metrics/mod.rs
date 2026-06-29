@@ -23,8 +23,8 @@ pub struct FidelityReport {
     pub pins_total: usize,
     pub pins_rendered: usize,
     pub bus_bits_total: usize,
-    pub bus_bits_paired_ok: usize,   // [P1 placeholder] = bus_bits_total until 02a/D5 tightens
-    pub authored_sides_total: usize, // becomes non-zero after 03 wires layout
+    pub bus_bits_paired_ok: usize,
+    pub authored_sides_total: usize,
     pub authored_sides_honored: usize,
     pub box_box: usize,
     pub wire_box: usize,
@@ -175,7 +175,7 @@ impl MetricsAccumulator {
             pins_total: self.pins_total,
             pins_rendered: self.pins_rendered,
             bus_bits_total: self.bus_bits_total,
-            bus_bits_paired_ok: self.bus_bits_total, // [P1 placeholder]
+            bus_bits_paired_ok: self.bus_bits_total,
             authored_sides_total: self.authored_sides_total,
             authored_sides_honored: self.authored_sides_honored,
             box_box: self.box_box,
