@@ -39,6 +39,9 @@ pub struct McComponentInst {
     /// Attributes resolved from conditional attribute blocks
     pub cond_attrs: Vec<crate::core::component::mc_attr::McAttribute>,
 
+    /// Resolved attributes (attr values with parameter references substituted at instantiation time)
+    pub resolved_attrs: Vec<crate::core::component::mc_attr::McAttribute>,
+
     /// NC (Not Connected) instance
     pub nc: bool,
 }
@@ -53,6 +56,7 @@ impl McComponentInst {
             pins: HashMap::new(),
             cond_pin_names: HashMap::new(),
             cond_attrs: Vec::new(),
+            resolved_attrs: Vec::new(),
             nc: false,
         };
 
@@ -80,6 +84,7 @@ impl McComponentInst {
             pins: HashMap::new(),
             cond_pin_names: HashMap::new(),
             cond_attrs: Vec::new(),
+            resolved_attrs: Vec::new(),
             nc,
         };
 
@@ -96,6 +101,7 @@ impl McComponentInst {
             pins: HashMap::new(),
             cond_pin_names: HashMap::new(),
             cond_attrs: Vec::new(),
+            resolved_attrs: Vec::new(),
             nc: true,
         };
 
@@ -122,6 +128,8 @@ impl McComponentInst {
         self.init_cond_pins();
         // Evaluate conditional attribute blocks that were deferred from parse time
         self.init_cond_attrs();
+        // Resolve attribute values by substituting parameter references
+        self.init_resolved_attrs();
     }
 
     /// Evaluate conditional pin blocks stored in the component definition
@@ -202,6 +210,61 @@ impl McComponentInst {
                     }
                 }
             }
+        }
+    }
+
+    /// Resolve attribute values by substituting parameter references at instantiation time.
+    /// For example, `spec.volt = volt` with param binding `volt=12V` becomes `spec.volt = 12V`.
+    fn init_resolved_attrs(&mut self) {
+        if self.def.attrs.is_empty() {
+            return;
+        }
+        for attr in self.def.attrs.iter() {
+            let mut resolved = attr.clone();
+            resolved.values = attr
+                .values
+                .iter()
+                .map(|v| self.resolve_attr_value(v))
+                .collect();
+            self.resolved_attrs.push(resolved);
+        }
+    }
+
+    /// Resolve a single McAttrVal by substituting parameter references.
+    fn resolve_attr_value(&self, val: &crate::core::component::mc_attr::McAttrVal) -> crate::core::component::mc_attr::McAttrVal {
+        use crate::core::component::mc_attr::McAttrVal;
+        match val {
+            McAttrVal::AttrVariable(opd) => {
+                let names = opd.expand();
+                if names.len() == 1 {
+                    let name = &names[0];
+                    for binding in self.params.iter() {
+                        let matched = match &binding.declare {
+                            crate::core::basic::mc_paramd::McParamDeclare::Role(ids)
+                            | crate::core::basic::mc_paramd::McParamDeclare::Single(ids) => {
+                                ids.get_primary_name().as_deref() == Some(name)
+                            }
+                            crate::core::basic::mc_paramd::McParamDeclare::UValue(uval) => {
+                                uval.name.get_primary_name().as_deref() == Some(name)
+                            }
+                            _ => false,
+                        };
+                        if matched {
+                            if let Some(value) = binding.get_value() {
+                                return McAttrVal::AttrLiteral(
+                                    crate::core::basic::mc_literal::McLiteral::String(
+                                        crate::core::basic::mc_literal::McString {
+                                            value: format!("{value}"),
+                                        },
+                                    ),
+                                );
+                            }
+                        }
+                    }
+                }
+                val.clone()
+            }
+            _ => val.clone(),
         }
     }
 
