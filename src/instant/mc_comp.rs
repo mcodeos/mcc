@@ -8,6 +8,7 @@
 
 use super::mc_net::{InstError, NetPoint};
 use crate::core::basic::mc_conds::McConds;
+use crate::core::basic::mc_expr::McExpression;
 use crate::core::basic::mc_param::{McParamBindings, McParamValue};
 use crate::core::common::IOType;
 use crate::core::component::McComponent;
@@ -235,36 +236,200 @@ impl McComponentInst {
         use crate::core::component::mc_attr::McAttrVal;
         match val {
             McAttrVal::AttrVariable(opd) => {
+                // Look up the variable name in parameter bindings and return its bound value
+                // as a string literal, e.g. polarity -> "center_positive"
                 let names = opd.expand();
                 if names.len() == 1 {
                     let name = &names[0];
-                    for binding in self.params.iter() {
-                        let matched = match &binding.declare {
-                            crate::core::basic::mc_paramd::McParamDeclare::Role(ids)
-                            | crate::core::basic::mc_paramd::McParamDeclare::Single(ids) => {
-                                ids.get_primary_name().as_deref() == Some(name)
-                            }
-                            crate::core::basic::mc_paramd::McParamDeclare::UValue(uval) => {
-                                uval.name.get_primary_name().as_deref() == Some(name)
-                            }
-                            _ => false,
-                        };
-                        if matched {
-                            if let Some(value) = binding.get_value() {
-                                return McAttrVal::AttrLiteral(
-                                    crate::core::basic::mc_literal::McLiteral::String(
-                                        crate::core::basic::mc_literal::McString {
-                                            value: format!("{value}"),
-                                        },
-                                    ),
-                                );
-                            }
-                        }
+                    if let Some(value_str) = self.lookup_param_value(name) {
+                        return McAttrVal::AttrLiteral(
+                            crate::core::basic::mc_literal::McLiteral::String(
+                                crate::core::basic::mc_literal::McString {
+                                    value: value_str,
+                                },
+                            ),
+                        );
                     }
                 }
                 val.clone()
             }
+            McAttrVal::AttrExpr(expr) => {
+                // Substitute parameter references in the expression tree,
+                // then evaluate to a single string literal.
+                // e.g. quantity * 2 with quantity=2 -> "4"
+                // e.g. "Test: " + polarity + " expression" with polarity="center_positive"
+                //      -> "Test: center_positive expression"
+                if let Some(resolved) = self.resolve_expr_to_literal(expr) {
+                    McAttrVal::AttrLiteral(
+                        crate::core::basic::mc_literal::McLiteral::String(
+                            crate::core::basic::mc_literal::McString {
+                                value: resolved,
+                            },
+                        ),
+                    )
+                } else {
+                    val.clone()
+                }
+            }
+            McAttrVal::Attributes(attrs) => {
+                // Recurse into nested attribute blocks (e.g. spec = [polarity = polarity, ...])
+                // resolving each inner attribute's values.
+                let resolved: Vec<_> = attrs
+                    .iter()
+                    .map(|inner| {
+                        let mut r = inner.clone();
+                        r.values = inner
+                            .values
+                            .iter()
+                            .map(|v| self.resolve_attr_value(v))
+                            .collect();
+                        r
+                    })
+                    .collect();
+                McAttrVal::Attributes(resolved)
+            }
             _ => val.clone(),
+        }
+    }
+
+    /// Look up a parameter by name and return its string value.
+    /// Checks argument bindings first, then falls back to declared defaults
+    /// (needed when a component is instantiated without arguments, e.g. `TEST_EXPRESSION u1`).
+    fn lookup_param_value(&self, name: &str) -> Option<String> {
+        // 1. Check instance parameter bindings
+        for binding in self.params.iter() {
+            let matched = match &binding.declare {
+                crate::core::basic::mc_paramd::McParamDeclare::Role(ids)
+                | crate::core::basic::mc_paramd::McParamDeclare::Single(ids) => {
+                    ids.get_primary_name().as_deref() == Some(name)
+                }
+                crate::core::basic::mc_paramd::McParamDeclare::UValue(uval) => {
+                    uval.name.get_primary_name().as_deref() == Some(name)
+                }
+                _ => false,
+            };
+            if matched {
+                if let Some(value) = binding.get_value() {
+                    return Some(format!("{value}"));
+                }
+            }
+        }
+        // 2. Fall back to declared parameter defaults from the component definition
+        //    (used when no arguments were passed, e.g. TEST_EXPRESSION u1)
+        for declare in self.def.params.iter() {
+            match declare {
+                crate::core::basic::mc_paramd::McParamDeclare::UValue(uval) => {
+                    if uval.name.get_primary_name().as_deref() == Some(name) {
+                        if let Some(ref default) = uval.default {
+                            return Some(default.clone());
+                        }
+                    }
+                }
+                crate::core::basic::mc_paramd::McParamDeclare::Single(ids)
+                | crate::core::basic::mc_paramd::McParamDeclare::Role(ids) => {
+                    if ids.get_primary_name().as_deref() == Some(name) {
+                        return Some(String::new());
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    /// Substitute parameter references in an expression and evaluate the result.
+    ///
+    /// Replaces Variable nodes with their bound parameter values (strings or ints),
+    /// evaluates arithmetic and concatenation, and returns the final string.
+    fn resolve_expr_to_literal(&self, expr: &McExpression) -> Option<String> {
+        match expr {
+            // Substitute a variable with its bound parameter value
+            McExpression::Variable(opd) => {
+                let names = opd.expand();
+                if names.len() == 1 {
+                    self.lookup_param_value(&names[0])
+                } else {
+                    // Multi-value variable: join with spaces
+                    Some(names.join(" "))
+                }
+            }
+            // Simple literals: return their string representation
+            McExpression::Int(i) => Some(i.value.to_string()),
+            McExpression::Float(f) => Some(f.value.to_string()),
+            McExpression::String(s) => Some(s.value.clone()),
+            // String concatenation via +
+            McExpression::Plus(l, r) => {
+                let left = self.resolve_expr_to_literal(l)?;
+                let right = self.resolve_expr_to_literal(r)?;
+                // Concatenate without the "+" separator
+                Some(format!("{left}{right}"))
+            }
+            // Arithmetic: evaluate both sides as integers, compute, return result as string
+            McExpression::Multiply(l, r) => {
+                let left = self.resolve_expr_to_i64(l)?;
+                let right = self.resolve_expr_to_i64(r)?;
+                Some((left * right).to_string())
+            }
+            McExpression::Divide(l, r) => {
+                let left = self.resolve_expr_to_i64(l)?;
+                let right = self.resolve_expr_to_i64(r)?;
+                if right == 0 {
+                    None
+                } else {
+                    Some((left / right).to_string())
+                }
+            }
+            McExpression::Minus(l, r) => {
+                let left = self.resolve_expr_to_i64(l)?;
+                let right = self.resolve_expr_to_i64(r)?;
+                Some((left - right).to_string())
+            }
+            McExpression::Slice(l, r) => {
+                let left = self.resolve_expr_to_literal(l)?;
+                let right = self.resolve_expr_to_literal(r)?;
+                Some(format!("{left}:{right}"))
+            }
+            // Fallback: use the expression's Display representation
+            _ => expr.evaluate(),
+        }
+    }
+
+    /// Helper: resolve an expression to i64 for arithmetic evaluation.
+    /// Returns Some for Int literals, Variables bound to int values, or already-resolved int strings.
+    fn resolve_expr_to_i64(&self, expr: &McExpression) -> Option<i64> {
+        match expr {
+            McExpression::Int(i) => Some(i.value),
+            McExpression::Variable(opd) => {
+                let names = opd.expand();
+                if names.len() == 1 {
+                    self.lookup_param_value(&names[0])
+                        .and_then(|s| s.parse::<i64>().ok())
+                } else {
+                    None
+                }
+            }
+            // Recurse into arithmetic sub-expressions
+            McExpression::Multiply(l, r) => {
+                let left = self.resolve_expr_to_i64(l)?;
+                let right = self.resolve_expr_to_i64(r)?;
+                Some(left * right)
+            }
+            McExpression::Divide(l, r) => {
+                let left = self.resolve_expr_to_i64(l)?;
+                let right = self.resolve_expr_to_i64(r)?;
+                if right == 0 { None } else { Some(left / right) }
+            }
+            McExpression::Minus(l, r) => {
+                let left = self.resolve_expr_to_i64(l)?;
+                let right = self.resolve_expr_to_i64(r)?;
+                Some(left - right)
+            }
+            McExpression::Plus(l, r) => {
+                let left = self.resolve_expr_to_i64(l)?;
+                let right = self.resolve_expr_to_i64(r)?;
+                Some(left + right)
+            }
+            _ => None,
         }
     }
 
