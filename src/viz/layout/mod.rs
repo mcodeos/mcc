@@ -35,6 +35,7 @@ pub mod multi_strategy;
 pub mod normalize;
 pub mod optimize;
 pub mod overlap;
+pub mod pin_place;
 pub mod passive_inline;
 pub mod radial;
 pub mod rails;

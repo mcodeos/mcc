@@ -555,7 +555,7 @@ pub fn assign_entry_points_refine(graph: &mut McVecGraph) {
 ///
 /// - Power / Ground / Input / Output → **don't move** (semantics decide)
 /// - Passive (directionless passive) / Bidir / Unknown → can rearrange
-fn is_repinnable(io: IoDirection) -> bool {
+pub(crate) fn is_repinnable(io: IoDirection) -> bool {
     matches!(
         io,
         IoDirection::Passive | IoDirection::Bidir | IoDirection::Unknown
@@ -565,7 +565,7 @@ fn is_repinnable(io: IoDirection) -> bool {
 /// Pick side based on neighbor direction (dx, dy)
 ///
 /// Use abs(dx) vs abs(dy) to decide horizontal or vertical axis, then look at sign for specific side.
-fn pick_side_by_direction(dx: f64, dy: f64) -> EntrySide {
+pub(crate) fn pick_side_by_direction(dx: f64, dy: f64) -> EntrySide {
     if dx.abs() >= dy.abs() {
         if dx >= 0.0 {
             EntrySide::Right
@@ -584,7 +584,7 @@ fn pick_side_by_direction(dx: f64, dy: f64) -> EntrySide {
 /// Only switch when **target direction** dominates **current direction** by 1.2x or more.
 /// This way if a pin was on Left and neighbor is slightly right (but dy close to dx size),
 /// won't casually switch to Right; neighbor must be clearly on right to switch.
-fn sides_warrant_switch(cur: &EntrySide, new: &EntrySide, dx: f64, dy: f64) -> bool {
+pub(crate) fn sides_warrant_switch(cur: &EntrySide, new: &EntrySide, dx: f64, dy: f64) -> bool {
     if cur == new {
         return false;
     }
@@ -617,7 +617,7 @@ fn axis_of(s: &EntrySide) -> Axis {
 /// Redistribute offsets evenly for multiple pins on same side, avoid stacking
 ///
 /// When to call: after refine switches pin side, to prevent pins newly added to a side from stacking at one place.
-fn normalize_offsets_per_side(b: &mut McVecBox) {
+pub(crate) fn normalize_offsets_per_side(b: &mut McVecBox) {
     let mut by_side: HashMap<EntrySide, Vec<usize>> = HashMap::new();
     for (i, ep) in b.entry_points.iter().enumerate() {
         by_side.entry(ep.side.clone()).or_default().push(i);
@@ -637,7 +637,7 @@ fn normalize_offsets_per_side(b: &mut McVecBox) {
 }
 
 /// (box_id, pin_id) → IoDirection (look up from graph.nets)
-fn collect_pin_io_types(graph: &McVecGraph) -> HashMap<(i64, i64), IoDirection> {
+pub(crate) fn collect_pin_io_types(graph: &McVecGraph) -> HashMap<(i64, i64), IoDirection> {
     let mut out: HashMap<(i64, i64), IoDirection> = HashMap::new();
     for net in &graph.nets {
         for ep in &net.endpoints {
@@ -660,7 +660,7 @@ fn collect_pin_io_types(graph: &McVecGraph) -> HashMap<(i64, i64), IoDirection> 
 }
 
 /// (box_id, pin_id) → [opposite box_id, ...]
-fn collect_pin_neighbors(graph: &McVecGraph) -> HashMap<(i64, i64), Vec<i64>> {
+pub(crate) fn collect_pin_neighbors(graph: &McVecGraph) -> HashMap<(i64, i64), Vec<i64>> {
     let mut out: HashMap<(i64, i64), Vec<i64>> = HashMap::new();
     for net in &graph.nets {
         // all box_id involved in this net
@@ -685,7 +685,7 @@ fn collect_pin_neighbors(graph: &McVecGraph) -> HashMap<(i64, i64), Vec<i64>> {
 }
 
 /// box_id → (cx, cy) geometric center
-fn collect_box_centers(graph: &McVecGraph) -> HashMap<i64, (f64, f64)> {
+pub(crate) fn collect_box_centers(graph: &McVecGraph) -> HashMap<i64, (f64, f64)> {
     graph
         .boxes
         .iter()
@@ -704,7 +704,7 @@ const MIN_BLOCKER_DIM: f64 = 70.0; // only boxes with both dimensions ≥ this v
                                    // small passives don't block → dense subgraph areas don't flip randomly
 
 /// box_id → (x, y, w, h) rectangle
-fn collect_box_rects(graph: &McVecGraph) -> HashMap<i64, (f64, f64, f64, f64)> {
+pub(crate) fn collect_box_rects(graph: &McVecGraph) -> HashMap<i64, (f64, f64, f64, f64)> {
     graph
         .boxes
         .iter()
@@ -713,7 +713,7 @@ fn collect_box_rects(graph: &McVecGraph) -> HashMap<i64, (f64, f64, f64, f64)> {
 }
 
 /// Does segment (x0,y0)→(x1,y1) pass through any **big box not in exclude** (inset RECT_PAD)
-fn path_blocked(
+pub(crate) fn path_blocked(
     from: (f64, f64),
     to: (f64, f64),
     rects: &HashMap<i64, (f64, f64, f64, f64)>,
@@ -788,7 +788,7 @@ fn seg_intersects_rect(
 /// Pick the most empty side among the two edges **perpendicular to preferred** main axis.
 ///
 /// If neither side has enough clearance, return None (routing around won't help, keep original orientation).
-fn open_perpendicular_side(
+pub(crate) fn open_perpendicular_side(
     b: (f64, f64, f64, f64),
     preferred: &EntrySide,
     rects: &HashMap<i64, (f64, f64, f64, f64)>,
