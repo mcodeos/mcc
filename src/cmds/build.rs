@@ -333,6 +333,95 @@ mod phase0_golden {
         );
     }
 
+    /// TEMP bisect: isolate whether layout or routing is nondeterministic.
+    #[test]
+    fn bisect_layout_vs_route() {
+        let Some((root, entry, top)) = hbl_project() else {
+            return;
+        };
+        use mcc::viz::layout::FlowLayouter;
+        use mcc::viz::traits::Layouter;
+        let coords = |g: &mcc::vector::graph::McVecGraph| -> Vec<(i64, i64, i64)> {
+            g.boxes
+                .iter()
+                .map(|b| (b.id, (b.x * 100.0) as i64, (b.y * 100.0) as i64))
+                .collect()
+        };
+        let run_layout = || {
+            let mut g = build_graph(&root, entry.as_deref(), top.as_deref());
+            // mimic api: take sub_graphs, run top layouter on top boxes only
+            let _subs = std::mem::take(&mut g.sub_graphs);
+            FlowLayouter::default().layout(&mut g);
+            coords(&g)
+        };
+        let a = run_layout();
+        let b = run_layout();
+        assert_eq!(a, b, "TOP LAYOUT nondeterministic");
+        eprintln!("[bisect] top layout deterministic ({} boxes)", a.len());
+
+        // now layout + route, compare route segment coords
+        let route_sig = || {
+            let mut g = build_graph(&root, entry.as_deref(), top.as_deref());
+            let _subs = std::mem::take(&mut g.sub_graphs);
+            FlowLayouter::default().layout(&mut g);
+            mcc::viz::layout::passive_inline::straighten_rail_passives(&mut g);
+            let _ = mcc::viz::layout::passive_inline::apply_net_labels(&mut g);
+            mcc::viz::route::scheduler::route_all_with_channels(&mut g);
+            let mut s = String::new();
+            for n in &g.nets {
+                if let Some(r) = &n.route {
+                    s.push_str(&format!("nid={} segs=", n.nid));
+                    for seg in &r.segments {
+                        s.push_str(&format!(
+                            "({:.0},{:.0})->({:.0},{:.0}) ",
+                            seg.from.x, seg.from.y, seg.to.x, seg.to.y
+                        ));
+                    }
+                    s.push('\n');
+                }
+            }
+            s
+        };
+        let ra = route_sig();
+        let rb = route_sig();
+        assert_eq!(ra, rb, "TOP ROUTE nondeterministic");
+        eprintln!("[bisect] top route deterministic");
+
+        // full render twice → dump both signatures to /tmp for diffing
+        let s1 = render_signature(build_graph(&root, entry.as_deref(), top.as_deref()));
+        let s2 = render_signature(build_graph(&root, entry.as_deref(), top.as_deref()));
+        std::fs::write("/tmp/sig1.json", &s1).unwrap();
+        std::fs::write("/tmp/sig2.json", &s2).unwrap();
+        eprintln!("[bisect] wrote /tmp/sig1.json /tmp/sig2.json equal={}", s1 == s2);
+
+        // Replicate render_layer_recursive top-layer EXACTLY (incl promote), compare top route.
+        let top_sig = || {
+            let mut g = build_graph(&root, entry.as_deref(), top.as_deref());
+            mcc::vector::graph::apply_promote_recursive(&mut g);
+            let _subs = std::mem::take(&mut g.sub_graphs);
+            // root layer: passive_inline::collapse is skipped for root in api.rs
+            FlowLayouter::default().layout(&mut g);
+            mcc::viz::layout::passive_inline::straighten_rail_passives(&mut g);
+            let _ = mcc::viz::layout::passive_inline::apply_net_labels(&mut g);
+            mcc::viz::route::scheduler::route_all_with_channels(&mut g);
+            let mut s = String::new();
+            for n in &g.nets {
+                if let Some(r) = &n.route {
+                    s.push_str(&format!("nid={} ", n.nid));
+                    for seg in &r.segments {
+                        s.push_str(&format!("({:.0},{:.0}) ", seg.from.x, seg.from.y));
+                    }
+                    s.push('\n');
+                }
+            }
+            s
+        };
+        let t1 = top_sig();
+        let t2 = top_sig();
+        assert_eq!(t1, t2, "TOP recursive-replica nondeterministic");
+        eprintln!("[bisect] top recursive-replica deterministic");
+    }
+
     /// Smoke test: metrics accumulation on hbl produces sensible counts.
     #[test]
     fn metrics_hbl_smoke() {
