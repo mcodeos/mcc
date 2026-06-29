@@ -12,6 +12,7 @@ use crate::core::basic::mc_ids::{IdsSegment, McIds};
 use crate::core::basic::mc_literal::{McInt, McString};
 use crate::core::basic::mc_param::McParamValue;
 use crate::core::basic::mc_phrase::McPhrase;
+use crate::core::basic::mc_uval::McUnitValue;
 use crate::core::common::IOType;
 use crate::core::component::Mc2Component;
 use crate::core::mc_ifs::Mc2Interface;
@@ -80,6 +81,11 @@ fn collect_ctor_params(inst_node: &AstNode, inst_id_node: &AstNode) -> Vec<McPar
                     out.push(McParamValue::String(McString::from(clean_val.as_str())));
                 }
                 MCAST_OPD_NC => out.push(McParamValue::NC(String::from("NC"))),
+                MCAST_UVALUE => {
+                    if let Some(uval) = McUnitValue::new(&sub) {
+                        out.push(McParamValue::UValue(uval));
+                    }
+                }
                 // net-ref / identifier (V3V3, V1V2, [VDD,GND], flash.SPI ...) —— robust extraction
                 _ => {
                     if let Some(ids) = extract_param_ids(&sub) {
