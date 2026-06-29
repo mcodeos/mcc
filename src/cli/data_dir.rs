@@ -10,7 +10,7 @@
 //!
 //! ## Directory structure
 //!
-//! ```
+//! ```text
 //! <MCC_SYSTEM_ROOT>/
 //! ├── mcode/           # mcode official base library
 //! ├── ti.mcu/         # TI library

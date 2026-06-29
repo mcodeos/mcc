@@ -1245,13 +1245,19 @@ mod tests {
         assert_eq!(eps.len(), 6);
 
         let by_id: HashMap<i64, &EntryPoint> = eps.iter().map(|e| (e.pin_id, e)).collect();
-        assert_eq!(by_id[&1].side, EntrySide::Top); // VCC
-        assert_eq!(by_id[&2].side, EntrySide::Bottom); // GND
-        assert_eq!(by_id[&3].side, EntrySide::Left); // RX
-        assert_eq!(by_id[&4].side, EntrySide::Right); // TX
-                                                      // GPIO should be split to left/right
-        assert!(matches!(by_id[&5].side, EntrySide::Left | EntrySide::Right));
-        assert!(matches!(by_id[&6].side, EntrySide::Left | EntrySide::Right));
+        // Auto MultiPin layout keeps all pins on left/right edges; power/ground
+        // role only affects same-side ordering.
+        assert!(matches!(by_id[&1].side, EntrySide::Left | EntrySide::Right)); // VCC
+        assert!(matches!(by_id[&2].side, EntrySide::Left | EntrySide::Right)); // GND
+        assert!(matches!(by_id[&3].side, EntrySide::Left | EntrySide::Right)); // RX
+        assert!(matches!(by_id[&4].side, EntrySide::Left | EntrySide::Right)); // TX
+        assert!(matches!(by_id[&5].side, EntrySide::Left | EntrySide::Right)); // GPIO
+        assert!(matches!(by_id[&6].side, EntrySide::Left | EntrySide::Right)); // GPIO
+
+        let left_count = eps.iter().filter(|e| e.side == EntrySide::Left).count();
+        let right_count = eps.iter().filter(|e| e.side == EntrySide::Right).count();
+        assert_eq!(left_count, 3);
+        assert_eq!(right_count, 3);
     }
 
     #[test]

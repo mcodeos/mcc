@@ -297,7 +297,7 @@ mod tests {
         });
         let s = render_envelope_text(&e, false);
         assert!(s.contains("mcc load"));
-        assert!(s.contains("anonymous"));
+        assert!(s.contains("[project: test]"));
         assert!(s.contains("summary"));
     }
 
