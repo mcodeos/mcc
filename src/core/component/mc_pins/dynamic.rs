@@ -46,7 +46,23 @@ impl DynamicPinExpr {
     fn variable_has_param_ref(opd: &McOpd) -> bool {
         use crate::core::basic::mc_opd::McOpd;
         match opd {
-            McOpd::Id(id) => id.has_param_ref(),
+            McOpd::Id(id) => {
+                // Has square bracket param refs (e.g. [1:rows])
+                if id.has_param_ref() {
+                    return true;
+                }
+                // Single-segment plain identifiers (e.g. rows, cols) are likely param refs
+                // Multi-segment identifiers (e.g. I0::I2C) are interface bindings, not param refs
+                if id.segments.len() == 1 {
+                    if let crate::core::basic::mc_ids::IdsSegment::Ida(ida) = &id.segments[0] {
+                        // Only one Ida segment with no square brackets → plain identifier → param ref
+                        if !ida.has_square() && !ida.is_empty() {
+                            return true;
+                        }
+                    }
+                }
+                false
+            }
             McOpd::This(t) => t.has_param_ref(),
             McOpd::Pins(p) => p.has_param_ref(),
             McOpd::Uscore => false,
@@ -229,7 +245,12 @@ impl DynamicPinLine {
 
         let pin_names: Vec<String> = match &self.pin_name_expr {
             Some(expr) => {
-                if let Some(names) = expr.expand_range(bindings) {
+                // For Variable expressions (e.g. R[1:rows]C[1:cols]), use expand_with_bindings
+                // which handles string Cartesian product expansion with parameter substitution.
+                // For numeric expressions, use expand_range.
+                if matches!(&expr.expr, McExpression::Variable(_)) {
+                    expr.expand_with_bindings(bindings)
+                } else if let Some(names) = expr.expand_range(bindings) {
                     names.iter().map(|v| v.to_string()).collect()
                 } else {
                     return results;

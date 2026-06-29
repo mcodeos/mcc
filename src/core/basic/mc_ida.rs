@@ -126,7 +126,12 @@ impl McIda {
                     // Numeric range
                     (start_trimmed.parse::<i64>().is_ok() && end_trimmed.parse::<i64>().is_ok()) ||
                     // Single character range
-                    (start_trimmed.len() == 1 && end_trimmed.len() == 1 && start_trimmed.chars().next().unwrap().is_alphabetic() && end_trimmed.chars().next().unwrap().is_alphabetic());
+                    (start_trimmed.len() == 1 && end_trimmed.len() == 1 && start_trimmed.chars().next().unwrap().is_alphabetic() && end_trimmed.chars().next().unwrap().is_alphabetic()) ||
+                    // Mixed range with parameter reference (e.g. 1:rows, rows:10)
+                    (start_trimmed.parse::<i64>().is_ok() && !end_trimmed.parse::<i64>().is_ok() && !end_trimmed.is_empty()) ||
+                    (!start_trimmed.parse::<i64>().is_ok() && end_trimmed.parse::<i64>().is_ok() && !start_trimmed.is_empty()) ||
+                    // Both sides are non-numeric identifiers (e.g. rows:cols)
+                    (!start_trimmed.parse::<i64>().is_ok() && !end_trimmed.parse::<i64>().is_ok() && !start_trimmed.is_empty() && !end_trimmed.is_empty());
 
                 if is_valid_range {
                     return SquareItem::Range(start_trimmed.to_string(), end_trimmed.to_string());
