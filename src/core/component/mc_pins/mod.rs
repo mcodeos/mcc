@@ -1795,9 +1795,18 @@ impl McPinNames {
                                         myself.options.push(McPinPort::Multi(prefixed));
                                     }
                                 } else {
-                                    myself
-                                        .options
-                                        .push(McPinPort::Single(inst_name.to_string()));
+                                    // Consistent with lines 1572 & 1651
+                                    match inst_name.count() {
+                                        1 => myself
+                                            .options
+                                            .push(McPinPort::Single(inst_name.to_string())),
+                                        2.. => myself
+                                            .options
+                                            .push(McPinPort::Multi(inst_name.expand())),
+                                        _ => {
+                                            dlog_error(1203, &exp_node, "Pin name count error");
+                                        }
+                                    }
                                 }
                             }
                         }
