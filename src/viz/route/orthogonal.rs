@@ -410,14 +410,14 @@ fn adjust_path_to_channels(
             // ── Phase E.2: reject too-far snaps (see MAX_SNAP_DISTANCE comment) ──
             let delta = (new_y - pref_y).abs();
             if delta > MAX_SNAP_DISTANCE {
-                eprintln!(
+                crate::vlog!(
                     "[route::orthogonal] net_id={net_id} elbow y snap rejected: {pref_y:.0} → {new_y:.0} \
                      (Δ {delta:.0} > MAX_SNAP_DISTANCE {MAX_SNAP_DISTANCE:.0}), keeping natural elbow"
                 );
                 return vec![s0, s1, s2];
             }
             if delta > 0.5 {
-                eprintln!(
+                crate::vlog!(
                     "[route::orthogonal] net_id={net_id} elbow y {pref_y:.0} → {new_y:.0} (channel)"
                 );
                 // s0.to.y = new_y, s1.from.y = s1.to.y = new_y, s2.from.y = new_y
@@ -439,14 +439,14 @@ fn adjust_path_to_channels(
             // ── Phase E.2: reject too-far snaps ──
             let delta = (new_x - pref_x).abs();
             if delta > MAX_SNAP_DISTANCE {
-                eprintln!(
+                crate::vlog!(
                     "[route::orthogonal] net_id={net_id} elbow x snap rejected: {pref_x:.0} → {new_x:.0} \
                      (Δ {delta:.0} > MAX_SNAP_DISTANCE {MAX_SNAP_DISTANCE:.0}), keeping natural elbow"
                 );
                 return vec![s0, s1, s2];
             }
             if delta > 0.5 {
-                eprintln!(
+                crate::vlog!(
                     "[route::orthogonal] net_id={net_id} elbow x {pref_x:.0} → {new_x:.0} (channel)"
                 );
                 return vec![

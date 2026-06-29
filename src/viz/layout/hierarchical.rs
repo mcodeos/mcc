@@ -399,7 +399,7 @@ fn group_by_rank_sorted(
     // Fault tolerance: filter empty ranks (empty layers left by BFS jumps)
     rows.retain(|r| !r.is_empty());
 
-    eprintln!(
+    crate::vlog!(
         "[layout::hierarchical] {} rank rows, sizes={:?}",
         rows.len(),
         rows.iter().map(|r| r.len()).collect::<Vec<_>>(),

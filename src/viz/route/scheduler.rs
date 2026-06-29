@@ -185,7 +185,7 @@ pub fn route_layer_with_channels(graph: &mut McVecGraph) {
             .then_with(|| a.net_id.cmp(&b.net_id))
     });
 
-    eprintln!(
+    crate::vlog!(
         "[route::scheduler] layer '{}' bid={} planned {} nets ({}H + {}V channels)",
         graph.name,
         graph.bid,
@@ -197,12 +197,12 @@ pub fn route_layer_with_channels(graph: &mut McVecGraph) {
     // 3. Execute according to plan
     for plan in &order {
         if plan.should_warn {
-            eprintln!(
+            crate::vlog!(
                 "[route::scheduler] WARN net '{}' (nid={}) multi-driver Signal — likely DRC violation",
                 plan.net_name, plan.net_id
             );
         }
-        eprintln!(
+        crate::vlog!(
             "[route::scheduler] net='{}' nid={} span={:.0} → {}",
             plan.net_name,
             plan.net_id,
@@ -228,7 +228,7 @@ pub fn route_layer_with_channels(graph: &mut McVecGraph) {
                 .unwrap_or(false);
             if hit {
                 if let Some(r2) = grid_router::reroute_two_point(&grid, graph, &tmp, &acfg) {
-                    eprintln!(
+                    crate::vlog!(
                         "[route::grid] net='{}' nid={} A* reroute (avoid box/avoid wire)",
                         tmp.name, tmp.nid
                     );
@@ -297,7 +297,7 @@ pub fn route_layer_with_channels(graph: &mut McVecGraph) {
                     None
                 };
                 if let Some(r2) = new_route {
-                    eprintln!(
+                    crate::vlog!(
                         "[route::ripup] iter={} net='{}' nid={} rip-up & reroute ({} endpoints)",
                         iter, tmp.name, nid, n_eps
                     );
@@ -318,7 +318,7 @@ pub fn route_layer_with_channels(graph: &mut McVecGraph) {
     }
 
     // 4. Debug statistics
-    eprintln!(
+    crate::vlog!(
         "[route::scheduler] layer done. Total slots reserved: {}",
         channels.total_slots()
     );
@@ -329,7 +329,7 @@ pub fn route_layer_with_channels(graph: &mut McVecGraph) {
         .map(|(nid, v)| (*nid, *v));
     if let Some((nid, v)) = max_net {
         if crate::viz::debug::dump_enabled() {
-            eprintln!("[route::scheduler]   top net: nid={nid} used {v} slots");
+            crate::vlog!("[route::scheduler]   top net: nid={nid} used {v} slots");
         }
     }
 }
@@ -537,7 +537,7 @@ fn merge_same_name_power_ground_nets(graph: &mut crate::vector::graph::McVecGrap
 
         let keep = indices[0];
         let drops: Vec<usize> = indices.into_iter().skip(1).collect();
-        eprintln!(
+        crate::vlog!(
             "[route::scheduler] ITER-6 merge: '{}' kind={:?} {} nets → 1 hyperedge with {} endpoints (kept nid={}, dropped {} nets)",
             name_upper,
             graph.nets[keep].kind,
@@ -571,7 +571,7 @@ fn merge_same_name_power_ground_nets(graph: &mut crate::vector::graph::McVecGrap
         keep
     });
 
-    eprintln!(
+    crate::vlog!(
         "[route::scheduler] ITER-6 merge done: {} merge group(s) applied, {} net(s) removed",
         merge_plans.len(),
         drop_set.len()

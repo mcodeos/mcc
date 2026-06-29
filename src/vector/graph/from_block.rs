@@ -272,7 +272,7 @@ fn build_mc_vec_graph_inner(
                 let symbol = detect_symbol(table, id, &kind);
                 let designator = extract_designator(&name);
                 let value: Option<String> = None; // pass2 model has no value field yet, P01 leaves None
-                eprintln!(
+                crate::velog!(
                     "[graph] ✓ Component: {name} (class={class_name}, symbol={symbol}, pins={pin_count})"
                 );
                 let mut b = McVecBox::new_v2(
@@ -290,7 +290,7 @@ fn build_mc_vec_graph_inner(
                 let ports = table.get_ports_of(id);
                 let io = compute_io(&ports);
                 let box_pins = build_box_pins(&ports, &class_name);
-                eprintln!("[graph] ✓ SubModule: {name} (class={class_name}, ports={port_count})");
+                crate::velog!("[graph] ✓ SubModule: {name} (class={class_name}, ports={port_count})");
                 let mut b = McVecBox::new_v2(
                     id as i64,
                     name,
@@ -307,7 +307,7 @@ fn build_mc_vec_graph_inner(
                 box_ids_set.insert(id);
             }
             DetectedKind::PowerLabel => {
-                eprintln!("[graph] ✓ PowerLabel: {name}");
+                crate::velog!("[graph] ✓ PowerLabel: {name}");
                 // ★ P01: PowerRail symbol with is_ground bit
                 let symbol = Symbol::PowerRail {
                     is_ground: naming::is_ground(&name),
@@ -330,7 +330,7 @@ fn build_mc_vec_graph_inner(
                     for member in &table.children_of(id) {
                         let mname = extract_last_segment(&member.path);
                         if naming::is_power_rail(&mname) && !box_ids_set.contains(&member.id) {
-                            eprintln!("[graph] ✓ PowerLabel (bus member): {mname}");
+                            crate::velog!("[graph] ✓ PowerLabel (bus member): {mname}");
                             let symbol = Symbol::PowerRail {
                                 is_ground: naming::is_ground(&mname),
                             };
@@ -373,7 +373,7 @@ fn build_mc_vec_graph_inner(
                     let io = compute_io(&ports);
                     let box_pins = build_box_pins(&ports, &class_name);
                     let port_count = ports.len();
-                    eprintln!(
+                    crate::velog!(
                         "[graph] ✓ Phase 1.45: module '{}' (bid={}) has {} ports, creating SubModule box",
                         root_name, mod_id, port_count
                     );
@@ -454,7 +454,7 @@ fn build_mc_vec_graph_inner(
                         let designator = super::detect::extract_designator(&parent_name);
                         let io = compute_io(&pins);
                         let box_pins = build_box_pins(&pins, &parent_entry.class_name);
-                        eprintln!(
+                        crate::velog!(
                             "[graph] ✓ Synthesized Component (from net endpoint): {} \
                              (class={}, symbol={}, pins={}) -- visit.rs missed this",
                             parent_name, parent_entry.class_name, symbol, pin_count
@@ -523,7 +523,7 @@ fn build_mc_vec_graph_inner(
                 while let Some(anc_id) = cursor {
                     hops += 1;
                     if hops > MAX_HOPS {
-                        eprintln!(
+                        crate::velog!(
                             "[graph] ⚠ ITER-3 lift: ancestor walk exceeded {} hops for '{}', \
                              aborting (suspect cycle in InstTable parent chain)",
                             MAX_HOPS, entry.path
@@ -541,7 +541,7 @@ fn build_mc_vec_graph_inner(
                         .get_entry(anc_id)
                         .map(|e| extract_last_segment(&e.path))
                         .unwrap_or_else(|| format!("id={anc_id}"));
-                    eprintln!(
+                    crate::velog!(
                         "[graph] ✓ ITER-3 lifted endpoint '{}' (kind={:?}) -> ancestor box '{}' (id={}, hops={}) \
                          -- Phase 2 BFS will map this point to the ancestor",
                         entry.path, entry.kind, anc_name, anc_id, h
@@ -557,7 +557,7 @@ fn build_mc_vec_graph_inner(
             // not treat as "unresolvable" and discard (old logic only handled "endpoint's parent is Component")
             if matches!(entry.kind, InstKind::Component | InstKind::Module) {
                 if let Some(b) = make_box_from_id(table, u) {
-                    eprintln!(
+                    crate::velog!(
                         "[graph] ✓ Box from net endpoint (self is {:?}): {}",
                         entry.kind, name
                     );
@@ -621,7 +621,7 @@ fn build_mc_vec_graph_inner(
                         cursor = table.get_entry(c).and_then(|e| e.parent_id);
                     }
                     if reaches_layer {
-                        eprintln!(
+                        crate::velog!(
                             "[graph] ✓ Phase-E1 boundary label: '{}' (kind={:?}, hops={}) \
                              -> label box (layer bid={})",
                             entry.path, entry.kind, hops, layer_bid
@@ -649,7 +649,7 @@ fn build_mc_vec_graph_inner(
                     }
                 }
 
-                eprintln!(
+                crate::velog!(
                     "[graph] ✗ Skipping unresolved endpoint '{}' (kind={:?}, parent_id={:?}) \
                      -- not a power rail / not a bus label / parent not a Component. \
                      This endpoint will not have a box drawn for it.",
@@ -658,7 +658,7 @@ fn build_mc_vec_graph_inner(
                 continue;
             }
 
-            eprintln!(
+            crate::velog!(
                 "[graph] ✓ PowerLabel (from net endpoint): {} (kind={:?})",
                 name, entry.kind
             );
@@ -692,7 +692,7 @@ fn build_mc_vec_graph_inner(
         };
         count_by_kind[i] += 1;
     }
-    eprintln!(
+    crate::velog!(
         "[graph] '{}' box inventory: total={}, TwoPin={}, MultiPin={}, SubModule={}, PowerLabel={}",
         root_name,
         graph.boxes.len(),
@@ -702,7 +702,7 @@ fn build_mc_vec_graph_inner(
         count_by_kind[3],
     );
     if !graph.boxes.is_empty() && count_by_kind[0] + count_by_kind[1] + count_by_kind[2] == 0 {
-        eprintln!(
+        crate::velog!(
             "[graph] '{}' WARNING: all {} boxes are PowerLabel -- \
              likely visit.rs missed components or Phase 1.5 misclassified endpoints",
             root_name,
@@ -795,7 +795,7 @@ fn build_mc_vec_graph_inner(
             for name in &needed {
                 let is_ground = naming::is_ground(name);
                 let symbol = Symbol::PowerRail { is_ground };
-                eprintln!(
+                crate::velog!(
                     "[graph] ✓ Phase 1.6 synthesized top-level PowerLabel: {name} \
                      (id={next_synth_id}, is_ground={is_ground}) -- no explicit '{name}' Port at root"
                 );
@@ -819,7 +819,7 @@ fn build_mc_vec_graph_inner(
     // ── Phase 2: build point_to_box mapping ──
     let point_to_box = build_point_to_box(table, &graph.boxes);
 
-    eprintln!(
+    crate::velog!(
         "[graph] Phase 2 done: {} point->box mappings across {} boxes",
         point_to_box.len(),
         graph.boxes.len(),
@@ -831,7 +831,7 @@ fn build_mc_vec_graph_inner(
     // Before P03, this simultaneously filled `graph.edges` (binary) and `graph.nets`, P03 cut the former.
     graph.nets = generate_viznets_from_block(block, &point_to_box, table);
 
-    eprintln!(
+    crate::velog!(
         "[graph] Phase 3 done: {} VizNet(s) generated (hyperedge model)",
         graph.nets.len()
     );
@@ -843,7 +843,7 @@ fn build_mc_vec_graph_inner(
     // seeing this will fall back to exiting from the box edge midpoint.
     let synth = synthesize_rail_nets(table, &graph.boxes, &mut graph.nets);
     if synth > 0 {
-        eprintln!("[graph] synthesized {synth} rail net(s) via same-name label match");
+        crate::velog!("[graph] synthesized {synth} rail net(s) via same-name label match");
     }
 
     // ── Phase 4: recursively process block.blocks ──
@@ -988,7 +988,7 @@ fn generate_viznets_from_block(
                                         };
                                         out.push(VizNet::new(nid, nm, NetKind::Signal, eps));
                                     }
-                                    eprintln!(
+                                    crate::velog!(
                                         "[graph] ✓ expanded collapsed bus/port '{}' -> {} signal nets",
                                         net.name, n
                                     );
@@ -1124,7 +1124,7 @@ fn build_point_to_box(table: &InstTable, boxes: &[McVecBox]) -> HashMap<u32, u32
         }
     }
 
-    eprintln!(
+    crate::velog!(
         "[graph] build_point_to_box: {} mappings across {} boxes",
         point_to_box.len(),
         boxes.len()
@@ -1345,7 +1345,7 @@ fn synthesize_rail_nets(table: &InstTable, boxes: &[McVecBox], nets: &mut Vec<Vi
                     }
                 }
 
-                eprintln!(
+                crate::velog!(
                     "[graph]   + ITER-4 synth hyperedge: PowerLabel #{} '{}' -> {} non-rail endpoints ({:?})",
                     pl_id,
                     repr_name,
@@ -1430,7 +1430,7 @@ fn synthesize_rail_nets(table: &InstTable, boxes: &[McVecBox], nets: &mut Vec<Vi
                 let both_non_rail =
                     !matches!(ka, BoxKind::PowerLabel) && !matches!(kb, BoxKind::PowerLabel);
                 if both_non_rail {
-                    eprintln!(
+                    crate::velog!(
                         "[graph]   - skip synth (Iter 6, P1-5): #{a} <-> #{b} via '{repr_name}' \
                          (both non-rail, power/ground delegated to top-level PowerLabel)"
                     );
@@ -1463,7 +1463,7 @@ fn synthesize_rail_nets(table: &InstTable, boxes: &[McVecBox], nets: &mut Vec<Vi
             existing_pairs.insert(dup_key);
             next_nid += 1;
             synth_count += 1;
-            eprintln!(
+            crate::velog!(
                 "[graph]   + synth net (Iter 6, P03): #{} <-> #{} via '{}' ({} common, {} effective)",
                 a,
                 b,

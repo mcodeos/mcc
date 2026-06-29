@@ -130,7 +130,7 @@ impl Layouter for SchematicRadialLayouter {
 
         // ── Phase 2: BUCKET ──
         let buckets = bucket_boxes(graph, anchor_id);
-        eprintln!(
+        crate::vlog!(
             "[layout::schematic_radial] anchor={} buckets: power={} ground={} bypass={} direct={} isolated={}",
             anchor_id,
             buckets.power_rails.len(),
@@ -242,7 +242,7 @@ pub fn pick_anchor(graph: &McVecGraph) -> i64 {
         }
     }
     if crate::viz::debug::dump_enabled() {
-        eprintln!("[layout::schematic_radial] anchor={best_id} score={best_score}");
+        crate::vlog!("[layout::schematic_radial] anchor={best_id} score={best_score}");
     }
     best_id
 }
@@ -704,7 +704,7 @@ fn place_outer_rings(
         .filter(|id| !placed.contains(id))
         .collect();
     if !still_unplaced.is_empty() {
-        eprintln!(
+        crate::vlog!(
             "[layout::schematic_radial] {} disconnected boxes pushed to corner",
             still_unplaced.len()
         );

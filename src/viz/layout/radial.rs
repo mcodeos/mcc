@@ -92,11 +92,11 @@ pub fn find_hub_in_subset(
 
     if crate::viz::debug::dump_enabled() {
         if fallback_mode {
-            eprintln!(
+            crate::vlog!(
                 "[layout::radial] Hub (fallback: no degree>0): id={best_id} (score={best_score})"
             );
         } else {
-            eprintln!("[layout::radial] Hub: id={best_id} (score={best_score})");
+            crate::vlog!("[layout::radial] Hub: id={best_id} (score={best_score})");
         }
     }
     best_id

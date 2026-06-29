@@ -273,7 +273,7 @@ impl ChannelMap {
             }
         }
 
-        eprintln!(
+        crate::vlog!(
             "[route::channels] built {} H-channels, {} V-channels (canvas {}x{}, line_gap={})",
             horizontal.len(),
             vertical.len(),

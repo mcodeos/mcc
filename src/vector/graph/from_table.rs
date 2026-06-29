@@ -52,7 +52,7 @@ pub fn build_graph_from_table(table: &InstTable, root_id: u32) -> McVecGraph {
                 };
                 let pins = table.get_pins_of(child.id);
                 let io = compute_io(&pins);
-                eprintln!("[graph] ✓ Component: {name} (class={class_name}, pins={pin_count})");
+                crate::velog!("[graph] ✓ Component: {name} (class={class_name}, pins={pin_count})");
                 graph.boxes.push(McVecBox::new(
                     child.id as i64,
                     name,
@@ -69,7 +69,7 @@ pub fn build_graph_from_table(table: &InstTable, root_id: u32) -> McVecGraph {
             } => {
                 let ports = table.get_ports_of(child.id);
                 let io = compute_io(&ports);
-                eprintln!("[graph] ✓ SubModule: {name} (class={class_name}, ports={port_count})");
+                crate::velog!("[graph] ✓ SubModule: {name} (class={class_name}, ports={port_count})");
                 graph.boxes.push(McVecBox::new(
                     child.id as i64,
                     name,
@@ -82,7 +82,7 @@ pub fn build_graph_from_table(table: &InstTable, root_id: u32) -> McVecGraph {
                 sub_module_ids.push(child.id);
             }
             DetectedKind::PowerLabel => {
-                eprintln!("[graph] ✓ PowerLabel: {name}");
+                crate::velog!("[graph] ✓ PowerLabel: {name}");
                 graph.boxes.push(McVecBox::new(
                     child.id as i64,
                     name,
@@ -100,7 +100,7 @@ pub fn build_graph_from_table(table: &InstTable, root_id: u32) -> McVecGraph {
                     for member in &members {
                         let mname = extract_last_segment(&member.path);
                         if is_power_label(&mname) {
-                            eprintln!("[graph] ✓ PowerLabel (bus member): {mname}");
+                            crate::velog!("[graph] ✓ PowerLabel (bus member): {mname}");
                             graph.boxes.push(McVecBox::new(
                                 member.id as i64,
                                 mname,

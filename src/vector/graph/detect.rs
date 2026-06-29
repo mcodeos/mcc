@@ -131,7 +131,7 @@ pub fn detect_kind(table: &InstTable, id: u32) -> DetectedKind {
         // ★ P4 diagnostic: these chips' class definitions don't declare pins -> all
         //   `<chip>.<pin>` references collapse to chip id, pin labels show as chip name.
         //   Printing the class name is the list of classes needing pin declarations in lib.
-        eprintln!(
+        crate::velog!(
             "[detect][P4] typed-chip '{}' (class='{}') has NO declared pins -> \
              refs collapse to chip id, pin labels show as '{}'. \
              Declare pins in class '{}' to get real names + side placement.",
@@ -334,7 +334,7 @@ pub fn translate_io_type(t: &IOType) -> IoDirection {
 pub fn warn_if_pin_mismatch(b: &super::box_def::McVecBox) {
     if let Some(expected) = b.symbol.expected_pins() {
         if b.pin_count != expected && b.pin_count != 0 {
-            eprintln!(
+            crate::velog!(
                 "[detect] WARN: '{}' symbol={} expects {} pin(s), got {}",
                 b.name, b.symbol, expected, b.pin_count
             );

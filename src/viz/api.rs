@@ -129,7 +129,7 @@ pub fn render_with_metrics(
     // ── Phase 0: promote (P1) ──
     if opts.apply_promote {
         if super::debug::dump_enabled() {
-            eprintln!("[viz::api] applying promote_recursive (top-level simplest integration)");
+            crate::vlog!("[viz::api] applying promote_recursive (top-level simplest integration)");
         }
         apply_promote_recursive(&mut graph);
     }
@@ -148,7 +148,7 @@ pub fn render_with_metrics(
         &mut metrics,
     );
 
-    eprintln!(
+    crate::vlog!(
         "[viz::api] render done: {} layers, {} bytes total SVG",
         doc.layer_count(),
         doc.total_svg_bytes()
@@ -185,14 +185,14 @@ fn render_layer_recursive(
 
     // ── Phase 1: layout ──
     let mut canvas = if graph.boxes.is_empty() {
-        eprintln!(
+        crate::vlog!(
             "[viz::api] layer {} '{}' is empty, skipping layout",
             bid, name
         );
         (200.0, 100.0)
     } else {
         let cv = layouter.layout(&mut graph);
-        eprintln!(
+        crate::vlog!(
             "[viz::api] layer {} '{}' layout done: canvas={}x{} (algo={})",
             bid,
             name,
@@ -225,7 +225,7 @@ fn render_layer_recursive(
     crate::vector::graph::net_probe::probe_route(&graph); // ★ NEW
 
     let rep = super::route::audit::audit_all(&graph);
-    eprintln!(
+    crate::vlog!(
         "[viz::audit] box-box={} wire-box={} wire-wire={} (total={})",
         rep.box_box,
         rep.wire_box,
@@ -241,7 +241,7 @@ fn render_layer_recursive(
 
     // ── Phase 3: render ──
     let svg = renderer.render(&graph, canvas);
-    eprintln!(
+    crate::vlog!(
         "[viz::api] layer {} '{}' render done: {} bytes (algo={})",
         bid,
         name,

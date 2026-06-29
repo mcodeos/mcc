@@ -240,7 +240,7 @@ pub fn explode_power_rails_to_flags(graph: &mut McVecGraph) {
     graph.boxes.extend(new_flags);
     graph.nets.extend(new_stubs);
 
-    eprintln!(
+    crate::vlog!(
         "[layout::rails] A2: exploded {} rail box(es) → {} flag(s), dropped {} net(s)",
         n_rails, n_flags, n_dropped
     );
@@ -429,7 +429,7 @@ pub fn apply_net_labels(graph: &mut McVecGraph) -> Option<(f64, f64)> {
     graph.boxes.extend(new_boxes);
     graph.nets.extend(new_stubs);
 
-    eprintln!(
+    crate::vlog!(
         "[viz::net_label] layer '{}' bid={}: {} long signal net(s) → {} label stub(s)",
         graph.name, graph.bid, n_drop, n_lbl
     );

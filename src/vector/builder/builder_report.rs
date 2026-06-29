@@ -206,7 +206,7 @@ impl BuilderReport {
 
     /// print summary to stderr
     pub fn print_summary(&self) {
-        eprintln!("{}", self.summary_string());
+        crate::velog!("{}", self.summary_string());
     }
 }
 

@@ -148,7 +148,7 @@ impl<'a> McVecBuilder<'a> {
             Some(id) => id as i64,
             None => {
                 self.report.unresolved_modules.push(my_path.clone());
-                eprintln!("[mc_vec_builder] Warning: module path '{my_path}' not found");
+                crate::velog!("[mc_vec_builder] Warning: module path '{my_path}' not found");
                 -1
             }
         };
@@ -161,7 +161,7 @@ impl<'a> McVecBuilder<'a> {
         // If upstream visit phase drops a component, downstream from_block.rs can only see empty insts
         // and will use Phase 1.5 to substitute endpoints as PowerLabel, causing ICs/resistors/capacitors to not render at all.
         if !inst.components.is_empty() {
-            eprintln!(
+            crate::velog!(
                 "[visit] '{}': {} component(s) declared in pass2",
                 my_path,
                 inst.components.len()
@@ -171,11 +171,11 @@ impl<'a> McVecBuilder<'a> {
             let comp_path = format!("{}.{}", my_path, comp.name);
             match self.inst_table.get_id_by_path(&comp_path) {
                 Some(comp_id) => {
-                    eprintln!("[visit]   ✓ '{comp_path}' → id={comp_id}");
+                    crate::velog!("[visit]   ✓ '{comp_path}' → id={comp_id}");
                     block.insts.push(comp_id as i64);
                 }
                 None => {
-                    eprintln!(
+                    crate::velog!(
                         "[visit]   ✗ MISSING '{comp_path}' (component declared in pass2 but \
                          InstTable.get_id_by_path returned None — pass1/pass2 \
                          registration bug?)"
@@ -192,7 +192,7 @@ impl<'a> McVecBuilder<'a> {
 
         // 4. Recursively process sub-modules
         if !inst.sub_modules.is_empty() {
-            eprintln!(
+            crate::velog!(
                 "[visit] '{}': {} sub_module(s) declared in pass2",
                 my_path,
                 inst.sub_modules.len()
@@ -202,11 +202,11 @@ impl<'a> McVecBuilder<'a> {
             let sub_path = format!("{}.{}", my_path, sub.name);
             match self.inst_table.get_id_by_path(&sub_path) {
                 Some(sub_id) => {
-                    eprintln!("[visit]   ✓ sub '{sub_path}' → id={sub_id}");
+                    crate::velog!("[visit]   ✓ sub '{sub_path}' → id={sub_id}");
                     block.insts.push(sub_id as i64);
                 }
                 None => {
-                    eprintln!("[visit]   ✗ MISSING sub '{sub_path}'");
+                    crate::velog!("[visit]   ✗ MISSING sub '{sub_path}'");
                 }
             }
             let sub_block = self.convert_module(sub, &my_path);
@@ -222,7 +222,7 @@ impl<'a> McVecBuilder<'a> {
                 if matches!(child.kind, InstKind::Component | InstKind::Module)
                     && !existing.contains(&(child.id as i64))
                 {
-                    eprintln!(
+                    crate::velog!(
                         "[visit]   + backfilled '{}' (id={}, kind={}) from InstTable",
                         child.path, child.id, child.kind
                     );
@@ -329,7 +329,7 @@ impl<'a> McVecBuilder<'a> {
                 }
                 // Defensive: in case records/ids lengths mismatch (theoretically impossible), pad/truncate
                 if members.len() != outcome.ids.len() {
-                    eprintln!(
+                    crate::velog!(
                         "[NET] WARN: outcome.records/ids length mismatch (records={}, ids={}) \
                          for point '{}' net '{}'; falling back to all-None member annotation",
                         members.len(),
@@ -354,7 +354,7 @@ impl<'a> McVecBuilder<'a> {
 
             // ★ DEBUG: Print failed points detail for diagnosing point loss
             if !failed_points.is_empty() {
-                eprintln!(
+                crate::velog!(
                     "[NET] {}: lost points! net='{}' (module='{}'), failed: {:?}",
                     if resolved_point_count < 2 {
                         "ALL"
@@ -404,7 +404,7 @@ impl<'a> McVecBuilder<'a> {
                 // Split into max_w sub-nets by position, sub-net name taken from that position's bracket member name
                 // (if that position has no bracket annotation / multiple bracket member names conflict, fall back to
                 // effective_net_name + "[k]" suffix, guaranteeing uniqueness).
-                eprintln!(
+                crate::velog!(
                     "[NET] bracket-mode net='{}' (module='{}'), width={}, points={} → split into {} sub-nets",
                     net_name,
                     module_path,
@@ -566,7 +566,7 @@ impl<'a> McVecBuilder<'a> {
                     match ep_to_first_group.get(&ep) {
                         Some(&prior_gid) => {
                             uf_union(&mut parent, prior_gid, gid);
-                            eprintln!(
+                            crate::velog!(
                                 "[FIX-B] cross-net merge: Pin id={} appears in groups '{}' \
                                  and '{}', unioning",
                                 ep, groups_vec[prior_gid].0, groups_vec[gid].0
@@ -642,7 +642,7 @@ impl<'a> McVecBuilder<'a> {
                 }
                 names.sort_by_key(|n| name_priority(n));
                 let chosen = names[0].clone();
-                eprintln!(
+                crate::velog!(
                     "[FIX-B] merged {} groups into '{}': dropped names = {:?}",
                     members.len(),
                     chosen,
