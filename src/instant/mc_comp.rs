@@ -246,6 +246,26 @@ impl McComponentInst {
                     if let crate::core::basic::mc_param::McParamValue::Int(int_val) = value {
                         bindings.push((name, int_val.value));
                     }
+                } else if let Some(ref default_str) = uval.default {
+                    // Use default value when no argument is provided
+                    if let Ok(default_val) = default_str.parse::<i64>() {
+                        bindings.push((name, default_val));
+                    }
+                }
+            }
+        }
+
+        // Fallback: extract defaults from component declaration params
+        // when no instance bindings exist (e.g., instantiated without args)
+        if bindings.is_empty() {
+            for declare in self.def.params.iter() {
+                if let McParamDeclare::UValue(uval) = declare {
+                    let name = uval.name.get_primary_name().unwrap_or_default();
+                    if let Some(ref default_str) = uval.default {
+                        if let Ok(default_val) = default_str.parse::<i64>() {
+                            bindings.push((name, default_val));
+                        }
+                    }
                 }
             }
         }
