@@ -79,6 +79,7 @@ pub use instant::inst_table::{InstEntry, InstKind, InstTable};
 
 // 🆕 Step 8: McVec rendering side data structure exports
 pub use vector::builder::build_mc_vec;
+pub use vector::builder::build_mc_vec_with_report;
 pub use vector::model::{ConnectionType, McVec, McVecBlock, McVecNet};
 
 pub use vector::graph::{

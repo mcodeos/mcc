@@ -179,11 +179,32 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
         table.1.dump();
         eprintln!("[DUMP] ==============================");
 
-        let vec_block = mcc::build_mc_vec(&inst, &table.1);
+        let (vec_block, build_report) = mcc::build_mc_vec_with_report(&inst, &table.1);
         let graph = mcc::build_mc_vec_graph(&vec_block, &table.1);
 
         let opts = mcc::viz::api::RenderOpts::default();
-        let doc = mcc::viz::api::render_with(graph, opts);
+        let (doc, metrics) = mcc::viz::api::render_with_metrics(graph, opts);
+        let (fidelity, readability) = metrics.finish(Some(&build_report));
+        eprintln!("{}", fidelity.report_line());
+        eprintln!("{}", readability.report_line());
+
+        // [P0-DET] CLI golden guard: compare against baseline when MCC_GOLDEN_CHECK is set
+        if std::env::var("MCC_GOLDEN_CHECK").is_ok() {
+            let sig = doc.to_json();
+            let gp = std::path::PathBuf::from("tests/golden/hbl.golden.json");
+            if std::env::var("UPDATE_GOLDEN").is_ok() || !gp.exists() {
+                std::fs::create_dir_all(gp.parent().unwrap()).ok();
+                std::fs::write(&gp, &sig).ok();
+                eprintln!("[golden] wrote {}", gp.display());
+            } else if sig != std::fs::read_to_string(&gp).unwrap_or_default() {
+                eprintln!(
+                    "[golden] MISMATCH vs {} (UPDATE_GOLDEN=1 to refresh)",
+                    gp.display()
+                );
+                return Ok(BuildOutcome { exit_code: 1 });
+            }
+        }
+
         let html = mcc::viz::template::wrap_document(&doc);
 
         let output_path = args.output.as_deref().unwrap_or("circuit.html");
@@ -214,5 +235,120 @@ fn emit_err(fmt: &OutputFormat, err: RpcError) -> Result<()> {
         Ok(())
     } else {
         Err(anyhow::anyhow!(err.message))
+    }
+}
+
+#[cfg(test)]
+mod phase0_golden {
+    use crate::cmds::manifest;
+    use mcc::McIds;
+    use std::path::{Path, PathBuf};
+
+    /// hbl fixture driven by env vars; skipped if unset (CI without fixture passes).
+    ///   MCC_GOLDEN_PROJECT=<hbl project root>  [MCC_GOLDEN_ENTRY=<entry>] [MCC_GOLDEN_TOP=<top name>]
+    fn hbl_project() -> Option<(PathBuf, Option<String>, Option<String>)> {
+        let root = std::env::var("MCC_GOLDEN_PROJECT").ok()?;
+        Some((
+            PathBuf::from(root),
+            std::env::var("MCC_GOLDEN_ENTRY").ok(),
+            std::env::var("MCC_GOLDEN_TOP").ok(),
+        ))
+    }
+
+    /// Replicate the real `--viz` sequence from build.rs, stopping before render.
+    fn build_graph(
+        root: &Path,
+        entry: Option<&str>,
+        top: Option<&str>,
+    ) -> mcc::vector::graph::McVecGraph {
+        mcc::mcc_init_no_lib();
+        let (entry_uri, top_name) =
+            manifest::build_from_manifest(root, top, entry).expect("build_from_manifest");
+        let ident = McIds::from(top_name.as_str());
+        let inst = mcc::mcc_build(&ident, &entry_uri).expect("mcc_build");
+        let table = mcc::mcc_build_flat(&ident, &entry_uri, 1000).expect("mcc_build_flat");
+        let vec_block = mcc::build_mc_vec(&inst, &table.1);
+        mcc::build_mc_vec_graph(&vec_block, &table.1)
+    }
+
+    /// Fingerprint = VizDocument::to_json() (structure + per-layer SVG).
+    fn render_signature(graph: mcc::vector::graph::McVecGraph) -> String {
+        let opts = mcc::viz::api::RenderOpts::default(); // default = FlowLayouter
+        mcc::viz::api::render_with(graph, opts).to_json()
+    }
+
+    /// Core guard: same input rendered twice must produce byte-identical fingerprints.
+    /// Isolates layout+route determinism; any HashMap-order leak (including in flow.rs)
+    /// will surface here.
+    #[test]
+    fn determinism_render_twice() {
+        let Some((root, entry, top)) = hbl_project() else {
+            eprintln!("[phase0] set MCC_GOLDEN_PROJECT to enable; skipping");
+            return;
+        };
+        let graph = build_graph(&root, entry.as_deref(), top.as_deref());
+        let a = render_signature(graph.clone());
+        let b = render_signature(graph);
+        assert_eq!(
+            a, b,
+            "render_with nondeterministic on identical input graph"
+        );
+    }
+
+    /// Secondary guard: two independent build+render cycles should also match
+    /// (covers build-phase determinism).
+    #[test]
+    fn determinism_two_builds() {
+        let Some((root, entry, top)) = hbl_project() else {
+            return;
+        };
+        let a = render_signature(build_graph(&root, entry.as_deref(), top.as_deref()));
+        let b = render_signature(build_graph(&root, entry.as_deref(), top.as_deref()));
+        assert_eq!(
+            a, b,
+            "two independent builds differ (global-state or HashMap leak)"
+        );
+    }
+
+    /// Golden regression: first run (or UPDATE_GOLDEN=1) writes baseline;
+    /// subsequent runs compare byte-for-byte.
+    #[test]
+    fn golden_roundtrip_hbl() {
+        let Some((root, entry, top)) = hbl_project() else {
+            return;
+        };
+        let sig = render_signature(build_graph(&root, entry.as_deref(), top.as_deref()));
+        let path =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/golden/hbl.golden.json");
+        if std::env::var("UPDATE_GOLDEN").is_ok() || !path.exists() {
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(&path, &sig).unwrap();
+            eprintln!("[golden] wrote baseline -> {}", path.display());
+            return;
+        }
+        let golden = std::fs::read_to_string(&path).unwrap();
+        assert_eq!(
+            sig, golden,
+            "hbl render changed vs golden. If intended: UPDATE_GOLDEN=1 cargo test golden_roundtrip_hbl"
+        );
+    }
+
+    /// Smoke test: metrics accumulation on hbl produces sensible counts.
+    #[test]
+    fn metrics_hbl_smoke() {
+        let Some((root, entry, top)) = hbl_project() else {
+            return;
+        };
+        let graph = build_graph(&root, entry.as_deref(), top.as_deref());
+        let (_, metrics) = mcc::viz::api::render_with_metrics(
+            graph,
+            mcc::viz::api::RenderOpts::default(),
+        );
+        let (fid, read) = metrics.finish(None); // self-consistent even without build report
+        eprintln!("{}", fid.report_line());
+        eprintln!("{}", read.report_line());
+        assert!(fid.pins_rendered <= fid.pins_total);
+        assert!(fid.nets_rendered <= fid.nets_total);
+        assert!(read.total_wirelength >= 0.0 && read.weighted() >= 0.0);
     }
 }
