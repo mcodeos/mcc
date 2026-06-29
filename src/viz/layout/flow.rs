@@ -39,7 +39,7 @@ use super::entry_points::{
     promote_synthetic_pins, split_shared_pins,
 };
 use super::normalize::{compute_canvas, normalize_positions, CANVAS_MARGIN};
-use super::overlap::resolve_overlaps_iterative;
+use super::optimize::PlaceOptimizer;
 use super::rails::{explode_power_rails_to_flags, is_rail_box};
 use super::size::{assign_default_sizes, recompute_sizes_with_pin_count};
 use crate::viz::traits::Layouter;
@@ -195,7 +195,7 @@ impl Layouter for FlowLayouter {
         refine_y_coordinates(graph, 4, self.row_pitch);
 
         // ── Core overlap + fine-tuning ──
-        resolve_overlaps_iterative(graph, 30);
+        PlaceOptimizer::default().run(graph);
         assign_entry_points_refine(graph);
 
         // ★ P0: First determine hub
