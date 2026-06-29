@@ -218,7 +218,10 @@ pub fn run_server_internal(host: &str, port: u16, libs: &[String]) -> Result<()>
     // ── 1. Register all RPC methods ──────────────────────────────────────
     let server = register_all(RpcServerBuilder::new().host(host).port(port)).build();
 
-    // ── 2. Blocking run ───────────────────────────────────────────────
+    // ── 2. Write PID file for client discovery ─────────────────────────
+    write_pid_file(host, port)?;
+
+    // ── 3. Blocking run ───────────────────────────────────────────────
     let result = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
