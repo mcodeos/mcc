@@ -251,13 +251,13 @@ pub fn build_trunk_tap_route<'a>(
         };
         match reserved {
             Some(actual) => {
-                eprintln!(
+                crate::vlog!(
                     "[route::trunk_tap] net_id={net_id} trunk in channel @ {actual:.0} (prefer {p09_axis:.0}, mean {mean_axis:.0})"
                 );
                 actual
             }
             None => {
-                eprintln!(
+                crate::vlog!(
                     "[route::trunk_tap] net_id={net_id} no channel available, fallback to {p09_axis:.0}"
                 );
                 p09_axis

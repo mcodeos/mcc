@@ -198,7 +198,7 @@ pub fn collapse_passives(graph: &mut McVecGraph) -> PassiveStash {
     }
 
     if !stash.is_empty() {
-        eprintln!(
+        crate::vlog!(
             "[layout::passive_inline] collapsed {} series passive(s) into direct nets",
             stash.len()
         );
@@ -270,7 +270,7 @@ pub fn reinsert_passives(graph: &mut McVecGraph, stash: PassiveStash) {
     }
 
     if crate::viz::debug::dump_enabled() {
-        eprintln!("[layout::passive_inline] reinserted passives onto routed lines");
+        crate::vlog!("[layout::passive_inline] reinserted passives onto routed lines");
     }
 }
 
@@ -408,7 +408,7 @@ pub fn straighten_rail_passives(graph: &mut McVecGraph) {
     }
 
     if moved > 0 {
-        eprintln!(
+        crate::vlog!(
             "[layout::passive_inline] straightened {} rail-adjacent passive(s)",
             moved
         );

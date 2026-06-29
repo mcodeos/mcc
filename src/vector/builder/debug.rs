@@ -42,6 +42,17 @@ pub fn dump_enabled() -> bool {
     })
 }
 
+/// `eprintln!`-compatible macro that only prints when `MC_VEC_DUMP` is enabled.
+/// Used to gate the vector builder / graph pipeline's per-net / per-box progress.
+#[macro_export]
+macro_rules! velog {
+    ($($arg:tt)*) => {
+        if $crate::vector::builder::debug::dump_enabled() {
+            eprintln!($($arg)*);
+        }
+    };
+}
+
 // ============================================================================
 // Output functions (called by builder/visit)
 // ============================================================================

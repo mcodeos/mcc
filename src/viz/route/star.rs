@@ -189,7 +189,7 @@ pub fn pick_hub_point(positions: &[(f64, f64)], obstacles: &ObstacleMap) -> (f64
             let tx = cx + r * a.cos();
             let ty = cy + r * a.sin();
             if !obstacles.point_inside_any(tx, ty) {
-                eprintln!(
+                crate::vlog!(
                     "[route::star] hub moved from ({cx:.0},{cy:.0}) to ({tx:.0},{ty:.0}) \
                      (ring {ring}, blocker avoidance)"
                 );
@@ -199,7 +199,7 @@ pub fn pick_hub_point(positions: &[(f64, f64)], obstacles: &ObstacleMap) -> (f64
     }
 
     // Fallback
-    eprintln!(
+    crate::vlog!(
         "[route::star] WARN hub ({cx:.0},{cy:.0}) inside obstacle, no clear spot found in 20 rings"
     );
     (cx, cy)

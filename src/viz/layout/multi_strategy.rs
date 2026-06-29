@@ -76,7 +76,7 @@ impl Layouter for RadialLayouter {
         let all_components = find_connected_components(&graph.boxes, &adj);
         let (multi_comps, single_comps) = partition_components(all_components);
 
-        eprintln!(
+        crate::vlog!(
             "[layout::radial] components: multi={} (sizes={:?}), singleton={}",
             multi_comps.len(),
             multi_comps.iter().map(|c| c.len()).collect::<Vec<_>>(),
@@ -94,7 +94,7 @@ impl Layouter for RadialLayouter {
 
             // 4a. Try linearize as chain first
             if let Some(chain_order) = try_linearize_chain(comp, &adj) {
-                eprintln!(
+                crate::vlog!(
                     "[layout::radial]   chain detected: {} boxes → linear placement",
                     chain_order.len()
                 );

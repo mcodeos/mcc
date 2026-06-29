@@ -302,7 +302,7 @@ pub fn split_shared_pins(graph: &mut McVecGraph) {
             }
         }
         if n_split > 0 {
-            eprintln!(
+            crate::vlog!(
                 "[layout::split_shared] graph '{}' bid={}: split {} shared pin-connection(s) into distinct pins",
                 graph.name, graph.bid, n_split
             );
@@ -508,7 +508,7 @@ pub fn assign_entry_points_refine(graph: &mut McVecGraph) {
             }
 
             if std::env::var("MC_VIZ_REFINE_DUMP").is_ok() {
-                eprintln!(
+                crate::vlog!(
                     "[entry_refine] box '{}' (id={}) pin {} '{}': {:?} → {:?} \
                      (nbr_dir=({:+.0},{:+.0})){}",
                     b.name,
@@ -533,7 +533,7 @@ pub fn assign_entry_points_refine(graph: &mut McVecGraph) {
         }
     }
 
-    eprintln!(
+    crate::vlog!(
         "[entry_refine] graph '{}' bid={}: {} pins reassigned across {} boxes",
         graph.name,
         graph.bid,

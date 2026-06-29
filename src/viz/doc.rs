@@ -5,7 +5,7 @@
 //! [`VizDocument`] —— multi-layer pre-rendered document (fixed version)
 //!
 //! ## Fixes (vs P2 original)
-//! - `to_json` outputs additional `eprintln!` diagnostics: reports whether root_bid is actually in layers
+//! - `to_json` outputs additional `crate::vlog!` diagnostics: reports whether root_bid is actually in layers
 //! - Added `validate()` method: users can verify consistency on the Rust side
 
 use std::collections::HashMap;
@@ -121,15 +121,15 @@ impl VizDocument {
         let issues = self.validate();
         if super::debug::dump_enabled() {
             if !issues.is_empty() {
-                eprintln!(
+                crate::vlog!(
                     "[viz::doc] ⚠ VizDocument validation found {} issue(s):",
                     issues.len()
                 );
                 for issue in &issues {
-                    eprintln!("[viz::doc]   {issue}");
+                    crate::vlog!("[viz::doc]   {issue}");
                 }
             } else {
-                eprintln!(
+                crate::vlog!(
                     "[viz::doc] ✓ document OK: root_bid={}, {} layers, total {} bytes SVG",
                     self.root_bid,
                     self.layer_count(),

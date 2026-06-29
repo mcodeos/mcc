@@ -532,7 +532,7 @@ fn face_core_neighbor(graph: &mut McVecGraph, hub_id: i64) {
         }
     }
 
-    eprintln!(
+    crate::vlog!(
         "[flow::face_core_neighbor] graph '{}' bid={}: flipped {} leaf pin(s) to face core neighbor",
         graph.name, graph.bid, flipped
     );
@@ -632,7 +632,7 @@ fn align_leaf_to_neighbor(graph: &mut McVecGraph, hub_id: i64) {
             moved += 1;
         }
     }
-    eprintln!(
+    crate::vlog!(
         "[flow::align_leaf] graph '{}' bid={}: moved {} leaf(s) to align with neighbor",
         graph.name, graph.bid, moved
     );
@@ -812,7 +812,7 @@ fn assign_flow_ranks(graph: &McVecGraph, hub_min_degree: usize) -> HashMap<i64, 
         || ((root_is_ic || root_is_main_chip) && root_deg >= 3 && root_deg >= second_deg);
 
     if !dominant {
-        eprintln!(
+        crate::vlog!(
             "[layout::flow] root={} (deg={}), single-sided layering",
             root, root_deg
         );
@@ -863,7 +863,7 @@ fn assign_flow_ranks(graph: &McVecGraph, hub_min_degree: usize) -> HashMap<i64, 
 
     let min_r = rank.values().copied().min().unwrap_or(0);
     let max_r = rank.values().copied().max().unwrap_or(0);
-    eprintln!(
+    crate::vlog!(
         "[layout::flow] root={} (deg={}), two-sided: columns [{}..{}], {} branch(es)",
         root,
         root_deg,
@@ -928,7 +928,7 @@ fn compute_isolated_ids(graph: &McVecGraph, hub_id: i64) -> HashSet<i64> {
         }
     }
     if !out.is_empty() {
-        eprintln!(
+        crate::vlog!(
             "[layout::flow] isolated components: {} box(es) not connected to hub {}",
             out.len(),
             hub_id
@@ -997,7 +997,7 @@ fn park_isolated_components(graph: &mut McVecGraph, isolated_ids: &HashSet<i64>)
             moved += 1;
         }
     }
-    eprintln!(
+    crate::vlog!(
         "[layout::flow] parked {} isolated box(es) (+flags) to open area below main (dx={:.0}, dy={:.0})",
         moved, dx, dy
     );
@@ -1076,7 +1076,7 @@ fn group_supply_modules(graph: &mut McVecGraph, exclude: &HashSet<i64>) {
             cur_x += b.w + H_GAP;
         }
     }
-    eprintln!(
+    crate::vlog!(
         "[layout::flow] supply-chain: grouped {} power module(s) into bottom row (y={:.0})",
         order.len(),
         row_y
@@ -1278,7 +1278,7 @@ fn refine_y_coordinates(graph: &mut McVecGraph, iters: usize, row_gap: f64) {
         }
     }
 
-    eprintln!(
+    crate::vlog!(
         "[layout::flow] P5 y-refine: {} sweeps over {} column(s)",
         iters,
         col_keys.len()

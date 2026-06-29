@@ -194,7 +194,7 @@ pub fn resolve_netpoint_v2(
             for port in table.get_ports_of(mod_id) {
                 if let Some(members) = parse_bracket_port_members(&port.path, module_path) {
                     if members.iter().any(|m| m == bare_name) {
-                        eprintln!(
+                        crate::velog!(
                             "[Phase-D] bracket-port-member hit: bare name '{}' in '{}' \
                              → port '{}' (id={})",
                             bare_name, module_path, port.path, port.id
@@ -283,25 +283,25 @@ pub fn resolve_netpoint(table: &InstTable, point: &NetPoint, module_path: &str) 
         match &rec.outcome {
             ResolutionOutcome::Failed => {
                 NP_WARN_COUNT.fetch_add(1, Ordering::Relaxed);
-                eprintln!(
+                crate::velog!(
                     "[mc_vec_builder] Warning: NetPoint '{}' not found (module: {})",
                     rec.point_path, module_path
                 );
             }
             ResolutionOutcome::OwnerFallback => {
-                eprintln!(
+                crate::velog!(
                     "[mc_vec_builder] Iter7 owner-fallback: '{}' (module: {})",
                     rec.point_path, module_path
                 );
             }
             ResolutionOutcome::BareLabelFallback => {
-                eprintln!(
+                crate::velog!(
                     "[mc_vec_builder] Iter7 bare-label-fallback: '{}' (module: {})",
                     rec.point_path, module_path
                 );
             }
             ResolutionOutcome::BracketPortMember { member, port_path } => {
-                eprintln!(
+                crate::velog!(
                     "[mc_vec_builder] Phase-D bracket-port-member: '{}' → member '{}' of '{}' (module: {})",
                     rec.point_path, member, port_path, module_path
                 );
@@ -353,7 +353,7 @@ pub fn resolve_path(table: &InstTable, path: &str, module_path: &str) -> Option<
         return Some(id);
     }
     NP_WARN_COUNT.fetch_add(1, Ordering::Relaxed);
-    eprintln!("[mc_vec_builder] Warning: NetPoint '{path}' not found (module: {module_path})");
+    crate::velog!("[mc_vec_builder] Warning: NetPoint '{path}' not found (module: {module_path})");
     None
 }
 
@@ -401,7 +401,7 @@ pub fn resolve_id(table: &InstTable, path: &str) -> i64 {
         .get_id_by_path(path)
         .map(|id| id as i64)
         .unwrap_or_else(|| {
-            eprintln!("[mc_vec_builder] Warning: path '{path}' not found");
+            crate::velog!("[mc_vec_builder] Warning: path '{path}' not found");
             -1
         })
 }

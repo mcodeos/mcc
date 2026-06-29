@@ -66,7 +66,7 @@
 //!     // 2. Execute in order (mem::take resolves the borrow)
 //!     for (i, choice, name) in plans {
 //!         if choice.should_warn() {
-//!             eprintln!("[route] WARN multi-driver net '{}'", name);
+//!             crate::vlog!("[route] WARN multi-driver net '{}'", name);
 //!         }
 //!         let router = choice.into_router();
 //!         let mut net = std::mem::take(&mut graph.nets[i]);
@@ -305,7 +305,7 @@ pub fn route_layer_with_dispatch(graph: &mut McVecGraph) {
         })
         .collect();
 
-    eprintln!(
+    crate::vlog!(
         "[route::dispatch] layer '{}' bid={} planned {} nets",
         graph.name,
         graph.bid,
@@ -316,14 +316,14 @@ pub fn route_layer_with_dispatch(graph: &mut McVecGraph) {
     for (i, choice, name) in plans {
         // DRC warning
         if choice.should_warn() {
-            eprintln!(
+            crate::vlog!(
                 "[route::dispatch] WARN net '{name}' has multi-driver Signal topology — \
                  likely DRC violation (output-on-output), routing as trunk_tap anyway"
             );
         }
 
         if crate::viz::debug::dump_enabled() {
-            eprintln!("[route::dispatch] net='{}' → {}", name, choice.name());
+            crate::vlog!("[route::dispatch] net='{}' → {}", name, choice.name());
         }
 
         // Borrow trick: extract the net so we can have both &graph + &mut net

@@ -183,7 +183,7 @@ pub fn recompute_sizes_with_pin_count(graph: &mut McVecGraph) -> bool {
     }
 
     if changed {
-        eprintln!(
+        crate::vlog!(
             "[size::recompute] graph '{}' bid={}: {} boxes resized after refine",
             graph.name, graph.bid, delta_count
         );
