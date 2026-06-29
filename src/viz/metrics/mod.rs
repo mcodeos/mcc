@@ -199,7 +199,7 @@ impl MetricsAccumulator {
 // ============================================================================
 // Geometry helpers
 // ============================================================================
-fn route_length(route: &crate::vector::graph::net_def::Route) -> f64 {
+pub(crate) fn route_length(route: &crate::vector::graph::net_def::Route) -> f64 {
     route
         .segments
         .iter()
@@ -208,7 +208,7 @@ fn route_length(route: &crate::vector::graph::net_def::Route) -> f64 {
 }
 
 /// Bend count ≈ number of axis changes between adjacent segments (orthogonal routing: each H↔V switch = one bend).
-fn route_bends(route: &crate::vector::graph::net_def::Route) -> usize {
+pub(crate) fn route_bends(route: &crate::vector::graph::net_def::Route) -> usize {
     #[derive(PartialEq)]
     enum Axis {
         H,
@@ -241,7 +241,7 @@ fn route_bends(route: &crate::vector::graph::net_def::Route) -> usize {
 }
 
 /// Distance to nearest grid line ([0, GRID/2]).
-fn off_grid(v: f64) -> f64 {
+pub(crate) fn off_grid(v: f64) -> f64 {
     let m = v.rem_euclid(GRID);
     m.min(GRID - m)
 }

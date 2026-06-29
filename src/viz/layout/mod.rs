@@ -38,6 +38,7 @@ pub mod passive_inline;
 pub mod radial;
 pub mod rails;
 pub mod schematic_radial;
+pub mod select;
 pub mod size;
 pub use flow::FlowLayouter;
 pub use schematic_radial::SchematicRadialLayouter;

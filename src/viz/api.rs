@@ -35,8 +35,8 @@ use crate::vector::graph::{apply_promote_recursive, McVecGraph};
 use super::debug;
 use super::doc::VizDocument;
 use super::layer::VizLayer;
+use super::layout::select::layout_best;
 use super::layout::{FlowLayouter, HierarchicalLayouter, RadialLayouter, SchematicRadialLayouter};
-use super::route::scheduler::route_all_with_channels;
 use super::traits::{DefaultRenderer, Layouter, Renderer};
 
 // ============================================================================
@@ -49,16 +49,56 @@ pub struct RenderOpts {
     pub renderer: Box<dyn Renderer>,
     /// Whether to promote at top level (P1)
     pub apply_promote: bool,
+    /// Phase 3: top-level candidate layouters for generate-and-rank.
+    /// Default = single candidate (top_layouter), backward compatible.
+    pub top_candidates: Vec<Box<dyn Layouter>>,
+    /// Phase 3: sub-level candidate layouters for generate-and-rank.
+    /// Default = single candidate (sub_layouter), backward compatible.
+    pub sub_candidates: Vec<Box<dyn Layouter>>,
 }
 
 impl Default for RenderOpts {
     fn default() -> Self {
+        let top = FlowLayouter::default();
+        let sub = FlowLayouter::sub();
         Self {
-            // ★ Stage A: default top changed from SchematicRadialLayouter to FlowLayouter
-            top_layouter: Box::new(FlowLayouter::default()),
-            sub_layouter: Box::new(FlowLayouter::sub()),
+            top_layouter: Box::new(top),
+            sub_layouter: Box::new(sub),
             renderer: Box::new(DefaultRenderer),
             apply_promote: true,
+            // Phase 3: multi-candidate generate-and-rank
+            top_candidates: vec![
+                Box::new(FlowLayouter::default()),
+                Box::new(FlowLayouter {
+                    bary_sweeps: 10,
+                    ..FlowLayouter::default()
+                }),
+                Box::new(FlowLayouter {
+                    hub_min_degree: 3,
+                    ..FlowLayouter::default()
+                }),
+                Box::new(FlowLayouter {
+                    fanout_star: true,
+                    ..FlowLayouter::default()
+                }),
+                Box::new(SchematicRadialLayouter::default()),
+                Box::new(HierarchicalLayouter::default()),
+            ],
+            sub_candidates: vec![
+                Box::new(FlowLayouter::sub()),
+                Box::new(FlowLayouter {
+                    bary_sweeps: 10,
+                    ..FlowLayouter::sub()
+                }),
+                Box::new(FlowLayouter {
+                    hub_min_degree: 3,
+                    ..FlowLayouter::sub()
+                }),
+                Box::new(FlowLayouter {
+                    fanout_star: true,
+                    ..FlowLayouter::sub()
+                }),
+            ],
         }
     }
 }
@@ -71,6 +111,8 @@ impl RenderOpts {
             sub_layouter: Box::new(RadialLayouter),
             renderer: Box::new(DefaultRenderer),
             apply_promote: true,
+            top_candidates: vec![Box::new(RadialLayouter)],
+            sub_candidates: vec![Box::new(RadialLayouter)],
         }
     }
 
@@ -81,6 +123,8 @@ impl RenderOpts {
             sub_layouter: Box::new(RadialLayouter),
             renderer: Box::new(DefaultRenderer),
             apply_promote: true,
+            top_candidates: vec![Box::new(HierarchicalLayouter::default())],
+            sub_candidates: vec![Box::new(RadialLayouter)],
         }
     }
 
@@ -91,6 +135,8 @@ impl RenderOpts {
             sub_layouter: Box::new(RadialLayouter),
             renderer: Box::new(DefaultRenderer),
             apply_promote: true,
+            top_candidates: vec![Box::new(RadialLayouter)],
+            sub_candidates: vec![Box::new(RadialLayouter)],
         }
     }
 
@@ -101,6 +147,8 @@ impl RenderOpts {
             sub_layouter: Box::new(RadialLayouter),
             renderer: Box::new(DefaultRenderer),
             apply_promote: true,
+            top_candidates: vec![Box::new(SchematicRadialLayouter::default())],
+            sub_candidates: vec![Box::new(RadialLayouter)],
         }
     }
 }
@@ -142,8 +190,8 @@ pub fn render_with_metrics(
         graph,
         None,
         true,
-        &*opts.top_layouter,
-        &*opts.sub_layouter,
+        &opts.top_candidates,
+        &opts.sub_candidates,
         &*opts.renderer,
         &mut metrics,
     );
@@ -163,8 +211,8 @@ fn render_layer_recursive(
     mut graph: McVecGraph,
     parent: Option<i64>,
     is_root: bool,
-    top_layouter: &dyn Layouter,
-    sub_layouter: &dyn Layouter,
+    top_candidates: &[Box<dyn Layouter>],
+    sub_candidates: &[Box<dyn Layouter>],
     renderer: &dyn Renderer,
     metrics: &mut crate::viz::metrics::MetricsAccumulator,
 ) {
@@ -174,16 +222,9 @@ fn render_layer_recursive(
     let sub_graphs = std::mem::take(&mut graph.sub_graphs);
     let clickable_subs: Vec<i64> = sub_graphs.iter().map(|sg| sg.bid).collect();
 
-    let layouter = if is_root { top_layouter } else { sub_layouter };
+    let candidates = if is_root { top_candidates } else { sub_candidates };
 
-    // ── Phase 0.5: Extract series passive components (subgraphs only; top-level layout unchanged, preserve major component arrangement/orientation) ──
-    let passive_stash = if is_root {
-        super::layout::passive_inline::PassiveStash::empty()
-    } else {
-        super::layout::passive_inline::collapse_passives(&mut graph)
-    };
-
-    // ── Phase 1: layout ──
+    // ── Phase 1–2: layout + route via generate-and-rank ──
     let mut canvas = if graph.boxes.is_empty() {
         crate::vlog!(
             "[viz::api] layer {} '{}' is empty, skipping layout",
@@ -192,36 +233,28 @@ fn render_layer_recursive(
         );
         (200.0, 100.0)
     } else {
-        let cv = layouter.layout(&mut graph);
+        let layouter_name = candidates.first().map(|c| c.name()).unwrap_or("none");
+        graph = layout_best(graph, candidates, is_root);
+
+        // Compute canvas from laid-out boxes
+        let cv = super::layout::normalize::compute_canvas(&graph);
         crate::vlog!(
             "[viz::api] layer {} '{}' layout done: canvas={}x{} (algo={})",
             bid,
             name,
             cv.0 as i32,
             cv.1 as i32,
-            layouter.name()
+            layouter_name
         );
-        debug::dump_layout(&graph, layouter.name(), cv);
+        debug::dump_layout(&graph, layouter_name, cv);
         cv
     };
 
-    // ── Phase 1.5: Place passive components back on wires (before routing) ──
-    super::layout::passive_inline::reinsert_passives(&mut graph, passive_stash);
-
-    // ── Phase 1.7: Series passive components connected to power rails, place on [neighbor]→[flag] wires ──
-    super::layout::passive_inline::straighten_rail_passives(&mut graph);
-
-    // ── ★ Phase 1.8: Long signal nets → net labels (air wires), before routing ──
-    //   Long signal nets that span the entire graph don't draw wires; instead add one label pin at each end
-    //   → eliminates a large number of crossings/jumpers from crossing long wires. Needs to run after layout
-    //   (has coordinates to judge span) and before routing (safe to modify boxes).
-    //   Adding label boxes requires recalculating the canvas.
+    // Phase 1.8: net labels (may update canvas; layout_best already ran it, but
+    // we need the final canvas value for rendering)
     if let Some(cv) = super::layout::passive_inline::apply_net_labels(&mut graph) {
         canvas = cv;
     }
-
-    // ── Phase 2: route ──(★ P10 (S6): channel-aware scheduler) ──
-    route_all_with_channels(&mut graph);
 
     crate::vector::graph::net_probe::probe_route(&graph); // ★ NEW
 
@@ -262,8 +295,8 @@ fn render_layer_recursive(
             sub,
             Some(bid),
             false,
-            top_layouter,
-            sub_layouter,
+            top_candidates,
+            sub_candidates,
             renderer,
             metrics,
         );
