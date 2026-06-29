@@ -461,8 +461,8 @@ impl McModuleInst {
         // If both explicit targets are non-rail nets, the pullup degenerates
         // into a signal-signal bridge (e.g. SCL-SDA bridge instead of SCL-VDD).
         let last_seg = func_name.rsplit('.').next().unwrap_or(func_name);
-        let is_pull = last_seg.eq_ignore_ascii_case("Pullup")
-            || last_seg.eq_ignore_ascii_case("Pulldown");
+        let is_pull =
+            last_seg.eq_ignore_ascii_case("Pullup") || last_seg.eq_ignore_ascii_case("Pulldown");
         if is_pull && targets.len() >= 2 {
             let is_rail = |p: &NetPoint| -> bool {
                 let name = p.path.rsplit('.').next().unwrap_or(&p.path);

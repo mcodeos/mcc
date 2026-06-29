@@ -634,7 +634,9 @@ fn align_leaf_to_neighbor(graph: &mut McVecGraph, hub_id: i64) {
     }
     crate::vlog!(
         "[flow::align_leaf] graph '{}' bid={}: moved {} leaf(s) to align with neighbor",
-        graph.name, graph.bid, moved
+        graph.name,
+        graph.bid,
+        moved
     );
 }
 
@@ -814,7 +816,8 @@ fn assign_flow_ranks(graph: &McVecGraph, hub_min_degree: usize) -> HashMap<i64, 
     if !dominant {
         crate::vlog!(
             "[layout::flow] root={} (deg={}), single-sided layering",
-            root, root_deg
+            root,
+            root_deg
         );
         return mag;
     }

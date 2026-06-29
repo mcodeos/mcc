@@ -206,9 +206,7 @@ impl McCode {
                     && !crate::cli::config::is_system_lib_loading()
                     && !AST_VISIT_DONE.swap(true, Ordering::SeqCst)
                 {
-                    crate::ast::c_bindings::mcc_visit_tree_color(
-                        ast.get_ptr() as *mut McValueFFI
-                    );
+                    crate::ast::c_bindings::mcc_visit_tree_color(ast.get_ptr() as *mut McValueFFI);
                 }
                 self.ast = ast;
             }
@@ -306,9 +304,7 @@ impl McCode {
                     && !crate::cli::config::is_system_lib_loading()
                     && !AST_VISIT_DONE.swap(true, Ordering::SeqCst)
                 {
-                    crate::ast::c_bindings::mcc_visit_tree_color(
-                        ast.get_ptr() as *mut McValueFFI
-                    );
+                    crate::ast::c_bindings::mcc_visit_tree_color(ast.get_ptr() as *mut McValueFFI);
                 }
                 self.ast = ast;
             }

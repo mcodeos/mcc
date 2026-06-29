@@ -187,7 +187,8 @@ fn render_layer_recursive(
     let mut canvas = if graph.boxes.is_empty() {
         crate::vlog!(
             "[viz::api] layer {} '{}' is empty, skipping layout",
-            bid, name
+            bid,
+            name
         );
         (200.0, 100.0)
     } else {

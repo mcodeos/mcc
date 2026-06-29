@@ -119,7 +119,11 @@ fn apply_reserved_overrides(b: &mut McVecBox) {
 fn component_pin_layout(class_name: &str) -> Option<PinLayout> {
     let comp = crate::builder::workspace::WORKSPACE.component_by_class(class_name)?;
     let layout = &comp.layout;
-    if layout.left.is_empty() && layout.right.is_empty() && layout.top.is_empty() && layout.bottom.is_empty() {
+    if layout.left.is_empty()
+        && layout.right.is_empty()
+        && layout.top.is_empty()
+        && layout.bottom.is_empty()
+    {
         return None;
     }
     Some(PinLayout {
@@ -303,7 +307,9 @@ fn build_mc_vec_graph_inner(
                 let ports = table.get_ports_of(id);
                 let io = compute_io(&ports);
                 let box_pins = build_box_pins(&ports, &class_name);
-                crate::velog!("[graph] ✓ SubModule: {name} (class={class_name}, ports={port_count})");
+                crate::velog!(
+                    "[graph] ✓ SubModule: {name} (class={class_name}, ports={port_count})"
+                );
                 let mut b = McVecBox::new_v2(
                     id as i64,
                     name,
@@ -470,7 +476,10 @@ fn build_mc_vec_graph_inner(
                         crate::velog!(
                             "[graph] ✓ Synthesized Component (from net endpoint): {} \
                              (class={}, symbol={}, pins={}) -- visit.rs missed this",
-                            parent_name, parent_entry.class_name, symbol, pin_count
+                            parent_name,
+                            parent_entry.class_name,
+                            symbol,
+                            pin_count
                         );
                         let mut b = McVecBox::new_v2(
                             parent_id as i64,
@@ -539,7 +548,8 @@ fn build_mc_vec_graph_inner(
                         crate::velog!(
                             "[graph] ⚠ ITER-3 lift: ancestor walk exceeded {} hops for '{}', \
                              aborting (suspect cycle in InstTable parent chain)",
-                            MAX_HOPS, entry.path
+                            MAX_HOPS,
+                            entry.path
                         );
                         break;
                     }
@@ -572,7 +582,8 @@ fn build_mc_vec_graph_inner(
                 if let Some(b) = make_box_from_id(table, u) {
                     crate::velog!(
                         "[graph] ✓ Box from net endpoint (self is {:?}): {}",
-                        entry.kind, name
+                        entry.kind,
+                        name
                     );
                     graph.boxes.push(b);
                     box_ids_set.insert(u);
@@ -637,7 +648,10 @@ fn build_mc_vec_graph_inner(
                         crate::velog!(
                             "[graph] ✓ Phase-E1 boundary label: '{}' (kind={:?}, hops={}) \
                              -> label box (layer bid={})",
-                            entry.path, entry.kind, hops, layer_bid
+                            entry.path,
+                            entry.kind,
+                            hops,
+                            layer_bid
                         );
                         // Using PowerLabel/PowerRail reuses the existing BoxKind, geometrically a
                         // named arrow, which matches the conventional drawing of Port labels in
@@ -666,14 +680,17 @@ fn build_mc_vec_graph_inner(
                     "[graph] ✗ Skipping unresolved endpoint '{}' (kind={:?}, parent_id={:?}) \
                      -- not a power rail / not a bus label / parent not a Component. \
                      This endpoint will not have a box drawn for it.",
-                    entry.path, entry.kind, entry.parent_id
+                    entry.path,
+                    entry.kind,
+                    entry.parent_id
                 );
                 continue;
             }
 
             crate::velog!(
                 "[graph] ✓ PowerLabel (from net endpoint): {} (kind={:?})",
-                name, entry.kind
+                name,
+                entry.kind
             );
             let symbol = Symbol::PowerRail {
                 is_ground: naming::is_ground(&name),

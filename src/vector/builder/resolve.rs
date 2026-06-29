@@ -197,7 +197,10 @@ pub fn resolve_netpoint_v2(
                         crate::velog!(
                             "[Phase-D] bracket-port-member hit: bare name '{}' in '{}' \
                              → port '{}' (id={})",
-                            bare_name, module_path, port.path, port.id
+                            bare_name,
+                            module_path,
+                            port.path,
+                            port.id
                         );
                         out.ids.push(port.id as i64);
                         out.records.push(ResolutionRecord {
@@ -285,19 +288,22 @@ pub fn resolve_netpoint(table: &InstTable, point: &NetPoint, module_path: &str) 
                 NP_WARN_COUNT.fetch_add(1, Ordering::Relaxed);
                 crate::velog!(
                     "[mc_vec_builder] Warning: NetPoint '{}' not found (module: {})",
-                    rec.point_path, module_path
+                    rec.point_path,
+                    module_path
                 );
             }
             ResolutionOutcome::OwnerFallback => {
                 crate::velog!(
                     "[mc_vec_builder] Iter7 owner-fallback: '{}' (module: {})",
-                    rec.point_path, module_path
+                    rec.point_path,
+                    module_path
                 );
             }
             ResolutionOutcome::BareLabelFallback => {
                 crate::velog!(
                     "[mc_vec_builder] Iter7 bare-label-fallback: '{}' (module: {})",
-                    rec.point_path, module_path
+                    rec.point_path,
+                    module_path
                 );
             }
             ResolutionOutcome::BracketPortMember { member, port_path } => {

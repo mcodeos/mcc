@@ -226,7 +226,9 @@ impl<'a> McVecBuilder<'a> {
                 {
                     crate::velog!(
                         "[visit]   + backfilled '{}' (id={}, kind={}) from InstTable",
-                        child.path, child.id, child.kind
+                        child.path,
+                        child.id,
+                        child.kind
                     );
                     block.insts.push(child.id as i64);
                 }
@@ -383,7 +385,10 @@ impl<'a> McVecBuilder<'a> {
                 let mut id_to_paths: HashMap<i64, Vec<&String>> = HashMap::new();
                 for (i, pr) in per_point.iter().enumerate() {
                     for &id in &pr.ids {
-                        id_to_paths.entry(id).or_default().push(&conn.points[i].path);
+                        id_to_paths
+                            .entry(id)
+                            .or_default()
+                            .push(&conn.points[i].path);
                     }
                 }
                 for (id, paths) in &id_to_paths {
@@ -646,7 +651,9 @@ impl<'a> McVecBuilder<'a> {
                             crate::velog!(
                                 "[FIX-B] cross-net merge: Pin id={} appears in groups '{}' \
                                  and '{}', unioning",
-                                ep, groups_vec[prior_gid].0, groups_vec[gid].0
+                                ep,
+                                groups_vec[prior_gid].0,
+                                groups_vec[gid].0
                             );
                         }
                         None => {

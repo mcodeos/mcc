@@ -9390,6 +9390,7 @@ yy899:
 
 int mca_lex(void *yylval_param, struct YYLTYPE *yylloc_param)
 {
+    (void)yylloc_param;
     if (g_current_token == NULL) {
         return 0; // End of input
     }

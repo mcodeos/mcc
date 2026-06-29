@@ -242,7 +242,9 @@ pub fn explode_power_rails_to_flags(graph: &mut McVecGraph) {
 
     crate::vlog!(
         "[layout::rails] A2: exploded {} rail box(es) → {} flag(s), dropped {} net(s)",
-        n_rails, n_flags, n_dropped
+        n_rails,
+        n_flags,
+        n_dropped
     );
 }
 
@@ -431,7 +433,10 @@ pub fn apply_net_labels(graph: &mut McVecGraph) -> Option<(f64, f64)> {
 
     crate::vlog!(
         "[viz::net_label] layer '{}' bid={}: {} long signal net(s) → {} label stub(s)",
-        graph.name, graph.bid, n_drop, n_lbl
+        graph.name,
+        graph.bid,
+        n_drop,
+        n_lbl
     );
 
     // Labels may extend past original canvas / land in negative coordinates → renormalize + recompute canvas (no routing yet, only modifying boxes is safe).
