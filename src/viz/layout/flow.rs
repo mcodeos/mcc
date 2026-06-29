@@ -1714,7 +1714,7 @@ mod tests {
     use crate::vector::graph::{BoxKind, EndpointRef, IoSummary, Symbol, VizNet};
 
     fn mk_mod(id: i64, name: &str, pins: usize) -> McVecBox {
-        McVecBox::new_v2(
+        let mut b = McVecBox::new_v2(
             id,
             name.into(),
             String::new(),
@@ -1724,7 +1724,9 @@ mod tests {
             None,
             pins,
             IoSummary::new(),
-        )
+        );
+        b.h = 60.0;
+        b
     }
 
     fn mk_rail(id: i64, name: &str, is_ground: bool) -> McVecBox {
