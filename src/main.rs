@@ -23,7 +23,7 @@
 //!   2. Create a symlink to the binary/bin`:
 //!
 //!     ```bash
-//!     sudo ln -sf "$(pwd)/target/debug/mcc" /usr/local/bin/mcc 
+//!     sudo ln -sf "$(pwd)/target/debug/mcc" /usr/local/bin/mcc
 //!     ```
 //!
 //!     Alternatively, you can add the project directory to your `$PATH`.

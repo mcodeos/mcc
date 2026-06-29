@@ -335,8 +335,7 @@ mod phase0_golden {
             return;
         };
         let sig = render_signature(build_graph(&root, entry.as_deref(), top.as_deref()));
-        let path =
-            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/golden/hbl.golden.json");
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/golden/hbl.golden.json");
         if std::env::var("UPDATE_GOLDEN").is_ok() || !path.exists() {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, &sig).unwrap();
@@ -357,10 +356,8 @@ mod phase0_golden {
             return;
         };
         let graph = build_graph(&root, entry.as_deref(), top.as_deref());
-        let (_, metrics) = mcc::viz::api::render_with_metrics(
-            graph,
-            mcc::viz::api::RenderOpts::default(),
-        );
+        let (_, metrics) =
+            mcc::viz::api::render_with_metrics(graph, mcc::viz::api::RenderOpts::default());
         let (fid, read) = metrics.finish(None); // self-consistent even without build report
         eprintln!("{}", fid.report_line());
         eprintln!("{}", read.report_line());
@@ -408,7 +405,10 @@ mod d_detectors {
     fn build_fixture_or_panic(content: &str) -> Vec<McDiagnostic> {
         let (diags, err) = build_fixture(content);
         if let Some(e) = err {
-            panic!("mcc_build failed: {e}. Diags: {:?}", diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>());
+            panic!(
+                "mcc_build failed: {e}. Diags: {:?}",
+                diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
+            );
         }
         diags
     }

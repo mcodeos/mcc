@@ -69,7 +69,9 @@ pub fn build_graph_from_table(table: &InstTable, root_id: u32) -> McVecGraph {
             } => {
                 let ports = table.get_ports_of(child.id);
                 let io = compute_io(&ports);
-                crate::velog!("[graph] ✓ SubModule: {name} (class={class_name}, ports={port_count})");
+                crate::velog!(
+                    "[graph] ✓ SubModule: {name} (class={class_name}, ports={port_count})"
+                );
                 graph.boxes.push(McVecBox::new(
                     child.id as i64,
                     name,

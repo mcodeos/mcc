@@ -27,9 +27,9 @@ use crate::output::{
     builder::ResultBuilder,
     diagnostic::{batch_from_mcc, PhaseTracker},
     envelope::{
-        ComponentInfo, ConnectionEntry, DefinitionRef, DefinitionsIndex, Envelope,
-        InstanceNode, LoadedFile, NetEntry, Pass0Report, Pass1Report, Pass2Report, Phase, PinInfo,
-        PortInfo, RpcError, ViewData, VizData, WorkspaceRef,
+        ComponentInfo, ConnectionEntry, DefinitionRef, DefinitionsIndex, Envelope, InstanceNode,
+        LoadedFile, NetEntry, Pass0Report, Pass1Report, Pass2Report, Phase, PinInfo, PortInfo,
+        RpcError, ViewData, VizData, WorkspaceRef,
     },
     renderer, OutputFormatExt,
 };
@@ -180,16 +180,16 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                 mcc::mcb_interface_count(),
             );
             for (name, module_uri) in mcc::mcb_iter_modules() {
-                 let ident = McIds::from(name.as_str());
-                 let module_mc_uri = McURI::from(module_uri.as_str());
-                 if let Some(cmie) = mcc::get_def(&ident, &module_mc_uri) {
-                     if let McCMIE::Module(def) = cmie {
-                         renderer.module_ports(&def);
-                         renderer.module_symbols(&def);
-                         renderer.module_lines(&def);
-                     }
-                 }
-             }
+                let ident = McIds::from(name.as_str());
+                let module_mc_uri = McURI::from(module_uri.as_str());
+                if let Some(cmie) = mcc::get_def(&ident, &module_mc_uri) {
+                    if let McCMIE::Module(def) = cmie {
+                        renderer.module_ports(&def);
+                        renderer.module_symbols(&def);
+                        renderer.module_lines(&def);
+                    }
+                }
+            }
 
             // ── Debug: print all component attributes (readable format) ──
             for (comp_name, comp_uri) in mcc::mcb_iter_components() {
@@ -206,7 +206,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                     }
                 }
             }
-         }
+        }
 
         let pass1 = public_collect_pass1(&uri, &mut tracker);
         builder.set_pass1(pass1);
@@ -300,7 +300,10 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                     let (inst, table) = match mcc::mcc_build_flat(&mod_ident, &mod_mc_uri, 1000) {
                         Ok(v) => v,
                         Err(e) => {
-                            eprintln!("[viz] skip module '{}': mcc_build_flat failed: {}", mod_name, e);
+                            eprintln!(
+                                "[viz] skip module '{}': mcc_build_flat failed: {}",
+                                mod_name, e
+                            );
                             continue;
                         }
                     };
@@ -354,10 +357,19 @@ pub fn run(args: &ParseArgs) -> Result<()> {
 
                 std::fs::write(&out_path, &output_text)
                     .with_context(|| format!("Failed to write file: {}", path_str))?;
-                eprintln!("[viz] wrote {} ({} bytes, {} modules)", path_str, output_text.len(), svgs.len());
+                eprintln!(
+                    "[viz] wrote {} ({} bytes, {} modules)",
+                    path_str,
+                    output_text.len(),
+                    svgs.len()
+                );
 
                 builder.set_viz(VizData {
-                    format: if stages.viz_json { "json".into() } else { "html".into() },
+                    format: if stages.viz_json {
+                        "json".into()
+                    } else {
+                        "html".into()
+                    },
                     written_to: Some(path_str),
                     bytes: output_text.len(),
                     layers: 1,
@@ -761,7 +773,9 @@ fn combine_svgs(svgs: &[(String, String)]) -> String {
         out.push_str(&format!(
             r##"  <text x="{:.1}" y="{:.1}" font-size="16" font-weight="700" fill="#333">{}</text>
 "##,
-            margin, y + 16.0, escape_xml_viz(name)
+            margin,
+            y + 16.0,
+            escape_xml_viz(name)
         ));
         y += label_height;
 

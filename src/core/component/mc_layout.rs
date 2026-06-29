@@ -62,7 +62,11 @@ impl McLayout {
             let first_edge_node = match sub_node2.get_sub_node() {
                 Some(n) => n,
                 None => {
-                    dlog_warning(2006, node, "While building layout: Missing subnode for edge");
+                    dlog_warning(
+                        2006,
+                        node,
+                        "While building layout: Missing subnode for edge",
+                    );
                     return None;
                 }
             };

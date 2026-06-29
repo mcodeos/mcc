@@ -937,7 +937,10 @@ fn ep_from_layout(
         ("bottom", &layout.bottom),
     ] {
         for entry in side_entries.1 {
-            let matched = b.pins.iter().any(|p| &p.pin_id == entry || &p.description == entry);
+            let matched = b
+                .pins
+                .iter()
+                .any(|p| &p.pin_id == entry || &p.description == entry);
             if !matched {
                 eprintln!(
                     "[layout] WARN: box '{}' layout {} references pin '{}' which does not exist on this box — ignored",

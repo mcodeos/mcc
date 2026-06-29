@@ -135,16 +135,27 @@ impl McModule {
                     .get_sub_node()
                     .map(|c| c.iter().map(|n| n.get_type()).collect())
                     .unwrap_or_default();
-                eprintln!("[MODBODY {}] clause={} subnode={:?} children={:?}",
-                    idx, clause.get_type(), _sub, _kids);
+                eprintln!(
+                    "[MODBODY {}] clause={} subnode={:?} children={:?}",
+                    idx,
+                    clause.get_type(),
+                    _sub,
+                    _kids
+                );
 
-                eprintln!("[DEBUG-BODY] clause type={} subnode_type={:?} children={:?}",
+                eprintln!(
+                    "[DEBUG-BODY] clause type={} subnode_type={:?} children={:?}",
                     clause.get_type(),
                     clause.get_sub_node().map(|s| s.get_type()),
-                    clause.get_sub_node().map(|s| s.iter().map(|n| n.get_type()).collect::<Vec<_>>()));
-                eprintln!("[DEBUG-BODY-CLAUSE] type={} str={:?}",
+                    clause
+                        .get_sub_node()
+                        .map(|s| s.iter().map(|n| n.get_type()).collect::<Vec<_>>())
+                );
+                eprintln!(
+                    "[DEBUG-BODY-CLAUSE] type={} str={:?}",
                     clause.get_type(),
-                    clause.to_string().unwrap_or_default());
+                    clause.to_string().unwrap_or_default()
+                );
                 match clause.get_type() {
                     MCAST_NET_PORTS => {
                         self.insts.parse(&clause, &self.uri);
@@ -156,10 +167,15 @@ impl McModule {
                                 self.insts.parse(&subnode, &self.uri);
                                 continue;
                             }
-                            eprintln!("[DEBUG-D3] NET subnode type={} str={:?} children={:?}",
+                            eprintln!(
+                                "[DEBUG-D3] NET subnode type={} str={:?} children={:?}",
                                 subnode.get_type(),
                                 subnode.to_string().unwrap_or_default(),
-                                subnode.get_sub_node().map(|s| s.iter().map(|n| (n.get_type(), n.to_string().unwrap_or_default())).collect::<Vec<_>>()));
+                                subnode.get_sub_node().map(|s| s
+                                    .iter()
+                                    .map(|n| (n.get_type(), n.to_string().unwrap_or_default()))
+                                    .collect::<Vec<_>>())
+                            );
                             if subnode.get_type() == MCAST_OPD_RIGHTARROW {
                                 if let Some(first) = subnode.get_sub_node() {
                                     eprintln!("[DEBUG-D3-ARROW] L child type={} str={:?} sub_children={:?}",

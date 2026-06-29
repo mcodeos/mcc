@@ -488,12 +488,7 @@ impl McPins {
                                 let names_cycle = members.iter().cycle();
                                 for (pid, name) in pids.iter().zip(names_cycle) {
                                     let full_name = format!("{list_name}{name}");
-                                    self.register_pin(
-                                        iotype.clone(),
-                                        pid,
-                                        &[full_name],
-                                        &values,
-                                    );
+                                    self.register_pin(iotype.clone(), pid, &[full_name], &values);
                                 }
                                 // also register list_name itself to names_to_id
                                 self.names_to_id
@@ -1472,9 +1467,7 @@ impl McPinNames {
             has_param_ref: false,
         };
 
-        for each_name_option in
-            name_nodes.iter().filter(|n| n.get_type() == MCAST_PIN_NAME)
-        {
+        for each_name_option in name_nodes.iter().filter(|n| n.get_type() == MCAST_PIN_NAME) {
             // mc_pins_name:
             // | mc_nc
             // | mc_int
@@ -1656,9 +1649,7 @@ impl McPinNames {
 
                                 let pname = expr.expand();
                                 match pname.len() {
-                                    1 => {
-                                        myself.options.push(McPinPort::Single(pname[0].clone()))
-                                    }
+                                    1 => myself.options.push(McPinPort::Single(pname[0].clone())),
                                     2.. => myself.options.push(McPinPort::Multi(pname)),
                                     _ => {
                                         dlog_error(1203, &exp_node, "Pin name count error");

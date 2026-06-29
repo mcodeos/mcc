@@ -6137,5 +6137,6 @@ yypdumpstack (yyGLRStack* yystackp)
 #line 1368 "mca.y"
 void mca_error(struct YYLTYPE *loc, mc_value* mcast, const char *msg) {
     (void)loc;
-    
+    (void)mcast;
+    (void)msg;
 }

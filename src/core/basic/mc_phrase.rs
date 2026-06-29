@@ -640,7 +640,10 @@ impl McPhrase {
                         McInstance::Module(m) => format!("Module('{}')", m.name),
                         McInstance::Interface(i) => format!("Interface('{}')", i.name),
                         McInstance::List(l) => format!("List('{}', mem={:?})", l.name, l.member),
-                        McInstance::BusRef { component: _, bus: _ } => todo!(),
+                        McInstance::BusRef {
+                            component: _,
+                            bus: _,
+                        } => todo!(),
                     },
                     _ => format!("{:?}", std::mem::discriminant(&left_opd)),
                 };
@@ -737,7 +740,10 @@ impl McPhrase {
                         McInstance::Module(m) => format!("Module('{}')", m.name),
                         McInstance::Interface(i) => format!("Interface('{}')", i.name),
                         McInstance::List(l) => format!("List('{}', mem={:?})", l.name, l.member),
-                        McInstance::BusRef { component: _, bus: _ } => todo!(),
+                        McInstance::BusRef {
+                            component: _,
+                            bus: _,
+                        } => todo!(),
                     },
                     _ => format!("{:?}", std::mem::discriminant(&left_opd)),
                 };
@@ -2415,7 +2421,7 @@ fn analyze_expr_tree(node: &AstNode) -> (usize, bool, bool, bool) {
                 hm |= m;
                 ha |= a;
                 let _ = c; // child count absorbed into this leaf
-                // Check siblings
+                           // Check siblings
                 let mut next = sub.get_next();
                 while let Some(n) = next {
                     let (c, p, m, a) = analyze_expr_tree(&n);

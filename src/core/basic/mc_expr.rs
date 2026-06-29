@@ -100,9 +100,7 @@ impl McExpression {
             MCAST_UVALUE | MCAST_RANGE_PLUSMINUS => {
                 Some(McExpression::UnitValue(McUnitValue::new(node)?))
             }
-            MCAST_UVALUE_AT => {
-                Some(McExpression::UnitValueAt(McUnitValueAt::new(node)?))
-            }
+            MCAST_UVALUE_AT => Some(McExpression::UnitValueAt(McUnitValueAt::new(node)?)),
 
             // Variable: received by McOpd
             MCAST_OPD_USCORE | MCAST_OPD_THIS | MCAST_OPD_PINS | MCAST_ID | MCAST_IDA

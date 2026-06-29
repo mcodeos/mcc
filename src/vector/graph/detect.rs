@@ -135,7 +135,10 @@ pub fn detect_kind(table: &InstTable, id: u32) -> DetectedKind {
             "[detect][P4] typed-chip '{}' (class='{}') has NO declared pins -> \
              refs collapse to chip id, pin labels show as '{}'. \
              Declare pins in class '{}' to get real names + side placement.",
-            name, entry.class_name, name, entry.class_name
+            name,
+            entry.class_name,
+            name,
+            entry.class_name
         );
         return DetectedKind::Component {
             pin_count,
@@ -336,7 +339,10 @@ pub fn warn_if_pin_mismatch(b: &super::box_def::McVecBox) {
         if b.pin_count != expected && b.pin_count != 0 {
             crate::velog!(
                 "[detect] WARN: '{}' symbol={} expects {} pin(s), got {}",
-                b.name, b.symbol, expected, b.pin_count
+                b.name,
+                b.symbol,
+                expected,
+                b.pin_count
             );
         }
     }

@@ -4,9 +4,9 @@
 //! - ReadabilityScore.weighted() = score for generate-and-rank (iteration 04).
 //! - MetricsAccumulator passes through viz::api::render_layer_recursive, accumulating per layer.
 
+use crate::vector::builder::builder_report::BuilderReport;
 use crate::vector::graph::{McVecGraph, NetKind};
 use crate::viz::route::audit::CollisionReport;
-use crate::vector::builder::builder_report::BuilderReport;
 
 /// Alignment grid for off-grid penalty (no coordinate snapping in this codebase; soft alignment signal, tunable).
 pub const GRID: f64 = 10.0;
@@ -65,7 +65,7 @@ pub struct ReadabilityScore {
     pub total_wirelength: f64,
     pub total_bends: usize,
     pub off_grid_penalty: f64,
-    pub symmetry_penalty: f64,  // [P1 placeholder] wired in 06, always 0 for now
+    pub symmetry_penalty: f64, // [P1 placeholder] wired in 06, always 0 for now
     pub idiom_violation: usize, // [P1 placeholder] wired in 06, always 0 for now
 }
 
@@ -285,8 +285,10 @@ mod tests {
         );
         let mut r = Route::new();
         for (x0, y0, x1, y1) in segs {
-            r.segments
-                .push(Segment { from: Point::new(x0, y0), to: Point::new(x1, y1) });
+            r.segments.push(Segment {
+                from: Point::new(x0, y0),
+                to: Point::new(x1, y1),
+            });
         }
         n.route = Some(r);
         n
@@ -323,7 +325,8 @@ mod tests {
             let mut g = McVecGraph::new(0, "t".into());
             g.boxes.push(mk_box(1, 0.0, 0.0));
             g.boxes.push(mk_box(2, 80.0, 0.0));
-            g.nets.push(net_with_route(0, 1, 2, vec![(0.0, 0.0, 80.0, 0.0)]));
+            g.nets
+                .push(net_with_route(0, 1, 2, vec![(0.0, 0.0, 80.0, 0.0)]));
             let mut a = MetricsAccumulator::default();
             a.accumulate_layer(&g, &CollisionReport::default());
             a.finish(None).1.weighted()

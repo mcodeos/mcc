@@ -230,7 +230,8 @@ pub fn route_layer_with_channels(graph: &mut McVecGraph) {
                 if let Some(r2) = grid_router::reroute_two_point(&grid, graph, &tmp, &acfg) {
                     crate::vlog!(
                         "[route::grid] net='{}' nid={} A* reroute (avoid box/avoid wire)",
-                        tmp.name, tmp.nid
+                        tmp.name,
+                        tmp.nid
                     );
                     tmp.route = Some(r2);
                 }
@@ -299,7 +300,10 @@ pub fn route_layer_with_channels(graph: &mut McVecGraph) {
                 if let Some(r2) = new_route {
                     crate::vlog!(
                         "[route::ripup] iter={} net='{}' nid={} rip-up & reroute ({} endpoints)",
-                        iter, tmp.name, nid, n_eps
+                        iter,
+                        tmp.name,
+                        nid,
+                        n_eps
                     );
                     tmp.route = Some(r2);
                     changed = true;

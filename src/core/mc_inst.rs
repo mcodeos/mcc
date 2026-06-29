@@ -71,7 +71,8 @@ fn collect_ctor_params(inst_node: &AstNode, inst_id_node: &AstNode) -> Vec<McPar
                 }
                 MCAST_STRING => {
                     let val = sub.to_string().unwrap_or_default();
-                    let clean_val = if val.starts_with('"') && val.ends_with('"') && val.len() >= 2 {
+                    let clean_val = if val.starts_with('"') && val.ends_with('"') && val.len() >= 2
+                    {
                         val[1..val.len() - 1].to_string()
                     } else {
                         val
@@ -855,12 +856,17 @@ impl McInstances {
                                         }
                                         MCAST_STRING => {
                                             let val = sub.to_string().unwrap_or_default();
-                                            let clean_val = if val.starts_with('"') && val.ends_with('"') && val.len() >= 2 {
+                                            let clean_val = if val.starts_with('"')
+                                                && val.ends_with('"')
+                                                && val.len() >= 2
+                                            {
                                                 val[1..val.len() - 1].to_string()
                                             } else {
                                                 val
                                             };
-                                            instance_params.push(McParamValue::String(McString::from(clean_val.as_str())));
+                                            instance_params.push(McParamValue::String(
+                                                McString::from(clean_val.as_str()),
+                                            ));
                                         }
                                         MCAST_OPD_NC => {
                                             instance_params
