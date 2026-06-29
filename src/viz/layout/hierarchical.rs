@@ -354,8 +354,11 @@ fn group_by_rank_sorted(
 
     // First bucket by rank
     let mut rows: Vec<Vec<i64>> = vec![Vec::new(); max_rank + 1];
-    for (&id, &r) in ranks {
-        rows[r].push(id);
+    // [P0-DET] Build rows in deterministic box order, not HashMap iteration order
+    for b in &_graph.boxes {
+        if let Some(&r) = ranks.get(&b.id) {
+            rows[r].push(b.id);
+        }
     }
 
     // rank 0: ID ascending (stable starting point, used as barycenter reference later)
@@ -382,12 +385,13 @@ fn group_by_rank_sorted(
                         .collect()
                 })
                 .unwrap_or_default();
-            if neighbors_in_prev.is_empty() {
-                // Nodes with no connection to previous row go to the end
+            let bary = if neighbors_in_prev.is_empty() {
                 usize::MAX
             } else {
                 neighbors_in_prev.iter().sum::<usize>() / neighbors_in_prev.len()
-            }
+            };
+            // [P0-DET] id breaks barycenter ties deterministically
+            (bary, id)
         });
         rows[r] = sorted_row;
     }
@@ -676,5 +680,36 @@ mod tests {
         let y3 = g.boxes.iter().find(|b| b.id == 3).unwrap().y;
         assert!(y1 < y2, "vreg (Power) should be above mcu513");
         assert!(y2 < y3, "mcu513 should be above gnd_sink (Ground)");
+    }
+
+    #[test]
+    fn hierarchical_deterministic_on_ties() {
+        // Construct a graph with barycenter ties: power P at rank 0,
+        // two normal boxes A, B at rank 1, both symmetrically connected to P.
+        // Their barycenter values are identical → id tiebreak is required.
+        let make = || {
+            let mut g = McVecGraph::new(0, "test".into());
+            g.boxes.push(mk_box(1, "VCC", BoxKind::PowerLabel));
+            g.boxes.push(mk_box(2, "A", BoxKind::SubModule));
+            g.boxes.push(mk_box(3, "B", BoxKind::SubModule));
+            g.nets.push(mk_net(0, "n1", 1, 2));
+            g.nets.push(mk_net(1, "n2", 1, 3));
+            g
+        };
+        let mut baseline: Option<Vec<(i64, f64, f64)>> = None;
+        for _ in 0..20 {
+            let mut g = make();
+            HierarchicalLayouter::default().layout(&mut g);
+            let snap: Vec<_> = g.boxes.iter().map(|b| (b.id, b.x, b.y)).collect();
+            match &baseline {
+                None => baseline = Some(snap),
+                Some(b) => {
+                    assert_eq!(
+                        *b, snap,
+                        "HierarchicalLayouter nondeterministic on barycenter ties"
+                    );
+                }
+            }
+        }
     }
 }

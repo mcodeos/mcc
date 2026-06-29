@@ -113,7 +113,16 @@ pub fn render(graph: McVecGraph) -> VizDocument {
     render_with(graph, RenderOpts::default())
 }
 
-pub fn render_with(mut graph: McVecGraph, opts: RenderOpts) -> VizDocument {
+pub fn render_with(graph: McVecGraph, opts: RenderOpts) -> VizDocument {
+    render_with_metrics(graph, opts).0
+}
+
+/// Render and return metrics accumulator (build report not yet merged; dropped/partial
+/// merged by caller at finish time).
+pub fn render_with_metrics(
+    mut graph: McVecGraph,
+    opts: RenderOpts,
+) -> (VizDocument, crate::viz::metrics::MetricsAccumulator) {
     let root_bid = graph.bid;
     let root_name = graph.name.clone();
 
@@ -126,6 +135,7 @@ pub fn render_with(mut graph: McVecGraph, opts: RenderOpts) -> VizDocument {
     }
 
     let mut doc = VizDocument::new(root_bid, root_name);
+    let mut metrics = crate::viz::metrics::MetricsAccumulator::default();
 
     render_layer_recursive(
         &mut doc,
@@ -135,6 +145,7 @@ pub fn render_with(mut graph: McVecGraph, opts: RenderOpts) -> VizDocument {
         &*opts.top_layouter,
         &*opts.sub_layouter,
         &*opts.renderer,
+        &mut metrics,
     );
 
     eprintln!(
@@ -144,7 +155,7 @@ pub fn render_with(mut graph: McVecGraph, opts: RenderOpts) -> VizDocument {
     );
 
     debug::dump_document(&doc);
-    doc
+    (doc, metrics)
 }
 
 fn render_layer_recursive(
@@ -155,6 +166,7 @@ fn render_layer_recursive(
     top_layouter: &dyn Layouter,
     sub_layouter: &dyn Layouter,
     renderer: &dyn Renderer,
+    metrics: &mut crate::viz::metrics::MetricsAccumulator,
 ) {
     let bid = graph.bid;
     let name = graph.name.clone();
@@ -221,6 +233,8 @@ fn render_layer_recursive(
         rep.total()
     );
 
+    metrics.accumulate_layer(&graph, &rep);
+
     debug::dump_route(&graph);
 
     super::route::wire_hops::apply_wire_hops(&mut graph);
@@ -250,6 +264,7 @@ fn render_layer_recursive(
             top_layouter,
             sub_layouter,
             renderer,
+            metrics,
         );
     }
 }

@@ -42,6 +42,7 @@ pub mod layer;
 pub mod traits;
 
 pub mod layout;
+pub mod metrics;
 pub mod render;
 pub mod route;
 pub mod template;
@@ -50,7 +51,7 @@ pub mod template;
 // Top-level re-exports
 // ============================================================================
 
-pub use api::{render, render_to_html, render_with, RenderOpts};
+pub use api::{render, render_to_html, render_with, render_with_metrics, RenderOpts};
 pub use doc::VizDocument;
 pub use layer::VizLayer;
 
