@@ -167,17 +167,17 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
         let table = mcc::mcc_build_flat(&ident, &entry_uri, 1000)
             .map_err(|e| anyhow::anyhow!("mcc_build_flat failed: {}", e))?;
 
-        // ── DEBUG: check whether mcu513 sub-module's components is empty ──
-        let sub = inst.sub_modules.iter().find(|s| s.name == "mcu513");
-        eprintln!(
-            "[CHK] inst-side mcu513.components = {}",
-            sub.map(|s| s.components.len()).unwrap_or(0)
-        );
-
-        // ── DEBUG: dump the full InstTable to diagnose net drop points ──
-        eprintln!("[DUMP] ====== InstTable contents ======");
-        table.1.dump();
-        eprintln!("[DUMP] ==============================");
+        // Pipeline diagnostics gated behind MC_VIZ_DUMP (silent by default).
+        if mcc::viz::log::enabled() {
+            let sub = inst.sub_modules.iter().find(|s| s.name == "mcu513");
+            eprintln!(
+                "[CHK] inst-side mcu513.components = {}",
+                sub.map(|s| s.components.len()).unwrap_or(0)
+            );
+            eprintln!("[DUMP] ====== InstTable contents ======");
+            table.1.dump();
+            eprintln!("[DUMP] ==============================");
+        }
 
         let (vec_block, build_report) = mcc::build_mc_vec_with_report(&inst, &table.1);
         let graph = mcc::build_mc_vec_graph(&vec_block, &table.1);
@@ -185,6 +185,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
         let opts = mcc::viz::api::RenderOpts::default();
         let (doc, metrics) = mcc::viz::api::render_with_metrics(graph, opts);
         let (fidelity, readability) = metrics.finish(Some(&build_report));
+        // Metrics summary: one line each, always shown (this is the acceptance yardstick).
         eprintln!("{}", fidelity.report_line());
         eprintln!("{}", readability.report_line());
 
@@ -211,6 +212,22 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
         std::fs::write(output_path, &html)
             .with_context(|| format!("failed to write file: {}", output_path))?;
         renderer.viz_written(output_path, html.len());
+
+        // [P0/A2] Electrical-fidelity hard gate: a non-perfect fidelity report means
+        // the drawing is electrically wrong (dropped/partial nets, unrendered pins,
+        // box/wire collisions). Fail the build so it can't pass silently.
+        if !fidelity.is_perfect() {
+            eprintln!(
+                "[gate] FIDELITY not perfect -> build failed. See report above. \
+                 (set MCC_FIDELITY_GATE=0 to downgrade to warning)"
+            );
+            let gate_on = std::env::var("MCC_FIDELITY_GATE")
+                .map(|v| v.trim() != "0" && !v.eq_ignore_ascii_case("false"))
+                .unwrap_or(true);
+            if gate_on {
+                return Ok(BuildOutcome { exit_code: 1 });
+            }
+        }
     }
 
     // ── 5. Exit code: based on error count ──
@@ -331,95 +348,6 @@ mod phase0_golden {
             sig, golden,
             "hbl render changed vs golden. If intended: UPDATE_GOLDEN=1 cargo test golden_roundtrip_hbl"
         );
-    }
-
-    /// TEMP bisect: isolate whether layout or routing is nondeterministic.
-    #[test]
-    fn bisect_layout_vs_route() {
-        let Some((root, entry, top)) = hbl_project() else {
-            return;
-        };
-        use mcc::viz::layout::FlowLayouter;
-        use mcc::viz::traits::Layouter;
-        let coords = |g: &mcc::vector::graph::McVecGraph| -> Vec<(i64, i64, i64)> {
-            g.boxes
-                .iter()
-                .map(|b| (b.id, (b.x * 100.0) as i64, (b.y * 100.0) as i64))
-                .collect()
-        };
-        let run_layout = || {
-            let mut g = build_graph(&root, entry.as_deref(), top.as_deref());
-            // mimic api: take sub_graphs, run top layouter on top boxes only
-            let _subs = std::mem::take(&mut g.sub_graphs);
-            FlowLayouter::default().layout(&mut g);
-            coords(&g)
-        };
-        let a = run_layout();
-        let b = run_layout();
-        assert_eq!(a, b, "TOP LAYOUT nondeterministic");
-        eprintln!("[bisect] top layout deterministic ({} boxes)", a.len());
-
-        // now layout + route, compare route segment coords
-        let route_sig = || {
-            let mut g = build_graph(&root, entry.as_deref(), top.as_deref());
-            let _subs = std::mem::take(&mut g.sub_graphs);
-            FlowLayouter::default().layout(&mut g);
-            mcc::viz::layout::passive_inline::straighten_rail_passives(&mut g);
-            let _ = mcc::viz::layout::passive_inline::apply_net_labels(&mut g);
-            mcc::viz::route::scheduler::route_all_with_channels(&mut g);
-            let mut s = String::new();
-            for n in &g.nets {
-                if let Some(r) = &n.route {
-                    s.push_str(&format!("nid={} segs=", n.nid));
-                    for seg in &r.segments {
-                        s.push_str(&format!(
-                            "({:.0},{:.0})->({:.0},{:.0}) ",
-                            seg.from.x, seg.from.y, seg.to.x, seg.to.y
-                        ));
-                    }
-                    s.push('\n');
-                }
-            }
-            s
-        };
-        let ra = route_sig();
-        let rb = route_sig();
-        assert_eq!(ra, rb, "TOP ROUTE nondeterministic");
-        eprintln!("[bisect] top route deterministic");
-
-        // full render twice → dump both signatures to /tmp for diffing
-        let s1 = render_signature(build_graph(&root, entry.as_deref(), top.as_deref()));
-        let s2 = render_signature(build_graph(&root, entry.as_deref(), top.as_deref()));
-        std::fs::write("/tmp/sig1.json", &s1).unwrap();
-        std::fs::write("/tmp/sig2.json", &s2).unwrap();
-        eprintln!("[bisect] wrote /tmp/sig1.json /tmp/sig2.json equal={}", s1 == s2);
-
-        // Replicate render_layer_recursive top-layer EXACTLY (incl promote), compare top route.
-        let top_sig = || {
-            let mut g = build_graph(&root, entry.as_deref(), top.as_deref());
-            mcc::vector::graph::apply_promote_recursive(&mut g);
-            let _subs = std::mem::take(&mut g.sub_graphs);
-            // root layer: passive_inline::collapse is skipped for root in api.rs
-            FlowLayouter::default().layout(&mut g);
-            mcc::viz::layout::passive_inline::straighten_rail_passives(&mut g);
-            let _ = mcc::viz::layout::passive_inline::apply_net_labels(&mut g);
-            mcc::viz::route::scheduler::route_all_with_channels(&mut g);
-            let mut s = String::new();
-            for n in &g.nets {
-                if let Some(r) = &n.route {
-                    s.push_str(&format!("nid={} ", n.nid));
-                    for seg in &r.segments {
-                        s.push_str(&format!("({:.0},{:.0}) ", seg.from.x, seg.from.y));
-                    }
-                    s.push('\n');
-                }
-            }
-            s
-        };
-        let t1 = top_sig();
-        let t2 = top_sig();
-        assert_eq!(t1, t2, "TOP recursive-replica nondeterministic");
-        eprintln!("[bisect] top recursive-replica deterministic");
     }
 
     /// Smoke test: metrics accumulation on hbl produces sensible counts.

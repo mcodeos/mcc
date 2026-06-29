@@ -425,7 +425,12 @@ impl InstTable {
         // 4. Register bus + bus members (Step 6: bus member expansion)
         //    Bus paths use `.` separator: main.power
         //    Bus member paths use `/` separator: main.power/VCC
-        for (bus_name, bus_inst) in inst.get_buses() {
+        // [P0-DET] iterate buses in sorted name order: `register` allocates ids by
+        // call order, so HashMap iteration order would leak into entry/pin ids.
+        let mut bus_names: Vec<&String> = inst.get_buses().keys().collect();
+        bus_names.sort();
+        for bus_name in bus_names {
+            let bus_inst = &inst.get_buses()[bus_name];
             let bus_path = format!("{my_path}.{bus_name}");
 
             // ── Bug ② defense ───────────────────────────────────────────
@@ -465,7 +470,11 @@ impl InstTable {
         }
 
         // 5. Register standalone labels (avoid duplication with ports/buses)
-        for (label_name, net_point) in inst.get_labels() {
+        // [P0-DET] sorted name order: `register` allocates ids by call order.
+        let mut label_names: Vec<&String> = inst.get_labels().keys().collect();
+        label_names.sort();
+        for label_name in label_names {
+            let net_point = &inst.get_labels()[label_name];
             let label_path = format!("{my_path}.{label_name}");
             if self.get_id_by_path(&label_path).is_none() {
                 self.register(
@@ -508,7 +517,12 @@ impl InstTable {
     ///
     /// See `resolve_netpoint_path` comment for details.
     fn flatten_nets(&mut self, inst: &McModuleInst, module_path: &str) {
-        for (net_name, net_points) in &inst.nets {
+        // [P0-DET] sorted net-name order: `net_id_counter` is allocated by iteration
+        // order, so HashMap order would leak into net ids (and downstream pin ids).
+        let mut net_names: Vec<&String> = inst.nets.keys().collect();
+        net_names.sort();
+        for net_name in net_names {
+            let net_points = &inst.nets[net_name];
             let mut point_ids: Vec<u32> = Vec::new();
 
             for np in net_points {
