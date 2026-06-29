@@ -292,6 +292,7 @@ fn build_mc_vec_graph_inner(
                 );
                 b.set_pins(box_pins);
                 warn_if_pin_mismatch(&b);
+                apply_reserved_overrides(&mut b); // ★ Reserved: layout / custom symbol
                 graph.boxes.push(b);
                 box_ids_set.insert(id);
             }

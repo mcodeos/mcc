@@ -126,7 +126,10 @@ impl McModuleInst {
         phrase: &McPhrase,
     ) -> Result<Vec<NetPoint>, InstError> {
         match phrase {
-            McPhrase::Lead => Ok(vec![]),
+            McPhrase::Lead => {
+                let name = format!("(lead)_{:x}", phrase as *const McPhrase as usize);
+                Ok(vec![NetPoint::new(&name, IOType::None)])
+            }
 
             McPhrase::Endpoint(McEndpoint::Single(iref))
                 if matches!(iref.base, McInstance::Bus(_)) =>
@@ -541,8 +544,7 @@ impl McModuleInst {
     ) -> Result<Vec<NetPoint>, InstError> {
         match member {
             McPhrase::Lead => {
-                let name = format!("@_pass_{:x}", member as *const McPhrase as usize);
-                self.ensure_label(&name);
+                let name = format!("(lead)_{:x}", member as *const McPhrase as usize);
                 Ok(vec![NetPoint::new(&name, IOType::None)])
             }
 

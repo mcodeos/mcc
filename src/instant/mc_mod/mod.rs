@@ -25,7 +25,7 @@ mod condition;
 mod debug_dump;
 mod funccall;
 mod funccall_inst;
-mod group;
+pub(crate) mod group;
 mod iterated;
 mod line;
 mod phases;

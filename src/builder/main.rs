@@ -124,7 +124,7 @@ pub fn mcb_add_from_string(uri: &McURI, content: &str) {
     if let Some(mut mcfile) = McCode::new_from_string(&canonical_uri, content) {
         mcfile.parse_ast_from_string(content);
         mcfile.parse_nsp();
-        mcfile.parse_pass1();
+        mcfile.parse_pass1_types();
 
         let binding = workspace::WORKSPACE.mcodes.borrow();
         let entry: dashmap::Entry<'_, _, McCode> = binding.entry(canonical_uri.clone());
@@ -307,14 +307,17 @@ pub fn mcb_parse_all_modules() {
     }
 
     // 3. Parse modules in dependency order
+    // Use remove+insert instead of clone+insert to avoid AstNode ownership issues.
+    // Clone creates a shallow AstNode copy (owned=false) that dangles when the
+    // original (owned=true) is dropped during insert replacement.
     for uri in sorted_uris {
-        let mcfile_clone = workspace::WORKSPACE
+        let mcfile_opt = workspace::WORKSPACE
             .mcodes
             .borrow()
-            .get(&uri)
-            .map(|entry| entry.value().clone());
+            .remove(&uri)
+            .map(|(_k, v)| v);
 
-        if let Some(mut mcfile) = mcfile_clone {
+        if let Some(mut mcfile) = mcfile_opt {
             crate::current_uri::set(&uri);
             mcfile.parse_pass1_modules();
 

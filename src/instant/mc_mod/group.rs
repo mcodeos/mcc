@@ -14,6 +14,13 @@ use crate::core::basic::mc_bus::McBus;
 use crate::core::basic::mc_phrase::McPhrase;
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
 
+/// D5 BUS_ORDER_MISMATCH: process-level count of mismatched bus bits.
+/// When all pairs in a bus connection have mismatched member names, D5 fires and
+/// sets this to the bus width. The metrics module uses this to compute
+/// `bus_bits_paired_ok = bus_bits_total - BUS_BITS_MISMATCHED`.
+pub(crate) static BUS_BITS_MISMATCHED: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
 impl McModuleInst {
     // ========================================================================
     // Group processing (Iteration 6)
@@ -199,6 +206,7 @@ impl McModuleInst {
                     }
                 }
                 if !mismatches.is_empty() && mismatches.len() == left_size {
+                    BUS_BITS_MISMATCHED.store(left_size, std::sync::atomic::Ordering::Relaxed);
                     crate::velog!(
                         "[D5] BUS_ORDER_MISMATCH: all {} pairs have mismatched member names: [{}]. \
                          This may indicate bus member order misalignment between the two sides.",

@@ -175,7 +175,10 @@ impl MetricsAccumulator {
             pins_total: self.pins_total,
             pins_rendered: self.pins_rendered,
             bus_bits_total: self.bus_bits_total,
-            bus_bits_paired_ok: self.bus_bits_total,
+            bus_bits_paired_ok: self.bus_bits_total.saturating_sub(
+                crate::instant::mc_mod::group::BUS_BITS_MISMATCHED
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            ),
             authored_sides_total: self.authored_sides_total,
             authored_sides_honored: self.authored_sides_honored,
             box_box: self.box_box,

@@ -239,6 +239,17 @@ pub fn mcc_diagnose_all() -> Vec<Diagnostic> {
         .to_vec()
 }
 
+/// Clear workspace state (for test isolation).
+pub fn mcc_clear_workspace() {
+    crate::builder::workspace::WORKSPACE.clear_active();
+}
+
+/// Read D5 BUS_BITS_MISMATCHED counter (for test assertions).
+pub fn mcc_bus_bits_mismatched() -> usize {
+    crate::instant::mc_mod::group::BUS_BITS_MISMATCHED
+        .load(std::sync::atomic::Ordering::Relaxed)
+}
+
 pub fn get_def(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     builder::mcb_get_cmie(class_name, uri)
 }

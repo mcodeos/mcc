@@ -219,6 +219,11 @@ impl McIds {
                     self.segments.push(curly_seg);
                 }
             }
+            MCAST_OPD_SQUARE_VEC => {
+                if let Some(square_seg) = Self::parse_square(node) {
+                    self.segments.push(square_seg);
+                }
+            }
             _ => {}
         });
     }
