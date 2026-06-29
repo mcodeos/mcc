@@ -355,7 +355,7 @@ pub fn bucket_boxes(graph: &McVecGraph, anchor_id: i64) -> BoxBuckets {
 }
 
 /// box_id → NetKind set of nets that box connects to
-fn collect_connected_net_kinds(graph: &McVecGraph) -> HashMap<i64, Vec<NetKind>> {
+pub(crate) fn collect_connected_net_kinds(graph: &McVecGraph) -> HashMap<i64, Vec<NetKind>> {
     let mut out: HashMap<i64, Vec<NetKind>> = HashMap::new();
     for net in &graph.nets {
         for ep in &net.endpoints {

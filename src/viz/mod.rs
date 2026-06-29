@@ -38,15 +38,15 @@
 pub mod api;
 pub mod debug;
 pub mod doc;
+pub mod idiom;
 pub mod layer;
-pub mod log;
-pub mod traits;
-
 pub mod layout;
 pub mod metrics;
 pub mod render;
 pub mod route;
 pub mod template;
+pub mod traits;
+pub mod log;
 
 // ============================================================================
 // Top-level re-exports
