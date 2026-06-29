@@ -784,9 +784,37 @@ impl McPhrase {
 
             MCAST_OPD_SQUARE_VEC => {
                 let first_subnode = node.get_sub_node().expect(MISSING_SUBNODE);
+                let subnodes: Vec<AstNode> = first_subnode.iter().collect();
+
+                // ── D6: DROPPED_STATEMENT detection ──────────────────────
+                // When a single-element square bracket (e.g. [2] or [Unknown])
+                // expands to a name that is not a known instance, the statement
+                // may produce no meaningful nets or constraints.
+                if subnodes.len() == 1 {
+                    if let Some(ids) = McIds::new(&subnodes[0]) {
+                        let expanded = ids.expand();
+                        if let Some(expanded_name) = expanded.first() {
+                            if context.find_inst(expanded_name).is_none()
+                                && context.find_inst(&ids.to_string()).is_none()
+                            {
+                                dlog_error(
+                                    2006,
+                                    node,
+                                    &format!(
+                                        "DROPPED_STATEMENT: indexed alias '{}' expands to '{}' which is not a known instance. \
+                                         The statement may produce no nets or constraints.",
+                                        ids.to_string(),
+                                        expanded_name
+                                    ),
+                                );
+                            }
+                        }
+                    }
+                }
+
                 Some(McPhrase::Multiple(
-                    first_subnode
-                        .iter()
+                    subnodes
+                        .into_iter()
                         .map(|n| {
                             Some(McPhrase::new(&n, context)?.upgrade_new_label_or_bus(context))
                         })

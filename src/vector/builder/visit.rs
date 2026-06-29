@@ -379,8 +379,9 @@ impl<'a> McVecBuilder<'a> {
             }
 
             // ── D3: MERGED_SHORT detection ──────────────────────────────────
-            // Check if two different point paths resolve to the same id, indicating
-            // a port without bit width causing signal merging.
+            // Check if multiple point paths (same or different) resolve to the
+            // same id, indicating a bracket expansion duplicate or a port without
+            // bit width causing signal merging.
             {
                 let mut id_to_paths: HashMap<i64, Vec<&String>> = HashMap::new();
                 for (i, pr) in per_point.iter().enumerate() {
@@ -392,22 +393,23 @@ impl<'a> McVecBuilder<'a> {
                     }
                 }
                 for (id, paths) in &id_to_paths {
-                    let mut unique_paths: Vec<&String> = Vec::new();
-                    {
-                        let mut seen: std::collections::HashSet<&String> =
-                            std::collections::HashSet::new();
-                        for p in paths.iter() {
-                            if seen.insert(p) {
-                                unique_paths.push(p);
-                            }
-                        }
-                    }
-                    if unique_paths.len() >= 2 {
-                        let all_power = unique_paths.iter().all(|p| {
+                    // Fire when ≥2 points (even same-named) resolve to the same id.
+                    if paths.len() >= 2 {
+                        let all_power = paths.iter().all(|p| {
                             let upper = p.to_uppercase();
                             crate::vector::graph::naming::is_power_rail(&upper)
                         });
                         if !all_power {
+                            let mut unique_paths: Vec<&String> = Vec::new();
+                            {
+                                let mut seen: std::collections::HashSet<&String> =
+                                    std::collections::HashSet::new();
+                                for p in paths.iter() {
+                                    if seen.insert(p) {
+                                        unique_paths.push(p);
+                                    }
+                                }
+                            }
                             let pos = conn
                                 .points
                                 .iter()
@@ -420,10 +422,11 @@ impl<'a> McVecBuilder<'a> {
                                 pos,
                                 1,
                                 &format!(
-                                    "MERGED_SHORT: net '{}' (module '{}') has multiple distinct signal \
-                                     endpoints resolving to the same node (id={}). Paths: {:?}. \
-                                     This may indicate a port declared without bit width causing signal merging.",
-                                    net_name, module_path, id, unique_paths
+                                    "MERGED_SHORT: net '{}' (module '{}') has {} point(s) \
+                                     resolving to the same node (id={}). Paths: {:?}. \
+                                     This may indicate a bracket expansion duplicate or a port \
+                                     declared without bit width causing signal merging.",
+                                    net_name, module_path, paths.len(), id, unique_paths
                                 ),
                                 &[],
                             );

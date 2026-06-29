@@ -39,8 +39,6 @@ impl McModule {
     pub fn new(node: &AstNode, uri: &McURI) -> Option<Self> {
         // MCK_MODULE
         // |- MCAST_NAME - MCAST_PARAM (option) - MCAST_BODY
-        eprintln!("[MODULE-NEW] uri={}", uri);
-
         if let Some(subnodes) = node.get_sub_node() {
             let module_name = subnodes
                 .iter()
@@ -129,33 +127,7 @@ impl McModule {
 
     pub(crate) fn parse_body(&mut self, body: &AstNode) {
         if let Some(clauses) = body.get_sub_node() {
-            for (idx, clause) in clauses.iter().enumerate() {
-                let _sub = clause.get_sub_node().map(|s| s.get_type());
-                let _kids: Vec<u16> = clause
-                    .get_sub_node()
-                    .map(|c| c.iter().map(|n| n.get_type()).collect())
-                    .unwrap_or_default();
-                eprintln!(
-                    "[MODBODY {}] clause={} subnode={:?} children={:?}",
-                    idx,
-                    clause.get_type(),
-                    _sub,
-                    _kids
-                );
-
-                eprintln!(
-                    "[DEBUG-BODY] clause type={} subnode_type={:?} children={:?}",
-                    clause.get_type(),
-                    clause.get_sub_node().map(|s| s.get_type()),
-                    clause
-                        .get_sub_node()
-                        .map(|s| s.iter().map(|n| n.get_type()).collect::<Vec<_>>())
-                );
-                eprintln!(
-                    "[DEBUG-BODY-CLAUSE] type={} str={:?}",
-                    clause.get_type(),
-                    clause.to_string().unwrap_or_default()
-                );
+            for clause in clauses.iter() {
                 match clause.get_type() {
                     MCAST_NET_PORTS => {
                         self.insts.parse(&clause, &self.uri);
@@ -167,30 +139,7 @@ impl McModule {
                                 self.insts.parse(&subnode, &self.uri);
                                 continue;
                             }
-                            eprintln!(
-                                "[DEBUG-D3] NET subnode type={} str={:?} children={:?}",
-                                subnode.get_type(),
-                                subnode.to_string().unwrap_or_default(),
-                                subnode.get_sub_node().map(|s| s
-                                    .iter()
-                                    .map(|n| (n.get_type(), n.to_string().unwrap_or_default()))
-                                    .collect::<Vec<_>>())
-                            );
-                            if subnode.get_type() == MCAST_OPD_RIGHTARROW {
-                                if let Some(first) = subnode.get_sub_node() {
-                                    eprintln!("[DEBUG-D3-ARROW] L child type={} str={:?} sub_children={:?}",
-                                        first.get_type(),
-                                        first.to_string().unwrap_or_default(),
-                                        first.get_sub_node().map(|s| s.iter().map(|n| (n.get_type(), n.to_string().unwrap_or_default())).collect::<Vec<_>>()));
-                                    if let Some(second) = first.get_next() {
-                                        eprintln!("[DEBUG-D3-ARROW] R child type={} str={:?} sub_children={:?}",
-                                            second.get_type(),
-                                            second.to_string().unwrap_or_default(),
-                                            second.get_sub_node().map(|s| s.iter().map(|n| (n.get_type(), n.to_string().unwrap_or_default())).collect::<Vec<_>>()));
-                                    }
-                                }
-                            }
-                            match McPhrase::new(&subnode, self) {
+match McPhrase::new(&subnode, self) {
                                 Some(net) => {
                                     self.lines.push(net);
                                 }

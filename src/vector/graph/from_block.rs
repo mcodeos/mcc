@@ -710,8 +710,6 @@ fn build_mc_vec_graph_inner(
         }
     }
 
-    // ★ S3.5: After Phase 1.5, print an overview of box type distribution, to quickly spot
-    // anomalies like "all PowerLabel"
     let mut count_by_kind = [0usize; 4]; // TwoPin/MultiPin/SubModule/PowerLabel
     for b in &graph.boxes {
         let i = match b.kind {
@@ -854,6 +852,32 @@ fn build_mc_vec_graph_inner(
         point_to_box.len(),
         graph.boxes.len(),
     );
+
+    // ── D4: GHOST_PORT detection (box-level) ────────────────────────────
+    // Scan boxes for placeholder pins (id ≥ 8e9) that were synthesized
+    // because the component declared only an estimated pin count (pins = N)
+    // without actual pin definitions. These placeholder pins represent
+    // unmapped ghost ports.
+    for b in &graph.boxes {
+        for p in &b.pins {
+            if p.id >= 8_000_000_000 {
+                crate::builder::diagnostic::diagnotic_log(
+                    2004,
+                    crate::builder::diagnostic::DiagnosticLevel::Error,
+                    0,
+                    1,
+                    &format!(
+                        "GHOST_PORT: box '{}' (id={}) has placeholder pin '{}' (id={}) \
+                         that is not mapped to any real component pin. \
+                         The component declared only an estimated pin count (pins = N) \
+                         without actual pin definitions.",
+                        b.name, b.id, p.pin_id, p.id
+                    ),
+                    &[],
+                );
+            }
+        }
+    }
 
     // ── ★ Phase 3: VizNet (only network model after P03) ──
     //
@@ -1096,23 +1120,21 @@ fn generate_viznets_from_block(
                 endpoints.push(e);
             } else if pid >= 0 {
                 // ── D4: GHOST_PORT detection ────────────────────────────────
-                // Check if endpoint references a placeholder pin (high id ≥ 8e9)
-                // or a pin that can't be mapped to any box in the current layer.
-                const PLACEHOLDER_BASE: i64 = 8_000_000_000;
-                if pid >= PLACEHOLDER_BASE {
-                    crate::builder::diagnostic::diagnotic_log(
-                        2004,
-                        crate::builder::diagnostic::DiagnosticLevel::Error,
-                        0,
-                        1,
-                        &format!(
-                            "GHOST_PORT: net '{}' endpoint id={} is a placeholder pin (≥{}). \
-                             This pin crosses module boundary and is not properly exposed as a port.",
-                            net.name, pid, PLACEHOLDER_BASE
-                        ),
-                        &[],
-                    );
-                }
+                // Fire when a net endpoint can't be mapped to any box in the
+                // current layer. This includes placeholder pins (id ≥ 8e9) and
+                // pins whose InstTable entry exists but isn't mapped to any box.
+                crate::builder::diagnostic::diagnotic_log(
+                    2004,
+                    crate::builder::diagnostic::DiagnosticLevel::Error,
+                    0,
+                    1,
+                    &format!(
+                        "GHOST_PORT: net '{}' endpoint id={} is not mapped to any box. \
+                         This pin may cross a module boundary without being properly exposed as a port.",
+                        net.name, pid
+                    ),
+                    &[],
+                );
             }
         }
 

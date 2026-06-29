@@ -372,10 +372,14 @@ mod phase0_golden {
 // ============================================================================
 // Each test creates a small .mc fixture that triggers a specific detector,
 // builds it, and asserts that the expected diagnostic code was emitted.
+// Tests use a global lock because mcc global state (workspace) is not thread-safe.
 #[cfg(test)]
 mod d_detectors {
+    use std::sync::Mutex;
     use mcc::McDiagnostic;
     use mcc::McIds;
+
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
 
     /// Helper: build a fixture string and return diagnostics produced.
     /// Returns (diagnostics, build_error) — build_error is Some(msg) if mcc_build failed.
@@ -386,11 +390,6 @@ mod d_detectors {
         mcc::mcc_clear_workspace();
         mcc::vector::builder::resolve::reset_np_warn_count();
         mcc::mcc_load_from_string(&uri, content);
-        eprintln!(
-            "[DEBUG] after load: module_count={} mcodes_count={}",
-            mcc::mcb_module_count(),
-            mcc::mcb_loaded_file_count(),
-        );
         let ident = McIds::from("top");
         let build_result = mcc::mcc_build(&ident, &uri);
         let build_err = build_result.as_ref().err().map(|e| e.to_string());
@@ -401,7 +400,7 @@ mod d_detectors {
         (diags, build_err)
     }
 
-    /// Like build_fixture but panics on build failure.
+/// Like build_fixture but panics on build failure.
     fn build_fixture_or_panic(content: &str) -> Vec<McDiagnostic> {
         let (diags, err) = build_fixture(content);
         if let Some(e) = err {
@@ -412,7 +411,6 @@ mod d_detectors {
         }
         diags
     }
-
     /// Helper: build fixture + vector graph, return diagnostics.
     fn build_fixture_with_graph(content: &str) -> Vec<McDiagnostic> {
         mcc::mcc_init_no_lib();
@@ -437,11 +435,9 @@ mod d_detectors {
 
     #[test]
     fn d1_sort_hazard_non_monotonic_pins() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         // D1 fires when bus pin numbers are non-monotonic.
-        // Use valid .mc syntax: pins = [io [5,2] = BUS{CLK, DATA}]
-        // NOTE: This test requires a component with bus pins that have
-        // non-monotonic pin numbers. The exact syntax depends on the
-        // C parser's handling of bus pin definitions.
+        // [5,2] = BUS{CLK, DATA} → pin order differs from member order.
         let fixture = r#"
 component MyChip {
     pins = [
@@ -449,25 +445,29 @@ component MyChip {
     ]
 }
 module top {
-    io GND
-    comp chip: MyChip
-    chip{BUS} -> GND
+    io CLK, DATA
+    MyChip chip
+    chip{CLK, DATA} -> (CLK, DATA)
 }
 "#;
         let (diags, build_err) = build_fixture(fixture);
-        eprintln!(
-            "D1 diags: {:?}, build_err: {:?}",
-            diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>(),
+        assert!(
+            build_err.is_none(),
+            "D1 build should succeed. Build err: {:?}",
             build_err
         );
-        // D1 may or may not fire depending on bus pin resolution.
-        // The primary goal is to verify the build doesn't crash.
+        assert!(
+            has_code(&diags, 2001),
+            "D1 SORT_HAZARD should fire for non-monotonic pins [5,2]. Diags: {:?}",
+            diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
+        );
     }
 
     // ── D2 FLOATING_PLACEHOLDER ─────────────────────────────────────────
 
     #[test]
     fn d2_floating_placeholder_unbound_lead() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let fixture = r#"
 module top {
     _ -> _
@@ -485,28 +485,20 @@ module top {
 
     #[test]
     fn d3_merged_short_same_physical_pin() {
-        // D3 fires when two different point paths resolve to the same id.
-        // Use a component with two distinct pin names mapped to the same physical pin.
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // D3 fires when two points in the same net resolve to the same id.
+        // The bracket expansion [A, A] creates two points both resolving to
+        // the same port A, which is a merged short.
         let fixture = r#"
-component DualPin {
-    pins = [
-        1 = X1
-        1 = X2
-    ]
-}
 module top {
-    comp d: DualPin
-    d{X1} -> d{X2}
+    io A
+    [A, A] -> GND
 }
 "#;
         let diags = build_fixture_with_graph(fixture);
-        eprintln!(
-            "D3 diags: {:?}",
-            diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
-        );
         assert!(
             has_code(&diags, 2003),
-            "D3 MERGED_SHORT should fire for two logical pins on same physical pin. Diags: {:?}",
+            "D3 MERGED_SHORT should fire for duplicate bracket entries. Diags: {:?}",
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
         );
     }
@@ -515,21 +507,26 @@ module top {
 
     #[test]
     fn d4_ghost_port_placeholder_pin() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // D4 fires when a component has only an estimated pin count (pins = N)
+        // without actual pin definitions. The builder synthesizes placeholder
+        // pins (id ≥ 8e9) which are then detected as ghost ports.
+        // Use "TEST_POINT" class name to trigger guess_chip_pin_count → 2,
+        // so placeholder pins are created.
         let fixture = r#"
-component MyChip {
-    pins = [
-        1 = VCC
-        2 = GND
-    ]
+component TEST_POINT {
+    pins = 4
 }
 module top {
-    comp chip: MyChip
-    chip{VCC} -> chip{GND}
+    io A
+    TEST_POINT chip
+    chip.1 -> A
 }
 "#;
         let diags = build_fixture_with_graph(fixture);
-        eprintln!(
-            "D4 diags: {:?}",
+        assert!(
+            has_code(&diags, 2004),
+            "D4 GHOST_PORT should fire for placeholder pins. Diags: {:?}",
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
         );
     }
@@ -538,6 +535,7 @@ module top {
 
     #[test]
     fn d5_bus_order_mismatch_all_pairs() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let fixture = r#"
 component MyChip {
     pins = [
@@ -546,40 +544,39 @@ component MyChip {
     ]
 }
 module top {
-    comp chip: MyChip
+    MyChip chip
     chip{PORT_A} -> chip{PORT_B}
 }
 "#;
         let (diags, build_err) = build_fixture(fixture);
         let mismatched = mcc::mcc_bus_bits_mismatched();
-        eprintln!(
-            "D5 mismatched={} diags: {:?}, build_err: {:?}",
-            mismatched,
-            diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>(),
+        assert!(
+            build_err.is_none(),
+            "D5 build should succeed. Build err: {:?}",
             build_err
         );
-        // D5 may or may not fire depending on bus pin resolution.
-        // The primary goal is to verify the build doesn't crash.
+        assert!(
+            has_code(&diags, 2005) || mismatched > 0,
+            "D5 BUS_ORDER_MISMATCH should fire for A↔X, B↔Y. mismatched={} diags: {:?}",
+            mismatched,
+            diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
+        );
     }
 
     // ── D6 DROPPED_STATEMENT ────────────────────────────────────────────
 
     #[test]
     fn d6_dropped_statement_indexed_alias() {
-        // D6 fires when a multi-segment name in square brackets (like GPIO[2])
-        // expands to a single unknown instance — the statement produces no nets/constraints.
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // D6 fires when a single-element square bracket expands to an
+        // unknown name that is not a known instance.
         let fixture = r#"
 module top {
     io A
-    GPIO[2] -> A
+    [Unknown] -> A
 }
 "#;
         let (diags, build_err) = build_fixture(fixture);
-        eprintln!(
-            "D6 diags: {:?}, build_err: {:?}",
-            diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>(),
-            build_err
-        );
         assert!(
             has_code(&diags, 2006),
             "D6 DROPPED_STATEMENT should fire for indexed alias. Build err: {:?}. Diags: {:?}",
@@ -592,18 +589,14 @@ module top {
 
     #[test]
     fn d7_pullup_degenerate_signal_bridge() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let fixture = r#"
 module top {
     io SCL, SDA
-    Pullup(SCL, SDA)
+    RES(10k).Pullup(SCL, SDA)
 }
 "#;
         let (diags, build_err) = build_fixture(fixture);
-        eprintln!(
-            "D7 diags: {:?}, build_err: {:?}",
-            diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>(),
-            build_err
-        );
         assert!(
             has_code(&diags, 2007),
             "D7 PULLUP_DEGENERATE should fire for signal-signal bridge. Build err: {:?}. Diags: {:?}",
@@ -616,6 +609,7 @@ module top {
 
     #[test]
     fn d8_ambiguous_precedence_mixed_ops() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let fixture = r#"
 module top {
     io A, B, C, D

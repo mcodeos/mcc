@@ -10,6 +10,8 @@
 //! - `create_connection`            —— Generic N×M connection generation (1:1 / 1:N / N:1 / truncation)
 
 use super::McModuleInst;
+use crate::ast::ast_node::AstNode;
+use crate::builder::diagnostic::dlog_error;
 use crate::core::basic::mc_bus::McBus;
 use crate::core::basic::mc_phrase::McPhrase;
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
@@ -191,6 +193,27 @@ impl McModuleInst {
             return Ok(());
         }
 
+        // ── D3: MERGED_SHORT detection ──────────────────────────────────
+        // Check for duplicate paths in left or right points (bracket expansion
+        // like [A, A] creates duplicate connections that merge onto the same node).
+        {
+            let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+            for p in left_points.iter().chain(right_points.iter()) {
+                if !seen.insert(&p.path) {
+                    dlog_error(
+                        2003,
+                        &AstNode::new(std::ptr::null_mut()),
+                        &format!(
+                            "MERGED_SHORT: duplicate path '{}' in connection. \
+                             A bracket expansion may contain duplicate entries causing signal merging.",
+                            p.path
+                        ),
+                    );
+                    break;
+                }
+            }
+        }
+
         if left_size == right_size {
             // ── D5: BUS_ORDER_MISMATCH detection ──────────────────────────────
             // When two multi-point lists are connected 1:1, compare the last
@@ -207,10 +230,14 @@ impl McModuleInst {
                 }
                 if !mismatches.is_empty() && mismatches.len() == left_size {
                     BUS_BITS_MISMATCHED.store(left_size, std::sync::atomic::Ordering::Relaxed);
-                    crate::velog!(
-                        "[D5] BUS_ORDER_MISMATCH: all {} pairs have mismatched member names: [{}]. \
-                         This may indicate bus member order misalignment between the two sides.",
-                        left_size, mismatches.join(", ")
+                    dlog_error(
+                        2005,
+                        &AstNode::new(std::ptr::null_mut()),
+                        &format!(
+                            "BUS_ORDER_MISMATCH: all {} pairs have mismatched member names: [{}]. \
+                             This may indicate bus member order misalignment between the two sides.",
+                            left_size, mismatches.join(", ")
+                        ),
                     );
                 }
             }
