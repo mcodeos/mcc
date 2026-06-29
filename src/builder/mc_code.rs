@@ -737,7 +737,6 @@ impl McCode {
 
     /// Phase 1b: parse all module definitions (at this point all component/interface/enum are already registered)
     pub fn parse_pass1_modules(&mut self) {
-        // eprintln!("[DEBUG parse_pass1_modules] uri={}", self.uri);
         for (_i, node) in self.ast.iter().enumerate() {
             let node_type = node.get_type();
             if node_type == MCAST_MODULE {

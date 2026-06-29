@@ -488,10 +488,17 @@ impl McModuleInst {
             let t1_is_rail = is_rail(&targets[0]);
             let t2_is_rail = is_rail(&targets[1]);
             if !t1_is_rail && !t2_is_rail {
-                crate::velog!(
-                    "[D7] PULLUP_DEGENERATE: '{}' both ends are non-rail nets ({} ~ {}). \
-                     Pullup/Pulldown may have degenerated into a signal-signal bridge instead of (signal, rail).",
-                    func_name, targets[0].path, targets[1].path
+                crate::builder::diagnostic::diagnotic_log(
+                    2007,
+                    crate::builder::diagnostic::DiagnosticLevel::Warning,
+                    0,
+                    0,
+                    &format!(
+                        "PULLUP_DEGENERATE: '{}' both ends are non-rail nets ({} ~ {}). \
+                         Pullup/Pulldown may have degenerated into a signal-signal bridge instead of (signal, rail).",
+                        func_name, targets[0].path, targets[1].path
+                    ),
+                    &[],
                 );
             }
         }

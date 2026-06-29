@@ -353,9 +353,9 @@ impl<'a> McVecBuilder<'a> {
             }
 
             // ── D2: FLOATING_PLACEHOLDER detection ──────────────────────────
-            // Check if any `_` placeholder (path = "(lead)") failed to resolve.
+            // Check if any `_` placeholder (path starts with "(lead)_") failed to resolve.
             for (i, p) in conn.points.iter().enumerate() {
-                if p.path == "(lead)" {
+                if p.path.starts_with("(lead)_") {
                     if let Some(pr) = per_point.get(i) {
                         if pr.ids.is_empty() {
                             let pos = p.src_pos.unwrap_or(0) as u32;
