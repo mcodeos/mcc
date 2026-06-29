@@ -212,10 +212,18 @@ impl McComponentInst {
         let bindings = self.get_param_bindings();
         let dynamic_pins = self.def.pins.resolve_dynamic_pins(&bindings);
 
-        for (pin_id, _pin_name, iotype) in dynamic_pins {
+        for (pin_id, pin_name, iotype) in dynamic_pins {
             let path = format!("{}.{}", self.name, pin_id);
             let net_point = NetPoint::with_owner(&path, &self.name, iotype);
             self.pins.insert(pin_id.to_string(), net_point);
+
+            // Register resolved pin name so it can be looked up later
+            if !pin_name.is_empty() {
+                self.cond_pin_names
+                    .entry(pin_id.to_string())
+                    .or_default()
+                    .push(pin_name);
+            }
         }
     }
 
