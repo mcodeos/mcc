@@ -1014,7 +1014,7 @@ fn park_isolated_components(graph: &mut McVecGraph, isolated_ids: &HashSet<i64>)
 
 /// Criteria: not power flag (PowerRail symbol), and name/class name contains power supply keywords.
 /// Covers usbsocket(POWER_SYS) / modldo(POWER_LDO) / moddcdc(POWER_DCDC) in image.
-fn is_supply_module(b: &McVecBox) -> bool {
+pub(crate) fn is_supply_module(b: &McVecBox) -> bool {
     if b.symbol.is_power_rail() {
         return false; // power flag itself is not "module"
     }
