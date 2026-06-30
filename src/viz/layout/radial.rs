@@ -78,6 +78,7 @@ pub fn find_hub_in_subset(
             BoxKind::MultiPin => 80,
             BoxKind::TwoPin => 0,
             BoxKind::PowerLabel => -100,
+            BoxKind::Dot => -50,
         };
 
         let is_main_chip = crate::vector::graph::naming::is_main_chip(&b.name);

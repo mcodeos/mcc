@@ -34,6 +34,9 @@ pub enum DetectedKind {
         class_name: String,
     },
     PowerLabel,
+    /// A non-power label (e.g. `Vin`) that participates in net connections.
+    /// Rendered as a small Dot/Junction box in the schematic.
+    Label,
     Skip,
 }
 
@@ -149,6 +152,15 @@ pub fn detect_kind(table: &InstTable, id: u32) -> DetectedKind {
     // 4. Bus itself is not drawn (members handled individually)
     if entry.kind == InstKind::Bus {
         return DetectedKind::Skip;
+    }
+
+    // 5. Label entries (non-power labels like `Vin`, `DATA`, etc.) participate in net
+    //    connections. Even though they have no pins, they must be drawn as Dot boxes so that
+    //    their nets pass the `classify_nets_by_box_coverage` gate (need >=2 box endpoints).
+    //    Power labels are handled in step 1 above; anything reaching here with InstKind::Label
+    //    is a non-power label that still needs a box.
+    if entry.kind == InstKind::Label && !is_power_label(&name) {
+        return DetectedKind::Label;
     }
 
     DetectedKind::Skip
@@ -272,6 +284,7 @@ pub fn detect_symbol(table: &InstTable, id: u32, kind: &BoxKind) -> Symbol {
         BoxKind::SubModule => Symbol::Module,
         BoxKind::MultiPin => Symbol::Ic,
         BoxKind::TwoPin => Symbol::from_class_name(&entry.class_name).unwrap_or(Symbol::Unknown),
+        BoxKind::Dot => Symbol::Dot,
     }
 }
 

@@ -232,6 +232,7 @@ pub fn pick_anchor(graph: &McVecGraph) -> i64 {
                 BoxKind::MultiPin => 100,
                 BoxKind::TwoPin => 0,
                 BoxKind::PowerLabel => -1000,
+                BoxKind::Dot => -50,
             },
         };
         let name_bonus = if naming::is_main_chip(&b.name) {

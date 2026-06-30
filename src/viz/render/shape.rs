@@ -65,6 +65,7 @@ pub fn render_box(b: &McVecBox) -> String {
         Symbol::Ic => IcShape.render(b),
         Symbol::Module => render_sub_module(b),
         Symbol::PowerRail { .. } => PowerRailShape.render(b),
+        Symbol::Dot => render_dot_symbol(b),
         Symbol::Unknown => {
             // ★ FIX: Unknown boxes with pin information (including Phase F.1 typed-chip placeholder
             //   pins / normal part real pins) now use IcShape to draw pin + number + name; only
@@ -117,6 +118,28 @@ fn escape_xml_attr(s: &str) -> String {
         .replace('"', "&quot;")
 }
 
+/// Render a Dot label box — a small filled circle with the label text
+fn render_dot_symbol(b: &McVecBox) -> String {
+    let cx = b.x + b.w / 2.0;
+    let cy = b.y + b.h / 2.0;
+    let r = b.w.min(b.h) / 2.0 * 0.7;
+    let label_x = cx + r + 6.0;
+    format!(
+        r##"  <g class="comp dot" data-id="{id}">
+    <circle cx="{cx:.1}" cy="{cy:.1}" r="{r:.1}" fill="#333" stroke="none"/>
+    <text x="{lx:.1}" y="{cy:.1}" font-size="10" fill="#333"
+          dominant-baseline="central">{name}</text>
+  </g>
+"##,
+        id = b.id,
+        cx = cx,
+        cy = cy,
+        r = r,
+        lx = label_x,
+        name = escape_xml_attr(&b.name)
+    )
+}
+
 /// Pre-P05 dispatch logic (by BoxKind), now used as the `Symbol::Unknown` fallback
 fn render_box_legacy(b: &McVecBox) -> String {
     match b.kind {
@@ -124,6 +147,7 @@ fn render_box_legacy(b: &McVecBox) -> String {
         BoxKind::MultiPin => MultiPinShape.render(b),
         BoxKind::SubModule => render_sub_module(b),
         BoxKind::PowerLabel => PowerLabelShape.render(b),
+        BoxKind::Dot => render_dot_symbol(b),
     }
 }
 

@@ -62,6 +62,10 @@ pub fn box_size(b: &McVecBox) -> (f64, f64) {
             // P05: triangle arrow + text above, needs more height
             (50.0, 40.0)
         }
+        BoxKind::Dot => {
+            // Small junction dot for non-power labels
+            (10.0, 10.0)
+        }
     }
 }
 

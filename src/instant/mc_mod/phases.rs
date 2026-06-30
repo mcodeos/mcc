@@ -164,6 +164,16 @@ impl McModuleInst {
                 continue;
             }
 
+            // ── Bug fix ② ───────────────────────────────────────────
+            // Only items with a non-None IOType are real ports.
+            // Label/Bus/List items with IOType::None are internal body declarations
+            // (e.g. `VCC`/`Vin` power labels in `VCC -> Q1 -> Vin`).
+            // They must NOT be pushed as module ports, otherwise viz sees them as
+            // module ports instead of internal labels.
+            if matches!(iotype, IOType::None) {
+                continue;
+            }
+
             // 1. When creating PortInst, extract bus_members according to port form
             //    —— Iter-8: let N×1 bus ports expand according to declaration during endpoint resolution.
             let bus_members = extract_port_bus_members(inst);

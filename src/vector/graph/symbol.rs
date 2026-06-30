@@ -64,6 +64,9 @@ pub enum Symbol {
     /// Power / ground label
     PowerRail { is_ground: bool },
 
+    /// A non-power label dot / junction (e.g. `Vin`, `DATA`)
+    Dot,
+
     // ── Fallback ──
     /// Unrecognized (degrades to BoxKind's default rendering)
     #[default]
@@ -86,7 +89,7 @@ impl Symbol {
             | Symbol::Led
             | Symbol::Zener => Some(2),
             Symbol::PowerRail { .. } => Some(1),
-            Symbol::Ic | Symbol::Module | Symbol::Unknown => None,
+            Symbol::Ic | Symbol::Module | Symbol::Dot | Symbol::Unknown => None,
         }
     }
 
@@ -173,6 +176,7 @@ impl fmt::Display for Symbol {
             Symbol::Module => write!(f, "module"),
             Symbol::PowerRail { is_ground: true } => write!(f, "ground"),
             Symbol::PowerRail { is_ground: false } => write!(f, "power"),
+            Symbol::Dot => write!(f, "dot"),
             Symbol::Unknown => write!(f, "unknown"),
         }
     }

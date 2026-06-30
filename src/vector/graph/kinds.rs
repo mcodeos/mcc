@@ -28,6 +28,8 @@ pub enum BoxKind {
     SubModule,
     /// Power / ground label
     PowerLabel,
+    /// Non-power label dot / junction (e.g. `Vin`)
+    Dot,
 }
 
 impl fmt::Display for BoxKind {
@@ -37,6 +39,7 @@ impl fmt::Display for BoxKind {
             BoxKind::MultiPin => write!(f, "multi_pin"),
             BoxKind::SubModule => write!(f, "sub_module"),
             BoxKind::PowerLabel => write!(f, "power_label"),
+            BoxKind::Dot => write!(f, "dot"),
         }
     }
 }
