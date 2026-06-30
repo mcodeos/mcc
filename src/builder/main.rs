@@ -622,10 +622,26 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
             return Some(McCMIE::Enum(found_enum.clone()));
         }
 
-        // Lazy load system library CMIE (using quiet mode, no trace output)
+        // Lazy load system library CMIE (using quiet mode, no trace output).
+        // If the file was already loaded by mcb_add_recursive, use the workspace
+        // entry instead of reloading from disk.
+        {
+            let mcodes = workspace::WORKSPACE.mcodes.borrow();
+            let existing = mcodes.get(&space_name.uri).map(|e| e.value().clone());
+            drop(mcodes);
+            if let Some(mut existing) = existing {
+                return existing.parse_cmie_single(&space_name.ident);
+            }
+        }
+
         if let Some(mut mcfile) = McCode::new(&space_name.uri, true) {
             mcfile.parse_ast_quiet();
-            return mcfile.parse_cmie_single(&space_name.ident);
+            let result = mcfile.parse_cmie_single(&space_name.ident);
+            workspace::WORKSPACE
+                .mcodes
+                .borrow()
+                .insert(space_name.uri.clone(), mcfile);
+            return result;
         }
         let _ = mcode; // keep the binding alive across the lazy block
     }
@@ -674,11 +690,28 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
             class_name.to_string().to_lowercase()
         );
         if Path::new(&ifs_uri).exists() {
+            // If the file was already loaded by mcb_add_recursive, use the
+            // workspace entry — don't reload from disk and replace it.
+            {
+                let mcodes = workspace::WORKSPACE.mcodes.borrow();
+                let existing = mcodes.get(&ifs_uri).map(|e| e.value().clone());
+                drop(mcodes);
+                if let Some(mut existing) = existing {
+                    return existing.parse_cmie_single(class_name);
+                }
+            }
+
             if let Some(mut ifs_file) = McCode::new(&ifs_uri, true) {
                 ifs_file.parse_ast_quiet();
                 ifs_file.parse_nsp();
-                if let Some(McCMIE::Interface(_)) = ifs_file.parse_cmie_single(class_name) {
-                    return ifs_file.parse_cmie_single(class_name);
+                let result = ifs_file.parse_cmie_single(class_name);
+                if let Some(McCMIE::Interface(_)) = result {
+                    // Move into workspace so the AST stays alive.
+                    workspace::WORKSPACE
+                        .mcodes
+                        .borrow()
+                        .insert(ifs_uri.clone(), ifs_file);
+                    return result;
                 }
             }
         }

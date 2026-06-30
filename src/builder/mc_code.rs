@@ -430,6 +430,11 @@ impl McCode {
                     crate::current_uri::set(uri);
                 }
                 mcfile.parse_nsp();
+                // Pre-insert a clone so mcb_get_cmie can find this file's
+                // spacenames during recursive lookups within the same loop
+                // iteration.  The clone (owned=false) is temporary — the owned
+                // original is moved in at the end of the loop body to avoid
+                // dangling AstNode pointers.
                 workspace::WORKSPACE
                     .mcodes
                     .borrow()
@@ -479,6 +484,16 @@ impl McCode {
                 if mc_use.public {
                     uses_stack.push(mc_use);
                 }
+            }
+
+            // Replace the temporary clone in the workspace with the owned
+            // original so the AST stays alive after mcfile goes out of scope.
+            if let dashmap::Entry::Occupied(mut entry) = workspace::WORKSPACE
+                .mcodes
+                .borrow()
+                .entry(canonical_use_uri.clone())
+            {
+                entry.insert(mcfile);
             }
         }
 
