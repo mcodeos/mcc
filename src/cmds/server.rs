@@ -262,6 +262,7 @@ pub fn register_all(builder: RpcServerBuilder) -> RpcServerBuilder {
         .register_method("show.net.list", handlers::handle_show_net_list)
         .register_method("check", handlers::handle_check)
         .register_method("extract", handlers::handle_extract)
+        .register_method("sem", handlers::handle_sem)
 }
 
 fn pid_file_path() -> PathBuf {

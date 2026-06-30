@@ -1861,3 +1861,155 @@ pub fn handle_show_net(params: Option<Value>) -> RpcResult {
         }
     }
 }
+
+// ============================================================================
+// Semantic data (sem tokens + symbols) for LSP
+// ============================================================================
+
+#[derive(Deserialize)]
+struct SemParams {
+    uri: String,
+}
+
+pub fn handle_sem(params: Option<Value>) -> RpcResult {
+    let p: SemParams = parse_strict(params)?;
+    let raw_uri = &p.uri;
+
+    // Build candidate URIs: exact match + relative path (strip project root from absolute)
+    let (_, _, root_str) = crate::workspace_info();
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let root_path = if Path::new(&root_str).is_absolute() {
+        PathBuf::from(&root_str)
+    } else {
+        cwd.join(&root_str)
+    };
+
+    let raw_path = Path::new(raw_uri);
+    let mut candidates: Vec<McURI> = vec![McURI::from(raw_uri.as_str())];
+    if raw_path.is_absolute() && raw_path.starts_with(&root_path) {
+        let rel = raw_path.strip_prefix(&root_path).unwrap_or(raw_path);
+        let rel_str = rel.to_string_lossy().to_string();
+        if rel_str != *raw_uri {
+            candidates.push(McURI::from(rel_str));
+        }
+    }
+
+    // Try lookup
+    let result = try_lookup_sem(&candidates);
+
+    // If not found and workspace is empty, auto-create workspace and load project
+    if result.is_none() {
+        let workspace_empty = {
+            let binding = crate::builder::workspace::WORKSPACE.mcodes.borrow();
+            binding.is_empty()
+        };
+        if workspace_empty && raw_path.is_absolute() {
+            auto_load_from_file_path(raw_path);
+            return try_lookup_sem(&candidates)
+                .ok_or_else(|| JsonRpcError::custom(-32100, "file not found in workspace"));
+        }
+    }
+
+    result.ok_or_else(|| JsonRpcError::custom(-32100, "file not found in workspace"))
+}
+
+/// Detect project root from a file path and load the project
+fn auto_load_from_file_path(file_path: &Path) {
+    // Walk up from the file to find the project root (directory containing project.toml or .mc files)
+    let project_root = find_project_root(file_path);
+    info!(target: "mcc::rpc", "auto_load: project_root={}", project_root.display());
+
+    // Create project workspace
+    let root_name = project_root
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "project".to_string());
+    info!(target: "mcc::rpc", "auto_load: creating workspace id={} root={}", root_name, project_root.display());
+    crate::workspace_create(
+        &root_name,
+        crate::WorkspaceKind::Project,
+        &project_root,
+    );
+
+    // Load all .mc files in the project (not just one entry)
+    // This ensures files like c2.ports.mc that aren't imported by other files are also available
+    let mut all_files = Vec::new();
+    scan_mc_files_recursive(&project_root, &project_root, &mut all_files);
+    info!(target: "mcc::rpc", "auto_load: found {} .mc files", all_files.len());
+    for rel in &all_files {
+        let full = project_root.join(rel);
+        let uri = McURI::from(full.to_string_lossy().to_string());
+        crate::mcc_add(&uri);
+        info!(target: "mcc::rpc", "auto_load: added {}", full.display());
+    }
+    crate::builder::mcb_parse_all_modules();
+}
+
+/// Walk up from a file path to find the project root
+/// A project root is a directory containing project.toml or .mc files at top level
+fn find_project_root(file_path: &Path) -> PathBuf {
+    let mut current = if file_path.is_dir() {
+        file_path.to_path_buf()
+    } else {
+        file_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."))
+    };
+
+    loop {
+        // Check for project.toml
+        if current.join("project.toml").exists() {
+            return current;
+        }
+        // Check for .mc files at this level
+        if let Ok(entries) = std::fs::read_dir(&current) {
+            for entry in entries.flatten() {
+                if entry.path().extension().is_some_and(|ext| ext == "mc") {
+                    return current;
+                }
+            }
+        }
+        // Go up one level
+        if let Some(parent) = current.parent() {
+            current = parent.to_path_buf();
+        } else {
+            break;
+        }
+    }
+    // Fallback: use the file's parent directory
+    file_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Try to find semantic data for any of the candidate URIs
+fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
+    let binding = crate::builder::workspace::WORKSPACE.mcodes.borrow();
+    for mc_uri in candidates {
+        if let Some(mcfile) = binding.get(mc_uri) {
+            let tokens: Vec<serde_json::Value> = mcfile
+                .tokens
+                .lock()
+                .map(|t: std::sync::MutexGuard<'_, crate::McSemTokens>| {
+                    t.iter()
+                        .map(|tok| {
+                            json!({
+                                "type": tok.type_,
+                                "position": tok.position,
+                                "length": tok.length,
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+
+            let symbols = mcfile
+                .symbols
+                .lock()
+                .map(|s| crate::ast::ast_semantic::symbol_table_to_json(&s, mc_uri))
+                .unwrap_or_else(|_| serde_json::json!({}));
+
+            return Some(json!({
+                "tokens": tokens,
+                "symbols": symbols,
+            }));
+        }
+    }
+    None
+}
