@@ -31,6 +31,8 @@
 //!   - -32107  Pass1 / Pass2 failed
 
 use super::protocol::{JsonRpcError, RpcResult};
+use crate::builder::mc_code::McCode;
+use crate::builder::workspace;
 use crate::McURI;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -1869,11 +1871,24 @@ pub fn handle_show_net(params: Option<Value>) -> RpcResult {
 #[derive(Deserialize)]
 struct SemParams {
     uri: String,
+    content: Option<String>,
 }
 
 pub fn handle_sem(params: Option<Value>) -> RpcResult {
     let p: SemParams = parse_strict(params)?;
     let raw_uri = &p.uri;
+
+    // If content is provided, parse from memory (for unsaved editor content)
+    if let Some(ref content) = p.content {
+        let mc_uri = McURI::from(raw_uri.as_str());
+        crate::builder::mcb_add_from_string(&mc_uri, content);
+        crate::builder::mcb_parse_all_modules();
+        let result = try_lookup_sem(&[mc_uri.clone()]);
+        let result = result.ok_or_else(|| JsonRpcError::custom(-32100, "parse from string failed"));
+        // Remove the temporary entry so it doesn't pollute workspace
+        crate::builder::workspace::WORKSPACE.mcodes.borrow().remove(&mc_uri);
+        return result;
+    }
 
     // Build candidate URIs: exact match + relative path (strip project root from absolute)
     let (_, _, root_str) = crate::workspace_info();
@@ -1931,18 +1946,36 @@ fn auto_load_from_file_path(file_path: &Path) {
         &project_root,
     );
 
-    // Load all .mc files in the project (not just one entry)
-    // This ensures files like c2.ports.mc that aren't imported by other files are also available
+    // 1. Load entry file with mcc_load_project (triggers parse_pass1_types -> create_lapper)
     let mut all_files = Vec::new();
     scan_mc_files_recursive(&project_root, &project_root, &mut all_files);
     info!(target: "mcc::rpc", "auto_load: found {} .mc files", all_files.len());
+
+    if let Some(entry_path) = all_files.first() {
+        let full = project_root.join(entry_path);
+        let uri = McURI::from(full.to_string_lossy().to_string());
+        info!(target: "mcc::rpc", "auto_load: mcc_load_project({})", uri);
+        crate::mcc_load_project(&uri);
+    }
+
+    // 2. Add any remaining independent files that weren't loaded as dependencies
+    // (call parse_pass1_types directly to trigger create_lapper)
+    let loaded_uris: Vec<String> =
+        workspace::WORKSPACE.mcodes.borrow().iter().map(|e| e.key().clone()).collect();
     for rel in &all_files {
         let full = project_root.join(rel);
-        let uri = McURI::from(full.to_string_lossy().to_string());
-        crate::mcc_add(&uri);
-        info!(target: "mcc::rpc", "auto_load: added {}", full.display());
+        let uri_str = full.to_string_lossy().to_string();
+        let is_loaded = loaded_uris.iter().any(|u| u == &uri_str);
+        if !is_loaded {
+            if let Some(mut mcfile) = McCode::new(&uri_str, false) {
+                mcfile.parse_ast();
+                mcfile.parse_nsp();
+                mcfile.parse_pass1_types(); // triggers create_lapper
+                workspace::WORKSPACE.mcodes.borrow().insert(uri_str.clone(), mcfile);
+                info!(target: "mcc::rpc", "auto_load: added independent {}", uri_str);
+            }
+        }
     }
-    crate::builder::mcb_parse_all_modules();
 }
 
 /// Walk up from a file path to find the project root
@@ -1978,26 +2011,96 @@ fn find_project_root(file_path: &Path) -> PathBuf {
     file_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// Classify a token using the symbol table.
+/// Overrides lexer type for identifiers that have semantic classification.
+fn classify_token_by_symbol(
+    lex_type: i16,
+    position: usize,
+    length: usize,
+    lapper: &crate::ast::ast_semantic::SymbolRangeLapper,
+) -> i16 {
+    // Only re-classify identifiers (lexer marks them as KEYWORD=13 or NONE=255)
+    if lex_type != 13 && lex_type != 255 {
+        return lex_type;
+    }
+
+    let token_end = position + length;
+    let token_start = position;
+
+    // Try symbol lapper
+    if lapper.len() > 0 {
+        for interval in lapper.iter() {
+            let sym_start = interval.start;
+            let sym_stop = interval.stop;
+            if token_start < sym_stop && token_end > sym_start {
+                use crate::ast::ast_semantic::SymbolType;
+                if matches!(&interval.val, SymbolType::ClassDefinition(_)) {
+                    return 3;  // CLASS
+                }
+                if matches!(&interval.val, SymbolType::DeclareClass(_)) {
+                    return 2;  // TYPE
+                }
+                if matches!(&interval.val, SymbolType::DeclareInstance(_)) {
+                    return 4;  // FUNCTION
+                }
+                if matches!(&interval.val, SymbolType::InstanceReference(_)) {
+                    return 9;  // VARIABLE
+                }
+            }
+        }
+        return lex_type;
+    }
+
+    // Fallback: language keywords stay as KEYWORD, all other identifiers become VARIABLE
+    // The actual keyword check will be done in mcext with the live document content
+    lex_type
+}
+
 /// Try to find semantic data for any of the candidate URIs
 fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
     let binding = crate::builder::workspace::WORKSPACE.mcodes.borrow();
     for mc_uri in candidates {
         if let Some(mcfile) = binding.get(mc_uri) {
-            let tokens: Vec<serde_json::Value> = mcfile
+            // Get raw tokens and symbol lapper for semantic re-classification
+            let raw_tokens: Vec<(i16, i32, i32)> = mcfile
                 .tokens
                 .lock()
                 .map(|t: std::sync::MutexGuard<'_, crate::McSemTokens>| {
                     t.iter()
-                        .map(|tok| {
-                            json!({
-                                "type": tok.type_,
-                                "position": tok.position,
-                                "length": tok.length,
-                            })
-                        })
+                        .map(|tok| (tok.type_, tok.position, tok.length))
                         .collect()
                 })
                 .unwrap_or_default();
+
+            let symbols = mcfile
+                .symbols
+                .lock()
+                .ok()
+                .map(|s| s.symbol_lapper.clone())
+                .unwrap_or_else(|| crate::ast::ast_semantic::SymbolRangeLapper::new(vec![]));
+
+            // Re-classify tokens using symbol lapper
+            let tokens: Vec<serde_json::Value> = raw_tokens
+                .iter()
+                .map(|(lex_type, position, length)| {
+                    let sem_type = classify_token_by_symbol(*lex_type, *position as usize, *length as usize, &symbols);
+                    json!({
+                        "type": sem_type,
+                        "position": position,
+                        "length": length,
+                    })
+                })
+                .collect();
+
+            // Compute stable result_id: hash of (token_count, first_pos, last_pos)
+            let result_id = if tokens.is_empty() {
+                None
+            } else {
+                let count = tokens.len();
+                let first_pos = tokens[0].get("position").and_then(|v| v.as_i64()).unwrap_or(0);
+                let last_pos = tokens.last().and_then(|v| v.get("position").and_then(|v| v.as_i64())).unwrap_or(0);
+                Some(format!("{}-{}-{}", count, first_pos, last_pos))
+            };
 
             let symbols = mcfile
                 .symbols
@@ -2008,6 +2111,7 @@ fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
             return Some(json!({
                 "tokens": tokens,
                 "symbols": symbols,
+                "result_id": result_id,
             }));
         }
     }
