@@ -257,6 +257,11 @@ pub fn get_module_def(class_name: &McIds) -> Option<Arc<McModule>> {
     builder::mcb_get_module_def_by_name(class_name)
 }
 
+/// Get all module names in a specific file
+pub fn mcc_get_modules_in_file(uri: &McURI) -> Vec<String> {
+    builder::mcb_get_modules_in_file(uri)
+}
+
 pub fn debug_get_def(class_name: &McIds, uri: &McURI) {
     builder::mcb_debug_get_cmie(class_name, uri);
 }

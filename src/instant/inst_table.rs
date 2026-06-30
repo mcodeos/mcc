@@ -206,6 +206,29 @@ impl InstTable {
                     } else {
                         // Old kind priority >= new kind —— keep the old entry.
                     }
+                } else {
+                    // Same kind: update io_type if the new one is more specific.
+                    // This handles cases like: first registered as Bus with io_type=None,
+                    // later registered as Bus with io_type=InOut (from port declaration).
+                    if let Some(entry) = self.entries.get_mut(&existing_id) {
+                        let needs_update = match (&entry.io_type, &io_type) {
+                            // Update if current is None/Unknown and new is more specific
+                            (IOType::None, _) if !matches!(io_type, IOType::None) => true,
+                            // Update parent_id if current is None
+                            (IOType::None, _)
+                                if entry.parent_id.is_none() && parent_id.is_some() =>
+                            {
+                                true
+                            }
+                            _ => false,
+                        };
+                        if needs_update {
+                            entry.io_type = io_type;
+                            if entry.parent_id.is_none() {
+                                entry.parent_id = parent_id;
+                            }
+                        }
+                    }
                 }
             }
             return existing_id;
@@ -358,7 +381,11 @@ impl InstTable {
             );
 
             // ── Phase-D support: register a bracketed path for ports with bus_members ──
-            if port.is_bus_port() {
+            // Only create bracketed path for List ports (e.g., [A,B] or GPIO[1:2]),
+            // NOT for Bus ports (e.g., rs485{A,B}) because Bus ports can be accessed
+            // via the dot syntax (rs485.A, rs485.B).
+            // Check if the port name contains '[' to identify List-style ports.
+            if port.is_bus_port() && port.name.contains('[') {
                 let bracket_name = format!("[{}]", port.bus_members.join(", "));
                 let bracket_path = format!("{my_path}.{bracket_name}");
                 self.register(
@@ -448,15 +475,25 @@ impl InstTable {
                 }
             }
 
+            // ── Fix: inherit IO type from Port if this bus is a port declaration ──
+            // Bus ports like `rs485{A,B}` have IO type InOut, but their members
+            // were registered with IOType::None, causing them to be misidentified
+            // as power labels in viz rendering.
+            let bus_io = self
+                .get_id_by_path(&bus_path)
+                .and_then(|id| self.get_entry(id))
+                .map(|e| e.io_type.clone())
+                .unwrap_or(IOType::None);
+
             let bus_id = self.register(
                 bus_path.clone(),
                 InstKind::Bus,
                 Some(my_id),
                 String::new(),
-                IOType::None,
+                bus_io.clone(),
             );
 
-            // Expand bus members
+            // Expand bus members with the inherited IO type
             for member in &bus_inst.members {
                 let member_path = format!("{bus_path}/{member}");
                 self.register(
@@ -464,7 +501,7 @@ impl InstTable {
                     InstKind::Label,
                     Some(bus_id),
                     String::new(),
-                    IOType::None,
+                    bus_io.clone(),
                 );
             }
         }

@@ -141,91 +141,225 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
         return Ok(BuildOutcome { exit_code: 1 });
     }
 
-    renderer.pass2_header(&top_name);
-    let inst = match mcc::mcc_build(&ident, &entry_uri) {
-        Ok(i) => {
-            renderer.instances(&i, 0);
-            renderer.nets(&i, 0);
-            renderer.net_summary(&i);
-            builder.set_pass2(crate::cmds::parse::public_collect_pass2(
-                &top_name,
-                &i,
-                &mut tracker,
-            ));
-            i
+    // ─────────────────────────────────────────────────────────────────────────────
+    // Top Module Selection Strategy
+    //
+    // Strategy 1: Module with Top (Instantiated Hierarchy)
+    //   - When a file contains modules with hierarchical instantiation (one module instantiates another),
+    //     use the specified --top module as the entry point.
+    //
+    // Priority for Top Module Selection:
+    //   1. CLI --top argument (highest priority): e.g., `mcc build --top MyModule`
+    //   2. Manifest top_module field: defined in manifest.toml
+    //   3. Fallback to "main" if no top is specified
+    //
+    // Strategy 2: No Top Module (Flat/Peer Modules)
+    //   - When a file contains multiple peer modules without hierarchical instantiation,
+    //     render ALL modules as if each were a top-level module.
+    //   - This is called "virtual instantiation" - each module is instantiated once
+    //     just to visualize/analyze the module definitions without hierarchical context.
+    //
+    // Detection: If no --top is specified and multiple modules exist in the file,
+    //            we assume virtual instantiation mode.
+    // ─────────────────────────────────────────────────────────────────────────────
+
+    // Check if we should render all modules (no explicit --top specified and multiple modules exist)
+    let modules_in_file = mcc::mcc_get_modules_in_file(&entry_uri);
+    let should_render_all = modules_in_file.len() > 1 && args.top.is_none();
+
+    let inst = if should_render_all {
+        // For multi-module rendering, build each module separately for Pass 2 output
+        // Process ALL modules in the loop, keeping the first one for further processing
+        let first_mod_name = modules_in_file.first().cloned().unwrap_or_else(|| top_name.clone());
+        let first_mod_ident = McIds::from(first_mod_name.as_str());
+        
+        match mcc::mcc_build(&first_mod_ident, &entry_uri) {
+            Ok(first_inst) => {
+                // Process ALL modules: first one already built, others in loop
+                for (idx, mod_name) in modules_in_file.iter().enumerate() {
+                    if idx == 0 {
+                        // First module already built, output its details
+                        renderer.pass2_header(mod_name);
+                        renderer.instances(&first_inst, 0);
+                        renderer.nets(&first_inst, 0);
+                        renderer.net_summary(&first_inst);
+                    } else {
+                        // Build and output subsequent modules
+                        let mod_ident = McIds::from(mod_name.as_str());
+                        if let Ok(mod_inst) = mcc::mcc_build(&mod_ident, &entry_uri) {
+                            renderer.pass2_header(mod_name);
+                            renderer.instances(&mod_inst, 0);
+                            renderer.nets(&mod_inst, 0);
+                            renderer.net_summary(&mod_inst);
+                        }
+                    }
+                }
+                builder.set_pass2(crate::cmds::parse::public_collect_pass2(
+                    &top_name,
+                    &first_inst,
+                    &mut tracker,
+                ));
+                first_inst
+            }
+            Err(e) => {
+                renderer.pass2_failed(&format!("{}", e));
+                let err = RpcError::build_error(format!("{}", e));
+                emit_err(&args.format, err)?;
+                return Ok(BuildOutcome { exit_code: 1 });
+            }
         }
-        Err(e) => {
-            renderer.pass2_failed(&format!("{}", e));
-            let err = RpcError::build_error(format!("{}", e));
-            emit_err(&args.format, err)?;
-            return Ok(BuildOutcome { exit_code: 1 });
+    } else {
+        // Single module rendering: call pass2_header only once
+        renderer.pass2_header(&top_name);
+        // Single module rendering (original logic)
+        match mcc::mcc_build(&ident, &entry_uri) {
+            Ok(i) => {
+                renderer.instances(&i, 0);
+                renderer.nets(&i, 0);
+                renderer.net_summary(&i);
+                builder.set_pass2(crate::cmds::parse::public_collect_pass2(
+                    &top_name,
+                    &i,
+                    &mut tracker,
+                ));
+                i
+            }
+            Err(e) => {
+                renderer.pass2_failed(&format!("{}", e));
+                let err = RpcError::build_error(format!("{}", e));
+                emit_err(&args.format, err)?;
+                return Ok(BuildOutcome { exit_code: 1 });
+            }
         }
     };
 
     // ── 4. Viz generation ──
     if args.viz {
-        let table = mcc::mcc_build_flat(&ident, &entry_uri, 1000)
-            .map_err(|e| anyhow::anyhow!("mcc_build_flat failed: {}", e))?;
+        // Reuse should_render_all and modules_in_file computed earlier
 
-        // Pipeline diagnostics gated behind MC_VIZ_DUMP (silent by default).
-        if mcc::viz::log::enabled() {
-            let sub = inst.sub_modules.iter().find(|s| s.name == "mcu513");
-            eprintln!(
-                "[CHK] inst-side mcu513.components = {}",
-                sub.map(|s| s.components.len()).unwrap_or(0)
-            );
-            eprintln!("[DUMP] ====== InstTable contents ======");
-            table.1.dump();
-            eprintln!("[DUMP] ==============================");
-        }
+        if should_render_all {
+            // Render all modules: build viz for each module and combine them
+            let mut svgs: Vec<(String, String)> = Vec::new();
+            let mut total_boxes = 0;
+            let mut total_edges = 0;
 
-        let (vec_block, build_report) = mcc::build_mc_vec_with_report(&inst, &table.1);
-        let graph = mcc::build_mc_vec_graph(&vec_block, &table.1);
+            for mod_name in &modules_in_file {
+                let mod_ident: McIds = McIds::from(mod_name.as_str());
+                let mod_uri = entry_uri.clone();
 
-        let opts = mcc::viz::api::RenderOpts::default();
-        let (doc, metrics) = mcc::viz::api::render_with_metrics(graph, opts);
-        let (fidelity, readability) = metrics.finish(Some(&build_report));
-        // Metrics summary: one line each, always shown (this is the acceptance yardstick).
-        eprintln!("{}", fidelity.report_line());
-        eprintln!("{}", readability.report_line());
+                match mcc::mcc_build_flat(&mod_ident, &mod_uri, 1000) {
+                    Ok((mod_inst, mod_table)) => {
+                        mcc::vector::builder::reset_np_warn_count();
+                        let (vec_block, _report) = mcc::build_mc_vec_with_report(&mod_inst, &mod_table);
+                        let graph = mcc::build_mc_vec_graph(&vec_block, &mod_table);
 
-        // [P0-DET] CLI golden guard: compare against baseline when MCC_GOLDEN_CHECK is set
-        if std::env::var("MCC_GOLDEN_CHECK").is_ok() {
-            let sig = doc.to_json();
-            let gp = std::path::PathBuf::from("tests/golden/hbl.golden.json");
-            if std::env::var("UPDATE_GOLDEN").is_ok() || !gp.exists() {
-                std::fs::create_dir_all(gp.parent().unwrap()).ok();
-                std::fs::write(&gp, &sig).ok();
-                eprintln!("[golden] wrote {}", gp.display());
-            } else if sig != std::fs::read_to_string(&gp).unwrap_or_default() {
-                eprintln!(
-                    "[golden] MISMATCH vs {} (UPDATE_GOLDEN=1 to refresh)",
-                    gp.display()
-                );
-                return Ok(BuildOutcome { exit_code: 1 });
+                        total_boxes += graph.boxes.len();
+                        total_edges += graph.edges.len();
+
+                        let opts = mcc::viz::api::RenderOpts::default();
+                        let doc = mcc::viz::api::render_with(graph, opts);
+
+                        if let Some(root_layer) = doc.root_layer() {
+                            svgs.push((mod_name.clone(), root_layer.svg.clone()));
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[viz] skip module '{}': mcc_build_flat failed: {}", mod_name, e);
+                    }
+                }
             }
-        }
 
-        let html = mcc::viz::template::wrap_document(&doc);
+            if svgs.is_empty() {
+                return Err(anyhow::anyhow!("viz: no modules rendered"));
+            }
 
-        let output_path = args.output.as_deref().unwrap_or("circuit.html");
-        std::fs::write(output_path, &html)
-            .with_context(|| format!("failed to write file: {}", output_path))?;
-        renderer.viz_written(output_path, html.len());
+            // Combine all SVGs into one big SVG, stacked vertically
+            let combined_svg = combine_svgs(&svgs);
 
-        // [P0/A2] Electrical-fidelity hard gate: a non-perfect fidelity report means
-        // the drawing is electrically wrong (dropped/partial nets, unrendered pins,
-        // box/wire collisions). Fail the build so it can't pass silently.
-        if !fidelity.is_perfect() {
+            // Build a single-layer VizDocument with the combined SVG
+            let mut doc = mcc::viz::doc::VizDocument::new(1000, "all_modules".into());
+            let mut layer = mcc::viz::layer::VizLayer::new(1000, "all_modules".into(), None);
+            layer.svg = combined_svg;
+            doc.add_layer(layer);
+
+            let html = mcc::viz::template::wrap_document(&doc);
+
+            let output_path = args.output.as_deref().unwrap_or("circuit.html");
+            std::fs::write(output_path, &html)
+                .with_context(|| format!("failed to write file: {}", output_path))?;
+            renderer.viz_written(output_path, html.len());
+
             eprintln!(
-                "[gate] FIDELITY not perfect -> build failed. See report above. \
-                 (set MCC_FIDELITY_GATE=0 to downgrade to warning)"
+                "[viz] rendered {} modules: {} boxes, {} edges",
+                svgs.len(),
+                total_boxes,
+                total_edges
             );
-            let gate_on = std::env::var("MCC_FIDELITY_GATE")
-                .map(|v| v.trim() != "0" && !v.eq_ignore_ascii_case("false"))
-                .unwrap_or(true);
-            if gate_on {
-                return Ok(BuildOutcome { exit_code: 1 });
+        } else {
+            // Single module render (explicit --top or only one module)
+            let table = mcc::mcc_build_flat(&ident, &entry_uri, 1000)
+                .map_err(|e| anyhow::anyhow!("mcc_build_flat failed: {}", e))?;
+
+            // Pipeline diagnostics gated behind MC_VIZ_DUMP (silent by default).
+            if mcc::viz::log::enabled() {
+                let sub = inst.sub_modules.iter().find(|s| s.name == "mcu513");
+                eprintln!(
+                    "[CHK] inst-side mcu513.components = {}",
+                    sub.map(|s| s.components.len()).unwrap_or(0)
+                );
+                eprintln!("[DUMP] ====== InstTable contents ======");
+                table.1.dump();
+                eprintln!("[DUMP] ==============================");
+            }
+
+            let (vec_block, build_report) = mcc::build_mc_vec_with_report(&inst, &table.1);
+            let graph = mcc::build_mc_vec_graph(&vec_block, &table.1);
+
+            let opts = mcc::viz::api::RenderOpts::default();
+            let (doc, metrics) = mcc::viz::api::render_with_metrics(graph, opts);
+            let (fidelity, readability) = metrics.finish(Some(&build_report));
+            // Metrics summary: one line each, always shown (this is the acceptance yardstick).
+            eprintln!("{}", fidelity.report_line());
+            eprintln!("{}", readability.report_line());
+
+            // [P0-DET] CLI golden guard: compare against baseline when MCC_GOLDEN_CHECK is set
+            if std::env::var("MCC_GOLDEN_CHECK").is_ok() {
+                let sig = doc.to_json();
+                let gp = std::path::PathBuf::from("tests/golden/hbl.golden.json");
+                if std::env::var("UPDATE_GOLDEN").is_ok() || !gp.exists() {
+                    std::fs::create_dir_all(gp.parent().unwrap()).ok();
+                    std::fs::write(&gp, &sig).ok();
+                    eprintln!("[golden] wrote {}", gp.display());
+                } else if sig != std::fs::read_to_string(&gp).unwrap_or_default() {
+                    eprintln!(
+                        "[golden] MISMATCH vs {} (UPDATE_GOLDEN=1 to refresh)",
+                        gp.display()
+                    );
+                    return Ok(BuildOutcome { exit_code: 1 });
+                }
+            }
+
+            let html = mcc::viz::template::wrap_document(&doc);
+
+            let output_path = args.output.as_deref().unwrap_or("circuit.html");
+            std::fs::write(output_path, &html)
+                .with_context(|| format!("failed to write file: {}", output_path))?;
+            renderer.viz_written(output_path, html.len());
+
+            // [P0/A2] Electrical-fidelity hard gate: a non-perfect fidelity report means
+            // the drawing is electrically wrong (dropped/partial nets, unrendered pins,
+            // box/wire collisions). Fail the build so it can't pass silently.
+            if !fidelity.is_perfect() {
+                eprintln!(
+                    "[gate] FIDELITY not perfect -> build failed. See report above. \
+                     (set MCC_FIDELITY_GATE=0 to downgrade to warning)"
+                );
+                let gate_on = std::env::var("MCC_FIDELITY_GATE")
+                    .map(|v| v.trim() != "0" && !v.eq_ignore_ascii_case("false"))
+                    .unwrap_or(true);
+                if gate_on {
+                    return Ok(BuildOutcome { exit_code: 1 });
+                }
             }
         }
     }
@@ -253,6 +387,117 @@ fn emit_err(fmt: &OutputFormat, err: RpcError) -> Result<()> {
     } else {
         Err(anyhow::anyhow!(err.message))
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper functions for multi-module SVG rendering (copied from parse.rs)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Combine multiple SVG strings into one large SVG, stacked vertically with module labels.
+///
+/// Each input SVG's content is extracted from its `<svg>` tag and placed in a
+/// nested `<svg>` group with a title label. The combined canvas is sized to fit all.
+fn combine_svgs(svgs: &[(String, String)]) -> String {
+    let gap = 40.0; // vertical gap between modules
+    let label_height = 20.0;
+    let margin = 20.0;
+
+    // Parse each SVG to extract viewBox dimensions and inner content
+    let mut items: Vec<(String, f64, f64, String)> = Vec::new(); // (name, w, h, inner)
+    let mut max_w: f64 = 0.0;
+
+    for (name, svg) in svgs {
+        // Extract viewBox
+        let vb = extract_viewbox_build(svg);
+        let w = vb.0.max(1.0);
+        let h = vb.1.max(1.0);
+        max_w = max_w.max(w);
+
+        // Extract inner content (everything between <svg ...> and </svg>)
+        let inner = extract_svg_inner_build(svg);
+        items.push((name.clone(), w, h, inner));
+    }
+
+    let total_w = max_w + margin * 2.0;
+    let mut total_h = margin;
+    for (_, _, h, _) in &items {
+        total_h += label_height + *h + gap;
+    }
+    total_h += margin;
+
+    let mut out = format!(
+        r#"<svg viewBox="0 0 {:.1} {:.1}" xmlns="http://www.w3.org/2000/svg"
+     font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"
+     style="background:transparent">
+"#,
+        total_w, total_h
+    );
+
+    let mut y = margin;
+    for (name, w, h, inner) in &items {
+        // Module label
+        out.push_str(&format!(
+            r##"  <text x="{:.1}" y="{:.1}" font-size="16" font-weight="700" fill="#333">{}</text>
+"##,
+            margin,
+            y + 16.0,
+            escape_xml_viz_build(name)
+        ));
+        y += label_height;
+
+        // Nested SVG group, centered horizontally
+        let x_offset = (max_w - w) / 2.0 + margin;
+        out.push_str(&format!(
+            r##"  <g transform="translate({:.1},{:.1})">
+{}
+  </g>
+"##,
+            x_offset, y, inner
+        ));
+        y += h + gap;
+    }
+
+    out.push_str("</svg>\n");
+    out
+}
+
+/// Extract (width, height) from an SVG viewBox attribute.
+fn extract_viewbox_build(svg: &str) -> (f64, f64) {
+    // Find viewBox="0 0 W H"
+    if let Some(start) = svg.find("viewBox=\"") {
+        let rest = &svg[start + 9..];
+        if let Some(end) = rest.find('"') {
+            let vb = &rest[..end];
+            let parts: Vec<&str> = vb.split_whitespace().collect();
+            if parts.len() >= 4 {
+                let w = parts[2].parse::<f64>().unwrap_or(200.0);
+                let h = parts[3].parse::<f64>().unwrap_or(100.0);
+                return (w, h);
+            }
+        }
+    }
+    (200.0, 100.0)
+}
+
+/// Extract the inner content of an SVG (everything between the opening <svg...> and closing </svg>).
+fn extract_svg_inner_build(svg: &str) -> String {
+    // Find the first '>' after '<svg'
+    if let Some(start) = svg.find("<svg") {
+        if let Some(gt) = svg[start..].find('>') {
+            let inner_start = start + gt + 1;
+            if let Some(end) = svg.rfind("</svg>") {
+                return svg[inner_start..end].trim().to_string();
+            }
+        }
+    }
+    svg.to_string()
+}
+
+fn escape_xml_viz_build(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 #[cfg(test)]
