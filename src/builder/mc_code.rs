@@ -838,7 +838,7 @@ impl McCode {
                             .map(|(_key, clsid)| *clsid)
                             .collect();
 
-                        let _ = clsids.iter().map(|clsid| {
+                        for clsid in &clsids {
                             if let Some((_uri, span)) = gt.class_id_to_span.get(clsid) {
                                 symbol_lapper.insert(Interval {
                                     start: span.start,
@@ -846,19 +846,17 @@ impl McCode {
                                     val: SymbolType::ClassDefinition(*clsid),
                                 });
                             }
-                        });
+                        }
 
-                        let _ = gt
-                            .span_to_declare_class_id
-                            .iter()
-                            .filter(|((uri, _span), _refid)| uri == &self.uri)
-                            .map(|((_uri, span), refid)| {
+                        for ((uri, span), refid) in gt.span_to_declare_class_id.iter() {
+                            if uri == &self.uri {
                                 symbol_lapper.insert(Interval {
                                     start: span.start,
                                     stop: span.end,
                                     val: SymbolType::DeclareClass(*refid),
                                 });
-                            });
+                            }
+                        }
                     }
                     Err(e) => {
                         tracing::error!(target: "mcc::code", error = %e, "global_table mutex poisoned (create_lapper)")
@@ -866,28 +864,20 @@ impl McCode {
                 }
 
                 //local
-                let _ = sem
-                    .local_table
-                    .declare_inst_to_span
-                    .iter()
-                    .map(|(dcl_id, span)| {
-                        symbol_lapper.insert(Interval {
-                            start: span.start,
-                            stop: span.end,
-                            val: SymbolType::DeclareInstance(*dcl_id),
-                        });
+                for (dcl_id, span) in sem.local_table.declare_inst_to_span.iter() {
+                    symbol_lapper.insert(Interval {
+                        start: span.start,
+                        stop: span.end,
+                        val: SymbolType::DeclareInstance(*dcl_id),
                     });
-                let _ = sem
-                    .local_table
-                    .inst_id_to_span
-                    .iter()
-                    .map(|(inst_id, span)| {
-                        symbol_lapper.insert(Interval {
-                            start: span.start,
-                            stop: span.end,
-                            val: SymbolType::InstanceReference(*inst_id),
-                        });
+                }
+                for (inst_id, span) in sem.local_table.inst_id_to_span.iter() {
+                    symbol_lapper.insert(Interval {
+                        start: span.start,
+                        stop: span.end,
+                        val: SymbolType::InstanceReference(*inst_id),
                     });
+                }
 
                 sem.symbol_lapper = symbol_lapper;
             }
