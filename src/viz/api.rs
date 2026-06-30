@@ -70,6 +70,10 @@ impl Default for RenderOpts {
             top_candidates: vec![
                 Box::new(FlowLayouter::default()),
                 Box::new(FlowLayouter {
+                    hub_keep_semantic: true,
+                    ..FlowLayouter::default()
+                }),
+                Box::new(FlowLayouter {
                     bary_sweeps: 10,
                     ..FlowLayouter::default()
                 }),
@@ -86,6 +90,10 @@ impl Default for RenderOpts {
             ],
             sub_candidates: vec![
                 Box::new(FlowLayouter::sub()),
+                Box::new(FlowLayouter {
+                    hub_keep_semantic: true,
+                    ..FlowLayouter::sub()
+                }),
                 Box::new(FlowLayouter {
                     bary_sweeps: 10,
                     ..FlowLayouter::sub()

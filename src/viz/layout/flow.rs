@@ -35,7 +35,7 @@ use crate::vector::graph::{EntrySide, McVecBox, McVecGraph, NetKind, Symbol};
 
 use super::components::{build_adjacency, find_connected_components};
 use super::entry_points::{
-    assign_entry_points_coarse, assign_entry_points_refine, enforce_unique_offsets,
+    assign_entry_points_coarse, enforce_unique_offsets,
     promote_synthetic_pins, split_shared_pins,
 };
 use super::normalize::{compute_canvas, normalize_positions, CANVAS_MARGIN};
@@ -70,6 +70,8 @@ pub struct FlowLayouter {
     /// single-driver multi-load nets as "several wires fanning out from one point", not following schematic conventions. After changing to `false`, each pin
     /// connects at its own exit point then wires out.
     pub fanout_star: bool,
+    /// 05b: hub keep semantic sides (Input=Left, Output=Right). true = old behavior, false = connectivity-first.
+    pub hub_keep_semantic: bool,
 }
 
 impl Default for FlowLayouter {
@@ -82,6 +84,7 @@ impl Default for FlowLayouter {
             hub_min_degree: 4,
             recompute_sizes: false,
             fanout_star: false,
+            hub_keep_semantic: false,
         }
     }
 }
@@ -97,6 +100,7 @@ impl FlowLayouter {
             hub_min_degree: 3,
             recompute_sizes: true,
             fanout_star: false,
+            hub_keep_semantic: false,
         }
     }
 }
@@ -196,7 +200,6 @@ impl Layouter for FlowLayouter {
 
         // ── Core overlap + fine-tuning ──
         PlaceOptimizer::default().run(graph);
-        assign_entry_points_refine(graph);
 
         // ★ P0: First determine hub
         let root_id = ranks
@@ -205,10 +208,8 @@ impl Layouter for FlowLayouter {
             .map(|(id, _)| *id)
             .unwrap_or(graph.boxes[0].id);
 
-        // ★ P0a: Flip leaf pins towards core neighbor (flash data pins all face mcu, no longer facing away and routing around)
-        face_core_neighbor(graph, root_id);
-        // ★ Sort same-side pins by neighbor vertical position (side is finalized now)
-        order_pins_by_neighbor(graph);
+        // ★ 05b: Pin placement pipeline (replaces face_core_neighbor, order_pins_by_neighbor, assign_entry_points_refine, enforce_unique_offsets)
+        super::pin_place::pin_place_pipeline(graph, Some(root_id), true, self.hub_keep_semantic);
         // ★ P0b: Leaf first vertically aligns to neighbor, then hub stretches to align with final leaf position (two-step positioning)
         align_leaf_to_neighbor(graph, root_id);
         align_hub_to_spokes(graph, root_id);
@@ -227,12 +228,6 @@ impl Layouter for FlowLayouter {
         // ── B3: Attach flags back to consumer sides (centered evenly on same side) ──
         graph.boxes.extend(flag_boxes);
         self.place_flags(graph, &flag_meta);
-
-        // ★ FIX (deduplication fallback / flash two wires not separated): finally ensure pins on same side of each box
-        //   exit points don't overlap (only rearrange if adjacent < 18px, otherwise keep). Specifically fixes order_pins_by_neighbor
-        //   only rearranging "pins with neighbors", missing "pins only connected to flags", causing two pins to hit same offset → multiple wires
-        //   fanning out from one point. Only changes offset, doesn't move boxes, doesn't touch routing.
-        enforce_unique_offsets(graph);
 
         // ★ Flags in position → move isolated components (with flags) as a group to open area below main body
         park_isolated_components(graph, &isolated_ids);
