@@ -238,3 +238,105 @@ impl GlobalSymbolTable {
         };
     }
 }
+
+/// Convert McSemSymbols to JSON for RPC transfer to LSP
+pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::Value {
+    use serde_json::json;
+
+    // Get local table data
+    let local = &symbols.local_table;
+    let local_declares: Vec<serde_json::Value> = local
+        .declare_inst_to_span
+        .iter()
+        .map(|(id, span)| {
+            json!({
+                "kind": "declare",
+                "id": id._raw,
+                "span": [span.start, span.end],
+            })
+        })
+        .collect();
+
+    let local_references: Vec<serde_json::Value> = local
+        .inst_id_to_span
+        .iter()
+        .map(|(id, span)| {
+            let declare_id = local.inst_id_to_declare_inst.get(id).map(|d| d._raw);
+            json!({
+                "kind": "reference",
+                "id": id._raw,
+                "span": [span.start, span.end],
+                "declare_id": declare_id,
+            })
+        })
+        .collect();
+
+    // Get lapper ranges (local symbol positions)
+    let lapper_ranges: Vec<serde_json::Value> = symbols
+        .symbol_lapper
+        .iter()
+        .map(|interval| {
+            let (kind, id) = match interval.val {
+                SymbolType::ClassDefinition(id) => ("class_definition", id._raw),
+                SymbolType::DeclareClass(id) => ("declare_class", id._raw),
+                SymbolType::DeclareInstance(id) => ("declare_instance", id._raw),
+                SymbolType::InstanceReference(id) => ("instance_reference", id._raw),
+            };
+            json!({
+                "kind": kind,
+                "start": interval.start,
+                "stop": interval.stop,
+                "id": id,
+            })
+        })
+        .collect();
+
+    // Get global table data for this URI
+    let gtable = symbols.global_table.lock().ok();
+    let uri_str = uri.as_str();
+    let global_declares: Vec<serde_json::Value> = gtable
+        .as_ref()
+        .map(|g| {
+            g.class_id_to_span
+                .iter()
+                .filter(|(_id, (file_uri, _))| file_uri.as_str() == uri_str)
+                .map(|(id, (file_uri, span))| {
+                    json!({
+                        "id": id._raw,
+                        "uri": file_uri,
+                        "span": [span.start, span.end],
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let global_references: Vec<serde_json::Value> = gtable
+        .as_ref()
+        .map(|g| {
+            g.declare_class_id_to_span
+                .iter()
+                .filter(|(_id, (file_uri, _))| file_uri.as_str() == uri_str)
+                .map(|(id, (file_uri, span))| {
+                    json!({
+                        "id": id._raw,
+                        "uri": file_uri,
+                        "span": [span.start, span.end],
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    json!({
+        "local": {
+            "declares": local_declares,
+            "references": local_references,
+        },
+        "lapper": lapper_ranges,
+        "global": {
+            "declares": global_declares,
+            "references": global_references,
+        },
+    })
+}
