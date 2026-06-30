@@ -95,6 +95,18 @@ pub fn build_graph_from_table(table: &InstTable, root_id: u32) -> McVecGraph {
                 ));
                 box_ids.push(child.id);
             }
+            DetectedKind::Label => {
+                crate::velog!("[graph] ✓ Label: {name}");
+                graph.boxes.push(McVecBox::new(
+                    child.id as i64,
+                    name,
+                    String::new(),
+                    BoxKind::Dot,
+                    0,
+                    IoSummary::new(),
+                ));
+                box_ids.push(child.id);
+            }
             DetectedKind::Skip => {
                 // Bus itself isn't drawn, but its members may be power labels
                 if child.kind == InstKind::Bus {

@@ -914,6 +914,7 @@ fn compute_entry_points(
         BoxKind::TwoPin => ep_for_two_pin(pins),
         BoxKind::MultiPin => ep_for_multi_pin(pins, connected),
         BoxKind::SubModule => ep_for_sub_module(pins, connected),
+        BoxKind::Dot => ep_for_power_label(b),
     }
 }
 

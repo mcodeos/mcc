@@ -175,6 +175,17 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
             apply_reserved_overrides(&mut b); // ★ Reserved: layout / custom symbol (default no-op)
             Some(b)
         }
+        DetectedKind::Label => Some(McVecBox::new_v2(
+            id as i64,
+            name,
+            String::new(),
+            BoxKind::Dot,
+            Symbol::Dot,
+            None,
+            None,
+            0,
+            IoSummary::new(),
+        )),
         DetectedKind::SubModule {
             port_count,
             class_name,
@@ -212,6 +223,17 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
                 IoSummary::new(),
             ))
         }
+        DetectedKind::Label => Some(McVecBox::new_v2(
+            id as i64,
+            name,
+            String::new(),
+            BoxKind::Dot,
+            Symbol::Dot,
+            None,
+            None,
+            0,
+            IoSummary::new(),
+        )),
         DetectedKind::Skip => None,
     }
 }
@@ -344,6 +366,21 @@ fn build_mc_vec_graph_inner(
                 ));
                 box_ids_set.insert(id);
             }
+            DetectedKind::Label => {
+                crate::velog!("[graph] ✓ Label: {name}");
+                graph.boxes.push(McVecBox::new_v2(
+                    id as i64,
+                    name,
+                    String::new(),
+                    BoxKind::Dot,
+                    Symbol::Dot,
+                    None,
+                    None,
+                    0,
+                    IoSummary::new(),
+                ));
+                box_ids_set.insert(id);
+            }
             DetectedKind::Skip => {
                 if entry.kind == InstKind::Bus {
                     for member in &table.children_of(id) {
@@ -368,6 +405,43 @@ fn build_mc_vec_graph_inner(
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // ── ★ Phase 1.3: backfill all remaining children of the module that weren't in block.insts ─
+    // This catches label entries (VCC/Vin) that are registered in InstTable but weren't pushed
+    // into block.insts by the builder (labels are not "components" so they may be skipped).
+    for child in table.children_of(block.bid as u32) {
+        if box_ids_set.contains(&child.id) {
+            continue;
+        }
+        // Only process Leaf entries: Labels. Components/Modules/Ports are already handled above.
+        // Bus members are handled in DetectedKind::Skip branch above.
+        if matches!(child.kind, InstKind::Label | InstKind::Bus) {
+            let cname = extract_last_segment(&child.path);
+            let detected = detect_kind(table, child.id);
+            // Skip power labels (already handled in main loop via block.insts or already processed)
+            if matches!(detected, DetectedKind::PowerLabel) {
+                continue;
+            }
+            // Skip bus (members handled in Skip branch)
+            if matches!(detected, DetectedKind::Skip) {
+                continue;
+            }
+            if matches!(detected, DetectedKind::Label) {
+                graph.boxes.push(McVecBox::new_v2(
+                    child.id as i64,
+                    cname,
+                    String::new(),
+                    BoxKind::Dot,
+                    Symbol::Dot,
+                    None,
+                    None,
+                    0,
+                    IoSummary::new(),
+                ));
+                box_ids_set.insert(child.id);
             }
         }
     }
@@ -710,13 +784,14 @@ fn build_mc_vec_graph_inner(
         }
     }
 
-    let mut count_by_kind = [0usize; 4]; // TwoPin/MultiPin/SubModule/PowerLabel
+    let mut count_by_kind = [0usize; 5]; // TwoPin/MultiPin/SubModule/PowerLabel/Dot
     for b in &graph.boxes {
         let i = match b.kind {
             BoxKind::TwoPin => 0,
             BoxKind::MultiPin => 1,
             BoxKind::SubModule => 2,
             BoxKind::PowerLabel => 3,
+            BoxKind::Dot => 4,
         };
         count_by_kind[i] += 1;
     }
@@ -1192,6 +1267,9 @@ fn build_point_to_box(table: &InstTable, boxes: &[McVecBox]) -> HashMap<u32, u32
                 point_to_box.insert(bid, bid);
                 map_all_descendants(table, bid, bid, &mut point_to_box);
             }
+            BoxKind::Dot => {
+                point_to_box.insert(bid, bid);
+            }
         }
     }
 
@@ -1584,6 +1662,20 @@ fn collect_exposed_labels(table: &InstTable, box_id: u32, b: &McVecBox) -> HashM
         }
         BoxKind::TwoPin => {
             // Intentionally empty set -- passive components don't participate in shared signal name matching
+        }
+        BoxKind::Dot => {
+            // Dot labels participate in exposed signals for rail synthesis
+            let name = if !b.name.is_empty() {
+                b.name.clone()
+            } else {
+                table
+                    .get_entry(box_id)
+                    .map(|e| extract_last_segment(&e.path))
+                    .unwrap_or_default()
+            };
+            if !name.is_empty() {
+                out.insert(name.to_uppercase(), name);
+            }
         }
     }
 

@@ -84,7 +84,7 @@ pub fn render_designator_and_value(b: &McVecBox) -> String {
                 d = escape_xml(designator)
             )
         }
-        Symbol::PowerRail { .. } | Symbol::Unknown => String::new(),
+        Symbol::PowerRail { .. } | Symbol::Dot | Symbol::Unknown => String::new(),
     }
 }
 
