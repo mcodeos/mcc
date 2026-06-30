@@ -1247,6 +1247,9 @@ impl McPins {
         //1.num 2.id 3.bus 4.spi.clk
         if self.names_to_id.contains_key(id) {
             Some(id.to_string())
+        } else if self.pins.contains_key(id) {
+            // Also match by pin ID directly (e.g. "S", "D", "G" for MOSFET)
+            Some(id.to_string())
         } else {
             None
         }
