@@ -35,8 +35,7 @@ use crate::vector::graph::{EntrySide, McVecBox, McVecGraph, NetKind, Symbol};
 
 use super::components::{build_adjacency, find_connected_components};
 use super::entry_points::{
-    assign_entry_points_coarse, enforce_unique_offsets,
-    promote_synthetic_pins, split_shared_pins,
+    assign_entry_points_coarse, enforce_unique_offsets, promote_synthetic_pins, split_shared_pins,
 };
 use super::normalize::{compute_canvas, normalize_positions, CANVAS_MARGIN};
 use super::optimize::PlaceOptimizer;

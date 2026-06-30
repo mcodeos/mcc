@@ -231,27 +231,100 @@ pub fn run(args: &ParseArgs) -> Result<()> {
 
     // ── 8. Pass2 assembly ──
     if stages.pass2 {
-        renderer.pass2_header(&top_name);
+        // ─────────────────────────────────────────────────────────────────────────────
+        // Top Module Selection Strategy
+        //
+        // Strategy 1: Module with Top (Instantiated Hierarchy)
+        //   - When a file contains modules with hierarchical instantiation (one module instantiates another),
+        //     use the specified --top module as the entry point.
+        //
+        // Priority for Top Module Selection:
+        //   1. CLI --top argument (highest priority): e.g., `mcc parse --top MyModule`
+        //   2. Manifest top_module field: defined in manifest.toml
+        //   3. Fallback to "main" if no top is specified
+        //
+        // Strategy 2: No Top Module (Flat/Peer Modules)
+        //   - When a file contains multiple peer modules without hierarchical instantiation,
+        //     render ALL modules as if each were a top-level module.
+        //   - This is called "virtual instantiation" - each module is instantiated once
+        //     just to visualize/analyze the module definitions without hierarchical context.
+        //
+        // Detection: If no --top is specified and multiple modules exist in the file,
+        //            we assume virtual instantiation mode.
+        // ─────────────────────────────────────────────────────────────────────────────
 
-        match mcc::mcc_build(&ident, &uri) {
-            Ok(inst) => {
-                renderer.instances(&inst, 0);
-                renderer.connections(&inst, 0);
-                renderer.nets(&inst, 0);
+        // Check if we should render all modules (no explicit --top specified and multiple modules exist)
+        let has_explicit_top = forced_top.is_some() || args.top.is_some();
+        let all_modules: Vec<(String, String)> = mcc::mcb_iter_modules()
+            .into_iter()
+            .filter(|(_, module_uri)| {
+                // Only modules from the target file
+                module_uri == uri.as_str() || module_uri.ends_with(uri.as_str())
+            })
+            .collect();
+        let should_render_all = !has_explicit_top && all_modules.len() > 1;
 
-                let pass2 = public_collect_pass2(&top_name, &inst, &mut tracker);
-                builder.set_pass2(pass2);
-
-                // Print diagnostics before Net Summary
-                builder.print_diagnostics_summary();
-                renderer.net_summary(&inst);
+        if should_render_all {
+            // Multi-module rendering: build each module separately
+            let first_mod_name = all_modules.first().map(|(n, _)| n.clone()).unwrap_or_else(|| top_name.clone());
+            let first_mod_ident = McIds::from(first_mod_name.as_str());
+            
+            match mcc::mcc_build(&first_mod_ident, &uri) {
+                Ok(first_inst) => {
+                    // Process ALL modules: first one already built, others in loop
+                    for (idx, (mod_name, _)) in all_modules.iter().enumerate() {
+                        if idx == 0 {
+                            // First module already built, output its details
+                            renderer.pass2_header(mod_name);
+                            renderer.instances(&first_inst, 0);
+                            renderer.connections(&first_inst, 0);
+                            renderer.nets(&first_inst, 0);
+                            builder.print_diagnostics_summary();
+                            renderer.net_summary(&first_inst);
+                        } else {
+                            // Build and output subsequent modules
+                            let mod_ident = McIds::from(mod_name.as_str());
+                            if let Ok(mod_inst) = mcc::mcc_build(&mod_ident, &uri) {
+                                renderer.pass2_header(mod_name);
+                                renderer.instances(&mod_inst, 0);
+                                renderer.connections(&mod_inst, 0);
+                                renderer.nets(&mod_inst, 0);
+                                renderer.net_summary(&mod_inst);
+                            }
+                        }
+                    }
+                    // Use first module for pass2 collection
+                    let pass2 = public_collect_pass2(&top_name, &first_inst, &mut tracker);
+                    builder.set_pass2(pass2);
+                }
+                Err(e) => {
+                    renderer.pass2_failed(&format!("{}", e));
+                    let err = RpcError::build_error(format!("{}", e));
+                    emit_error(args, err)?;
+                }
             }
-            Err(e) => {
-                renderer.pass2_failed(&format!("{}", e));
-                return emit_error(
-                    args,
-                    RpcError::build_error(format!("instantiation failed: {}", e)),
-                );
+        } else {
+            // Single module rendering: call pass2_header only once
+            renderer.pass2_header(&top_name);
+
+            match mcc::mcc_build(&ident, &uri) {
+                Ok(inst) => {
+                    renderer.instances(&inst, 0);
+                    renderer.connections(&inst, 0);
+                    renderer.nets(&inst, 0);
+
+                    let pass2 = public_collect_pass2(&top_name, &inst, &mut tracker);
+                    builder.set_pass2(pass2);
+
+                    // Print diagnostics before Net Summary
+                    builder.print_diagnostics_summary();
+                    renderer.net_summary(&inst);
+                }
+                Err(e) => {
+                    renderer.pass2_failed(&format!("{}", e));
+                    let err = RpcError::build_error(format!("{}", e));
+                    emit_error(args, err)?;
+                }
             }
         }
     }

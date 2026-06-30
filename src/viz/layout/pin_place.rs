@@ -70,7 +70,12 @@ pub fn pin_place_pipeline(
 
 /// Determine the target side for every pin that is NOT frozen by the author's
 /// `layout` hint.  Connectivity wins; semantics are the fallback.
-fn desired_side_pass(graph: &mut McVecGraph, hub_id: Option<i64>, hub_keep_semantic: bool, lr_only: bool) {
+fn desired_side_pass(
+    graph: &mut McVecGraph,
+    hub_id: Option<i64>,
+    hub_keep_semantic: bool,
+    lr_only: bool,
+) {
     let pin_io = collect_pin_io_types(graph);
     let pin_neighbors = collect_pin_neighbors(graph);
     let box_centers = collect_box_centers(graph);
@@ -404,15 +409,13 @@ fn order_within_side(graph: &mut McVecGraph) {
                 .enumerate()
                 .filter(|(_, ep)| ep.side == side)
                 .filter_map(|(i, ep)| {
-target
-                        .get(&(b.id, ep.pin_id))
-                        .map(|&(tx, ty)| {
-                            let key = match side {
-                                EntrySide::Top | EntrySide::Bottom => tx,
-                                EntrySide::Left | EntrySide::Right => ty,
-                            };
-                            (i, key)
-                        })
+                    target.get(&(b.id, ep.pin_id)).map(|&(tx, ty)| {
+                        let key = match side {
+                            EntrySide::Top | EntrySide::Bottom => tx,
+                            EntrySide::Left | EntrySide::Right => ty,
+                        };
+                        (i, key)
+                    })
                 })
                 .collect();
 

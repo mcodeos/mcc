@@ -1338,6 +1338,17 @@ pub fn mcb_get_module_name_by_uri(uri: &McURI) -> Option<String> {
 pub fn mcb_component_count() -> usize {
     workspace::WORKSPACE.components.borrow().len()
 }
+
+/// Get all module names in a specific file (by URI)
+pub fn mcb_get_modules_in_file(uri: &McURI) -> Vec<String> {
+    workspace::WORKSPACE
+        .modules
+        .borrow()
+        .iter()
+        .filter(|entry| entry.key().uri == *uri)
+        .map(|entry| entry.key().ident.to_string())
+        .collect()
+}
 /// Recursively scan all .mc files in the directory
 fn scan_mc_files(dir: &Path) -> Vec<PathBuf> {
     let mut result = Vec::new();
