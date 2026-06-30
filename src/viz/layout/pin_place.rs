@@ -47,18 +47,18 @@ use super::rails::is_rail_box;
 /// lets connectivity override semantics for hub pins too.
 pub fn pin_place_pipeline(
     graph: &mut McVecGraph,
-    _hub_id: Option<i64>,
+    hub_id: Option<i64>,
     lr_only: bool,
     hub_keep_semantic: bool,
 ) {
     // A: Connectivity-first desired side
-    desired_side_pass(graph, hub_keep_semantic, lr_only);
+    desired_side_pass(graph, hub_id, hub_keep_semantic, lr_only);
 
-    // B: Straighten facing pairs
-    straighten_facing_pairs(graph);
-
-    // C: Order within side (crossing-minimizing)
+    // C: Order within side (crossing-minimizing) — runs FIRST so relative order is set
     order_within_side(graph);
+
+    // B: Straighten facing pairs — overrides offsets for straight wires, runs LAST
+    straighten_facing_pairs(graph);
 
     // E: Enforce unique offsets (hard guard)
     enforce_unique_offsets(graph);
@@ -70,24 +70,27 @@ pub fn pin_place_pipeline(
 
 /// Determine the target side for every pin that is NOT frozen by the author's
 /// `layout` hint.  Connectivity wins; semantics are the fallback.
-fn desired_side_pass(graph: &mut McVecGraph, hub_keep_semantic: bool, lr_only: bool) {
+fn desired_side_pass(graph: &mut McVecGraph, hub_id: Option<i64>, hub_keep_semantic: bool, lr_only: bool) {
     let pin_io = collect_pin_io_types(graph);
     let pin_neighbors = collect_pin_neighbors(graph);
     let box_centers = collect_box_centers(graph);
     let box_rects = collect_box_rects(graph);
 
-    let hub_ids: HashSet<i64> = graph
-        .boxes
-        .iter()
-        .filter(|b| b.symbol == crate::vector::graph::Symbol::Ic)
-        .map(|b| b.id)
-        .collect();
-
-    let mut reassigned = 0usize;
+    let mut total_reassigned = 0usize;
 
     for b in &mut graph.boxes {
-        // Collect authored pin sides from layout_hint
-        let authored: HashSet<&str> = b
+        if is_rail_box(b) {
+            continue;
+        }
+
+        // The hub is ONE box (the max-degree node flow passes in), not "every IC".
+        // Only exempt it, and only when explicitly asked (default false ⇒ connectivity-first everywhere).
+        if hub_keep_semantic && hub_id == Some(b.id) {
+            continue;
+        }
+
+        // Collect authored pin sides from layout_hint — match by pin_name string OR pin_id
+        let authored: HashSet<String> = b
             .layout_hint
             .as_ref()
             .map(|h| {
@@ -96,24 +99,18 @@ fn desired_side_pass(graph: &mut McVecGraph, hub_keep_semantic: bool, lr_only: b
                     .chain(h.right.iter())
                     .chain(h.top.iter())
                     .chain(h.bottom.iter())
-                    .map(|s| s.as_str())
+                    .cloned()
                     .collect()
             })
             .unwrap_or_default();
 
         let bcx = b.x + b.w / 2.0;
         let bcy = b.y + b.h / 2.0;
-
-        // Skip power labels — they don't have meaningful pin sides
-        if is_rail_box(b) {
-            continue;
-        }
-
-        let is_hub = hub_ids.contains(&b.id);
+        let mut moved = 0usize; // per-box counter
 
         for ep in &mut b.entry_points {
-            // ★ Authored pins are frozen — check by pin_name (the label string)
-            if authored.contains(ep.pin_name.as_str()) {
+            // Freeze authored pins — match by pin-name string OR pin_id
+            if authored.contains(&ep.pin_name) || authored.contains(&ep.pin_id.to_string()) {
                 continue;
             }
 
@@ -121,11 +118,6 @@ fn desired_side_pass(graph: &mut McVecGraph, hub_keep_semantic: bool, lr_only: b
                 .get(&(b.id, ep.pin_id))
                 .copied()
                 .unwrap_or(IoDirection::Unknown);
-
-            // Hub keep-semantic: skip all hub pins
-            if hub_keep_semantic && is_hub {
-                continue;
-            }
 
             let nbrs = pin_neighbors
                 .get(&(b.id, ep.pin_id))
@@ -145,7 +137,7 @@ fn desired_side_pass(graph: &mut McVecGraph, hub_keep_semantic: bool, lr_only: b
                 let target = semantic_default_side(io);
                 if target != ep.side {
                     ep.side = target;
-                    reassigned += 1;
+                    moved += 1;
                 }
                 continue;
             }
@@ -170,19 +162,20 @@ fn desired_side_pass(graph: &mut McVecGraph, hub_keep_semantic: bool, lr_only: b
             };
 
             // L/R-only: project Top/Bottom back to Left/Right
-            let target = if lr_only {
+            let (target, forced) = if lr_only {
                 match target {
                     EntrySide::Top | EntrySide::Bottom => {
-                        if dx >= 0.0 {
+                        let projected = if dx >= 0.0 {
                             EntrySide::Right
                         } else {
                             EntrySide::Left
-                        }
+                        };
+                        (projected, true) // forced: bypass hysteresis for hard lr_only constraint
                     }
-                    s => s,
+                    s => (s, forced),
                 }
             } else {
-                target
+                (target, forced)
             };
 
             if target == ep.side {
@@ -195,39 +188,20 @@ fn desired_side_pass(graph: &mut McVecGraph, hub_keep_semantic: bool, lr_only: b
             }
 
             ep.side = target;
-            reassigned += 1;
+            moved += 1;
         }
 
-        if reassigned > 0 {
+        if moved > 0 {
             normalize_offsets_per_side(b);
         }
+        total_reassigned += moved;
     }
 
     crate::vlog!(
         "[pin_place] desired_side: {} pins reassigned across {} boxes",
-        reassigned,
+        total_reassigned,
         graph.boxes.len()
     );
-
-    // L/R-only guard: force any remaining Top/Bottom pins to Left/Right
-    if lr_only {
-        for b in &mut graph.boxes {
-            for ep in &mut b.entry_points {
-                match ep.side {
-                    EntrySide::Top | EntrySide::Bottom => {
-                        // Project to Left/Right based on box center heuristic
-                        // (no direction info available, default to Left for non-hub, Right for hub)
-                        if hub_ids.contains(&b.id) {
-                            ep.side = EntrySide::Right;
-                        } else {
-                            ep.side = EntrySide::Left;
-                        }
-                    }
-                    _ => {}
-                }
-            }
-        }
-    }
 }
 
 /// Fallback side when a pin has no core neighbours.
@@ -430,13 +404,15 @@ fn order_within_side(graph: &mut McVecGraph) {
                 .enumerate()
                 .filter(|(_, ep)| ep.side == side)
                 .filter_map(|(i, ep)| {
-                    target.get(&(b.id, ep.pin_id)).map(|&(_, ty)| {
-                        let key = match side {
-                            EntrySide::Top | EntrySide::Bottom => ty,
-                            EntrySide::Left | EntrySide::Right => ty,
-                        };
-                        (i, key)
-                    })
+target
+                        .get(&(b.id, ep.pin_id))
+                        .map(|&(tx, ty)| {
+                            let key = match side {
+                                EntrySide::Top | EntrySide::Bottom => tx,
+                                EntrySide::Left | EntrySide::Right => ty,
+                            };
+                            (i, key)
+                        })
                 })
                 .collect();
 
