@@ -41,12 +41,12 @@ pub mod doc;
 pub mod idiom;
 pub mod layer;
 pub mod layout;
+pub mod log;
 pub mod metrics;
 pub mod render;
 pub mod route;
 pub mod template;
 pub mod traits;
-pub mod log;
 
 // ============================================================================
 // Top-level re-exports

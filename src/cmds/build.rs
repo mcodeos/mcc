@@ -375,9 +375,9 @@ mod phase0_golden {
 // Tests use a global lock because mcc global state (workspace) is not thread-safe.
 #[cfg(test)]
 mod d_detectors {
-    use std::sync::Mutex;
     use mcc::McDiagnostic;
     use mcc::McIds;
+    use std::sync::Mutex;
 
     static TEST_LOCK: Mutex<()> = Mutex::new(());
 
@@ -400,7 +400,7 @@ mod d_detectors {
         (diags, build_err)
     }
 
-/// Like build_fixture but panics on build failure.
+    /// Like build_fixture but panics on build failure.
     fn build_fixture_or_panic(content: &str) -> Vec<McDiagnostic> {
         let (diags, err) = build_fixture(content);
         if let Some(e) = err {

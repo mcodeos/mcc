@@ -1041,9 +1041,6 @@ impl McPhrase {
                 if !is_connectable(&opd1.get_left(), &opd2.get_left())
                     || !is_connectable(&opd1.get_right(), &opd2.get_right())
                 {
-                    eprintln!(
-                        "Shape mismatch in parallel connection: opd1={opd1:#?}, opd2={opd2:#?}"
-                    );
                     dlog_error(1151, node, "Shape mismatch in parallel connection");
                     return None;
                 }

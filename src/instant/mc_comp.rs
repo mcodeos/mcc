@@ -232,7 +232,10 @@ impl McComponentInst {
     }
 
     /// Resolve a single McAttrVal by substituting parameter references.
-    fn resolve_attr_value(&self, val: &crate::core::component::mc_attr::McAttrVal) -> crate::core::component::mc_attr::McAttrVal {
+    fn resolve_attr_value(
+        &self,
+        val: &crate::core::component::mc_attr::McAttrVal,
+    ) -> crate::core::component::mc_attr::McAttrVal {
         use crate::core::component::mc_attr::McAttrVal;
         match val {
             McAttrVal::AttrVariable(opd) => {
@@ -244,9 +247,7 @@ impl McComponentInst {
                     if let Some(value_str) = self.lookup_param_value(name) {
                         return McAttrVal::AttrLiteral(
                             crate::core::basic::mc_literal::McLiteral::String(
-                                crate::core::basic::mc_literal::McString {
-                                    value: value_str,
-                                },
+                                crate::core::basic::mc_literal::McString { value: value_str },
                             ),
                         );
                     }
@@ -260,13 +261,9 @@ impl McComponentInst {
                 // e.g. "Test: " + polarity + " expression" with polarity="center_positive"
                 //      -> "Test: center_positive expression"
                 if let Some(resolved) = self.resolve_expr_to_literal(expr) {
-                    McAttrVal::AttrLiteral(
-                        crate::core::basic::mc_literal::McLiteral::String(
-                            crate::core::basic::mc_literal::McString {
-                                value: resolved,
-                            },
-                        ),
-                    )
+                    McAttrVal::AttrLiteral(crate::core::basic::mc_literal::McLiteral::String(
+                        crate::core::basic::mc_literal::McString { value: resolved },
+                    ))
                 } else {
                     val.clone()
                 }
@@ -417,7 +414,11 @@ impl McComponentInst {
             McExpression::Divide(l, r) => {
                 let left = self.resolve_expr_to_i64(l)?;
                 let right = self.resolve_expr_to_i64(r)?;
-                if right == 0 { None } else { Some(left / right) }
+                if right == 0 {
+                    None
+                } else {
+                    Some(left / right)
+                }
             }
             McExpression::Minus(l, r) => {
                 let left = self.resolve_expr_to_i64(l)?;

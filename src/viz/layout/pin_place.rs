@@ -23,9 +23,8 @@ use crate::vector::graph::McVecGraph;
 
 use super::entry_points::{
     collect_box_centers, collect_box_rects, collect_pin_io_types, collect_pin_neighbors,
-    enforce_unique_offsets, normalize_offsets_per_side,
-    open_perpendicular_side, path_blocked, pick_side_by_direction,
-    sides_warrant_switch,
+    enforce_unique_offsets, normalize_offsets_per_side, open_perpendicular_side, path_blocked,
+    pick_side_by_direction, sides_warrant_switch,
 };
 use super::flow::pin_abs;
 use super::rails::is_rail_box;
@@ -92,7 +91,8 @@ fn desired_side_pass(graph: &mut McVecGraph, hub_keep_semantic: bool, lr_only: b
             .layout_hint
             .as_ref()
             .map(|h| {
-                h.left.iter()
+                h.left
+                    .iter()
                     .chain(h.right.iter())
                     .chain(h.top.iter())
                     .chain(h.bottom.iter())
@@ -161,12 +161,7 @@ fn desired_side_pass(graph: &mut McVecGraph, hub_keep_semantic: bool, lr_only: b
             exclude.insert(b.id);
             let blocked = path_blocked((bcx, bcy), (ncx, ncy), &box_rects, &exclude);
             let (target, forced) = if blocked {
-                match open_perpendicular_side(
-                    (b.x, b.y, b.w, b.h),
-                    &preferred,
-                    &box_rects,
-                    b.id,
-                ) {
+                match open_perpendicular_side((b.x, b.y, b.w, b.h), &preferred, &box_rects, b.id) {
                     Some(s) => (s, true),
                     None => (preferred, false),
                 }
@@ -303,15 +298,11 @@ fn straighten_facing_pairs(graph: &mut McVecGraph) {
             let target_y = (ay + by) / 2.0;
 
             let new_offset_a = match ep_a.side {
-                EntrySide::Left | EntrySide::Right => {
-                    ((target_y - a.y) / a.h).clamp(0.05, 0.95)
-                }
+                EntrySide::Left | EntrySide::Right => ((target_y - a.y) / a.h).clamp(0.05, 0.95),
                 _ => ep_a.offset,
             };
             let new_offset_b = match ep_b.side {
-                EntrySide::Left | EntrySide::Right => {
-                    ((target_y - b.y) / b.h).clamp(0.05, 0.95)
-                }
+                EntrySide::Left | EntrySide::Right => ((target_y - b.y) / b.h).clamp(0.05, 0.95),
                 _ => ep_b.offset,
             };
 
@@ -323,15 +314,11 @@ fn straighten_facing_pairs(graph: &mut McVecGraph) {
             let target_x = (ax + bx) / 2.0;
 
             let new_offset_a = match ep_a.side {
-                EntrySide::Top | EntrySide::Bottom => {
-                    ((target_x - a.x) / a.w).clamp(0.05, 0.95)
-                }
+                EntrySide::Top | EntrySide::Bottom => ((target_x - a.x) / a.w).clamp(0.05, 0.95),
                 _ => ep_a.offset,
             };
             let new_offset_b = match ep_b.side {
-                EntrySide::Top | EntrySide::Bottom => {
-                    ((target_x - b.x) / b.w).clamp(0.05, 0.95)
-                }
+                EntrySide::Top | EntrySide::Bottom => ((target_x - b.x) / b.w).clamp(0.05, 0.95),
                 _ => ep_b.offset,
             };
 
@@ -443,15 +430,13 @@ fn order_within_side(graph: &mut McVecGraph) {
                 .enumerate()
                 .filter(|(_, ep)| ep.side == side)
                 .filter_map(|(i, ep)| {
-                    target
-                        .get(&(b.id, ep.pin_id))
-                        .map(|&(_, ty)| {
-                            let key = match side {
-                                EntrySide::Top | EntrySide::Bottom => ty,
-                                EntrySide::Left | EntrySide::Right => ty,
-                            };
-                            (i, key)
-                        })
+                    target.get(&(b.id, ep.pin_id)).map(|&(_, ty)| {
+                        let key = match side {
+                            EntrySide::Top | EntrySide::Bottom => ty,
+                            EntrySide::Left | EntrySide::Right => ty,
+                        };
+                        (i, key)
+                    })
                 })
                 .collect();
 
@@ -484,7 +469,15 @@ mod tests {
     use crate::vector::graph::net_def::{EndpointRef, VizNet};
     use crate::vector::graph::{BoxKind, NetKind, Symbol};
 
-    fn make_box(id: i64, name: &str, x: f64, y: f64, w: f64, h: f64, symbol: Symbol) -> crate::vector::graph::McVecBox {
+    fn make_box(
+        id: i64,
+        name: &str,
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+        symbol: Symbol,
+    ) -> crate::vector::graph::McVecBox {
         let kind = match symbol {
             Symbol::Ic => BoxKind::MultiPin,
             _ => BoxKind::TwoPin,
@@ -494,8 +487,15 @@ mod tests {
             _ => 2,
         };
         let mut b = crate::vector::graph::McVecBox::new_v2(
-            id, name.into(), "".into(), kind, symbol,
-            None, None, pin_count, IoSummary::new(),
+            id,
+            name.into(),
+            "".into(),
+            kind,
+            symbol,
+            None,
+            None,
+            pin_count,
+            IoSummary::new(),
         );
         b.x = x;
         b.y = y;
@@ -521,8 +521,15 @@ mod tests {
 
     fn make_ic_box(id: i64, name: &str, x: f64, y: f64) -> crate::vector::graph::McVecBox {
         let mut b = crate::vector::graph::McVecBox::new_v2(
-            id, name.into(), "".into(), BoxKind::MultiPin, Symbol::Ic,
-            None, None, 8, IoSummary::new(),
+            id,
+            name.into(),
+            "".into(),
+            BoxKind::MultiPin,
+            Symbol::Ic,
+            None,
+            None,
+            8,
+            IoSummary::new(),
         );
         b.x = x;
         b.y = y;
@@ -562,7 +569,9 @@ mod tests {
         let neighbor = make_box(2, "U2", 300.0, 0.0, 80.0, 60.0, Symbol::Ic);
 
         let net = VizNet::new(
-            1, "SPK_MUTE".into(), NetKind::Signal,
+            1,
+            "SPK_MUTE".into(),
+            NetKind::Signal,
             vec![
                 EndpointRef::new(1, 1, "SPK_MUTE"),
                 EndpointRef::new(2, 1, "IN"),
@@ -577,7 +586,8 @@ mod tests {
         let hub = graph.boxes.iter().find(|b| b.id == 1).unwrap();
         let ep = hub.entry_points.iter().find(|e| e.pin_id == 1).unwrap();
         assert_eq!(
-            ep.side, EntrySide::Right,
+            ep.side,
+            EntrySide::Right,
             "Hub pin connected to right neighbour should flip to Right"
         );
     }
@@ -597,11 +607,10 @@ mod tests {
         b.entry_points[0].offset = 0.8; // near bottom
 
         let net = VizNet::new(
-            1, "SIG".into(), NetKind::Signal,
-            vec![
-                EndpointRef::new(1, 1, "1"),
-                EndpointRef::new(2, 1, "1"),
-            ],
+            1,
+            "SIG".into(),
+            NetKind::Signal,
+            vec![EndpointRef::new(1, 1, "1"), EndpointRef::new(2, 1, "1")],
         );
         graph.boxes.push(a);
         graph.boxes.push(b);
@@ -618,11 +627,15 @@ mod tests {
         let midpoint = (0.2 + 0.8) / 2.0;
         assert!(
             (ep_a.offset - midpoint).abs() < 0.2,
-            "Pin A offset should be near midpoint: got {}, expected ~{}", ep_a.offset, midpoint
+            "Pin A offset should be near midpoint: got {}, expected ~{}",
+            ep_a.offset,
+            midpoint
         );
         assert!(
             (ep_b.offset - midpoint).abs() < 0.2,
-            "Pin B offset should be near midpoint: got {}, expected ~{}", ep_b.offset, midpoint
+            "Pin B offset should be near midpoint: got {}, expected ~{}",
+            ep_b.offset,
+            midpoint
         );
     }
 
@@ -634,21 +647,48 @@ mod tests {
 
         let mut ic = make_ic_box(1, "U1", 100.0, 100.0);
         ic.entry_points = vec![
-            EntryPoint { pin_id: 1, pin_name: "A".into(), side: EntrySide::Left, offset: 0.9 },
-            EntryPoint { pin_id: 2, pin_name: "B".into(), side: EntrySide::Left, offset: 0.5 },
-            EntryPoint { pin_id: 3, pin_name: "C".into(), side: EntrySide::Left, offset: 0.1 },
+            EntryPoint {
+                pin_id: 1,
+                pin_name: "A".into(),
+                side: EntrySide::Left,
+                offset: 0.9,
+            },
+            EntryPoint {
+                pin_id: 2,
+                pin_name: "B".into(),
+                side: EntrySide::Left,
+                offset: 0.5,
+            },
+            EntryPoint {
+                pin_id: 3,
+                pin_name: "C".into(),
+                side: EntrySide::Left,
+                offset: 0.1,
+            },
         ];
 
         let t = make_box(2, "T", 0.0, 0.0, 40.0, 30.0, Symbol::Resistor);
         let m = make_box(3, "M", 0.0, 100.0, 40.0, 30.0, Symbol::Resistor);
         let b = make_box(4, "B", 0.0, 200.0, 40.0, 30.0, Symbol::Resistor);
 
-        let net_top = VizNet::new(1, "TOP".into(), NetKind::Signal,
-            vec![EndpointRef::new(1, 1, "A"), EndpointRef::new(2, 1, "1")]);
-        let net_mid = VizNet::new(2, "MID".into(), NetKind::Signal,
-            vec![EndpointRef::new(1, 2, "B"), EndpointRef::new(3, 1, "1")]);
-        let net_bot = VizNet::new(3, "BOT".into(), NetKind::Signal,
-            vec![EndpointRef::new(1, 3, "C"), EndpointRef::new(4, 1, "1")]);
+        let net_top = VizNet::new(
+            1,
+            "TOP".into(),
+            NetKind::Signal,
+            vec![EndpointRef::new(1, 1, "A"), EndpointRef::new(2, 1, "1")],
+        );
+        let net_mid = VizNet::new(
+            2,
+            "MID".into(),
+            NetKind::Signal,
+            vec![EndpointRef::new(1, 2, "B"), EndpointRef::new(3, 1, "1")],
+        );
+        let net_bot = VizNet::new(
+            3,
+            "BOT".into(),
+            NetKind::Signal,
+            vec![EndpointRef::new(1, 3, "C"), EndpointRef::new(4, 1, "1")],
+        );
 
         graph.boxes.push(ic);
         graph.boxes.push(t);
@@ -692,7 +732,9 @@ mod tests {
         let neighbor = make_box(2, "U2", 300.0, 0.0, 80.0, 60.0, Symbol::Ic);
 
         let net = VizNet::new(
-            1, "SPK_MUTE".into(), NetKind::Signal,
+            1,
+            "SPK_MUTE".into(),
+            NetKind::Signal,
             vec![
                 EndpointRef::new(1, 1, "SPK_MUTE"),
                 EndpointRef::new(2, 1, "IN"),
@@ -705,9 +747,14 @@ mod tests {
         pin_place_pipeline(&mut graph, Some(1), true, false);
 
         let a = graph.boxes.iter().find(|b| b.id == 1).unwrap();
-        let ep = a.entry_points.iter().find(|e| e.pin_name == "SPK_MUTE").unwrap();
+        let ep = a
+            .entry_points
+            .iter()
+            .find(|e| e.pin_name == "SPK_MUTE")
+            .unwrap();
         assert_eq!(
-            ep.side, EntrySide::Left,
+            ep.side,
+            EntrySide::Left,
             "Authored pin should stay on Left even though neighbour is on Right"
         );
     }
@@ -728,11 +775,10 @@ mod tests {
         let neighbor = make_box(2, "U2", 0.0, 300.0, 80.0, 60.0, Symbol::Ic);
 
         let net = VizNet::new(
-            1, "SIG".into(), NetKind::Signal,
-            vec![
-                EndpointRef::new(1, 4, "4"),
-                EndpointRef::new(2, 1, "1"),
-            ],
+            1,
+            "SIG".into(),
+            NetKind::Signal,
+            vec![EndpointRef::new(1, 4, "4"), EndpointRef::new(2, 1, "1")],
         );
         graph.boxes.push(a);
         graph.boxes.push(neighbor);
@@ -744,7 +790,8 @@ mod tests {
             for ep in &b.entry_points {
                 assert!(
                     !matches!(ep.side, EntrySide::Top | EntrySide::Bottom),
-                    "Pin {} should not be on Top/Bottom with lr_only=true", ep.pin_id
+                    "Pin {} should not be on Top/Bottom with lr_only=true",
+                    ep.pin_id
                 );
             }
         }
@@ -757,7 +804,9 @@ mod tests {
             let hub = make_ic_box(1, "U1", 0.0, 0.0);
             let nbr = make_box(2, "U2", 300.0, 0.0, 80.0, 60.0, Symbol::Ic);
             let net = VizNet::new(
-                1, "SIG".into(), NetKind::Signal,
+                1,
+                "SIG".into(),
+                NetKind::Signal,
                 vec![
                     EndpointRef::new(1, 1, "SPK_MUTE"),
                     EndpointRef::new(2, 1, "IN"),
@@ -781,7 +830,8 @@ mod tests {
                 assert_eq!(ep1.side, ep2.side, "Side mismatch for pin {}", ep1.pin_id);
                 assert!(
                     (ep1.offset - ep2.offset).abs() < 0.001,
-                    "Offset mismatch for pin {}", ep1.pin_id
+                    "Offset mismatch for pin {}",
+                    ep1.pin_id
                 );
             }
         }
@@ -797,7 +847,9 @@ mod tests {
             let hub = make_ic_box(1, "U1", 0.0, 0.0);
             let nbr = make_box(2, "U2", 300.0, 0.0, 80.0, 60.0, Symbol::Ic);
             let net = VizNet::new(
-                1, "SIG".into(), NetKind::Signal,
+                1,
+                "SIG".into(),
+                NetKind::Signal,
                 vec![
                     EndpointRef::new(1, 1, "SPK_MUTE"),
                     EndpointRef::new(2, 1, "IN"),
@@ -833,11 +885,10 @@ mod tests {
         let neighbor = make_box(2, "U1", 300.0, 0.0, 80.0, 60.0, Symbol::Ic);
 
         let net = VizNet::new(
-            1, "SIG".into(), NetKind::Signal,
-            vec![
-                EndpointRef::new(1, 1, "1"),
-                EndpointRef::new(2, 1, "1"),
-            ],
+            1,
+            "SIG".into(),
+            NetKind::Signal,
+            vec![EndpointRef::new(1, 1, "1"), EndpointRef::new(2, 1, "1")],
         );
         graph.boxes.push(leaf);
         graph.boxes.push(neighbor);
@@ -848,7 +899,8 @@ mod tests {
         let leaf = graph.boxes.iter().find(|b| b.id == 1).unwrap();
         let ep = leaf.entry_points.iter().find(|e| e.pin_id == 1).unwrap();
         assert_eq!(
-            ep.side, EntrySide::Right,
+            ep.side,
+            EntrySide::Right,
             "Leaf pin connected to right neighbour should flip to Right"
         );
     }

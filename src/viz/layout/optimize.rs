@@ -185,7 +185,11 @@ struct Move {
 /// Step size scales with temperature.
 fn propose_move(graph: &McVecGraph, rng: &mut XorShift64, _t: f64) -> Move {
     if graph.boxes.is_empty() {
-        return Move { box_id: -1, new_x: 0.0, new_y: 0.0 };
+        return Move {
+            box_id: -1,
+            new_x: 0.0,
+            new_y: 0.0,
+        };
     }
 
     let idx = (rng.next() as usize) % graph.boxes.len();
@@ -247,7 +251,11 @@ fn overlap_area(graph: &McVecGraph) -> f64 {
 fn overlap_1d(a0: f64, a1: f64, b0: f64, b1: f64) -> f64 {
     let lo = a0.max(b0);
     let hi = a1.min(b1);
-    if hi > lo { hi - lo } else { 0.0 }
+    if hi > lo {
+        hi - lo
+    } else {
+        0.0
+    }
 }
 
 /// Cheap wire-length estimate: HPWL of all nets.
@@ -405,10 +413,16 @@ trait GraphPos {
 
 impl GraphPos for McVecGraph {
     fn x_of(&self, box_id: i64) -> f64 {
-        self.boxes.iter().find(|b| b.id == box_id).map_or(0.0, |b| b.x)
+        self.boxes
+            .iter()
+            .find(|b| b.id == box_id)
+            .map_or(0.0, |b| b.x)
     }
     fn y_of(&self, box_id: i64) -> f64 {
-        self.boxes.iter().find(|b| b.id == box_id).map_or(0.0, |b| b.y)
+        self.boxes
+            .iter()
+            .find(|b| b.id == box_id)
+            .map_or(0.0, |b| b.y)
     }
     fn set_pos(&mut self, box_id: i64, x: f64, y: f64) {
         if let Some(b) = self.boxes.iter_mut().find(|b| b.id == box_id) {
@@ -429,10 +443,24 @@ mod tests {
     use crate::vector::graph::net_def::{EndpointRef, VizNet};
     use crate::vector::graph::{BoxKind, NetKind, Symbol};
 
-    fn make_box(id: i64, name: &str, x: f64, y: f64, w: f64, h: f64) -> crate::vector::graph::McVecBox {
+    fn make_box(
+        id: i64,
+        name: &str,
+        x: f64,
+        y: f64,
+        w: f64,
+        h: f64,
+    ) -> crate::vector::graph::McVecBox {
         let mut b = crate::vector::graph::McVecBox::new_v2(
-            id, name.into(), "".into(), BoxKind::TwoPin, Symbol::Resistor,
-            None, None, 2, IoSummary::new(),
+            id,
+            name.into(),
+            "".into(),
+            BoxKind::TwoPin,
+            Symbol::Resistor,
+            None,
+            None,
+            2,
+            IoSummary::new(),
         );
         b.x = x;
         b.y = y;
@@ -443,8 +471,15 @@ mod tests {
 
     fn make_ic_box(id: i64, name: &str, x: f64, y: f64) -> crate::vector::graph::McVecBox {
         let mut b = crate::vector::graph::McVecBox::new_v2(
-            id, name.into(), "".into(), BoxKind::MultiPin, Symbol::Ic,
-            None, None, 8, IoSummary::new(),
+            id,
+            name.into(),
+            "".into(),
+            BoxKind::MultiPin,
+            Symbol::Ic,
+            None,
+            None,
+            8,
+            IoSummary::new(),
         );
         b.x = x;
         b.y = y;
@@ -475,10 +510,14 @@ mod tests {
 
         // Two boxes far apart, connected by a net
         graph.boxes.push(make_box(1, "R1", 0.0, 0.0, 40.0, 30.0));
-        graph.boxes.push(make_box(2, "R2", 500.0, 500.0, 40.0, 30.0));
+        graph
+            .boxes
+            .push(make_box(2, "R2", 500.0, 500.0, 40.0, 30.0));
 
         let net = VizNet::new(
-            1, "NET1".into(), NetKind::Signal,
+            1,
+            "NET1".into(),
+            NetKind::Signal,
             vec![EndpointRef::new(1, 1, "1"), EndpointRef::new(2, 2, "1")],
         );
         graph.nets.push(net);
@@ -492,7 +531,8 @@ mod tests {
         assert!(
             hpwl_after <= hpwl_before + 1.0,
             "HPWL should not increase: before={:.1}, after={:.1}",
-            hpwl_before, hpwl_after
+            hpwl_before,
+            hpwl_after
         );
     }
 
@@ -542,7 +582,11 @@ mod tests {
             assert!(
                 (b1.x - b2.x).abs() < 0.01 && (b1.y - b2.y).abs() < 0.01,
                 "Box {} positions differ: ({:.1},{:.1}) vs ({:.1},{:.1})",
-                b1.id, b1.x, b1.y, b2.x, b2.y
+                b1.id,
+                b1.x,
+                b1.y,
+                b2.x,
+                b2.y
             );
         }
     }
@@ -557,7 +601,9 @@ mod tests {
         graph.boxes.push(make_box(2, "R2", 100.0, 0.0, 40.0, 30.0));
 
         let net = VizNet::new(
-            1, "NET1".into(), NetKind::Signal,
+            1,
+            "NET1".into(),
+            NetKind::Signal,
             vec![EndpointRef::new(1, 1, "1"), EndpointRef::new(2, 2, "1")],
         );
         graph.nets.push(net);
@@ -574,7 +620,8 @@ mod tests {
         assert!(
             cost_after <= cost_before + 1.0,
             "Monotonic guard: cost_before={:.1}, cost_after={:.1}",
-            cost_before, cost_after
+            cost_before,
+            cost_after
         );
     }
 }

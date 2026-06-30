@@ -139,7 +139,7 @@ impl McModule {
                                 self.insts.parse(&subnode, &self.uri);
                                 continue;
                             }
-match McPhrase::new(&subnode, self) {
+                            match McPhrase::new(&subnode, self) {
                                 Some(net) => {
                                     self.lines.push(net);
                                 }

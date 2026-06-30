@@ -222,7 +222,11 @@ fn render_layer_recursive(
     let sub_graphs = std::mem::take(&mut graph.sub_graphs);
     let clickable_subs: Vec<i64> = sub_graphs.iter().map(|sg| sg.bid).collect();
 
-    let candidates = if is_root { top_candidates } else { sub_candidates };
+    let candidates = if is_root {
+        top_candidates
+    } else {
+        sub_candidates
+    };
 
     // ── Phase 1–2: layout + route via generate-and-rank ──
     let mut canvas = if graph.boxes.is_empty() {

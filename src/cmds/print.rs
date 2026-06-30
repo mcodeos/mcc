@@ -309,7 +309,11 @@ pub fn print_module_inst(inst: &MccProjectTree, depth: usize, sort_mode: PinSort
                         "{}       {} = {}",
                         indent,
                         attr.id,
-                        attr.values.iter().map(|v| format!("{v}")).collect::<Vec<_>>().join(", ")
+                        attr.values
+                            .iter()
+                            .map(|v| format!("{v}"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     );
                 }
             }

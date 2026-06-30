@@ -241,9 +241,7 @@ fn compute_fidelity(
 mod tests {
     use super::*;
     use crate::vector::graph::box_def::IoSummary;
-    use crate::vector::graph::{
-        BoxKind, EndpointRef, McVecBox, NetKind, Symbol, VizNet,
-    };
+    use crate::vector::graph::{BoxKind, EndpointRef, McVecBox, NetKind, Symbol, VizNet};
     use crate::viz::layout::FlowLayouter;
     use crate::viz::traits::Layouter;
 
@@ -269,16 +267,30 @@ mod tests {
     fn make_simple_graph() -> McVecGraph {
         let mut graph = McVecGraph::new(1, "test".into());
         let mut b1 = McVecBox::new_v2(
-            1, "A".into(), "".into(), BoxKind::TwoPin, Symbol::Unknown,
-            None, None, 2, IoSummary::new(),
+            1,
+            "A".into(),
+            "".into(),
+            BoxKind::TwoPin,
+            Symbol::Unknown,
+            None,
+            None,
+            2,
+            IoSummary::new(),
         );
         b1.x = 10.0;
         b1.y = 10.0;
         b1.w = 60.0;
         b1.h = 40.0;
         let mut b2 = McVecBox::new_v2(
-            2, "B".into(), "".into(), BoxKind::TwoPin, Symbol::Unknown,
-            None, None, 2, IoSummary::new(),
+            2,
+            "B".into(),
+            "".into(),
+            BoxKind::TwoPin,
+            Symbol::Unknown,
+            None,
+            None,
+            2,
+            IoSummary::new(),
         );
         b2.x = 100.0;
         b2.y = 10.0;
@@ -292,10 +304,8 @@ mod tests {
     #[test]
     fn select_prefers_lower_score() {
         let graph = make_simple_graph();
-        let candidates: Vec<Box<dyn Layouter>> = vec![
-            Box::new(FlowLayouter::default()),
-            Box::new(BadLayouter),
-        ];
+        let candidates: Vec<Box<dyn Layouter>> =
+            vec![Box::new(FlowLayouter::default()), Box::new(BadLayouter)];
         let result = layout_best(graph, &candidates, true);
         // FlowLayouter should produce lower score than BadLayouter (which overlaps boxes)
         let col = audit_all(&result);
@@ -354,10 +364,7 @@ mod tests {
         // All candidates are BadLayouter → all produce box_box > 0 → is_perfect() false
         // → all should be skipped by fidelity guard → fallback to first candidate
         let graph = make_simple_graph();
-        let candidates: Vec<Box<dyn Layouter>> = vec![
-            Box::new(BadLayouter),
-            Box::new(BadLayouter),
-        ];
+        let candidates: Vec<Box<dyn Layouter>> = vec![Box::new(BadLayouter), Box::new(BadLayouter)];
         let result = layout_best(graph, &candidates, true);
         // Should still return a valid graph (fallback)
         assert!(!result.boxes.is_empty());
@@ -374,22 +381,52 @@ mod tests {
         let mut graph = McVecGraph::new(1, "test".into());
 
         let mut b1 = McVecBox::new_v2(
-            1, "R1".into(), "".into(), BoxKind::TwoPin, Symbol::Unknown,
-            Some("R1".into()), None, 2, IoSummary::new(),
+            1,
+            "R1".into(),
+            "".into(),
+            BoxKind::TwoPin,
+            Symbol::Unknown,
+            Some("R1".into()),
+            None,
+            2,
+            IoSummary::new(),
         );
-        b1.x = 10.0; b1.y = 10.0; b1.w = 60.0; b1.h = 40.0;
+        b1.x = 10.0;
+        b1.y = 10.0;
+        b1.w = 60.0;
+        b1.h = 40.0;
 
         let mut b2 = McVecBox::new_v2(
-            2, "R2".into(), "".into(), BoxKind::TwoPin, Symbol::Unknown,
-            Some("R2".into()), None, 2, IoSummary::new(),
+            2,
+            "R2".into(),
+            "".into(),
+            BoxKind::TwoPin,
+            Symbol::Unknown,
+            Some("R2".into()),
+            None,
+            2,
+            IoSummary::new(),
         );
-        b2.x = 120.0; b2.y = 10.0; b2.w = 60.0; b2.h = 40.0;
+        b2.x = 120.0;
+        b2.y = 10.0;
+        b2.w = 60.0;
+        b2.h = 40.0;
 
         let mut b3 = McVecBox::new_v2(
-            3, "GND".into(), "".into(), BoxKind::PowerLabel, Symbol::PowerRail { is_ground: true },
-            None, None, 0, IoSummary::new(),
+            3,
+            "GND".into(),
+            "".into(),
+            BoxKind::PowerLabel,
+            Symbol::PowerRail { is_ground: true },
+            None,
+            None,
+            0,
+            IoSummary::new(),
         );
-        b3.x = 60.0; b3.y = 80.0; b3.w = 60.0; b3.h = 20.0;
+        b3.x = 60.0;
+        b3.y = 80.0;
+        b3.w = 60.0;
+        b3.h = 20.0;
 
         // Net: R1.pin1 → R2.pin1 → GND
         let net = VizNet::new(
@@ -408,9 +445,7 @@ mod tests {
         graph.boxes.push(b3);
         graph.nets.push(net);
 
-        let candidates: Vec<Box<dyn Layouter>> = vec![
-            Box::new(FlowLayouter::default()),
-        ];
+        let candidates: Vec<Box<dyn Layouter>> = vec![Box::new(FlowLayouter::default())];
         let result = layout_best(graph, &candidates, true);
 
         // After layout + route, check that boxes are positioned

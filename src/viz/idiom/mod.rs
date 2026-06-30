@@ -69,7 +69,11 @@ pub fn analyze(graph: &McVecGraph) -> Vec<IdiomMatch> {
 
 /// Aggregate idiom matches into (symmetry_penalty, idiom_violation) for scoring.
 pub fn penalty_summary(matches: &[IdiomMatch]) -> (f64, usize) {
-    let sym = matches.iter().map(|m| m.symmetry_penalty).sum::<f64>().max(0.0);
+    let sym = matches
+        .iter()
+        .map(|m| m.symmetry_penalty)
+        .sum::<f64>()
+        .max(0.0);
     let vio = matches.iter().filter(|m| m.idiom_violation).count();
     (sym, vio)
 }
@@ -144,11 +148,9 @@ fn detect_decoupling(
                 if let Some(ic) = find_box(graph, ep.box_id) {
                     if ic.symbol == Symbol::Ic {
                         let ic_center = (ic.x + ic.w / 2.0, ic.y + ic.h / 2.0);
-                        let dist = (cap_center.0 - ic_center.0).abs()
-                            + (cap_center.1 - ic_center.1).abs();
-                        nearest_ic_dist = Some(
-                            nearest_ic_dist.map_or(dist, |d| d.min(dist)),
-                        );
+                        let dist =
+                            (cap_center.0 - ic_center.0).abs() + (cap_center.1 - ic_center.1).abs();
+                        nearest_ic_dist = Some(nearest_ic_dist.map_or(dist, |d| d.min(dist)));
                     }
                 }
             }
@@ -230,8 +232,11 @@ fn detect_diff_pair(
 }
 
 /// Find net pairs that look like differential pairs (P/N, +/-, etc.).
-fn find_diff_pairs(graph: &McVecGraph) -> HashMap<String, (&crate::vector::graph::VizNet, &crate::vector::graph::VizNet)> {
-    let mut pairs: HashMap<String, (&crate::vector::graph::VizNet, &crate::vector::graph::VizNet)> = HashMap::new();
+fn find_diff_pairs(
+    graph: &McVecGraph,
+) -> HashMap<String, (&crate::vector::graph::VizNet, &crate::vector::graph::VizNet)> {
+    let mut pairs: HashMap<String, (&crate::vector::graph::VizNet, &crate::vector::graph::VizNet)> =
+        HashMap::new();
     let mut seen = Vec::new();
 
     for net in &graph.nets {
@@ -250,11 +255,7 @@ fn find_diff_pairs(graph: &McVecGraph) -> HashMap<String, (&crate::vector::graph
                 }
                 if let Some((other_base, other_is_p)) = diff_pair_base(&other.name) {
                     if other_base == base && other_is_p != is_p {
-                        let (net_p, net_n) = if is_p {
-                            (net, other)
-                        } else {
-                            (other, net)
-                        };
+                        let (net_p, net_n) = if is_p { (net, other) } else { (other, net) };
                         pairs.insert(base.to_string(), (net_p, net_n));
                     }
                 }
@@ -293,10 +294,7 @@ fn diff_pair_base(name: &str) -> Option<(&str, bool)> {
 ///
 /// Penalty: `idiom_violation` if the resistor is not oriented vertically toward
 /// the power rail direction.
-fn detect_pullup(
-    graph: &McVecGraph,
-    connected: &HashMap<i64, Vec<NetKind>>,
-) -> Vec<IdiomMatch> {
+fn detect_pullup(graph: &McVecGraph, connected: &HashMap<i64, Vec<NetKind>>) -> Vec<IdiomMatch> {
     let mut matches = Vec::new();
 
     for b in &graph.boxes {
@@ -337,8 +335,15 @@ mod tests {
 
     fn make_box(id: i64, name: &str, symbol: Symbol, x: f64, y: f64, w: f64, h: f64) -> McVecBox {
         let mut b = McVecBox::new_v2(
-            id, name.into(), "".into(), BoxKind::TwoPin, symbol,
-            None, None, 2, IoSummary::new(),
+            id,
+            name.into(),
+            "".into(),
+            BoxKind::TwoPin,
+            symbol,
+            None,
+            None,
+            2,
+            IoSummary::new(),
         );
         b.x = x;
         b.y = y;
@@ -349,8 +354,15 @@ mod tests {
 
     fn make_ic_box(id: i64, name: &str, x: f64, y: f64) -> McVecBox {
         let mut b = McVecBox::new_v2(
-            id, name.into(), "".into(), BoxKind::MultiPin, Symbol::Ic,
-            None, None, 8, IoSummary::new(),
+            id,
+            name.into(),
+            "".into(),
+            BoxKind::MultiPin,
+            Symbol::Ic,
+            None,
+            None,
+            8,
+            IoSummary::new(),
         );
         b.x = x;
         b.y = y;
@@ -367,11 +379,15 @@ mod tests {
         let cap = make_box(2, "C1", Symbol::Capacitor, 50.0, 200.0, 40.0, 30.0);
 
         let net_power = VizNet::new(
-            1, "VDD_3V3".into(), NetKind::Power,
+            1,
+            "VDD_3V3".into(),
+            NetKind::Power,
             vec![EndpointRef::new(1, 1, "VDD"), EndpointRef::new(2, 2, "1")],
         );
         let net_gnd = VizNet::new(
-            2, "GND".into(), NetKind::Ground,
+            2,
+            "GND".into(),
+            NetKind::Ground,
             vec![EndpointRef::new(2, 2, "2"), EndpointRef::new(1, 1, "GND")],
         );
 
@@ -381,8 +397,15 @@ mod tests {
         graph.nets.push(net_gnd);
 
         let matches = analyze(&graph);
-        let decaps: Vec<_> = matches.iter().filter(|m| m.kind == IdiomKind::Decoupling).collect();
-        assert!(!decaps.is_empty(), "Should detect decoupling cap. Matches: {:?}", matches);
+        let decaps: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == IdiomKind::Decoupling)
+            .collect();
+        assert!(
+            !decaps.is_empty(),
+            "Should detect decoupling cap. Matches: {:?}",
+            matches
+        );
         assert!(decaps[0].member_box_ids.contains(&2));
     }
 
@@ -395,11 +418,15 @@ mod tests {
         let cap = make_box(2, "C1", Symbol::Capacitor, 500.0, 500.0, 40.0, 30.0);
 
         let net_power = VizNet::new(
-            1, "VDD_3V3".into(), NetKind::Power,
+            1,
+            "VDD_3V3".into(),
+            NetKind::Power,
             vec![EndpointRef::new(1, 1, "VDD"), EndpointRef::new(2, 2, "1")],
         );
         let net_gnd = VizNet::new(
-            2, "GND".into(), NetKind::Ground,
+            2,
+            "GND".into(),
+            NetKind::Ground,
             vec![EndpointRef::new(2, 2, "2"), EndpointRef::new(1, 1, "GND")],
         );
 
@@ -409,7 +436,10 @@ mod tests {
         graph.nets.push(net_gnd);
 
         let matches = analyze(&graph);
-        let decaps: Vec<_> = matches.iter().filter(|m| m.kind == IdiomKind::Decoupling).collect();
+        let decaps: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == IdiomKind::Decoupling)
+            .collect();
         assert!(!decaps.is_empty());
         // Cap is far from IC → should be a violation
         assert!(decaps[0].idiom_violation, "Far cap should be a violation");
@@ -423,11 +453,15 @@ mod tests {
         let b2 = make_box(2, "R2", Symbol::Resistor, 50.0, 100.0, 40.0, 30.0);
 
         let net_p = VizNet::new(
-            1, "DIO_MIC_P".into(), NetKind::Signal,
+            1,
+            "DIO_MIC_P".into(),
+            NetKind::Signal,
             vec![EndpointRef::new(1, 1, "1")],
         );
         let net_n = VizNet::new(
-            2, "DIO_MIC_N".into(), NetKind::Signal,
+            2,
+            "DIO_MIC_N".into(),
+            NetKind::Signal,
             vec![EndpointRef::new(2, 2, "1")],
         );
 
@@ -437,8 +471,15 @@ mod tests {
         graph.nets.push(net_n);
 
         let matches = analyze(&graph);
-        let diff_pairs: Vec<_> = matches.iter().filter(|m| m.kind == IdiomKind::DiffPair).collect();
-        assert!(!diff_pairs.is_empty(), "Should detect diff pair. Matches: {:?}", matches);
+        let diff_pairs: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == IdiomKind::DiffPair)
+            .collect();
+        assert!(
+            !diff_pairs.is_empty(),
+            "Should detect diff pair. Matches: {:?}",
+            matches
+        );
         assert!(diff_pairs[0].member_box_ids.contains(&1));
         assert!(diff_pairs[0].member_box_ids.contains(&2));
     }
@@ -452,11 +493,15 @@ mod tests {
         let b2 = make_box(2, "R2", Symbol::Resistor, 150.0, 100.0, 40.0, 30.0);
 
         let net_p = VizNet::new(
-            1, "SIG_P".into(), NetKind::Signal,
+            1,
+            "SIG_P".into(),
+            NetKind::Signal,
             vec![EndpointRef::new(1, 1, "1")],
         );
         let net_n = VizNet::new(
-            2, "SIG_N".into(), NetKind::Signal,
+            2,
+            "SIG_N".into(),
+            NetKind::Signal,
             vec![EndpointRef::new(2, 2, "1")],
         );
 
@@ -466,12 +511,17 @@ mod tests {
         graph.nets.push(net_n);
 
         let matches = analyze(&graph);
-        let diff_pairs: Vec<_> = matches.iter().filter(|m| m.kind == IdiomKind::DiffPair).collect();
+        let diff_pairs: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == IdiomKind::DiffPair)
+            .collect();
         assert!(!diff_pairs.is_empty());
         // Same y → penalty should be small
-        assert!(diff_pairs[0].symmetry_penalty <= 1.0,
+        assert!(
+            diff_pairs[0].symmetry_penalty <= 1.0,
             "Symmetric placement should have near-zero penalty, got {}",
-            diff_pairs[0].symmetry_penalty);
+            diff_pairs[0].symmetry_penalty
+        );
     }
 
     #[test]
@@ -481,11 +531,15 @@ mod tests {
         let r = make_box(1, "R1", Symbol::Resistor, 50.0, 50.0, 40.0, 30.0);
 
         let net_sig = VizNet::new(
-            1, "SIGNAL".into(), NetKind::Signal,
+            1,
+            "SIGNAL".into(),
+            NetKind::Signal,
             vec![EndpointRef::new(1, 1, "1")],
         );
         let net_pwr = VizNet::new(
-            2, "VDD_3V3".into(), NetKind::Power,
+            2,
+            "VDD_3V3".into(),
+            NetKind::Power,
             vec![EndpointRef::new(1, 1, "2")],
         );
 
@@ -494,8 +548,15 @@ mod tests {
         graph.nets.push(net_pwr);
 
         let matches = analyze(&graph);
-        let pullups: Vec<_> = matches.iter().filter(|m| m.kind == IdiomKind::Pullup).collect();
-        assert!(!pullups.is_empty(), "Should detect pullup. Matches: {:?}", matches);
+        let pullups: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == IdiomKind::Pullup)
+            .collect();
+        assert!(
+            !pullups.is_empty(),
+            "Should detect pullup. Matches: {:?}",
+            matches
+        );
         assert!(pullups[0].member_box_ids.contains(&1));
     }
 
@@ -508,7 +569,9 @@ mod tests {
         let r = make_box(3, "R1", Symbol::Resistor, 200.0, 50.0, 40.0, 30.0);
 
         let net_pwr = VizNet::new(
-            1, "VDD_3V3".into(), NetKind::Power,
+            1,
+            "VDD_3V3".into(),
+            NetKind::Power,
             vec![
                 EndpointRef::new(1, 1, "VDD"),
                 EndpointRef::new(2, 2, "1"),
@@ -516,11 +579,15 @@ mod tests {
             ],
         );
         let net_gnd = VizNet::new(
-            2, "GND".into(), NetKind::Ground,
+            2,
+            "GND".into(),
+            NetKind::Ground,
             vec![EndpointRef::new(2, 2, "2")],
         );
         let net_sig = VizNet::new(
-            3, "SIG".into(), NetKind::Signal,
+            3,
+            "SIG".into(),
+            NetKind::Signal,
             vec![EndpointRef::new(3, 3, "2")],
         );
 
@@ -560,11 +627,15 @@ mod tests {
         let ic = make_ic_box(1, "U1", 50.0, 50.0);
 
         let net_pwr = VizNet::new(
-            1, "VDD_3V3".into(), NetKind::Power,
+            1,
+            "VDD_3V3".into(),
+            NetKind::Power,
             vec![EndpointRef::new(1, 1, "VDD"), EndpointRef::new(2, 2, "1")],
         );
         let net_gnd = VizNet::new(
-            2, "GND".into(), NetKind::Ground,
+            2,
+            "GND".into(),
+            NetKind::Ground,
             vec![EndpointRef::new(2, 2, "2"), EndpointRef::new(1, 1, "GND")],
         );
 
@@ -575,7 +646,10 @@ mod tests {
 
         let matches = analyze(&graph);
         // Should still detect the decoupling cap (layout_hint doesn't block detection)
-        let decaps: Vec<_> = matches.iter().filter(|m| m.kind == IdiomKind::Decoupling).collect();
+        let decaps: Vec<_> = matches
+            .iter()
+            .filter(|m| m.kind == IdiomKind::Decoupling)
+            .collect();
         assert!(!decaps.is_empty(), "Layout hint should not block detection");
     }
 }

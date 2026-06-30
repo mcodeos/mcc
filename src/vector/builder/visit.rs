@@ -426,7 +426,11 @@ impl<'a> McVecBuilder<'a> {
                                      resolving to the same node (id={}). Paths: {:?}. \
                                      This may indicate a bracket expansion duplicate or a port \
                                      declared without bit width causing signal merging.",
-                                    net_name, module_path, paths.len(), id, unique_paths
+                                    net_name,
+                                    module_path,
+                                    paths.len(),
+                                    id,
+                                    unique_paths
                                 ),
                                 &[],
                             );
