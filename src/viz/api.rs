@@ -248,6 +248,10 @@ fn render_layer_recursive(
         let layouter_name = candidates.first().map(|c| c.name()).unwrap_or("none");
         graph = layout_best(graph, candidates, is_root);
 
+        // ── Phase 1.46b: Adjust Virtual Top Module Border position/size ──
+        // After layout positions all boxes, adjust the dashed border boxes to surround internal components.
+        crate::vector::graph::from_block::layout_post_adjust_borders(&mut graph);
+
         // Compute canvas from laid-out boxes
         let cv = super::layout::normalize::compute_canvas(&graph);
         crate::vlog!(

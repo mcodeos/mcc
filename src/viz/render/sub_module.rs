@@ -69,7 +69,8 @@ pub fn render_sub_module(b: &McVecBox) -> String {
        onclick="expandSubModule({id})">
     <title>Click to expand: {name}</title>
 {name_svg}{class_svg}    <rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}" rx="6"
-          fill="#FAFAFA" stroke="#424242" stroke-width="1.5"/>
+          fill="none" stroke="#424242" stroke-width="1.5" stroke-dasharray="5,3"
+          pointer-events="none"/>
     <g transform="translate({corner_x:.1},{corner_y:.1})">
       <circle cx="0" cy="0" r="8" fill="#424242" />
       <text x="0" y="0.5" text-anchor="middle" dominant-baseline="central"

@@ -223,17 +223,6 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
                 IoSummary::new(),
             ))
         }
-        DetectedKind::Label => Some(McVecBox::new_v2(
-            id as i64,
-            name,
-            String::new(),
-            BoxKind::Dot,
-            Symbol::Dot,
-            None,
-            None,
-            0,
-            IoSummary::new(),
-        )),
         DetectedKind::Skip => None,
     }
 }
@@ -484,6 +473,84 @@ fn build_mc_vec_graph_inner(
                     b.set_pins(box_pins);
                     graph.boxes.push(b);
                     box_ids_set.insert(mod_id);
+                }
+            }
+        }
+    }
+
+    // ── ★ Phase 1.46: Virtual Top Module Border ──────────────────────────────────────────────
+    //
+    // When rendering a module as a standalone top-level module (virtual instantiation),
+    // we need to wrap all internal components in a dashed-border rectangle to indicate
+    // that this is the module boundary.
+    //
+    // This creates a SubModule box that contains all the module's internal components,
+    // with the module's ports as pins on the border.
+    //
+    // This is triggered when:
+    // 1. The module has internal instances (Components/Labels/Buses)
+    // 2. This is a top-level render (virtual instantiation mode)
+    if is_top_level {
+        // Check if module has internal instances (Components)
+        let has_components = block.insts.iter().any(|&iid| {
+            if iid < 0 {
+                return false;
+            }
+            if let Some(entry) = table.get_entry(iid as u32) {
+                matches!(entry.kind, InstKind::Component)
+            } else {
+                false
+            }
+        });
+
+        if has_components {
+            // Use a unique ID for the border box (negative to avoid conflict with positive instance IDs)
+            // The ID is derived from the module's internal component IDs
+            let first_component_id = block.insts.iter().find(|&iid| {
+                if *iid < 0 {
+                    return false;
+                }
+                if let Some(entry) = table.get_entry(*iid as u32) {
+                    matches!(entry.kind, InstKind::Component)
+                } else {
+                    false
+                }
+            }).copied();
+
+            if let Some(comp_id) = first_component_id {
+                let border_id = -(comp_id as i64);
+                if !box_ids_set.contains(&(border_id as u32)) {
+                    // Count the internal instances (components + labels)
+                    let internal_count = block.insts.iter().filter(|&iid| {
+                        if *iid < 0 {
+                            return false;
+                        }
+                        if let Some(entry) = table.get_entry(*iid as u32) {
+                            matches!(entry.kind, InstKind::Component | InstKind::Label)
+                        } else {
+                            false
+                        }
+                    }).count();
+
+                    // Set a reasonable pin_count so layout can compute size
+                    let mut b = McVecBox::new_v2(
+                        border_id,
+                        root_name.clone(),
+                        root_name.clone(), // class_name = name for virtual modules
+                        BoxKind::SubModule,
+                        Symbol::Module,
+                        None,
+                        None,
+                        internal_count.max(1), // pin_count > 0 so ic_size() works
+                        IoSummary::new(),
+                    );
+                    // Set initial size/position (will be adjusted by layout_post_adjust_borders)
+                    b.w = 800.0;
+                    b.h = 600.0;
+                    b.x = 0.0;
+                    b.y = 0.0;
+                    graph.boxes.push(b);
+                    box_ids_set.insert(border_id as u32);
                 }
             }
         }
@@ -1710,6 +1777,67 @@ fn bfs_collect_labels(
             };
             if take {
                 out.insert(name.to_uppercase(), name);
+            }
+        }
+    }
+}
+
+// ── ★ Phase 1.46b: Adjust Virtual Top Module Border position/size ─────────────────────────────
+//
+// After layout computes positions for all other boxes, adjust the SubModule border box
+// to properly surround the internal components.
+//
+// This function finds all negative-ID SubModule boxes (created by Phase 1.46) and
+// adjusts their position and size to surround the internal components.
+
+/// Adjust SubModule border boxes to surround internal components.
+/// This should be called after layout has positioned all boxes.
+pub fn layout_post_adjust_borders(graph: &mut McVecGraph) {
+    // Find all border box indices (negative ID SubModules)
+    let border_indices: Vec<usize> = graph
+        .boxes
+        .iter()
+        .enumerate()
+        .filter(|(_, b)| b.id < 0 && b.kind == BoxKind::SubModule)
+        .map(|(i, _)| i)
+        .collect();
+
+    if border_indices.is_empty() {
+        return;
+    }
+
+    let padding = 30.0; // padding around internal content
+
+    // Calculate the bounds of all non-border, non-power-rail boxes
+    let mut min_x = f64::MAX;
+    let mut min_y = f64::MAX;
+    let mut max_x = f64::MIN;
+    let mut max_y = f64::MIN;
+
+    for b in &graph.boxes {
+        // Skip border boxes and power rails
+        if b.id < 0 && b.kind == BoxKind::SubModule {
+            continue;
+        }
+        if b.kind == BoxKind::PowerLabel {
+            continue;
+        }
+
+        // Include this box's bounds
+        min_x = min_x.min(b.x);
+        min_y = min_y.min(b.y);
+        max_x = max_x.max(b.x + b.w);
+        max_y = max_y.max(b.y + b.h);
+    }
+
+    // Only adjust if we found valid bounds
+    if min_x != f64::MAX && max_x != f64::MIN {
+        for &idx in &border_indices {
+            if let Some(border) = graph.boxes.get_mut(idx) {
+                border.x = min_x - padding;
+                border.y = min_y - padding - 20.0; // extra space for title
+                border.w = max_x - min_x + padding * 2.0;
+                border.h = max_y - min_y + padding * 2.0 + 20.0; // extra for title
             }
         }
     }
