@@ -2172,3 +2172,35 @@ pub fn handle_diagnostics(params: Option<Value>) -> RpcResult {
     
     Ok(serde_json::json!({ "diagnostics": diags }))
 }
+
+/// Handle project_symbols RPC - return project-wide symbols (components, interfaces, enums, modules)
+pub fn handle_project_symbols(_params: Option<Value>) -> RpcResult {
+    use crate::builder::main::{mcb_iter_components, mcb_iter_enums, mcb_iter_interfaces, mcb_iter_modules};
+
+    let components: Vec<serde_json::Value> = mcb_iter_components()
+        .into_iter()
+        .map(|(name, uri)| serde_json::json!({ "name": name, "uri": uri }))
+        .collect();
+
+    let interfaces: Vec<serde_json::Value> = mcb_iter_interfaces()
+        .into_iter()
+        .map(|(name, uri)| serde_json::json!({ "name": name, "uri": uri }))
+        .collect();
+
+    let enums: Vec<serde_json::Value> = mcb_iter_enums()
+        .into_iter()
+        .map(|(name, uri)| serde_json::json!({ "name": name, "uri": uri }))
+        .collect();
+
+    let modules: Vec<serde_json::Value> = mcb_iter_modules()
+        .into_iter()
+        .map(|(name, uri)| serde_json::json!({ "name": name, "uri": uri }))
+        .collect();
+
+    Ok(serde_json::json!({
+        "components": components,
+        "interfaces": interfaces,
+        "enums": enums,
+        "modules": modules,
+    }))
+}
