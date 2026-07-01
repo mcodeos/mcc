@@ -263,6 +263,7 @@ pub fn register_all(builder: RpcServerBuilder) -> RpcServerBuilder {
         .register_method("check", handlers::handle_check)
         .register_method("extract", handlers::handle_extract)
         .register_method("sem", handlers::handle_sem)
+        .register_method("diagnostics", handlers::handle_diagnostics)
 }
 
 fn pid_file_path() -> PathBuf {

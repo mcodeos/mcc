@@ -215,6 +215,25 @@ impl McCode {
                 self.ast = ast;
             }
 
+            // Collect error tokens from parser and create diagnostics
+            {
+                let mut err_ptr = crate::ast::c_bindings::mcc_get_error_tokens();
+                while !err_ptr.is_null() {
+                    let err = &*err_ptr;
+                    let pos = err.pos as u32;
+                    let len = err.len as u32;
+                    let location = crate::builder::diagnostic::Location::new(self.uri.clone(), pos, len);
+                    let diagnostic = crate::builder::diagnostic::Diagnostic::new(
+                        1000, // E1000: parse error
+                        crate::builder::diagnostic::DiagnosticLevel::Error,
+                        location,
+                        "syntax error".to_string(),
+                    );
+                    workspace::WORKSPACE.diagnostics.borrow_mut().add_diagnostic(diagnostic);
+                    err_ptr = err.next;
+                }
+            }
+
             // Free the loaded content
             libc::free(fcontent_ptr as *mut libc::c_void);
 
@@ -264,6 +283,26 @@ impl McCode {
             if !ast.is_null() {
                 self.ast = ast;
             }
+
+            // Collect error tokens from parser and create diagnostics
+            {
+                let mut err_ptr = crate::ast::c_bindings::mcc_get_error_tokens();
+                while !err_ptr.is_null() {
+                    let err = &*err_ptr;
+                    let pos = err.pos as u32;
+                    let len = err.len as u32;
+                    let location = crate::builder::diagnostic::Location::new(self.uri.clone(), pos, len);
+                    let diagnostic = crate::builder::diagnostic::Diagnostic::new(
+                        1000, // E1000: parse error
+                        crate::builder::diagnostic::DiagnosticLevel::Error,
+                        location,
+                        "syntax error".to_string(),
+                    );
+                    workspace::WORKSPACE.diagnostics.borrow_mut().add_diagnostic(diagnostic);
+                    err_ptr = err.next;
+                }
+            }
+
             libc::free(fcontent_ptr as *mut libc::c_void);
         }
     }
@@ -421,6 +460,25 @@ impl McCode {
                     crate::ast::c_bindings::mcc_visit_tree_color(ast.get_ptr() as *mut McValueFFI);
                 }
                 self.ast = ast;
+            }
+
+            // Collect error tokens from parser and create diagnostics
+            {
+                let mut err_ptr = crate::ast::c_bindings::mcc_get_error_tokens();
+                while !err_ptr.is_null() {
+                    let err = &*err_ptr;
+                    let pos = err.pos as u32;
+                    let len = err.len as u32;
+                    let location = crate::builder::diagnostic::Location::new(self.uri.clone(), pos, len);
+                    let diagnostic = crate::builder::diagnostic::Diagnostic::new(
+                        1000, // E1000: parse error
+                        crate::builder::diagnostic::DiagnosticLevel::Error,
+                        location,
+                        "syntax error".to_string(),
+                    );
+                    workspace::WORKSPACE.diagnostics.borrow_mut().add_diagnostic(diagnostic);
+                    err_ptr = err.next;
+                }
             }
 
             libc::free(fcontent_ptr as *mut libc::c_void);

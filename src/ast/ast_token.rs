@@ -5,10 +5,10 @@
 // FFI binding for C struct mc_sem_token
 #[repr(C)]
 pub struct McSemTokenFFI {
-    type_: i16,
-    pos: i32,
-    len: i32,
-    next: *mut McSemTokenFFI,
+    pub type_: i16,
+    pub pos: i32,
+    pub len: i32,
+    pub next: *mut McSemTokenFFI,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

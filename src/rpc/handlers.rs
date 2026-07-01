@@ -2138,3 +2138,37 @@ fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
     }
     None
 }
+
+/// Handle diagnostics RPC - return parse/semantic diagnostics for a file
+pub fn handle_diagnostics(params: Option<Value>) -> RpcResult {
+    #[derive(Deserialize)]
+    struct DiagnosticsParams {
+        uri: String,
+    }
+    
+    let p: DiagnosticsParams = parse_strict(params)?;
+    let mc_uri = McURI::from(p.uri.as_str());
+    
+    // Get all diagnostics for this file
+    let diagnostics = crate::mcc_diagnose(&mc_uri);
+    
+    // Convert to JSON
+    let diags: Vec<serde_json::Value> = diagnostics
+        .iter()
+        .map(|d| {
+            serde_json::json!({
+                "code": d.code,
+                "level": format!("{:?}", d.level).to_lowercase(),
+                "message": d.msg,
+                "location": {
+                    "pos": d.loc.pos,
+                    "len": d.loc.len,
+                    "line": d.loc.row,
+                    "column": d.loc.col,
+                }
+            })
+        })
+        .collect();
+    
+    Ok(serde_json::json!({ "diagnostics": diags }))
+}
