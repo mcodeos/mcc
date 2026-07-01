@@ -1862,9 +1862,8 @@ impl McPinNames {
                             if lookup_result.is_none() {
                                 // Try 2: single Ida with embedded dots (matches parser's
                                 // single-Ida output, e.g. [Ida(USB.MINIB)]).
-                                let combined = McIds::from(
-                                    format!("{inst_name}.{class_name}").as_str(),
-                                );
+                                let combined =
+                                    McIds::from(format!("{inst_name}.{class_name}").as_str());
                                 lookup_result = mcb_get_cmie(&combined, &lookup_uri);
                             }
 

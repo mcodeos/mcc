@@ -179,126 +179,6 @@ impl McModule {
         }
     }
 
-    /// Parse MCAST_DECLARE node, return instance list
-    pub(crate) fn parse_declare(&mut self, node: &AstNode) -> Vec<McInstance> {
-        use crate::builder::mcb_get_cmie;
-        use crate::McCMIE;
-
-        // MCAST_DECLARE structure:
-        // |- MCAST_CLASS (class_id, class_params)
-        // |- MCAST_INSTANCE (instance_id, instance_params)
-        let Some(sub) = node.get_sub_node() else {
-            return Vec::new();
-        };
-
-        let mut class_node: Option<AstNode> = None;
-        let mut inst_nodes: Vec<AstNode> = Vec::new();
-
-        for child in sub.iter() {
-            match child.get_type() {
-                MCAST_CLASS => class_node = Some(child),
-                MCAST_INSTANCE => inst_nodes.push(child),
-                _ => {}
-            }
-        }
-
-        let Some(class_node) = class_node else {
-            return Vec::new();
-        };
-        if inst_nodes.is_empty() {
-            return Vec::new();
-        }
-
-        // Parse class name
-        let Some(class_id_node) = class_node.get_sub_node() else {
-            return Vec::new();
-        };
-        let Some(class_ids) = McIds::new(&class_id_node) else {
-            return Vec::new();
-        };
-
-        // Look up definition
-        let cmie = mcb_get_cmie(&class_ids, &self.uri);
-
-        // Parse all instances and create McInstance variants
-        let mut instances = Vec::new();
-        for inst_node in &inst_nodes {
-            let Some(inst_id_node) = inst_node.get_sub_node() else {
-                continue;
-            };
-
-            // Handle different node types for instance id
-            let ids_node = match inst_id_node.get_type() {
-                MCAST_OPD => inst_id_node.get_sub_node().unwrap_or(inst_id_node.clone()),
-                MCAST_OPD_DOT => {
-                    if let Some(first_child) = inst_id_node.get_sub_node() {
-                        if first_child.get_type() == MCAST_ID || first_child.get_type() == MCAST_IDA
-                        {
-                            first_child.clone()
-                        } else if let Some(ida_node) = first_child.get_sub_node() {
-                            ida_node
-                        } else {
-                            inst_id_node.clone()
-                        }
-                    } else {
-                        inst_id_node.clone()
-                    }
-                }
-                MCAST_ID | MCAST_IDA => inst_id_node.clone(),
-                _ => inst_id_node.clone(),
-            };
-
-            let Some(inst_ids) = McIds::new(&ids_node) else {
-                continue;
-            };
-
-            // Expand inst_ids - handles Square and Slice segments to create multiple instances
-            // e.g., TP[1:2] -> TP1, TP2
-            let expanded_names = inst_ids.expand();
-
-            for expanded_name in expanded_names {
-                let name_str = expanded_name.clone();
-
-                // Collect instance parameters
-                // MCAST_INSTANCE structure: instance_id (MCAST_PARAMS)?
-                // MCAST_PARAMS children are MCAST_PARAM
-                let mut instance_params: Vec<McParamValue> = Vec::new();
-                if let Some(next_sibling) = inst_id_node.get_next() {
-                    if next_sibling.get_type() == MCAST_PARAMS {
-                        if let Some(params_node) = next_sibling.get_sub_node() {
-                            for p in params_node.iter() {
-                                if p.get_type() == MCAST_PARAM {
-                                    if let Some(value) = McParamValue::new(&p, self) {
-                                        instance_params.push(value);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                let mc_inst = match &cmie {
-                    Some(McCMIE::Component(comp_def)) => {
-                        let mc2_comp =
-                            Mc2Component::with_params(&name_str, comp_def.clone(), instance_params);
-                        McInstance::Component(Arc::new(mc2_comp))
-                    }
-                    Some(McCMIE::Module(mod_def)) => {
-                        McInstance::Module(Arc::new(Mc2Module::new(&name_str, mod_def.clone())))
-                    }
-                    Some(McCMIE::Interface(iface_def)) => McInstance::Interface(Arc::new(
-                        Mc2Interface::new_with_str(&name_str, iface_def.clone()),
-                    )),
-                    _ => McInstance::Label(name_str.clone()),
-                };
-                self.insts.create_inst(&name_str, mc_inst.clone());
-                instances.push(mc_inst);
-            }
-        }
-
-        instances
-    }
-
     /// Find instance
     pub(crate) fn find_inst(&self, id: &str) -> Option<McInstance> {
         self.insts.get(id).cloned()
@@ -573,7 +453,15 @@ impl HasFindInst for McModule {
     }
 
     fn parse_declare(&mut self, node: &AstNode) -> Vec<McInstance> {
-        self.parse_declare(node)
+        let before: Vec<String> = self.insts.get_all_names();
+        self.insts.parse(node, &self.uri);
+        // Collect newly created instances to return to callers (mc_phrase.rs, mc_fcall.rs)
+        self.insts
+            .get_all_names()
+            .into_iter()
+            .filter(|k| !before.contains(k))
+            .filter_map(|k| self.insts.get(&k).cloned())
+            .collect()
     }
 
     fn add_component(

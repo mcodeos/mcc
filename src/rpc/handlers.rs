@@ -1883,14 +1883,12 @@ pub fn handle_sem(params: Option<Value>) -> RpcResult {
         let mc_uri = McURI::from(raw_uri.as_str());
         crate::builder::mcb_add_from_string(&mc_uri, content);
         crate::builder::mcb_parse_all_modules();
-        let result = try_lookup_sem(&[mc_uri.clone()]);
-        let result = result.ok_or_else(|| JsonRpcError::custom(-32100, "parse from string failed"));
-        // Remove the temporary entry so it doesn't pollute workspace
-        crate::builder::workspace::WORKSPACE
-            .mcodes
-            .borrow()
-            .remove(&mc_uri);
-        return result;
+        // ★ Fix: Use canonicalized URI for lookup (same as what mcb_add_from_string uses)
+        let canonical_uri = crate::builder::canonicalize_project_uri(&mc_uri);
+        let result = try_lookup_sem(&[McURI::from(&canonical_uri)]);
+        // ★ Fix: DON'T remove the entry - mcc_query needs it for goto_definition
+        // crate::builder::workspace::WORKSPACE.mcodes.borrow().remove(&McURI::from(&canonical_uri));
+        return result.ok_or_else(|| JsonRpcError::custom(-32100, "parse from string failed"));
     }
 
     // Build candidate URIs: exact match + relative path (strip project root from absolute)

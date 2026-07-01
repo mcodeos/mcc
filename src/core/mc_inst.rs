@@ -5,6 +5,8 @@
 use crate::ast::{ast_node::AstNode, c_macros::*};
 use crate::builder::diagnostic::dlog_error;
 use crate::builder::mcb_get_cmie;
+use crate::builder::mcb_register_declare_class;
+use crate::builder::mcb_register_instance_decl;
 use crate::core::basic::mc_bus::{McBus, McList};
 use crate::core::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::core::basic::mc_ida::McIda;
@@ -765,6 +767,12 @@ impl McInstances {
         // Look up definition using mcb_get_cmie
         let cmie = mcb_get_cmie(&class_ids, uri);
 
+        // ★ LSP: Register class reference for goto-definition
+        let class_name = class_ids.to_string();
+        let class_span = (class_node.get_pos() as usize)
+            ..((class_node.get_pos() + class_node.get_len()) as usize);
+        mcb_register_declare_class(uri, &class_name, class_span);
+
         // Parse all instances
         for inst_node in &inst_nodes {
             // MCAST_INSTANCE may have no children (e.g. "HDR_SINGLE A"), then instance name is the node's own content
@@ -817,6 +825,18 @@ impl McInstances {
 
             for inst_name_ref in &names_to_create {
                 let inst_name = inst_name_ref.clone();
+
+                // ★ LSP: Register instance declaration symbol
+                // Get the span of the instance name from ids_node
+                let inst_span = (ids_node.get_pos() as usize)
+                    ..((ids_node.get_pos() + ids_node.get_len()) as usize);
+                let decl_id =
+                    mcb_register_instance_decl(uri, inst_span.clone(), Some(inst_name.clone()));
+                if let Some(id) = decl_id {
+                    tracing::info!(target: "mcc::lsp", "Registered instance decl: {} at {:?} -> id={:?}", inst_name, inst_span, id);
+                } else {
+                    tracing::warn!(target: "mcc::lsp", "Failed to register instance decl: {}", inst_name);
+                }
 
                 // Check for NC parameter
                 // MCAST_INSTANCE structure: instance_id (MCAST_PARAMS)?
