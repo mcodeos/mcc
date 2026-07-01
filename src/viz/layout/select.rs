@@ -12,7 +12,9 @@
 use crate::vector::graph::McVecGraph;
 use crate::viz::idiom;
 use crate::viz::layout::normalize::renormalize;
-use crate::viz::layout::passive_inline::{apply_net_labels, place_series_passives};
+use crate::viz::layout::passive_inline::{
+    apply_net_labels, place_passive_chains, place_series_passives,
+};
 use crate::viz::metrics::{off_grid, route_bends, route_length, FidelityReport, ReadabilityScore};
 use crate::viz::route::audit::audit_all;
 use crate::viz::route::scheduler::route_all_with_channels;
@@ -52,6 +54,8 @@ pub fn layout_best(
         //   Passives stay real boxes with real nets, so they are always drawn and never
         //   collapse into a wire or get clipped off-canvas.
         place_series_passives(&mut g);
+        // ★ Stage A3 — line up passive↔passive chains (rail—R—C—…—rail) the other passes skip.
+        place_passive_chains(&mut g);
         // Pull any passive nudged to a negative coordinate back onto the canvas.
         renormalize(&mut g);
 
@@ -118,6 +122,8 @@ fn run_single(mut graph: McVecGraph, candidate: &dyn Layouter, _is_root: bool) -
 
     // ★ Stage A — non-destructive inline placement (see layout_best).
     place_series_passives(&mut graph);
+    // ★ Stage A3 — line up passive↔passive chains (rail—R—C—…—rail) the other passes skip.
+    place_passive_chains(&mut graph);
     renormalize(&mut graph);
 
     apply_net_labels(&mut graph);

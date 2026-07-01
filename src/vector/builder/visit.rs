@@ -540,17 +540,87 @@ impl<'a> McVecBuilder<'a> {
                     }
                 }
             } else {
-                // Old behavior: pure scalar chain / heterogeneous mix → flatten + windows(2)
-                let all_ids: Vec<i64> = per_point
-                    .iter()
-                    .flat_map(|pr| pr.ids.iter().copied())
-                    .collect();
-                let group = net_groups.entry(net_name).or_default();
-                for pair in all_ids.windows(2) {
-                    group.push(ConnPair {
-                        left: pair[0],
-                        right: pair[1],
-                    });
+                // ── ★ Series-chain aware pairing ─────────────────────────────────────────────
+                //
+                // Symptom this fixes: a scalar chain `P0 -> P1 -> ... -> Pn` was flattened into a
+                // single `all_ids` and paired with `windows(2)` under **one** net_name. That group's
+                // interior nodes appear twice each, so `merge_pairs_to_vecnet` sees `max_freq > 1`
+                // and misclassifies the whole chain as a **star** → VCC..GND all collapse into one
+                // electrical net (electrical short; `PWR.VCC -> R_LIMIT -> D_STATUS -> PWR.GND`
+                // rendered as a flat line, no symbols, GND shorted).
+                //
+                // Correct model: every 2-terminal device the chain passes *through* separates two
+                // distinct nets. We therefore:
+                //   1. Split the chain into per-segment nets at each interior pass-through device.
+                //   2. Expand each interior **bare 2-pin Component** into its two real pins
+                //      (`.1` upstream / `.2` downstream). Downstream `build_point_to_box` maps both
+                //      pins back to the component box, so `make_endpoint` yields two *distinct feet*
+                //      — no reliance on `split_shared_pins` (which skips two-pin passives).
+                //
+                // Interior nodes that are NOT 2-pin devices (a shared pin / port / label / junction)
+                // do **not** split: the chain stays one net through them (`A - J - B` = one node).
+                //
+                // Non-scalar / heterogeneous / partially-failed points fall back to the original
+                // flatten + windows(2) behaviour, so nothing else regresses.
+                let inst_table = self.inst_table; // Copy of &'a InstTable — no borrow vs &mut self.
+                let all_scalar = per_point.iter().all(|pr| pr.ids.len() == 1);
+
+                if all_scalar && per_point.len() >= 3 {
+                    let chain_ids: Vec<i64> = per_point.iter().map(|pr| pr.ids[0]).collect();
+                    let n = chain_ids.len();
+
+                    // Walk the chain, breaking it into electrical segments. An interior 2-terminal
+                    // device closes the running segment with its incoming pin and opens the next
+                    // segment with its outgoing pin.
+                    let mut segments: Vec<Vec<i64>> = Vec::new();
+                    let mut current: Vec<i64> = Vec::new();
+                    for (i, &node) in chain_ids.iter().enumerate() {
+                        let is_interior = i != 0 && i != n - 1;
+                        let thru = if is_interior {
+                            two_pin_component_pins(inst_table, node)
+                        } else {
+                            None
+                        };
+                        match thru {
+                            Some((pin_in, pin_out)) => {
+                                current.push(pin_in);
+                                segments.push(std::mem::take(&mut current));
+                                current.push(pin_out);
+                            }
+                            None => current.push(node),
+                        }
+                    }
+                    if !current.is_empty() {
+                        segments.push(current);
+                    }
+
+                    // Emit each segment (≥ 2 endpoints) as its own uniquely-named group.
+                    for (k, seg) in segments.into_iter().enumerate() {
+                        if seg.len() < 2 {
+                            continue;
+                        }
+                        let seg_name = segment_net_name(inst_table, &net_name, &seg, k);
+                        let group = net_groups.entry(seg_name).or_default();
+                        for pair in seg.windows(2) {
+                            group.push(ConnPair {
+                                left: pair[0],
+                                right: pair[1],
+                            });
+                        }
+                    }
+                } else {
+                    // Old behavior: pure scalar 2-point / heterogeneous mix → flatten + windows(2)
+                    let all_ids: Vec<i64> = per_point
+                        .iter()
+                        .flat_map(|pr| pr.ids.iter().copied())
+                        .collect();
+                    let group = net_groups.entry(net_name).or_default();
+                    for pair in all_ids.windows(2) {
+                        group.push(ConnPair {
+                            left: pair[0],
+                            right: pair[1],
+                        });
+                    }
                 }
             }
         }
@@ -767,6 +837,56 @@ impl<'a> McVecBuilder<'a> {
         self.net_id_counter += 1;
         id
     }
+}
+
+// ============================================================================
+// ★ Series-chain helpers (net-build correctness)
+// ============================================================================
+
+/// If `id` is a **bare 2-pin Component reference** (an `InstKind::Component` with exactly two
+/// registered pins), return its two pin ids as `(upstream_pin, downstream_pin)` in a deterministic
+/// order. Returns `None` for pins / ports / labels / junctions (single electrical nodes that must
+/// NOT split a chain) and for components that don't have exactly two pins (e.g. ICs).
+///
+/// This is what lets a chain that passes *through* `-> R_LIMIT ->` resolve into two distinct
+/// terminals instead of one collapsed component id.
+fn two_pin_component_pins(inst_table: &InstTable, id: i64) -> Option<(i64, i64)> {
+    if id < 0 {
+        return None;
+    }
+    let entry = inst_table.get_entry(id as u32)?;
+    // Only split when the chain referenced the *component itself* (bare name). If the author wrote
+    // an explicit pin (`R_LIMIT.1`), the resolved id is a Pin → treat it as a fixed junction node.
+    if !matches!(entry.kind, InstKind::Component) {
+        return None;
+    }
+    let mut pins = inst_table.get_pins_of(id as u32);
+    if pins.len() != 2 {
+        return None; // 0-pin (unregistered) or multi-pin (IC) → not a pass-through 2-terminal device
+    }
+    // Deterministic terminal order: pin paths are unique (`...R_LIMIT.1` < `...R_LIMIT.2`).
+    // For symmetric passives (R/C/L) the direction is electrically irrelevant; determinism is what
+    // matters so repeated builds are stable.
+    pins.sort_by(|a, b| a.path.cmp(&b.path).then_with(|| a.id.cmp(&b.id)));
+    Some((pins[0].id as i64, pins[1].id as i64))
+}
+
+/// Pick a net name for one chain segment. Prefer a power-rail member name (so the `VCC` / `GND`
+/// segments still classify as Power / Ground downstream); otherwise fall back to `<base>~<k>`,
+/// which is unique across the chain and never collides with the original whole-chain name.
+fn segment_net_name(inst_table: &InstTable, base: &str, seg: &[i64], k: usize) -> String {
+    for &id in seg {
+        if id < 0 {
+            continue;
+        }
+        if let Some(entry) = inst_table.get_entry(id as u32) {
+            let last = entry.path.rsplit('.').next().unwrap_or(entry.path.as_str());
+            if crate::vector::graph::naming::is_power_rail(&last.to_uppercase()) {
+                return last.to_string();
+            }
+        }
+    }
+    format!("{base}~{k}")
 }
 
 // ============================================================================

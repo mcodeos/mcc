@@ -185,20 +185,37 @@ pub fn build_from_manifest(
 pub fn load_libs(lib_names: &[String]) {
     for lib_name in lib_names {
         let system_root = mcc::mcb_get_system_root();
-        let lib_root = system_root.join(lib_name);
+        let lib_path = system_root.join(lib_name);
+
+        // Normalize: if lib_name is a .mc file path, extract the library name
+        // and root directory. e.g. "mcode/mcode.mc" → name="mcode", root=system_root/mcode
+        let (name, root) = if lib_path.extension().map_or(false, |e| e == "mc") {
+            let name = lib_path
+                .file_stem()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
+            let root = lib_path
+                .parent()
+                .map(|p| p.to_path_buf())
+                .unwrap_or(system_root);
+            (name, root)
+        } else {
+            (lib_name.clone(), lib_path)
+        };
+
         // Check if library truly loaded interfaces (built-in components don't count, need interfaces to count as truly loaded)
-        let lib_info = mcc::mcb_lib_info(lib_name);
+        let lib_info = mcc::mcb_lib_info(&name);
         let interface_count = lib_info.as_ref().map(|i| i.interface_count).unwrap_or(0);
-        if lib_root.exists() && (!mcc::mcb_loaded_libs().contains(lib_name) || interface_count == 0)
-        {
+        if root.exists() && (!mcc::mcb_loaded_libs().contains(&name) || interface_count == 0) {
             tracing::info!(target: "mcc::lib",
-                lib = lib_name,
-                path = ?lib_root,
+                lib = name,
+                path = ?root,
                 "loading library");
-            mcc::mcb_load_lib(lib_name, &lib_root);
-        } else if !lib_root.exists() {
+            mcc::mcb_load_lib(&name, &root);
+        } else if !root.exists() {
             tracing::warn!(target: "mcc::lib",
-                lib = lib_name,
+                lib = name,
                 "library not found in system root");
         }
     }
