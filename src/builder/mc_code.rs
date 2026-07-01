@@ -44,6 +44,7 @@ pub struct McCode {
     pub(crate) spacenames: BTreeMap<McIds, McSpaceName>, //
     pub(crate) line_index: Option<LineIndex>, //line index for position to line/column conversion
     pub(crate) pass1_complete: bool,          // tracks whether parse_pass1_types() has been called
+    pub(crate) modules_parsed: bool,          // tracks whether parse_pass1_modules() has been called
 }
 
 ////////////////////////////////
@@ -98,6 +99,7 @@ impl McCode {
             uselist: Vec::new(),
             line_index: None,
             pass1_complete: false,
+            modules_parsed: false,
         })
     }
 
@@ -112,6 +114,7 @@ impl McCode {
             uselist: Vec::new(),
             line_index: None,
             pass1_complete: false,
+            modules_parsed: false,
         }
     }
 
@@ -127,6 +130,7 @@ impl McCode {
             uselist: Vec::new(),
             line_index: Some(LineIndex::new(content)),
             pass1_complete: false,
+            modules_parsed: false,
         })
     }
     pub fn free(&mut self) {
@@ -855,6 +859,11 @@ impl McCode {
 
     /// Phase 1b: parse all module definitions (at this point all component/interface/enum are already registered)
     pub fn parse_pass1_modules(&mut self) {
+        if self.modules_parsed {
+            return; // already parsed (can be called from both parse_pass1_types and mcb_parse_all_modules)
+        }
+        self.modules_parsed = true;
+
         for (_i, node) in self.ast.iter().enumerate() {
             let node_type = node.get_type();
             if node_type == MCAST_MODULE {
@@ -885,7 +894,7 @@ impl McCode {
     /// Backward-compatible interface: parse all definitions sequentially (single-file scenario or system library)
     pub fn parse_pass1(&mut self) {
         self.parse_pass1_types();
-        self.parse_pass1_modules();
+        // parse_pass1_modules is already called at the end of parse_pass1_types
     }
 
     // ========================================================================

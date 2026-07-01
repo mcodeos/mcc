@@ -283,9 +283,15 @@ pub fn apply_net_labels(graph: &mut McVecGraph) -> Option<(f64, f64)> {
     // 1. (box_id, pin_id) → (pin coordinates, side); record which boxes are labels/flags (PowerLabel).
     let mut pin_pos: HashMap<(i64, i64), ((f64, f64), EntrySide)> = HashMap::new();
     let mut label_boxes: HashSet<i64> = HashSet::new();
+    // ★ Stage A (A3): a net touching any two-pin passive must keep a real wire (never an air-wire),
+    //   otherwise a plain series R/C loop turns into unreadable dangling labels (see image2).
+    let mut passive_boxes: HashSet<i64> = HashSet::new();
     for b in &graph.boxes {
         if b.kind == BoxKind::PowerLabel {
             label_boxes.insert(b.id);
+        }
+        if b.is_two_pin_passive() {
+            passive_boxes.insert(b.id);
         }
         for ep in &b.entry_points {
             pin_pos.insert((b.id, ep.pin_id), (pin_xy(b, ep), ep.side.clone()));
@@ -318,6 +324,16 @@ pub fn apply_net_labels(graph: &mut McVecGraph) -> Option<(f64, f64)> {
             .iter()
             .any(|e| label_boxes.contains(&e.box_id))
         {
+            continue;
+        }
+        // ★ Stage A (A3): never air-wire a net that touches a two-pin passive — its pins must
+        //   be reached by real wires.
+        if net.endpoints.iter().any(|e| passive_boxes.contains(&e.box_id)) {
+            continue;
+        }
+        // ★ Stage A (A3): a net spanning only two boxes is a plain point-to-point wire, not a
+        //   long bus worth labelling — route it normally regardless of pixel span.
+        if net.box_ids().len() < 3 {
             continue;
         }
         // Endpoint coordinates + span (max pairwise distance between endpoints).

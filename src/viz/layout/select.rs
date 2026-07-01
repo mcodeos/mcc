@@ -11,9 +11,8 @@
 
 use crate::vector::graph::McVecGraph;
 use crate::viz::idiom;
-use crate::viz::layout::passive_inline::{
-    apply_net_labels, collapse_passives, reinsert_passives, straighten_rail_passives,
-};
+use crate::viz::layout::normalize::renormalize;
+use crate::viz::layout::passive_inline::{apply_net_labels, place_series_passives};
 use crate::viz::metrics::{off_grid, route_bends, route_length, FidelityReport, ReadabilityScore};
 use crate::viz::route::audit::audit_all;
 use crate::viz::route::scheduler::route_all_with_channels;
@@ -46,21 +45,15 @@ pub fn layout_best(
     for (i, candidate) in candidates.iter().enumerate() {
         let mut g = graph.clone();
 
-        // Phase 1.5: collapse passives (sub-layers only)
-        let stash = if !is_root {
-            collapse_passives(&mut g)
-        } else {
-            crate::viz::layout::passive_inline::PassiveStash::empty()
-        };
-
         // Phase 1: layout
         let _cv = candidate.layout(&mut g);
 
-        // Phase 1.5: reinsert passives (sub-layers only)
-        if !is_root {
-            reinsert_passives(&mut g, stash);
-            straighten_rail_passives(&mut g);
-        }
+        // ★ Stage A — non-destructive inline placement of series two-pin passives (root + sub).
+        //   Passives stay real boxes with real nets, so they are always drawn and never
+        //   collapse into a wire or get clipped off-canvas.
+        place_series_passives(&mut g);
+        // Pull any passive nudged to a negative coordinate back onto the canvas.
+        renormalize(&mut g);
 
         // Phase 1.8: net labels
         let _cv = apply_net_labels(&mut g);
@@ -120,19 +113,12 @@ pub fn layout_best(
 }
 
 /// Run a single candidate through the full pipeline (no scoring needed).
-fn run_single(mut graph: McVecGraph, candidate: &dyn Layouter, is_root: bool) -> McVecGraph {
-    let stash = if !is_root {
-        collapse_passives(&mut graph)
-    } else {
-        crate::viz::layout::passive_inline::PassiveStash::empty()
-    };
-
+fn run_single(mut graph: McVecGraph, candidate: &dyn Layouter, _is_root: bool) -> McVecGraph {
     candidate.layout(&mut graph);
 
-    if !is_root {
-        reinsert_passives(&mut graph, stash);
-        straighten_rail_passives(&mut graph);
-    }
+    // ★ Stage A — non-destructive inline placement (see layout_best).
+    place_series_passives(&mut graph);
+    renormalize(&mut graph);
 
     apply_net_labels(&mut graph);
     route_all_with_channels(&mut graph);

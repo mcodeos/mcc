@@ -207,7 +207,124 @@ pub fn collapse_passives(graph: &mut McVecGraph) -> PassiveStash {
 }
 
 // ============================================================================
-// reinsert —— place passives back onto wires after layout
+// ★ Stage A (A2) — Non-destructive inline placement of series two-pin passives
+// ============================================================================
+//
+// ## Why this replaces collapse/reinsert on the main path
+// The old collapse→layout→reinsert path DELETED the passive box + its two nets before
+// layout and tried to splice them back afterwards. When a neighbour was near the canvas
+// margin, the reinserted passive landed at a **negative coordinate** and was clipped off
+// the viewBox → the passive "disappeared" (the R in the PWR→R→LED→GND loop). It also
+// produced dangling air-wires when the temporary splice net interacted with net-labels.
+//
+// This pass NEVER deletes the box or its nets. Passives flow through layout as ordinary
+// boxes (so they always get placed + routed). Afterwards, for each *series* passive whose
+// two nets each reach exactly one real (non-flag, non-passive) neighbour, we simply
+// reposition the box onto the segment between the two neighbour exit points and orient its
+// two pins to face them. The real R↔A / R↔B nets are untouched → the router draws two real
+// wires and the passive is always visible.
+//
+// Runs **after** layout, **before** routing. Root + sub layers.
+
+/// Place series two-pin passives inline between their two neighbours, without touching nets.
+pub fn place_series_passives(graph: &mut McVecGraph) {
+    // Deterministic order: synthetic pin ids allocated below must not depend on iteration order.
+    let passive_ids: Vec<i64> = {
+        let mut v: Vec<i64> = graph
+            .boxes
+            .iter()
+            .filter(|b| b.is_two_pin_passive())
+            .map(|b| b.id)
+            .collect();
+        v.sort_unstable();
+        v
+    };
+    if passive_ids.is_empty() {
+        return;
+    }
+    let passive_set: HashSet<i64> = passive_ids.iter().copied().collect();
+    let rail_ids: HashSet<i64> = graph
+        .boxes
+        .iter()
+        .filter(|b| is_rail_box(b))
+        .map(|b| b.id)
+        .collect();
+
+    let mut synth_pin = PASSIVE_PIN_BASE;
+
+    for pid in passive_ids {
+        // P must touch exactly 2 nets (a plain series element).
+        let touching: Vec<usize> = graph
+            .nets
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| n.endpoints.iter().any(|e| e.box_id == pid))
+            .map(|(i, _)| i)
+            .collect();
+        if touching.len() != 2 {
+            continue; // bypass cap / chain / rail-only / unconnected → leave where layout put it
+        }
+
+        // For each net collect (net_idx, P's pin_id, neighbour box_id, neighbour pin_id).
+        // Neighbour must be unique on the net and be a real device (not a rail/flag, not another passive).
+        let mut sides: Vec<(usize, i64, i64, i64)> = Vec::new();
+        let mut ok = true;
+        for &ni in &touching {
+            let net = &graph.nets[ni];
+            let p_pin = net.endpoints.iter().find(|e| e.box_id == pid).map(|e| e.pin_id);
+            let others: Vec<&EndpointRef> =
+                net.endpoints.iter().filter(|e| e.box_id != pid).collect();
+            match (p_pin, others.as_slice()) {
+                (Some(pp), [o])
+                    if !rail_ids.contains(&o.box_id) && !passive_set.contains(&o.box_id) =>
+                {
+                    sides.push((ni, pp, o.box_id, o.pin_id));
+                }
+                _ => {
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        if !ok || sides.len() != 2 {
+            continue;
+        }
+
+        // Neighbour exit points (degenerate to box centre if the pin can't be located).
+        let a_toward = box_center(graph, sides[1].2);
+        let b_toward = box_center(graph, sides[0].2);
+        let ((ax, ay), sa) = match pin_exit_facing(graph, sides[0].2, sides[0].3, a_toward) {
+            Some(v) => v,
+            None => continue,
+        };
+        let ((bx2, by2), sb) = match pin_exit_facing(graph, sides[1].2, sides[1].3, b_toward) {
+            Some(v) => v,
+            None => continue,
+        };
+
+        // P's own pin ids toward A / B. If owner-fallback collapsed them to the same id, synthesize
+        // a second one and rewrite the second net's P-endpoint, so the two wires get two exit points.
+        let pin_a = sides[0].1;
+        let mut pin_b = sides[1].1;
+        if pin_a == pin_b {
+            pin_b = synth_pin;
+            synth_pin += 1;
+            let ni = sides[1].0;
+            if let Some(ep) = graph.nets[ni]
+                .endpoints
+                .iter_mut()
+                .find(|e| e.box_id == pid && e.pin_id == pin_a)
+            {
+                ep.pin_id = pin_b;
+            }
+        }
+
+        place_passive_between(graph, pid, (ax, ay), pin_a, sa, (bx2, by2), pin_b, sb);
+    }
+}
+
+// ============================================================================
+// reinsert —— place passives back onto wires after layout (LEGACY — off the main path)
 // ============================================================================
 
 /// Called **after** layout, **before** routing: delete direct nets, place each passive on the wire between two neighbors' exit points,
