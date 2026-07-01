@@ -330,14 +330,6 @@ impl McCode {
                 .nth(max_len.min(len))
                 .map(|(i, _)| i)
                 .unwrap_or(text.len());
-            // // Check char boundary to avoid splitting in the middle of a multi-byte char
-            // // And, not use `.nth()` anymore because it counts in char, not in byte
-            // let raw_end = (pos + max_len.min(len)).min(content_len);
-            // let mut safe_end = raw_end;
-            // while safe_end > pos && !content.is_char_boundary(safe_end) {
-            //     safe_end -= 1;
-            // }
-            // let safe_len = safe_end - pos;
 
             let text = &text[..safe_len];
             let text_bytes = text.as_bytes();
