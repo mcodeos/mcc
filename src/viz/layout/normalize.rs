@@ -41,12 +41,35 @@ pub fn normalize_positions(graph: &mut McVecGraph) {
     }
 }
 
+/// Re-run position normalization (public alias used by the render pipeline after
+/// post-layout passes such as `place_series_passives`, which may push a box to a
+/// negative coordinate). Idempotent: a no-op when everything is already ≥ margin.
+pub fn renormalize(graph: &mut McVecGraph) {
+    normalize_positions(graph);
+}
+
 /// Compute normalized canvas size `(width, height)`
+///
+/// Tolerant of negative minimums: even if a post-layout pass left a box at a negative
+/// coordinate (before `renormalize` runs, or in an unnormalized graph), the canvas still
+/// covers the full bounding box instead of clipping content off the top-left.
 pub fn compute_canvas(graph: &McVecGraph) -> (f64, f64) {
     if graph.boxes.is_empty() {
         return (200.0, 100.0);
     }
+    let min_x = graph
+        .boxes
+        .iter()
+        .map(|b| b.x)
+        .fold(f64::MAX, f64::min)
+        .min(0.0);
+    let min_y = graph
+        .boxes
+        .iter()
+        .map(|b| b.y)
+        .fold(f64::MAX, f64::min)
+        .min(0.0);
     let max_x = graph.boxes.iter().map(|b| b.x + b.w).fold(0.0f64, f64::max);
     let max_y = graph.boxes.iter().map(|b| b.y + b.h).fold(0.0f64, f64::max);
-    (max_x + CANVAS_PADDING, max_y + CANVAS_PADDING)
+    ((max_x - min_x) + CANVAS_PADDING, (max_y - min_y) + CANVAS_PADDING)
 }
