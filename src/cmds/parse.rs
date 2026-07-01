@@ -266,9 +266,12 @@ pub fn run(args: &ParseArgs) -> Result<()> {
 
         if should_render_all {
             // Multi-module rendering: build each module separately
-            let first_mod_name = all_modules.first().map(|(n, _)| n.clone()).unwrap_or_else(|| top_name.clone());
+            let first_mod_name = all_modules
+                .first()
+                .map(|(n, _)| n.clone())
+                .unwrap_or_else(|| top_name.clone());
             let first_mod_ident = McIds::from(first_mod_name.as_str());
-            
+
             match mcc::mcc_build(&first_mod_ident, &uri) {
                 Ok(first_inst) => {
                     // Process ALL modules: first one already built, others in loop
