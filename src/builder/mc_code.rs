@@ -597,13 +597,10 @@ impl McCode {
                 for (_, space_name) in mcfile.spacenames.iter_mut() {
                     space_name.uri = canonical_use_uri.clone();
                 }
-                let saved_uri = crate::current_uri::try_get();
-                crate::current_uri::set(&canonical_use_uri);
-                mcfile.parse_pass1_types();
-                mcfile.parse_pass1_modules(); // ★ Fix: Also parse modules to register instance symbols
-                if let Some(ref uri) = saved_uri {
-                    crate::current_uri::set(uri);
-                }
+                // Do NOT call parse_pass1_types/parse_pass1_modules here.
+                // mcb_add_recursive handles CMIE registration in dependency order.
+                // Calling it here causes duplicate registration when mcb_add_recursive
+                // later processes the same file.
                 mcfile.parse_nsp();
                 // ★ FIX: Do NOT insert mcfile into workspace here.
                 // Previously, this inserted a McCode with a SEPARATE symbols Arc.

@@ -428,59 +428,91 @@ pub fn mcb_query<'a>(uri: &McURI) -> Option<ParserResult> {
 
 fn remove_defines(uri: &McURI) {
     // Note: DashMap's iter() is read-only iteration, won't block write operations, suitable for collecting keys to delete first
+
+    // workspace tables
     let to_remove: Vec<McSpaceName> = workspace::WORKSPACE
         .components
         .borrow()
         .iter()
-        .filter(|entry| entry.key().uri == *uri) // match uri
-        .map(|entry| entry.key().clone()) // clone key to delete (McSpaceName implements Clone)
+        .filter(|entry| entry.key().uri == *uri)
+        .map(|entry| entry.key().clone())
         .collect();
-
     for space_name in to_remove {
-        workspace::WORKSPACE.components.borrow().remove(&space_name); // remove method returns deleted value (not needed here, just discard)
+        workspace::WORKSPACE.components.borrow().remove(&space_name);
     }
+
     let to_remove: Vec<McSpaceName> = workspace::WORKSPACE
         .modules
         .borrow()
         .iter()
-        .filter(|entry| entry.key().uri == *uri) // match uri
-        .map(|entry| entry.key().clone()) // clone key to delete (McSpaceName implements Clone)
+        .filter(|entry| entry.key().uri == *uri)
+        .map(|entry| entry.key().clone())
         .collect();
-
     for space_name in to_remove {
-        workspace::WORKSPACE.modules.borrow().remove(&space_name); // remove method returns deleted value (not needed here, just discard)
+        workspace::WORKSPACE.modules.borrow().remove(&space_name);
     }
+
     let to_remove: Vec<McSpaceName> = workspace::WORKSPACE
         .interfaces
         .borrow()
         .iter()
-        .filter(|entry| entry.key().uri == *uri) // match uri
-        .map(|entry| entry.key().clone()) // clone key to delete (McSpaceName implements Clone)
+        .filter(|entry| entry.key().uri == *uri)
+        .map(|entry| entry.key().clone())
         .collect();
-
     for space_name in to_remove {
-        workspace::WORKSPACE.interfaces.borrow().remove(&space_name); // remove method returns deleted value (not needed here, just discard)
+        workspace::WORKSPACE.interfaces.borrow().remove(&space_name);
     }
-    let to_remove: Vec<McSpaceName> = global::mcc_enums
-        .borrow()
-        .iter()
-        .filter(|entry| entry.key().uri == *uri) // match uri
-        .map(|entry| entry.key().clone()) // clone key to delete (McSpaceName implements Clone)
-        .collect();
 
-    for space_name in to_remove {
-        global::mcc_enums.borrow().remove(&space_name); // remove method returns deleted value (not needed here, just discard)
-    }
     let to_remove: Vec<McSpaceName> = workspace::WORKSPACE
         .enums
         .borrow()
         .iter()
-        .filter(|entry| entry.key().uri == *uri) // match uri
-        .map(|entry| entry.key().clone()) // clone key to delete (McSpaceName implements Clone)
+        .filter(|entry| entry.key().uri == *uri)
+        .map(|entry| entry.key().clone())
         .collect();
-
     for space_name in to_remove {
-        workspace::WORKSPACE.enums.borrow().remove(&space_name); // remove method returns deleted value (not needed here, just discard)
+        workspace::WORKSPACE.enums.borrow().remove(&space_name);
+    }
+
+    // global tables (system lib registrations)
+    let to_remove: Vec<McSpaceName> = global::mcc_components
+        .borrow()
+        .iter()
+        .filter(|entry| entry.key().uri == *uri)
+        .map(|entry| entry.key().clone())
+        .collect();
+    for space_name in to_remove {
+        global::mcc_components.borrow().remove(&space_name);
+    }
+
+    let to_remove: Vec<McSpaceName> = global::mcc_modules
+        .borrow()
+        .iter()
+        .filter(|entry| entry.key().uri == *uri)
+        .map(|entry| entry.key().clone())
+        .collect();
+    for space_name in to_remove {
+        global::mcc_modules.borrow().remove(&space_name);
+    }
+
+    let to_remove: Vec<McSpaceName> = global::mcc_interfaces
+        .borrow()
+        .iter()
+        .filter(|entry| entry.key().uri == *uri)
+        .map(|entry| entry.key().clone())
+        .collect();
+    for space_name in to_remove {
+        global::mcc_interfaces.borrow().remove(&space_name);
+    }
+
+    let to_remove: Vec<McSpaceName> = global::mcc_enums
+        .borrow()
+        .iter()
+        .filter(|entry| entry.key().uri == *uri)
+        .map(|entry| entry.key().clone())
+        .collect();
+    for space_name in to_remove {
+        global::mcc_enums.borrow().remove(&space_name);
     }
 }
 
@@ -1012,6 +1044,9 @@ fn find_in_project_tables(space_name: &McSpaceName) -> Option<McCMIE> {
     {
         return Some(McCMIE::Component(comp.clone()));
     }
+    if let Some(comp) = global::mcc_components.borrow().get(&canonical_space_name) {
+        return Some(McCMIE::Component(comp.clone()));
+    }
     if let Some(module) = workspace::WORKSPACE
         .modules
         .borrow()
@@ -1019,11 +1054,17 @@ fn find_in_project_tables(space_name: &McSpaceName) -> Option<McCMIE> {
     {
         return Some(McCMIE::Module(module.clone()));
     }
+    if let Some(module) = global::mcc_modules.borrow().get(&canonical_space_name) {
+        return Some(McCMIE::Module(module.clone()));
+    }
     if let Some(ifs) = workspace::WORKSPACE
         .interfaces
         .borrow()
         .get(&canonical_space_name)
     {
+        return Some(McCMIE::Interface(ifs.clone()));
+    }
+    if let Some(ifs) = global::mcc_interfaces.borrow().get(&canonical_space_name) {
         return Some(McCMIE::Interface(ifs.clone()));
     }
     if let Some(enum_def) = global::mcc_enums.borrow().get(&canonical_space_name) {
@@ -1054,6 +1095,12 @@ fn find_by_name_in_project_tables(class_name: &McIds) -> Option<McCMIE> {
             return Some(McCMIE::Component(entry.value().clone()));
         }
     }
+    for entry in global::mcc_components.borrow().iter() {
+        let ident_str = entry.key().ident.to_string();
+        if ident_str == name_str {
+            return Some(McCMIE::Component(entry.value().clone()));
+        }
+    }
 
     // Check modules (exact match)
     for entry in workspace::WORKSPACE.modules.borrow().iter() {
@@ -1062,9 +1109,21 @@ fn find_by_name_in_project_tables(class_name: &McIds) -> Option<McCMIE> {
             return Some(McCMIE::Module(entry.value().clone()));
         }
     }
+    for entry in global::mcc_modules.borrow().iter() {
+        let ident_str = entry.key().ident.to_string();
+        if ident_str == name_str {
+            return Some(McCMIE::Module(entry.value().clone()));
+        }
+    }
 
     // Check interfaces
     for entry in workspace::WORKSPACE.interfaces.borrow().iter() {
+        let ident_str = entry.key().ident.to_string();
+        if ident_str == name_str {
+            return Some(McCMIE::Interface(entry.value().clone()));
+        }
+    }
+    for entry in global::mcc_interfaces.borrow().iter() {
         let ident_str = entry.key().ident.to_string();
         if ident_str == name_str {
             return Some(McCMIE::Interface(entry.value().clone()));

@@ -120,6 +120,7 @@ pub fn mcc_set_system_root(path: &Path) {
         path.to_path_buf()
     };
     let candidate_mc = base.join("mc");
+    let candidate_mcode = base.join("mcode");
 
     let system_root = if let Ok(val) = env::var(data_dir::MCC_SYSTEM_ENV) {
         let p = PathBuf::from(&val);
@@ -129,13 +130,11 @@ pub fn mcc_set_system_root(path: &Path) {
         } else {
             env::current_dir().unwrap_or_default().join(p)
         }
-    } else if candidate_mc.exists() {
+    } else if candidate_mc.exists() || candidate_mcode.exists() {
         // ── S3 fix ──
-        // Original logic used base.join("mc") as system_root (cwd/mc), combined with lib_root
-        // = system_root.join("mc/mcode") to get cwd/mc/mc/mcode (double mc).
-        // Changed to system_root = base (project root), lib_root = system_root.join("mc/mcode")
-        // = cwd/mc/mcode (correct). Detection of base/mc/ existence only indicates project has mc/ subdirectory.
-        debug!(target: "mcc::sysinit", path = ?base, "using project root (mc/ subdir found)");
+        // Detection: if mc/ or mcode/ subdirectory exists under the project root,
+        // use project root as system_root. lib_root = system_root.join(lib_name).
+        debug!(target: "mcc::sysinit", path = ?base, "using project root (mc/ or mcode/ subdir found)");
         base
     } else {
         let default_path = data_dir::data_root();
