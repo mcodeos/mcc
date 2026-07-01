@@ -657,14 +657,24 @@ impl McCode {
                 }
             }
 
-            // Replace the temporary clone in the workspace with the owned
-            // original so the AST stays alive after mcfile goes out of scope.
-            if let dashmap::Entry::Occupied(mut entry) = workspace::WORKSPACE
+            // Only insert into workspace if the existing entry hasn't been fully
+            // parsed yet. mcb_add_recursive may have already parsed this file and
+            // set modules_parsed=true; overwriting it with a fresh McCode would
+            // cause duplicate module registrations when mcb_parse_all_modules runs.
+            let should_insert = workspace::WORKSPACE
                 .mcodes
                 .borrow()
-                .entry(canonical_use_uri.clone())
-            {
-                entry.insert(mcfile);
+                .get(&canonical_use_uri)
+                .map(|e| !e.modules_parsed)
+                .unwrap_or(true);
+            if should_insert {
+                if let dashmap::Entry::Occupied(mut entry) = workspace::WORKSPACE
+                    .mcodes
+                    .borrow()
+                    .entry(canonical_use_uri.clone())
+                {
+                    entry.insert(mcfile);
+                }
             }
         }
 
