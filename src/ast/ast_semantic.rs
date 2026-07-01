@@ -383,6 +383,23 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
         })
         .unwrap_or_default();
 
+    // ★ LSP: Cross-file goto: reference_id -> (target_uri, span)
+    let cross_file_targets: Vec<serde_json::Value> = gtable
+        .as_ref()
+        .map(|g| {
+            g.declare_id_to_target_span
+                .iter()
+                .map(|(ref_id, (target_uri, span))| {
+                    json!({
+                        "ref_id": ref_id._raw,
+                        "target_uri": target_uri,
+                        "span": [span.start, span.end],
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     json!({
         "local": {
             "declares": local_declares,
@@ -392,6 +409,7 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
         "global": {
             "declares": global_declares,
             "references": global_references,
+            "cross_file_targets": cross_file_targets,
         },
     })
 }
