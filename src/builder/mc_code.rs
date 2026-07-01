@@ -284,13 +284,15 @@ impl McCode {
             let pos = token.position as usize;
             let len = token.length as usize;
 
-            if pos >= content_len || pos.saturating_add(len) > content_len || len < 3 {
-                new_tokens.push(token.clone());
-                continue;
-            }
-
-            let text = &content[pos..pos + len];
-            let text_bytes = &content_bytes[pos..pos + len];
+            let text = &content[pos..];
+            // Clamp to content boundary and char boundary
+            let max_len = content_len.saturating_sub(pos);
+            let safe_len = text.char_indices()
+                .nth(max_len.min(len))
+                .map(|(i, _)| i)
+                .unwrap_or(text.len());
+            let text = &text[..safe_len];
+            let text_bytes = text.as_bytes();
 
             // Find comment markers in the text: // or #
             if let Some(comment_start) = Self::find_comment_start(text, text_bytes) {
@@ -787,9 +789,28 @@ impl McCode {
                         // ★ First clone the needed data (name + uri) for global_table,
                         // then move comp into the Arc table
                         let comp_name_str = comp.name.to_string();
-                        let comp_span: Span =
-                            (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
+                        // Compute the correct span from the component node's subtree.
+                        // Direct node.get_pos() returns 0 for MCAST_COMPONENT top-level nodes
+                        // (a parser limitation). Instead, find the MCAST_NAME child and
+                        // extract its MCAST_IDS grandchild which has the correct position.
+                        let comp_span: Span = node
+                            .get_sub_node()
+                            .and_then(|sub| {
+                                sub.iter().find(|x| x.is_type(MCAST_NAME))
+                            })
+                            .and_then(|name_node| name_node.get_sub_node())
+                            .map(|ids_node| {
+                                (ids_node.get_pos() as usize)
+                                    ..((ids_node.get_pos() + ids_node.get_len()) as usize)
+                            })
+                            .unwrap_or_else(|| {
+                                // Fallback: use node position (may be 0)
+                                (node.get_pos() as usize)
+                                    ..((node.get_pos() + node.get_len()) as usize)
+                            });
                         let self_uri = self.uri.clone();
+                        tracing::info!(target: "mcc::lsp", "  parse_pass1_types: component '{}' in '{}' node_pos={} node_len={} span={:?}",
+                            comp_name_str, self_uri, node.get_pos(), node.get_len(), comp_span);
 
                         let space_name = McSpaceName {
                             ident: comp.name.clone(),
@@ -927,6 +948,7 @@ impl McCode {
         };
         // ★ LSP: Also register in workspace global_class_table for cross-context lookup
         if let Some(class_id) = result {
+            tracing::info!(target: "mcc::lsp", "  add_global_class: registered '{}' in '{}' -> class_id={:?} span={:?}", class_name, uri, class_id, span);
             let mut table = workspace::WORKSPACE.global_class_table.lock().unwrap();
             table.insert((uri.to_string(), class_name.clone()), (class_id, span));
         }
@@ -1029,25 +1051,18 @@ impl McCode {
                             }
                         }
 
-                        for ((uri, span), refid) in gt.span_to_declare_class_id.iter() {
-                            if uri == &self.uri {
-                                symbol_lapper.insert(Interval {
-                                    start: span.start,
-                                    stop: span.end,
-                                    val: SymbolType::DeclareClass(*refid),
-                                });
-                            }
-                        }
-
-                        // ★ LSP: Read declare class refs from workspace table
-                        // These are populated during parsing when file is not yet in workspace
+                        // ★ LSP: Read declare class refs from workspace table FIRST,
+                        // then populate span_to_declare_class_id via add_declare_class(),
+                        // THEN iterate span_to_declare_class_id to insert into symbol_lapper.
                         {
                             let mut decl_refs = crate::builder::workspace::WORKSPACE
                                 .global_declare_class_refs
                                 .lock()
                                 .unwrap();
+                            tracing::info!(target: "mcc::lsp", "  create_lapper: global_declare_class_refs for '{}' = {} entries", self.uri, decl_refs.get(&self.uri).map(|v| v.len()).unwrap_or(0));
                             if let Some(refs) = decl_refs.remove(&self.uri) {
                                 for (decl_span, _class_id, target_uri, target_span) in refs {
+                                    tracing::info!(target: "mcc::lsp", "  create_lapper: register decl_span={:?} -> class_id={:?} target={}:{:?}", decl_span, _class_id, target_uri, target_span);
                                     let refid = gt.add_declare_class(
                                         &self.uri,
                                         decl_span.clone(),
@@ -1057,6 +1072,18 @@ impl McCode {
                                     gt.declare_id_to_target_span
                                         .insert(refid, (target_uri.clone(), target_span.clone()));
                                 }
+                            }
+                        }
+
+                        // Now iterate span_to_declare_class_id (which now includes entries
+                        // from global_declare_class_refs above) and insert into symbol_lapper
+                        for ((uri, span), refid) in gt.span_to_declare_class_id.iter() {
+                            if uri == &self.uri {
+                                symbol_lapper.insert(Interval {
+                                    start: span.start,
+                                    stop: span.end,
+                                    val: SymbolType::DeclareClass(*refid),
+                                });
                             }
                         }
                     }
