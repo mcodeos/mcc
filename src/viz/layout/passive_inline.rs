@@ -51,6 +51,9 @@ pub fn apply_net_labels(graph: &mut McVecGraph) -> Option<(f64, f64)> {
 const SPLICE_NID_BASE: i64 = 8_000_000_000;
 /// reinsert synthesized second pin id starting base for passives with same pin id on both pins
 const PASSIVE_PIN_BASE: i64 = 4_500_000_000;
+/// Stage A3 (`place_passive_chains`) synthesized second-pin base — distinct from every other base
+/// (`SPLIT_PIN_BASE` 4e9, `PASSIVE_PIN_BASE` 4.5e9, `RAIL_PIN_BASE` 4.7e9) and below `FLAG_ID_BASE` (9e9).
+const CHAIN_PIN_BASE: i64 = 4_800_000_000;
 
 // ============================================================================
 // Stash
@@ -320,6 +323,155 @@ pub fn place_series_passives(graph: &mut McVecGraph) {
         }
 
         place_passive_between(graph, pid, (ax, ay), pin_a, sa, (bx2, by2), pin_b, sb);
+    }
+}
+
+// ============================================================================
+// ★ Stage A3 — inline placement for passive↔passive series chains
+// ============================================================================
+//
+// ## Gap this fills
+// `place_series_passives` requires each neighbour to be a real (non-flag, non-passive) device, and
+// `straighten_rail_passives` requires exactly "one real device + one flag". Both therefore **skip**
+// a passive whose neighbour is *another passive*, so a `rail — R — C — … — rail` string is left
+// wherever the flow layouter dropped each box.
+//
+// After the net-build fix (each pass-through 2-pin device now owns its two distinct pins) such
+// chains are already electrically correct and render with two feet; this pass only lines the
+// members up so the string reads straight.
+//
+// ## Safety (purely additive)
+// - Only repositions passives that have **at least one passive neighbour** — exactly the case the
+//   other two passes skip, so their domain is never touched (a passive with two real neighbours is
+//   handled by `place_series_passives`; those sets are disjoint).
+// - Never edits net topology. The `pin_a == pin_b` split is kept only as a defensive no-op (Layer-1
+//   already gave the two pins distinct ids; it would fire only for legacy owner-fallback collapse).
+// - Degrades to "leave in place" whenever an anchor can't be located.
+// - Bounded + deterministic: a fixed number of settle sweeps over id-sorted passives.
+//
+// Runs **after** layout, **before** routing (right after `place_series_passives`).
+
+/// Place passive↔passive series-chain members inline between their two chain anchors.
+pub fn place_passive_chains(graph: &mut McVecGraph) {
+    let passive_ids: Vec<i64> = {
+        let mut v: Vec<i64> = graph
+            .boxes
+            .iter()
+            .filter(|b| b.is_two_pin_passive())
+            .map(|b| b.id)
+            .collect();
+        v.sort_unstable();
+        v
+    };
+    if passive_ids.len() < 2 {
+        return; // need at least one passive↔passive adjacency
+    }
+    let passive_set: HashSet<i64> = passive_ids.iter().copied().collect();
+    let rail_ids: HashSet<i64> = graph
+        .boxes
+        .iter()
+        .filter(|b| is_rail_box(b))
+        .map(|b| b.id)
+        .collect();
+
+    let mut synth = CHAIN_PIN_BASE;
+    let mut moved = 0usize;
+
+    // A few settle sweeps: when a neighbour is another passive that also moves, repeating lets the
+    // positions converge. Bounded (3) and deterministic (id-sorted) → always terminates, no flicker.
+    for sweep in 0..3 {
+        for &pid in &passive_ids {
+            // A plain series element touches exactly two nets.
+            let touching: Vec<usize> = graph
+                .nets
+                .iter()
+                .enumerate()
+                .filter(|(_, n)| n.endpoints.iter().any(|e| e.box_id == pid))
+                .map(|(i, _)| i)
+                .collect();
+            if touching.len() != 2 {
+                continue;
+            }
+
+            // (net_idx, P's pin, neighbour box, neighbour pin) per side; neighbour must be unique.
+            let mut sides: Vec<(usize, i64, i64, i64)> = Vec::new();
+            let mut ok = true;
+            let mut has_passive_neighbour = false;
+            for &ni in &touching {
+                let net = &graph.nets[ni];
+                let p_pin = net.endpoints.iter().find(|e| e.box_id == pid).map(|e| e.pin_id);
+                let others: Vec<&EndpointRef> =
+                    net.endpoints.iter().filter(|e| e.box_id != pid).collect();
+                match (p_pin, others.as_slice()) {
+                    (Some(pp), [o]) => {
+                        if passive_set.contains(&o.box_id) {
+                            has_passive_neighbour = true;
+                        }
+                        sides.push((ni, pp, o.box_id, o.pin_id));
+                    }
+                    _ => {
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+            // Only the passive-chain case the other passes skip.
+            if !ok || sides.len() != 2 || !has_passive_neighbour {
+                continue;
+            }
+
+            // Anchor exit points from both neighbours. Rail flags anchor on the flag box id
+            // (their pin id == box id); real devices / passives anchor on the real neighbour pin.
+            let a_toward = box_center(graph, sides[1].2);
+            let b_toward = box_center(graph, sides[0].2);
+            let a_pin = if rail_ids.contains(&sides[0].2) {
+                sides[0].2
+            } else {
+                sides[0].3
+            };
+            let b_pin = if rail_ids.contains(&sides[1].2) {
+                sides[1].2
+            } else {
+                sides[1].3
+            };
+            let ((ax, ay), sa) = match pin_exit_facing(graph, sides[0].2, a_pin, a_toward) {
+                Some(v) => v,
+                None => continue,
+            };
+            let ((bx2, by2), sb) = match pin_exit_facing(graph, sides[1].2, b_pin, b_toward) {
+                Some(v) => v,
+                None => continue,
+            };
+
+            // Defensive: if P's two pins still share an id (legacy owner-fallback collapse), mint a
+            // second one so the two wires get two exit points. Normally a no-op after the net fix.
+            let pin_a = sides[0].1;
+            let mut pin_b = sides[1].1;
+            if pin_a == pin_b {
+                pin_b = synth;
+                synth += 1;
+                let ni = sides[1].0;
+                if let Some(ep) = graph.nets[ni]
+                    .endpoints
+                    .iter_mut()
+                    .find(|e| e.box_id == pid && e.pin_id == pin_a)
+                {
+                    ep.pin_id = pin_b;
+                }
+            }
+
+            place_passive_between(graph, pid, (ax, ay), pin_a, sa, (bx2, by2), pin_b, sb);
+            if sweep == 2 {
+                moved += 1;
+            }
+        }
+    }
+
+    if moved > 0 {
+        crate::vlog!(
+            "[layout::passive_inline] placed {} passive-chain member(s) inline",
+            moved
+        );
     }
 }
 

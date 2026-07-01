@@ -607,13 +607,10 @@ impl McCode {
                 for (_, space_name) in mcfile.spacenames.iter_mut() {
                     space_name.uri = canonical_use_uri.clone();
                 }
-                let saved_uri = crate::current_uri::try_get();
-                crate::current_uri::set(&canonical_use_uri);
-                mcfile.parse_pass1_types();
-                mcfile.parse_pass1_modules(); // ★ Fix: Also parse modules to register instance symbols
-                if let Some(ref uri) = saved_uri {
-                    crate::current_uri::set(uri);
-                }
+                // Do NOT call parse_pass1_types/parse_pass1_modules here.
+                // mcb_add_recursive handles CMIE registration in dependency order.
+                // Calling it here causes duplicate registration when mcb_add_recursive
+                // later processes the same file.
                 mcfile.parse_nsp();
                 // ★ FIX: Do NOT insert mcfile into workspace here.
                 // Previously, this inserted a McCode with a SEPARATE symbols Arc.
@@ -670,14 +667,24 @@ impl McCode {
                 }
             }
 
-            // Replace the temporary clone in the workspace with the owned
-            // original so the AST stays alive after mcfile goes out of scope.
-            if let dashmap::Entry::Occupied(mut entry) = workspace::WORKSPACE
+            // Only insert into workspace if the existing entry hasn't been fully
+            // parsed yet. mcb_add_recursive may have already parsed this file and
+            // set modules_parsed=true; overwriting it with a fresh McCode would
+            // cause duplicate module registrations when mcb_parse_all_modules runs.
+            let should_insert = workspace::WORKSPACE
                 .mcodes
                 .borrow()
-                .entry(canonical_use_uri.clone())
-            {
-                entry.insert(mcfile);
+                .get(&canonical_use_uri)
+                .map(|e| !e.modules_parsed)
+                .unwrap_or(true);
+            if should_insert {
+                if let dashmap::Entry::Occupied(mut entry) = workspace::WORKSPACE
+                    .mcodes
+                    .borrow()
+                    .entry(canonical_use_uri.clone())
+                {
+                    entry.insert(mcfile);
+                }
             }
         }
 
@@ -950,22 +957,29 @@ impl McCode {
     /// Phase 1b: parse all module definitions (at this point all component/interface/enum are already registered)
     pub fn parse_pass1_modules(&mut self) {
         if self.modules_parsed {
+            eprintln!("[DEBUG parse_pass1_modules] SKIP (already parsed): {}", self.uri);
             return; // already parsed (can be called from both parse_pass1_types and mcb_parse_all_modules)
         }
         self.modules_parsed = true;
+        eprintln!("[DEBUG parse_pass1_modules] PARSE: {}", self.uri);
 
         for (_i, node) in self.ast.iter().enumerate() {
             let node_type = node.get_type();
             if node_type == MCAST_MODULE {
                 if let Some(module) = McModule::new(&node, &self.uri) {
                     let module_name = module.name.clone();
+                    let key = McSpaceName {
+                        ident: module_name.clone(),
+                        uri: self.uri.clone(),
+                    };
+                    let already_exists = workspace::WORKSPACE.modules.borrow().contains_key(&key);
+                    if already_exists {
+                        eprintln!("[DEBUG parse_pass1_modules] DUPLICATE: {} @ {}", module_name, self.uri);
+                    }
                     workspace::WORKSPACE
                         .modules
                         .borrow()
-                        .entry(McSpaceName {
-                            ident: module_name.clone(),
-                            uri: self.uri.clone(),
-                        })
+                        .entry(key)
                         .and_modify(|_| {
                             dlog_error(1503, &node, "Duplicate module");
                         })

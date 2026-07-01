@@ -101,6 +101,10 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
     let mut tracker = PhaseTracker::new();
     tracker.skip();
 
+    // ── 0. Initialize system root (same as parse command) ──
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    manifest::load_libs(&args.lib);
+
     // ── 0.5. Pass 0 snapshot: lib load + manifest + project load phase diagnostics ──
     builder.set_pass0(crate::cmds::parse::public_collect_pass0());
 
