@@ -536,15 +536,16 @@ impl McCode {
                 let saved_uri = crate::current_uri::try_get();
                 crate::current_uri::set(&canonical_use_uri);
                 mcfile.parse_pass1_types();
+                mcfile.parse_pass1_modules(); // ★ Fix: Also parse modules to register instance symbols
                 if let Some(ref uri) = saved_uri {
                     crate::current_uri::set(uri);
                 }
                 mcfile.parse_nsp();
                 // ★ FIX: Do NOT insert mcfile into workspace here.
                 // Previously, this inserted a McCode with a SEPARATE symbols Arc.
-                // Later, mcb_add_recursive() creates ANOTHER McCode (with a DIFFERENT symbols Arc) 
+                // Later, mcb_add_recursive() creates ANOTHER McCode (with a DIFFERENT symbols Arc)
                 // for the same file and inserts it, OVERWRITING this entry.
-                // The overwritten entry had the correct symbol table, but the replacement 
+                // The overwritten entry had the correct symbol table, but the replacement
                 // (created via McCode::new()) has an EMPTY symbol table.
                 // Solution: let mcb_add_recursive() handle all workspace insertion.
                 // Only copy spacenames to self for use resolution.
@@ -899,11 +900,11 @@ impl McCode {
         class_name: &String,
         span: Span,
     ) -> Option<DeclareId> {
-        match self.symbols.lock() {
+        let result = match self.symbols.lock() {
             Ok(sem) => match sem.global_table.lock() {
                 Ok(mut gt) => {
                     let gt: &mut crate::ast::ast_semantic::GlobalSymbolTable = &mut gt;
-                    Some(gt.add_class(uri, class_name, span))
+                    Some(gt.add_class(uri, class_name, span.clone()))
                 }
                 Err(e) => {
                     tracing::error!(target: "mcc::code", error = %e, "global_table mutex poisoned (add_global_class)");
@@ -914,14 +915,20 @@ impl McCode {
                 tracing::error!(target: "mcc::code", error = %e, "symbols mutex poisoned (add_global_class)");
                 None
             }
+        };
+        // ★ LSP: Also register in workspace global_class_table for cross-context lookup
+        if let Some(class_id) = result {
+            let mut table = workspace::WORKSPACE.global_class_table.lock().unwrap();
+            table.insert((uri.to_string(), class_name.clone()), (class_id, span));
         }
+        result
     }
     pub fn add_declare_class(&mut self, uri: &McURI, span: Span, class_id: DeclareId) {
         match self.symbols.lock() {
             Ok(sem) => match sem.global_table.lock() {
                 Ok(mut gt) => {
                     let gt: &mut crate::ast::ast_semantic::GlobalSymbolTable = &mut gt;
-                    gt.add_declare_class(uri, span, class_id)
+                    let _refid = gt.add_declare_class(uri, span, class_id);
                 }
                 Err(e) => {
                     tracing::error!(target: "mcc::code", error = %e, "global_table mutex poisoned (add_declare_class)")
@@ -932,23 +939,59 @@ impl McCode {
             }
         }
     }
-    pub fn add_declare_inst(&mut self, span: Span) -> Option<DeclareId> {
+    pub fn add_declare_inst(&self, span: Span) -> Option<DeclareId> {
+        self.add_declare_inst_with_name(span, None)
+    }
+
+    pub fn add_declare_inst_with_name(
+        &self,
+        span: Span,
+        name: Option<String>,
+    ) -> Option<DeclareId> {
         match self.symbols.lock() {
-            Ok(mut symbols) => Some(symbols.local_table.add_declare(span)),
+            Ok(mut symbols) => {
+                // Register to local table
+                let local_id = symbols
+                    .local_table
+                    .add_declare_with_name(span.clone(), name.clone());
+                // ★ Also register to global table for cross-file lookup
+                if let Some(ref n) = name {
+                    if let Ok(mut gtable) = symbols.global_table.lock() {
+                        let global_id = gtable.add_global_inst(&self.uri, n, span.clone());
+                        tracing::debug!(target: "mcc::lsp", "Registered inst {} at {:?} -> global_id={:?}", n, span, global_id);
+                    }
+                }
+                Some(local_id)
+            }
             Err(e) => {
                 tracing::error!(target: "mcc::code", error = %e, "symbols mutex poisoned (add_declare_inst)");
                 None
             }
         }
     }
-    pub fn add_inst_reference(&mut self, span: Span, declr_id: DeclareId) {
+
+    pub fn get_declare_id_by_name(&self, name: &str) -> Option<DeclareId> {
         match self.symbols.lock() {
-            Ok(mut symbols) => {
-                symbols.local_table.add_inst(span, declr_id);
+            Ok(symbols) => {
+                // First check global table (cross-file)
+                if let Ok(gtable) = symbols.global_table.lock() {
+                    if let Some(id) = gtable.get_global_inst(&self.uri, name) {
+                        return Some(id);
+                    }
+                }
+                // Then check local table
+                symbols.local_table.name_to_declare_id.get(name).copied()
             }
             Err(e) => {
-                tracing::error!(target: "mcc::code", error = %e, "symbols mutex poisoned (add_inst_reference)")
+                tracing::error!(target: "mcc::code", error = %e, "symbols mutex poisoned (get_declare_id_by_name)");
+                None
             }
+        }
+    }
+
+    pub fn add_inst_reference(&self, span: Span, declr_id: DeclareId) {
+        if let Ok(mut symbols) = self.symbols.lock() {
+            symbols.local_table.add_inst(span, declr_id);
         }
     }
 
@@ -956,9 +999,10 @@ impl McCode {
         match self.symbols.lock() {
             Ok(mut sem) => {
                 let mut symbol_lapper = SymbolRangeLapper::new(vec![]);
+                let uri_str = self.uri.as_str();
 
                 match sem.global_table.lock() {
-                    Ok(gt) => {
+                    Ok(mut gt) => {
                         let clsids: Vec<_> = gt
                             .class_name_to_id
                             .iter()
@@ -985,13 +1029,56 @@ impl McCode {
                                 });
                             }
                         }
+
+                        // ★ LSP: Read declare class refs from workspace table
+                        // These are populated during parsing when file is not yet in workspace
+                        {
+                            let mut decl_refs = crate::builder::workspace::WORKSPACE
+                                .global_declare_class_refs
+                                .lock()
+                                .unwrap();
+                            if let Some(refs) = decl_refs.remove(&self.uri) {
+                                for (decl_span, _class_id, target_uri, target_span) in refs {
+                                    let refid = gt.add_declare_class(
+                                        &self.uri,
+                                        decl_span.clone(),
+                                        _class_id,
+                                    );
+                                    // Store target span so goto-def can resolve cross-file
+                                    gt.declare_id_to_target_span
+                                        .insert(refid, (target_uri.clone(), target_span.clone()));
+                                }
+                            }
+                        }
                     }
                     Err(e) => {
                         tracing::error!(target: "mcc::code", error = %e, "global_table mutex poisoned (create_lapper)")
                     }
                 }
 
-                //local
+                // ★ LSP: Get instance declarations from workspace global table (cross-file)
+                // and also add to local_table so LSP handler can find them
+                {
+                    let inst_table = crate::builder::workspace::WORKSPACE
+                        .global_inst_table
+                        .lock()
+                        .unwrap();
+                    for (decl_id, span) in inst_table.get_decls_for_uri(uri_str) {
+                        // Add to symbol_lapper for LSP lookup
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::DeclareInstance(decl_id),
+                        });
+                        // ★ Also add to local_table so LSP handler can find the span
+                        sem.local_table
+                            .declare_inst_to_span
+                            .insert(decl_id, span.clone());
+                    }
+                }
+
+                //local (keep for backward compatibility)
+                let decl_count = sem.local_table.declare_inst_to_span.len();
                 for (dcl_id, span) in sem.local_table.declare_inst_to_span.iter() {
                     symbol_lapper.insert(Interval {
                         start: span.start,
@@ -999,6 +1086,7 @@ impl McCode {
                         val: SymbolType::DeclareInstance(*dcl_id),
                     });
                 }
+                let ref_count = sem.local_table.inst_id_to_span.len();
                 for (inst_id, span) in sem.local_table.inst_id_to_span.iter() {
                     symbol_lapper.insert(Interval {
                         start: span.start,
@@ -1007,6 +1095,25 @@ impl McCode {
                     });
                 }
 
+                // ★ LSP: Also add global instance references
+                let global_ref_count = {
+                    let inst_table = crate::builder::workspace::WORKSPACE
+                        .global_inst_table
+                        .lock()
+                        .unwrap();
+                    let refs = inst_table.get_all_refs_for_uri(uri_str);
+                    let count = refs.len();
+                    for (decl_id, span) in refs {
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::InstanceRef(decl_id),
+                        });
+                    }
+                    count
+                };
+
+                tracing::info!(target: "mcc::lsp", "create_lapper: {} decls, {} local_refs, {} global_refs, lapper len={}", decl_count, ref_count, global_ref_count, symbol_lapper.len());
                 sem.symbol_lapper = symbol_lapper;
             }
             Err(e) => {

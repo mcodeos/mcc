@@ -36,6 +36,7 @@
 //! diagnostic::diagnostic_manager.borrow_mut() →  workspace::WORKSPACE.diagnostics.borrow_mut()
 //! ```
 
+use crate::ast::ast_semantic::{DeclareId, Span};
 use crate::builder::diagnostic::DiagnosticManager;
 use crate::builder::mc_code::McCode;
 use crate::builder::util::MultiThreadRefCell;
@@ -48,7 +49,7 @@ use dashmap::DashMap;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tracing::{debug, info};
 
 // ============================================================================
@@ -120,6 +121,85 @@ pub struct WorkspaceManager {
     meta: MultiThreadRefCell<WorkspaceMeta>,
 
     saved: MultiThreadRefCell<HashMap<String, WorkspaceSnapshot>>,
+
+    // ★ LSP: Shared global instance declaration table (cross-file)
+    pub(crate) global_inst_table: Mutex<GlobalInstTable>,
+
+    // ★ LSP: Shared global class table (cross-file lookups)
+    // (uri_where_defined, class_name) -> (class_id, target_span)
+    pub(crate) global_class_table: Mutex<HashMap<(String, String), (DeclareId, Span)>>,
+
+    // ★ LSP: Declare class references (uri -> [(decl_span, class_id, target_uri, target_span)])
+    // Used when file is being parsed and not yet in workspace mcodes
+    pub(crate) global_declare_class_refs:
+        Mutex<HashMap<String, Vec<(Span, DeclareId, String, Span)>>>,
+}
+
+#[derive(Default)]
+pub struct GlobalInstTable {
+    counter: DeclareId,
+    name_to_id: HashMap<(String, String), DeclareId>, // (uri, name) -> decl_id
+    id_to_span: HashMap<DeclareId, (String, Span)>,   // decl_id -> (uri, span)
+    refs: HashMap<DeclareId, Vec<(String, Span)>>,    // decl_id -> [(uri, span), ...]
+}
+
+impl GlobalInstTable {
+    pub fn add(&mut self, uri: &str, name: &str, span: Span) -> DeclareId {
+        let key = (uri.to_string(), name.to_string());
+        if let Some(&id) = self.name_to_id.get(&key) {
+            return id; // Already registered, return existing id
+        }
+        let id = self.counter;
+        self.counter += 1;
+        self.name_to_id.insert(key, id);
+        self.id_to_span.insert(id, (uri.to_string(), span));
+        id
+    }
+
+    pub fn get(&self, uri: &str, name: &str) -> Option<DeclareId> {
+        let key = (uri.to_string(), name.to_string());
+        self.name_to_id.get(&key).copied()
+    }
+
+    pub fn get_span(&self, id: DeclareId) -> Option<(String, Span)> {
+        self.id_to_span.get(&id).cloned()
+    }
+
+    // ★ LSP: Get all instance declarations for a given URI
+    pub fn get_decls_for_uri(&self, uri: &str) -> Vec<(DeclareId, Span)> {
+        self.name_to_id
+            .iter()
+            .filter(|((u, _name), _id)| u == uri)
+            .filter_map(|((_, _name), id)| {
+                self.id_to_span.get(id).map(|(_, span)| (*id, span.clone()))
+            })
+            .collect()
+    }
+
+    // ★ LSP: Store instance references (for finding all usages)
+    pub fn add_ref(&mut self, decl_id: DeclareId, uri: &str, span: Span) {
+        self.refs
+            .entry(decl_id)
+            .or_insert_with(Vec::new)
+            .push((uri.to_string(), span));
+    }
+
+    pub fn get_refs(&self, decl_id: DeclareId) -> Vec<(String, Span)> {
+        self.refs.get(&decl_id).cloned().unwrap_or_default()
+    }
+
+    // ★ LSP: Get all refs for all decls in a specific file
+    pub fn get_all_refs_for_uri(&self, uri: &str) -> Vec<(DeclareId, Span)> {
+        let mut result = Vec::new();
+        for (decl_id, spans) in &self.refs {
+            for (ref_uri, span) in spans {
+                if ref_uri == uri {
+                    result.push((*decl_id, span.clone()));
+                }
+            }
+        }
+        result
+    }
 }
 
 impl WorkspaceManager {
@@ -133,6 +213,9 @@ impl WorkspaceManager {
             diagnostics: MultiThreadRefCell::new(DiagnosticManager::new()),
             meta: MultiThreadRefCell::new(WorkspaceMeta::default()),
             saved: MultiThreadRefCell::new(HashMap::new()),
+            global_inst_table: Mutex::new(GlobalInstTable::default()),
+            global_class_table: Mutex::new(HashMap::new()),
+            global_declare_class_refs: Mutex::new(HashMap::new()),
         }
     }
 

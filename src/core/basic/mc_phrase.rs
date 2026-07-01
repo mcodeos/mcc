@@ -22,7 +22,7 @@ use crate::{
             message_templates::{CANNOT_TRANSPOSE, SHAPE_MISMATCH},
         },
         inst_ref_validator::validate_inst_reference,
-        mcb_get_cmie,
+        mcb_get_cmie, mcb_register_instance_ref,
     },
     core::basic::{mc_opd::McOpd, mc_param::McParamValue},
     McIds,
@@ -142,6 +142,15 @@ impl McPhrase {
                             let mut items: Vec<Option<crate::McInstance>> =
                                 vec![context.find_inst(&ids.to_string())];
                             if let Some(ident) = items.remove(0) {
+                                // ★ LSP: Register instance reference for MCAST_OPD path
+                                let span = (subnode.get_pos() as usize)
+                                    ..((subnode.get_pos() + subnode.get_len()) as usize);
+                                if let Some(decl_id) = crate::builder::mcb_lookup_instance_decl(
+                                    context.uri(),
+                                    &ids.to_string(),
+                                ) {
+                                    mcb_register_instance_ref(context.uri(), span, decl_id);
+                                }
                                 Some(ident.into())
                             } else if ids.is_curly_bracket() {
                                 // ── P1 inline probe (commented out)
@@ -285,6 +294,15 @@ impl McPhrase {
                                     if context.find_inst(base).is_none() {
                                         context.add_bus(base.to_string(), vec![rest.to_string()]);
                                     } else {
+                                        // ★ LSP: Register instance reference for dot-separated path
+                                        let span = (subnode.get_pos() as usize)
+                                            ..((subnode.get_pos() + subnode.get_len()) as usize);
+                                        if let Some(decl_id) = crate::builder::mcb_lookup_instance_decl(
+                                            context.uri(),
+                                            base,
+                                        ) {
+                                            mcb_register_instance_ref(context.uri(), span, decl_id);
+                                        }
                                         context.upgrade_label_to_bus(base);
                                         if let Some(McPhrase::Endpoint(McEndpoint::Single(
                                             McInstanceRef {
@@ -330,6 +348,14 @@ impl McPhrase {
 
                 if items.len() == 1 {
                     if let Some(ident) = items.remove(0) {
+                        // ★ LSP: Register instance reference when found in symbol table
+                        let span =
+                            (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
+                        if let Some(decl_id) =
+                            crate::builder::mcb_lookup_instance_decl(context.uri(), &data[0])
+                        {
+                            mcb_register_instance_ref(context.uri(), span, decl_id);
+                        }
                         Some(ident.into())
                     } else {
                         let id = &data[0];
@@ -337,6 +363,14 @@ impl McPhrase {
                             if context.find_inst(base).is_none() {
                                 context.add_bus(base.to_string(), vec![member.to_string()]);
                             } else {
+                                // ★ LSP: Register instance reference for dot-separated path
+                                let span = (node.get_pos() as usize)
+                                    ..((node.get_pos() + node.get_len()) as usize);
+                                if let Some(decl_id) =
+                                    crate::builder::mcb_lookup_instance_decl(context.uri(), base)
+                                {
+                                    mcb_register_instance_ref(context.uri(), span, decl_id);
+                                }
                                 context.upgrade_label_to_bus(base);
                                 if let Some(McPhrase::Endpoint(McEndpoint::Single(
                                     McInstanceRef {
@@ -1274,6 +1308,14 @@ impl McPhrase {
                     let names = inner.to_id_or_ida();
                     if names.len() == 1 {
                         if let Some(inst) = context.find_inst(&names[0]) {
+                            // ★ LSP: Register instance reference for MCAST_CLASS path
+                            let span = (node.get_pos() as usize)
+                                ..((node.get_pos() + node.get_len()) as usize);
+                            if let Some(decl_id) =
+                                crate::builder::mcb_lookup_instance_decl(context.uri(), &names[0])
+                            {
+                                mcb_register_instance_ref(context.uri(), span, decl_id);
+                            }
                             return Some(inst.into());
                         }
                         return context.add_label(names[0].clone());

@@ -120,11 +120,13 @@ pub fn mcb_add(uri: &McURI) {
 /// Note: caller must set log flags via `mcc_reset()` before calling
 pub fn mcb_add_from_string(uri: &McURI, content: &str) {
     let canonical_uri = canonicalize_project_uri(uri);
+    tracing::info!(target: "mcc::lsp", "mcb_add_from_string: uri={:?} -> canonical={:?}", uri, canonical_uri);
 
     if let Some(mut mcfile) = McCode::new_from_string(&canonical_uri, content) {
         mcfile.parse_ast_from_string(content);
         mcfile.parse_nsp();
         mcfile.parse_pass1_types();
+        mcfile.parse_pass1_modules(); // ★ Fix: Also parse modules to register instance symbols and build lapper
 
         let binding = workspace::WORKSPACE.mcodes.borrow();
         let entry: dashmap::Entry<'_, _, McCode> = binding.entry(canonical_uri.clone());
@@ -137,6 +139,10 @@ pub fn mcb_add_from_string(uri: &McURI, content: &str) {
                 vacant_entry.insert(mcfile);
             }
         }
+        tracing::info!(target: "mcc::lsp", "mcb_add_from_string: added to workspace, keys count={}, all_keys={:?}", 
+            binding.len(), binding.iter().map(|e| e.key().clone()).collect::<Vec<_>>());
+    } else {
+        tracing::warn!(target: "mcc::lsp", "mcb_add_from_string: McCode::new_from_string returned None");
     }
 }
 
@@ -326,7 +332,7 @@ pub fn mcb_parse_all_modules() {
 /// Normalize project file URI
 ///
 /// Handle relative and absolute paths, return canonical path in unified format
-fn canonicalize_project_uri(uri: &McURI) -> String {
+pub(crate) fn canonicalize_project_uri(uri: &McURI) -> String {
     let path = Path::new(uri);
 
     // If absolute path, try to normalize
@@ -1653,4 +1659,121 @@ pub fn mcb_get_module_with_diagnostics(
         ));
     }
     (None, diags)
+}
+
+// ============================================================================
+// Instance symbol registration for LSP goto-definition/references
+// ============================================================================
+
+use crate::ast::ast_semantic::{DeclareId, Span};
+
+/// 🆕 Register an instance declaration (definition) in the global symbol table
+///
+/// Called when parsing `TypeName instanceName` in module body.
+/// Returns the declare_id which can be used to register references later.
+pub fn mcb_register_instance_decl(
+    uri: &McURI,
+    span: Span,
+    name: Option<String>,
+) -> Option<DeclareId> {
+    let uri_str = uri.as_str();
+    let span_clone = span.clone();
+    if let Some(n) = name {
+        let mut table = workspace::WORKSPACE.global_inst_table.lock().unwrap();
+        let id = table.add(uri_str, &n, span_clone);
+        tracing::debug!(target: "mcc::lsp", "Registered inst decl: {} at {:?} -> id={:?}", n, span, id);
+        Some(id)
+    } else {
+        None
+    }
+}
+
+/// 🆕 Look up declare_id by instance name
+///
+/// Returns the DeclareId for a given instance name, if registered.
+pub fn mcb_lookup_instance_decl(uri: &McURI, name: &str) -> Option<DeclareId> {
+    let uri_str = uri.as_str();
+    let table = workspace::WORKSPACE.global_inst_table.lock().unwrap();
+    table.get(uri_str, name)
+}
+
+/// 🆕 Register an instance reference in the global symbol table
+///
+/// Called when an instance name is used elsewhere in the module (e.g., `uC.i2c()`).
+/// The reference is linked to the declaration via decl_id.
+pub fn mcb_register_instance_ref(uri: &McURI, span: Span, decl_id: DeclareId) {
+    let uri_str = uri.as_str();
+    let span_clone = span.clone();
+    let mut table = workspace::WORKSPACE.global_inst_table.lock().unwrap();
+    // Store reference: (decl_id, uri, span) - we need to be able to find all refs for a decl
+    table.add_ref(decl_id, uri_str, span);
+    tracing::info!(target: "mcc::lsp", "Registered inst ref: decl_id={:?} at {:?}", decl_id, span_clone);
+}
+
+/// 🆕 Register a class reference for goto-definition
+///
+/// Called when a class name is used in a declare statement (e.g., `MCU.US513_20_F uC`).
+/// Registers the class reference so LSP can jump from the reference to the class definition.
+pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
+    // Step 1: Find (class_id, target_uri, target_span) — try global_class_table first
+    let found = {
+        let class_table = workspace::WORKSPACE.global_class_table.lock().unwrap();
+        class_table
+            .iter()
+            .find_map(|((target_uri, name), &(class_id, ref target_span))| {
+                if name == class_name {
+                    Some((class_id, target_uri.clone(), target_span.clone()))
+                } else {
+                    None
+                }
+            })
+    };
+
+    // Step 2: Try workspace files' global tables if not found above
+    let from_mcodes: Option<(DeclareId, String, Span)> = if found.is_none() {
+        let binding = workspace::WORKSPACE.mcodes.borrow();
+        let mut result = None;
+        for entry in binding.iter() {
+            if let Ok(sem) = entry.value().symbols.lock() {
+                if let Ok(gt) = sem.global_table.lock() {
+                    for ((file_uri, name), &cid) in gt.class_name_to_id.iter() {
+                        if name == class_name {
+                            if let Some((_, tspan)) = gt.class_id_to_span.get(&cid) {
+                                result = Some((cid, file_uri.clone(), tspan.clone()));
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if result.is_some() {
+                break;
+            }
+        }
+        result
+    } else {
+        None
+    };
+
+    let class_info = if let Some(info) = found {
+        Some(info)
+    } else {
+        from_mcodes
+    };
+
+    // Step 3: Store in workspace-level table
+    if let Some((class_id, target_uri, target_span)) = class_info {
+        let span_clone = span.clone();
+        let uri_str = uri.to_string();
+        let mut refs = workspace::WORKSPACE
+            .global_declare_class_refs
+            .lock()
+            .unwrap();
+        refs.entry(uri_str)
+            .or_default()
+            .push((span, class_id, target_uri, target_span));
+        tracing::info!(target: "mcc::lsp", "Registered declare_class: {} at {:?} -> class_id={:?}", class_name, span_clone, class_id);
+    } else {
+        tracing::debug!(target: "mcc::lsp", "declare_class not found: {} in {:?}", class_name, uri);
+    }
 }
