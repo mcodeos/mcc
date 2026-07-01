@@ -430,15 +430,14 @@ impl McCode {
                     crate::current_uri::set(uri);
                 }
                 mcfile.parse_nsp();
-                // Pre-insert a clone so mcb_get_cmie can find this file's
-                // spacenames during recursive lookups within the same loop
-                // iteration.  The clone (owned=false) is temporary — the owned
-                // original is moved in at the end of the loop body to avoid
-                // dangling AstNode pointers.
-                workspace::WORKSPACE
-                    .mcodes
-                    .borrow()
-                    .insert(canonical_use_uri.clone(), mcfile.clone());
+                // ★ FIX: Do NOT insert mcfile into workspace here.
+                // Previously, this inserted a McCode with a SEPARATE symbols Arc.
+                // Later, mcb_add_recursive() creates ANOTHER McCode (with a DIFFERENT symbols Arc) 
+                // for the same file and inserts it, OVERWRITING this entry.
+                // The overwritten entry had the correct symbol table, but the replacement 
+                // (created via McCode::new()) has an EMPTY symbol table.
+                // Solution: let mcb_add_recursive() handle all workspace insertion.
+                // Only copy spacenames to self for use resolution.
                 for (key, value) in &mcfile.spacenames {
                     if !self.spacenames.contains_key(key) {
                         self.spacenames.insert(key.clone(), value.clone());
@@ -741,9 +740,7 @@ impl McCode {
         // Mark Pass1 parse as complete
         self.pass1_complete = true;
 
-        // ★ Fix: parse_pass1_types filled global_table, but did not call create_lapper.
-        // LSP goto_definition needs lapper to map (offset -> SymbolType).
-        self.create_lapper();
+        self.parse_pass1_modules();
     }
 
     /// Phase 1b: parse all module definitions (at this point all component/interface/enum are already registered)
@@ -767,6 +764,12 @@ impl McCode {
                 }
             }
         }
+        // ★ Fix: Build the lapper after processing all modules.
+        // mcb_parse_all_modules() does remove+insert on the McCode, creating a new McCode instance.
+        // This new instance has the same Arc<Mutex<McSemSymbols>> (shared symbol data),
+        // but create_lapper() was NOT called on it, so symbol_lapper was empty.
+        // Call create_lapper here to ensure the lapper is built for the current file.
+        self.create_lapper();
     }
 
     /// Backward-compatible interface: parse all definitions sequentially (single-file scenario or system library)
