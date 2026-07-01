@@ -937,22 +937,29 @@ impl McCode {
     /// Phase 1b: parse all module definitions (at this point all component/interface/enum are already registered)
     pub fn parse_pass1_modules(&mut self) {
         if self.modules_parsed {
+            eprintln!("[DEBUG parse_pass1_modules] SKIP (already parsed): {}", self.uri);
             return; // already parsed (can be called from both parse_pass1_types and mcb_parse_all_modules)
         }
         self.modules_parsed = true;
+        eprintln!("[DEBUG parse_pass1_modules] PARSE: {}", self.uri);
 
         for (_i, node) in self.ast.iter().enumerate() {
             let node_type = node.get_type();
             if node_type == MCAST_MODULE {
                 if let Some(module) = McModule::new(&node, &self.uri) {
                     let module_name = module.name.clone();
+                    let key = McSpaceName {
+                        ident: module_name.clone(),
+                        uri: self.uri.clone(),
+                    };
+                    let already_exists = workspace::WORKSPACE.modules.borrow().contains_key(&key);
+                    if already_exists {
+                        eprintln!("[DEBUG parse_pass1_modules] DUPLICATE: {} @ {}", module_name, self.uri);
+                    }
                     workspace::WORKSPACE
                         .modules
                         .borrow()
-                        .entry(McSpaceName {
-                            ident: module_name.clone(),
-                            uri: self.uri.clone(),
-                        })
+                        .entry(key)
                         .and_modify(|_| {
                             dlog_error(1503, &node, "Duplicate module");
                         })
