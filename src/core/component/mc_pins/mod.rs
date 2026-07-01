@@ -1848,9 +1848,27 @@ impl McPinNames {
                             let inst_name = iname.clone();
 
                             let lookup_uri = crate::current_uri::try_get().unwrap_or_default();
-                            if let Some(McCMIE::Interface(iface_def)) =
-                                mcb_get_cmie(&class_name, &lookup_uri)
-                            {
+                            let mut lookup_result = mcb_get_cmie(&class_name, &lookup_uri);
+
+                            if lookup_result.is_none() {
+                                // Try 1: segment-extend (matches parser's multi-Ida output,
+                                // e.g. [Ida(TEST1),Ida(TEST2),Ida(TEST3)]).
+                                let mut combined = inst_name.clone();
+                                combined
+                                    .segments
+                                    .extend(class_name.segments.iter().cloned());
+                                lookup_result = mcb_get_cmie(&combined, &lookup_uri);
+                            }
+                            if lookup_result.is_none() {
+                                // Try 2: single Ida with embedded dots (matches parser's
+                                // single-Ida output, e.g. [Ida(USB.MINIB)]).
+                                let combined = McIds::from(
+                                    format!("{inst_name}.{class_name}").as_str(),
+                                );
+                                lookup_result = mcb_get_cmie(&combined, &lookup_uri);
+                            }
+
+                            if let Some(McCMIE::Interface(iface_def)) = lookup_result {
                                 let mc2_iface = Mc2Interface::new(inst_name, iface_def);
                                 myself
                                     .options
