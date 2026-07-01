@@ -1718,7 +1718,8 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
     // Step 1: Find (class_id, target_uri, target_span) — try global_class_table first
     let found = {
         let class_table = workspace::WORKSPACE.global_class_table.lock().unwrap();
-        class_table
+        tracing::debug!(target: "mcc::lsp", "  register_declare_class: global_class_table size={}", class_table.len());
+        let result = class_table
             .iter()
             .find_map(|((target_uri, name), &(class_id, ref target_span))| {
                 if name == class_name {
@@ -1726,7 +1727,13 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
                 } else {
                     None
                 }
-            })
+            });
+        if result.is_none() {
+            tracing::debug!(target: "mcc::lsp", "  register_declare_class: global_class_table miss for '{}'", class_name);
+        } else {
+            tracing::info!(target: "mcc::lsp", "  register_declare_class: global_class_table hit for '{}'", class_name);
+        }
+        result
     };
 
     // Step 2: Try workspace files' global tables if not found above
@@ -1765,6 +1772,7 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
     if let Some((class_id, target_uri, target_span)) = class_info {
         let span_clone = span.clone();
         let uri_str = uri.to_string();
+        tracing::info!(target: "mcc::lsp", "  register_declare_class: storing ref decl_span={:?} -> class_id={:?} target={}", span_clone, class_id, target_uri);
         let mut refs = workspace::WORKSPACE
             .global_declare_class_refs
             .lock()
