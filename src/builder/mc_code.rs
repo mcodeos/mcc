@@ -264,6 +264,114 @@ impl McCode {
         }
     }
 
+    /// Extract inline comments from sem tokens that were consumed by ELC
+    /// prefix/suffix in the lexer. The lexer's ELC definition includes
+    /// SINGLELINE_COMMENT, so comments between operators (e.g. `// comment`)
+    /// get consumed as part of the operator token. This function scans each
+    /// token's source text for `//` or `#` comment markers, splits off the
+    /// comment portion into a separate MCC_TK_COMMENT (type=16) token, and
+    /// adjusts the original token's span.
+    fn extract_inline_comments(tokens: &mut Vec<crate::ast::ast_token::McSemToken>, content: &str) {
+        let content_bytes = content.as_bytes();
+        let content_len = content.len();
+        let mut new_tokens: Vec<crate::ast::ast_token::McSemToken> = Vec::new();
+
+        for token in tokens.iter() {
+            let pos = token.position as usize;
+            let len = token.length as usize;
+
+            if pos >= content_len || pos.saturating_add(len) > content_len || len < 3 {
+                new_tokens.push(token.clone());
+                continue;
+            }
+
+            let text = &content[pos..pos + len];
+            let text_bytes = &content_bytes[pos..pos + len];
+
+            // Find comment markers in the text: // or #
+            if let Some(comment_start) = Self::find_comment_start(text, text_bytes) {
+                // Check if content BEFORE comment is meaningful (non-whitespace)
+                let before_comment = text[..comment_start].trim_end();
+
+                if before_comment.is_empty() {
+                    // PREFIX comment: `// comment\n    ->` — meaningful token is AFTER the comment
+                    let comment_body = &text[comment_start..];
+                    let nl_pos = comment_body.find('\n');
+                    if let Some(nl) = nl_pos {
+                        // Comment: from // to after newline
+                        new_tokens.push(crate::ast::ast_token::McSemToken {
+                            type_: 16,
+                            position: (pos + comment_start) as i32,
+                            length: (nl + 1) as i32,
+                        });
+                        // Remaining token after the comment's newline
+                        let rest_start = pos + comment_start + nl + 1;
+                        let rest = &content_bytes[rest_start..pos + len];
+                        let trimmed = rest.iter().position(|&b| b != b' ' && b != b'\t');
+                        if let Some(ts) = trimmed {
+                            // Check if rest after trimming still has content
+                            let rest_content = &content[rest_start + ts..pos + len];
+                            let actual_len = rest_content.trim_end().len();
+                            if actual_len > 0 {
+                                new_tokens.push(crate::ast::ast_token::McSemToken {
+                                    type_: token.type_,
+                                    position: (rest_start + ts) as i32,
+                                    length: actual_len as i32,
+                                });
+                            }
+                        }
+                    } else {
+                        // Entire token is just the comment
+                        new_tokens.push(crate::ast::ast_token::McSemToken {
+                            type_: 16,
+                            position: token.position,
+                            length: token.length,
+                        });
+                    }
+                } else {
+                    // SUFFIX comment: `,     // inline2` — meaningful token is BEFORE the comment
+                    new_tokens.push(crate::ast::ast_token::McSemToken {
+                        type_: token.type_,
+                        position: token.position,
+                        length: before_comment.len() as i32,
+                    });
+                    // Comment: from // to end of line
+                    let comment_src = &text[comment_start..];
+                    let comment_end = comment_src.find('\n').map_or(comment_src.len(), |i| i + 1);
+                    if comment_end > 0 {
+                        new_tokens.push(crate::ast::ast_token::McSemToken {
+                            type_: 16,
+                            position: (pos + comment_start) as i32,
+                            length: comment_end as i32,
+                        });
+                    }
+                }
+            } else {
+                new_tokens.push(token.clone());
+            }
+        }
+
+        *tokens = new_tokens;
+    }
+
+    /// Find the start of a comment in token text. Returns the byte offset within the
+    /// token where `//` or `#` starts, or None if no comment is found.
+    fn find_comment_start(text: &str, text_bytes: &[u8]) -> Option<usize> {
+        for i in 0..text.len().saturating_sub(1) {
+            if text_bytes[i] == b'/' && text_bytes[i + 1] == b'/' {
+                // Skip // that is part of a URL (://)
+                if i > 0 && text_bytes[i - 1] == b':' {
+                    continue;
+                }
+                return Some(i);
+            }
+            if text_bytes[i] == b'#' {
+                return Some(i);
+            }
+        }
+        None
+    }
+
     /// Parse AST from an in-memory string (no disk file dependency)
     /// Note: the caller must set log flags via `mcc_reset()` before calling
     pub fn parse_ast_from_string(&mut self, content: &str) {
@@ -314,7 +422,9 @@ impl McCode {
             match self.tokens.lock() {
                 Ok(mut t) => {
                     *t = McSemTokens::new();
-                    t.parse(crate::ast::c_bindings::mcc_get_sem_tokens())
+                    t.parse(crate::ast::c_bindings::mcc_get_sem_tokens());
+                    // Extract inline comments consumed by ELC prefix/suffix
+                    Self::extract_inline_comments(&mut t.tokens, content);
                 }
                 Err(e) => {
                     tracing::error!(target: "mcc::code", error = %e, "tokens mutex poisoned");
