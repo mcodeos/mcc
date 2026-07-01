@@ -233,13 +233,11 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
             .entry(canonical_uri.clone())
             .and_modify(|entry| entry.spacenames.clone_from(&mcfile.spacenames));
     }
-
-    // ★ Fix: Rebuild lapper regardless of need_parse
-    mcfile.create_lapper();
+    // Note: create_lapper is called at the end of parse_pass1_modules() inside parse_pass1_types.
     trace!(
         target: "mcc::builder",
         file = %file_str,
-        "load: create_lapper done"
+        "load: done"
     );
 
     // 9. Update project file table (replace pre-inserted empty file with parsed file)
@@ -320,7 +318,6 @@ pub fn mcb_parse_all_modules() {
         if let Some(mut mcfile) = mcfile_opt {
             crate::current_uri::set(&uri);
             mcfile.parse_pass1_modules();
-
             workspace::WORKSPACE.mcodes.borrow().insert(uri, mcfile);
         }
     }
