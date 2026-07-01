@@ -506,31 +506,39 @@ fn build_mc_vec_graph_inner(
         if has_components {
             // Use a unique ID for the border box (negative to avoid conflict with positive instance IDs)
             // The ID is derived from the module's internal component IDs
-            let first_component_id = block.insts.iter().find(|&iid| {
-                if *iid < 0 {
-                    return false;
-                }
-                if let Some(entry) = table.get_entry(*iid as u32) {
-                    matches!(entry.kind, InstKind::Component)
-                } else {
-                    false
-                }
-            }).copied();
+            let first_component_id = block
+                .insts
+                .iter()
+                .find(|&iid| {
+                    if *iid < 0 {
+                        return false;
+                    }
+                    if let Some(entry) = table.get_entry(*iid as u32) {
+                        matches!(entry.kind, InstKind::Component)
+                    } else {
+                        false
+                    }
+                })
+                .copied();
 
             if let Some(comp_id) = first_component_id {
                 let border_id = -(comp_id as i64);
                 if !box_ids_set.contains(&(border_id as u32)) {
                     // Count the internal instances (components + labels)
-                    let internal_count = block.insts.iter().filter(|&iid| {
-                        if *iid < 0 {
-                            return false;
-                        }
-                        if let Some(entry) = table.get_entry(*iid as u32) {
-                            matches!(entry.kind, InstKind::Component | InstKind::Label)
-                        } else {
-                            false
-                        }
-                    }).count();
+                    let internal_count = block
+                        .insts
+                        .iter()
+                        .filter(|&iid| {
+                            if *iid < 0 {
+                                return false;
+                            }
+                            if let Some(entry) = table.get_entry(*iid as u32) {
+                                matches!(entry.kind, InstKind::Component | InstKind::Label)
+                            } else {
+                                false
+                            }
+                        })
+                        .count();
 
                     // Set a reasonable pin_count so layout can compute size
                     let mut b = McVecBox::new_v2(

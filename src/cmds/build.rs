@@ -170,9 +170,12 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
     let inst = if should_render_all {
         // For multi-module rendering, build each module separately for Pass 2 output
         // Process ALL modules in the loop, keeping the first one for further processing
-        let first_mod_name = modules_in_file.first().cloned().unwrap_or_else(|| top_name.clone());
+        let first_mod_name = modules_in_file
+            .first()
+            .cloned()
+            .unwrap_or_else(|| top_name.clone());
         let first_mod_ident = McIds::from(first_mod_name.as_str());
-        
+
         match mcc::mcc_build(&first_mod_ident, &entry_uri) {
             Ok(first_inst) => {
                 // Process ALL modules: first one already built, others in loop
@@ -250,7 +253,8 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                 match mcc::mcc_build_flat(&mod_ident, &mod_uri, 1000) {
                     Ok((mod_inst, mod_table)) => {
                         mcc::vector::builder::reset_np_warn_count();
-                        let (vec_block, _report) = mcc::build_mc_vec_with_report(&mod_inst, &mod_table);
+                        let (vec_block, _report) =
+                            mcc::build_mc_vec_with_report(&mod_inst, &mod_table);
                         let graph = mcc::build_mc_vec_graph(&vec_block, &mod_table);
 
                         total_boxes += graph.boxes.len();
@@ -264,7 +268,10 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                         }
                     }
                     Err(e) => {
-                        eprintln!("[viz] skip module '{}': mcc_build_flat failed: {}", mod_name, e);
+                        eprintln!(
+                            "[viz] skip module '{}': mcc_build_flat failed: {}",
+                            mod_name, e
+                        );
                     }
                 }
             }

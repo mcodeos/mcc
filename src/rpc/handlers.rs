@@ -1886,7 +1886,10 @@ pub fn handle_sem(params: Option<Value>) -> RpcResult {
         let result = try_lookup_sem(&[mc_uri.clone()]);
         let result = result.ok_or_else(|| JsonRpcError::custom(-32100, "parse from string failed"));
         // Remove the temporary entry so it doesn't pollute workspace
-        crate::builder::workspace::WORKSPACE.mcodes.borrow().remove(&mc_uri);
+        crate::builder::workspace::WORKSPACE
+            .mcodes
+            .borrow()
+            .remove(&mc_uri);
         return result;
     }
 
@@ -1940,11 +1943,7 @@ fn auto_load_from_file_path(file_path: &Path) {
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "project".to_string());
     info!(target: "mcc::rpc", "auto_load: creating workspace id={} root={}", root_name, project_root.display());
-    crate::workspace_create(
-        &root_name,
-        crate::WorkspaceKind::Project,
-        &project_root,
-    );
+    crate::workspace_create(&root_name, crate::WorkspaceKind::Project, &project_root);
 
     // 1. Load entry file with mcc_load_project (triggers parse_pass1_types -> create_lapper)
     let mut all_files = Vec::new();
@@ -1960,8 +1959,12 @@ fn auto_load_from_file_path(file_path: &Path) {
 
     // 2. Add any remaining independent files that weren't loaded as dependencies
     // (call parse_pass1_types directly to trigger create_lapper)
-    let loaded_uris: Vec<String> =
-        workspace::WORKSPACE.mcodes.borrow().iter().map(|e| e.key().clone()).collect();
+    let loaded_uris: Vec<String> = workspace::WORKSPACE
+        .mcodes
+        .borrow()
+        .iter()
+        .map(|e| e.key().clone())
+        .collect();
     for rel in &all_files {
         let full = project_root.join(rel);
         let uri_str = full.to_string_lossy().to_string();
@@ -1971,7 +1974,10 @@ fn auto_load_from_file_path(file_path: &Path) {
                 mcfile.parse_ast();
                 mcfile.parse_nsp();
                 mcfile.parse_pass1_types(); // triggers create_lapper
-                workspace::WORKSPACE.mcodes.borrow().insert(uri_str.clone(), mcfile);
+                workspace::WORKSPACE
+                    .mcodes
+                    .borrow()
+                    .insert(uri_str.clone(), mcfile);
                 info!(target: "mcc::rpc", "auto_load: added independent {}", uri_str);
             }
         }
@@ -1984,7 +1990,10 @@ fn find_project_root(file_path: &Path) -> PathBuf {
     let mut current = if file_path.is_dir() {
         file_path.to_path_buf()
     } else {
-        file_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."))
+        file_path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|| PathBuf::from("."))
     };
 
     loop {
@@ -2008,7 +2017,10 @@ fn find_project_root(file_path: &Path) -> PathBuf {
         }
     }
     // Fallback: use the file's parent directory
-    file_path.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."))
+    file_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// Classify a token using the symbol table.
@@ -2035,16 +2047,16 @@ fn classify_token_by_symbol(
             if token_start < sym_stop && token_end > sym_start {
                 use crate::ast::ast_semantic::SymbolType;
                 if matches!(&interval.val, SymbolType::ClassDefinition(_)) {
-                    return 3;  // CLASS
+                    return 3; // CLASS
                 }
                 if matches!(&interval.val, SymbolType::DeclareClass(_)) {
-                    return 2;  // TYPE
+                    return 2; // TYPE
                 }
                 if matches!(&interval.val, SymbolType::DeclareInstance(_)) {
-                    return 4;  // FUNCTION
+                    return 4; // FUNCTION
                 }
                 if matches!(&interval.val, SymbolType::InstanceReference(_)) {
-                    return 9;  // VARIABLE
+                    return 9; // VARIABLE
                 }
             }
         }
@@ -2083,7 +2095,12 @@ fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
             let tokens: Vec<serde_json::Value> = raw_tokens
                 .iter()
                 .map(|(lex_type, position, length)| {
-                    let sem_type = classify_token_by_symbol(*lex_type, *position as usize, *length as usize, &symbols);
+                    let sem_type = classify_token_by_symbol(
+                        *lex_type,
+                        *position as usize,
+                        *length as usize,
+                        &symbols,
+                    );
                     json!({
                         "type": sem_type,
                         "position": position,
@@ -2097,8 +2114,14 @@ fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
                 None
             } else {
                 let count = tokens.len();
-                let first_pos = tokens[0].get("position").and_then(|v| v.as_i64()).unwrap_or(0);
-                let last_pos = tokens.last().and_then(|v| v.get("position").and_then(|v| v.as_i64())).unwrap_or(0);
+                let first_pos = tokens[0]
+                    .get("position")
+                    .and_then(|v| v.as_i64())
+                    .unwrap_or(0);
+                let last_pos = tokens
+                    .last()
+                    .and_then(|v| v.get("position").and_then(|v| v.as_i64()))
+                    .unwrap_or(0);
                 Some(format!("{}-{}-{}", count, first_pos, last_pos))
             };
 
