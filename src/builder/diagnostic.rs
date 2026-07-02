@@ -288,7 +288,7 @@ impl DiagnosticManager {
 /// - `$len`: Error length
 /// - `$msg`: Message template string
 /// - `$args`: Template parameter array
-pub fn diagnotic_log(
+pub fn diagnostic_log(
     code: u32,
     level: DiagnosticLevel,
     pos: Position,
@@ -296,6 +296,12 @@ pub fn diagnotic_log(
     msg: &str,
     args: &[&dyn std::fmt::Display],
 ) {
+    // DEBUG: log pos=0 diagnostics to track down the source
+    if pos == 0 && len > 100 {
+        tracing::info!(target: "mcc::diagnostic", 
+            "pos=0 diag: code={} len={} msg={}", 
+            code, len, msg);
+    }
     let new_diagnostic = Diagnostic::new(
         code,
         level,
@@ -310,11 +316,11 @@ pub fn diagnotic_log(
 }
 
 pub fn dlog_trace(code: u32, msg: &str) {
-    diagnotic_log(code, DiagnosticLevel::Info, 0, 0, msg, &[]);
+    diagnostic_log(code, DiagnosticLevel::Info, 0, 0, msg, &[]);
 }
 pub fn dlog_error(code: u32, node: &AstNode, msg: &str) {
     let full_msg = format!("node={} {}", node.get_type(), msg);
-    diagnotic_log(
+    diagnostic_log(
         code,
         DiagnosticLevel::Error,
         node.get_pos(),
@@ -325,7 +331,20 @@ pub fn dlog_error(code: u32, node: &AstNode, msg: &str) {
 }
 pub fn dlog_warning(code: u32, node: &AstNode, msg: &str) {
     let full_msg = format!("node={} {}", node.get_type(), msg);
-    diagnotic_log(
+    // Print to stderr so LSP server can capture it
+    eprintln!("[dlog_warning] code={} node_type={} node_pos={} node_len={} msg={}", 
+        code, node.get_type(), node.get_pos(), node.get_len(), full_msg);
+    // Print chain of sub-nodes for debugging
+    let mut cur = node.get_sub_node();
+    let mut depth = 0;
+    while let Some(n) = cur {
+        eprintln!("  [dlog_warning] sub[{}] type={} pos={} len={}", 
+            depth, n.get_type(), n.get_pos(), n.get_len());
+        cur = n.get_next();
+        depth += 1;
+        if depth > 10 { eprintln!("  [dlog_warning] ... (truncated)"); break; }
+    }
+    diagnostic_log(
         code,
         DiagnosticLevel::Warning,
         node.get_pos(),
@@ -336,7 +355,7 @@ pub fn dlog_warning(code: u32, node: &AstNode, msg: &str) {
 }
 pub fn dlog_info(code: u32, node: &AstNode, msg: &str) {
     let full_msg = format!("node={} {}", node.get_type(), msg);
-    diagnotic_log(
+    diagnostic_log(
         code,
         DiagnosticLevel::Info,
         node.get_pos(),
@@ -347,7 +366,7 @@ pub fn dlog_info(code: u32, node: &AstNode, msg: &str) {
 }
 pub fn dlog_hint(code: u32, node: &AstNode, msg: &str) {
     let full_msg = format!("node={} {}", node.get_type(), msg);
-    diagnotic_log(
+    diagnostic_log(
         code,
         DiagnosticLevel::Hint,
         node.get_pos(),

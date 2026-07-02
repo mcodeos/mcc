@@ -488,7 +488,7 @@ impl McModuleInst {
             let t1_is_rail = is_rail(&targets[0]);
             let t2_is_rail = is_rail(&targets[1]);
             if !t1_is_rail && !t2_is_rail {
-                crate::builder::diagnostic::diagnotic_log(
+                crate::builder::diagnostic::diagnostic_log(
                     2007,
                     crate::builder::diagnostic::DiagnosticLevel::Warning,
                     0,
