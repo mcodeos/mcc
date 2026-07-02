@@ -728,7 +728,13 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
                 if let Some(mut mcfile) = McCode::new(def_uri, true) {
                     mcfile.parse_ast_quiet();
                     mcfile.parse_nsp();
-                    return mcfile.parse_cmie_single(class_name);
+
+                    let result = mcfile.parse_cmie_single(&space_name.ident);
+                    workspace::WORKSPACE
+                        .mcodes
+                        .borrow()
+                        .insert(space_name.uri.clone(), mcfile);
+                    return result;
                 }
             }
         }
@@ -748,7 +754,6 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
             // because there may be existing Mc2Interface instances that use
             // a subtree of the old entry's AST as `base`. If the old entry is
             // replaced, the whole AST is released and the `base` becomes a wild pointer.
-            
             {
                 let mcodes = workspace::WORKSPACE.mcodes.borrow();
                 let existing = mcodes.get(&ifs_uri).map(|e| e.value().clone());
