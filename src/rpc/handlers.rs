@@ -2204,3 +2204,58 @@ pub fn handle_project_symbols(_params: Option<Value>) -> RpcResult {
         "modules": modules,
     }))
 }
+
+/// Handle set_project_root RPC - set project root path
+pub fn handle_set_project_root(params: Option<Value>) -> RpcResult {
+    #[derive(Deserialize)]
+    struct SetProjectRootParams {
+        path: String,
+    }
+    
+    let p: SetProjectRootParams = parse_strict(params)?;
+    crate::mcc_set_project_root(std::path::Path::new(&p.path));
+    Ok(serde_json::json!({ "ok": true }))
+}
+
+/// Handle init RPC - initialize mcc system
+pub fn handle_init(_params: Option<Value>) -> RpcResult {
+    crate::mcc_init_no_lib();
+    Ok(serde_json::json!({ "ok": true }))
+}
+
+/// Handle load_project RPC - load entire project
+pub fn handle_load_project(params: Option<Value>) -> RpcResult {
+    #[derive(Deserialize)]
+    struct LoadProjectParams {
+        entry: String,
+    }
+    
+    let p: LoadProjectParams = parse_strict(params)?;
+    let mc_uri = McURI::from(p.entry.as_str());
+    crate::mcc_load_project(&mc_uri);
+    Ok(serde_json::json!({ "ok": true }))
+}
+
+/// Handle add_file RPC - add a single file to project
+pub fn handle_add_file(params: Option<Value>) -> RpcResult {
+    #[derive(Deserialize)]
+    struct AddFileParams {
+        uri: String,
+    }
+    
+    let p: AddFileParams = parse_strict(params)?;
+    crate::mcc_add(&McURI::from(p.uri.as_str()));
+    Ok(serde_json::json!({ "ok": true }))
+}
+
+/// Handle remove_file RPC - remove a file from project
+pub fn handle_remove_file(params: Option<Value>) -> RpcResult {
+    #[derive(Deserialize)]
+    struct RemoveFileParams {
+        uri: String,
+    }
+    
+    let p: RemoveFileParams = parse_strict(params)?;
+    crate::mcc_remove(&McURI::from(p.uri.as_str()));
+    Ok(serde_json::json!({ "ok": true }))
+}

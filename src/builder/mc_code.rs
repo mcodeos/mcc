@@ -323,15 +323,27 @@ impl McCode {
             let pos = token.position as usize;
             let len = token.length as usize;
 
-            let text = &content[pos..];
-            // Clamp to content boundary and char boundary
-            let max_len = content_len.saturating_sub(pos);
-            let safe_len = text.char_indices()
-                .nth(max_len.min(len))
-                .map(|(i, _)| i)
-                .unwrap_or(text.len());
+            // Clamp to content boundary
+            if pos >= content_len {
+                continue;
+            }
+            
+            // Clamp to char boundary
+            let remaining_len = content_len - pos;
+            let safe_len = if len <= remaining_len {
+                // Check if pos + len is on a char boundary
+                let end_pos = pos + len;
+                if end_pos <= content_len && !content.is_char_boundary(end_pos) {
+                    // Back up to the previous char boundary
+                    content[..end_pos].char_indices().last().map(|(i, _)| i).unwrap_or(len)
+                } else {
+                    len
+                }
+            } else {
+                remaining_len
+            };
 
-            let text = &text[..safe_len];
+            let text = &content[pos..pos + safe_len];
             let text_bytes = text.as_bytes();
 
             // Find comment markers in the text: // or #
@@ -1222,6 +1234,38 @@ impl McCode {
                     }
                     count
                 };
+
+                // ★ LSP: Add interface definitions from both workspace and global interfaces tables
+                {
+                    // Check workspace interfaces
+                    let interfaces = crate::builder::workspace::WORKSPACE
+                        .interfaces
+                        .borrow();
+                    for entry in interfaces.iter() {
+                        let iface = entry.value();
+                        if iface.uri.as_str() == uri_str {
+                            symbol_lapper.insert(Interval {
+                                start: iface.span.start,
+                                stop: iface.span.end,
+                                val: SymbolType::InterfaceDefinition(DeclareId::new(0)), // dummy id
+                            });
+                        }
+                    }
+                    drop(interfaces);
+                    
+                    // Check global system interfaces
+                    let global_interfaces = crate::builder::global::mcc_interfaces.borrow();
+                    for entry in global_interfaces.iter() {
+                        let iface = entry.value();
+                        if iface.uri.as_str() == uri_str {
+                            symbol_lapper.insert(Interval {
+                                start: iface.span.start,
+                                stop: iface.span.end,
+                                val: SymbolType::InterfaceDefinition(DeclareId::new(0)), // dummy id
+                            });
+                        }
+                    }
+                }
 
                 tracing::info!(target: "mcc::lsp", "create_lapper: {} decls, {} local_refs, {} global_refs, lapper len={}", decl_count, ref_count, global_ref_count, symbol_lapper.len());
                 sem.symbol_lapper = symbol_lapper;

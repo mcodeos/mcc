@@ -39,6 +39,8 @@ pub enum SymbolType {
     DeclareInstance(DeclareId),
     InstanceReference(ReferenceId), // Reference to instance (old format)
     InstanceRef(DeclareId),         // ★ New: Reference to instance (using DeclareId)
+    InterfaceDefinition(DeclareId), // ★ Interface definition
+    InterfaceRef(ReferenceId),      // ★ Reference to interface
 }
 pub type SymbolRangeLapper = Lapper<usize, SymbolType>;
 
@@ -336,6 +338,8 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
                 SymbolType::DeclareInstance(id) => ("declare_instance", id._raw),
                 SymbolType::InstanceReference(id) => ("instance_reference", id._raw),
                 SymbolType::InstanceRef(id) => ("instance_ref", id._raw),
+                SymbolType::InterfaceDefinition(id) => ("interface_definition", id._raw),
+                SymbolType::InterfaceRef(id) => ("interface_ref", id._raw),
             };
             json!({
                 "kind": kind,

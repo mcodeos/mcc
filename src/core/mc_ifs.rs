@@ -23,6 +23,7 @@ pub struct McInterface {
     pub roles: Vec<McRole>,
     pub body: AstNode,
     pub uri: McURI,
+    pub span: crate::ast::ast_semantic::Span, // ★ LSP: span for goto definition
 }
 
 impl McInterface {
@@ -35,21 +36,24 @@ impl McInterface {
             .find(|x| x.is_type(MCAST_BODY))
             .expect(MISSING_SUBNODE);
 
+        let name_node = subnodes
+            .iter()
+            .find(|x| x.is_type(MCAST_NAME))
+            .expect(MISSING_SUBNODE);
+        // ★ LSP: Use node's position and length for span
+        let start = node.get_pos() as usize;
+        let end = start + node.get_len() as usize;
+        let span = crate::ast::ast_semantic::Span { start, end };
+        
         let mut ret = Self {
-            name: McIds::new(
-                &subnodes
-                    .iter()
-                    .find(|x| x.is_type(MCAST_NAME))
-                    .expect(MISSING_SUBNODE)
-                    .get_sub_node() // ids
-                    .expect(MISSING_SUBNODE),
-            )?,
+            name: McIds::new(&name_node.get_sub_node().expect(MISSING_SUBNODE))?,
             params: McParamDeclares::new(),
             attrs: McAttributes::new(),
             pins: McPins::new(),
             roles: Vec::new(),
             body: body_node.clone(),
             uri: uri.clone(),
+            span,
         };
 
         //2. param
