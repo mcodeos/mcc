@@ -1849,6 +1849,7 @@ impl McPinNames {
 
                             let lookup_uri = crate::current_uri::try_get().unwrap_or_default();
                             let mut lookup_result = mcb_get_cmie(&class_name, &lookup_uri);
+                            let mut resolved_iface_name: Option<McIds> = None;
 
                             if lookup_result.is_none() {
                                 // Try 1: segment-extend (matches parser's multi-Ida output,
@@ -1858,6 +1859,9 @@ impl McPinNames {
                                     .segments
                                     .extend(class_name.segments.iter().cloned());
                                 lookup_result = mcb_get_cmie(&combined, &lookup_uri);
+                                if lookup_result.is_some() {
+                                    resolved_iface_name = Some(combined);
+                                }
                             }
                             if lookup_result.is_none() {
                                 // Try 2: single Ida with embedded dots (matches parser's
@@ -1865,10 +1869,14 @@ impl McPinNames {
                                 let combined =
                                     McIds::from(format!("{inst_name}.{class_name}").as_str());
                                 lookup_result = mcb_get_cmie(&combined, &lookup_uri);
+                                if lookup_result.is_some() {
+                                    resolved_iface_name = Some(combined);
+                                }
                             }
 
                             if let Some(McCMIE::Interface(iface_def)) = lookup_result {
-                                let mc2_iface = Mc2Interface::new(inst_name, iface_def);
+                                let iface_name = resolved_iface_name.unwrap_or(inst_name);
+                                let mc2_iface = Mc2Interface::new(iface_name, iface_def);
                                 myself
                                     .options
                                     .push(McPinPort::Interface(Arc::new(mc2_iface)));
