@@ -36,7 +36,7 @@ use super::super::model::McVecBlock;
 use super::builder_report::{
     BuildMode, BuilderError, BuilderReport, DroppedNet, PartialNet, ResolutionOutcome,
 };
-use crate::builder::diagnostic::{diagnotic_log, DiagnosticLevel};
+use crate::builder::diagnostic::{diagnostic_log, DiagnosticLevel};
 
 use super::connection::{merge_pairs_to_vecnet, ConnPair, NetGroupMap};
 use super::debug;
@@ -361,7 +361,7 @@ impl<'a> McVecBuilder<'a> {
                     if let Some(pr) = per_point.get(i) {
                         if pr.ids.is_empty() {
                             let pos = p.src_pos.unwrap_or(0) as u32;
-                            diagnotic_log(
+                            diagnostic_log(
                                 2002,
                                 DiagnosticLevel::Error,
                                 pos,
@@ -416,7 +416,7 @@ impl<'a> McVecBuilder<'a> {
                                 .find(|p| unique_paths.iter().any(|up| **up == p.path))
                                 .and_then(|p| p.src_pos)
                                 .unwrap_or(0) as u32;
-                            diagnotic_log(
+                            diagnostic_log(
                                 2003,
                                 DiagnosticLevel::Error,
                                 pos,

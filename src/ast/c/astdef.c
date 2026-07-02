@@ -68,13 +68,34 @@ mc_value* mc_value_link(mc_value* va, mc_value* vb)
     mc_value* tail = va;
     while (tail->next != NULL) tail = tail->next;
     tail->next = vb;
-    if (va->pos < vb->pos){
-        va->pos = va->pos;
-        va->len = vb->pos - va->pos + vb->len;
-    }else{
-        va->pos = vb->pos;
-        va->len = va->pos - vb->pos + va->len;
+
+    // va already has a position from a previous link or create_node call.
+    // Since grammar rules always link nodes in source order, va->pos is the
+    // minimum position. Just extend len from vb's chain.
+    if (va->pos != 0) {
+        unsigned int va_end = va->pos + va->len;
+        for (mc_value* p = vb; p != NULL; p = p->next) {
+            unsigned int end = p->pos + p->len;
+            if (end > va_end) va_end = end;
+        }
+        va->len = va_end - va->pos;
+    } else {
+        // va has no position, find both pos and len from vb's chain
+        unsigned int first_pos = 0;
+        unsigned int last_end = 0;
+        for (mc_value* p = vb; p != NULL; p = p->next) {
+            if (p->pos != 0 && first_pos == 0) first_pos = p->pos;
+            if (p->pos != 0) {
+                unsigned int end = p->pos + p->len;
+                if (end > last_end) last_end = end;
+            }
+        }
+        if (first_pos != 0) {
+            va->pos = first_pos;
+            va->len = last_end - first_pos;
+        }
     }
+
     return va;
 }
 
@@ -374,12 +395,12 @@ void mc_visit(mc_value* value)
 
         if (value->data != NULL)
         {
-            mprintf(MCC_LOG_VISIT, " %d:%u|", value->type, value->pos);
+            mprintf(MCC_LOG_VISIT, " %d:%u:%u|", value->type, value->pos, value->len);
             mprintf(MCC_LOG_VISIT, "%s", (char*)value->data);
         }
         if (value->sub != NULL)
         {
-            mprintf(MCC_LOG_VISIT, " [%d:%u|", value->type, value->pos);
+            mprintf(MCC_LOG_VISIT, " [%d:%u:%u|", value->type, value->pos, value->len);
             mc_visit(value->sub);
             mprintf(MCC_LOG_VISIT, " '%d]", value->type);
         }
