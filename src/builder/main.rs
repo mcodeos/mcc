@@ -123,16 +123,20 @@ pub fn mcb_add_from_string(uri: &McURI, content: &str) {
     tracing::info!(target: "mcc::lsp", "mcb_add_from_string: uri={:?} -> canonical={:?}", uri, canonical_uri);
 
     if let Some(mut mcfile) = McCode::new_from_string(&canonical_uri, content) {
+        let binding = workspace::WORKSPACE.mcodes.borrow();
+        let entry: dashmap::Entry<'_, _, McCode> = binding.entry(canonical_uri.clone());
+
+        if let dashmap::Entry::Occupied(_) = entry {
+            remove_defines(&canonical_uri);
+        }
+
         mcfile.parse_ast_from_string(content);
         mcfile.parse_nsp();
         mcfile.parse_pass1_types();
         mcfile.parse_pass1_modules(); // ★ Fix: Also parse modules to register instance symbols and build lapper
 
-        let binding = workspace::WORKSPACE.mcodes.borrow();
-        let entry: dashmap::Entry<'_, _, McCode> = binding.entry(canonical_uri.clone());
         match entry {
             dashmap::Entry::Occupied(mut occupied_entry) => {
-                remove_defines(&canonical_uri);
                 occupied_entry.insert(mcfile);
             }
             dashmap::Entry::Vacant(vacant_entry) => {
