@@ -744,7 +744,11 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
         );
         if Path::new(&ifs_uri).exists() {
             // If the file was already loaded by mcb_add_recursive, use the
-            // workspace entry — don't reload from disk and replace it.
+            // workspace entry — don't reload from disk and replace it,
+            // because there may be existing Mc2Interface instances that use
+            // a subtree of the old entry's AST as `base`. If the old entry is
+            // replaced, the whole AST is released and the `base` becomes a wild pointer.
+            
             {
                 let mcodes = workspace::WORKSPACE.mcodes.borrow();
                 let existing = mcodes.get(&ifs_uri).map(|e| e.value().clone());
