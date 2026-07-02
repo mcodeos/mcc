@@ -130,6 +130,8 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
     // Collect all definitions belonging to this library from workspace tables, register to blib's spacenames
     let root_str = root.to_string_lossy().to_string();
     let mut lib_entry = McCode::new_empty();
+    
+    tracing::trace!(target: "mcc::lib", name = name, root_str = %root_str, "collecting spacenames with prefix");
 
     // Collect all definitions belonging to this library from workspace tables, register to blib's spacenames
     collect_spacenames_by_prefix(&workspace::WORKSPACE.components, &root_str, &mut lib_entry);
@@ -144,6 +146,10 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
     collect_spacenames_by_prefix_global(&global::mcc_enums, &root_str, &mut lib_entry);
 
     let total = lib_entry.spacenames.len();
+    
+    // Debug: list first 20 spacenames
+    let spacenames_sample: Vec<String> = lib_entry.spacenames.keys().take(20).map(|k| k.to_string()).collect();
+    tracing::trace!(target: "mcc::lib", name = name, total, sample = ?spacenames_sample, "collected spacenames sample");
 
     // Replace blib with new one
     global::mcc_blibs

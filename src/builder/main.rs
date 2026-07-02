@@ -609,6 +609,16 @@ pub(crate) fn mcb_pass2_flat(
 pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     let name_str = class_name.to_string();
 
+    // Debug: always print to stderr so we can see it
+    eprintln!("[MCB_GET_CMIE] name={}, uri={}", name_str, uri);
+    
+    // Debug: check blib spacenames
+    let blib_count = global::mcc_blibs.borrow().len();
+    eprintln!("[MCB_GET_CMIE] blibs count={}", blib_count);
+    for entry in global::mcc_blibs.borrow().iter() {
+        eprintln!("[MCB_GET_CMIE] blib={}, spacenames={}", entry.key(), entry.value().spacenames.len());
+    }
+
     // ========== Re-entry guard ==========
     // Prevent mcb_get_cmie → parse_pass1_modules → McModule::new → mcb_get_cmie infinite recursion
     let guard_key = format!("{name_str}@{uri}");
@@ -635,9 +645,13 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     // Old implementation only checked the hard-coded key mcc_blibs["mcode"]. S3 fix: iterate all blibs
     // entries (user --lib mc/mcode will use "mc/mcode" as key).
     let mut found_in_blib: Option<(crate::builder::mc_code::McCode, McSpaceName)> = None;
+    let blib_names: Vec<String> = global::mcc_blibs.borrow().iter().map(|e| e.key().clone()).collect();
+    trace!(target: "mcc::mcb_get_cmie", name = %name_str, blibs = ?blib_names, "checking blibs");
     for entry in global::mcc_blibs.borrow().iter() {
-        if let Some(space_name) = entry.value().spacenames.get(class_name) {
-            found_in_blib = Some((entry.value().clone(), space_name.clone()));
+        trace!(target: "mcc::mcb_get_cmie", blib = %entry.key(), spacenames_count = entry.value().spacenames.len());
+        if entry.value().spacenames.get(class_name).is_some() {
+            trace!(target: "mcc::mcb_get_cmie", name = %name_str, blib = %entry.key(), "found in blib!");
+            found_in_blib = Some((entry.value().clone(), entry.value().spacenames.get(class_name).unwrap().clone()));
             break;
         }
     }
