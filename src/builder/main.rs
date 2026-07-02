@@ -123,10 +123,11 @@ pub fn mcb_add_from_string(uri: &McURI, content: &str) {
     tracing::info!(target: "mcc::lsp", "mcb_add_from_string: uri={:?} -> canonical={:?}", uri, canonical_uri);
 
     if let Some(mut mcfile) = McCode::new_from_string(&canonical_uri, content) {
-        let binding = workspace::WORKSPACE.mcodes.borrow();
-        let entry: dashmap::Entry<'_, _, McCode> = binding.entry(canonical_uri.clone());
-
-        if let dashmap::Entry::Occupied(_) = entry {
+        let already_exists = {
+            let binding = workspace::WORKSPACE.mcodes.borrow();
+            binding.contains_key(&canonical_uri)
+        };
+        if already_exists {
             remove_defines(&canonical_uri);
         }
 
@@ -135,13 +136,11 @@ pub fn mcb_add_from_string(uri: &McURI, content: &str) {
         mcfile.parse_pass1_types();
         mcfile.parse_pass1_modules(); // ★ Fix: Also parse modules to register instance symbols and build lapper
 
-        match entry {
-            dashmap::Entry::Occupied(mut occupied_entry) => {
-                occupied_entry.insert(mcfile);
-            }
-            dashmap::Entry::Vacant(vacant_entry) => {
-                vacant_entry.insert(mcfile);
-            }
+        let binding = workspace::WORKSPACE.mcodes.borrow();
+        if already_exists {
+            binding.insert(canonical_uri.clone(), mcfile);
+        } else {
+            binding.insert(canonical_uri.clone(), mcfile);
         }
         tracing::info!(target: "mcc::lsp", "mcb_add_from_string: added to workspace, keys count={}, all_keys={:?}", 
             binding.len(), binding.iter().map(|e| e.key().clone()).collect::<Vec<_>>());
