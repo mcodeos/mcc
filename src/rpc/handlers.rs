@@ -1457,9 +1457,15 @@ fn activate_workspace(name: &str) -> Result<(), JsonRpcError> {
 
 fn resolve_lib_root(name: &str) -> Result<PathBuf, JsonRpcError> {
     if name == "mcode" {
+        // Try default mcode_dir first
         let p = mcode_dir();
         if p.exists() {
             return Ok(p);
+        }
+        // Fallback: try sibling directory (mcc_system_root/../mcode)
+        let sibling = mcc_system_root().join("..").join("mcode");
+        if sibling.exists() {
+            return Ok(sibling);
         }
         return Err(JsonRpcError::custom(-32102, "mcode dir not found"));
     }
@@ -1880,7 +1886,9 @@ pub fn handle_sem(params: Option<Value>) -> RpcResult {
 
     // If content is provided, parse from memory (for unsaved editor content)
     if let Some(ref content) = p.content {
+        // ★ Fix: Ensure library context is loaded before parsing
         let mc_uri = McURI::from(raw_uri.as_str());
+        ensure_library_loaded(&mc_uri);
         crate::builder::mcb_add_from_string(&mc_uri, content);
         crate::builder::mcb_parse_all_modules();
         // ★ Fix: Use canonicalized URI for lookup (same as what mcb_add_from_string uses)
@@ -2019,6 +2027,91 @@ fn find_project_root(file_path: &Path) -> PathBuf {
         .parent()
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Ensure library dependencies are loaded for a file.
+/// This is called when parsing files with content from LSP to ensure
+/// the library context is available for type lookups.
+fn ensure_library_loaded(file_uri: &McURI) {
+    // Check if libraries are already loaded
+    let libs = crate::builder::mcb_loaded_libs();
+    eprintln!("[ensure_library_loaded] uri={} libs_already_loaded={:?}", file_uri, libs);
+    
+    if !libs.is_empty() {
+        eprintln!("[ensure_library_loaded] skip, libs already loaded");
+        return;
+    }
+    
+    // Find project root from file
+    let path = Path::new(file_uri.as_str());
+    let project_root = find_project_root(path);
+    
+    eprintln!("[ensure_library_loaded] project_root={}", project_root.display());
+    
+    // Try to load project.toml dependencies
+    let project_toml = project_root.join("project.toml");
+    eprintln!("[ensure_library_loaded] project_toml={} exists={}", project_toml.display(), project_toml.exists());
+    
+    if project_toml.exists() {
+        if let Ok(contents) = std::fs::read_to_string(&project_toml) {
+            if let Some(deps) = extract_lib_dependencies(&contents) {
+                eprintln!("[ensure_library_loaded] deps={:?}", deps);
+                for lib_name in deps {
+                    eprintln!("[ensure_library_loaded] loading lib={}", lib_name);
+                    match resolve_lib_root(&lib_name) {
+                        Ok(root) => {
+                            eprintln!("[ensure_library_loaded] resolved root={}", root.display());
+                            crate::builder::mcb_load_lib(&lib_name, &root);
+                        }
+                        Err(e) => {
+                            eprintln!("[ensure_library_loaded] resolve_lib_root failed: {:?}", e);
+                        }
+                    }
+                }
+            } else {
+                eprintln!("[ensure_library_loaded] no deps extracted");
+            }
+        }
+    }
+}
+
+/// Extract library dependencies from project.toml contents
+fn extract_lib_dependencies(contents: &str) -> Option<Vec<String>> {
+    for line in contents.lines() {
+        let line = line.trim();
+        if line.starts_with("dependencies") || line.starts_with("lib_deps") {
+            // Parse the dependencies section
+            let mut deps = Vec::new();
+            let mut in_deps = false;
+            for dep_line in contents.lines() {
+                let dep_line = dep_line.trim();
+                if dep_line.starts_with("dependencies") || dep_line.starts_with("lib_deps") {
+                    in_deps = true;
+                    continue;
+                }
+                if in_deps {
+                    if dep_line.is_empty() || dep_line.starts_with('#') {
+                        continue;
+                    }
+                    if dep_line.starts_with('[') || dep_line.starts_with("lib_") {
+                        break;
+                    }
+                    // Extract lib name (format: "name" = "version" or just "name")
+                    let name = if let Some(eq_pos) = dep_line.find('=') {
+                        let left = dep_line[..eq_pos].trim();
+                        left.trim_matches('"').trim_matches('\'').to_string()
+                    } else {
+                        dep_line.trim_matches(',').trim_matches('"').trim_matches('\'').to_string()
+                    };
+                    if !name.is_empty() {
+                        deps.push(name);
+                    }
+                }
+            }
+            return Some(deps);
+        }
+    }
+    None
 }
 
 /// Classify a token using the symbol table.
@@ -2214,6 +2307,18 @@ pub fn handle_set_project_root(params: Option<Value>) -> RpcResult {
     
     let p: SetProjectRootParams = parse_strict(params)?;
     crate::mcc_set_project_root(std::path::Path::new(&p.path));
+    Ok(serde_json::json!({ "ok": true }))
+}
+
+/// Handle set_system_root RPC - set system root path (for library resolution)
+pub fn handle_set_system_root(params: Option<Value>) -> RpcResult {
+    #[derive(Deserialize)]
+    struct SetSystemRootParams {
+        path: String,
+    }
+    
+    let p: SetSystemRootParams = parse_strict(params)?;
+    crate::mcc_set_system_root(std::path::Path::new(&p.path));
     Ok(serde_json::json!({ "ok": true }))
 }
 

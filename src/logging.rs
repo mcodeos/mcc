@@ -209,6 +209,9 @@ pub fn init(verbose: u8, quiet: bool, show_target: bool) {
         .with(filter_layer)
         .with(fmt_layer)
         .try_init()
+        .map_err(|e| {
+            eprintln!("[logging] Failed to init: {}", e);
+        })
         .ok();
 }
 

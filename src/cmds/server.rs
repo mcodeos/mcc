@@ -210,7 +210,11 @@ pub fn run_server_internal(host: &str, port: u16, libs: &[String]) -> Result<()>
         crate::cmds::manifest::load_libs(libs);
     }
 
-    // Fix E: Route C-side trace output to log file (env var set by run_start)
+    // Initialize logging to file (env var set by run_start)
+    let log_file = std::env::var("MCC_LOG_FILE").ok();
+    crate::logging::init_with_log_file_and_stderr(0, false, log_file.as_deref(), false);
+    
+    // Route C-side trace output to log file
     if let Ok(p) = std::env::var("MCC_LOG_FILE") {
         mcc::mcc_log_init(&p);
     }
@@ -266,6 +270,7 @@ pub fn register_all(builder: RpcServerBuilder) -> RpcServerBuilder {
         .register_method("diagnostics", handlers::handle_diagnostics)
         .register_method("project_symbols", handlers::handle_project_symbols)
         .register_method("set_project_root", handlers::handle_set_project_root)
+        .register_method("set_system_root", handlers::handle_set_system_root)
         .register_method("init", handlers::handle_init)
         .register_method("load_project", handlers::handle_load_project)
         .register_method("add_file", handlers::handle_add_file)
