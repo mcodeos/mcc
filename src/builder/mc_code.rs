@@ -1298,6 +1298,33 @@ impl McCode {
                     }
                 }
 
+                // ★ LSP: Add module port definitions to symbol_lapper and local_table
+                {
+                    let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
+                    for entry in modules.iter() {
+                        let m = entry.value();
+                        for (name, _iotype, span) in m.insts.iter_ports_with_span() {
+                            let span_clone = span.clone();
+                            let decl_id = sem.local_table.add_declare_with_name(span_clone, Some(name.to_string()));
+                            symbol_lapper.insert(Interval {
+                                start: span.start,
+                                stop: span.end,
+                                val: SymbolType::PortDefinition(decl_id),
+                            });
+                        }
+                        // Register port references from net lines (e.g. GPIO1 - A references port GPIO1)
+                        for (span, port_name) in m.insts.iter_port_refs() {
+                            if let Some(decl_id) = sem.local_table.name_to_declare_id.get(port_name).copied() {
+                                symbol_lapper.insert(Interval {
+                                    start: span.start,
+                                    stop: span.end,
+                                    val: SymbolType::InstanceRef(decl_id),
+                                });
+                            }
+                        }
+                    }
+                }
+
                 tracing::info!(target: "mcc::lsp", "create_lapper: {} decls, {} local_refs, {} global_refs, lapper len={}", decl_count, ref_count, global_ref_count, symbol_lapper.len());
                 sem.symbol_lapper = symbol_lapper;
             }

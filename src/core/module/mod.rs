@@ -138,6 +138,8 @@ impl McModule {
                                 self.insts.parse(&subnode, &self.uri);
                                 continue;
                             }
+                            // Collect port reference spans before parsing the net
+                            Self::collect_port_refs_in_node(&subnode, &mut self.insts);
                             match McPhrase::new(&subnode, self) {
                                 Some(net) => {
                                     self.lines.push(net);
@@ -498,6 +500,36 @@ impl HasFindInst for McModule {
 
     fn find_func_return(&self, name: &str) -> Option<McFuncReturn> {
         self.funcs.find(name).map(|f| f.returns.clone())
+    }
+}
+
+impl McModule {
+    /// Recursively scan AST nodes in a net expression for identifiers that match
+    /// known port names, and record their spans for LSP goto-definition.
+    fn collect_port_refs_in_node(node: &AstNode, insts: &mut McInstances) {
+        // Check this node (only leaf identifier nodes for precise spans)
+        match node.get_type() {
+            MCAST_ID | MCAST_IDA => {
+                if let Some(text) = node.to_string() {
+                    if insts.contains(&text) {
+                        let span = (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
+                        insts.record_port_ref(span, &text);
+                    }
+                }
+            }
+            _ => {}
+        }
+        // Walk sub-node chain (children)
+        if let Some(sub) = node.get_sub_node() {
+            let mut current = sub;
+            loop {
+                Self::collect_port_refs_in_node(&current, insts);
+                match current.get_next() {
+                    Some(next) => current = next,
+                    None => break,
+                }
+            }
+        }
     }
 }
 

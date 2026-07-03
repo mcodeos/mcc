@@ -759,6 +759,7 @@ fn collect_pass1(_uri: &str, include_system: bool) -> Value {
     let all_components = collect_definitions(crate::mcb_iter_components());
     let all_interfaces = collect_definitions(crate::mcb_iter_interfaces());
     let all_enums = collect_definitions(crate::mcb_iter_enums());
+    let all_ports = crate::mcb_iter_ports();
 
     // Filter out system modules, components, interfaces, enums if not include_system
     let (modules, components, interfaces, enums) = if include_system {
@@ -776,6 +777,16 @@ fn collect_pass1(_uri: &str, include_system: bool) -> Value {
             filter(all_interfaces),
             filter(all_enums),
         )
+    };
+
+    // Filter ports - only include ports from non-system modules
+    let ports: Vec<_> = if include_system {
+        all_ports
+    } else {
+        all_ports
+            .into_iter()
+            .filter(|(_, _, _, uri)| !is_system_uri(uri))
+            .collect()
     };
 
     let mut by_uri: BTreeMap<String, FileEntry> = BTreeMap::new();
@@ -810,6 +821,19 @@ fn collect_pass1(_uri: &str, include_system: bool) -> Value {
 
     let loaded_files: Vec<Value> = by_uri.into_values().map(|f| f.into_json()).collect();
 
+    // Convert ports to PortRef format
+    let ports_json: Vec<serde_json::Value> = ports
+        .iter()
+        .map(|(name, iotype, module, uri)| {
+            serde_json::json!({
+                "name": name,
+                "iotype": iotype,
+                "module": module,
+                "uri": uri
+            })
+        })
+        .collect();
+
     json!({
         "loaded_files": loaded_files,
         "definitions": {
@@ -817,6 +841,7 @@ fn collect_pass1(_uri: &str, include_system: bool) -> Value {
             "components": refs_json(&components),
             "interfaces": refs_json(&interfaces),
             "enums":      refs_json(&enums),
+            "ports":      ports_json,
         },
         "diagnostics": []
     })
