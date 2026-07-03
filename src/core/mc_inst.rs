@@ -234,6 +234,8 @@ pub struct McInstances {
     port_spans: HashMap<String, Vec<Range<usize>>>,
     /// LSP: spans in module body that reference port definitions (span, port_name)
     port_ref_spans: Vec<(Range<usize>, String)>,
+    /// ★ LSP: Enclosing scope name (module/component/function name)
+    pub(crate) scope: Option<String>,
 }
 
 impl McInstances {
@@ -242,6 +244,7 @@ impl McInstances {
             insts: BTreeMap::new(),
             port_spans: HashMap::new(),
             port_ref_spans: Vec::new(),
+            scope: None,
         }
     }
 
@@ -988,8 +991,9 @@ impl McInstances {
                 // Get the span of the instance name from ids_node
                 let inst_span = (ids_node.get_pos() as usize)
                     ..((ids_node.get_pos() + ids_node.get_len()) as usize);
+                let scope = self.scope.as_deref();
                 let decl_id =
-                    mcb_register_instance_decl(uri, inst_span.clone(), Some(inst_name.clone()));
+                    mcb_register_instance_decl(uri, inst_span.clone(), Some(inst_name.clone()), scope);
                 if let Some(id) = decl_id {
                     tracing::info!(target: "mcc::lsp", "Registered instance decl: {} at {:?} -> id={:?}", inst_name, inst_span, id);
                 } else {

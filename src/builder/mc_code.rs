@@ -1219,13 +1219,17 @@ impl McCode {
                         .global_inst_table
                         .lock()
                         .unwrap();
-                    for (decl_id, span) in inst_table.get_decls_for_uri(uri_str) {
+                    for (decl_id, scope, span) in inst_table.get_decls_for_uri(uri_str) {
                         // Add to symbol_lapper for LSP lookup
                         symbol_lapper.insert(Interval {
                             start: span.start,
                             stop: span.end,
                             val: SymbolType::DeclareInstance(decl_id),
                         });
+                        // ★ Store scope for LSP goto-def
+                        if !scope.is_empty() {
+                            sem.symbol_scope.insert((span.start, span.end), scope);
+                        }
                         // ★ Also add to local_table so LSP handler can find the span
                         sem.local_table
                             .declare_inst_to_span
@@ -1259,12 +1263,16 @@ impl McCode {
                         .unwrap();
                     let refs = inst_table.get_all_refs_for_uri(uri_str);
                     let count = refs.len();
-                    for (decl_id, span) in refs {
+                    for (decl_id, scope, span) in refs {
                         symbol_lapper.insert(Interval {
                             start: span.start,
                             stop: span.end,
                             val: SymbolType::InstanceRef(decl_id),
                         });
+                        // ★ Store scope for LSP goto-def
+                        if !scope.is_empty() {
+                            sem.symbol_scope.insert((span.start, span.end), scope);
+                        }
                     }
                     count
                 };

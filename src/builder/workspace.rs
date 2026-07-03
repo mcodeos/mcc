@@ -138,63 +138,66 @@ pub struct WorkspaceManager {
 #[derive(Default)]
 pub struct GlobalInstTable {
     counter: DeclareId,
-    name_to_id: HashMap<(String, String), DeclareId>, // (uri, name) -> decl_id
-    id_to_span: HashMap<DeclareId, (String, Span)>,   // decl_id -> (uri, span)
-    refs: HashMap<DeclareId, Vec<(String, Span)>>,    // decl_id -> [(uri, span), ...]
+    name_to_id: HashMap<(String, String, String), DeclareId>, // (uri, scope, name) -> decl_id
+    id_to_span: HashMap<DeclareId, (String, String, Span)>,   // decl_id -> (uri, scope, span)
+    refs: HashMap<DeclareId, Vec<(String, String, Span)>>,    // decl_id -> [(uri, scope, span), ...]
 }
 
 impl GlobalInstTable {
-    pub fn add(&mut self, uri: &str, name: &str, span: Span) -> DeclareId {
-        let key = (uri.to_string(), name.to_string());
+    pub fn add(&mut self, uri: &str, scope: Option<&str>, name: &str, span: Span) -> DeclareId {
+        let scope_str = scope.unwrap_or("");
+        let key = (uri.to_string(), scope_str.to_string(), name.to_string());
         if let Some(&id) = self.name_to_id.get(&key) {
             return id; // Already registered, return existing id
         }
         let id = self.counter;
         self.counter += 1;
         self.name_to_id.insert(key, id);
-        self.id_to_span.insert(id, (uri.to_string(), span));
+        self.id_to_span.insert(id, (uri.to_string(), scope_str.to_string(), span));
         id
     }
 
-    pub fn get(&self, uri: &str, name: &str) -> Option<DeclareId> {
-        let key = (uri.to_string(), name.to_string());
+    pub fn get(&self, uri: &str, scope: Option<&str>, name: &str) -> Option<DeclareId> {
+        let scope_str = scope.unwrap_or("");
+        let key = (uri.to_string(), scope_str.to_string(), name.to_string());
         self.name_to_id.get(&key).copied()
     }
 
-    pub fn get_span(&self, id: DeclareId) -> Option<(String, Span)> {
+    pub fn get_span(&self, id: DeclareId) -> Option<(String, String, Span)> {
         self.id_to_span.get(&id).cloned()
     }
 
-    // ★ LSP: Get all instance declarations for a given URI
-    pub fn get_decls_for_uri(&self, uri: &str) -> Vec<(DeclareId, Span)> {
+    // ★ LSP: Get all instance declarations for a given URI, with scope info
+    pub fn get_decls_for_uri(&self, uri: &str) -> Vec<(DeclareId, String, Span)> {
         self.name_to_id
             .iter()
-            .filter(|((u, _name), _id)| u == uri)
-            .filter_map(|((_, _name), id)| {
-                self.id_to_span.get(id).map(|(_, span)| (*id, span.clone()))
+            .filter(|((u, _scope, _name), _id)| u == uri)
+            .filter_map(|((_, scope, _name), id)| {
+                self.id_to_span.get(id).map(|(_, _, span)| (*id, scope.clone(), span.clone()))
             })
             .collect()
     }
 
     // ★ LSP: Store instance references (for finding all usages)
-    pub fn add_ref(&mut self, decl_id: DeclareId, uri: &str, span: Span) {
+    pub fn add_ref(&mut self, decl_id: DeclareId, uri: &str, scope: Option<&str>, span: Span) {
+        let scope_str = scope.unwrap_or("");
         self.refs
             .entry(decl_id)
             .or_insert_with(Vec::new)
-            .push((uri.to_string(), span));
+            .push((uri.to_string(), scope_str.to_string(), span));
     }
 
-    pub fn get_refs(&self, decl_id: DeclareId) -> Vec<(String, Span)> {
+    pub fn get_refs(&self, decl_id: DeclareId) -> Vec<(String, String, Span)> {
         self.refs.get(&decl_id).cloned().unwrap_or_default()
     }
 
     // ★ LSP: Get all refs for all decls in a specific file
-    pub fn get_all_refs_for_uri(&self, uri: &str) -> Vec<(DeclareId, Span)> {
+    pub fn get_all_refs_for_uri(&self, uri: &str) -> Vec<(DeclareId, String, Span)> {
         let mut result = Vec::new();
         for (decl_id, spans) in &self.refs {
-            for (ref_uri, span) in spans {
+            for (ref_uri, scope, span) in spans {
                 if ref_uri == uri {
-                    result.push((*decl_id, span.clone()));
+                    result.push((*decl_id, scope.clone(), span.clone()));
                 }
             }
         }

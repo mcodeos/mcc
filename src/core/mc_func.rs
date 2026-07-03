@@ -103,6 +103,12 @@ pub trait HasFindInst {
     fn find_func_return(&self, _name: &str) -> Option<McFuncReturn> {
         None
     }
+
+    /// Return the enclosing scope name (module/component/function name),
+    /// or None for file-level scope.
+    fn scope_name(&self) -> Option<String> {
+        None
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -233,6 +239,8 @@ impl McFunction {
     pub fn parse_body(&mut self, context: &mut dyn HasFindInst, body: &AstNode) {
         let uri = context.uri().clone();
         self.uri = Some(uri.clone());
+        // ★ LSP: Set scope for instance registration
+        self.insts.scope = Some(self.name.to_string());
         if let Some(body_nodes) = body.get_sub_node() {
             let body_nodes: AstNode = body_nodes;
             // ── [BODY-RAW] read-only diagnostic ─────────────────────────────
@@ -622,5 +630,9 @@ impl HasFindInst for McFunction {
         let name = format!("@{}{}", safe, self.anon_counter);
         self.anon_counter += 1;
         name
+    }
+
+    fn scope_name(&self) -> Option<String> {
+        Some(self.name.to_string())
     }
 }

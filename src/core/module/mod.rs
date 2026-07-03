@@ -125,6 +125,8 @@ impl McModule {
     }
 
     pub(crate) fn parse_body(&mut self, body: &AstNode) {
+        // ★ LSP: Set scope for instance registration
+        self.insts.scope = Some(self.name.to_string());
         if let Some(clauses) = body.get_sub_node() {
             for clause in clauses.iter() {
                 match clause.get_type() {
@@ -500,6 +502,10 @@ impl HasFindInst for McModule {
 
     fn find_func_return(&self, name: &str) -> Option<McFuncReturn> {
         self.funcs.find(name).map(|f| f.returns.clone())
+    }
+
+    fn scope_name(&self) -> Option<String> {
+        Some(self.name.to_string())
     }
 }
 

@@ -1756,13 +1756,14 @@ pub fn mcb_register_instance_decl(
     uri: &McURI,
     span: Span,
     name: Option<String>,
+    scope: Option<&str>,
 ) -> Option<DeclareId> {
     let uri_str = uri.as_str();
     let span_clone = span.clone();
     if let Some(n) = name {
         let mut table = workspace::WORKSPACE.global_inst_table.lock().unwrap();
-        let id = table.add(uri_str, &n, span_clone);
-        tracing::debug!(target: "mcc::lsp", "Registered inst decl: {} at {:?} -> id={:?}", n, span, id);
+        let id = table.add(uri_str, scope, &n, span_clone);
+        tracing::debug!(target: "mcc::lsp", "Registered inst decl: {} scope={:?} at {:?} -> id={:?}", n, scope, span, id);
         Some(id)
     } else {
         None
@@ -1772,23 +1773,22 @@ pub fn mcb_register_instance_decl(
 /// 🆕 Look up declare_id by instance name
 ///
 /// Returns the DeclareId for a given instance name, if registered.
-pub fn mcb_lookup_instance_decl(uri: &McURI, name: &str) -> Option<DeclareId> {
+pub fn mcb_lookup_instance_decl(uri: &McURI, name: &str, scope: Option<&str>) -> Option<DeclareId> {
     let uri_str = uri.as_str();
     let table = workspace::WORKSPACE.global_inst_table.lock().unwrap();
-    table.get(uri_str, name)
+    table.get(uri_str, scope, name)
 }
 
 /// 🆕 Register an instance reference in the global symbol table
 ///
 /// Called when an instance name is used elsewhere in the module (e.g., `uC.i2c()`).
 /// The reference is linked to the declaration via decl_id.
-pub fn mcb_register_instance_ref(uri: &McURI, span: Span, decl_id: DeclareId) {
+pub fn mcb_register_instance_ref(uri: &McURI, span: Span, decl_id: DeclareId, scope: Option<&str>) {
     let uri_str = uri.as_str();
     let span_clone = span.clone();
     let mut table = workspace::WORKSPACE.global_inst_table.lock().unwrap();
-    // Store reference: (decl_id, uri, span) - we need to be able to find all refs for a decl
-    table.add_ref(decl_id, uri_str, span);
-    tracing::info!(target: "mcc::lsp", "Registered inst ref: decl_id={:?} at {:?}", decl_id, span_clone);
+    table.add_ref(decl_id, uri_str, scope, span);
+    tracing::info!(target: "mcc::lsp", "Registered inst ref: decl_id={:?} scope={:?} at {:?}", decl_id, scope, span_clone);
 }
 
 /// 🆕 Register a class reference for goto-definition
