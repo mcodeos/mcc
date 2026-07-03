@@ -256,7 +256,9 @@ impl McInstances {
     pub fn iter_ports(&self) -> impl Iterator<Item = (&str, &IOType)> {
         self.insts
             .iter()
-            .filter(|(_, (io_type, _))| !matches!(io_type, IOType::None | IOType::Return | IOType::NonCon))
+            .filter(|(_, (io_type, _))| {
+                !matches!(io_type, IOType::None | IOType::Return | IOType::NonCon)
+            })
             .map(|(name, (io_type, _))| (name.as_str(), io_type))
     }
 
@@ -267,16 +269,23 @@ impl McInstances {
 
     /// Store port span when a port is inserted
     pub(crate) fn store_port_span(&mut self, name: &str, span: Range<usize>) {
-        self.port_spans.entry(name.to_string()).or_default().push(span);
+        self.port_spans
+            .entry(name.to_string())
+            .or_default()
+            .push(span);
     }
 
     /// Iterate all ports with their spans (multiple entries per key for DOT patterns)
     pub fn iter_ports_with_span(&self) -> impl Iterator<Item = (&str, &IOType, Range<usize>)> + '_ {
         self.insts
             .iter()
-            .filter(|(_, (io_type, _))| !matches!(io_type, IOType::None | IOType::Return | IOType::NonCon))
+            .filter(|(_, (io_type, _))| {
+                !matches!(io_type, IOType::None | IOType::Return | IOType::NonCon)
+            })
             .filter_map(|(name, (io_type, _))| {
-                self.port_spans.get(name).map(|spans| (name.as_str(), io_type, spans))
+                self.port_spans
+                    .get(name)
+                    .map(|spans| (name.as_str(), io_type, spans))
             })
             .flat_map(|(name, iotype, spans)| {
                 spans.iter().map(move |span| (name, iotype, span.clone()))
@@ -308,7 +317,8 @@ impl McInstances {
                                     self.parse_declare(&child, uri, &IOType::Power);
                                 }
                                 MCAST_OPD => {
-                                    let span = (child.get_pos() as usize)..((child.get_pos() + child.get_len()) as usize);
+                                    let span = (child.get_pos() as usize)
+                                        ..((child.get_pos() + child.get_len()) as usize);
                                     // Detect DOT pattern (DC2.VDD, label1.sub) before parse
                                     let dot_base = child.get_sub_node().and_then(|opd| {
                                         let first = opd.get_sub_node()?;
@@ -328,7 +338,9 @@ impl McInstances {
                                         let before_keys: std::collections::HashSet<String> =
                                             self.insts.keys().cloned().collect();
                                         self.parse_opd(&child, IOType::Power);
-                                        let new_keys: Vec<String> = self.insts.keys()
+                                        let new_keys: Vec<String> = self
+                                            .insts
+                                            .keys()
                                             .filter(|k| !before_keys.contains(*k))
                                             .cloned()
                                             .collect();
@@ -338,7 +350,8 @@ impl McInstances {
                                     }
                                 }
                                 MCAST_OPD_SQUARE_VEC => {
-                                    let span = (child.get_pos() as usize)..((child.get_pos() + child.get_len()) as usize);
+                                    let span = (child.get_pos() as usize)
+                                        ..((child.get_pos() + child.get_len()) as usize);
                                     // Store span before parse to capture the @N index used by parse_opd_square_vec
                                     let port_key = format!("@{}", self.insts.len());
                                     self.parse_opd_square_vec(&child, IOType::Power);
@@ -395,8 +408,8 @@ impl McInstances {
                         };
 
                         // Compute span for this operand (used for LSP port_definition)
-                        let span = (each.get_pos() as usize)
-                            ..((each.get_pos() + each.get_len()) as usize);
+                        let span =
+                            (each.get_pos() as usize)..((each.get_pos() + each.get_len()) as usize);
 
                         // Check if this is a DOT pattern (DC2.VDD)
                         let child = opd_node.get_sub_node();
@@ -740,8 +753,8 @@ impl McInstances {
 
                     MCAST_OPD_SQUARE_VEC => {
                         // Compute span for the entire square vector operand
-                        let span = (each.get_pos() as usize)
-                            ..((each.get_pos() + each.get_len()) as usize);
+                        let span =
+                            (each.get_pos() as usize)..((each.get_pos() + each.get_len()) as usize);
 
                         let mut children: Vec<AstNode> = Vec::new();
                         let mut child = each.get_sub_node();
@@ -826,7 +839,9 @@ impl McInstances {
                                                                 member.clone(),
                                                                 (
                                                                     iotype.clone(),
-                                                                    McInstance::Label(member.clone()),
+                                                                    McInstance::Label(
+                                                                        member.clone(),
+                                                                    ),
                                                                 ),
                                                             );
                                                         }
@@ -992,8 +1007,12 @@ impl McInstances {
                 let inst_span = (ids_node.get_pos() as usize)
                     ..((ids_node.get_pos() + ids_node.get_len()) as usize);
                 let scope = self.scope.as_deref();
-                let decl_id =
-                    mcb_register_instance_decl(uri, inst_span.clone(), Some(inst_name.clone()), scope);
+                let decl_id = mcb_register_instance_decl(
+                    uri,
+                    inst_span.clone(),
+                    Some(inst_name.clone()),
+                    scope,
+                );
                 if let Some(id) = decl_id {
                     tracing::info!(target: "mcc::lsp", "Registered instance decl: {} at {:?} -> id={:?}", inst_name, inst_span, id);
                 } else {

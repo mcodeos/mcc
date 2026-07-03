@@ -140,7 +140,7 @@ pub struct GlobalInstTable {
     counter: DeclareId,
     name_to_id: HashMap<(String, String, String), DeclareId>, // (uri, scope, name) -> decl_id
     id_to_span: HashMap<DeclareId, (String, String, Span)>,   // decl_id -> (uri, scope, span)
-    refs: HashMap<DeclareId, Vec<(String, String, Span)>>,    // decl_id -> [(uri, scope, span), ...]
+    refs: HashMap<DeclareId, Vec<(String, String, Span)>>, // decl_id -> [(uri, scope, span), ...]
 }
 
 impl GlobalInstTable {
@@ -153,7 +153,8 @@ impl GlobalInstTable {
         let id = self.counter;
         self.counter += 1;
         self.name_to_id.insert(key, id);
-        self.id_to_span.insert(id, (uri.to_string(), scope_str.to_string(), span));
+        self.id_to_span
+            .insert(id, (uri.to_string(), scope_str.to_string(), span));
         id
     }
 
@@ -173,7 +174,9 @@ impl GlobalInstTable {
             .iter()
             .filter(|((u, _scope, _name), _id)| u == uri)
             .filter_map(|((_, scope, _name), id)| {
-                self.id_to_span.get(id).map(|(_, _, span)| (*id, scope.clone(), span.clone()))
+                self.id_to_span
+                    .get(id)
+                    .map(|(_, _, span)| (*id, scope.clone(), span.clone()))
             })
             .collect()
     }
@@ -181,10 +184,11 @@ impl GlobalInstTable {
     // ★ LSP: Store instance references (for finding all usages)
     pub fn add_ref(&mut self, decl_id: DeclareId, uri: &str, scope: Option<&str>, span: Span) {
         let scope_str = scope.unwrap_or("");
-        self.refs
-            .entry(decl_id)
-            .or_insert_with(Vec::new)
-            .push((uri.to_string(), scope_str.to_string(), span));
+        self.refs.entry(decl_id).or_insert_with(Vec::new).push((
+            uri.to_string(),
+            scope_str.to_string(),
+            span,
+        ));
     }
 
     pub fn get_refs(&self, decl_id: DeclareId) -> Vec<(String, String, Span)> {

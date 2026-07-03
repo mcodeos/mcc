@@ -1318,13 +1318,25 @@ impl McCode {
                         }
 
                         // Ports from params (e.g. `module m(dc24v, GPIO[1:2])`)
-                        eprintln!("[LAPPER_DEBUG] Processing module params: {}", entry.key().ident);
+                        eprintln!(
+                            "[LAPPER_DEBUG] Processing module params: {}",
+                            entry.key().ident
+                        );
                         let param_port_count = m.params.iter_ports_with_span().count();
-                        eprintln!("[LAPPER_DEBUG] module={}, param_port_count={}", entry.key().ident, param_port_count);
+                        eprintln!(
+                            "[LAPPER_DEBUG] module={}, param_port_count={}",
+                            entry.key().ident,
+                            param_port_count
+                        );
                         for (name, span) in m.params.iter_ports_with_span() {
                             let span_clone = span.clone();
-                            let decl_id = sem.local_table.add_declare_with_name(span_clone, Some(name.to_string()));
-                            eprintln!("[LAPPER_DEBUG]   param port: name={}, span=[{},{}], decl_id={:?}", name, span.start, span.end, decl_id);
+                            let decl_id = sem
+                                .local_table
+                                .add_declare_with_name(span_clone, Some(name.to_string()));
+                            eprintln!(
+                                "[LAPPER_DEBUG]   param port: name={}, span=[{},{}], decl_id={:?}",
+                                name, span.start, span.end, decl_id
+                            );
                             symbol_lapper.insert(Interval {
                                 start: span.start,
                                 stop: span.end,
@@ -1335,8 +1347,13 @@ impl McCode {
                         // Ports from body declarations (e.g. `ps dc24v`, `io GPIO[1:2]`)
                         for (name, _iotype, span) in m.insts.iter_ports_with_span() {
                             let span_clone = span.clone();
-                            let decl_id = sem.local_table.add_declare_with_name(span_clone, Some(name.to_string()));
-                            eprintln!("[LAPPER_DEBUG]   inst port: name={}, span=[{},{}], decl_id={:?}", name, span.start, span.end, decl_id);
+                            let decl_id = sem
+                                .local_table
+                                .add_declare_with_name(span_clone, Some(name.to_string()));
+                            eprintln!(
+                                "[LAPPER_DEBUG]   inst port: name={}, span=[{},{}], decl_id={:?}",
+                                name, span.start, span.end, decl_id
+                            );
                             symbol_lapper.insert(Interval {
                                 start: span.start,
                                 stop: span.end,
@@ -1345,7 +1362,9 @@ impl McCode {
                         }
                         // Register port references from net lines (e.g. GPIO1 - A references port GPIO1)
                         for (span, port_name) in m.insts.iter_port_refs() {
-                            if let Some(decl_id) = sem.local_table.name_to_declare_id.get(port_name).copied() {
+                            if let Some(decl_id) =
+                                sem.local_table.name_to_declare_id.get(port_name).copied()
+                            {
                                 symbol_lapper.insert(Interval {
                                     start: span.start,
                                     stop: span.end,
@@ -1355,7 +1374,9 @@ impl McCode {
                         }
                         // Register param port references from net lines
                         for (span, port_name) in m.params.iter_port_refs() {
-                            if let Some(decl_id) = sem.local_table.name_to_declare_id.get(port_name).copied() {
+                            if let Some(decl_id) =
+                                sem.local_table.name_to_declare_id.get(port_name).copied()
+                            {
                                 symbol_lapper.insert(Interval {
                                     start: span.start,
                                     stop: span.end,

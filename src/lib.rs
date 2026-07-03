@@ -66,7 +66,9 @@ pub use builder::{mcb_component_count, mcb_interface_count};
 pub use builder::{
     mcb_debug_get_cmie, mcb_get_module_def_by_name, mcb_get_module_with_diagnostics,
 };
-pub use builder::{mcb_iter_components, mcb_iter_enums, mcb_iter_interfaces, mcb_iter_modules, mcb_iter_ports};
+pub use builder::{
+    mcb_iter_components, mcb_iter_enums, mcb_iter_interfaces, mcb_iter_modules, mcb_iter_ports,
+};
 
 // 🆕 New exports
 pub use core::basic::mc_ida::McIda;

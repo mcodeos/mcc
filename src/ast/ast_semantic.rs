@@ -44,7 +44,7 @@ pub enum SymbolType {
     InstanceRef(DeclareId),         // ★ New: Reference to instance (using DeclareId)
     InterfaceDefinition(DeclareId), // ★ Interface definition
     InterfaceRef(ReferenceId),      // ★ Reference to interface
-    PortDefinition(DeclareId),       // ★ Module port definition (ps/io/in/out)
+    PortDefinition(DeclareId),      // ★ Module port definition (ps/io/in/out)
 }
 pub type SymbolRangeLapper = Lapper<usize, SymbolType>;
 
