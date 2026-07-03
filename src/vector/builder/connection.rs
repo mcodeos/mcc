@@ -108,19 +108,10 @@ fn build_star_topology(
         }
     }
 
-    // Only one hub: Degenerate to 1:1
-    if hubs.len() == 1 {
-        let vecs: Vec<McVec> = hubs.into_iter().map(McVec::single).collect();
-        return McVecNet::new(nid, net_name, vecs);
-    }
-
-    // Only one leaf: Degenerate to 1:1
-    if leaves.len() == 1 {
-        let vecs: Vec<McVec> = hubs.into_iter().map(McVec::single).collect();
-        return McVecNet::new(nid, net_name, vecs);
-    }
-
-    // Only hub without leaves (two hubs connected): Degenerate to chain
+    // ★ FIX (star leaf-drop): single hub + N leaves is a legitimate 1:N star.
+    //   The old `hubs.len()==1` / `leaves.len()==1` branches returned only the hub,
+    //   dropping every leaf → rail/divider nets collapsed, passives orphaned.
+    //   Only "no leaves at all" degenerates to a hub chain; everything else is a star.
     if leaves.is_empty() {
         let vecs: Vec<McVec> = hubs.into_iter().map(McVec::single).collect();
         return McVecNet::new(nid, net_name, vecs);

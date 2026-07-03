@@ -297,7 +297,9 @@ impl McPhrase {
                                         context.add_bus(base.to_string(), vec![rest.to_string()]);
                                     } else {
                                         // E1802: Check if base is a Component and rest is a valid pin
-                                        if let Some(McInstance::Component(c)) = context.find_inst(base) {
+                                        if let Some(McInstance::Component(c)) =
+                                            context.find_inst(base)
+                                        {
                                             if c.base.pins.find_pin(&rest).is_none() {
                                                 dlog_error(
                                                     1802,

@@ -1094,6 +1094,13 @@ fn generate_viznets_from_block(
         }
         let u = pid as u32;
         let box_id = point_to_box.get(&u).map(|&bid| bid as i64)?;
+        // —— TEMP DIAG ——
+        if let Some(e) = table.get_entry(u) {
+            eprintln!(
+                "[PTB] pid={u} path='{}' parent={:?} -> box_id={box_id} (kind={:?})",
+                e.path, e.parent_id, e.kind
+            );
+        }
         let (pin_name, io_type, pin_number) = match table.get_entry(u) {
             Some(e) => {
                 let n = extract_last_segment(&e.path);
