@@ -40,7 +40,8 @@ impl McParamDeclares {
                 match body_type {
                     MCAST_ID | MCAST_IDA | MCAST_IDS => {
                         if let Some(ids) = McIds::new(&param_node) {
-                            let span = (param_node.get_pos() as usize)..((param_node.get_pos() + param_node.get_len()) as usize);
+                            let span = (param_node.get_pos() as usize)
+                                ..((param_node.get_pos() + param_node.get_len()) as usize);
                             if let Some((bus_name, _)) = ids.as_bus() {
                                 self.store_port_span(&bus_name, span);
                             } else if ids.is_square_only() {
@@ -52,7 +53,8 @@ impl McParamDeclares {
                     }
                     MCAST_SQUARE_VEC => {
                         // [VDD1, GND1] - anonymous set, store as @N
-                        let span = (param_node.get_pos() as usize)..((param_node.get_pos() + param_node.get_len()) as usize);
+                        let span = (param_node.get_pos() as usize)
+                            ..((param_node.get_pos() + param_node.get_len()) as usize);
                         self.store_port_span(&format!("@{}", self.port_spans.len()), span);
                     }
                     MCAST_IOTYPE => {
@@ -66,17 +68,22 @@ impl McParamDeclares {
                             let op_type = current.get_type();
                             if matches!(op_type, MCAST_ID | MCAST_IDA | MCAST_IDS) {
                                 if let Some(ids) = McIds::new(&current) {
-                                    let span = (current.get_pos() as usize)..((current.get_pos() + current.get_len()) as usize);
+                                    let span = (current.get_pos() as usize)
+                                        ..((current.get_pos() + current.get_len()) as usize);
                                     if let Some((bus_name, _)) = ids.as_bus() {
                                         self.store_port_span(&bus_name, span);
                                     } else if ids.is_square_only() {
-                                        self.store_port_span(&format!("@{}", self.port_spans.len()), span);
+                                        self.store_port_span(
+                                            &format!("@{}", self.port_spans.len()),
+                                            span,
+                                        );
                                     } else {
                                         self.store_port_span(&ids.to_string(), span);
                                     }
                                 }
                             } else if op_type == MCAST_SQUARE_VEC {
-                                let span = (current.get_pos() as usize)..((current.get_pos() + current.get_len()) as usize);
+                                let span = (current.get_pos() as usize)
+                                    ..((current.get_pos() + current.get_len()) as usize);
                                 self.store_port_span(&format!("@{}", self.port_spans.len()), span);
                             }
                         }
@@ -112,7 +119,10 @@ impl McParamDeclares {
 
     /// Store port span (called when a param port is registered)
     pub(crate) fn store_port_span(&mut self, name: &str, span: Range<usize>) {
-        self.port_spans.entry(name.to_string()).or_default().push(span);
+        self.port_spans
+            .entry(name.to_string())
+            .or_default()
+            .push(span);
     }
 
     /// Check if a name is a known parameter port
@@ -131,7 +141,10 @@ impl McParamDeclares {
     pub(crate) fn record_port_ref(&mut self, span: Range<usize>, port_name: &str) {
         if let Some(spans) = self.port_spans.get_mut(port_name) {
             // Only record ref if the span differs from all stored def spans
-            if !spans.iter().any(|s| s.start == span.start && s.end == span.end) {
+            if !spans
+                .iter()
+                .any(|s| s.start == span.start && s.end == span.end)
+            {
                 // Store ref separately - use a dedicated ref_spans map
                 self.port_ref_spans.push((span, port_name.to_string()));
             }

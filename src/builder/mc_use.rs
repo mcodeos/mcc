@@ -8,7 +8,10 @@ use tracing::{debug, warn};
 
 use crate::{
     ast::{ast_node::AstNode, c_macros::*, error::message::*},
-    builder::{diagnostic::{dlog_error, dlog_warning}, mcb_get_project_root, mcb_get_system_root},
+    builder::{
+        diagnostic::{dlog_error, dlog_warning},
+        mcb_get_project_root, mcb_get_system_root,
+    },
     McIds, McURI,
 };
 
