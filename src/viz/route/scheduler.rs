@@ -119,6 +119,23 @@ fn net_span(graph: &McVecGraph, net: &VizNet) -> f64 {
 /// 3. Select router for each net in order → call channel-aware routing
 /// 4. Recursive sub-layers (each layer has independent ChannelMap)
 pub fn route_layer_with_channels(graph: &mut McVecGraph) {
+    for net in &graph.nets {
+        for ep in &net.endpoints {
+            let found = graph.boxes.iter().any(|b| b.id == ep.box_id);
+            let has_entry = found && graph.boxes.iter()
+                .find(|b| b.id == ep.box_id)
+                .map(|b| b.find_entry(ep.pin_id).is_some())
+                .unwrap_or(false);
+            if !found {
+                eprintln!("[diag] net '{}' nid={}: box_id={} NOT FOUND",
+                    net.name, net.nid, ep.box_id);
+            } else if !has_entry {
+                eprintln!("[diag] net '{}' nid={}: box_id={} pin_id={} NO ENTRY_POINT",
+                    net.name, net.nid, ep.box_id, ep.pin_id);
+            }
+        }
+    }
+
     // ── ★ ITER-6: Defensive merge of same-name 2-endpoint Power/Ground nets ─────────────────────────
     //
     // Even though ITER-4 already did PowerLabel-anchored hyperedge merging in from_block phase, same-name
