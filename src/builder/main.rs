@@ -699,26 +699,7 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
         let _ = mcode; // keep the binding alive across the lazy block
     }
 
-    // ========== 1.5. Fallback: iterate through spacenames to find matching Interface ==========
-    // When not found in prj_interfaces, try iterating through all loaded files' spacenames
-    let uri_parent = Path::new(uri)
-        .parent()
-        .map(|p| p.to_string_lossy().to_string());
-    for entry in workspace::WORKSPACE.mcodes.borrow().iter() {
-        let mcfile = entry.value();
-        if let Some(space_name) = mcfile.spacenames.get(class_name) {
-            let def_uri = &space_name.uri;
-            if let Some(ref parent) = uri_parent {
-                if def_uri.starts_with(parent) {
-                    if let Some(cmie) = find_in_project_tables(space_name) {
-                        return Some(cmie);
-                    }
-                }
-            }
-        }
-    }
-
-    // ========== 1.6. Fallback: when prj_mcodes is empty, try to search from mcc_blibs's spacenames ==========
+    // ========== 1.5. Fallback: when prj_mcodes is empty, try to search from mcc_blibs's spacenames ==========
     // When system library is loading, prj_mcodes may be empty, need to search from mcc_blibs
     let mcode_key = "mcode".to_string();
     if let Some(mcode) = global::mcc_blibs.borrow().get(&mcode_key) {
