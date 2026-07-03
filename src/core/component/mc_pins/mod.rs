@@ -258,6 +258,7 @@ impl McPins {
             let mut iotype: Option<IOType> = None;
             let mut pinids: Option<McPinPort> = None;
             let mut pinnames: Option<McPinNames> = None;
+            let mut pinnames_node: Option<AstNode> = None;
             let mut values: Option<Vec<McAttrVal>> = None;
             let mut pin_name_has_param_ref = false;
 
@@ -274,6 +275,7 @@ impl McPins {
                     }
                     MCAST_PIN_NAMES => {
                         pinnames = McPinNames::new(&subnode);
+                        pinnames_node = Some(subnode.clone());
                         if let Some(names) = &pinnames {
                             pin_name_has_param_ref = names.has_param_ref();
                         }
@@ -304,7 +306,7 @@ impl McPins {
                 continue;
             };
 
-            for optname in &names.options {
+            for (opt_idx, optname) in names.options.iter().enumerate() {
                 match optname {
                     McPinPort::NC => {
                         // Register corresponding pinid as NC
@@ -608,9 +610,13 @@ impl McPins {
                         };
                         if let Some(dc) = declared_count {
                             if !iface_pins.is_empty() && dc != iface_pins.len() {
+                                // Use per-option node for precise error location
+                                let err_node = names.option_nodes.get(opt_idx)
+                                    .or(pinnames_node.as_ref())
+                                    .unwrap_or(&pnode);
                                 dlog_error(
                                     1303,
-                                    &pnode,
+                                    err_node,
                                     &format!(
                                         "Interface '{}' declares {} pin(s) (members: {:?}) \
                                          but {} pin ID(s) given; the counts must match. \
@@ -1440,9 +1446,17 @@ impl std::fmt::Display for McPins {
 pub struct McPinNames {
     pub options: Vec<McPinPort>,
     pub has_param_ref: bool,
+    /// AST nodes for each option (parallel to `options`), for accurate error location
+    pub option_nodes: Vec<AstNode>,
 }
 
 impl McPinNames {
+    /// Push an option and record its AST node (from the enclosing MCAST_PIN_NAME)
+    fn push_option(&mut self, port: McPinPort, node: &AstNode) {
+        self.options.push(port);
+        self.option_nodes.push(node.clone());
+    }
+
     pub fn has_param_ref(&self) -> bool {
         if self.has_param_ref {
             return true;
@@ -1479,6 +1493,7 @@ impl McPinNames {
         let mut myself = Self {
             options: Vec::new(),
             has_param_ref: false,
+            option_nodes: Vec::new(),
         };
 
         for each_name_option in name_nodes.iter().filter(|n| n.get_type() == MCAST_PIN_NAME) {
@@ -1491,14 +1506,21 @@ impl McPinNames {
             let Some(sub_node) = each_name_option.get_sub_node() else {
                 continue;
             };
+            // Use sub_node as err_node for EXPRESSION/DECLARE paths (tighter span),
+            // use each_name_option (MCAST_PIN_NAME) for other paths.
+            let err_node = if matches!(sub_node.get_type(), MCAST_EXPRESSION) {
+                &sub_node
+            } else {
+                &each_name_option
+            };
             match sub_node.get_type() {
                 MCAST_OPD_NC => {
-                    myself.options.push(McPinPort::NC);
+                    myself.push_option(McPinPort::NC, err_node);
                 }
 
                 MCAST_INT => {
                     if let Some(pname) = McInt::new(&sub_node) {
-                        myself.options.push(McPinPort::Single(pname.to_string()));
+                        myself.push_option(McPinPort::Single(pname.to_string()), err_node);
                     }
                 }
 
@@ -1518,15 +1540,15 @@ impl McPinNames {
 
                                 if let Some((busname, members)) = pname.as_bus() {
                                     // DC1{VDD, GND} -> Bus (curly form)
-                                    myself.options.push(McPinPort::Bus(McBus::new_with_members(
+                                    myself.push_option(McPinPort::Bus(McBus::new_with_members(
                                         &busname, members,
-                                    )));
+                                    )), err_node);
                                 } else if pname.is_list() {
                                     // PDM[CLK, DATA] -> List (square bracket form)
                                     // use list_members() to get members
                                     let full_name = pname.to_string();
                                     if let Some(members) = pname.list_members() {
-                                        myself.options.push(McPinPort::List(full_name, members));
+                                        myself.push_option(McPinPort::List(full_name, members), err_node);
                                     }
                                 } else if pname.segments.len() == 2
                                     && matches!(pname.segments[0], IdsSegment::Ida(_))
@@ -1558,9 +1580,7 @@ impl McPinNames {
                                         mcb_get_cmie(&class_id, &lookup_uri)
                                     {
                                         let mc2_iface = Mc2Interface::new(inst_id, iface_def);
-                                        myself
-                                            .options
-                                            .push(McPinPort::Interface(Arc::new(mc2_iface)));
+                                        myself.push_option(McPinPort::Interface(Arc::new(mc2_iface)), err_node);
                                     } else {
                                         // W1304: same as DECLARE_UV branch
                                         let class_str = class_id.to_string();
@@ -1580,15 +1600,13 @@ impl McPinNames {
                                                 ),
                                             );
                                         }
-                                        myself.options.push(McPinPort::Single(inst_str));
+                                        myself.push_option(McPinPort::Single(inst_str), err_node);
                                     }
                                 } else {
                                     match pname.count() {
-                                        1 => myself
-                                            .options
-                                            .push(McPinPort::Single(pname.to_string())),
+                                        1 => myself.push_option(McPinPort::Single(pname.to_string()), err_node),
                                         2.. => {
-                                            myself.options.push(McPinPort::Multi(pname.expand()))
+                                            myself.push_option(McPinPort::Multi(pname.expand()), err_node)
                                         }
                                         _ => {
                                             dlog_error(1203, &opd_node, "Pin name count error");
@@ -1619,7 +1637,7 @@ impl McPinNames {
                                 match child.get_type() {
                                     MCAST_IDS => {
                                         if let Some(ids) = McIds::new(&child) {
-                                            myself.options.push(McPinPort::Single(ids.to_string()));
+                                            myself.push_option(McPinPort::Single(ids.to_string()), err_node);
                                         }
                                     }
                                     MCAST_OPD_GROUP => {
@@ -1628,9 +1646,7 @@ impl McPinNames {
                                         while let Some(sub) = sub_cur {
                                             if sub.get_type() == MCAST_IDS {
                                                 if let Some(ids) = McIds::new(&sub) {
-                                                    myself
-                                                        .options
-                                                        .push(McPinPort::Single(ids.to_string()));
+                                                    myself.push_option(McPinPort::Single(ids.to_string()), err_node);
                                                 }
                                             }
                                             sub_cur = sub.get_next();
@@ -1663,8 +1679,8 @@ impl McPinNames {
 
                                 let pname = expr.expand();
                                 match pname.len() {
-                                    1 => myself.options.push(McPinPort::Single(pname[0].clone())),
-                                    2.. => myself.options.push(McPinPort::Multi(pname)),
+                                    1 => myself.push_option(McPinPort::Single(pname[0].clone()), err_node),
+                                    2.. => myself.push_option(McPinPort::Multi(pname), err_node),
                                     _ => {
                                         dlog_error(1203, &exp_node, "Pin name count error");
                                     }
@@ -1682,9 +1698,9 @@ impl McPinNames {
                                         }
                                     }
                                     if out.len() == 1 {
-                                        myself.options.push(McPinPort::Single(out[0].clone()));
+                                        myself.push_option(McPinPort::Single(out[0].clone()), err_node);
                                     } else if !out.is_empty() {
-                                        myself.options.push(McPinPort::Multi(out));
+                                        myself.push_option(McPinPort::Multi(out), err_node);
                                     }
                                 }
                             }
@@ -1700,7 +1716,7 @@ impl McPinNames {
 
                                 // For arithmetic expressions in pin names, try to evaluate
                                 if let Some(s) = expr.evaluate() {
-                                    myself.options.push(McPinPort::Single(s));
+                                    myself.push_option(McPinPort::Single(s), err_node);
                                 }
                             }
                         }
@@ -1783,9 +1799,7 @@ impl McPinNames {
                                 // Pass params to Mc2Interface (e.g., role parameter "DCE")
                                 let mc2_iface =
                                     Mc2Interface::with_ids_and_params(inst_name, iface_def, params);
-                                myself
-                                    .options
-                                    .push(McPinPort::Interface(Arc::new(mc2_iface)));
+                                myself.push_option(McPinPort::Interface(Arc::new(mc2_iface)), err_node);
                             } else {
                                 // 1304: mcb_get_cmie did not find the interface corresponding to class_name.
                                 //      Still fall back to alias, but emit a dlog_warning to inform the user.
@@ -1810,7 +1824,7 @@ impl McPinNames {
                                 }
                                 if inst_name.is_list() {
                                     if let Some(members) = inst_name.list_members() {
-                                        myself.options.push(McPinPort::Multi(members));
+                                        myself.push_option(McPinPort::Multi(members), err_node);
                                     }
                                 } else if inst_name.is_bus() {
                                     if let Some((busname, members)) = inst_name.as_bus() {
@@ -1818,17 +1832,13 @@ impl McPinNames {
                                             .iter()
                                             .map(|m| format!("{busname}.{m}"))
                                             .collect();
-                                        myself.options.push(McPinPort::Multi(prefixed));
+                                        myself.push_option(McPinPort::Multi(prefixed), err_node);
                                     }
                                 } else {
                                     // Consistent with lines 1572 & 1651
                                     match inst_name.count() {
-                                        1 => myself
-                                            .options
-                                            .push(McPinPort::Single(inst_name.to_string())),
-                                        2.. => myself
-                                            .options
-                                            .push(McPinPort::Multi(inst_name.expand())),
+                                        1 => myself.push_option(McPinPort::Single(inst_name.to_string()), err_node),
+                                        2.. => myself.push_option(McPinPort::Multi(inst_name.expand()), err_node),
                                         _ => {
                                             dlog_error(1203, &exp_node, "Pin name count error");
                                         }
@@ -1953,10 +1963,20 @@ impl McPinNames {
 
             if all_singles.len() > 1 {
                 // Replace all Single entries with one Multi entry
-                myself
-                    .options
-                    .retain(|p| !matches!(p, McPinPort::Single(_)));
-                myself.options.push(McPinPort::Multi(all_singles));
+                // Keep the first node position for the merged Multi (if any)
+                if let Some(merged_node) = myself.option_nodes.first().cloned() {
+                    myself
+                        .options
+                        .retain(|p| !matches!(p, McPinPort::Single(_)));
+                    myself.option_nodes.clear();
+                    myself.options.push(McPinPort::Multi(all_singles));
+                    myself.option_nodes.push(merged_node);
+                } else {
+                    myself
+                        .options
+                        .retain(|p| !matches!(p, McPinPort::Single(_)));
+                    myself.options.push(McPinPort::Multi(all_singles));
+                }
             }
         }
 
