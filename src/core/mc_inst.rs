@@ -391,6 +391,10 @@ impl McInstances {
                             continue;
                         };
 
+                        // Compute span for this operand (used for LSP port_definition)
+                        let span = (each.get_pos() as usize)
+                            ..((each.get_pos() + each.get_len()) as usize);
+
                         // Check if this is a DOT pattern (DC2.VDD)
                         let child = opd_node.get_sub_node();
                         let mut is_dot_pattern = false;
@@ -432,6 +436,7 @@ impl McInstances {
                                             )),
                                         ),
                                     );
+                                    self.store_port_span(&base_name, span);
                                     continue;
                                 }
                             }
@@ -443,6 +448,7 @@ impl McInstances {
                                     McInstance::Bus(McBus::new_with_members(&base_name, members)),
                                 ),
                             );
+                            self.store_port_span(&base_name, span);
                             continue;
                         }
 
@@ -461,6 +467,7 @@ impl McInstances {
                                             ))
                                         };
                                         self.insts.insert(busname.clone(), (iotype.clone(), inst));
+                                        self.store_port_span(&busname, span.clone());
                                     }
                                     if pname.is_square_only() {
                                         let members = pname.expand();
@@ -498,6 +505,7 @@ impl McInstances {
                                                     port_name.clone(),
                                                     (iotype.clone(), mc_inst),
                                                 );
+                                                self.store_port_span(&port_name, span);
                                             } else {
                                                 dlog_error(
                                                     1703,
@@ -519,6 +527,7 @@ impl McInstances {
                                                         )),
                                                     ),
                                                 );
+                                                self.store_port_span(&port_name, span);
                                             }
                                         } else {
                                             let port_name = format!("@{}", self.insts.len());
@@ -531,6 +540,7 @@ impl McInstances {
                                                     )),
                                                 ),
                                             );
+                                            self.store_port_span(&port_name, span);
                                         }
                                     } else {
                                         match pname.count() {
@@ -542,6 +552,7 @@ impl McInstances {
                                                         McInstance::Label(pname.to_string()),
                                                     ),
                                                 );
+                                                self.store_port_span(&pname.to_string(), span);
                                             }
                                             2.. => {
                                                 // Check if contains curly or square bracket syntax (register as Bus as a whole)
@@ -565,9 +576,10 @@ impl McInstances {
                                                             )
                                                         };
                                                         self.insts.insert(
-                                                            busname,
+                                                            busname.clone(),
                                                             (iotype.clone(), inst),
                                                         );
+                                                        self.store_port_span(&busname, span);
                                                     } else {
                                                         // If as_bus() returns None, try manual parsing
                                                         let base = pname.base_name();
@@ -587,22 +599,26 @@ impl McInstances {
                                                                 )
                                                             };
                                                             self.insts.insert(
-                                                                base,
+                                                                base.clone(),
                                                                 (iotype.clone(), inst),
                                                             );
+                                                            self.store_port_span(&base, span);
                                                         }
                                                     }
                                                 } else {
                                                     // No curly or square brackets, register each member separately
                                                     let members = pname.expand();
-                                                    for member in members {
+                                                    for member in &members {
                                                         self.insts.insert(
                                                             member.clone(),
                                                             (
                                                                 iotype.clone(),
-                                                                McInstance::Label(member),
+                                                                McInstance::Label(member.clone()),
                                                             ),
                                                         );
+                                                    }
+                                                    if !members.is_empty() {
+                                                        self.store_port_span(&members[0], span);
                                                     }
                                                 }
                                             }
@@ -626,6 +642,10 @@ impl McInstances {
                     // Handle direct MCAST_IDS (e.g., for "ps dc24v" where dc24v is MCAST_IDS)
                     MCAST_IDS => {
                         if let Some(pname) = McIds::new(&each) {
+                            // Compute span for this operand (used for LSP port_definition)
+                            let span = (each.get_pos() as usize)
+                                ..((each.get_pos() + each.get_len()) as usize);
+
                             // Check for DOT access pattern (e.g., DC2.VDD)
                             if let Some((base_name, dot_member)) = pname.as_dot_access() {
                                 // DOT pattern: DC2.VDD - add member to existing bus or create new
@@ -647,6 +667,7 @@ impl McInstances {
                                                 )),
                                             ),
                                         );
+                                        self.store_port_span(&base_name, span);
                                         continue;
                                     }
                                 }
@@ -661,6 +682,7 @@ impl McInstances {
                                         )),
                                     ),
                                 );
+                                self.store_port_span(&base_name, span);
                                 continue;
                             }
 
@@ -671,6 +693,7 @@ impl McInstances {
                                     McInstance::List(McList::new_with_members(&busname, members))
                                 };
                                 self.insts.insert(busname.clone(), (iotype.clone(), inst));
+                                self.store_port_span(&busname, span);
                             } else if pname.is_square_only() {
                                 let members = pname.expand();
                                 let port_name = format!("@{}", self.insts.len());
@@ -683,6 +706,7 @@ impl McInstances {
                                         )),
                                     ),
                                 );
+                                self.store_port_span(&port_name, span);
                             } else {
                                 match pname.count() {
                                     1 => {
@@ -690,14 +714,19 @@ impl McInstances {
                                             pname.to_string(),
                                             (iotype.clone(), McInstance::Label(pname.to_string())),
                                         );
+                                        self.store_port_span(&pname.to_string(), span);
                                     }
                                     2.. => {
                                         let members = pname.expand();
-                                        for member in members {
+                                        for member in &members {
                                             self.insts.insert(
                                                 member.clone(),
-                                                (iotype.clone(), McInstance::Label(member)),
+                                                (iotype.clone(), McInstance::Label(member.clone())),
                                             );
+                                        }
+                                        // Store port span for the base name (used for goto-def lookup)
+                                        if !members.is_empty() {
+                                            self.store_port_span(&members[0], span.clone());
                                         }
                                     }
                                     _ => {}
@@ -707,6 +736,10 @@ impl McInstances {
                     }
 
                     MCAST_OPD_SQUARE_VEC => {
+                        // Compute span for the entire square vector operand
+                        let span = (each.get_pos() as usize)
+                            ..((each.get_pos() + each.get_len()) as usize);
+
                         let mut children: Vec<AstNode> = Vec::new();
                         let mut child = each.get_sub_node();
                         while let Some(c) = child {
@@ -742,11 +775,15 @@ impl McInstances {
                                     McInstance::List(McList::new_with_members(&port_name, members)),
                                 ),
                             );
+                            self.store_port_span(&port_name, span);
                         } else {
                             for child_node in &children {
                                 let Some(opd_node) = child_node.get_sub_node() else {
                                     continue;
                                 };
+                                // Compute span for individual child operand
+                                let child_span = (opd_node.get_pos() as usize)
+                                    ..((opd_node.get_pos() + opd_node.get_len()) as usize);
                                 match opd_node.get_type() {
                                     MCAST_IDS => {
                                         if let Some(pname) = McIds::new(&opd_node) {
@@ -761,6 +798,7 @@ impl McInstances {
                                                         )),
                                                     ),
                                                 );
+                                                self.store_port_span(&busname, child_span);
                                             } else {
                                                 match pname.count() {
                                                     1 => {
@@ -773,16 +811,26 @@ impl McInstances {
                                                                 ),
                                                             ),
                                                         );
+                                                        self.store_port_span(
+                                                            &pname.to_string(),
+                                                            child_span,
+                                                        );
                                                     }
                                                     2.. => {
                                                         let exp_members = pname.expand();
-                                                        for member in exp_members {
+                                                        for member in &exp_members {
                                                             self.insts.insert(
                                                                 member.clone(),
                                                                 (
                                                                     iotype.clone(),
-                                                                    McInstance::Label(member),
+                                                                    McInstance::Label(member.clone()),
                                                                 ),
+                                                            );
+                                                        }
+                                                        if !exp_members.is_empty() {
+                                                            self.store_port_span(
+                                                                &exp_members[0],
+                                                                child_span,
                                                             );
                                                         }
                                                     }
