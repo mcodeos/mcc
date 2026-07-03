@@ -44,7 +44,7 @@ pub struct McCode {
     pub(crate) spacenames: BTreeMap<McIds, McSpaceName>, //
     pub(crate) line_index: Option<LineIndex>, //line index for position to line/column conversion
     pub(crate) pass1_complete: bool,          // tracks whether parse_pass1_types() has been called
-    pub(crate) modules_parsed: bool,          // tracks whether parse_pass1_modules() has been called
+    pub(crate) modules_parsed: bool, // tracks whether parse_pass1_modules() has been called
 }
 
 ////////////////////////////////
@@ -222,14 +222,18 @@ impl McCode {
                     let err = &*err_ptr;
                     let pos = err.pos as u32;
                     let len = err.len as u32;
-                    let location = crate::builder::diagnostic::Location::new(self.uri.clone(), pos, len);
+                    let location =
+                        crate::builder::diagnostic::Location::new(self.uri.clone(), pos, len);
                     let diagnostic = crate::builder::diagnostic::Diagnostic::new(
                         1000, // E1000: parse error
                         crate::builder::diagnostic::DiagnosticLevel::Error,
                         location,
                         "syntax error".to_string(),
                     );
-                    workspace::WORKSPACE.diagnostics.borrow_mut().add_diagnostic(diagnostic);
+                    workspace::WORKSPACE
+                        .diagnostics
+                        .borrow_mut()
+                        .add_diagnostic(diagnostic);
                     err_ptr = err.next;
                 }
             }
@@ -291,14 +295,18 @@ impl McCode {
                     let err = &*err_ptr;
                     let pos = err.pos as u32;
                     let len = err.len as u32;
-                    let location = crate::builder::diagnostic::Location::new(self.uri.clone(), pos, len);
+                    let location =
+                        crate::builder::diagnostic::Location::new(self.uri.clone(), pos, len);
                     let diagnostic = crate::builder::diagnostic::Diagnostic::new(
                         1000, // E1000: parse error
                         crate::builder::diagnostic::DiagnosticLevel::Error,
                         location,
                         "syntax error".to_string(),
                     );
-                    workspace::WORKSPACE.diagnostics.borrow_mut().add_diagnostic(diagnostic);
+                    workspace::WORKSPACE
+                        .diagnostics
+                        .borrow_mut()
+                        .add_diagnostic(diagnostic);
                     err_ptr = err.next;
                 }
             }
@@ -327,7 +335,7 @@ impl McCode {
             if pos >= content_len {
                 continue;
             }
-            
+
             // Clamp to char boundary
             let remaining_len = content_len - pos;
             let safe_len = if len <= remaining_len {
@@ -335,7 +343,11 @@ impl McCode {
                 let end_pos = pos + len;
                 if end_pos <= content_len && !content.is_char_boundary(end_pos) {
                     // Back up to the previous char boundary
-                    content[..end_pos].char_indices().last().map(|(i, _)| i).unwrap_or(len)
+                    content[..end_pos]
+                        .char_indices()
+                        .last()
+                        .map(|(i, _)| i)
+                        .unwrap_or(len)
                 } else {
                     len
                 }
@@ -483,14 +495,18 @@ impl McCode {
                     let err = &*err_ptr;
                     let pos = err.pos as u32;
                     let len = err.len as u32;
-                    let location = crate::builder::diagnostic::Location::new(self.uri.clone(), pos, len);
+                    let location =
+                        crate::builder::diagnostic::Location::new(self.uri.clone(), pos, len);
                     let diagnostic = crate::builder::diagnostic::Diagnostic::new(
                         1000, // E1000: parse error
                         crate::builder::diagnostic::DiagnosticLevel::Error,
                         location,
                         "syntax error".to_string(),
                     );
-                    workspace::WORKSPACE.diagnostics.borrow_mut().add_diagnostic(diagnostic);
+                    workspace::WORKSPACE
+                        .diagnostics
+                        .borrow_mut()
+                        .add_diagnostic(diagnostic);
                     err_ptr = err.next;
                 }
             }
@@ -874,9 +890,7 @@ impl McCode {
                         // extract its MCAST_IDS grandchild which has the correct position.
                         let comp_span: Span = node
                             .get_sub_node()
-                            .and_then(|sub| {
-                                sub.iter().find(|x| x.is_type(MCAST_NAME))
-                            })
+                            .and_then(|sub| sub.iter().find(|x| x.is_type(MCAST_NAME)))
                             .and_then(|name_node| name_node.get_sub_node())
                             .map(|ids_node| {
                                 (ids_node.get_pos() as usize)
@@ -961,7 +975,10 @@ impl McCode {
     /// Phase 1b: parse all module definitions (at this point all component/interface/enum are already registered)
     pub fn parse_pass1_modules(&mut self) {
         if self.modules_parsed {
-            eprintln!("[DEBUG parse_pass1_modules] SKIP (already parsed): {}", self.uri);
+            eprintln!(
+                "[DEBUG parse_pass1_modules] SKIP (already parsed): {}",
+                self.uri
+            );
             return; // already parsed (can be called from both parse_pass1_types and mcb_parse_all_modules)
         }
         self.modules_parsed = true;
@@ -978,7 +995,10 @@ impl McCode {
                     };
                     let already_exists = workspace::WORKSPACE.modules.borrow().contains_key(&key);
                     if already_exists {
-                        eprintln!("[DEBUG parse_pass1_modules] DUPLICATE: {} @ {}", module_name, self.uri);
+                        eprintln!(
+                            "[DEBUG parse_pass1_modules] DUPLICATE: {} @ {}",
+                            module_name, self.uri
+                        );
                     }
                     workspace::WORKSPACE
                         .modules
@@ -1238,9 +1258,7 @@ impl McCode {
                 // ★ LSP: Add interface definitions from both workspace and global interfaces tables
                 {
                     // Check workspace interfaces
-                    let interfaces = crate::builder::workspace::WORKSPACE
-                        .interfaces
-                        .borrow();
+                    let interfaces = crate::builder::workspace::WORKSPACE.interfaces.borrow();
                     for entry in interfaces.iter() {
                         let iface = entry.value();
                         if iface.uri.as_str() == uri_str {
@@ -1252,7 +1270,7 @@ impl McCode {
                         }
                     }
                     drop(interfaces);
-                    
+
                     // Check global system interfaces
                     let global_interfaces = crate::builder::global::mcc_interfaces.borrow();
                     for entry in global_interfaces.iter() {

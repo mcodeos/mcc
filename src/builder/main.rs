@@ -231,7 +231,10 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
     // Check pass1_complete flag to determine if parsing is needed
     let need_parse = !mcfile.pass1_complete;
     if need_parse {
-        eprintln!("[DEBUG mcb_add_recursive] remove_defines + parse_pass1_types: {}", canonical_uri);
+        eprintln!(
+            "[DEBUG mcb_add_recursive] remove_defines + parse_pass1_types: {}",
+            canonical_uri
+        );
         trace!(target: "mcc::builder", file = %file_str, "load: parse_pass1_types");
         crate::current_uri::set(&canonical_uri);
         remove_defines(&canonical_uri);
@@ -611,12 +614,16 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
 
     // Debug: always print to stderr so we can see it
     eprintln!("[MCB_GET_CMIE] name={}, uri={}", name_str, uri);
-    
+
     // Debug: check blib spacenames
     let blib_count = global::mcc_blibs.borrow().len();
     eprintln!("[MCB_GET_CMIE] blibs count={}", blib_count);
     for entry in global::mcc_blibs.borrow().iter() {
-        eprintln!("[MCB_GET_CMIE] blib={}, spacenames={}", entry.key(), entry.value().spacenames.len());
+        eprintln!(
+            "[MCB_GET_CMIE] blib={}, spacenames={}",
+            entry.key(),
+            entry.value().spacenames.len()
+        );
     }
 
     // ========== Re-entry guard ==========
@@ -645,13 +652,20 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     // Old implementation only checked the hard-coded key mcc_blibs["mcode"]. S3 fix: iterate all blibs
     // entries (user --lib mc/mcode will use "mc/mcode" as key).
     let mut found_in_blib: Option<(crate::builder::mc_code::McCode, McSpaceName)> = None;
-    let blib_names: Vec<String> = global::mcc_blibs.borrow().iter().map(|e| e.key().clone()).collect();
+    let blib_names: Vec<String> = global::mcc_blibs
+        .borrow()
+        .iter()
+        .map(|e| e.key().clone())
+        .collect();
     trace!(target: "mcc::mcb_get_cmie", name = %name_str, blibs = ?blib_names, "checking blibs");
     for entry in global::mcc_blibs.borrow().iter() {
         trace!(target: "mcc::mcb_get_cmie", blib = %entry.key(), spacenames_count = entry.value().spacenames.len());
         if entry.value().spacenames.get(class_name).is_some() {
             trace!(target: "mcc::mcb_get_cmie", name = %name_str, blib = %entry.key(), "found in blib!");
-            found_in_blib = Some((entry.value().clone(), entry.value().spacenames.get(class_name).unwrap().clone()));
+            found_in_blib = Some((
+                entry.value().clone(),
+                entry.value().spacenames.get(class_name).unwrap().clone(),
+            ));
             break;
         }
     }
@@ -1747,15 +1761,16 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
     let found = {
         let class_table = workspace::WORKSPACE.global_class_table.lock().unwrap();
         tracing::debug!(target: "mcc::lsp", "  register_declare_class: global_class_table size={}", class_table.len());
-        let result = class_table
-            .iter()
-            .find_map(|((target_uri, name), &(class_id, ref target_span))| {
-                if name == class_name {
-                    Some((class_id, target_uri.clone(), target_span.clone()))
-                } else {
-                    None
-                }
-            });
+        let result =
+            class_table
+                .iter()
+                .find_map(|((target_uri, name), &(class_id, ref target_span))| {
+                    if name == class_name {
+                        Some((class_id, target_uri.clone(), target_span.clone()))
+                    } else {
+                        None
+                    }
+                });
         if result.is_none() {
             tracing::debug!(target: "mcc::lsp", "  register_declare_class: global_class_table miss for '{}'", class_name);
         } else {

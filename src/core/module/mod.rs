@@ -12,7 +12,6 @@ use super::{
 use crate::builder::mcb_get_cmie;
 use crate::core::component::Mc2Component;
 use crate::core::mc_func::McFuncReturn;
-use crate::core::mc_ifs::Mc2Interface;
 use crate::{
     ast::{ast_node::AstNode, c_macros::*, error::message::*},
     builder::diagnostic::dlog_error,

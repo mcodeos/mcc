@@ -44,7 +44,7 @@ impl McInterface {
         let start = node.get_pos() as usize;
         let end = start + node.get_len() as usize;
         let span = crate::ast::ast_semantic::Span { start, end };
-        
+
         let mut ret = Self {
             name: McIds::new(&name_node.get_sub_node().expect(MISSING_SUBNODE))?,
             params: McParamDeclares::new(),

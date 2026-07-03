@@ -328,7 +328,11 @@ pub fn apply_net_labels(graph: &mut McVecGraph) -> Option<(f64, f64)> {
         }
         // ★ Stage A (A3): never air-wire a net that touches a two-pin passive — its pins must
         //   be reached by real wires.
-        if net.endpoints.iter().any(|e| passive_boxes.contains(&e.box_id)) {
+        if net
+            .endpoints
+            .iter()
+            .any(|e| passive_boxes.contains(&e.box_id))
+        {
             continue;
         }
         // ★ Stage A (A3): a net spanning only two boxes is a plain point-to-point wire, not a
