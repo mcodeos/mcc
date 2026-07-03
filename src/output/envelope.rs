@@ -247,6 +247,17 @@ pub struct DefinitionsIndex {
     pub components: Vec<DefinitionRef>,
     pub interfaces: Vec<DefinitionRef>,
     pub enums: Vec<DefinitionRef>,
+    /// Module port definitions (ps/io/in/out)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub ports: Vec<PortRef>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Default)]
+pub struct PortRef {
+    pub name: String,
+    pub iotype: String,
+    pub module: String,
+    pub uri: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

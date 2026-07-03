@@ -1551,6 +1551,35 @@ pub fn mcb_iter_enums() -> Vec<(String, String)> {
     items
 }
 
+/// Iterate all module port definitions (ps/io/in/out).
+/// Returns Vec of (port_name, iotype, module_name, uri).
+pub fn mcb_iter_ports() -> Vec<(String, String, String, String)> {
+    use crate::core::common::IOType;
+
+    let mut ports: Vec<(String, String, String, String)> = Vec::new();
+
+    for entry in workspace::WORKSPACE.modules.borrow().iter() {
+        let module_name = entry.key().ident.to_string();
+        let uri = entry.key().uri.clone();
+        let module = entry.value();
+
+        for (name, iotype) in module.insts.iter_ports() {
+            let io_name = match iotype {
+                IOType::Power => "power".to_string(),
+                IOType::In => "input".to_string(),
+                IOType::Out => "output".to_string(),
+                IOType::InOut => "inout".to_string(),
+                IOType::Analog => "analog".to_string(),
+                IOType::Return | IOType::NonCon | IOType::None => continue, // Skip non-port declarations
+            };
+            ports.push((name.to_string(), io_name, module_name.clone(), uri.clone()));
+        }
+    }
+
+    ports.sort_by(|a, b| a.0.cmp(&b.0));
+    ports
+}
+
 pub fn mcb_debug_get_cmie(class_name: &McIds, uri: &McURI) {
     let name_str = class_name.to_string();
     eprintln!("╔══════════════════════════════════════════════════════╗");

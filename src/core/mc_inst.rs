@@ -22,7 +22,8 @@ use crate::core::module::Mc2Module;
 use crate::message::MISSING_SUBNODE;
 use crate::McCMIE;
 use crate::McURI;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
+use std::ops::Range;
 use std::sync::Arc;
 
 /// ── P1: Robustly extract identifier from a MCAST_PARAM child node (V3V3 / V1V2 / [VDD,GND] / flash.SPI).
@@ -229,12 +230,18 @@ impl McInstance {
 #[derive(Debug, Clone)]
 pub struct McInstances {
     insts: BTreeMap<String, (IOType, McInstance)>,
+    /// Port spans for LSP goto-definition (name -> span ranges, multiple for DOT patterns)
+    port_spans: HashMap<String, Vec<Range<usize>>>,
+    /// LSP: spans in module body that reference port definitions (span, port_name)
+    port_ref_spans: Vec<(Range<usize>, String)>,
 }
 
 impl McInstances {
     pub(crate) fn new() -> Self {
         Self {
             insts: BTreeMap::new(),
+            port_spans: HashMap::new(),
+            port_ref_spans: Vec::new(),
         }
     }
 
@@ -242,7 +249,107 @@ impl McInstances {
         self.insts.contains_key(name)
     }
 
+    /// Iterate all ports (instances with IOType != None/Return/NonCon)
+    pub fn iter_ports(&self) -> impl Iterator<Item = (&str, &IOType)> {
+        self.insts
+            .iter()
+            .filter(|(_, (io_type, _))| !matches!(io_type, IOType::None | IOType::Return | IOType::NonCon))
+            .map(|(name, (io_type, _))| (name.as_str(), io_type))
+    }
+
+    /// Get port span by name (returns first span if multiple)
+    pub fn get_port_span(&self, name: &str) -> Option<Range<usize>> {
+        self.port_spans.get(name).and_then(|v| v.first().cloned())
+    }
+
+    /// Store port span when a port is inserted
+    pub(crate) fn store_port_span(&mut self, name: &str, span: Range<usize>) {
+        self.port_spans.entry(name.to_string()).or_default().push(span);
+    }
+
+    /// Iterate all ports with their spans (multiple entries per key for DOT patterns)
+    pub fn iter_ports_with_span(&self) -> impl Iterator<Item = (&str, &IOType, Range<usize>)> + '_ {
+        self.insts
+            .iter()
+            .filter(|(_, (io_type, _))| !matches!(io_type, IOType::None | IOType::Return | IOType::NonCon))
+            .filter_map(|(name, (io_type, _))| {
+                self.port_spans.get(name).map(|spans| (name.as_str(), io_type, spans))
+            })
+            .flat_map(|(name, iotype, spans)| {
+                spans.iter().map(move |span| (name, iotype, span.clone()))
+            })
+    }
+
+    /// Record a net-line reference to a port definition (for LSP goto-definition)
+    pub(crate) fn record_port_ref(&mut self, span: Range<usize>, port_name: &str) {
+        self.port_ref_spans.push((span, port_name.to_string()));
+    }
+
+    /// Iterate port reference spans collected from net lines
+    pub fn iter_port_refs(&self) -> impl Iterator<Item = &(Range<usize>, String)> {
+        self.port_ref_spans.iter()
+    }
+
     pub fn parse(&mut self, node: &AstNode, uri: &McURI) {
+        // Handle MCAST_NET_PORTS specially - extract spans for port definitions
+        if node.get_type() == MCAST_NET_PORTS {
+            if let Some(subnode) = node.get_sub_node() {
+                // First child is IOTYPE (ps, io, in, out)
+                if let Some(first) = subnode.iter().next() {
+                    if IOType::new(&first).is_some() {
+                        // Process remaining children as operands
+                        for child in first.iter().skip(1) {
+                            let ctype = child.get_type();
+                            match ctype {
+                                MCAST_DECLARE => {
+                                    self.parse_declare(&child, uri, &IOType::Power);
+                                }
+                                MCAST_OPD => {
+                                    let span = (child.get_pos() as usize)..((child.get_pos() + child.get_len()) as usize);
+                                    // Detect DOT pattern (DC2.VDD, label1.sub) before parse
+                                    let dot_base = child.get_sub_node().and_then(|opd| {
+                                        let first = opd.get_sub_node()?;
+                                        let next = first.get_next()?;
+                                        if next.get_type() == MCAST_OPD_DOT {
+                                            first.to_string()
+                                        } else {
+                                            None
+                                        }
+                                    });
+                                    if let Some(ref base) = dot_base {
+                                        // DOT pattern: key always exists (or is created) in insts as `base`
+                                        self.parse_opd(&child, IOType::Power);
+                                        self.store_port_span(base, span);
+                                    } else {
+                                        // Non-DOT: snapshot existing keys, then store spans for new ones
+                                        let before_keys: std::collections::HashSet<String> =
+                                            self.insts.keys().cloned().collect();
+                                        self.parse_opd(&child, IOType::Power);
+                                        let new_keys: Vec<String> = self.insts.keys()
+                                            .filter(|k| !before_keys.contains(*k))
+                                            .cloned()
+                                            .collect();
+                                        for k in new_keys {
+                                            self.store_port_span(&k, span.clone());
+                                        }
+                                    }
+                                }
+                                MCAST_OPD_SQUARE_VEC => {
+                                    let span = (child.get_pos() as usize)..((child.get_pos() + child.get_len()) as usize);
+                                    // Store span before parse to capture the @N index used by parse_opd_square_vec
+                                    let port_key = format!("@{}", self.insts.len());
+                                    self.parse_opd_square_vec(&child, IOType::Power);
+                                    self.store_port_span(&port_key, span);
+                                }
+                                _ => {}
+                            }
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+
         // Handle MCAST_DECLARE directly (e.g., "RES res1, res2" without IOTYPE)
         if node.get_type() == MCAST_DECLARE {
             self.parse_declare(node, uri, &IOType::None);
@@ -258,7 +365,10 @@ impl McInstances {
 
         // Handle MCAST_OPD_SQUARE_VEC directly (reference set like &[VDD1, GND1])
         if node.get_type() == MCAST_OPD_SQUARE_VEC {
+            let span = (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
+            let port_key = format!("@{}", self.insts.len());
             self.parse_opd_square_vec(node, IOType::Power);
+            self.store_port_span(&port_key, span);
             return;
         }
 
