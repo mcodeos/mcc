@@ -311,6 +311,38 @@ impl McIds {
                         // MCAST_IDS like [24,25] should be recursively parsed as nested square
                         Self::parse_square(&ids_node)
                     }
+                    MCAST_EXPRESSION => {
+                        // Handle expressions like 1:2 inside square brackets [1:2]
+                        if let Some(exp_sub) = ids_node.get_sub_node() {
+                            if exp_sub.get_type() == MCAST_OPD_COLON {
+                                // Extract from and to for Slice
+                                let from = exp_sub.get_sub_node()
+                                    .and_then(|n| McInt::new(&n));
+                                let to = exp_sub.get_sub_node()
+                                    .and_then(|n| n.get_next())
+                                    .and_then(|n| McInt::new(&n));
+                                if let (Some(f), Some(t)) = (from, to) {
+                                    return Some(IdsSegment::Slice {
+                                        from: Box::new(f),
+                                        to: Box::new(t),
+                                    });
+                                }
+                            }
+                        }
+                        None
+                    }
+                    MCAST_OPD_COLON => {
+                        // Handle colon range like 1:2 directly
+                        let left = ids_node.get_sub_node()?;
+                        let right = left.get_next()?;
+                        if let (Some(from), Some(to)) = (McInt::new(&left), McInt::new(&right)) {
+                            return Some(IdsSegment::Slice {
+                                from: Box::new(from),
+                                to: Box::new(to),
+                            });
+                        }
+                        None
+                    }
                     _ => None,
                 }
             })

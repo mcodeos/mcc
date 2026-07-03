@@ -145,16 +145,7 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
     collect_spacenames_by_prefix_global(&global::mcc_interfaces, &root_str, &mut lib_entry);
     collect_spacenames_by_prefix_global(&global::mcc_enums, &root_str, &mut lib_entry);
 
-    let total = lib_entry.spacenames.len();
-
-    // Debug: list first 20 spacenames
-    let spacenames_sample: Vec<String> = lib_entry
-        .spacenames
-        .keys()
-        .take(20)
-        .map(|k| k.to_string())
-        .collect();
-    tracing::trace!(target: "mcc::lib", name = name, total, sample = ?spacenames_sample, "collected spacenames sample");
+    let symbol_count = lib_entry.spacenames.len();
 
     // Replace blib with new one
     global::mcc_blibs
@@ -164,7 +155,7 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
     info!(
         target: "mcc::lib",
         name = name,
-        symbols = total,
+        symbols = symbol_count,
         files_loaded = loaded.len(),
         elapsed_ms = t0.elapsed().as_millis() as u64,
         "loaded"
@@ -310,7 +301,8 @@ fn collect_spacenames_by_prefix_global<T>(
     lib_entry: &mut McCode,
 ) {
     for entry in table.borrow().iter() {
-        if entry.key().uri.contains(prefix) {
+        let uri = &entry.key().uri;
+        if uri.contains(prefix) {
             lib_entry
                 .spacenames
                 .insert(entry.key().ident.clone(), entry.key().clone());

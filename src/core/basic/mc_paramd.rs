@@ -263,7 +263,7 @@ impl McParamDeclare {
             McParamDeclare::Role(role) => role.get_primary_name(),
             McParamDeclare::Single(ids) => ids.get_primary_name(),
             McParamDeclare::Multiple(_) => None,
-            McParamDeclare::UValue(_) => None,
+            McParamDeclare::UValue(uval) => uval.name.get_primary_name(),
         }
     }
 

@@ -251,6 +251,7 @@ impl Mc2Interface {
         params: Vec<McParamValue>,
     ) -> Self {
         let param_names = base.params.names();
+        
         let param_tuples: Vec<(McIds, String)> = params
             .iter()
             .zip(param_names.iter())
@@ -274,10 +275,18 @@ impl Mc2Interface {
             pin_name_mapping: Vec::new(),
         };
 
-        if let Some(ref cond_block) = inst.base.body.get_sub_node() {
-            if let Some(conds) = McConds::new(cond_block) {
-                if let Some(selected_block) = conds.evaluate(&param_tuples) {
-                    inst.parsed_pins = Self::parse_pins_from_block(&selected_block);
+        // Iterate through all children of body to find conditional blocks
+        if let Some(body_subnodes) = inst.base.body.get_sub_node() {
+            for child in body_subnodes.iter() {
+                let child_type = child.get_type();
+                
+                if child_type == MCAST_COND_IF {
+                    if let Some(conds) = McConds::new(&child) {
+                        if let Some(selected_block) = conds.evaluate(&param_tuples) {
+                            inst.parsed_pins = Self::parse_pins_from_block(&selected_block);
+                            break; // Found matching condition, stop searching
+                        }
+                    }
                 }
             }
         }
@@ -286,12 +295,22 @@ impl Mc2Interface {
     }
 
     fn parse_pins_from_block(block: &AstNode) -> Option<McPins> {
+        let mut pins = McPins::new();
+        
+        // If the block itself is an ATTRIBUTE_PIN or ATTRIBUTE_PINADD, parse it directly
+        if block.is_type(MCAST_ATTRIBUTE_PIN) || block.is_type(MCAST_ATTRIBUTE_PINADD) {
+            pins.parse(block);
+            return Some(pins);
+        }
+        
+        // Otherwise, look for ATTRIBUTE_PIN or ATTRIBUTE_PINADD in subnodes
         if let Some(subnodes) = block.get_sub_node() {
-            let mut pins = McPins::new();
             subnodes
                 .iter()
                 .filter(|x| x.is_type(MCAST_ATTRIBUTE_PIN) || x.is_type(MCAST_ATTRIBUTE_PINADD))
-                .for_each(|x| pins.parse(&x));
+                .for_each(|x| {
+                    pins.parse(&x);
+                });
             Some(pins)
         } else {
             None

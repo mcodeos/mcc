@@ -294,6 +294,20 @@ impl McPhrase {
                                     if context.find_inst(base).is_none() {
                                         context.add_bus(base.to_string(), vec![rest.to_string()]);
                                     } else {
+                                        // E1802: Check if base is a Component and rest is a valid pin
+                                        if let Some(McInstance::Component(c)) = context.find_inst(base) {
+                                            if c.base.pins.find_pin(&rest).is_none() {
+                                                dlog_error(
+                                                    1802,
+                                                    node,
+                                                    &format!(
+                                                        "Pin '{}' not found in component '{}'",
+                                                        rest, base
+                                                    ),
+                                                );
+                                                return None;
+                                            }
+                                        }
                                         // ★ LSP: Register instance reference for dot-separated path
                                         let span = (subnode.get_pos() as usize)
                                             ..((subnode.get_pos() + subnode.get_len()) as usize);
@@ -362,9 +376,26 @@ impl McPhrase {
                     } else {
                         let id = &data[0];
                         if let Some((base, member)) = id.split_once('.') {
-                            if context.find_inst(base).is_none() {
+                            let base_inst_opt = context.find_inst(base);
+                            if base_inst_opt.is_none() {
+                                // Base instance not found - create a new bus
                                 context.add_bus(base.to_string(), vec![member.to_string()]);
                             } else {
+                                // Base instance found - check if it's a Component
+                                if let Some(McInstance::Component(c)) = base_inst_opt {
+                                    // E1802: Check if the member is a valid pin in the component
+                                    if c.base.pins.find_pin(member).is_none() {
+                                        dlog_error(
+                                            1802,
+                                            node,
+                                            &format!(
+                                                "Pin '{}' not found in component '{}'",
+                                                member, base
+                                            ),
+                                        );
+                                        return None;
+                                    }
+                                }
                                 // ★ LSP: Register instance reference for dot-separated path
                                 let span = (node.get_pos() as usize)
                                     ..((node.get_pos() + node.get_len()) as usize);
