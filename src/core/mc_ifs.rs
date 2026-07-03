@@ -251,7 +251,7 @@ impl Mc2Interface {
         params: Vec<McParamValue>,
     ) -> Self {
         let param_names = base.params.names();
-        
+
         let param_tuples: Vec<(McIds, String)> = params
             .iter()
             .zip(param_names.iter())
@@ -279,7 +279,7 @@ impl Mc2Interface {
         if let Some(body_subnodes) = inst.base.body.get_sub_node() {
             for child in body_subnodes.iter() {
                 let child_type = child.get_type();
-                
+
                 if child_type == MCAST_COND_IF {
                     if let Some(conds) = McConds::new(&child) {
                         if let Some(selected_block) = conds.evaluate(&param_tuples) {
@@ -296,13 +296,13 @@ impl Mc2Interface {
 
     fn parse_pins_from_block(block: &AstNode) -> Option<McPins> {
         let mut pins = McPins::new();
-        
+
         // If the block itself is an ATTRIBUTE_PIN or ATTRIBUTE_PINADD, parse it directly
         if block.is_type(MCAST_ATTRIBUTE_PIN) || block.is_type(MCAST_ATTRIBUTE_PINADD) {
             pins.parse(block);
             return Some(pins);
         }
-        
+
         // Otherwise, look for ATTRIBUTE_PIN or ATTRIBUTE_PINADD in subnodes
         if let Some(subnodes) = block.get_sub_node() {
             subnodes

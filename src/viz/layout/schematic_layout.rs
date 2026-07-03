@@ -77,7 +77,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::vector::graph::{naming, BoxKind, McVecGraph, Symbol};
+use crate::vector::graph::{naming, McVecGraph};
 
 use super::chain::{self, ChainDir, SignalChain, SignalChainResult};
 use super::entry_points::{assign_entry_points_coarse, promote_synthetic_pins, split_shared_pins};
@@ -127,22 +127,19 @@ impl Layouter for SchematicSubLayouter {
             return (200.0, 100.0);
         }
 
-        // ── Phase 1: Prepare ──
+        // ── Phase 1a: Connectivity-preserving prep ──
+        //   These promote synthetic endpoints to real pin_ids and split shared
+        //   pins, but do NOT drop or shatter any nets, so the shared power/ground
+        //   hyperedges the chain extractor relies on stay intact.
         graph.fanout_star = false;
-        explode_power_rails_to_flags(graph);
         promote_synthetic_pins(graph);
         split_shared_pins(graph);
-        assign_default_sizes(graph);
-        assign_entry_points_coarse(graph);
-        recompute_sizes_with_pin_count(graph);
 
-        if graph.boxes.len() == 1 {
-            graph.boxes[0].x = CANVAS_MARGIN;
-            graph.boxes[0].y = CANVAS_MARGIN;
-            return compute_canvas(graph);
-        }
-
-        // ── Phase 2: Extract signal chains ──
+        // ── Phase 2: Extract signal chains (BEFORE explode) ──
+        //   ★ explode_power_rails_to_flags shatters the shared GND/VCC hyperedge
+        //   `[rail, hub, cap1, cap2, …]` into per-consumer stubs, disconnecting the
+        //   hub from its decoupling passives. Extraction must see the intact graph,
+        //   so it runs here — before Phase 1b explodes the rails for rendering.
         let result = chain::extract_signal_chains(graph);
 
         crate::vlog!(
@@ -153,6 +150,24 @@ impl Layouter for SchematicSubLayouter {
             result.orphan_ids.len()
         );
         crate::vlog!("{}", result.dump(graph));
+
+        // ── Phase 1b: Now safe to explode rails into per-consumer flags ──
+        //   Extraction is done, so shattering the shared rails only affects
+        //   rendering (short local stubs + flags). Any flag boxes created here are
+        //   not covered by `result` and are placed by `place_orphans`, which sweeps
+        //   *all* still-unplaced boxes (not just the pre-explode orphan set).
+        explode_power_rails_to_flags(graph);
+
+        // ── Phase 1c: Sizes + entry points (after explode so flags are sized too) ──
+        assign_default_sizes(graph);
+        assign_entry_points_coarse(graph);
+        recompute_sizes_with_pin_count(graph);
+
+        if graph.boxes.len() == 1 {
+            graph.boxes[0].x = CANVAS_MARGIN;
+            graph.boxes[0].y = CANVAS_MARGIN;
+            return compute_canvas(graph);
+        }
 
         // ── Phase 3: Assign directions to hub pins ──
         let dir_map = assign_pin_directions(graph, &result);
@@ -599,7 +614,8 @@ fn set_box_pos(graph: &mut McVecGraph, id: i64, x: f64, y: f64) {
 mod tests {
     use super::*;
     use crate::vector::graph::{
-        EndpointRef, EntryPoint, EntrySide, IoSummary, McVecBox, McVecGraph, NetKind, VizNet,
+        BoxKind, EndpointRef, EntryPoint, EntrySide, IoSummary, McVecBox, McVecGraph, NetKind,
+        Symbol, VizNet,
     };
     use crate::viz::traits::Layouter;
 
@@ -921,8 +937,8 @@ mod tests {
         layouter.layout(&mut g);
 
         let hub = g.boxes.iter().find(|b| b.id == 1168).unwrap();
-        let hub_cx = hub.x + hub.w / 2.0;
-        let hub_cy = hub.y + hub.h / 2.0;
+        let _hub_cx = hub.x + hub.w / 2.0;
+        let _hub_cy = hub.y + hub.h / 2.0;
 
         // L_dcdc (LX chain) should be to the right of hub
         let l_dcdc = g.boxes.iter().find(|b| b.name == "L_dcdc").unwrap();

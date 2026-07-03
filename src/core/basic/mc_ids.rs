@@ -316,9 +316,9 @@ impl McIds {
                         if let Some(exp_sub) = ids_node.get_sub_node() {
                             if exp_sub.get_type() == MCAST_OPD_COLON {
                                 // Extract from and to for Slice
-                                let from = exp_sub.get_sub_node()
-                                    .and_then(|n| McInt::new(&n));
-                                let to = exp_sub.get_sub_node()
+                                let from = exp_sub.get_sub_node().and_then(|n| McInt::new(&n));
+                                let to = exp_sub
+                                    .get_sub_node()
                                     .and_then(|n| n.get_next())
                                     .and_then(|n| McInt::new(&n));
                                 if let (Some(f), Some(t)) = (from, to) {

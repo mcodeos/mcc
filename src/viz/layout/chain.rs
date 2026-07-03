@@ -4,7 +4,7 @@
 
 //! Chain topology detection + linear layout + IC-pin signal chain extraction
 
-use crate::vector::graph::{BoxKind, EntrySide, McVecGraph};
+use crate::vector::graph::{naming, BoxKind, EntrySide, McVecGraph, NetKind, VizNet};
 use std::collections::{HashMap, HashSet};
 
 // ============================================================================
@@ -224,6 +224,45 @@ fn build_box_net_index(graph: &McVecGraph) -> HashMap<i64, Vec<usize>> {
     idx
 }
 
+/// Is this net a power/ground rail?
+///
+/// Rails are recognised primarily by their [`NetKind`] (the synthesized rail
+/// hyperedges from `from_block::synthesize_rail_nets` carry `Power`/`Ground`),
+/// with a name-based fallback for nets whose kind was left as `Signal`.
+fn net_is_rail(net: &VizNet) -> bool {
+    matches!(net.kind, NetKind::Power | NetKind::Ground) || naming::is_power_rail(&net.name)
+}
+
+/// Resolve the best *signal* name for a hub pin.
+///
+/// ★ The net endpoint's `pin_name` is unreliable for direction assignment:
+/// - For a real IC pin it is often the bare pin **number** (`"3"`), not the
+///   functional name (`"LX"`).
+/// - For a rail-synth endpoint promoted by `promote_synthetic_pins`, it is the
+///   **net** name (which is how a hub pin ends up labelled `"lp322dcdc"`).
+///
+/// The authoritative functional name lives in the hub box's `BoxPin.description`
+/// (mcode `pins = [ <number> = <description> ]`, e.g. `3 = LX`). Prefer that,
+/// then the pin number, then the entry-point name, then the raw endpoint name.
+fn resolve_hub_pin_name(graph: &McVecGraph, hub_id: i64, pin_id: i64, fallback: &str) -> String {
+    if let Some(b) = graph.boxes.iter().find(|b| b.id == hub_id) {
+        if let Some(p) = b.pins.iter().find(|p| p.id == pin_id) {
+            if !p.description.is_empty() {
+                return p.description.clone();
+            }
+            if !p.pin_id.is_empty() {
+                return p.pin_id.clone();
+            }
+        }
+        if let Some(ep) = b.entry_points.iter().find(|e| e.pin_id == pin_id) {
+            if !ep.pin_name.is_empty() {
+                return ep.pin_name.clone();
+            }
+        }
+    }
+    fallback.to_string()
+}
+
 pub fn extract_signal_chains(graph: &McVecGraph) -> SignalChainResult {
     let hub_id = match find_hub(graph) {
         Some(id) => id,
@@ -252,9 +291,18 @@ pub fn extract_signal_chains(graph: &McVecGraph) -> SignalChainResult {
 
         // Get the hub's pin info from this net (for labeling)
         let hub_ep = net.endpoints.iter().find(|e| e.box_id == hub_id);
-        let (hub_pin, hub_pin_name) = hub_ep
+        let (hub_pin, raw_name) = hub_ep
             .map(|e| (e.pin_id, e.pin_name.clone()))
             .unwrap_or((-1, String::new()));
+        // ★ Problem 2 fix: derive the functional signal name (LX/EN/FB…) from the
+        //   hub's BoxPin.description, not the (numeric / net-name) endpoint pin_name.
+        let hub_pin_name = resolve_hub_pin_name(graph, hub_id, hub_pin, &raw_name);
+
+        // ★ Problem 1 fix: is this hub net itself a shared power/ground rail?
+        //   If so, its passive consumers are reached via their *signal* pins on
+        //   other nets — spawning chains from the rail side only duplicates them
+        //   and makes the trace wander across every consumer on the rail.
+        let hub_net_is_rail = net_is_rail(net);
 
         // Direction: use entry_point if available, else fallback Right
         let dir = graph
@@ -277,6 +325,13 @@ pub fn extract_signal_chains(graph: &McVecGraph) -> SignalChainResult {
                 Some(b) => b,
                 None => continue,
             };
+
+            // On a shared rail hub net, only record non-passive termini (rail
+            // label, boundary submodule). Passives are picked up via their
+            // signal-side hub nets (see hub_net_is_rail above).
+            if hub_net_is_rail && other_box.kind == BoxKind::TwoPin {
+                continue;
+            }
 
             let mut chain = SignalChain {
                 hub_id,
@@ -392,6 +447,36 @@ fn trace_by_box(
         if net.nid == from_net_id {
             continue;
         } // skip entry net
+
+        // ★ Problem 1 fix: a power/ground exit net TERMINATES the chain. Never
+        //   traverse a shared rail hyperedge to another passive (that would wander
+        //   across every consumer on the rail). A decoupling cap ends here:
+        //   loop back to the hub if the hub sits on this rail, otherwise terminate
+        //   at the rail's label box.
+        if net_is_rail(net) {
+            if net
+                .endpoints
+                .iter()
+                .any(|e| e.box_id == hub_id && e.box_id != box_id)
+            {
+                chain.loops_to_hub = true;
+                return;
+            }
+            if let Some(rail_ep) = net.endpoints.iter().find(|e| {
+                e.box_id != box_id
+                    && box_set.contains(&e.box_id)
+                    && graph
+                        .boxes
+                        .iter()
+                        .any(|b| b.id == e.box_id && b.kind == BoxKind::PowerLabel)
+            }) {
+                chain.terminus = Some(ChainNode {
+                    box_id: rail_ep.box_id,
+                    net_id: net.nid,
+                });
+            }
+            return;
+        }
 
         // Look for next unvisited box on exit net
         if let Some(next) = net.endpoints.iter().find(|e| {
