@@ -587,42 +587,42 @@ static const yytype_uint8 yytranslate[] =
 static const yytype_int16 yyrline[] =
 {
        0,   138,   138,   139,   140,   141,   142,   144,   145,   147,
-     148,   149,   150,   151,   152,   153,   156,   161,   166,   171,
-     177,   181,   189,   193,   202,   203,   204,   206,   210,   215,
-     220,   225,   230,   236,   237,   238,   241,   242,   244,   254,
-     264,   274,   283,   290,   297,   298,   299,   301,   302,   303,
-     304,   305,   306,   307,   310,   318,   323,   329,   333,   337,
-     341,   347,   348,   351,   356,   361,   368,   369,   370,   372,
-     379,   387,   395,   405,   412,   417,   422,   428,   433,   439,
-     443,   448,   453,   461,   466,   471,   476,   481,   492,   493,
-     495,   500,   505,   511,   517,   525,   534,   540,   548,   553,
-     559,   564,   569,   574,   575,   576,   580,   581,   583,   584,
-     585,   586,   588,   589,   590,   591,   592,   593,   594,   595,
-     596,   598,   599,   600,   601,   602,   603,   604,   605,   606,
-     608,   609,   610,   611,   612,   613,   614,   615,   616,   618,
-     619,   620,   621,   622,   623,   624,   625,   626,   628,   629,
-     630,   631,   632,   633,   634,   635,   636,   638,   639,   640,
-     641,   642,   643,   644,   645,   646,   648,   649,   650,   651,
-     653,   654,   655,   656,   658,   663,   668,   673,   682,   692,
-     697,   704,   712,   722,   732,   741,   750,   758,   766,   774,
-     784,   793,   804,   815,   825,   834,   843,   852,   886,   893,
-     902,   909,   920,   925,   932,   939,   950,   951,   952,   954,
-     955,   958,   963,   969,   975,   981,   987,   993,   999,  1005,
-    1011,  1021,  1030,  1045,  1053,  1062,  1070,  1079,  1084,  1090,
-    1095,  1102,  1109,  1117,  1126,  1127,  1128,  1130,  1134,  1138,
-    1142,  1148,  1153,  1161,  1166,  1175,  1180,  1191,  1196,  1202,
-    1207,  1212,  1218,  1219,  1220,  1222,  1223,  1224,  1225,  1226,
-    1227,  1228,  1229,  1230,  1231,  1235,  1236,  1237,  1239,  1240,
-    1242,  1243,  1244,  1245,  1246,  1247,  1248,  1249,  1250,  1251,
-    1252,  1253,  1255,  1256,  1257,  1258,  1259,  1260,  1262,  1264,
-    1265,  1266,  1267,  1272,  1273,  1274,  1275,  1279,  1283,  1289,
-    1290,  1291,  1292,  1293,  1294,  1301,  1302,  1303,  1304,  1305,
-    1306,  1307,  1308,  1309,  1310,  1311,  1312,  1313,  1314,  1315,
-    1316,  1317,  1318,  1319,  1320,  1321,  1322,  1323,  1324,  1325,
-    1326,  1327,  1331,  1332,  1333,  1334,  1335,  1336,  1337,  1338,
-    1339,  1340,  1341,  1342,  1343,  1344,  1345,  1346,  1347,  1348,
-    1349,  1350,  1351,  1352,  1353,  1354,  1355,  1356,  1357,  1358,
-    1359,  1360,  1361,  1363,  1364,  1365,  1366
+     148,   149,   150,   151,   152,   153,   156,   161,   171,   176,
+     187,   191,   199,   203,   212,   213,   214,   216,   220,   225,
+     230,   235,   241,   248,   249,   250,   253,   254,   256,   266,
+     276,   286,   295,   302,   309,   310,   311,   313,   314,   315,
+     316,   317,   318,   319,   322,   330,   335,   341,   345,   349,
+     353,   359,   360,   363,   368,   373,   380,   381,   382,   384,
+     391,   399,   407,   417,   424,   429,   434,   440,   445,   451,
+     455,   460,   465,   473,   478,   483,   488,   493,   504,   505,
+     507,   512,   517,   523,   529,   537,   546,   552,   560,   565,
+     571,   576,   581,   586,   587,   588,   592,   593,   595,   596,
+     597,   598,   600,   601,   602,   603,   604,   605,   606,   607,
+     608,   610,   611,   612,   613,   614,   615,   616,   617,   618,
+     620,   621,   622,   623,   624,   625,   626,   627,   628,   630,
+     631,   632,   633,   634,   635,   636,   637,   638,   640,   641,
+     642,   643,   644,   645,   646,   647,   648,   650,   651,   652,
+     653,   654,   655,   656,   657,   658,   660,   661,   662,   663,
+     665,   666,   667,   668,   670,   675,   680,   685,   694,   704,
+     709,   716,   724,   734,   744,   753,   762,   770,   778,   786,
+     796,   805,   816,   827,   837,   846,   855,   864,   898,   905,
+     914,   921,   932,   937,   944,   951,   962,   963,   964,   966,
+     967,   970,   975,   981,   987,   993,   999,  1005,  1011,  1017,
+    1023,  1033,  1042,  1057,  1065,  1074,  1082,  1091,  1096,  1102,
+    1107,  1114,  1121,  1129,  1138,  1139,  1140,  1142,  1146,  1150,
+    1154,  1160,  1165,  1173,  1178,  1187,  1192,  1203,  1208,  1214,
+    1219,  1224,  1230,  1231,  1232,  1234,  1235,  1236,  1237,  1238,
+    1239,  1240,  1241,  1242,  1243,  1247,  1248,  1249,  1251,  1252,
+    1254,  1255,  1256,  1257,  1258,  1259,  1260,  1261,  1262,  1263,
+    1264,  1265,  1267,  1268,  1269,  1270,  1271,  1272,  1274,  1276,
+    1277,  1278,  1279,  1284,  1285,  1286,  1287,  1291,  1295,  1301,
+    1302,  1303,  1304,  1305,  1306,  1313,  1314,  1315,  1316,  1317,
+    1318,  1319,  1320,  1321,  1322,  1323,  1324,  1325,  1326,  1327,
+    1328,  1329,  1330,  1331,  1332,  1333,  1334,  1335,  1336,  1337,
+    1338,  1339,  1343,  1344,  1345,  1346,  1347,  1348,  1349,  1350,
+    1351,  1352,  1353,  1354,  1355,  1356,  1357,  1358,  1359,  1360,
+    1361,  1362,  1363,  1364,  1365,  1366,  1367,  1368,  1369,  1370,
+    1371,  1372,  1373,  1375,  1376,  1377,  1378
 };
 #endif
 #define YYPACT_NINF (-541)
@@ -2304,7 +2304,12 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
   case 17:
 {
     
+    // Save mc_uri pos/len before mc_value_link extends it with IMPORT_IDS
+    unsigned int uri_pos = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)->pos;
+    unsigned int uri_len = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)->len;
     ((*yyvalp).value) = mc_value_create_node(MCAST_USE_PUB, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), mc_value_create_node(MCAST_URI_IMPORT_IDS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))));
+    (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)->pos = uri_pos;
+    (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)->len = uri_len;
 }
     break;
   case 18:
@@ -2316,7 +2321,12 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
   case 19:
 {
     
+    // Save mc_uri pos/len before mc_value_link extends it with IMPORT_IDS
+    unsigned int uri_pos = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)->pos;
+    unsigned int uri_len = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)->len;
     ((*yyvalp).value) = mc_value_create_node(MCAST_USE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), mc_value_create_node(MCAST_URI_IMPORT_IDS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))));
+    (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)->pos = uri_pos;
+    (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)->len = uri_len;
 }
     break;
   case 20:
@@ -2376,18 +2386,21 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
   case 30:
 {
     ((*yyvalp).value) = mc_value_create_node(MCAST_URI_FILE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value));
+    ((*yyvalp).value)->len += (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen;  // extend position to include ".mc"
 }
     break;
   case 31:
 {
     ((*yyvalp).value) = mc_value_link( mc_value_create_node(MCAST_URI_FILE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value)), 
                        mc_value_create_data(MCAST_URI_VERSION, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tlen));
+    ((*yyvalp).value)->len += (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen;  // extend position to include ".mc"
 }
     break;
   case 32:
 {
     ((*yyvalp).value) = mc_value_link( mc_value_create_node(MCAST_URI_FILE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value)), 
                        mc_value_create_data(MCAST_URI_VERSION, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tlen));
+    ((*yyvalp).value)->len += (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen;  // extend position to include ".mc"
 }
     break;
   case 33:

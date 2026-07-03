@@ -8,7 +8,7 @@ use tracing::{debug, warn};
 
 use crate::{
     ast::{ast_node::AstNode, c_macros::*, error::message::*},
-    builder::{diagnostic::dlog_error, mcb_get_project_root, mcb_get_system_root},
+    builder::{diagnostic::{dlog_error, dlog_warning}, mcb_get_project_root, mcb_get_system_root},
     McIds, McURI,
 };
 
@@ -194,11 +194,11 @@ impl McUse {
             as_id: uri_asid,
             impt_ids: uri_import_ids,
         };
-        mc_use.update_abs_path(current_path);
+        mc_use.update_abs_path(current_path, Some(&module_file_node));
         Some(mc_use)
     }
 
-    pub fn update_abs_path(&mut self, current_path: &Path) {
+    pub fn update_abs_path(&mut self, current_path: &Path, file_node: Option<&AstNode>) {
         // 1. Validate current path is absolute (log and exit on failure)
         if !current_path.is_absolute() {
             warn!(
@@ -248,18 +248,22 @@ impl McUse {
         // 5. Base path + versioned URI
         let absolute_file_path = base_path.join(final_filename);
 
-        // 6. Canonicalize absolute path (log and exit on failure)
-        // Note: downgraded to debug level — failing to find target while resolving use chain is normal noise,
-        // should not pollute default stderr. Use `mcc -vv` to investigate.
+        // 6. Canonicalize absolute path (log warning on failure if node is available)
         let canonical_abs_path: std::path::PathBuf = match absolute_file_path.canonicalize() {
             Ok(path) => path,
             Err(e) => {
-                debug!(
-                    target: "mcc::use",
-                    error = %e,
-                    path = ?absolute_file_path,
-                    "canonicalize failed (use target probably not on disk)"
-                );
+                // Log warning with dlog_warning if file_node is available
+                if let Some(fnode) = file_node {
+                    let file_display = absolute_file_path.display();
+                    dlog_warning(403, fnode, &format!("use target not found: {file_display}"));
+                } else {
+                    debug!(
+                        target: "mcc::use",
+                        error = %e,
+                        path = ?absolute_file_path,
+                        "canonicalize failed (use target probably not on disk)"
+                    );
+                }
                 return;
             }
         };
