@@ -231,10 +231,6 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
     // Check pass1_complete flag to determine if parsing is needed
     let need_parse = !mcfile.pass1_complete;
     if need_parse {
-        eprintln!(
-            "[DEBUG mcb_add_recursive] remove_defines + parse_pass1_types: {}",
-            canonical_uri
-        );
         trace!(target: "mcc::builder", file = %file_str, "load: parse_pass1_types");
         crate::current_uri::set(&canonical_uri);
         remove_defines(&canonical_uri);
@@ -611,20 +607,6 @@ pub(crate) fn mcb_pass2_flat(
 /// 5. Directly lookup by name in global table
 pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     let name_str = class_name.to_string();
-
-    // Debug: always print to stderr so we can see it
-    eprintln!("[MCB_GET_CMIE] name={}, uri={}", name_str, uri);
-
-    // Debug: check blib spacenames
-    let blib_count = global::mcc_blibs.borrow().len();
-    eprintln!("[MCB_GET_CMIE] blibs count={}", blib_count);
-    for entry in global::mcc_blibs.borrow().iter() {
-        eprintln!(
-            "[MCB_GET_CMIE] blib={}, spacenames={}",
-            entry.key(),
-            entry.value().spacenames.len()
-        );
-    }
 
     // ========== Re-entry guard ==========
     // Prevent mcb_get_cmie → parse_pass1_modules → McModule::new → mcb_get_cmie infinite recursion

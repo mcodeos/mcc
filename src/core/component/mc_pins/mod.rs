@@ -531,27 +531,38 @@ impl McPins {
 
                     McPinPort::Interface(declare) => {
                         // Get pin names from interface definition
-                        // First try: get pins from the specified role parameter (e.g., UART.TTL(DCE))
+                        // Priority: parsed_pins (from conditional evaluation) > role pins > base.pins
                         let mut iface_pins: Vec<String> = Vec::new();
 
-                        // Look up role name from params (e.g., "DCE" from UART.TTL(DCE))
-                        if let Some(McParamValue::Ids(role_ids)) = declare.params.first() {
-                            let role_name = role_ids.to_string();
-                            // Find the matching role in base.roles
-                            for role in &declare.base.roles {
-                                if role.name.to_string() == role_name {
-                                    // Key: use pins (BTreeMap sorted by pinid) order
-                                    //   - numeric pinid (1, 2, 3...) BTreeMap order = original declaration order
-                                    //   - alphabetic pinid (A, B, AB) BTreeMap order ≠ original order,
-                                    //     but closer to original than names_to_id.keys() (alphabetic name order)
-                                    // for each pin, take names[0] as member name.
-                                    iface_pins = role
-                                        .pins
-                                        .pins
-                                        .values()
-                                        .filter_map(|p| p.names.first().cloned())
-                                        .collect();
-                                    break;
+                        // First priority: use parsed_pins if available (from conditional evaluation with params)
+                        if let Some(parsed) = &declare.parsed_pins {
+                            iface_pins = parsed
+                                .pins
+                                .values()
+                                .filter_map(|p| p.names.first().cloned())
+                                .collect();
+                        }
+
+                        // Second priority: get pins from the specified role parameter (e.g., UART.TTL(DCE))
+                        if iface_pins.is_empty() {
+                            if let Some(McParamValue::Ids(role_ids)) = declare.params.first() {
+                                let role_name = role_ids.to_string();
+                                // Find the matching role in base.roles
+                                for role in &declare.base.roles {
+                                    if role.name.to_string() == role_name {
+                                        // Key: use pins (BTreeMap sorted by pinid) order
+                                        //   - numeric pinid (1, 2, 3...) BTreeMap order = original declaration order
+                                        //   - alphabetic pinid (A, B, AB) BTreeMap order ≠ original order,
+                                        //     but closer to original than names_to_id.keys() (alphabetic name order)
+                                        // for each pin, take names[0] as member name.
+                                        iface_pins = role
+                                            .pins
+                                            .pins
+                                            .values()
+                                            .filter_map(|p| p.names.first().cloned())
+                                            .collect();
+                                        break;
+                                    }
                                 }
                             }
                         }
@@ -1721,16 +1732,28 @@ impl McPinNames {
                                         let mut class_child = node.get_sub_node();
                                         while let Some(cc) = class_child {
                                             if cc.get_type() == MCAST_PARAMS {
-                                                // MCAST_PARAMS -> MCAST_PARAM -> actual value
-                                                if let Some(param_node) = cc.get_sub_node() {
+                                                // MCAST_PARAMS can contain multiple MCAST_PARAM nodes
+                                                // Iterate through all param nodes
+                                                let mut param_current = cc.get_sub_node();
+                                                while let Some(param_node) = param_current {
                                                     if param_node.get_type() == MCAST_PARAM {
-                                                        // McIds::new handles MCAST_PARAM by recursing into its sub-node
+                                                        // Try to parse as McIds first (for identifiers like "DCE")
                                                         if let Some(ids) = McIds::new(&param_node) {
                                                             if !ids.is_empty() {
                                                                 params.push(McParamValue::Ids(ids));
                                                             }
                                                         }
+                                                        
+                                                        // If not McIds, check if it's a UVALUE (like "12V")
+                                                        if let Some(sub) = param_node.get_sub_node() {
+                                                            if sub.get_type() == MCAST_UVALUE || sub.get_type() == MCAST_UVALUE_AT {
+                                                                if let Some(uv) = crate::core::basic::mc_uval::McUnitValue::new(&sub) {
+                                                                    params.push(McParamValue::UValue(uv));
+                                                                }
+                                                            }
+                                                        }
                                                     }
+                                                    param_current = param_node.get_next();
                                                 }
                                             }
                                             class_child = cc.get_next();
@@ -1967,6 +1990,12 @@ pub(crate) fn derive_interface_subnames(inst_name: &McIds, iface_pins: &[String]
     }
     if inst_name.is_list() {
         if let Some(members) = inst_name.list_members() {
+            // If this is a pure Square form (e.g. [1:2] without an Ida prefix),
+            // the members are numeric pin ranges and should use iface_pins as names
+            if inst_name.segments.len() == 1 {
+                // Pure Square: use interface pin names directly
+                return iface_pins.to_vec();
+            }
             return members;
         }
     }

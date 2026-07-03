@@ -966,6 +966,31 @@ impl McCode {
                 _ => {} // MCAST_MODULE handled in the second phase
             }
         }
+
+        // Build spacenames from all definitions found in this file
+        for node in self.ast.iter() {
+            if node.is_type(MCAST_INTERFACE)
+                || node.is_type(MCAST_COMPONENT)
+                || node.is_type(MCAST_MODULE)
+            {
+                if let Some(subnodes) = node.get_sub_node() {
+                    if let Some(name_node) = subnodes.iter().find(|x| x.is_type(MCAST_NAME)) {
+                        if let Some(ids_node) = name_node.get_sub_node() {
+                            if let Some(class_name) = McIds::new(&ids_node) {
+                                let class_name_clone = class_name.clone();
+                                if !self.spacenames.contains_key(&class_name) {
+                                    self.spacenames.insert(
+                                        class_name_clone,
+                                        McSpaceName::new(&class_name, self.uri.clone()),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Mark Pass1 parse as complete
         self.pass1_complete = true;
 
@@ -975,14 +1000,9 @@ impl McCode {
     /// Phase 1b: parse all module definitions (at this point all component/interface/enum are already registered)
     pub fn parse_pass1_modules(&mut self) {
         if self.modules_parsed {
-            eprintln!(
-                "[DEBUG parse_pass1_modules] SKIP (already parsed): {}",
-                self.uri
-            );
             return; // already parsed (can be called from both parse_pass1_types and mcb_parse_all_modules)
         }
         self.modules_parsed = true;
-        eprintln!("[DEBUG parse_pass1_modules] PARSE: {}", self.uri);
 
         for (_i, node) in self.ast.iter().enumerate() {
             let node_type = node.get_type();
@@ -993,13 +1013,6 @@ impl McCode {
                         ident: module_name.clone(),
                         uri: self.uri.clone(),
                     };
-                    let already_exists = workspace::WORKSPACE.modules.borrow().contains_key(&key);
-                    if already_exists {
-                        eprintln!(
-                            "[DEBUG parse_pass1_modules] DUPLICATE: {} @ {}",
-                            module_name, self.uri
-                        );
-                    }
                     workspace::WORKSPACE
                         .modules
                         .borrow()
