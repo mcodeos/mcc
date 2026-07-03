@@ -4,8 +4,8 @@
 
 //! Chain topology detection + linear layout + IC-pin signal chain extraction
 
+use crate::vector::graph::{BoxKind, EntrySide, McVecGraph};
 use std::collections::{HashMap, HashSet};
-use crate::vector::graph::{BoxKind, McVecGraph, EntrySide};
 
 // ============================================================================
 // Part 1: Linear chain detection (existing, unchanged)
@@ -29,12 +29,17 @@ pub fn try_linearize_chain(comp: &[i64], adj: &HashMap<i64, Vec<i64>>) -> Option
     let start = endpoints[0];
     let mut chain = Vec::with_capacity(comp.len());
     let mut visited = HashSet::new();
-    chain.push(start); visited.insert(start);
+    chain.push(start);
+    visited.insert(start);
     let mut cur = start;
     while chain.len() < comp.len() {
         let neighbors = adj.get(&cur).cloned().unwrap_or_default();
         match neighbors.into_iter().find(|n| !visited.contains(n)) {
-            Some(n) => { chain.push(n); visited.insert(n); cur = n; }
+            Some(n) => {
+                chain.push(n);
+                visited.insert(n);
+                cur = n;
+            }
             None => return None,
         }
     }
@@ -42,17 +47,24 @@ pub fn try_linearize_chain(comp: &[i64], adj: &HashMap<i64, Vec<i64>>) -> Option
 }
 
 pub fn layout_chain_horizontal(
-    graph: &mut McVecGraph, chain: &[i64], start_x: f64, start_y: f64,
+    graph: &mut McVecGraph,
+    chain: &[i64],
+    start_x: f64,
+    start_y: f64,
 ) -> (f64, f64) {
     const CHAIN_GAP: f64 = 50.0;
-    let max_h: f64 = chain.iter()
+    let max_h: f64 = chain
+        .iter()
         .filter_map(|id| graph.boxes.iter().find(|b| b.id == *id))
-        .map(|b| b.h).fold(0.0f64, f64::max);
+        .map(|b| b.h)
+        .fold(0.0f64, f64::max);
     let row_cy = start_y + max_h / 2.0;
     let mut cur_x = start_x;
     for &id in chain {
         if let Some(b) = graph.boxes.iter_mut().find(|b| b.id == id) {
-            b.x = cur_x; b.y = row_cy - b.h / 2.0; cur_x += b.w + CHAIN_GAP;
+            b.x = cur_x;
+            b.y = row_cy - b.h / 2.0;
+            cur_x += b.w + CHAIN_GAP;
         }
     }
     ((cur_x - CHAIN_GAP - start_x).max(0.0), max_h)
@@ -65,16 +77,23 @@ pub fn layout_chain_horizontal(
 #[derive(Debug, Clone)]
 pub struct ChainNode {
     pub box_id: i64,
-    pub net_id: i64,      // net connecting to previous node
+    pub net_id: i64, // net connecting to previous node
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum ChainDir { Left, Right, Up, Down }
+pub enum ChainDir {
+    Left,
+    Right,
+    Up,
+    Down,
+}
 impl ChainDir {
     pub fn from_side(side: &EntrySide) -> Self {
         match side {
-            EntrySide::Left => ChainDir::Left, EntrySide::Right => ChainDir::Right,
-            EntrySide::Top => ChainDir::Up, EntrySide::Bottom => ChainDir::Down,
+            EntrySide::Left => ChainDir::Left,
+            EntrySide::Right => ChainDir::Right,
+            EntrySide::Top => ChainDir::Up,
+            EntrySide::Bottom => ChainDir::Down,
         }
     }
 }
@@ -93,10 +112,14 @@ pub struct SignalChain {
 }
 
 impl SignalChain {
-    pub fn is_direct(&self) -> bool { self.nodes.is_empty() && self.terminus.is_some() }
+    pub fn is_direct(&self) -> bool {
+        self.nodes.is_empty() && self.terminus.is_some()
+    }
     pub fn all_box_ids(&self) -> Vec<i64> {
         let mut ids: Vec<i64> = self.nodes.iter().map(|n| n.box_id).collect();
-        if let Some(t) = &self.terminus { ids.push(t.box_id); }
+        if let Some(t) = &self.terminus {
+            ids.push(t.box_id);
+        }
         ids
     }
 }
@@ -113,17 +136,26 @@ pub struct SignalChainResult {
 impl SignalChainResult {
     pub fn by_pin(&self) -> HashMap<i64, Vec<&SignalChain>> {
         let mut m: HashMap<i64, Vec<&SignalChain>> = HashMap::new();
-        for c in &self.chains { m.entry(c.hub_pin).or_default().push(c); }
+        for c in &self.chains {
+            m.entry(c.hub_pin).or_default().push(c);
+        }
         m
     }
     pub fn dump(&self, graph: &McVecGraph) -> String {
         let name_of = |id: i64| -> String {
-            graph.boxes.iter().find(|b| b.id == id)
-                .map(|b| b.name.clone()).unwrap_or_else(|| format!("#{}", id))
+            graph
+                .boxes
+                .iter()
+                .find(|b| b.id == id)
+                .map(|b| b.name.clone())
+                .unwrap_or_else(|| format!("#{}", id))
         };
         let mut s = format!(
             "[chain] hub='{}' (id={}), {} chain(s), {} orphan(s)\n",
-            self.hub_name, self.hub_id, self.chains.len(), self.orphan_ids.len()
+            self.hub_name,
+            self.hub_id,
+            self.chains.len(),
+            self.orphan_ids.len()
         );
         for (i, c) in self.chains.iter().enumerate() {
             let path: Vec<String> = c.nodes.iter().map(|n| name_of(n.box_id)).collect();
@@ -133,8 +165,16 @@ impl SignalChainResult {
                 None => "-> (open)".into(),
             };
             s.push_str(&format!(
-                "[chain]   [{}] {:?} '{}': {} {}\n", i, c.direction, c.hub_pin_name,
-                if path.is_empty() { "(direct)".into() } else { path.join(" -> ") }, end,
+                "[chain]   [{}] {:?} '{}': {} {}\n",
+                i,
+                c.direction,
+                c.hub_pin_name,
+                if path.is_empty() {
+                    "(direct)".into()
+                } else {
+                    path.join(" -> ")
+                },
+                end,
             ));
         }
         if !self.orphan_ids.is_empty() {
@@ -150,10 +190,16 @@ impl SignalChainResult {
 // ============================================================================
 
 pub fn find_hub(graph: &McVecGraph) -> Option<i64> {
-    graph.boxes.iter()
+    graph
+        .boxes
+        .iter()
         .filter(|b| b.id >= 0 && matches!(b.kind, BoxKind::MultiPin | BoxKind::SubModule))
         .max_by_key(|b| {
-            let tier: usize = if b.kind == BoxKind::MultiPin { 10000 } else { 0 };
+            let tier: usize = if b.kind == BoxKind::MultiPin {
+                10000
+            } else {
+                0
+            };
             tier + b.pin_count.max(b.entry_points.len())
         })
         .map(|b| b.id)
@@ -183,8 +229,12 @@ pub fn extract_signal_chains(graph: &McVecGraph) -> SignalChainResult {
         Some(id) => id,
         None => return empty_result(graph, -1),
     };
-    let hub_name = graph.boxes.iter().find(|b| b.id == hub_id)
-        .map(|b| b.name.clone()).unwrap_or_default();
+    let hub_name = graph
+        .boxes
+        .iter()
+        .find(|b| b.id == hub_id)
+        .map(|b| b.name.clone())
+        .unwrap_or_default();
 
     let box_nets = build_box_net_index(graph);
     let box_set: HashSet<i64> = graph.boxes.iter().map(|b| b.id).collect();
@@ -207,13 +257,18 @@ pub fn extract_signal_chains(graph: &McVecGraph) -> SignalChainResult {
             .unwrap_or((-1, String::new()));
 
         // Direction: use entry_point if available, else fallback Right
-        let dir = graph.boxes.iter().find(|b| b.id == hub_id)
+        let dir = graph
+            .boxes
+            .iter()
+            .find(|b| b.id == hub_id)
             .and_then(|b| b.entry_points.iter().find(|ep| ep.pin_id == hub_pin))
             .map(|ep| ChainDir::from_side(&ep.side))
             .unwrap_or(ChainDir::Right);
 
         // Find OTHER boxes on this net (not hub)
-        let others: Vec<_> = net.endpoints.iter()
+        let others: Vec<_> = net
+            .endpoints
+            .iter()
             .filter(|e| e.box_id != hub_id && box_set.contains(&e.box_id))
             .collect();
 
@@ -224,33 +279,60 @@ pub fn extract_signal_chains(graph: &McVecGraph) -> SignalChainResult {
             };
 
             let mut chain = SignalChain {
-                hub_id, hub_pin, hub_pin_name: hub_pin_name.clone(),
-                direction: dir.clone(), nodes: Vec::new(),
-                terminus: None, loops_to_hub: false,
+                hub_id,
+                hub_pin,
+                hub_pin_name: hub_pin_name.clone(),
+                direction: dir.clone(),
+                nodes: Vec::new(),
+                terminus: None,
+                loops_to_hub: false,
             };
 
             if other_box.kind == BoxKind::TwoPin {
                 let mut visited = HashSet::new();
                 visited.insert(hub_id);
-                trace_by_box(graph, &box_nets, &box_set, hub_id, &mut chain,
-                    other.box_id, net.nid, &mut visited);
+                trace_by_box(
+                    graph,
+                    &box_nets,
+                    &box_set,
+                    hub_id,
+                    &mut chain,
+                    other.box_id,
+                    net.nid,
+                    &mut visited,
+                );
             } else {
-                chain.terminus = Some(ChainNode { box_id: other.box_id, net_id: net.nid });
+                chain.terminus = Some(ChainNode {
+                    box_id: other.box_id,
+                    net_id: net.nid,
+                });
             }
 
-            for n in &chain.nodes { chained.insert(n.box_id); }
-            if let Some(t) = &chain.terminus { chained.insert(t.box_id); }
+            for n in &chain.nodes {
+                chained.insert(n.box_id);
+            }
+            if let Some(t) = &chain.terminus {
+                chained.insert(t.box_id);
+            }
             chains.push(chain);
         }
     }
 
     let orphans = box_set.difference(&chained).copied().collect();
-    SignalChainResult { hub_id, hub_name, chains, chained_ids: chained, orphan_ids: orphans }
+    SignalChainResult {
+        hub_id,
+        hub_name,
+        chains,
+        chained_ids: chained,
+        orphan_ids: orphans,
+    }
 }
 
 fn empty_result(graph: &McVecGraph, hub_id: i64) -> SignalChainResult {
     SignalChainResult {
-        hub_id, hub_name: String::new(), chains: Vec::new(),
+        hub_id,
+        hub_name: String::new(),
+        chains: Vec::new(),
         chained_ids: HashSet::new(),
         orphan_ids: graph.boxes.iter().map(|b| b.id).collect(),
     }
@@ -276,7 +358,9 @@ fn trace_by_box(
     visited: &mut HashSet<i64>,
 ) {
     if !visited.insert(box_id) {
-        if box_id == hub_id { chain.loops_to_hub = true; }
+        if box_id == hub_id {
+            chain.loops_to_hub = true;
+        }
         return;
     }
 
@@ -287,31 +371,51 @@ fn trace_by_box(
 
     // Non-TwoPin → terminus
     if b.kind != BoxKind::TwoPin {
-        chain.terminus = Some(ChainNode { box_id, net_id: from_net_id });
+        chain.terminus = Some(ChainNode {
+            box_id,
+            net_id: from_net_id,
+        });
         return;
     }
 
     // Add this passive to chain
-    chain.nodes.push(ChainNode { box_id, net_id: from_net_id });
+    chain.nodes.push(ChainNode {
+        box_id,
+        net_id: from_net_id,
+    });
 
     // ★ Find exit: ALL nets on this box EXCEPT the one we came from
     let my_nets = box_nets.get(&box_id).cloned().unwrap_or_default();
 
     for &ni in &my_nets {
         let net = &graph.nets[ni];
-        if net.nid == from_net_id { continue; } // skip entry net
+        if net.nid == from_net_id {
+            continue;
+        } // skip entry net
 
         // Look for next unvisited box on exit net
-        if let Some(next) = net.endpoints.iter()
-            .find(|e| e.box_id != box_id && !visited.contains(&e.box_id) && box_set.contains(&e.box_id))
-        {
-            trace_by_box(graph, box_nets, box_set, hub_id, chain,
-                next.box_id, net.nid, visited);
+        if let Some(next) = net.endpoints.iter().find(|e| {
+            e.box_id != box_id && !visited.contains(&e.box_id) && box_set.contains(&e.box_id)
+        }) {
+            trace_by_box(
+                graph,
+                box_nets,
+                box_set,
+                hub_id,
+                chain,
+                next.box_id,
+                net.nid,
+                visited,
+            );
             return;
         }
 
         // Check hub loop-back
-        if net.endpoints.iter().any(|e| e.box_id == hub_id && e.box_id != box_id) {
+        if net
+            .endpoints
+            .iter()
+            .any(|e| e.box_id == hub_id && e.box_id != box_id)
+        {
             chain.loops_to_hub = true;
             return;
         }

@@ -36,7 +36,10 @@ use super::debug;
 use super::doc::VizDocument;
 use super::layer::VizLayer;
 use super::layout::select::layout_best;
-use super::layout::{FlowLayouter, HierarchicalLayouter, RadialLayouter, SchematicSubLayouter, SchematicRadialLayouter};
+use super::layout::{
+    FlowLayouter, HierarchicalLayouter, RadialLayouter, SchematicRadialLayouter,
+    SchematicSubLayouter,
+};
 use super::traits::{DefaultRenderer, Layouter, Renderer};
 
 // ============================================================================
@@ -89,7 +92,7 @@ impl Default for RenderOpts {
                 Box::new(HierarchicalLayouter::default()),
             ],
             sub_candidates: vec![
-                Box::new(SchematicSubLayouter::default()),  // chain-driven (preferred for sub-modules)
+                Box::new(SchematicSubLayouter::default()), // chain-driven (preferred for sub-modules)
                 Box::new(FlowLayouter::sub()),
                 Box::new(FlowLayouter {
                     hub_keep_semantic: true,

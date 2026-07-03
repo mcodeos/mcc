@@ -181,43 +181,75 @@ pub fn build_from_manifest(
     Ok((entry_uri, top_name))
 }
 
-/// Load libraries by CLI --lib specified list.
+/// Load libraries by CLI --lib specified list and config.
+/// Also loads libraries specified in libs.load config (mcc.yaml / project.toml).
 pub fn load_libs(lib_names: &[String]) {
+    // First, load libraries from config (if not already loaded)
+    let config_libs = mcc::get_libs_load_list(None);
+    for lib_name in &config_libs {
+        load_lib_by_name(lib_name);
+    }
+
+    // Then load CLI-specified libraries (may override config)
     for lib_name in lib_names {
-        let system_root = mcc::mcb_get_system_root();
-        let lib_path = system_root.join(lib_name);
+        load_lib_by_name(lib_name);
+    }
+}
 
-        // Normalize: if lib_name is a .mc file path, extract the library name
-        // and root directory. e.g. "mcode/mcode.mc" → name="mcode", root=system_root/mcode
-        let (name, root) = if lib_path.extension().map_or(false, |e| e == "mc") {
-            let name = lib_path
-                .file_stem()
-                .unwrap_or_default()
-                .to_string_lossy()
-                .to_string();
-            let root = lib_path
-                .parent()
-                .map(|p| p.to_path_buf())
-                .unwrap_or(system_root);
-            (name, root)
+/// Load a single library by name or path.
+fn load_lib_by_name(lib_name: &str) {
+    let system_root = mcc::mcb_get_system_root();
+
+    // Determine the actual root to use
+    let lib_path = if system_root.as_os_str().is_empty() {
+        // Use default system root like mcb_init_system_lib does
+        let default_root = dirs::home_dir()
+            .map(|h| h.join(".mcode"))
+            .unwrap_or_else(|| std::path::PathBuf::from(".mcode"));
+        default_root.join(lib_name)
+    } else {
+        let joined = system_root.join(lib_name);
+        // Check if the path exists; if not, try default root
+        if !joined.exists() {
+            let default_root = dirs::home_dir()
+                .map(|h| h.join(".mcode"))
+                .unwrap_or_else(|| std::path::PathBuf::from(".mcode"));
+            default_root.join(lib_name)
         } else {
-            (lib_name.clone(), lib_path)
-        };
-
-        // Check if library truly loaded interfaces (built-in components don't count, need interfaces to count as truly loaded)
-        let lib_info = mcc::mcb_lib_info(&name);
-        let interface_count = lib_info.as_ref().map(|i| i.interface_count).unwrap_or(0);
-        if root.exists() && (!mcc::mcb_loaded_libs().contains(&name) || interface_count == 0) {
-            tracing::info!(target: "mcc::lib",
-                lib = name,
-                path = ?root,
-                "loading library");
-            mcc::mcb_load_lib(&name, &root);
-        } else if !root.exists() {
-            tracing::warn!(target: "mcc::lib",
-                lib = name,
-                "library not found in system root");
+            joined
         }
+    };
+
+    // Normalize: if lib_name is a .mc file path, extract the library name
+    // and root directory. e.g. "mcode/mcode.mc" → name="mcode", root=system_root/mcode
+    let (name, root) = if lib_path.extension().map_or(false, |e| e == "mc") {
+        let name = lib_path
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let root = lib_path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or(system_root);
+        (name, root)
+    } else {
+        (lib_name.to_string(), lib_path)
+    };
+
+    // Check if library truly loaded interfaces (built-in components don't count, need interfaces to count as truly loaded)
+    let lib_info = mcc::mcb_lib_info(&name);
+    let interface_count = lib_info.as_ref().map(|i| i.interface_count).unwrap_or(0);
+    if root.exists() && (!mcc::mcb_loaded_libs().contains(&name) || interface_count == 0) {
+        tracing::info!(target: "mcc::lib",
+            lib = name,
+            path = ?root,
+            "loading library");
+        mcc::mcb_load_lib(&name, &root);
+    } else if !root.exists() {
+        tracing::warn!(target: "mcc::lib",
+            lib = name,
+            "library not found in system root");
     }
 }
 
