@@ -113,9 +113,109 @@ pub fn assign_entry_points_coarse(graph: &mut McVecGraph) {
         b.entry_points = compute_entry_points(b, &merged, &connected);
     }
 
-    // Step 3: Recursive subgraphs
+    // Step 3: Reconcile — ensure every net endpoint's pin_id has a matching entry_point
+    reconcile_net_entry_points(graph);
+
+    // Step 4: Recursive subgraphs
     for sub in &mut graph.sub_graphs {
         assign_entry_points_coarse(sub);
+    }
+}
+
+/// ★ FIX (pin_id reconciliation) — safety net for all pin_id mismatches
+///
+/// ## Problem
+/// After `compute_entry_points`, some net endpoints may still reference pin_ids that have
+/// no corresponding entry_point on their box. Known cases:
+///
+/// 1. **Unpromoted synthetic pins (`pin_id = -1`)**: `collect_pins_per_box` skips `pin_id <= 0`,
+///    so these pins never get entry_points. This happens when nets are created AFTER
+///    `promote_synthetic_pins` runs (e.g. by `merge_same_name_power_ground_nets`).
+///
+/// 2. **Promoted synthetic pins on PowerLabel/Dot**: Even after fixing `ep_for_power_label`,
+///    edge cases may remain where a box's entry_point pin_ids don't match net endpoint pin_ids.
+///
+/// ## What this does
+/// For each net endpoint `(box_id, pin_id)`, check if the box has a matching entry_point.
+/// If not, create one by cloning the box's existing entry_point (or creating a default).
+/// This guarantees routing's `find_entry(pin_id)` always succeeds for valid boxes.
+///
+/// Must run after `compute_entry_points` (Step 2), before layout/routing.
+pub fn reconcile_net_entry_points(graph: &mut McVecGraph) {
+    // Collect all (box_id, pin_id, pin_name) pairs from net endpoints that need entry_points
+    let mut needed: HashMap<i64, Vec<(i64, String)>> = HashMap::new();
+    for net in &graph.nets {
+        for ep in &net.endpoints {
+            needed
+                .entry(ep.box_id)
+                .or_default()
+                .push((ep.pin_id, ep.pin_name.clone()));
+        }
+    }
+
+    let mut total_patched = 0usize;
+    for b in &mut graph.boxes {
+        let eps = match needed.get(&b.id) {
+            Some(v) => v,
+            None => continue,
+        };
+
+        // Deduplicate: only process pin_ids not already in entry_points
+        let existing: HashSet<i64> = b.entry_points.iter().map(|e| e.pin_id).collect();
+
+        // Collect unique missing pin_ids (deduplicate across nets)
+        let mut missing: Vec<(i64, String)> = Vec::new();
+        let mut seen_missing: HashSet<i64> = HashSet::new();
+        for (pid, pname) in eps {
+            if !existing.contains(pid) && seen_missing.insert(*pid) {
+                missing.push((*pid, pname.clone()));
+            }
+        }
+
+        if missing.is_empty() {
+            continue;
+        }
+
+        // For each missing pin_id, create an entry_point:
+        // - Use the box's existing entry_point as template (same side, spread offset)
+        // - If box has no entry_points, create a default one
+        let template_side = b
+            .entry_points
+            .first()
+            .map(|e| e.side.clone())
+            .unwrap_or(EntrySide::Left);
+
+        for (pid, pname) in &missing {
+            b.entry_points.push(EntryPoint {
+                pin_id: *pid,
+                pin_name: pname.clone(),
+                side: template_side.clone(),
+                offset: 0.5, // Will be redistributed by enforce_unique_offsets later
+            });
+            total_patched += 1;
+        }
+
+        // Re-distribute offsets on the same side to avoid stacking
+        let mut by_side: HashMap<EntrySide, Vec<usize>> = HashMap::new();
+        for (i, ep) in b.entry_points.iter().enumerate() {
+            by_side.entry(ep.side.clone()).or_default().push(i);
+        }
+        for (_side, indices) in &by_side {
+            let n = indices.len();
+            if n <= 1 {
+                continue;
+            }
+            for (rank, &idx) in indices.iter().enumerate() {
+                b.entry_points[idx].offset = (rank as f64 + 0.5) / n as f64;
+            }
+        }
+    }
+
+    if total_patched > 0 {
+        crate::vlog!(
+            "[entry_points] reconcile: patched {} missing entry_point(s) across boxes",
+            total_patched
+        );
     }
 }
 
@@ -910,11 +1010,11 @@ fn compute_entry_points(
         }
     }
     match b.kind {
-        BoxKind::PowerLabel => ep_for_power_label(b),
+        BoxKind::PowerLabel => ep_for_power_label(b, pins),
         BoxKind::TwoPin => ep_for_two_pin(pins),
         BoxKind::MultiPin => ep_for_multi_pin(pins, connected),
         BoxKind::SubModule => ep_for_sub_module(pins, connected),
-        BoxKind::Dot => ep_for_power_label(b),
+        BoxKind::Dot => ep_for_power_label(b, pins),
     }
 }
 
@@ -1054,7 +1154,7 @@ fn classify_pin(name: &str) -> PinRole {
 ///
 /// - Name contains GND/VSS → exit point at **top** (rail label hangs below circuit, wire enters from top)
 /// - Otherwise (VCC/VDD/...) → exit point at **bottom** (rail label hangs above circuit, wire enters from bottom)
-fn ep_for_power_label(b: &McVecBox) -> Vec<EntryPoint> {
+fn ep_for_power_label(b: &McVecBox, pins: &[(i64, String)]) -> Vec<EntryPoint> {
     let u = b.name.to_uppercase();
     let is_ground = u.contains("GND") || u.contains("VSS");
     let side = if is_ground {
@@ -1062,6 +1162,34 @@ fn ep_for_power_label(b: &McVecBox) -> Vec<EntryPoint> {
     } else {
         EntrySide::Bottom
     };
+
+    // ★ FIX (pin_id mismatch): When net endpoints reference this PowerLabel box, they carry
+    //   promoted synthetic pin_ids (3e9+) or real InstTable pin_ids — NOT the box's own id.
+    //   Old code always used `b.id` as entry_point pin_id → routing's `find_entry(net_pin_id)`
+    //   could never match → wire drawn from box center instead of pin position.
+    //
+    //   New: if `pins` (from collect_pins_per_box, i.e. actual net endpoint pin_ids) is non-empty,
+    //   create one entry_point per pin using THOSE pin_ids. Router's find_entry will then match.
+    //   If `pins` is empty (standalone label with no net connections), fall back to `b.id`.
+    if !pins.is_empty() {
+        let n = pins.len();
+        return pins
+            .iter()
+            .enumerate()
+            .map(|(i, (pid, pname))| EntryPoint {
+                pin_id: *pid,
+                pin_name: pname.clone(),
+                side: side.clone(),
+                offset: if n == 1 {
+                    0.5
+                } else {
+                    (i as f64 + 0.5) / n as f64
+                },
+            })
+            .collect();
+    }
+
+    // Fallback: no net references this box, use box id (original behavior)
     vec![EntryPoint {
         pin_id: b.id,
         pin_name: b.name.clone(),
@@ -1300,8 +1428,8 @@ mod tests {
             0,
             crate::vector::graph::IoSummary::new(),
         );
-        let vcc_eps = ep_for_power_label(&vcc_box);
-        let gnd_eps = ep_for_power_label(&gnd_box);
+        let vcc_eps = ep_for_power_label(&vcc_box, &[]);
+        let gnd_eps = ep_for_power_label(&gnd_box, &[]);
         assert_eq!(vcc_eps[0].side, EntrySide::Bottom);
         assert_eq!(gnd_eps[0].side, EntrySide::Top);
     }

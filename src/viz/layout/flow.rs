@@ -106,6 +106,8 @@ impl FlowLayouter {
 
 impl Layouter for FlowLayouter {
     fn layout(&self, graph: &mut McVecGraph) -> (f64, f64) {
+        eprintln!("{}", super::chain::extract_signal_chains(graph).dump(graph));
+
         if graph.boxes.is_empty() {
             return (200.0, 100.0);
         }
