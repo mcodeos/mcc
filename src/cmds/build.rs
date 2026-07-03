@@ -26,6 +26,13 @@ use crate::output::{
 };
 use anyhow::{Context, Result};
 use mcc::McIds;
+use mcc::viz::{
+    layout::{
+        FlowLayouter, HierarchicalLayouter, RadialLayouter, SchematicRadialLayouter,
+        SchematicSubLayouter,
+    },
+    traits::Layouter,
+};
 use serde_json::json;
 use std::path::{Path, PathBuf};
 
@@ -264,7 +271,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                         total_boxes += graph.boxes.len();
                         total_edges += graph.edges.len();
 
-                        let opts = mcc::viz::api::RenderOpts::default();
+                        let opts = build_viz_opts(args.layouter.as_deref());
                         let doc = mcc::viz::api::render_with(graph, opts);
 
                         if let Some(root_layer) = doc.root_layer() {
@@ -326,7 +333,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             let (vec_block, build_report) = mcc::build_mc_vec_with_report(&inst, &table.1);
             let graph = mcc::build_mc_vec_graph(&vec_block, &table.1);
 
-            let opts = mcc::viz::api::RenderOpts::default();
+            let opts = build_viz_opts(args.layouter.as_deref());
             let (doc, metrics) = mcc::viz::api::render_with_metrics(graph, opts);
             let (fidelity, readability) = metrics.finish(Some(&build_report));
             // Metrics summary: one line each, always shown (this is the acceptance yardstick).
@@ -398,6 +405,62 @@ fn emit_err(fmt: &OutputFormat, err: RpcError) -> Result<()> {
     } else {
         Err(anyhow::anyhow!(err.message))
     }
+}
+
+fn build_viz_opts(layouter_name: Option<&str>) -> mcc::viz::api::RenderOpts {
+    let mut opts = mcc::viz::api::RenderOpts::default();
+    if let Some(name) = layouter_name {
+        let (top, sub, top_cands, sub_cands): (
+            Box<dyn Layouter>,
+            Box<dyn Layouter>,
+            Vec<Box<dyn Layouter>>,
+            Vec<Box<dyn Layouter>>,
+        ) = match name {
+            "flow" => (
+                Box::new(FlowLayouter::default()),
+                Box::new(FlowLayouter::sub()),
+                vec![Box::new(FlowLayouter::default())],
+                vec![Box::new(FlowLayouter::sub())],
+            ),
+            "schematic_radial" => (
+                Box::new(SchematicRadialLayouter::default()),
+                Box::new(FlowLayouter::sub()),
+                vec![Box::new(SchematicRadialLayouter::default())],
+                vec![Box::new(FlowLayouter::sub())],
+            ),
+            "schematic_sub" => (
+                Box::new(FlowLayouter::default()),
+                Box::new(SchematicSubLayouter::default()),
+                vec![Box::new(FlowLayouter::default())],
+                vec![Box::new(SchematicSubLayouter::default())],
+            ),
+            "hierarchical" => (
+                Box::new(HierarchicalLayouter::default()),
+                Box::new(FlowLayouter::sub()),
+                vec![Box::new(HierarchicalLayouter::default())],
+                vec![Box::new(FlowLayouter::sub())],
+            ),
+            "radial" => (
+                Box::new(RadialLayouter),
+                Box::new(RadialLayouter),
+                vec![Box::new(RadialLayouter)],
+                vec![Box::new(RadialLayouter)],
+            ),
+            other => {
+                eprintln!(
+                    "[viz] unknown layouter '{}', using default. Choices: flow|schematic_radial|schematic_sub|hierarchical|radial",
+                    other
+                );
+                return opts;
+            }
+        };
+        opts.top_layouter = top;
+        opts.sub_layouter = sub;
+        opts.top_candidates = top_cands;
+        opts.sub_candidates = sub_cands;
+        eprintln!("[viz] locked layouter: top={} sub={}", name, name);
+    }
+    opts
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -546,7 +609,7 @@ mod phase0_golden {
 
     /// Fingerprint = VizDocument::to_json() (structure + per-layer SVG).
     fn render_signature(graph: mcc::vector::graph::McVecGraph) -> String {
-        let opts = mcc::viz::api::RenderOpts::default(); // default = FlowLayouter
+        let opts = build_viz_opts(args.layouter.as_deref()); // default = FlowLayouter
         mcc::viz::api::render_with(graph, opts).to_json()
     }
 

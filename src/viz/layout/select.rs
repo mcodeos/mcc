@@ -2,12 +2,29 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Phase 3 · Layout generate-and-rank
+//! Layout pipeline entry — single-layouter + fidelity gate (PR-1)
 //!
-//! `layout_best(graph, candidates, is_root)` — clone the graph, run each candidate
-//! layouter through the full Phase 1.5–2 pipeline, score with
-//! `ReadabilityScore::weighted()`, and return the best. Fidelity guard
-//! (`is_perfect()`) prevents selecting a candidate that is electrically worse.
+//! `layout_best(graph, candidates, is_root)` runs the one configured layouter
+//! (circuit_flow) through the full Phase 1.5–2 pipeline, then applies a
+//! **fidelity gate**:
+//!
+//!   * **Dimension 1 — electrical correctness** is a hard veto. With a single
+//!     layouter there is no alternate candidate to swap to, so the veto is
+//!     realized as a loud, structured log of every electrical violation (dropped
+//!     nets, unconnected pins, bus bit-order mismatch, box/wire collisions).
+//!     This turns *silent* fidelity regressions into *visible* ones. When a build
+//!     report / severity channel is wired in (PR-3) these become hard errors.
+//!   * **Dimensions 2–7 — readability / flow / compactness / …** are emitted as a
+//!     report card for iterating on circuit_flow, no longer used to pick a winner.
+//!
+//! ## History
+//! Before PR-1 this function was a *generate-and-rank* selector: it cloned the
+//! graph, ran N candidate layouters, scored each with `ReadabilityScore::weighted()`
+//! and returned the best. That made "what you edit is what you see" untrue — a
+//! hidden candidate could win the ranking and mask a change, which is exactly why
+//! the layout was "impossible to fix". PR-1 retires the ranking; the candidate pool
+//! now holds exactly one layouter. The scoring helpers (`compute_fidelity`,
+//! `compute_readability`) are kept and re-used by the gate.
 
 use crate::vector::graph::McVecGraph;
 use crate::viz::idiom;
@@ -20,116 +37,128 @@ use crate::viz::route::audit::audit_all;
 use crate::viz::route::scheduler::route_all_with_channels;
 use crate::viz::traits::Layouter;
 
-/// Layers with fewer than this many boxes skip multi-candidate ranking.
-const RANK_THRESHOLD: usize = 5;
-
-/// Run each candidate layouter through the full pipeline, score, and return the best graph.
+/// Run the configured layouter through the full pipeline and apply the fidelity gate.
 ///
-/// Fidelity guard: candidates whose `is_perfect()` is false after routing are skipped.
-/// If all candidates fail the guard, fall back to the first candidate (no guard check).
+/// PR-1: single-pipeline. The candidate pool holds exactly one layouter
+/// (circuit_flow) at both top and sub level, so this always runs `candidates[0]`.
+/// The extra `candidates`/`is_root` parameters are retained so the public signature
+/// and every call site stay unchanged while the ranking machinery is removed.
 pub fn layout_best(
     graph: McVecGraph,
     candidates: &[Box<dyn Layouter>],
     is_root: bool,
 ) -> McVecGraph {
-    if candidates.is_empty() {
-        return graph;
-    }
-
-    // Small layers: single candidate is enough.
-    if graph.boxes.len() < RANK_THRESHOLD || candidates.len() <= 1 {
-        return run_single(graph, &*candidates[0], is_root);
-    }
-
-    let mut best: Option<(f64, McVecGraph, String)> = None;
-    let mut fallback: Option<McVecGraph> = None;
-
-    for (i, candidate) in candidates.iter().enumerate() {
-        let mut g = graph.clone();
-
-        // Phase 1: layout
-        let _cv = candidate.layout(&mut g);
-
-        // ★ Stage A — non-destructive inline placement of series two-pin passives (root + sub).
-        //   Passives stay real boxes with real nets, so they are always drawn and never
-        //   collapse into a wire or get clipped off-canvas.
-        place_series_passives(&mut g);
-        // ★ Stage A3 — line up passive↔passive chains (rail—R—C—…—rail) the other passes skip.
-        place_passive_chains(&mut g);
-        // Pull any passive nudged to a negative coordinate back onto the canvas.
-        renormalize(&mut g);
-
-        // Phase 1.8: net labels
-        let _cv = apply_net_labels(&mut g);
-
-        // Phase 2: route
-        route_all_with_channels(&mut g);
-
-        // Audit + score
-        let col = audit_all(&g);
-        let readability = compute_readability(&g, &col);
-        let fidelity = compute_fidelity(&g, &col);
-
-        let score = readability.weighted();
-        let name = candidate.name();
-
-        crate::vlog!(
-            "[layout-select] layer '{}' candidate {}: {} weighted={:.1} wire_wire={} wirelen={:.1} bends={} perfect={}",
-            g.name,
-            i,
-            name,
-            score,
-            readability.wire_wire,
-            readability.total_wirelength,
-            readability.total_bends,
-            fidelity.is_perfect()
-        );
-
-        if i == 0 {
-            fallback = Some(g.clone());
-        }
-
-        if fidelity.is_perfect() {
-            if best.as_ref().map_or(true, |b| score < b.0) {
-                best = Some((score, g, name.to_string()));
-            }
-        }
-    }
-
-    match best {
-        Some((_score, g, name)) => {
-            crate::vlog!(
-                "[layout-select] layer '{}' chose '{}' (weighted={:.1})",
-                g.name,
-                name,
-                _score
-            );
-            g
-        }
-        None => {
-            crate::vlog!(
-                "[layout-select] layer '{}' all candidates failed fidelity guard, falling back to first",
-                fallback.as_ref().map(|g| g.name.as_str()).unwrap_or("?")
-            );
-            fallback.unwrap_or(graph)
-        }
+    match candidates.first() {
+        Some(_) => run_single(graph, &*candidates[0], is_root),
+        // No layouter configured: return the graph untouched (nothing to route/gate).
+        None => graph,
     }
 }
 
-/// Run a single candidate through the full pipeline (no scoring needed).
+/// Run a single layouter through the full pipeline, then gate + report.
 fn run_single(mut graph: McVecGraph, candidate: &dyn Layouter, _is_root: bool) -> McVecGraph {
+    let layer = graph.name.clone();
+    let layouter = candidate.name();
+
+    // ── Phase 1: layout ──
     candidate.layout(&mut graph);
 
-    // ★ Stage A — non-destructive inline placement (see layout_best).
+    // ── Stage A / A3: non-destructive inline placement of series & chained passives ──
+    //   Passives stay real boxes with real nets, so they are always drawn and never
+    //   collapse into a wire or get clipped off-canvas.
     place_series_passives(&mut graph);
-    // ★ Stage A3 — line up passive↔passive chains (rail—R—C—…—rail) the other passes skip.
     place_passive_chains(&mut graph);
+    // Pull any passive nudged to a negative coordinate back onto the canvas.
     renormalize(&mut graph);
 
+    // ── Phase 1.8: net labels ──
     apply_net_labels(&mut graph);
+
+    // ── Phase 2: route ──
     route_all_with_channels(&mut graph);
 
+    // ── Gate + report ──
+    let col = audit_all(&graph);
+    let fidelity = compute_fidelity(&graph, &col);
+    let readability = compute_readability(&graph, &col);
+    fidelity_gate(&layer, layouter, &fidelity, &readability);
+
     graph
+}
+
+/// PR-1 fidelity gate.
+///
+/// Dimension 1 (electrical correctness) is the veto: any violation is logged as a
+/// `✗ VETO` line so a regression surfaces immediately instead of hiding. Dimensions
+/// 2–7 are logged as a report card. The graph is always returned — with a single
+/// layouter there is nothing to swap to; the gate's job here is *visibility*.
+fn fidelity_gate(
+    layer: &str,
+    layouter: &str,
+    fidelity: &FidelityReport,
+    readability: &ReadabilityScore,
+) {
+    // Report card (dimensions 2–7): always logged.
+    crate::vlog!(
+        "[layout-gate] layer '{}' ({}) report: wire_wire={} wirelen={:.1} bends={} off_grid={:.1} symmetry={:.1} idiom={:.1}",
+        layer,
+        layouter,
+        readability.wire_wire,
+        readability.total_wirelength,
+        readability.total_bends,
+        readability.off_grid_penalty,
+        readability.symmetry_penalty,
+        readability.idiom_violation,
+    );
+
+    if fidelity.is_perfect() {
+        crate::vlog!("[layout-gate] layer '{}' fidelity OK (veto passed)", layer);
+        return;
+    }
+
+    // Dimension 1 — veto violations, surfaced individually so the cause is obvious.
+    if fidelity.nets_dropped > 0 || fidelity.nets_partial > 0 {
+        crate::vlog!(
+            "[layout-gate] ✗ VETO layer '{}': nets dropped={} partial={} of {} — lines missing",
+            layer,
+            fidelity.nets_dropped,
+            fidelity.nets_partial,
+            fidelity.nets_total
+        );
+    }
+    if fidelity.pins_rendered < fidelity.pins_total {
+        crate::vlog!(
+            "[layout-gate] ✗ VETO layer '{}': pins rendered {}/{} — some pins unconnected",
+            layer,
+            fidelity.pins_rendered,
+            fidelity.pins_total
+        );
+    }
+    if fidelity.bus_bits_paired_ok < fidelity.bus_bits_total {
+        crate::vlog!(
+            "[layout-gate] ✗ VETO layer '{}': bus bits paired {}/{} — bit-order mismatch",
+            layer,
+            fidelity.bus_bits_paired_ok,
+            fidelity.bus_bits_total
+        );
+    }
+    if fidelity.box_box > 0 || fidelity.wire_box > 0 {
+        crate::vlog!(
+            "[layout-gate] ✗ VETO layer '{}': collisions box_box={} wire_box={}",
+            layer,
+            fidelity.box_box,
+            fidelity.wire_box
+        );
+    }
+    // Authored pin-side honoring is a soft signal (dimension 6), not an electrical veto.
+    if fidelity.authored_sides_honored < fidelity.authored_sides_total {
+        crate::vlog!(
+            "[layout-gate] ⚠ layer '{}': authored pin sides honored {}/{}",
+            layer,
+            fidelity.authored_sides_honored,
+            fidelity.authored_sides_total
+        );
+    }
 }
 
 /// Compute ReadabilityScore from a routed graph and its collision report.
@@ -212,6 +241,11 @@ fn compute_fidelity(
     FidelityReport {
         nets_total: graph.nets.len(),
         nets_rendered: graph.nets.len(),
+        // NOTE (PR-3): nets_dropped / nets_partial are still hardcoded to 0 here —
+        // the topology reconstruction that could drop a leaf lives upstream in
+        // connection.rs (`merge_pairs_to_vecnet`). Once topology carries driver/load
+        // semantics forward, wire these to the real dropped/partial counts so the
+        // veto above can actually fire on missing lines.
         nets_dropped: 0,
         nets_partial: 0,
         pins_total,
@@ -238,11 +272,10 @@ mod tests {
     use crate::viz::traits::Layouter;
 
     /// A layouter that deliberately produces a bad layout with overlapping boxes,
-    /// to test that scoring prefers the better candidate.
+    /// used to check the fidelity gate observes (but does not drop) a bad layout.
     struct BadLayouter;
     impl Layouter for BadLayouter {
         fn layout(&self, graph: &mut McVecGraph) -> (f64, f64) {
-            // Place all boxes at the same position → guaranteed box-box collisions
             for b in &mut graph.boxes {
                 b.x = 0.0;
                 b.y = 0.0;
@@ -293,83 +326,57 @@ mod tests {
         graph
     }
 
+    /// The single pipeline runs the sole (first) candidate and returns a laid-out graph.
     #[test]
-    fn select_prefers_lower_score() {
-        let graph = make_simple_graph();
-        let candidates: Vec<Box<dyn Layouter>> =
-            vec![Box::new(FlowLayouter::default()), Box::new(BadLayouter)];
-        let result = layout_best(graph, &candidates, true);
-        // FlowLayouter should produce lower score than BadLayouter (which overlaps boxes)
-        let col = audit_all(&result);
-        assert_eq!(
-            col.box_box, 0,
-            "FlowLayouter should be chosen (no box-box overlap), but got {:?}",
-            col
-        );
-    }
-
-    #[test]
-    fn select_deterministic() {
-        let graph = make_simple_graph();
-        let candidates: Vec<Box<dyn Layouter>> = vec![
-            Box::new(FlowLayouter::default()),
-            Box::new(FlowLayouter {
-                bary_sweeps: 10,
-                ..FlowLayouter::default()
-            }),
-        ];
-        let result1 = layout_best(graph.clone(), &candidates, true);
-        let result2 = layout_best(graph, &candidates, true);
-        // Same input → same output (deterministic)
-        let score1 = compute_readability(&result1, &audit_all(&result1)).weighted();
-        let score2 = compute_readability(&result2, &audit_all(&result2)).weighted();
-        assert_eq!(
-            score1, score2,
-            "Deterministic: same input should produce same score. Got {} vs {}",
-            score1, score2
-        );
-    }
-
-    #[test]
-    fn select_fallback_single_candidate() {
+    fn single_pipeline_runs_first_candidate() {
         let graph = make_simple_graph();
         let candidates: Vec<Box<dyn Layouter>> = vec![Box::new(FlowLayouter::default())];
         let result = layout_best(graph, &candidates, true);
-        // Single candidate should just work
         assert!(!result.boxes.is_empty());
-        // Boxes should have positions assigned by the layouter
         assert!(result.boxes.iter().all(|b| b.w > 0.0 && b.h > 0.0));
+        // circuit_flow should not overlap the two boxes.
+        let col = audit_all(&result);
+        assert_eq!(col.box_box, 0, "circuit_flow should not overlap boxes: {:?}", col);
     }
 
+    /// Determinism: same input → same layout metrics.
     #[test]
-    fn select_empty_candidates_returns_original() {
+    fn single_pipeline_deterministic() {
+        let candidates: Vec<Box<dyn Layouter>> = vec![Box::new(FlowLayouter::default())];
+        let r1 = layout_best(make_simple_graph(), &candidates, true);
+        let r2 = layout_best(make_simple_graph(), &candidates, true);
+        let s1 = compute_readability(&r1, &audit_all(&r1)).weighted();
+        let s2 = compute_readability(&r2, &audit_all(&r2)).weighted();
+        assert_eq!(s1, s2, "same input should produce same score: {} vs {}", s1, s2);
+    }
+
+    /// Empty candidate pool returns the graph untouched, no routing.
+    #[test]
+    fn empty_candidates_returns_original() {
         let graph = make_simple_graph();
         let candidates: Vec<Box<dyn Layouter>> = vec![];
         let result = layout_best(graph, &candidates, true);
         assert_eq!(result.boxes.len(), 2);
-        // No routes should have been added (no layouter ran)
         assert!(result.nets.iter().all(|n| n.route.is_none()));
     }
 
+    /// The gate observes a bad layout but never drops it — the graph still comes back.
+    /// (With a single layouter there is no alternate to swap to; the veto is a log.)
     #[test]
-    fn select_respects_fidelity_guard() {
-        // All candidates are BadLayouter → all produce box_box > 0 → is_perfect() false
-        // → all should be skipped by fidelity guard → fallback to first candidate
+    fn gate_does_not_drop_bad_layout() {
         let graph = make_simple_graph();
-        let candidates: Vec<Box<dyn Layouter>> = vec![Box::new(BadLayouter), Box::new(BadLayouter)];
+        let candidates: Vec<Box<dyn Layouter>> = vec![Box::new(BadLayouter)];
         let result = layout_best(graph, &candidates, true);
-        // Should still return a valid graph (fallback)
         assert!(!result.boxes.is_empty());
-        // Fallback keeps the first candidate's result even though imperfect
+        // BadLayouter piles boxes on the same spot → the gate would log a VETO,
+        // but the graph is returned unchanged for rendering.
         let col = audit_all(&result);
-        assert!(col.box_box > 0, "Fallback should keep imperfect result");
+        assert!(col.box_box > 0, "bad layout kept (gate logs, does not drop)");
     }
 
-    /// Integration-style: verify that layout_best correctly pipelines
-    /// a real FlowLayouter through layout → route → audit.
+    /// Integration: circuit_flow pipelines layout → route → audit and produces routes.
     #[test]
-    fn select_pipelines_real_layouter() {
-        // Build a richer graph with 3 boxes and a net so routing actually produces routes.
+    fn single_pipeline_routes_real_layouter() {
         let mut graph = McVecGraph::new(1, "test".into());
 
         let mut b1 = McVecBox::new_v2(
@@ -420,7 +427,6 @@ mod tests {
         b3.w = 60.0;
         b3.h = 20.0;
 
-        // Net: R1.pin1 → R2.pin1 → GND
         let net = VizNet::new(
             1,
             "N1".into(),
@@ -440,19 +446,14 @@ mod tests {
         let candidates: Vec<Box<dyn Layouter>> = vec![Box::new(FlowLayouter::default())];
         let result = layout_best(graph, &candidates, true);
 
-        // After layout + route, check that boxes are positioned
-        // (pipeline may add synthesized boxes, so >= 3)
         assert!(result.boxes.len() >= 3);
         for b in &result.boxes {
             assert!(b.w > 0.0 && b.h > 0.0, "box {} should have size", b.name);
         }
 
-        // Check that routing happened
         let routed = result.nets.iter().filter(|n| n.route.is_some()).count();
-        assert!(routed > 0, "At least one net should be routed");
+        assert!(routed > 0, "at least one net should be routed");
 
-        // Audit should be clean for a well-formed graph
-        let col = audit_all(&result);
-        let _ = col; // silence unused warning
+        let _ = audit_all(&result);
     }
 }

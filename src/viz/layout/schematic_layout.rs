@@ -77,7 +77,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::vector::graph::{naming, McVecGraph};
+use crate::vector::graph::{naming, McVecGraph, NetKind};
 
 use super::chain::{self, ChainDir, SignalChain, SignalChainResult};
 use super::entry_points::{assign_entry_points_coarse, promote_synthetic_pins, split_shared_pins};
@@ -197,94 +197,114 @@ type DirMap = HashMap<i64, ChainDir>;
 
 /// Classify each hub pin to Left / Right / Up / Down based on pin name semantics,
 /// then rebalance to avoid overcrowding one side.
-fn assign_pin_directions(_graph: &McVecGraph, result: &SignalChainResult) -> DirMap {
+fn assign_pin_directions(graph: &McVecGraph, result: &SignalChainResult) -> DirMap {
     let mut map = DirMap::new();
-
-    // Group chains by hub_pin
     let by_pin = result.by_pin();
 
     for (&pin_id, chains) in &by_pin {
-        let pin_name = chains
-            .first()
-            .map(|c| c.hub_pin_name.as_str())
-            .unwrap_or("");
+        let pin_name = chains.first().map(|c| c.hub_pin_name.as_str()).unwrap_or("");
 
-        // Determine direction from pin name semantics
-        let dir = dir_from_pin_name(pin_name, chains);
+        // 1. 语义脚名（EN/LX/FB/Vin/GND）→ 理想布局（等上游修好名字后自动生效）
+        // 2. ★ 轨/终点语义兜底：数字脚名时用链的电气终点判方向
+        //    （终于 GND→Down、终于电源→Up、去耦 loop→贴侧翼），用可信的连接而非名字
+        // 3. Right 兜底（rebalance_directions 再分摊）
+        let dir = semantic_dir_from_name(pin_name)
+            .or_else(|| dir_from_rail_semantics(graph, chains))
+            .unwrap_or(ChainDir::Right);
         map.insert(pin_id, dir);
     }
 
-    // Rebalance: if one side is heavily overloaded, move some Generic pins to other sides
     rebalance_directions(&mut map, &by_pin);
-
     map
 }
 
-/// Infer direction from pin name:
-/// - VCC / VDD / Vin → Up (power input comes from above)
-/// - GND / VSS → Down (ground exits below)
-/// - EN / RST / CLK → Left (control inputs)
-/// - OUT / LX / SW / VOUT → Right (power output / switching node)
-/// - FB → Down (feedback divider hangs below)
-/// - Others → Right (default signal output direction)
 fn dir_from_pin_name(name: &str, chains: &[&SignalChain]) -> ChainDir {
-    let u = name.to_uppercase();
-
-    // Power input pins → Up
-    if u.starts_with("VIN")
-        || u.starts_with("VCC")
-        || u.starts_with("VDD")
-        || u.starts_with("VBUS")
-        || u == "IN"
-        || u.starts_with("PVDD")
-    {
-        return ChainDir::Up;
+    if let Some(d) = semantic_dir_from_name(name) {
+        return d;
     }
-
-    // Ground pins → Down
-    if naming::is_ground(&u) {
-        return ChainDir::Down;
-    }
-
-    // Control input pins → Left
-    if u == "EN"
-        || u == "ENABLE"
-        || u.starts_with("RST")
-        || u.starts_with("NRST")
-        || u == "CE"
-        || u == "SHDN"
-        || u.starts_with("CLK")
-        || u.starts_with("SCL")
-    {
-        return ChainDir::Left;
-    }
-
-    // Output / switching pins → Right
-    if u.starts_with("OUT")
-        || u.starts_with("VOUT")
-        || u == "LX"
-        || u == "SW"
-        || u.starts_with("BUCK")
-        || u.starts_with("BOOST")
-    {
-        return ChainDir::Right;
-    }
-
-    // Feedback → Down (feedback divider hangs below IC)
-    if u == "FB" || u.starts_with("FB_") || u == "ADJ" {
-        return ChainDir::Down;
-    }
-
-    // Bypass / NC → check if loop chain (decoupling pattern)
     let all_loop = chains.iter().all(|c| c.loops_to_hub);
     if all_loop && !chains.is_empty() {
-        // Decoupling caps: place near the pin, direction based on pin semantics
-        // Default to Up for power-like, Down for ground-like
         return ChainDir::Up;
     }
-
-    // Default: Right
     ChainDir::Right
+}
+
+/// Recognized pin function name → side, or `None` if the name is meaningless
+/// (bare pin numbers "1".."5", empty, instance names). `None` triggers the
+/// rail-semantics fallback in `assign_pin_directions`.
+fn semantic_dir_from_name(name: &str) -> Option<ChainDir> {
+    let u = name.to_uppercase();
+    if u.starts_with("VIN") || u.starts_with("VCC") || u.starts_with("VDD")
+        || u.starts_with("VBUS") || u == "IN" || u.starts_with("PVDD")
+    {
+        return Some(ChainDir::Up);
+    }
+    if naming::is_ground(&u) {
+        return Some(ChainDir::Down);
+    }
+    if u == "EN" || u == "ENABLE" || u.starts_with("RST") || u.starts_with("NRST")
+        || u == "CE" || u == "SHDN" || u.starts_with("CLK") || u.starts_with("SCL")
+    {
+        return Some(ChainDir::Left);
+    }
+    if u.starts_with("OUT") || u.starts_with("VOUT") || u == "LX" || u == "SW"
+        || u.starts_with("BUCK") || u.starts_with("BOOST")
+    {
+        return Some(ChainDir::Right);
+    }
+    if u == "FB" || u.starts_with("FB_") || u == "ADJ" {
+        return Some(ChainDir::Down);
+    }
+    None
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum RailTarget { Power, Ground, Loop, Signal }
+
+/// Classify what a chain electrically terminates at (by terminus net/box kind,
+/// not the possibly-numeric hub pin name).
+fn classify_chain_target(graph: &McVecGraph, chain: &SignalChain) -> RailTarget {
+    let net_is_ground = |nid: i64| {
+        graph.nets.iter().find(|n| n.nid == nid).is_some_and(|n| {
+            matches!(n.kind, NetKind::Ground) || naming::is_ground(&n.name)
+        })
+    };
+    let net_is_power = |nid: i64| {
+        graph.nets.iter().find(|n| n.nid == nid).is_some_and(|n| {
+            matches!(n.kind, NetKind::Power) || naming::is_power_rail(&n.name)
+        })
+    };
+
+    if let Some(t) = &chain.terminus {
+        if net_is_ground(t.net_id) { return RailTarget::Ground; }
+        if net_is_power(t.net_id) { return RailTarget::Power; }
+        if let Some(b) = graph.boxes.iter().find(|b| b.id == t.box_id) {
+            if naming::is_ground(&b.name) { return RailTarget::Ground; }
+            if naming::is_power_rail(&b.name) { return RailTarget::Power; }
+        }
+        return RailTarget::Signal;
+    }
+    if chain.loops_to_hub { return RailTarget::Loop; }
+    RailTarget::Signal
+}
+
+/// Pick a side from chains' electrical targets when the pin name gives no hint.
+/// Majority vote: ground→Down, power→Up, pure decoupling loops→Up, signal→None
+/// (let horizontal balancing decide).
+fn dir_from_rail_semantics(graph: &McVecGraph, chains: &[&SignalChain]) -> Option<ChainDir> {
+    let (mut power, mut ground, mut looping, mut signal) = (0u32, 0u32, 0u32, 0u32);
+    for c in chains {
+        match classify_chain_target(graph, c) {
+            RailTarget::Power => power += 1,
+            RailTarget::Ground => ground += 1,
+            RailTarget::Loop => looping += 1,
+            RailTarget::Signal => signal += 1,
+        }
+    }
+    if ground > 0 && ground >= power && ground >= signal { return Some(ChainDir::Down); }
+    if power > 0 && power >= signal { return Some(ChainDir::Up); }
+    if looping > 0 && signal == 0 { return Some(ChainDir::Up); }
+    None
 }
 
 /// Rebalance: if Right has >> Left, or Up has >> Down, move some pins.
