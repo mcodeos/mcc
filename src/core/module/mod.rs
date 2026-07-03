@@ -139,7 +139,7 @@ impl McModule {
                                 continue;
                             }
                             // Collect port reference spans before parsing the net
-                            Self::collect_port_refs_in_node(&subnode, &mut self.insts);
+                            Self::collect_port_refs_in_node(&subnode, &mut self.insts, &mut self.params);
                             match McPhrase::new(&subnode, self) {
                                 Some(net) => {
                                     self.lines.push(net);
@@ -505,8 +505,8 @@ impl HasFindInst for McModule {
 
 impl McModule {
     /// Recursively scan AST nodes in a net expression for identifiers that match
-    /// known port names, and record their spans for LSP goto-definition.
-    fn collect_port_refs_in_node(node: &AstNode, insts: &mut McInstances) {
+    /// known port names (both from body insts and params), and record their spans for LSP goto-definition.
+    fn collect_port_refs_in_node(node: &AstNode, insts: &mut McInstances, params: &mut McParamDeclares) {
         // Check this node (only leaf identifier nodes for precise spans)
         match node.get_type() {
             MCAST_ID | MCAST_IDA => {
@@ -514,6 +514,9 @@ impl McModule {
                     if insts.contains(&text) {
                         let span = (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
                         insts.record_port_ref(span, &text);
+                    } else if params.contains(&text) {
+                        let span = (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
+                        params.record_port_ref(span, &text);
                     }
                 }
             }
@@ -523,7 +526,7 @@ impl McModule {
         if let Some(sub) = node.get_sub_node() {
             let mut current = sub;
             loop {
-                Self::collect_port_refs_in_node(&current, insts);
+                Self::collect_port_refs_in_node(&current, insts, params);
                 match current.get_next() {
                     Some(next) => current = next,
                     None => break,

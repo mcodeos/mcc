@@ -5,29 +5,92 @@
 use crate::core::basic::mc_uval::McUnitValueDeclare;
 use crate::McIds;
 use crate::{ast::ast_node::AstNode, ast::c_macros::*, builder::diagnostic::dlog_error};
+use std::collections::HashMap;
+use std::ops::Range;
 
 /// Parameter declaration list
 #[derive(Debug, Clone, Default)]
 pub struct McParamDeclares {
     declares: Vec<McParamDeclare>,
+    /// Port spans for LSP goto-definition (name -> Vec<Range>, multiple for bus/slice expansion)
+    port_spans: HashMap<String, Vec<Range<usize>>>,
+    /// Port reference spans from net lines (for LSP goto-definition)
+    port_ref_spans: Vec<(Range<usize>, String)>,
 }
 
 impl McParamDeclares {
     pub fn new() -> Self {
         Self {
             declares: Vec::new(),
+            port_spans: HashMap::new(),
+            port_ref_spans: Vec::new(),
         }
     }
 
     /// Parse parameter declaration list from AST node
+    /// Collects port spans for all parameter ports (both IOTYPE-prefixed and plain).
     pub fn parse(&mut self, node: &AstNode) {
         // Recursively handle all parameter declaration nodes, supporting all rule branches
         if let Some(subnode) = node.get_sub_node() {
-            subnode.iter().for_each(|param_node| {
+            let mut param_iter = subnode.iter().peekable();
+            while let Some(param_node) = param_iter.next() {
+                let body_type = param_node.get_type();
+
+                // Determine IOType and port name(s), store spans
+                match body_type {
+                    MCAST_ID | MCAST_IDA | MCAST_IDS => {
+                        if let Some(ids) = McIds::new(&param_node) {
+                            let span = (param_node.get_pos() as usize)..((param_node.get_pos() + param_node.get_len()) as usize);
+                            if let Some((bus_name, _)) = ids.as_bus() {
+                                self.store_port_span(&bus_name, span);
+                            } else if ids.is_square_only() {
+                                self.store_port_span(&format!("@{}", self.port_spans.len()), span);
+                            } else {
+                                self.store_port_span(&ids.to_string(), span);
+                            }
+                        }
+                    }
+                    MCAST_SQUARE_VEC => {
+                        // [VDD1, GND1] - anonymous set, store as @N
+                        let span = (param_node.get_pos() as usize)..((param_node.get_pos() + param_node.get_len()) as usize);
+                        self.store_port_span(&format!("@{}", self.port_spans.len()), span);
+                    }
+                    MCAST_IOTYPE => {
+                        // IOTYPE-prefixed port: ps dc24v, in GPIO[1:2], etc.
+                        // MCAST_IOTYPE is the param_node, operands are subsequent siblings (until next IOTYPE)
+                        while let Some(next) = param_iter.peek() {
+                            if next.get_type() == MCAST_IOTYPE {
+                                break; // Stop at next IOTYPE keyword
+                            }
+                            let current = param_iter.next().unwrap();
+                            let op_type = current.get_type();
+                            if matches!(op_type, MCAST_ID | MCAST_IDA | MCAST_IDS) {
+                                if let Some(ids) = McIds::new(&current) {
+                                    let span = (current.get_pos() as usize)..((current.get_pos() + current.get_len()) as usize);
+                                    if let Some((bus_name, _)) = ids.as_bus() {
+                                        self.store_port_span(&bus_name, span);
+                                    } else if ids.is_square_only() {
+                                        self.store_port_span(&format!("@{}", self.port_spans.len()), span);
+                                    } else {
+                                        self.store_port_span(&ids.to_string(), span);
+                                    }
+                                }
+                            } else if op_type == MCAST_SQUARE_VEC {
+                                let span = (current.get_pos() as usize)..((current.get_pos() + current.get_len()) as usize);
+                                self.store_port_span(&format!("@{}", self.port_spans.len()), span);
+                            }
+                        }
+                        // Don't call McParamDeclare::new for MCAST_IOTYPE - handled above
+                        continue;
+                    }
+                    _ => {}
+                }
+
+                // Also parse as formal parameter
                 if let Some(paramd) = McParamDeclare::new(&param_node) {
                     self.declares.push(paramd);
                 }
-            })
+            }
         }
         // else: empty parameter list is legal, no need to error
     }
@@ -45,6 +108,39 @@ impl McParamDeclares {
     /// Find parameter declaration by index
     pub fn find_by_index(&self, index: usize) -> Option<&McParamDeclare> {
         self.declares.get(index)
+    }
+
+    /// Store port span (called when a param port is registered)
+    pub(crate) fn store_port_span(&mut self, name: &str, span: Range<usize>) {
+        self.port_spans.entry(name.to_string()).or_default().push(span);
+    }
+
+    /// Check if a name is a known parameter port
+    pub fn contains(&self, name: &str) -> bool {
+        self.port_spans.contains_key(name)
+    }
+
+    /// Iterate all parameter ports with their spans (expands bus/slice to multiple entries)
+    pub fn iter_ports_with_span(&self) -> impl Iterator<Item = (&str, Range<usize>)> + '_ {
+        self.port_spans
+            .iter()
+            .flat_map(|(name, spans)| spans.iter().map(move |span| (name.as_str(), span.clone())))
+    }
+
+    /// Record a reference to this param port (for LSP goto-definition from net lines)
+    pub(crate) fn record_port_ref(&mut self, span: Range<usize>, port_name: &str) {
+        if let Some(spans) = self.port_spans.get_mut(port_name) {
+            // Only record ref if the span differs from all stored def spans
+            if !spans.iter().any(|s| s.start == span.start && s.end == span.end) {
+                // Store ref separately - use a dedicated ref_spans map
+                self.port_ref_spans.push((span, port_name.to_string()));
+            }
+        }
+    }
+
+    /// Iterate param port reference spans (from net lines)
+    pub fn iter_port_refs(&self) -> impl Iterator<Item = &(Range<usize>, String)> + '_ {
+        self.port_ref_spans.iter()
     }
 
     /// Get parameter count
