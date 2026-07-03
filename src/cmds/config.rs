@@ -126,6 +126,7 @@ fn get_config_value(config: &MccConfig, name: &str) -> Result<String> {
             .color
             .map(|v| v.to_string())
             .unwrap_or_else(|| "null".to_string())),
+        ["libs", "load"] => Ok(format!("{:?}", config.libs.load)),
         _ => anyhow::bail!("unknown config key: {}", name),
     }
 }
@@ -145,6 +146,15 @@ fn set_config_value(config: &mut MccConfig, name: &str, value: &str) -> Result<(
         ["parser", "strict"] => config.parser.strict = Some(parse_bool(value)?),
         ["output", "format"] => config.output.format = Some(value.to_string()),
         ["output", "color"] => config.output.color = Some(parse_bool(value)?),
+        ["libs", "load"] => {
+            // Parse comma-separated list: "mcode" or "mcode,custom_lib"
+            let libs: Vec<String> = value
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            config.libs.load = libs;
+        }
         _ => anyhow::bail!("unknown config key: {}", name),
     }
     Ok(())
@@ -161,6 +171,7 @@ fn list_config(config: &MccConfig) {
     println!("  global.parser.strict = {:?}", config.parser.strict);
     println!("  global.output.format = {:?}", config.output.format);
     println!("  global.output.color = {:?}", config.output.color);
+    println!("  global.libs.load = {:?}", config.libs.load);
 }
 
 fn parse_bool(value: &str) -> Result<bool> {

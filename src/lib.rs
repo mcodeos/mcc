@@ -52,6 +52,7 @@ pub use builder::{
 
 pub use builder::lib_mgr::LibInfo;
 pub use builder::{mcb_lib_info, mcb_load_lib, mcb_loaded_libs, mcb_unload_lib};
+pub use cli::config::should_load_mcode;
 
 pub use builder::{
     mcb_add_recursive, mcb_get_system_root, mcb_loaded_file_count, mcb_parse_all_modules,

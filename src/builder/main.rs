@@ -1457,8 +1457,36 @@ fn scan_mc_files(dir: &Path) -> Vec<PathBuf> {
 ///   - MCC_SYSTEM_ROOT points to the mc/ directory (mcode's parent)
 ///   - System library is under system_root/mcode/
 ///   - If the environment variable is not set, defaults to ~/.mcode/mcode (compatible with old logic)
+///
+/// Config-based loading:
+///   - Check `libs.load` config (mcc.yaml or project.toml)
+///   - If empty: do not load mcode by default
+///   - If contains "mcode": load mcode library
 pub fn mcb_init_system_lib() {
+    use crate::cli::config::should_load_mcode;
+
     debug!(target: "mcc::sysinit", "start");
+
+    // Check config to decide whether to load mcode
+    let project_root = mcb_get_project_root();
+    let project_root_ref: Option<&std::path::Path> = if project_root.as_os_str().is_empty() {
+        None
+    } else {
+        Some(&project_root)
+    };
+
+    if !should_load_mcode(project_root_ref) {
+        debug!(target: "mcc::sysinit", "mcode not in libs.load config, skipping");
+        // Ensure the mcc_blibs["mcode"] entry exists (empty stub)
+        if !global::mcc_blibs.borrow().contains_key("mcode") {
+            global::mcc_blibs
+                .borrow_mut()
+                .insert("mcode".to_string(), McCode::new_empty());
+        }
+        debug!(target: "mcc::sysinit", "system lib init done (skipped)");
+        return;
+    }
+
     let system_root = mcb_get_system_root();
     let mcode_root = if system_root.as_os_str().is_empty() {
         dirs::home_dir()
