@@ -1590,7 +1590,7 @@ impl McPinNames {
                                         if !is_likely_alias {
                                             dlog_warning(
                                                 1304,
-                                                &opd_node,
+                                                err_node,
                                                 &format!(
                                                     "'{inst_str}::{class_str}' lookup failed; \
                                                      treating '{inst_str}' as plain pin alias. \
@@ -1729,6 +1729,7 @@ impl McPinNames {
                             // MCAST_DECLARE with class=_CS, instance=CS
                             let mut class_name: Option<McIds> = None;
                             let mut inst_ids: Option<McIds> = None;
+                            let mut inst_node: Option<AstNode> = None;
                             let mut params: Vec<McParamValue> = Vec::new();
 
                             // Iterate over linked list structure
@@ -1778,6 +1779,7 @@ impl McPinNames {
                                     MCAST_INSTANCE => {
                                         if let Some(inst_id_node) = node.get_sub_node() {
                                             inst_ids = McIds::new(&inst_id_node);
+                                            inst_node = Some(node.clone());
                                         }
                                     }
                                     _ => {}
@@ -1811,9 +1813,10 @@ impl McPinNames {
                                 let is_likely_alias =
                                     class_str.starts_with('_') || class_str == inst_str;
                                 if !is_likely_alias {
+                                    // Use inst_node if available (tighter span), otherwise fall back to err_node
                                     dlog_warning(
                                         1304,
-                                        &exp_node,
+                                        inst_node.as_ref().unwrap_or(err_node),
                                         &format!(
                                             "'{inst_str}::{class_str}(...)' lookup failed; \
                                              treating '{inst_str}' as plain pin alias. \
