@@ -15,6 +15,8 @@ pub struct McSemSymbols {
     pub global_table: Arc<Mutex<GlobalSymbolTable>>,
     pub local_table: LocalSymbolTable,
     pub symbol_lapper: SymbolRangeLapper,
+    /// ★ LSP: Scope annotations for lapper intervals (start, stop) -> scope_name
+    pub symbol_scope: HashMap<(usize, usize), String>,
 }
 impl Default for McSemSymbols {
     fn default() -> Self {
@@ -28,6 +30,7 @@ impl McSemSymbols {
             global_table: Arc::new(Mutex::new(GlobalSymbolTable::new())),
             local_table: LocalSymbolTable::new(),
             symbol_lapper: SymbolRangeLapper::new(vec![]),
+            symbol_scope: HashMap::new(),
         }
     }
 }
@@ -343,11 +346,17 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
                 SymbolType::InterfaceRef(id) => ("interface_ref", id._raw),
                 SymbolType::PortDefinition(id) => ("port_definition", id._raw),
             };
+            let scope = symbols
+                .symbol_scope
+                .get(&(interval.start, interval.stop))
+                .cloned()
+                .unwrap_or_default();
             json!({
                 "kind": kind,
                 "start": interval.start,
                 "stop": interval.stop,
                 "id": id,
+                "scope": scope,
             })
         })
         .collect();

@@ -120,6 +120,7 @@ impl McPhrase {
 
     pub(crate) fn new(node: &AstNode, context: &mut dyn HasFindInst) -> Option<Self> {
         use McPhrase::*;
+        let scope = context.scope_name();
         let node_type = node.get_type();
         match node_type {
             MCAST_OPD_USCORE => Some(McPhrase::Lead),
@@ -148,8 +149,9 @@ impl McPhrase {
                                 if let Some(decl_id) = crate::builder::mcb_lookup_instance_decl(
                                     context.uri(),
                                     &ids.to_string(),
+                                    scope.as_deref(),
                                 ) {
-                                    mcb_register_instance_ref(context.uri(), span, decl_id);
+                                    mcb_register_instance_ref(context.uri(), span, decl_id, scope.as_deref());
                                 }
                                 Some(ident.into())
                             } else if ids.is_curly_bracket() {
@@ -315,9 +317,10 @@ impl McPhrase {
                                             crate::builder::mcb_lookup_instance_decl(
                                                 context.uri(),
                                                 base,
+                                                scope.as_deref(),
                                             )
                                         {
-                                            mcb_register_instance_ref(context.uri(), span, decl_id);
+                                            mcb_register_instance_ref(context.uri(), span, decl_id, scope.as_deref());
                                         }
                                         context.upgrade_label_to_bus(base);
                                         if let Some(McPhrase::Endpoint(McEndpoint::Single(
@@ -368,9 +371,9 @@ impl McPhrase {
                         let span =
                             (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
                         if let Some(decl_id) =
-                            crate::builder::mcb_lookup_instance_decl(context.uri(), &data[0])
+                            crate::builder::mcb_lookup_instance_decl(context.uri(), &data[0], scope.as_deref())
                         {
-                            mcb_register_instance_ref(context.uri(), span, decl_id);
+                            mcb_register_instance_ref(context.uri(), span, decl_id, scope.as_deref());
                         }
                         Some(ident.into())
                     } else {
@@ -400,9 +403,9 @@ impl McPhrase {
                                 let span = (node.get_pos() as usize)
                                     ..((node.get_pos() + node.get_len()) as usize);
                                 if let Some(decl_id) =
-                                    crate::builder::mcb_lookup_instance_decl(context.uri(), base)
+                                    crate::builder::mcb_lookup_instance_decl(context.uri(), base, scope.as_deref())
                                 {
-                                    mcb_register_instance_ref(context.uri(), span, decl_id);
+                                    mcb_register_instance_ref(context.uri(), span, decl_id, scope.as_deref());
                                 }
                                 context.upgrade_label_to_bus(base);
                                 if let Some(McPhrase::Endpoint(McEndpoint::Single(
@@ -1402,9 +1405,9 @@ impl McPhrase {
                             let span = (node.get_pos() as usize)
                                 ..((node.get_pos() + node.get_len()) as usize);
                             if let Some(decl_id) =
-                                crate::builder::mcb_lookup_instance_decl(context.uri(), &names[0])
+                                crate::builder::mcb_lookup_instance_decl(context.uri(), &names[0], scope.as_deref())
                             {
-                                mcb_register_instance_ref(context.uri(), span, decl_id);
+                                mcb_register_instance_ref(context.uri(), span, decl_id, scope.as_deref());
                             }
                             return Some(inst.into());
                         }

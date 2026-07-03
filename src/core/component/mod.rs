@@ -356,6 +356,10 @@ impl HasFindInst for McComponent {
     fn upgrade_label_to_bus(&mut self, _name: &str) -> bool {
         false
     }
+
+    fn scope_name(&self) -> Option<String> {
+        Some(self.name.to_string())
+    }
 }
 
 #[derive(Debug, Clone)]
