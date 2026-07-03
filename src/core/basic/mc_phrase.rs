@@ -299,7 +299,7 @@ impl McPhrase {
                                             if c.base.pins.find_pin(&rest).is_none() {
                                                 dlog_error(
                                                     1802,
-                                                    node,
+                                                    &subnode,
                                                     &format!(
                                                         "Pin '{}' not found in component '{}'",
                                                         rest, base
