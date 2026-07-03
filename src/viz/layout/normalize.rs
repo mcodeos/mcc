@@ -71,5 +71,8 @@ pub fn compute_canvas(graph: &McVecGraph) -> (f64, f64) {
         .min(0.0);
     let max_x = graph.boxes.iter().map(|b| b.x + b.w).fold(0.0f64, f64::max);
     let max_y = graph.boxes.iter().map(|b| b.y + b.h).fold(0.0f64, f64::max);
-    ((max_x - min_x) + CANVAS_PADDING, (max_y - min_y) + CANVAS_PADDING)
+    (
+        (max_x - min_x) + CANVAS_PADDING,
+        (max_y - min_y) + CANVAS_PADDING,
+    )
 }

@@ -213,7 +213,7 @@ pub fn run_server_internal(host: &str, port: u16, libs: &[String]) -> Result<()>
     // Initialize logging to file (env var set by run_start)
     let log_file = std::env::var("MCC_LOG_FILE").ok();
     crate::logging::init_with_log_file_and_stderr(0, false, log_file.as_deref(), false);
-    
+
     // Route C-side trace output to log file
     if let Ok(p) = std::env::var("MCC_LOG_FILE") {
         mcc::mcc_log_init(&p);

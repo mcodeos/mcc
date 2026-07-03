@@ -297,10 +297,12 @@ impl McPhrase {
                                         // ★ LSP: Register instance reference for dot-separated path
                                         let span = (subnode.get_pos() as usize)
                                             ..((subnode.get_pos() + subnode.get_len()) as usize);
-                                        if let Some(decl_id) = crate::builder::mcb_lookup_instance_decl(
-                                            context.uri(),
-                                            base,
-                                        ) {
+                                        if let Some(decl_id) =
+                                            crate::builder::mcb_lookup_instance_decl(
+                                                context.uri(),
+                                                base,
+                                            )
+                                        {
                                             mcb_register_instance_ref(context.uri(), span, decl_id);
                                         }
                                         context.upgrade_label_to_bus(base);

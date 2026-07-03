@@ -274,7 +274,11 @@ pub fn place_series_passives(graph: &mut McVecGraph) {
         let mut ok = true;
         for &ni in &touching {
             let net = &graph.nets[ni];
-            let p_pin = net.endpoints.iter().find(|e| e.box_id == pid).map(|e| e.pin_id);
+            let p_pin = net
+                .endpoints
+                .iter()
+                .find(|e| e.box_id == pid)
+                .map(|e| e.pin_id);
             let others: Vec<&EndpointRef> =
                 net.endpoints.iter().filter(|e| e.box_id != pid).collect();
             match (p_pin, others.as_slice()) {
@@ -399,7 +403,11 @@ pub fn place_passive_chains(graph: &mut McVecGraph) {
             let mut has_passive_neighbour = false;
             for &ni in &touching {
                 let net = &graph.nets[ni];
-                let p_pin = net.endpoints.iter().find(|e| e.box_id == pid).map(|e| e.pin_id);
+                let p_pin = net
+                    .endpoints
+                    .iter()
+                    .find(|e| e.box_id == pid)
+                    .map(|e| e.pin_id);
                 let others: Vec<&EndpointRef> =
                     net.endpoints.iter().filter(|e| e.box_id != pid).collect();
                 match (p_pin, others.as_slice()) {

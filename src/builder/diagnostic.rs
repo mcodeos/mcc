@@ -332,17 +332,31 @@ pub fn dlog_error(code: u32, node: &AstNode, msg: &str) {
 pub fn dlog_warning(code: u32, node: &AstNode, msg: &str) {
     let full_msg = format!("node={} {}", node.get_type(), msg);
     // Print to stderr so LSP server can capture it
-    eprintln!("[dlog_warning] code={} node_type={} node_pos={} node_len={} msg={}", 
-        code, node.get_type(), node.get_pos(), node.get_len(), full_msg);
+    eprintln!(
+        "[dlog_warning] code={} node_type={} node_pos={} node_len={} msg={}",
+        code,
+        node.get_type(),
+        node.get_pos(),
+        node.get_len(),
+        full_msg
+    );
     // Print chain of sub-nodes for debugging
     let mut cur = node.get_sub_node();
     let mut depth = 0;
     while let Some(n) = cur {
-        eprintln!("  [dlog_warning] sub[{}] type={} pos={} len={}", 
-            depth, n.get_type(), n.get_pos(), n.get_len());
+        eprintln!(
+            "  [dlog_warning] sub[{}] type={} pos={} len={}",
+            depth,
+            n.get_type(),
+            n.get_pos(),
+            n.get_len()
+        );
         cur = n.get_next();
         depth += 1;
-        if depth > 10 { eprintln!("  [dlog_warning] ... (truncated)"); break; }
+        if depth > 10 {
+            eprintln!("  [dlog_warning] ... (truncated)");
+            break;
+        }
     }
     diagnostic_log(
         code,

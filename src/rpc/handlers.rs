@@ -2035,23 +2035,33 @@ fn find_project_root(file_path: &Path) -> PathBuf {
 fn ensure_library_loaded(file_uri: &McURI) {
     // Check if libraries are already loaded
     let libs = crate::builder::mcb_loaded_libs();
-    eprintln!("[ensure_library_loaded] uri={} libs_already_loaded={:?}", file_uri, libs);
-    
+    eprintln!(
+        "[ensure_library_loaded] uri={} libs_already_loaded={:?}",
+        file_uri, libs
+    );
+
     if !libs.is_empty() {
         eprintln!("[ensure_library_loaded] skip, libs already loaded");
         return;
     }
-    
+
     // Find project root from file
     let path = Path::new(file_uri.as_str());
     let project_root = find_project_root(path);
-    
-    eprintln!("[ensure_library_loaded] project_root={}", project_root.display());
-    
+
+    eprintln!(
+        "[ensure_library_loaded] project_root={}",
+        project_root.display()
+    );
+
     // Try to load project.toml dependencies
     let project_toml = project_root.join("project.toml");
-    eprintln!("[ensure_library_loaded] project_toml={} exists={}", project_toml.display(), project_toml.exists());
-    
+    eprintln!(
+        "[ensure_library_loaded] project_toml={} exists={}",
+        project_toml.display(),
+        project_toml.exists()
+    );
+
     if project_toml.exists() {
         if let Ok(contents) = std::fs::read_to_string(&project_toml) {
             if let Some(deps) = extract_lib_dependencies(&contents) {
@@ -2101,7 +2111,11 @@ fn extract_lib_dependencies(contents: &str) -> Option<Vec<String>> {
                         let left = dep_line[..eq_pos].trim();
                         left.trim_matches('"').trim_matches('\'').to_string()
                     } else {
-                        dep_line.trim_matches(',').trim_matches('"').trim_matches('\'').to_string()
+                        dep_line
+                            .trim_matches(',')
+                            .trim_matches('"')
+                            .trim_matches('\'')
+                            .to_string()
                     };
                     if !name.is_empty() {
                         deps.push(name);
@@ -2238,13 +2252,13 @@ pub fn handle_diagnostics(params: Option<Value>) -> RpcResult {
     struct DiagnosticsParams {
         uri: String,
     }
-    
+
     let p: DiagnosticsParams = parse_strict(params)?;
     let mc_uri = McURI::from(p.uri.as_str());
-    
+
     // Get all diagnostics for this file
     let diagnostics = crate::mcc_diagnose(&mc_uri);
-    
+
     // Convert to JSON
     let diags: Vec<serde_json::Value> = diagnostics
         .iter()
@@ -2262,13 +2276,15 @@ pub fn handle_diagnostics(params: Option<Value>) -> RpcResult {
             })
         })
         .collect();
-    
+
     Ok(serde_json::json!({ "diagnostics": diags }))
 }
 
 /// Handle project_symbols RPC - return project-wide symbols (components, interfaces, enums, modules)
 pub fn handle_project_symbols(_params: Option<Value>) -> RpcResult {
-    use crate::builder::main::{mcb_iter_components, mcb_iter_enums, mcb_iter_interfaces, mcb_iter_modules};
+    use crate::builder::main::{
+        mcb_iter_components, mcb_iter_enums, mcb_iter_interfaces, mcb_iter_modules,
+    };
 
     let components: Vec<serde_json::Value> = mcb_iter_components()
         .into_iter()
@@ -2304,7 +2320,7 @@ pub fn handle_set_project_root(params: Option<Value>) -> RpcResult {
     struct SetProjectRootParams {
         path: String,
     }
-    
+
     let p: SetProjectRootParams = parse_strict(params)?;
     crate::mcc_set_project_root(std::path::Path::new(&p.path));
     Ok(serde_json::json!({ "ok": true }))
@@ -2316,7 +2332,7 @@ pub fn handle_set_system_root(params: Option<Value>) -> RpcResult {
     struct SetSystemRootParams {
         path: String,
     }
-    
+
     let p: SetSystemRootParams = parse_strict(params)?;
     crate::mcc_set_system_root(std::path::Path::new(&p.path));
     Ok(serde_json::json!({ "ok": true }))
@@ -2334,7 +2350,7 @@ pub fn handle_load_project(params: Option<Value>) -> RpcResult {
     struct LoadProjectParams {
         entry: String,
     }
-    
+
     let p: LoadProjectParams = parse_strict(params)?;
     let mc_uri = McURI::from(p.entry.as_str());
     crate::mcc_load_project(&mc_uri);
@@ -2347,7 +2363,7 @@ pub fn handle_add_file(params: Option<Value>) -> RpcResult {
     struct AddFileParams {
         uri: String,
     }
-    
+
     let p: AddFileParams = parse_strict(params)?;
     crate::mcc_add(&McURI::from(p.uri.as_str()));
     Ok(serde_json::json!({ "ok": true }))
@@ -2359,7 +2375,7 @@ pub fn handle_remove_file(params: Option<Value>) -> RpcResult {
     struct RemoveFileParams {
         uri: String,
     }
-    
+
     let p: RemoveFileParams = parse_strict(params)?;
     crate::mcc_remove(&McURI::from(p.uri.as_str()));
     Ok(serde_json::json!({ "ok": true }))
