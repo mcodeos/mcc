@@ -711,14 +711,41 @@ impl McPhrase {
                         // Try dot_or_curly first with a clone
                         if let Some(result) = left_opd.clone().dot_or_curly(&right) {
                             if matches!(result, McPhrase::Multiple(_)) {
-                                // dot_or_curly returned Multiple, which means the member wasn't found
-                                // Create a qualified label instead
-                                let combined_name = format!("{}.{}", inst_name, right[0]);
-                                return Some(McPhrase::Endpoint(McEndpoint::Single(
-                                    McInstanceRef::new(McInstance::Bus(McBus::new(&combined_name))),
-                                )));
+                                // dot_or_curly returned Multiple, which means some members not found
+                                // E1802: pin not found in component
+                                if right.len() == 1 {
+                                    let member = &right[0];
+                                    if !c.base.pins.find_pin(member).is_some() {
+                                        dlog_error(
+                                            1802,
+                                            node,
+                                            &format!(
+                                                "Pin '{}' not found in component '{}'",
+                                                member, inst_name
+                                            ),
+                                        );
+                                        return None;
+                                    }
+                                }
+                                // If at least one pin found, proceed with the result
+                                return Some(result);
                             }
                             return Some(result);
+                        } else {
+                            // dot_or_curly returned None, meaning no pins found
+                            // E1802: pin not found in component
+                            if right.len() == 1 {
+                                let member = &right[0];
+                                dlog_error(
+                                    1802,
+                                    node,
+                                    &format!(
+                                        "Pin '{}' not found in component '{}'",
+                                        member, inst_name
+                                    ),
+                                );
+                                return None;
+                            }
                         }
                     } else if let McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
                         base: McInstance::Module(ref m),
@@ -729,14 +756,41 @@ impl McPhrase {
                         // Try dot_or_curly first with a clone
                         if let Some(result) = left_opd.clone().dot_or_curly(&right) {
                             if matches!(result, McPhrase::Multiple(_)) {
-                                // dot_or_curly returned Multiple, which means the member wasn't found
-                                // Create a qualified label instead
-                                let combined_name = format!("{}.{}", inst_name, right[0]);
-                                return Some(McPhrase::Endpoint(McEndpoint::Single(
-                                    McInstanceRef::new(McInstance::Bus(McBus::new(&combined_name))),
-                                )));
+                                // dot_or_curly returned Multiple, which means some members not found
+                                // E1802: pin not found in component
+                                if right.len() == 1 {
+                                    let member = &right[0];
+                                    if !m.base.insts.find_port(member).is_some() {
+                                        dlog_error(
+                                            1803,
+                                            node,
+                                            &format!(
+                                                "Port '{}' not found in module '{}'",
+                                                member, inst_name
+                                            ),
+                                        );
+                                        return None;
+                                    }
+                                }
+                                // If at least one port found, proceed with the result
+                                return Some(result);
                             }
                             return Some(result);
+                        } else {
+                            // dot_or_curly returned None, meaning no ports found
+                            // E1803: port not found in module
+                            if right.len() == 1 {
+                                let member = &right[0];
+                                dlog_error(
+                                    1803,
+                                    node,
+                                    &format!(
+                                        "Port '{}' not found in module '{}'",
+                                        member, inst_name
+                                    ),
+                                );
+                                return None;
+                            }
                         }
                     }
                 }
