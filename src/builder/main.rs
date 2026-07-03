@@ -740,45 +740,6 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
         }
     }
 
-    // ========== 1.7. Fallback: search for Interface from uselist ==========
-    // When Interface is not in spacenames, try to load from files in uselist
-    if let Some(parent) = &uri_parent {
-        let ifs_uri = format!(
-            "{}/ifs/{}.mc",
-            parent,
-            class_name.to_string().to_lowercase()
-        );
-        if Path::new(&ifs_uri).exists() {
-            // If the file was already loaded by mcb_add_recursive, use the
-            // workspace entry — don't reload from disk and replace it,
-            // because there may be existing Mc2Interface instances that use
-            // a subtree of the old entry's AST as `base`. If the old entry is
-            // replaced, the whole AST is released and the `base` becomes a wild pointer.
-            {
-                let mcodes = workspace::WORKSPACE.mcodes.borrow();
-                let existing = mcodes.get(&ifs_uri).map(|e| e.value().clone());
-                drop(mcodes);
-                if let Some(mut existing) = existing {
-                    return existing.parse_cmie_single(class_name);
-                }
-            }
-
-            if let Some(mut ifs_file) = McCode::new(&ifs_uri, true) {
-                ifs_file.parse_ast_quiet();
-                ifs_file.parse_nsp();
-                let result = ifs_file.parse_cmie_single(class_name);
-                if let Some(McCMIE::Interface(_)) = result {
-                    // Move into workspace so the AST stays alive.
-                    workspace::WORKSPACE
-                        .mcodes
-                        .borrow()
-                        .insert(ifs_uri.clone(), ifs_file);
-                    return result;
-                }
-            }
-        }
-    }
-
     // ========== 2. Search current file's spacenames (exact match only) ==========
     let mut use_uris_for_step2c: Vec<String> = Vec::new();
 
