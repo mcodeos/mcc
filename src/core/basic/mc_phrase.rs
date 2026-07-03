@@ -1148,9 +1148,10 @@ impl McPhrase {
 
             MCAST_OPD_PLUS => {
                 // ── D8: AMBIGUOUS_PRECEDENCE detection ──────────────────────
-                check_ambiguous_precedence(node);
-
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
+                let loc_node = first_expr_leaf(&opd1_node);
+                check_ambiguous_precedence(node, &loc_node);
+
                 let opd2_node = opd1_node.get_next().expect(MISSING_SUBNODE);
 
                 let opd1 = McPhrase::new(&opd1_node, context)?;
@@ -1210,9 +1211,10 @@ impl McPhrase {
 
             MCAST_OPD_MINUS => {
                 // ── D8: AMBIGUOUS_PRECEDENCE detection ──────────────────────
-                check_ambiguous_precedence(node);
-
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
+                let loc_node = first_expr_leaf(&opd1_node);
+                check_ambiguous_precedence(node, &loc_node);
+
                 let opd2_node = opd1_node.get_next().expect(MISSING_SUBNODE);
 
                 let opd1 = McPhrase::new(&opd1_node, context)?;
@@ -1239,9 +1241,10 @@ impl McPhrase {
 
             MCAST_OPD_RIGHTARROW => {
                 // ── D8: AMBIGUOUS_PRECEDENCE detection ──────────────────────
-                check_ambiguous_precedence(node);
-
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
+                let loc_node = first_expr_leaf(&opd1_node);
+                check_ambiguous_precedence(node, &loc_node);
+
                 let opd2_node = opd1_node.get_next().expect(MISSING_SUBNODE);
                 let opd1 = McPhrase::new(&opd1_node, context);
                 let opd2 = McPhrase::new(&opd2_node, context);
@@ -2511,13 +2514,14 @@ impl std::fmt::Display for McPhrase {
 /// operators without explicit parentheses (Group), spanning more than 2
 /// leaf components. If so, emit a warning because the intended grouping
 /// may differ from the parser's precedence.
-fn check_ambiguous_precedence(node: &AstNode) {
+/// `loc_node` specifies the node for error location (use first operand to avoid trailing comments).
+fn check_ambiguous_precedence(node: &AstNode, loc_node: &AstNode) {
     let (leaf_count, has_plus, has_minus, has_arrow) = analyze_expr_tree(node);
     let mixed = (has_plus as u8 + has_minus as u8 + has_arrow as u8) >= 2;
     if mixed && leaf_count > 2 {
         dlog_warning(
             2008,
-            node,
+            loc_node,
             &format!(
                 "AMBIGUOUS_PRECEDENCE: expression mixes +,-,-> operators without parentheses \
                  and spans {leaf_count} components (>2). Consider adding explicit parentheses \
@@ -2525,6 +2529,21 @@ fn check_ambiguous_precedence(node: &AstNode) {
             ),
         );
     }
+}
+
+/// Drill down to the first non-op leaf node in an expression tree,
+/// to avoid spanning multi-line comments in error locations.
+fn first_expr_leaf(node: &AstNode) -> AstNode {
+    let t = node.get_type();
+    match t {
+        MCAST_OPD_PLUS | MCAST_OPD_MINUS | MCAST_OPD_RIGHTARROW | MCAST_OPD_LEFTARROW => {
+            if let Some(sub) = node.get_sub_node() {
+                return first_expr_leaf(&sub);
+            }
+        }
+        _ => {}
+    }
+    node.clone()
 }
 
 /// Walk the AST subtree and return (leaf_count, has_plus, has_minus, has_arrow).
