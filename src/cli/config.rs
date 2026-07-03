@@ -47,6 +47,9 @@ pub struct MccConfig {
 
     #[serde(default)]
     pub output: OutputConfig,
+
+    #[serde(default)]
+    pub libs: LibsConfig,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
@@ -169,6 +172,31 @@ impl OutputConfig {
     }
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct LibsConfig {
+    /// List of system libraries to load. Empty means don't load mcode by default.
+    /// Example: ["mcode"] or ["mcode", "/path/to/custom_lib"]
+    #[serde(default)]
+    pub load: Vec<String>,
+}
+
+impl LibsConfig {
+    /// Check if "mcode" library should be loaded.
+    /// Returns true if mcode is explicitly listed in the load list.
+    /// If load list is empty, returns false (don't load by default).
+    pub fn should_load_mcode(&self) -> bool {
+        self.load.iter().any(|lib| {
+            let lib_lower = lib.to_lowercase();
+            lib_lower == "mcode" || lib_lower == "mcode/"
+        })
+    }
+
+    /// Get the list of libraries to load.
+    pub fn get_load_list(&self) -> &[String] {
+        &self.load
+    }
+}
+
 fn default_config_path() -> PathBuf {
     crate::cli::data_dir::config_dir().join("mcc.yaml")
 }
@@ -253,10 +281,19 @@ pub fn merge_configs(global: &MccConfig, local: Option<&MccConfig>) -> MccConfig
                 color: local.output.color.or(global.output.color),
             };
 
+            let libs = LibsConfig {
+                load: if local.libs.load.is_empty() {
+                    global.libs.load.clone()
+                } else {
+                    local.libs.load.clone()
+                },
+            };
+
             MccConfig {
                 trace,
                 parser,
                 output,
+                libs,
             }
         }
         None => global.clone(),
@@ -457,4 +494,22 @@ pub fn set_log_pass2(on: bool) {
 }
 pub fn get_log_pass2() -> Option<bool> {
     get_log_streams().read().ok().map(|s| s.pass2)
+}
+
+/// Check if mcode library should be loaded based on config.
+/// Returns true if "mcode" is explicitly listed in libs.load config.
+/// If libs.load is empty, returns false (don't load by default).
+pub fn should_load_mcode(project_root: Option<&Path>) -> bool {
+    let global = load_global_config().unwrap_or_default();
+    let local = project_root.and_then(|p| load_project_config(p).ok().flatten());
+    let merged = merge_configs(&global, local.as_ref());
+    merged.libs.should_load_mcode()
+}
+
+/// Get the list of libraries to load from config.
+pub fn get_libs_load_list(project_root: Option<&Path>) -> Vec<String> {
+    let global = load_global_config().unwrap_or_default();
+    let local = project_root.and_then(|p| load_project_config(p).ok().flatten());
+    let merged = merge_configs(&global, local.as_ref());
+    merged.libs.get_load_list().to_vec()
 }
