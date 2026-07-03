@@ -29,7 +29,12 @@ use mcc::{
 
 // ─── New P2 pipeline ─────────────────────────────────────────────
 use mcc::viz::api::{render_with, RenderOpts};
+use mcc::viz::layout::{
+    FlowLayouter, HierarchicalLayouter, RadialLayouter, SchematicRadialLayouter,
+    SchematicSubLayouter,
+};
 use mcc::viz::template::wrap_document;
+use mcc::viz::traits::Layouter;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -47,6 +52,7 @@ fn main() {
     let mut json_mode = false;
     let mut legacy_mode = false;
     let mut no_promote = false;
+    let mut layouter_name: Option<String> = None;
     let mut i = 3;
     while i < args.len() {
         match args[i].as_str() {
@@ -70,6 +76,15 @@ fn main() {
             "--no-promote" => {
                 no_promote = true;
                 i += 1;
+            }
+            "--layouter" => {
+                if i + 1 < args.len() {
+                    layouter_name = Some(args[i + 1].clone());
+                    i += 2;
+                } else {
+                    eprintln!("Error: --layouter requires a name (flow|schematic_radial|schematic_sub|hierarchical|radial)");
+                    process::exit(1);
+                }
             }
             "-h" | "--help" => {
                 print_usage();
@@ -129,18 +144,12 @@ fn main() {
         run_legacy(graph, json_mode)
     } else if json_mode {
         eprintln!("[mcviz] using NEW P2 pipeline -> VizDocument JSON");
-        let opts = RenderOpts {
-            apply_promote: !no_promote,
-            ..Default::default()
-        };
+        let opts = build_opts(!no_promote, layouter_name.as_deref());
         let doc = render_with(graph, opts);
         doc.to_json()
     } else {
         eprintln!("[mcviz] using NEW P2 pipeline -> HTML (real expand)");
-        let opts = RenderOpts {
-            apply_promote: !no_promote,
-            ..Default::default()
-        };
+        let opts = build_opts(!no_promote, layouter_name.as_deref());
         let doc = render_with(graph, opts);
         let layer_count = doc.layer_count();
         let svg_bytes = doc.total_svg_bytes();
@@ -190,6 +199,65 @@ fn run_legacy(graph: mcc::vector::graph::McVecGraph, json_mode: bool) -> String 
     }
 }
 
+/// Build RenderOpts with optional single-layouter override
+fn build_opts(apply_promote: bool, layouter_name: Option<&str>) -> RenderOpts {
+    let mut opts = RenderOpts::default();
+    opts.apply_promote = apply_promote;
+
+    if let Some(name) = layouter_name {
+        let (top, sub, top_cands, sub_cands): (
+            Box<dyn Layouter>,
+            Box<dyn Layouter>,
+            Vec<Box<dyn Layouter>>,
+            Vec<Box<dyn Layouter>>,
+        ) = match name {
+            "flow" => (
+                Box::new(FlowLayouter::default()),
+                Box::new(FlowLayouter::sub()),
+                vec![Box::new(FlowLayouter::default())],
+                vec![Box::new(FlowLayouter::sub())],
+            ),
+            "schematic_radial" => (
+                Box::new(SchematicRadialLayouter::default()),
+                Box::new(FlowLayouter::sub()),
+                vec![Box::new(SchematicRadialLayouter::default())],
+                vec![Box::new(FlowLayouter::sub())],
+            ),
+            "schematic_sub" => (
+                Box::new(FlowLayouter::default()),
+                Box::new(SchematicSubLayouter::default()),
+                vec![Box::new(FlowLayouter::default())],
+                vec![Box::new(SchematicSubLayouter::default())],
+            ),
+            "hierarchical" => (
+                Box::new(HierarchicalLayouter::default()),
+                Box::new(FlowLayouter::sub()),
+                vec![Box::new(HierarchicalLayouter::default())],
+                vec![Box::new(FlowLayouter::sub())],
+            ),
+            "radial" => (
+                Box::new(RadialLayouter),
+                Box::new(RadialLayouter),
+                vec![Box::new(RadialLayouter)],
+                vec![Box::new(RadialLayouter)],
+            ),
+            other => {
+                eprintln!(
+                    "Error: unknown layouter '{}'. Choose: flow|schematic_radial|schematic_sub|hierarchical|radial",
+                    other
+                );
+                process::exit(1);
+            }
+        };
+        opts.top_layouter = top;
+        opts.sub_layouter = sub;
+        opts.top_candidates = top_cands;
+        opts.sub_candidates = sub_cands;
+        eprintln!("[mcviz] locked layouter: top={} sub={}", name, name);
+    }
+    opts
+}
+
 fn print_usage() {
     eprintln!("Usage: mcviz <project_root> <module_name> [options]");
     eprintln!();
@@ -198,6 +266,7 @@ fn print_usage() {
     eprintln!("  --json         Output JSON instead of HTML");
     eprintln!("  --legacy       Use old pipeline (no real expand, for compare)");
     eprintln!("  --no-promote   Disable top-layer simplification (show all nets)");
+    eprintln!("  --layouter <name>  Lock to single layouter: flow|schematic_radial|schematic_sub|hierarchical|radial");
     eprintln!("  -h, --help     Show this help");
     eprintln!();
     eprintln!("Examples:");

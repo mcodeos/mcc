@@ -4,6 +4,18 @@
 
 //! Top-level rendering API
 //!
+//! ## ★ PR-1 — single-layouter pipeline
+//! The default candidate pool is collapsed to a single layouter, **circuit_flow**
+//! (`FlowLayouter`), at both top and sub level. generate-and-rank is retired in
+//! `layout::select::layout_best`, which now runs one layouter and applies a
+//! fidelity gate instead of ranking N candidates. "What you edit is what you see."
+//!
+//! The alternate layouters (`SchematicRadialLayouter`, `HierarchicalLayouter`,
+//! `RadialLayouter`, and the `FlowLayouter` parameter variants) are **kept in the
+//! tree** and remain reachable for comparison via the explicit `RenderOpts`
+//! constructors below (`all_radial`, `sugiyama`, `legacy_radial`, `schematic_radial`).
+//! They are simply no longer in the default pool.
+//!
 //! ## ★ P03 (S1) changes
 //! - Deleted `apply_route: bool` field, route now always executes (single pipeline)
 //! - Deleted `RenderOpts::legacy_edges_only()` constructor (old binary edges rendering discontinued)
@@ -19,6 +31,7 @@
 //! ## ★ P07 (S6) changes — Schematic Radial becomes default top-level
 //! `top_layouter` default changed from `HierarchicalLayouter` to `SchematicRadialLayouter`,
 //! visually from "layered strips" to "center IC + peripheral radiation" (more like real schematics).
+//! (Superseded by PR-1 above: default is now circuit_flow.)
 //!
 //! Old behavior still available:
 //! - `RenderOpts::sugiyama()` — top-level uses old HierarchicalLayouter
@@ -38,7 +51,6 @@ use super::layer::VizLayer;
 use super::layout::select::layout_best;
 use super::layout::{
     FlowLayouter, HierarchicalLayouter, RadialLayouter, SchematicRadialLayouter,
-    SchematicSubLayouter,
 };
 use super::traits::{DefaultRenderer, Layouter, Renderer};
 
@@ -52,11 +64,11 @@ pub struct RenderOpts {
     pub renderer: Box<dyn Renderer>,
     /// Whether to promote at top level (P1)
     pub apply_promote: bool,
-    /// Phase 3: top-level candidate layouters for generate-and-rank.
-    /// Default = single candidate (top_layouter), backward compatible.
+    /// Top-level candidate layouters for the layout pipeline.
+    /// PR-1: single candidate (circuit_flow).
     pub top_candidates: Vec<Box<dyn Layouter>>,
-    /// Phase 3: sub-level candidate layouters for generate-and-rank.
-    /// Default = single candidate (sub_layouter), backward compatible.
+    /// Sub-level candidate layouters for the layout pipeline.
+    /// PR-1: single candidate (circuit_flow / FlowLayouter::sub()).
     pub sub_candidates: Vec<Box<dyn Layouter>>,
 }
 
@@ -69,48 +81,12 @@ impl Default for RenderOpts {
             sub_layouter: Box::new(sub),
             renderer: Box::new(DefaultRenderer),
             apply_promote: true,
-            // Phase 3: multi-candidate generate-and-rank
-            top_candidates: vec![
-                Box::new(FlowLayouter::default()),
-                Box::new(FlowLayouter {
-                    hub_keep_semantic: true,
-                    ..FlowLayouter::default()
-                }),
-                Box::new(FlowLayouter {
-                    bary_sweeps: 10,
-                    ..FlowLayouter::default()
-                }),
-                Box::new(FlowLayouter {
-                    hub_min_degree: 3,
-                    ..FlowLayouter::default()
-                }),
-                Box::new(FlowLayouter {
-                    fanout_star: true,
-                    ..FlowLayouter::default()
-                }),
-                Box::new(SchematicRadialLayouter::default()),
-                Box::new(HierarchicalLayouter::default()),
-            ],
-            sub_candidates: vec![
-                Box::new(SchematicSubLayouter::default()), // chain-driven (preferred for sub-modules)
-                Box::new(FlowLayouter::sub()),
-                Box::new(FlowLayouter {
-                    hub_keep_semantic: true,
-                    ..FlowLayouter::sub()
-                }),
-                Box::new(FlowLayouter {
-                    bary_sweeps: 10,
-                    ..FlowLayouter::sub()
-                }),
-                Box::new(FlowLayouter {
-                    hub_min_degree: 3,
-                    ..FlowLayouter::sub()
-                }),
-                Box::new(FlowLayouter {
-                    fanout_star: true,
-                    ..FlowLayouter::sub()
-                }),
-            ],
+            // ★ PR-1: single-layouter pipeline. circuit_flow (FlowLayouter) is the
+            //   only candidate at both levels. generate-and-rank is retired — see
+            //   layout::select::layout_best. The alternate layouters are kept in the
+            //   tree and reachable via the explicit constructors below.
+            top_candidates: vec![Box::new(FlowLayouter::default())],
+            sub_candidates: vec![Box::new(FlowLayouter::sub())],
         }
     }
 }
@@ -152,7 +128,7 @@ impl RenderOpts {
         }
     }
 
-    /// ★ Stage A — previous default: center IC + radiation (for comparison)
+    /// ★ Stage A — center IC + radiation (kept for comparison against circuit_flow)
     pub fn schematic_radial() -> Self {
         Self {
             top_layouter: Box::new(SchematicRadialLayouter::default()),
@@ -240,7 +216,7 @@ fn render_layer_recursive(
         sub_candidates
     };
 
-    // ── Phase 1–2: layout + route via generate-and-rank ──
+    // ── Phase 1–2: layout + route via the single-layouter pipeline ──
     let mut canvas = if graph.boxes.is_empty() {
         crate::vlog!(
             "[viz::api] layer {} '{}' is empty, skipping layout",

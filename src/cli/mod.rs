@@ -336,6 +336,10 @@ pub struct BuildArgs {
     /// Whether to include system library definitions, default false
     #[arg(long, default_value_t = false)]
     pub include_system: bool,
+
+    /// Lock to a single layouter for viz (flow|schematic_radial|schematic_sub|hierarchical|radial)
+    #[arg(long, value_name = "NAME")]
+    pub layouter: Option<String>,
 }
 
 // ============================================================================
