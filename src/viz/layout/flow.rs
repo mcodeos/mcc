@@ -214,6 +214,10 @@ impl Layouter for FlowLayouter {
         // ★ P0b: Leaf first vertically aligns to neighbor, then hub stretches to align with final leaf position (two-step positioning)
         align_leaf_to_neighbor(graph, root_id);
         align_hub_to_spokes(graph, root_id);
+        // ★ PR-2: align_hub_to_spokes rewrites hub pin offsets (a box-geometry pass),
+        //   which can re-collide offsets that pin_place_pipeline already deduped.
+        //   Re-assert pin_place's uniqueness invariant so offset ownership stays single-writer.
+        enforce_unique_offsets(graph);
 
         // ── ★ Supply chain grouping: power modules (USB power / LDO / DCDC...) grouped into bottom row ──
         //   Their power delivery nets (like Vin/V5V "module→module" real wires) become shorter nearby;
@@ -300,88 +304,6 @@ fn size_by_core_fanout(graph: &mut McVecGraph) {
     }
 }
 
-/// Sort and evenly distribute signal pins on each side by "opposite box position", eliminate crossings.
-///
-/// Example: mcu left connects flash(top)/mic(middle)/speaker(bottom) → three pins sorted top to bottom,
-/// wires each take their own path without crossing. Only process core signal pins (power/ground pins handled by place_flags).
-fn order_pins_by_neighbor(graph: &mut McVecGraph) {
-    let flag_ids: HashSet<i64> = graph
-        .boxes
-        .iter()
-        .filter(|b| is_rail_box(b))
-        .map(|b| b.id)
-        .collect();
-    let centers: HashMap<i64, (f64, f64)> = graph
-        .boxes
-        .iter()
-        .map(|b| (b.id, (b.x + b.w / 2.0, b.y + b.h / 2.0)))
-        .collect();
-
-    // (box,pin) → opposite box core endpoint centroid
-    let mut target: HashMap<(i64, i64), (f64, f64)> = HashMap::new();
-    for net in &graph.nets {
-        let cores: Vec<&crate::vector::graph::EndpointRef> = net
-            .endpoints
-            .iter()
-            .filter(|e| !flag_ids.contains(&e.box_id))
-            .collect();
-        if cores.len() < 2 {
-            continue;
-        }
-        for e in &cores {
-            let mut sx = 0.0;
-            let mut sy = 0.0;
-            let mut cnt = 0.0;
-            for o in &cores {
-                if o.box_id == e.box_id && o.pin_id == e.pin_id {
-                    continue;
-                }
-                if let Some(&(ox, oy)) = centers.get(&o.box_id) {
-                    sx += ox;
-                    sy += oy;
-                    cnt += 1.0;
-                }
-            }
-            if cnt > 0.0 {
-                target.insert((e.box_id, e.pin_id), (sx / cnt, sy / cnt));
-            }
-        }
-    }
-
-    for b in &mut graph.boxes {
-        if flag_ids.contains(&b.id) {
-            continue;
-        }
-        for side in [
-            EntrySide::Top,
-            EntrySide::Bottom,
-            EntrySide::Left,
-            EntrySide::Right,
-        ] {
-            let vertical = matches!(side, EntrySide::Left | EntrySide::Right);
-            let mut items: Vec<(usize, f64)> = b
-                .entry_points
-                .iter()
-                .enumerate()
-                .filter(|(_, ep)| ep.side == side)
-                .filter_map(|(i, ep)| {
-                    target
-                        .get(&(b.id, ep.pin_id))
-                        .map(|&(tx, ty)| (i, if vertical { ty } else { tx }))
-                })
-                .collect();
-            if items.len() <= 1 {
-                continue;
-            }
-            items.sort_by(|a, c| a.1.partial_cmp(&c.1).unwrap_or(std::cmp::Ordering::Equal));
-            let n = items.len();
-            for (rank, (idx, _)) in items.iter().enumerate() {
-                b.entry_points[*idx].offset = (rank as f64 + 1.0) / (n as f64 + 1.0);
-            }
-        }
-    }
-}
-
 /// Conversely: peripheral devices are placed (no collision), align hub(mcu) pins to each peripheral connection point's Y,
 /// and **stretch hub height** by their Y span. So spoke↔hub are all horizontal straight lines, hub
 /// can be as tall as needed; key is **don't move any peripherals → never introduce collision** (collision ensured by place/overlap phase).
@@ -453,85 +375,6 @@ fn align_hub_to_spokes(graph: &mut McVecGraph, root_id: i64) {
             }
         }
     }
-}
-
-/// ★ P0a — Make "leaf box" signal pins always face the horizontal side where its core neighbor is.
-///
-/// `assign_entry_points_refine` only rearranges Passive/Bidir/Unknown pins (`is_repinnable`);
-/// Input/Output pins keep coarse L/R alternation → for boxes like flash where "all data pins connect to left-side mcu",
-/// half the pins are left on the right side facing away from mcu, wires must route around box body. This pass for each pin of **non-hub** boxes
-/// that connects to core neighbor, flips to correct left/right side if current side is opposite to neighbor's horizontal direction. hub doesn't move (preserves
-/// Input-left/Output-right IC convention); flags are already extracted by split_flags → power/ground pins have no core neighbor,
-/// naturally don't move. Only flip left/right; offset handled by subsequent order_pins_by_neighbor reorganizing by neighbor Y.
-fn face_core_neighbor(graph: &mut McVecGraph, hub_id: i64) {
-    let centers: HashMap<i64, (f64, f64)> = graph
-        .boxes
-        .iter()
-        .map(|b| (b.id, (b.x + b.w / 2.0, b.y + b.h / 2.0)))
-        .collect();
-
-    // (box_id, pin_id) → opposite box core centroid (accumulate, average at end)
-    let mut nbr: HashMap<(i64, i64), (f64, f64, usize)> = HashMap::new();
-    for net in &graph.nets {
-        if net.endpoints.len() < 2 {
-            continue;
-        }
-        for e in &net.endpoints {
-            let (mut sx, mut sy, mut k) = (0.0_f64, 0.0_f64, 0usize);
-            for o in &net.endpoints {
-                if o.box_id == e.box_id {
-                    continue;
-                }
-                if let Some(&(ox, oy)) = centers.get(&o.box_id) {
-                    sx += ox;
-                    sy += oy;
-                    k += 1;
-                }
-            }
-            if k == 0 {
-                continue;
-            }
-            let ent = nbr.entry((e.box_id, e.pin_id)).or_insert((0.0, 0.0, 0));
-            ent.0 += sx / k as f64;
-            ent.1 += sy / k as f64;
-            ent.2 += 1;
-        }
-    }
-
-    let mut flipped = 0usize;
-    for b in &mut graph.boxes {
-        if b.id == hub_id || is_rail_box(b) {
-            continue;
-        }
-        let bcx = b.x + b.w / 2.0;
-        for ep in &mut b.entry_points {
-            if !matches!(ep.side, EntrySide::Left | EntrySide::Right) {
-                continue; // Only correct left/right; top/bottom left to power/ground/overflow
-            }
-            let (sx, _sy, k) = match nbr.get(&(b.id, ep.pin_id)) {
-                Some(v) => *v,
-                None => continue, // No core neighbor (only connected to flag / isolated) → don't move
-            };
-            if k == 0 {
-                continue;
-            }
-            let ncx = sx / k as f64;
-            let target = if ncx >= bcx {
-                EntrySide::Right
-            } else {
-                EntrySide::Left
-            };
-            if target != ep.side {
-                ep.side = target;
-                flipped += 1;
-            }
-        }
-    }
-
-    crate::vlog!(
-        "[flow::face_core_neighbor] graph '{}' bid={}: flipped {} leaf pin(s) to face core neighbor",
-        graph.name, graph.bid, flipped
-    );
 }
 
 /// ★ P0b — leaf aligns to neighbor (dual of align_hub_to_spokes).
