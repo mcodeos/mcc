@@ -335,10 +335,11 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
             let opts = build_viz_opts(args.layouter.as_deref());
             let (doc, metrics) = mcc::viz::api::render_with_metrics(graph, opts);
-            let (fidelity, readability) = metrics.finish(Some(&build_report));
-            // Metrics summary: one line each, always shown (this is the acceptance yardstick).
-            eprintln!("{}", fidelity.report_line());
-            eprintln!("{}", readability.report_line());
+            let quality = metrics.finish_quality(Some(&build_report));
+            // Metrics summary: always shown (this is the acceptance yardstick).
+            for line in quality.report_lines() {
+                eprintln!("{line}");
+            }
 
             // [P0-DET] CLI golden guard: compare against baseline when MCC_GOLDEN_CHECK is set
             if std::env::var("MCC_GOLDEN_CHECK").is_ok() {
@@ -367,7 +368,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             // [P0/A2] Electrical-fidelity hard gate: a non-perfect fidelity report means
             // the drawing is electrically wrong (dropped/partial nets, unrendered pins,
             // box/wire collisions). Fail the build so it can't pass silently.
-            if !fidelity.is_perfect() {
+            if !quality.is_perfect() {
                 eprintln!(
                     "[gate] FIDELITY not perfect -> build failed. See report above. \
                      (set MCC_FIDELITY_GATE=0 to downgrade to warning)"
