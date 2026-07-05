@@ -209,26 +209,38 @@ impl Layouter for FlowLayouter {
             .map(|(id, _)| *id)
             .unwrap_or(graph.boxes[0].id);
 
-        // ★ 05b: Pin placement pipeline (replaces face_core_neighbor, order_pins_by_neighbor, assign_entry_points_refine, enforce_unique_offsets)
-        super::pin_place::pin_place_pipeline(graph, Some(root_id), true, self.hub_keep_semantic);
-        // ★ P0b: Leaf first vertically aligns to neighbor, then hub stretches to align with final leaf position (two-step positioning)
-        align_leaf_to_neighbor(graph, root_id);
-        align_hub_to_spokes(graph, root_id);
-        // ★ PR-2: align_hub_to_spokes rewrites hub pin offsets (a box-geometry pass),
-        //   which can re-collide offsets that pin_place_pipeline already deduped.
-        //   Re-assert pin_place's uniqueness invariant so offset ownership stays single-writer.
-        enforce_unique_offsets(graph);
+        // ── ★ PR-A: single-writer pin placement ──────────────────────────────────────────────
+        //   Invariant: every pass that changes the RELATIVE geometry between connected boxes runs
+        //   BEFORE pin_place_pipeline; pin_place is the SOLE writer of EntryPoint.{side,offset};
+        //   nothing touches EntryPoint after it. This makes pin placement a pure function of the
+        //   final box geometry ("what you edit is what you see") and lets the router — which reads
+        //   entry_points as authoritative and never writes them — reproduce these decisions exactly.
 
-        // ── ★ Supply chain grouping: power modules (USB power / LDO / DCDC...) grouped into bottom row ──
-        //   Their power delivery nets (like Vin/V5V "module→module" real wires) become shorter nearby;
-        //   Power distribution to periphery already goes through same-name flags (no long wires), so moving to bottom won't lengthen those.
-        //   Do before place_flags → power module flags automatically attach next to them (bottom).
-
-        // ★ Isolated components: flags are now extracted (build_adjacency is pure core adjacency), compute boxes not containing hub
+        // ★ Isolated components: flags are extracted (build_adjacency is pure core adjacency),
+        //   compute boxes not containing hub. Position-independent → safe to compute here.
         let isolated_ids = compute_isolated_ids(graph, root_id);
 
-        // ★ Exclude isolated boxes during power module grouping → moddcdc no longer dragged to bottom row leftmost
+        // ★ P0b: Leaf vertically aligns to its single core neighbour (moves the whole leaf BOX only,
+        //   with a collision guard). Relative-geometry change → MUST run before pin_place. Previously
+        //   this ran AFTER pin_place, invalidating the sides pin_place had just computed → wrap-around
+        //   wires. Kept before group_supply_modules (same relative order as before the reorder).
+        align_leaf_to_neighbor(graph, root_id);
+
+        // ★ Supply chain grouping: power modules (USB/LDO/DCDC...) → bottom row. This changes their
+        //   geometry relative to their neighbours, so it MUST run before pin_place so pin sides face
+        //   the final positions. (Exclude isolated boxes so e.g. moddcdc isn't dragged leftmost.)
         group_supply_modules(graph, &isolated_ids);
+
+        // ── Pin placement (SOLE EntryPoint writer). The former flow::align_hub_to_spokes is now
+        //    folded into pin_place_pipeline as its `align_hub_to_spokes` pass (hub box stretch + hub
+        //    offset alignment), running after straighten/order and before the final unique-offset
+        //    guard — so the tall (stretched) hub keeps its aligned offsets instead of having them
+        //    flattened. The old trailing enforce_unique_offsets (PR-2 patch) is therefore deleted.
+        super::pin_place::pin_place_pipeline(graph, Some(root_id), true, self.hub_keep_semantic);
+
+        // ── Downstream box moves that do NOT change relative geometry among connected boxes, and
+        //    are therefore safe AFTER pin_place: flags are excluded from pin_place (is_rail_box);
+        //    park is a rigid translation of a disconnected component (preserves internal layout).
 
         // ── B3: Attach flags back to consumer sides (centered evenly on same side) ──
         graph.boxes.extend(flag_boxes);
@@ -304,78 +316,8 @@ fn size_by_core_fanout(graph: &mut McVecGraph) {
     }
 }
 
-/// Conversely: peripheral devices are placed (no collision), align hub(mcu) pins to each peripheral connection point's Y,
-/// and **stretch hub height** by their Y span. So spoke↔hub are all horizontal straight lines, hub
-/// can be as tall as needed; key is **don't move any peripherals → never introduce collision** (collision ensured by place/overlap phase).
-fn align_hub_to_spokes(graph: &mut McVecGraph, root_id: i64) {
-    let flag_ids: HashSet<i64> = graph
-        .boxes
-        .iter()
-        .filter(|b| is_rail_box(b))
-        .map(|b| b.id)
-        .collect();
-
-    // hub pin → target Y (= peripheral pin's absolute Y)
-    let mut hub_targets: HashMap<i64, f64> = HashMap::new();
-    for net in &graph.nets {
-        let cores: Vec<&crate::vector::graph::EndpointRef> = net
-            .endpoints
-            .iter()
-            .filter(|e| !flag_ids.contains(&e.box_id))
-            .collect();
-        if cores.len() < 2 {
-            continue;
-        }
-        let hub_ep = match cores.iter().find(|e| e.box_id == root_id) {
-            Some(e) => e,
-            None => continue,
-        };
-        let periph_ep = match cores.iter().find(|e| e.box_id != root_id) {
-            Some(e) => e,
-            None => continue,
-        };
-        let pb = match graph.boxes.iter().find(|b| b.id == periph_ep.box_id) {
-            Some(b) => b,
-            None => continue,
-        };
-        let ty = pb
-            .entry_points
-            .iter()
-            .find(|ep| ep.pin_id == periph_ep.pin_id)
-            .map(|ep| pin_abs(pb, &ep.side, ep.offset).1)
-            .unwrap_or(pb.y + pb.h / 2.0);
-        hub_targets
-            .entry(hub_ep.pin_id)
-            .and_modify(|v| *v = (*v + ty) / 2.0)
-            .or_insert(ty);
-    }
-    if hub_targets.is_empty() {
-        return;
-    }
-
-    let min_y = hub_targets.values().cloned().fold(f64::INFINITY, f64::min);
-    let max_y = hub_targets
-        .values()
-        .cloned()
-        .fold(f64::NEG_INFINITY, f64::max);
-    let margin = 36.0;
-    let new_y = min_y - margin;
-    let new_h = ((max_y - min_y) + 2.0 * margin).max(60.0);
-
-    if let Some(hub) = graph.boxes.iter_mut().find(|b| b.id == root_id) {
-        hub.y = new_y;
-        hub.h = new_h;
-        for ep in &mut hub.entry_points {
-            // Only align left/right signal pins (Y ↔ offset); top/bottom and power pins don't move
-            if !matches!(ep.side, EntrySide::Left | EntrySide::Right) {
-                continue;
-            }
-            if let Some(&ty) = hub_targets.get(&ep.pin_id) {
-                ep.offset = ((ty - new_y) / new_h).clamp(0.02, 0.98);
-            }
-        }
-    }
-}
+// ★ PR-A: `align_hub_to_spokes` moved to `pin_place::align_hub_to_spokes` (now a pass inside
+//   pin_place_pipeline, so pin_place stays the single writer of EntryPoint.{side,offset}).
 
 /// ★ P0b — leaf aligns to neighbor (dual of align_hub_to_spokes).
 ///
