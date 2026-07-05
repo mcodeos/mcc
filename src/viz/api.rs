@@ -261,7 +261,7 @@ fn render_layer_recursive(
         rep.total()
     );
 
-    metrics.accumulate_layer(&graph, &rep);
+    metrics.accumulate_layer(&graph, &rep, canvas);
 
     debug::dump_route(&graph);
 
