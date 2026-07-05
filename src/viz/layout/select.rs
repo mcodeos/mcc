@@ -30,8 +30,8 @@ use crate::vector::graph::McVecGraph;
 use crate::viz::idiom;
 use crate::viz::layout::normalize::renormalize;
 use crate::viz::layout::passive_inline::{
-    apply_net_labels, place_passive_chains, place_series_passives, probe_rail_passive_candidates,
-    probe_scatter_census,
+    apply_net_labels, place_passive_chains, place_series_passives, probe_box_collisions,
+    probe_rail_passive_candidates, probe_scatter_census,
 };
 use crate::viz::metrics::{off_grid, route_bends, route_length, FidelityReport, ReadabilityScore};
 use crate::viz::route::audit::audit_all;
@@ -76,6 +76,7 @@ fn run_single(mut graph: McVecGraph, candidate: &dyn Layouter, _is_root: bool) -
 
     // ── Phase 1.8: net labels ──
     apply_net_labels(&mut graph);
+    probe_box_collisions(&graph);
 
     // ── Phase 2: route ──
     route_all_with_channels(&mut graph);
