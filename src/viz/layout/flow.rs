@@ -168,6 +168,7 @@ impl FlowLayouter {
         graph.boxes.extend(flag_boxes);
         self.place_flags(graph, flag_meta);
         park_isolated_components(graph, isolated_ids);
+        eject_flags_from_boxes(graph);
         normalize_positions(graph);
     }
 }
@@ -280,7 +281,7 @@ fn size_by_core_fanout(graph: &mut McVecGraph) {
         if is_rail_box(b) {
             continue; // flags stay small
         }
-        let n = b.entry_points.len() as f64;
+        let n = b.entry_points.len().max(b.pins.len()) as f64;
         let want_h = n * PITCH + PAD;
         if want_h > b.h {
             b.h = want_h;
@@ -1825,6 +1826,78 @@ fn probe_degenerate_boxes(graph: &McVecGraph, tag: &str) {
             bad_size,
             bad_pos,
             bad_off
+        );
+    }
+}
+
+// ============================================================================
+// Flag ejection — 把压到别的盒子上的 flag 推出去
+// ============================================================================
+
+const FLAG_EJECT_GAP: f64 = 6.0;
+
+/// 把压到别的盒子上的 flag 推出去。只移动 flag；非 flag 盒子作为固定障碍。
+pub fn eject_flags_from_boxes(graph: &mut McVecGraph) {
+    let flag_ids: Vec<i64> = graph
+        .boxes
+        .iter()
+        .filter(|b| is_rail_box(b))
+        .map(|b| b.id)
+        .collect();
+    if flag_ids.is_empty() {
+        return;
+    }
+
+    let mut moved = 0usize;
+    for fid in flag_ids {
+        for _ in 0..8 {
+            let (fx, fy, fw, fh) = match graph.boxes.iter().find(|b| b.id == fid) {
+                Some(f) => (f.x, f.y, f.w, f.h),
+                None => break,
+            };
+            let (fcx, fcy) = (fx + fw / 2.0, fy + fh / 2.0);
+
+            let mut best: Option<(f64, f64, f64)> = None;
+            for o in &graph.boxes {
+                if o.id == fid {
+                    continue;
+                }
+                let ix = (fx + fw).min(o.x + o.w) - fx.max(o.x);
+                let iy = (fy + fh).min(o.y + o.h) - fy.max(o.y);
+                if ix > -FLAG_EJECT_GAP && iy > -FLAG_EJECT_GAP {
+                    let cost_x = ix + FLAG_EJECT_GAP;
+                    let cost_y = iy + FLAG_EJECT_GAP;
+                    let (ocx, ocy) = (o.x + o.w / 2.0, o.y + o.h / 2.0);
+                    let (cost, px, py) = if cost_x <= cost_y {
+                        let dir = if fcx < ocx { -1.0 } else { 1.0 };
+                        (cost_x, dir * cost_x, 0.0)
+                    } else {
+                        let dir = if fcy < ocy { -1.0 } else { 1.0 };
+                        (cost_y, 0.0, dir * cost_y)
+                    };
+                    if best.map_or(true, |(c, _, _)| cost > c) {
+                        best = Some((cost, px, py));
+                    }
+                }
+            }
+
+            match best {
+                Some((_, px, py)) => {
+                    if let Some(f) = graph.boxes.iter_mut().find(|b| b.id == fid) {
+                        f.x += px;
+                        f.y += py;
+                    }
+                    moved += 1;
+                }
+                None => break,
+            }
+        }
+    }
+
+    if moved > 0 {
+        crate::vlog!(
+            "[layout::flow] eject_flags_from_boxes: nudged flag(s) {} time(s)",
+            moved
         );
     }
 }

@@ -1146,3 +1146,47 @@ pub fn probe_scatter_census(graph: &McVecGraph) {
         dangling_pins
     );
 }
+
+// ============================================================================
+// PROBE-COLL — 点名 box_box 碰撞对
+// ----------------------------------------------------------------------------
+// 在 audit_all 之前调用，输出每对重叠盒子的名字+kind+重叠量。
+// 据此定位是 place_flags 堆叠还是去重叠覆盖不足。
+// ============================================================================
+
+pub fn probe_box_collisions(graph: &McVecGraph) {
+    if !crate::viz::debug::dump_enabled() {
+        return;
+    }
+    let bs = &graph.boxes;
+    let mut pairs: Vec<(String, String, f64)> = Vec::new();
+    for i in 0..bs.len() {
+        for j in (i + 1)..bs.len() {
+            let a = &bs[i];
+            let b = &bs[j];
+            let ox = (a.x + a.w).min(b.x + b.w) - a.x.max(b.x);
+            let oy = (a.y + a.h).min(b.y + b.h) - a.y.max(b.y);
+            if ox > 0.0 && oy > 0.0 {
+                let overlap = ox.min(oy);
+                pairs.push((
+                    format!("{}[{:?}]", a.name, a.kind),
+                    format!("{}[{:?}]", b.name, b.kind),
+                    overlap,
+                ));
+            }
+        }
+    }
+
+    if pairs.is_empty() {
+        crate::vlog!("[PROBE-COLL] layer '{}': no box-box overlaps", graph.name);
+    } else {
+        crate::vlog!(
+            "[PROBE-COLL] layer '{}': {} overlapping pair(s):",
+            graph.name,
+            pairs.len()
+        );
+        for (a, b, ov) in &pairs {
+            crate::vlog!("[PROBE-COLL]   {} ✕ {}  (overlap={:.0})", a, b, ov);
+        }
+    }
+}
