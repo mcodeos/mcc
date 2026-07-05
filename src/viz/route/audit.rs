@@ -25,7 +25,7 @@ const BOX_INFLATE: f64 = 2.0; // Inflation for box collision detection
 const RECT_SHRINK: f64 = 1.0; // Shrinkage for ignoring edge-grazing
 const TOUCH: f64 = 0.5; // Tolerance for "touching" detection
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct CollisionReport {
     pub box_box: usize,
     pub wire_box: usize,

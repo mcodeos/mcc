@@ -89,6 +89,89 @@ impl ReadabilityScore {
 }
 
 // ============================================================================
+// Unified schematic quality report — Milestone 1 acceptance report
+// ============================================================================
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct BuilderQualitySummary {
+    pub resolutions_total: usize,
+    pub resolution_success_rate: f64,
+    pub dropped_nets: usize,
+    pub partial_nets: usize,
+    pub unresolved_modules: usize,
+    pub warnings: usize,
+}
+
+impl BuilderQualitySummary {
+    pub fn from_report(report: Option<&BuilderReport>) -> Self {
+        match report {
+            Some(r) => Self {
+                resolutions_total: r.resolutions.len(),
+                resolution_success_rate: r.success_rate(),
+                dropped_nets: r.dropped_nets.len(),
+                partial_nets: r.partial_nets.len(),
+                unresolved_modules: r.unresolved_modules.len(),
+                warnings: r.warn_count(),
+            },
+            None => Self {
+                resolution_success_rate: 1.0,
+                ..Self::default()
+            },
+        }
+    }
+
+    pub fn report_line(&self) -> String {
+        format!(
+            "[metrics] BUILDER: resolutions={} success={:.1}%, dropped={} partial={} unresolved_modules={} warnings={}",
+            self.resolutions_total,
+            self.resolution_success_rate * 100.0,
+            self.dropped_nets,
+            self.partial_nets,
+            self.unresolved_modules,
+            self.warnings
+        )
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SchematicQualityReport {
+    pub fidelity: FidelityReport,
+    pub readability: ReadabilityScore,
+    pub collisions: CollisionReport,
+    pub builder: BuilderQualitySummary,
+}
+
+impl SchematicQualityReport {
+    /// Milestone 1 keeps the existing hard-gate semantics: fidelity only.
+    pub fn is_perfect(&self) -> bool {
+        self.fidelity.is_perfect()
+    }
+
+    pub fn report_lines(&self) -> Vec<String> {
+        vec![
+            self.fidelity.report_line(),
+            self.readability.report_line(),
+            format!(
+                "[metrics] COLLISIONS: box_box={} wire_box={} wire_wire={} total={}",
+                self.collisions.box_box,
+                self.collisions.wire_box,
+                self.collisions.wire_wire,
+                self.collisions.total()
+            ),
+            self.builder.report_line(),
+            format!(
+                "[metrics] QUALITY: perfect={} weighted={:.1}",
+                self.is_perfect(),
+                self.readability.weighted()
+            ),
+        ]
+    }
+
+    pub fn report_line(&self) -> String {
+        self.report_lines().join("\n")
+    }
+}
+
+// ============================================================================
 // Accumulator — passes through render_layer_recursive, accumulating per layer
 // ============================================================================
 #[derive(Debug, Clone, Default)]
@@ -163,9 +246,40 @@ impl MetricsAccumulator {
 
     /// Merge build-phase dropped/partial, produce final two reports.
     pub fn finish(self, report: Option<&BuilderReport>) -> (FidelityReport, ReadabilityScore) {
-        let (dropped, partial) = report
-            .map(|r| (r.dropped_nets.len(), r.partial_nets.len()))
-            .unwrap_or((0, 0));
+        let (fidelity, readability, _, _) = self.finish_parts(report);
+        (fidelity, readability)
+    }
+
+    /// Merge build-phase diagnostics and produce the unified schematic quality report.
+    pub fn finish_quality(self, report: Option<&BuilderReport>) -> SchematicQualityReport {
+        let (fidelity, readability, collisions, builder) = self.finish_parts(report);
+        SchematicQualityReport {
+            fidelity,
+            readability,
+            collisions,
+            builder,
+        }
+    }
+
+    fn finish_parts(
+        self,
+        report: Option<&BuilderReport>,
+    ) -> (
+        FidelityReport,
+        ReadabilityScore,
+        CollisionReport,
+        BuilderQualitySummary,
+    ) {
+        let builder = BuilderQualitySummary::from_report(report);
+        let dropped = builder.dropped_nets;
+        let partial = builder.partial_nets;
+
+        let collisions = CollisionReport {
+            box_box: self.box_box,
+            wire_box: self.wire_box,
+            wire_wire: self.wire_wire,
+            details: Vec::new(),
+        };
 
         let fidelity = FidelityReport {
             nets_total: self.nets_rendered + dropped,
@@ -181,18 +295,18 @@ impl MetricsAccumulator {
             ),
             authored_sides_total: self.authored_sides_total,
             authored_sides_honored: self.authored_sides_honored,
-            box_box: self.box_box,
-            wire_box: self.wire_box,
+            box_box: collisions.box_box,
+            wire_box: collisions.wire_box,
         };
         let readability = ReadabilityScore {
-            wire_wire: self.wire_wire,
+            wire_wire: collisions.wire_wire,
             total_wirelength: self.total_wirelength,
             total_bends: self.total_bends,
             off_grid_penalty: self.off_grid_penalty,
             symmetry_penalty: 0.0, // [P1 placeholder] 06
             idiom_violation: 0,    // [P1 placeholder] 06
         };
-        (fidelity, readability)
+        (fidelity, readability, collisions, builder)
     }
 }
 
@@ -250,6 +364,9 @@ pub(crate) fn off_grid(v: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vector::builder::builder_report::{
+        BuilderReport, DroppedNet, PartialNet, ResolutionOutcome, ResolutionRecord,
+    };
     use crate::vector::graph::box_def::IoSummary;
     use crate::vector::graph::net_def::{Point, Route, Segment};
     use crate::vector::graph::{BoxKind, EndpointRef, McVecBox, Symbol, VizNet};
@@ -346,5 +463,95 @@ mod tests {
         let (fid, _) = acc.finish(None);
         assert!(fid.box_box >= 1);
         assert!(!fid.is_perfect());
+    }
+
+    #[test]
+    fn finish_quality_matches_finish() {
+        let mut g = McVecGraph::new(0, "t".into());
+        g.boxes.push(mk_box(1, 0.0, 0.0));
+        g.boxes.push(mk_box(2, 80.0, 0.0));
+        g.nets
+            .push(net_with_route(0, 1, 2, vec![(0.0, 0.0, 80.0, 0.0)]));
+
+        let mut acc = MetricsAccumulator::default();
+        acc.accumulate_layer(&g, &CollisionReport::default());
+
+        let (fidelity, readability) = acc.clone().finish(None);
+        let quality = acc.finish_quality(None);
+
+        assert_eq!(quality.fidelity, fidelity);
+        assert_eq!(quality.readability, readability);
+    }
+
+    #[test]
+    fn finish_quality_preserves_collision_counts() {
+        let mut g = McVecGraph::new(0, "t".into());
+        g.boxes.push(mk_box(1, 0.0, 0.0));
+        let collisions = CollisionReport {
+            box_box: 1,
+            wire_box: 2,
+            wire_wire: 3,
+            details: vec!["detail is intentionally not accumulated".into()],
+        };
+
+        let mut acc = MetricsAccumulator::default();
+        acc.accumulate_layer(&g, &collisions);
+        let quality = acc.finish_quality(None);
+
+        assert_eq!(quality.collisions.box_box, 1);
+        assert_eq!(quality.collisions.wire_box, 2);
+        assert_eq!(quality.collisions.wire_wire, 3);
+        assert_eq!(quality.collisions.total(), 6);
+        assert!(quality.collisions.details.is_empty());
+    }
+
+    #[test]
+    fn builder_quality_summary_maps_report_counts() {
+        let mut report = BuilderReport::new();
+        report.resolutions.push(ResolutionRecord {
+            module_path: "top".into(),
+            net_name: "N1".into(),
+            point_path: "U1.A".into(),
+            outcome: ResolutionOutcome::Direct,
+        });
+        report.resolutions.push(ResolutionRecord {
+            module_path: "top".into(),
+            net_name: "N2".into(),
+            point_path: "U2.A".into(),
+            outcome: ResolutionOutcome::Failed,
+        });
+        report.dropped_nets.push(DroppedNet {
+            module_path: "top".into(),
+            net_name: "DROP".into(),
+            original_point_count: 2,
+            resolved_point_count: 0,
+        });
+        report.partial_nets.push(PartialNet {
+            module_path: "top".into(),
+            net_name: "PARTIAL".into(),
+            failed_points: vec!["U3.A".into(), "U4.A".into()],
+            resolved_point_count: 1,
+        });
+        report.unresolved_modules.push("missing".into());
+
+        let summary = BuilderQualitySummary::from_report(Some(&report));
+
+        assert_eq!(summary.resolutions_total, 2);
+        assert!((summary.resolution_success_rate - 0.5).abs() < 1e-9);
+        assert_eq!(summary.dropped_nets, 1);
+        assert_eq!(summary.partial_nets, 1);
+        assert_eq!(summary.unresolved_modules, 1);
+        assert_eq!(summary.warnings, 3);
+    }
+
+    #[test]
+    fn quality_is_perfect_delegates_to_fidelity() {
+        let mut quality = SchematicQualityReport::default();
+        assert!(quality.is_perfect());
+        assert_eq!(quality.is_perfect(), quality.fidelity.is_perfect());
+
+        quality.fidelity.wire_box = 1;
+        assert!(!quality.is_perfect());
+        assert_eq!(quality.is_perfect(), quality.fidelity.is_perfect());
     }
 }
