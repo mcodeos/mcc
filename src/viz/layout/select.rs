@@ -336,7 +336,11 @@ mod tests {
         assert!(result.boxes.iter().all(|b| b.w > 0.0 && b.h > 0.0));
         // circuit_flow should not overlap the two boxes.
         let col = audit_all(&result);
-        assert_eq!(col.box_box, 0, "circuit_flow should not overlap boxes: {:?}", col);
+        assert_eq!(
+            col.box_box, 0,
+            "circuit_flow should not overlap boxes: {:?}",
+            col
+        );
     }
 
     /// Determinism: same input → same layout metrics.
@@ -347,7 +351,11 @@ mod tests {
         let r2 = layout_best(make_simple_graph(), &candidates, true);
         let s1 = compute_readability(&r1, &audit_all(&r1)).weighted();
         let s2 = compute_readability(&r2, &audit_all(&r2)).weighted();
-        assert_eq!(s1, s2, "same input should produce same score: {} vs {}", s1, s2);
+        assert_eq!(
+            s1, s2,
+            "same input should produce same score: {} vs {}",
+            s1, s2
+        );
     }
 
     /// Empty candidate pool returns the graph untouched, no routing.
@@ -371,7 +379,10 @@ mod tests {
         // BadLayouter piles boxes on the same spot → the gate would log a VETO,
         // but the graph is returned unchanged for rendering.
         let col = audit_all(&result);
-        assert!(col.box_box > 0, "bad layout kept (gate logs, does not drop)");
+        assert!(
+            col.box_box > 0,
+            "bad layout kept (gate logs, does not drop)"
+        );
     }
 
     /// Integration: circuit_flow pipelines layout → route → audit and produces routes.

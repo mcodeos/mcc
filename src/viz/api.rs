@@ -49,9 +49,7 @@ use super::debug;
 use super::doc::VizDocument;
 use super::layer::VizLayer;
 use super::layout::select::layout_best;
-use super::layout::{
-    FlowLayouter, HierarchicalLayouter, RadialLayouter, SchematicRadialLayouter,
-};
+use super::layout::{FlowLayouter, HierarchicalLayouter, RadialLayouter, SchematicRadialLayouter};
 use super::traits::{DefaultRenderer, Layouter, Renderer};
 
 // ============================================================================
