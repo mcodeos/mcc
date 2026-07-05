@@ -32,7 +32,7 @@
 use std::collections::HashSet;
 
 use crate::vector::graph::{
-    EndpointRef, EntryPoint, EntrySide, McVecBox, McVecGraph, NetKind, VizNet,
+    BoxKind, EndpointRef, EntryPoint, EntrySide, McVecBox, McVecGraph, NetKind, VizNet,
 };
 
 use super::rails::is_rail_box;
@@ -998,4 +998,151 @@ fn merge_kind(a: &NetKind, b: &NetKind) -> NetKind {
         (Bus(n), _) | (_, Bus(n)) => Bus(*n),
         _ => Signal,
     }
+}
+
+// ============================================================================
+// PROBE-D′ — rail-adjacent 去耦候选计数
+// ----------------------------------------------------------------------------
+// 在 straighten_rail_passives 运行前统计"应当被它处理"的 (b) 类去耦候选。
+// 谓词与 straighten_rail_passives 的匹配逻辑逐条对齐。
+// 期望 [PROBE-D'] candidates = N 与 straighten 的 "straightened N" 相等。
+// ============================================================================
+
+pub fn probe_rail_passive_candidates(graph: &McVecGraph) {
+    if !crate::viz::debug::dump_enabled() {
+        return;
+    }
+
+    let rail_ids: HashSet<i64> = graph
+        .boxes
+        .iter()
+        .filter(|b| is_rail_box(b))
+        .map(|b| b.id)
+        .collect();
+    let passive_set: HashSet<i64> = graph
+        .boxes
+        .iter()
+        .filter(|b| b.is_two_pin_passive())
+        .map(|b| b.id)
+        .collect();
+    if rail_ids.is_empty() || passive_set.is_empty() {
+        crate::vlog!("[PROBE-D'] candidates = 0 (no rails or no passives)");
+        return;
+    }
+
+    let mut names: Vec<String> = Vec::new();
+    for &pid in &passive_set {
+        let touching: Vec<&VizNet> = graph
+            .nets
+            .iter()
+            .filter(|n| n.endpoints.iter().any(|e| e.box_id == pid))
+            .collect();
+        if touching.len() != 2 {
+            continue;
+        }
+        let mut has_real = false;
+        let mut has_flag = false;
+        let mut bad = false;
+        for net in &touching {
+            let others: Vec<&EndpointRef> =
+                net.endpoints.iter().filter(|e| e.box_id != pid).collect();
+            if others.len() != 1 {
+                bad = true;
+                break;
+            }
+            let o = others[0];
+            if rail_ids.contains(&o.box_id) {
+                has_flag = true;
+            } else if !passive_set.contains(&o.box_id) {
+                has_real = true;
+            } else {
+                bad = true; // neighbor is another passive → chain
+                break;
+            }
+        }
+        if !bad && has_real && has_flag {
+            let nm = graph
+                .boxes
+                .iter()
+                .find(|b| b.id == pid)
+                .map(|b| b.name.clone())
+                .unwrap_or_else(|| format!("#{pid}"));
+            names.push(nm);
+        }
+    }
+
+    names.sort();
+    crate::vlog!(
+        "[PROBE-D'] rail-adjacent decap candidates = {}: {:?}  (期望 == straightened N)",
+        names.len(),
+        names
+    );
+}
+
+// ============================================================================
+// PROBE-C — 普查每层"散乱元素"的真实构成
+// ----------------------------------------------------------------------------
+// 三类：Dot 占位、0-degree 孤儿、dangling pin 悬空引脚。
+// 看哪一类数大，Plan C 就打哪一类。
+// ============================================================================
+
+pub fn probe_scatter_census(graph: &McVecGraph) {
+    if !crate::viz::debug::dump_enabled() {
+        return;
+    }
+
+    let mut connected_boxes: HashSet<i64> = HashSet::new();
+    let mut connected_pins: HashSet<(i64, i64)> = HashSet::new();
+    for n in &graph.nets {
+        for e in &n.endpoints {
+            connected_boxes.insert(e.box_id);
+            connected_pins.insert((e.box_id, e.pin_id));
+        }
+    }
+
+    let mut dot = 0usize;
+    let mut power_label = 0usize;
+    let mut two_pin = 0usize;
+    let mut zero_degree = 0usize;
+    let mut boxes_with_dangling = 0usize;
+    let mut dangling_pins = 0usize;
+    let mut zero_deg_names: Vec<String> = Vec::new();
+
+    for b in &graph.boxes {
+        match b.kind {
+            BoxKind::Dot => dot += 1,
+            BoxKind::PowerLabel => power_label += 1,
+            BoxKind::TwoPin => two_pin += 1,
+            _ => {}
+        }
+        if !connected_boxes.contains(&b.id) {
+            zero_degree += 1;
+            if zero_deg_names.len() < 12 {
+                zero_deg_names.push(b.name.clone());
+            }
+        }
+        let d = b
+            .pins
+            .iter()
+            .filter(|p| !connected_pins.contains(&(b.id, p.id)))
+            .count();
+        if d > 0 {
+            boxes_with_dangling += 1;
+            dangling_pins += d;
+        }
+    }
+
+    crate::vlog!(
+        "[PROBE-C] layer '{}': boxes={} nets={} | Dot={} PowerLabel={} TwoPin={} | 0-degree={} {:?} | dangling: {} box(es)/{} pin(s)",
+        graph.name,
+        graph.boxes.len(),
+        graph.nets.len(),
+        dot,
+        power_label,
+        two_pin,
+        zero_degree,
+        zero_deg_names,
+        boxes_with_dangling,
+        dangling_pins
+    );
 }
