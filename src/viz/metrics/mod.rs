@@ -8,6 +8,7 @@ use crate::vector::builder::builder_report::BuilderReport;
 use crate::vector::graph::box_def::{EntryPoint, EntrySide, McVecBox};
 use crate::vector::graph::net_def::{Point, Route, Segment};
 use crate::vector::graph::{McVecGraph, NetKind};
+use crate::viz::render::label_render::{designator_value_label_bounds, LabelBounds};
 use crate::viz::route::audit::CollisionReport;
 
 /// Alignment grid for off-grid penalty (no coordinate snapping in this codebase; soft alignment signal, tunable).
@@ -141,6 +142,108 @@ pub struct SchematicQualityReport {
     pub collisions: CollisionReport,
     pub builder: BuilderQualitySummary,
     pub truth: TruthSnapshotReport,
+    pub visual: VisualQualityReport,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct VisualQualityReport {
+    pub canvas_width: f64,
+    pub canvas_height: f64,
+    pub canvas_area: f64,
+
+    pub boxes_total: usize,
+    pub box_area_total: f64,
+    pub box_density: f64,
+
+    pub labels_total: usize,
+    pub label_label_overlaps: usize,
+    pub label_box_overlaps: usize,
+    pub label_wire_overlaps: usize,
+    pub labels_off_canvas: usize,
+
+    pub routed_nets: usize,
+    pub route_segments_total: usize,
+    pub route_bends_total: usize,
+    pub route_length_total: f64,
+    pub avg_segments_per_routed_net: f64,
+    pub avg_bends_per_routed_net: f64,
+    pub avg_route_length_per_routed_net: f64,
+
+    pub symmetry_penalty: f64,
+    pub idiom_violations: usize,
+}
+
+impl VisualQualityReport {
+    pub fn merge(&mut self, other: VisualQualityReport) {
+        self.canvas_width = self.canvas_width.max(other.canvas_width);
+        self.canvas_height = self.canvas_height.max(other.canvas_height);
+        self.canvas_area += other.canvas_area;
+        self.boxes_total += other.boxes_total;
+        self.box_area_total += other.box_area_total;
+        self.labels_total += other.labels_total;
+        self.label_label_overlaps += other.label_label_overlaps;
+        self.label_box_overlaps += other.label_box_overlaps;
+        self.label_wire_overlaps += other.label_wire_overlaps;
+        self.labels_off_canvas += other.labels_off_canvas;
+        self.routed_nets += other.routed_nets;
+        self.route_segments_total += other.route_segments_total;
+        self.route_bends_total += other.route_bends_total;
+        self.route_length_total += other.route_length_total;
+        self.symmetry_penalty += other.symmetry_penalty;
+        self.idiom_violations += other.idiom_violations;
+        self.recompute_derived();
+    }
+
+    fn recompute_derived(&mut self) {
+        self.box_density = if self.canvas_area > 0.0 {
+            self.box_area_total / self.canvas_area
+        } else {
+            0.0
+        };
+        if self.routed_nets > 0 {
+            let n = self.routed_nets as f64;
+            self.avg_segments_per_routed_net = self.route_segments_total as f64 / n;
+            self.avg_bends_per_routed_net = self.route_bends_total as f64 / n;
+            self.avg_route_length_per_routed_net = self.route_length_total / n;
+        } else {
+            self.avg_segments_per_routed_net = 0.0;
+            self.avg_bends_per_routed_net = 0.0;
+            self.avg_route_length_per_routed_net = 0.0;
+        }
+    }
+
+    pub fn report_lines(&self) -> Vec<String> {
+        vec![
+            format!(
+                "[metrics] VISUAL: canvas={:.1}x{:.1} area={:.1} boxes={} box_area={:.1} density={:.3} labels={} label_label={} label_box={} label_wire={} off_canvas={}",
+                self.canvas_width,
+                self.canvas_height,
+                self.canvas_area,
+                self.boxes_total,
+                self.box_area_total,
+                self.box_density,
+                self.labels_total,
+                self.label_label_overlaps,
+                self.label_box_overlaps,
+                self.label_wire_overlaps,
+                self.labels_off_canvas
+            ),
+            format!(
+                "[metrics] ROUTE-QUALITY: routed_nets={} segments={} bends={} wirelen={:.1} avg_segments={:.2} avg_bends={:.2} avg_len={:.1}",
+                self.routed_nets,
+                self.route_segments_total,
+                self.route_bends_total,
+                self.route_length_total,
+                self.avg_segments_per_routed_net,
+                self.avg_bends_per_routed_net,
+                self.avg_route_length_per_routed_net
+            ),
+            format!(
+                "[metrics] IDIOM: symmetry={:.1} violations={}",
+                self.symmetry_penalty, self.idiom_violations
+            ),
+        ]
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -228,7 +331,7 @@ impl SchematicQualityReport {
     }
 
     pub fn report_lines(&self) -> Vec<String> {
-        vec![
+        let mut lines = vec![
             self.fidelity.report_line(),
             self.readability.report_line(),
             format!(
@@ -240,12 +343,14 @@ impl SchematicQualityReport {
             ),
             self.builder.report_line(),
             self.truth.report_line(),
-            format!(
-                "[metrics] QUALITY: perfect={} weighted={:.1}",
-                self.is_perfect(),
-                self.readability.weighted()
-            ),
-        ]
+        ];
+        lines.extend(self.visual.report_lines());
+        lines.push(format!(
+            "[metrics] QUALITY: perfect={} weighted={:.1}",
+            self.is_perfect(),
+            self.readability.weighted()
+        ));
+        lines
     }
 
     pub fn report_line(&self) -> String {
@@ -273,12 +378,18 @@ pub struct MetricsAccumulator {
     total_bends: usize,
     off_grid_penalty: f64,
     truth: TruthSnapshotReport,
+    visual: VisualQualityReport,
 }
 
 impl MetricsAccumulator {
     /// Accumulate **one layer** (graph.sub_graphs already taken by render, this layer only).
     /// `col` is the audit_all result for this layer.
-    pub fn accumulate_layer(&mut self, graph: &McVecGraph, col: &CollisionReport) {
+    pub fn accumulate_layer(
+        &mut self,
+        graph: &McVecGraph,
+        col: &CollisionReport,
+        canvas: (f64, f64),
+    ) {
         self.box_box += col.box_box;
         self.wire_box += col.wire_box;
         self.wire_wire += col.wire_wire;
@@ -327,23 +438,25 @@ impl MetricsAccumulator {
         }
 
         self.truth.merge(snapshot_layer_truth(graph));
+        self.visual.merge(visual_quality_for_layer(graph, canvas));
     }
 
     /// Merge build-phase dropped/partial, produce final two reports.
     pub fn finish(self, report: Option<&BuilderReport>) -> (FidelityReport, ReadabilityScore) {
-        let (fidelity, readability, _, _, _) = self.finish_parts(report);
+        let (fidelity, readability, _, _, _, _) = self.finish_parts(report);
         (fidelity, readability)
     }
 
     /// Merge build-phase diagnostics and produce the unified schematic quality report.
     pub fn finish_quality(self, report: Option<&BuilderReport>) -> SchematicQualityReport {
-        let (fidelity, readability, collisions, builder, truth) = self.finish_parts(report);
+        let (fidelity, readability, collisions, builder, truth, visual) = self.finish_parts(report);
         SchematicQualityReport {
             fidelity,
             readability,
             collisions,
             builder,
             truth,
+            visual,
         }
     }
 
@@ -356,6 +469,7 @@ impl MetricsAccumulator {
         CollisionReport,
         BuilderQualitySummary,
         TruthSnapshotReport,
+        VisualQualityReport,
     ) {
         let builder = BuilderQualitySummary::from_report(report);
         let dropped = builder.dropped_nets;
@@ -390,11 +504,118 @@ impl MetricsAccumulator {
             total_wirelength: self.total_wirelength,
             total_bends: self.total_bends,
             off_grid_penalty: self.off_grid_penalty,
-            symmetry_penalty: 0.0, // [P1 placeholder] 06
-            idiom_violation: 0,    // [P1 placeholder] 06
+            symmetry_penalty: self.visual.symmetry_penalty,
+            idiom_violation: self.visual.idiom_violations,
         };
-        (fidelity, readability, collisions, builder, self.truth)
+        (
+            fidelity,
+            readability,
+            collisions,
+            builder,
+            self.truth,
+            self.visual,
+        )
     }
+}
+
+// ============================================================================
+// Visual quality helpers — objective soft signals for schematic readability
+// ============================================================================
+fn visual_quality_for_layer(graph: &McVecGraph, canvas: (f64, f64)) -> VisualQualityReport {
+    let mut rep = VisualQualityReport {
+        canvas_width: canvas.0,
+        canvas_height: canvas.1,
+        canvas_area: (canvas.0 * canvas.1).max(0.0),
+        boxes_total: graph.boxes.len(),
+        box_area_total: graph.boxes.iter().map(|b| (b.w * b.h).max(0.0)).sum(),
+        ..VisualQualityReport::default()
+    };
+
+    let labels: Vec<(i64, LabelBounds)> = graph
+        .boxes
+        .iter()
+        .flat_map(|b| {
+            designator_value_label_bounds(b)
+                .into_iter()
+                .map(move |label| (b.id, label))
+        })
+        .collect();
+    rep.labels_total = labels.len();
+
+    for (_, label) in &labels {
+        if rect_off_canvas(label.x, label.y, label.w, label.h, canvas) {
+            rep.labels_off_canvas += 1;
+        }
+    }
+
+    for (i, (_, a)) in labels.iter().enumerate() {
+        for (_, b) in labels.iter().skip(i + 1) {
+            if rects_overlap_simple(a.x, a.y, a.w, a.h, b.x, b.y, b.w, b.h) {
+                rep.label_label_overlaps += 1;
+            }
+        }
+    }
+
+    for (owner_id, label) in &labels {
+        for b in &graph.boxes {
+            if b.id == *owner_id && label.inside_owner_box {
+                continue;
+            }
+            if rects_overlap_simple(label.x, label.y, label.w, label.h, b.x, b.y, b.w, b.h) {
+                rep.label_box_overlaps += 1;
+            }
+        }
+    }
+
+    for (_, label) in &labels {
+        for net in &graph.nets {
+            if let Some(route) = &net.route {
+                for seg in &route.segments {
+                    if segment_hits_rect_simple(seg, label.x, label.y, label.w, label.h) {
+                        rep.label_wire_overlaps += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    for net in &graph.nets {
+        if let Some(route) = &net.route {
+            rep.routed_nets += 1;
+            rep.route_segments_total += route.segments.len();
+            rep.route_bends_total += route_bends(route);
+            rep.route_length_total += route_length(route);
+        }
+    }
+
+    let (symmetry, idioms) = crate::viz::idiom::penalty_summary(&crate::viz::idiom::analyze(graph));
+    rep.symmetry_penalty = symmetry;
+    rep.idiom_violations = idioms;
+    rep.recompute_derived();
+    rep
+}
+
+fn rects_overlap_simple(
+    ax: f64,
+    ay: f64,
+    aw: f64,
+    ah: f64,
+    bx: f64,
+    by: f64,
+    bw: f64,
+    bh: f64,
+) -> bool {
+    ax < bx + bw && bx < ax + aw && ay < by + bh && by < ay + ah
+}
+
+fn rect_off_canvas(x: f64, y: f64, w: f64, h: f64, canvas: (f64, f64)) -> bool {
+    x < 0.0 || y < 0.0 || x + w > canvas.0 || y + h > canvas.1
+}
+
+fn segment_hits_rect_simple(s: &Segment, rx: f64, ry: f64, rw: f64, rh: f64) -> bool {
+    let (sx0, sx1) = (s.from.x.min(s.to.x), s.from.x.max(s.to.x));
+    let (sy0, sy1) = (s.from.y.min(s.to.y), s.from.y.max(s.to.y));
+    sx1 >= rx && sx0 <= rx + rw && sy1 >= ry && sy0 <= ry + rh
 }
 
 // ============================================================================
@@ -686,7 +907,7 @@ mod tests {
         ));
 
         let mut acc = MetricsAccumulator::default();
-        acc.accumulate_layer(&g, &CollisionReport::default());
+        acc.accumulate_layer(&g, &CollisionReport::default(), (200.0, 120.0));
         let (fid, read) = acc.finish(None);
 
         assert_eq!(fid.nets_rendered, 1);
@@ -705,7 +926,7 @@ mod tests {
             g.nets
                 .push(net_with_route(0, 1, 2, vec![(0.0, 0.0, 80.0, 0.0)]));
             let mut a = MetricsAccumulator::default();
-            a.accumulate_layer(&g, &CollisionReport::default());
+            a.accumulate_layer(&g, &CollisionReport::default(), (200.0, 120.0));
             a.finish(None).1.weighted()
         };
         assert_eq!(build(), build());
@@ -719,7 +940,7 @@ mod tests {
         g.boxes.push(mk_box(2, 5.0, 5.0)); // overlaps box 1
         let rep = crate::viz::route::audit::audit_all(&g);
         let mut acc = MetricsAccumulator::default();
-        acc.accumulate_layer(&g, &rep);
+        acc.accumulate_layer(&g, &rep, (200.0, 120.0));
         let (fid, _) = acc.finish(None);
         assert!(fid.box_box >= 1);
         assert!(!fid.is_perfect());
@@ -734,7 +955,7 @@ mod tests {
             .push(net_with_route(0, 1, 2, vec![(0.0, 0.0, 80.0, 0.0)]));
 
         let mut acc = MetricsAccumulator::default();
-        acc.accumulate_layer(&g, &CollisionReport::default());
+        acc.accumulate_layer(&g, &CollisionReport::default(), (200.0, 120.0));
 
         let (fidelity, readability) = acc.clone().finish(None);
         let quality = acc.finish_quality(None);
@@ -755,7 +976,7 @@ mod tests {
         };
 
         let mut acc = MetricsAccumulator::default();
-        acc.accumulate_layer(&g, &collisions);
+        acc.accumulate_layer(&g, &collisions, (200.0, 120.0));
         let quality = acc.finish_quality(None);
 
         assert_eq!(quality.collisions.box_box, 1);
@@ -881,7 +1102,7 @@ mod tests {
     fn truth_accepts_complete_two_point_route() {
         let g = complete_two_point_graph();
         let mut acc = MetricsAccumulator::default();
-        acc.accumulate_layer(&g, &CollisionReport::default());
+        acc.accumulate_layer(&g, &CollisionReport::default(), (200.0, 120.0));
         let quality = acc.finish_quality(None);
 
         assert!(quality.truth.is_perfect());
@@ -900,6 +1121,131 @@ mod tests {
         assert_eq!(truth.endpoints_pin_missing, 0);
         assert_eq!(truth.endpoints_entry_missing, 0);
         assert_eq!(truth.physical_pins_missing_entry, 0);
+    }
+
+    #[test]
+    fn visual_detects_label_label_overlap() {
+        let mut g = McVecGraph::new(0, "t".into());
+        let mut a = mk_box(1, 50.0, 50.0);
+        a.designator = Some("R_LONG_A".into());
+        let mut b = mk_box(2, 55.0, 50.0);
+        b.designator = Some("R_LONG_B".into());
+        g.boxes.push(a);
+        g.boxes.push(b);
+
+        let visual = visual_quality_for_layer(&g, (200.0, 120.0));
+
+        assert_eq!(visual.labels_total, 2);
+        assert!(visual.label_label_overlaps > 0);
+    }
+
+    #[test]
+    fn visual_detects_label_box_overlap() {
+        let mut g = McVecGraph::new(0, "t".into());
+        let mut labeled = mk_box(1, 50.0, 50.0);
+        labeled.designator = Some("R1".into());
+        let blocker = mk_box(2, 50.0, 30.0);
+        g.boxes.push(labeled);
+        g.boxes.push(blocker);
+
+        let visual = visual_quality_for_layer(&g, (200.0, 120.0));
+
+        assert!(visual.label_box_overlaps > 0);
+    }
+
+    #[test]
+    fn visual_detects_label_wire_overlap() {
+        let mut g = McVecGraph::new(0, "t".into());
+        let mut b = mk_box(1, 50.0, 50.0);
+        b.designator = Some("R1".into());
+        g.boxes.push(b);
+        g.nets
+            .push(net_with_route(1, 1, 1, vec![(40.0, 40.0, 80.0, 40.0)]));
+
+        let visual = visual_quality_for_layer(&g, (200.0, 120.0));
+
+        assert!(visual.label_wire_overlaps > 0);
+    }
+
+    #[test]
+    fn visual_detects_label_off_canvas() {
+        let mut g = McVecGraph::new(0, "t".into());
+        let mut b = mk_box(1, 50.0, 5.0);
+        b.designator = Some("R1".into());
+        g.boxes.push(b);
+
+        let visual = visual_quality_for_layer(&g, (200.0, 120.0));
+
+        assert_eq!(visual.labels_off_canvas, 1);
+    }
+
+    #[test]
+    fn visual_computes_canvas_density() {
+        let mut g = McVecGraph::new(0, "t".into());
+        g.boxes.push(mk_box(1, 0.0, 0.0));
+        g.boxes.push(mk_box(2, 50.0, 0.0));
+
+        let visual = visual_quality_for_layer(&g, (100.0, 100.0));
+
+        assert_eq!(visual.boxes_total, 2);
+        assert!((visual.box_area_total - 1600.0).abs() < 1e-9);
+        assert!((visual.box_density - 0.16).abs() < 1e-9);
+    }
+
+    #[test]
+    fn visual_computes_route_averages() {
+        let mut g = McVecGraph::new(0, "t".into());
+        g.boxes.push(mk_box(1, 0.0, 0.0));
+        g.boxes.push(mk_box(2, 100.0, 50.0));
+        g.nets.push(net_with_route(
+            1,
+            1,
+            2,
+            vec![(0.0, 0.0, 100.0, 0.0), (100.0, 0.0, 100.0, 50.0)],
+        ));
+
+        let visual = visual_quality_for_layer(&g, (200.0, 120.0));
+
+        assert_eq!(visual.routed_nets, 1);
+        assert_eq!(visual.route_segments_total, 2);
+        assert_eq!(visual.route_bends_total, 1);
+        assert!((visual.route_length_total - 150.0).abs() < 1e-9);
+        assert!((visual.avg_segments_per_routed_net - 2.0).abs() < 1e-9);
+        assert!((visual.avg_bends_per_routed_net - 1.0).abs() < 1e-9);
+        assert!((visual.avg_route_length_per_routed_net - 150.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn visual_metrics_do_not_affect_hard_gate() {
+        let mut g = complete_two_point_graph();
+        g.boxes[0].designator = Some("R_LONG_A".into());
+        g.boxes[1].x = 45.0;
+        g.boxes[1].designator = Some("R_LONG_B".into());
+        g.nets[0].route = Some(Route {
+            segments: vec![Segment {
+                from: Point::new(40.0, 10.0),
+                to: Point::new(45.0, 10.0),
+            }],
+            junctions: Vec::new(),
+        });
+
+        let mut acc = MetricsAccumulator::default();
+        acc.accumulate_layer(&g, &CollisionReport::default(), (200.0, 120.0));
+        let quality = acc.finish_quality(None);
+
+        assert!(quality.visual.label_label_overlaps > 0);
+        assert!(quality.is_perfect());
+    }
+
+    #[test]
+    fn report_lines_include_visual() {
+        let quality = SchematicQualityReport::default();
+        let lines = quality.report_lines();
+        assert!(lines.iter().any(|line| line.contains("[metrics] VISUAL:")));
+        assert!(lines
+            .iter()
+            .any(|line| line.contains("[metrics] ROUTE-QUALITY:")));
+        assert!(lines.iter().any(|line| line.contains("[metrics] IDIOM:")));
     }
 
     #[test]

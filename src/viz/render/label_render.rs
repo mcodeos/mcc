@@ -14,6 +14,21 @@
 
 use crate::vector::graph::{McVecBox, Symbol};
 
+const DESIGNATOR_FONT: f64 = 11.0;
+const VALUE_FONT: f64 = 10.0;
+const TEXT_WIDTH_FACTOR: f64 = 0.6;
+const TEXT_HEIGHT_FACTOR: f64 = 1.2;
+
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct LabelBounds {
+    pub text: String,
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    pub inside_owner_box: bool,
+}
+
 // ============================================================================
 // Main API
 // ============================================================================
@@ -88,6 +103,74 @@ pub fn render_designator_and_value(b: &McVecBox) -> String {
     }
 }
 
+/// Return approximate bounding boxes for labels produced by [`render_designator_and_value`].
+/// This mirrors the SVG positions without changing rendering; metrics use it as a
+/// deterministic readability proxy, not pixel-perfect text measurement.
+pub(crate) fn designator_value_label_bounds(b: &McVecBox) -> Vec<LabelBounds> {
+    let designator = b.designator.as_deref().unwrap_or("");
+    let value = b.value.as_deref().unwrap_or("");
+    if designator.is_empty() && value.is_empty() {
+        return Vec::new();
+    }
+
+    let cx = b.x + b.w / 2.0;
+    let mut out = Vec::new();
+    match b.symbol {
+        Symbol::Resistor
+        | Symbol::Capacitor
+        | Symbol::PolarCapacitor
+        | Symbol::Inductor
+        | Symbol::Diode
+        | Symbol::Led
+        | Symbol::Zener => {
+            if !designator.is_empty() {
+                out.push(label_bounds(
+                    designator,
+                    cx,
+                    b.y - 4.0,
+                    DESIGNATOR_FONT,
+                    false,
+                ));
+            }
+            if !value.is_empty() {
+                out.push(label_bounds(value, cx, b.y + b.h + 12.0, VALUE_FONT, false));
+            }
+        }
+        Symbol::Ic | Symbol::Module => {
+            if !designator.is_empty() {
+                out.push(label_bounds(
+                    designator,
+                    cx,
+                    b.y + b.h / 2.0 + 14.0,
+                    VALUE_FONT,
+                    true,
+                ));
+            }
+        }
+        Symbol::PowerRail { .. } | Symbol::Dot | Symbol::Unknown => {}
+    }
+    out
+}
+
+fn label_bounds(
+    text: &str,
+    center_x: f64,
+    baseline_y: f64,
+    font_size: f64,
+    inside_owner_box: bool,
+) -> LabelBounds {
+    let w = text.chars().count() as f64 * font_size * TEXT_WIDTH_FACTOR;
+    let h = font_size * TEXT_HEIGHT_FACTOR;
+    LabelBounds {
+        text: text.to_string(),
+        x: center_x - w / 2.0,
+        y: baseline_y - h,
+        w,
+        h,
+        inside_owner_box,
+    }
+}
+
 fn escape_xml(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -156,6 +239,29 @@ mod tests {
     fn nothing_filled_empty() {
         let b = mk_box(Symbol::Resistor, None, None);
         assert_eq!(render_designator_and_value(&b), "");
+    }
+
+    #[test]
+    fn label_bounds_for_passive_designator_and_value() {
+        let b = mk_box(Symbol::Resistor, Some("R1"), Some("10k"));
+        let labels = designator_value_label_bounds(&b);
+        assert_eq!(labels.len(), 2);
+        assert_eq!(labels[0].text, "R1");
+        assert!(labels[0].y < b.y);
+        assert_eq!(labels[1].text, "10k");
+        assert!(labels[1].y + labels[1].h > b.y + b.h);
+        assert!(!labels[0].inside_owner_box);
+    }
+
+    #[test]
+    fn label_bounds_for_ic_inside_box() {
+        let b = mk_box(Symbol::Ic, Some("U3"), None);
+        let labels = designator_value_label_bounds(&b);
+        assert_eq!(labels.len(), 1);
+        assert_eq!(labels[0].text, "U3");
+        assert!(labels[0].inside_owner_box);
+        assert!(labels[0].y >= b.y);
+        assert!(labels[0].y + labels[0].h <= b.y + b.h + 1.0);
     }
 
     #[test]
