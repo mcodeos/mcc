@@ -576,6 +576,7 @@ fn escape_xml_viz_build(s: &str) -> String {
 
 #[cfg(test)]
 mod phase0_golden {
+    use super::build_viz_opts;
     use crate::cmds::manifest;
     use mcc::McIds;
     use std::path::{Path, PathBuf};
@@ -609,7 +610,7 @@ mod phase0_golden {
 
     /// Fingerprint = VizDocument::to_json() (structure + per-layer SVG).
     fn render_signature(graph: mcc::vector::graph::McVecGraph) -> String {
-        let opts = build_viz_opts(args.layouter.as_deref()); // default = FlowLayouter
+        let opts = build_viz_opts(None); // default = FlowLayouter
         mcc::viz::api::render_with(graph, opts).to_json()
     }
 

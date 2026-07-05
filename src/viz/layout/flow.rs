@@ -129,6 +129,8 @@ impl FlowLayouter {
             recompute_sizes_with_pin_count(graph);
         }
         size_by_core_fanout(graph);
+        floor_box_sizes(graph);
+        probe_degenerate_boxes(graph, "after phase_size");
     }
 
     /// 相位 3 · Placement — 只写盒子位置（x/y），全部先于 pin_place。
@@ -208,11 +210,14 @@ impl Layouter for FlowLayouter {
             return compute_canvas(graph);
         }
 
-        // ── 相位 3 · Placement：只写盒子位置，全部在 pin_place 之前 ──
+        // ── 相位 3 · Placement（只写盒子位置）+ PROBE-B 契约校验 ──
+        let ep_snap = probe_ep_snapshot(graph);
         let (root_id, isolated_ids) = self.phase_placement(graph);
+        probe_no_ep_writes("phase_placement", graph, &ep_snap);
 
         // ── 相位 4 · PinPlacement：EntryPoint 唯一写者 + hub 几何唯一终定者 ──
         super::pin_place::pin_place_pipeline(graph, Some(root_id), true, self.hub_keep_semantic);
+        probe_degenerate_boxes(graph, "after pin_place");
 
         // ── 相位 5 · Post：几何保持的移动，pin_place 之后安全 ──
         self.phase_post(graph, flag_boxes, &flag_meta, &isolated_ids);
@@ -804,14 +809,16 @@ fn group_supply_modules(graph: &mut McVecGraph, exclude: &HashSet<i64>) {
     // Bounding box only counts **non-power components** (signal main body), letting power row snug against main body below, not lowered by power components' old positions. Safe starting point for degenerate case of all power components (no others).
     let supply_set: HashSet<i64> = order.iter().copied().collect();
     let (mut min_x, mut max_y) = (f64::MAX, f64::MIN);
+    let mut found = false;
     for b in &graph.boxes {
         if supply_set.contains(&b.id) {
             continue;
         }
+        found = true;
         min_x = min_x.min(b.x);
         max_y = max_y.max(b.y + b.h);
     }
-    if !max_y.is_finite() {
+    if !found || !max_y.is_finite() {
         min_x = CANVAS_MARGIN;
         max_y = CANVAS_MARGIN;
     }
@@ -1678,6 +1685,146 @@ mod tests {
         assert!(
             (b.x - 500.0).abs() < 1e-6 && (b.y - 50.0).abs() < 1e-6,
             "Single power module not a chain, don't move"
+        );
+    }
+}
+
+// ============================================================================
+// PROBE-B — 校验 Placement 相位没有偷写 EntryPoint
+// ----------------------------------------------------------------------------
+// 只在 MC_VIZ_DUMP 启用时运行；debug_assert 在新代码违约时 panic。
+// 预期日志：
+//   [PROBE-B] ✓ phase_placement respected phase contract (no entry_point writes)
+// ============================================================================
+
+/// 快照 (box_id, pin_id) → (side 判别串, offset)。
+fn probe_ep_snapshot(graph: &McVecGraph) -> HashMap<(i64, i64), (String, f64)> {
+    let mut m = HashMap::new();
+    for b in &graph.boxes {
+        for ep in &b.entry_points {
+            m.insert((b.id, ep.pin_id), (format!("{:?}", ep.side), ep.offset));
+        }
+    }
+    m
+}
+
+fn probe_no_ep_writes(pass: &str, graph: &McVecGraph, before: &HashMap<(i64, i64), (String, f64)>) {
+    if !crate::viz::debug::dump_enabled() {
+        return;
+    }
+    let mut violations = 0usize;
+    for b in &graph.boxes {
+        for ep in &b.entry_points {
+            let now = (format!("{:?}", ep.side), ep.offset);
+            match before.get(&(b.id, ep.pin_id)) {
+                Some(old) if *old != now => {
+                    violations += 1;
+                    crate::vlog!(
+                        "[PROBE-B] ✗ {} wrote entry_point on box#{} pin {}: {:?} → {:?}",
+                        pass,
+                        b.id,
+                        ep.pin_id,
+                        old,
+                        now
+                    );
+                }
+                None => {
+                    violations += 1;
+                    crate::vlog!(
+                        "[PROBE-B] ✗ {} added entry_point on box#{} pin {}",
+                        pass,
+                        b.id,
+                        ep.pin_id
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+    if violations == 0 {
+        crate::vlog!(
+            "[PROBE-B] ✓ {} respected phase contract (no entry_point writes)",
+            pass
+        );
+    }
+    debug_assert!(
+        violations == 0,
+        "[PROBE-B] {} violated Plan B phase contract: {} entry_point write(s)",
+        pass,
+        violations
+    );
+}
+
+// ============================================================================
+// NaN guard — 根因守卫 + 哨兵
+// ============================================================================
+
+const MIN_BOX_W: f64 = 24.0;
+const MIN_BOX_H: f64 = 24.0;
+const SIZE_EPS: f64 = 1e-6;
+
+/// 根因守卫：退化盒子兜底到最小尺寸，切断 NaN 传播链。
+/// 必须在 release 也跑。
+pub fn floor_box_sizes(graph: &mut McVecGraph) {
+    let mut fixed = 0usize;
+    for b in &mut graph.boxes {
+        if !b.w.is_finite() || b.w <= SIZE_EPS {
+            b.w = MIN_BOX_W;
+            fixed += 1;
+        }
+        if !b.h.is_finite() || b.h <= SIZE_EPS {
+            b.h = MIN_BOX_H;
+            fixed += 1;
+        }
+        if !b.x.is_finite() {
+            b.x = 0.0;
+        }
+        if !b.y.is_finite() {
+            b.y = 0.0;
+        }
+    }
+    if fixed > 0 {
+        crate::vlog!(
+            "[layout::flow] floor_box_sizes: repaired {} degenerate dimension(s)",
+            fixed
+        );
+    }
+}
+
+/// 哨兵：逐层报告退化盒子与 NaN/Inf 的 entry_point offset。
+fn probe_degenerate_boxes(graph: &McVecGraph, tag: &str) {
+    if !crate::viz::debug::dump_enabled() {
+        return;
+    }
+    let mut bad_size: Vec<String> = Vec::new();
+    let mut bad_pos: Vec<String> = Vec::new();
+    let mut bad_off: Vec<String> = Vec::new();
+    for b in &graph.boxes {
+        if !b.w.is_finite() || b.w <= SIZE_EPS || !b.h.is_finite() || b.h <= SIZE_EPS {
+            bad_size.push(format!("{}(w={:.1},h={:.1})", b.name, b.w, b.h));
+        }
+        if !b.x.is_finite() || !b.y.is_finite() {
+            bad_pos.push(format!("{}(x={:.1},y={:.1})", b.name, b.x, b.y));
+        }
+        if b.x.abs() > 1e7 || b.y.abs() > 1e7 {
+            bad_pos.push(format!("{}(x={:.0},y={:.0} 荒诞)", b.name, b.x, b.y));
+        }
+        for ep in &b.entry_points {
+            if !ep.offset.is_finite() {
+                bad_off.push(format!("{}#pin{}", b.name, ep.pin_id));
+            }
+        }
+    }
+    if bad_size.is_empty() && bad_pos.is_empty() && bad_off.is_empty() {
+        crate::vlog!("[PROBE-NAN] layer '{}' {}: clean", graph.name, tag);
+    } else {
+        crate::vlog!(
+            "[PROBE-NAN] layer '{}' {}: bad_size={:?} bad_pos={:?} bad_offset={:?}",
+            graph.name,
+            tag,
+            bad_size,
+            bad_pos,
+            bad_off
         );
     }
 }

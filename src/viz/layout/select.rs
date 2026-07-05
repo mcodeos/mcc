@@ -30,7 +30,8 @@ use crate::vector::graph::McVecGraph;
 use crate::viz::idiom;
 use crate::viz::layout::normalize::renormalize;
 use crate::viz::layout::passive_inline::{
-    apply_net_labels, place_passive_chains, place_series_passives,
+    apply_net_labels, place_passive_chains, place_series_passives, probe_rail_passive_candidates,
+    probe_scatter_census,
 };
 use crate::viz::metrics::{off_grid, route_bends, route_length, FidelityReport, ReadabilityScore};
 use crate::viz::route::audit::audit_all;
@@ -62,10 +63,12 @@ fn run_single(mut graph: McVecGraph, candidate: &dyn Layouter, _is_root: bool) -
 
     // ── Phase 1: layout ──
     candidate.layout(&mut graph);
+    probe_scatter_census(&graph);
 
     // ── Stage A / A3: non-destructive inline placement of series & chained passives ──
     //   Passives stay real boxes with real nets, so they are always drawn and never
     //   collapse into a wire or get clipped off-canvas.
+    probe_rail_passive_candidates(&graph);
     place_series_passives(&mut graph);
     place_passive_chains(&mut graph);
     // Pull any passive nudged to a negative coordinate back onto the canvas.
