@@ -57,11 +57,99 @@ pub fn pin_place_pipeline(
     // C: Order within side (crossing-minimizing) — runs FIRST so relative order is set
     order_within_side(graph);
 
-    // B: Straighten facing pairs — overrides offsets for straight wires, runs LAST
+    // B: Straighten facing pairs — overrides offsets for straight wires
     straighten_facing_pairs(graph);
 
-    // E: Enforce unique offsets (hard guard)
+    // D: Hub↔spoke alignment (PR-A — folded in from the former flow::align_hub_to_spokes).
+    //    Stretches the hub box tall enough to span all its spoke Ys, then aligns each hub pin's
+    //    offset onto its spoke's Y so hub↔peripheral wires run straight. Runs AFTER straighten so
+    //    peripheral offsets are final, and BEFORE enforce_unique_offsets — because the hub is now
+    //    tall, its offsets are not crowded, so the guard leaves them intact. (In the old code this
+    //    ran in flow AFTER pin_place, and a trailing enforce_unique_offsets flattened the alignment
+    //    right back out; that patch is now deleted.)
+    if let Some(hub) = hub_id {
+        align_hub_to_spokes(graph, hub);
+    }
+
+    // E: Enforce unique offsets (hard guard) — the final EntryPoint writer.
     enforce_unique_offsets(graph);
+}
+
+/// ★ PR-A — hub↔spoke alignment (moved here from `flow.rs` so pin_place is the single writer of
+/// `EntryPoint.{side,offset}`).
+///
+/// Peripheral devices are already placed; this stretches the hub's box height to span the Y range
+/// of its spoke connection points, then aligns each hub pin's offset onto its spoke's Y so
+/// hub↔peripheral wires run straight. Peripherals are **not** moved (no new collisions). Only
+/// left/right signal pins are aligned (top/bottom and power pins keep their offset).
+fn align_hub_to_spokes(graph: &mut McVecGraph, root_id: i64) {
+    let flag_ids: HashSet<i64> = graph
+        .boxes
+        .iter()
+        .filter(|b| is_rail_box(b))
+        .map(|b| b.id)
+        .collect();
+
+    // hub pin → target Y (= peripheral pin's absolute Y)
+    let mut hub_targets: HashMap<i64, f64> = HashMap::new();
+    for net in &graph.nets {
+        let cores: Vec<&crate::vector::graph::EndpointRef> = net
+            .endpoints
+            .iter()
+            .filter(|e| !flag_ids.contains(&e.box_id))
+            .collect();
+        if cores.len() < 2 {
+            continue;
+        }
+        let hub_ep = match cores.iter().find(|e| e.box_id == root_id) {
+            Some(e) => e,
+            None => continue,
+        };
+        let periph_ep = match cores.iter().find(|e| e.box_id != root_id) {
+            Some(e) => e,
+            None => continue,
+        };
+        let pb = match graph.boxes.iter().find(|b| b.id == periph_ep.box_id) {
+            Some(b) => b,
+            None => continue,
+        };
+        let ty = pb
+            .entry_points
+            .iter()
+            .find(|ep| ep.pin_id == periph_ep.pin_id)
+            .map(|ep| pin_abs(pb, &ep.side, ep.offset).1)
+            .unwrap_or(pb.y + pb.h / 2.0);
+        hub_targets
+            .entry(hub_ep.pin_id)
+            .and_modify(|v| *v = (*v + ty) / 2.0)
+            .or_insert(ty);
+    }
+    if hub_targets.is_empty() {
+        return;
+    }
+
+    let min_y = hub_targets.values().cloned().fold(f64::INFINITY, f64::min);
+    let max_y = hub_targets
+        .values()
+        .cloned()
+        .fold(f64::NEG_INFINITY, f64::max);
+    let margin = 36.0;
+    let new_y = min_y - margin;
+    let new_h = ((max_y - min_y) + 2.0 * margin).max(60.0);
+
+    if let Some(hub) = graph.boxes.iter_mut().find(|b| b.id == root_id) {
+        hub.y = new_y;
+        hub.h = new_h;
+        for ep in &mut hub.entry_points {
+            // Only align left/right signal pins (Y ↔ offset); top/bottom and power pins don't move
+            if !matches!(ep.side, EntrySide::Left | EntrySide::Right) {
+                continue;
+            }
+            if let Some(&ty) = hub_targets.get(&ep.pin_id) {
+                ep.offset = ((ty - new_y) / new_h).clamp(0.02, 0.98);
+            }
+        }
+    }
 }
 
 // ============================================================================
