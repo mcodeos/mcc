@@ -5,6 +5,8 @@
 //! - MetricsAccumulator passes through viz::api::render_layer_recursive, accumulating per layer.
 
 use crate::vector::builder::builder_report::BuilderReport;
+use crate::vector::graph::box_def::{EntryPoint, EntrySide, McVecBox};
+use crate::vector::graph::net_def::{Point, Route, Segment};
 use crate::vector::graph::{McVecGraph, NetKind};
 use crate::viz::route::audit::CollisionReport;
 
@@ -138,12 +140,91 @@ pub struct SchematicQualityReport {
     pub readability: ReadabilityScore,
     pub collisions: CollisionReport,
     pub builder: BuilderQualitySummary,
+    pub truth: TruthSnapshotReport,
+}
+
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct TruthSnapshotReport {
+    pub layers_total: usize,
+
+    pub nets_total: usize,
+    pub drawable_nets_total: usize,
+    pub routed_nets_total: usize,
+    pub nets_missing_route: usize,
+    pub nets_empty_route: usize,
+
+    pub endpoints_total: usize,
+    pub drawable_endpoints_total: usize,
+    pub endpoints_box_missing: usize,
+    pub endpoints_pin_missing: usize,
+    pub endpoints_entry_missing: usize,
+    pub endpoints_route_unreached: usize,
+
+    pub boxes_total: usize,
+    pub physical_pins_total: usize,
+    pub physical_pins_with_entry: usize,
+    pub physical_pins_missing_entry: usize,
+}
+
+impl TruthSnapshotReport {
+    pub fn is_perfect(&self) -> bool {
+        self.nets_missing_route == 0
+            && self.nets_empty_route == 0
+            && self.endpoints_box_missing == 0
+            && self.endpoints_pin_missing == 0
+            && self.endpoints_entry_missing == 0
+            && self.endpoints_route_unreached == 0
+            && self.physical_pins_missing_entry == 0
+    }
+
+    pub fn merge(&mut self, other: TruthSnapshotReport) {
+        self.layers_total += other.layers_total;
+        self.nets_total += other.nets_total;
+        self.drawable_nets_total += other.drawable_nets_total;
+        self.routed_nets_total += other.routed_nets_total;
+        self.nets_missing_route += other.nets_missing_route;
+        self.nets_empty_route += other.nets_empty_route;
+        self.endpoints_total += other.endpoints_total;
+        self.drawable_endpoints_total += other.drawable_endpoints_total;
+        self.endpoints_box_missing += other.endpoints_box_missing;
+        self.endpoints_pin_missing += other.endpoints_pin_missing;
+        self.endpoints_entry_missing += other.endpoints_entry_missing;
+        self.endpoints_route_unreached += other.endpoints_route_unreached;
+        self.boxes_total += other.boxes_total;
+        self.physical_pins_total += other.physical_pins_total;
+        self.physical_pins_with_entry += other.physical_pins_with_entry;
+        self.physical_pins_missing_entry += other.physical_pins_missing_entry;
+    }
+
+    pub fn report_line(&self) -> String {
+        format!(
+            "[metrics] TRUTH: layers={} nets drawable={}/{} routed={} missing_route={} empty_route={}, \
+             endpoints drawable={}/{} box_missing={} pin_missing={} entry_missing={} route_unreached={}, \
+             physical-pins entries={}/{} missing_entry={} -> PERFECT? {}",
+            self.layers_total,
+            self.drawable_nets_total,
+            self.nets_total,
+            self.routed_nets_total,
+            self.nets_missing_route,
+            self.nets_empty_route,
+            self.drawable_endpoints_total,
+            self.endpoints_total,
+            self.endpoints_box_missing,
+            self.endpoints_pin_missing,
+            self.endpoints_entry_missing,
+            self.endpoints_route_unreached,
+            self.physical_pins_with_entry,
+            self.physical_pins_total,
+            self.physical_pins_missing_entry,
+            self.is_perfect()
+        )
+    }
 }
 
 impl SchematicQualityReport {
-    /// Milestone 1 keeps the existing hard-gate semantics: fidelity only.
+    /// Milestone 2 keeps fidelity as the base gate and adds graph-truth completeness.
     pub fn is_perfect(&self) -> bool {
-        self.fidelity.is_perfect()
+        self.fidelity.is_perfect() && self.truth.is_perfect()
     }
 
     pub fn report_lines(&self) -> Vec<String> {
@@ -158,6 +239,7 @@ impl SchematicQualityReport {
                 self.collisions.total()
             ),
             self.builder.report_line(),
+            self.truth.report_line(),
             format!(
                 "[metrics] QUALITY: perfect={} weighted={:.1}",
                 self.is_perfect(),
@@ -190,6 +272,7 @@ pub struct MetricsAccumulator {
     total_wirelength: f64,
     total_bends: usize,
     off_grid_penalty: f64,
+    truth: TruthSnapshotReport,
 }
 
 impl MetricsAccumulator {
@@ -242,22 +325,25 @@ impl MetricsAccumulator {
                 self.authored_sides_honored += honored;
             }
         }
+
+        self.truth.merge(snapshot_layer_truth(graph));
     }
 
     /// Merge build-phase dropped/partial, produce final two reports.
     pub fn finish(self, report: Option<&BuilderReport>) -> (FidelityReport, ReadabilityScore) {
-        let (fidelity, readability, _, _) = self.finish_parts(report);
+        let (fidelity, readability, _, _, _) = self.finish_parts(report);
         (fidelity, readability)
     }
 
     /// Merge build-phase diagnostics and produce the unified schematic quality report.
     pub fn finish_quality(self, report: Option<&BuilderReport>) -> SchematicQualityReport {
-        let (fidelity, readability, collisions, builder) = self.finish_parts(report);
+        let (fidelity, readability, collisions, builder, truth) = self.finish_parts(report);
         SchematicQualityReport {
             fidelity,
             readability,
             collisions,
             builder,
+            truth,
         }
     }
 
@@ -269,6 +355,7 @@ impl MetricsAccumulator {
         ReadabilityScore,
         CollisionReport,
         BuilderQualitySummary,
+        TruthSnapshotReport,
     ) {
         let builder = BuilderQualitySummary::from_report(report);
         let dropped = builder.dropped_nets;
@@ -306,8 +393,131 @@ impl MetricsAccumulator {
             symmetry_penalty: 0.0, // [P1 placeholder] 06
             idiom_violation: 0,    // [P1 placeholder] 06
         };
-        (fidelity, readability, collisions, builder)
+        (fidelity, readability, collisions, builder, self.truth)
     }
+}
+
+// ============================================================================
+// Truth snapshot helpers — verifies routed graph still covers declared endpoints
+// ============================================================================
+const ROUTE_ENDPOINT_EPS: f64 = 1.0;
+
+fn snapshot_layer_truth(graph: &McVecGraph) -> TruthSnapshotReport {
+    let mut rep = TruthSnapshotReport {
+        layers_total: 1,
+        boxes_total: graph.boxes.len(),
+        ..TruthSnapshotReport::default()
+    };
+
+    for b in &graph.boxes {
+        rep.physical_pins_total += b.pins.len();
+        for p in &b.pins {
+            if b.entry_points.iter().any(|e| e.pin_id == p.id) {
+                rep.physical_pins_with_entry += 1;
+            } else {
+                rep.physical_pins_missing_entry += 1;
+            }
+        }
+    }
+
+    for net in &graph.nets {
+        rep.nets_total += 1;
+        rep.endpoints_total += net.endpoints.len();
+
+        if net.endpoint_count() < 2 {
+            continue;
+        }
+
+        rep.drawable_nets_total += 1;
+        rep.drawable_endpoints_total += net.endpoints.len();
+
+        let route = match &net.route {
+            Some(route) if route.segments.is_empty() => {
+                rep.nets_empty_route += 1;
+                None
+            }
+            Some(route) => {
+                rep.routed_nets_total += 1;
+                Some(route)
+            }
+            None => {
+                rep.nets_missing_route += 1;
+                None
+            }
+        };
+
+        for endpoint in &net.endpoints {
+            let Some(b) = graph.boxes.iter().find(|b| b.id == endpoint.box_id) else {
+                rep.endpoints_box_missing += 1;
+                continue;
+            };
+
+            if endpoint.is_synthetic() {
+                continue;
+            }
+
+            if b.find_pin(endpoint.pin_id).is_none() {
+                rep.endpoints_pin_missing += 1;
+                continue;
+            }
+
+            let Some(entry) = b.find_entry(endpoint.pin_id) else {
+                rep.endpoints_entry_missing += 1;
+                continue;
+            };
+
+            if let Some(route) = route {
+                let p = entry_point_abs(b, entry);
+                if !route_touches_point(route, p, ROUTE_ENDPOINT_EPS) {
+                    rep.endpoints_route_unreached += 1;
+                }
+            }
+        }
+    }
+
+    rep
+}
+
+fn entry_point_abs(b: &McVecBox, ep: &EntryPoint) -> Point {
+    match ep.side {
+        EntrySide::Top => Point::new(b.x + ep.offset * b.w, b.y),
+        EntrySide::Right => Point::new(b.x + b.w, b.y + ep.offset * b.h),
+        EntrySide::Bottom => Point::new(b.x + ep.offset * b.w, b.y + b.h),
+        EntrySide::Left => Point::new(b.x, b.y + ep.offset * b.h),
+    }
+}
+
+fn route_touches_point(route: &Route, p: Point, eps: f64) -> bool {
+    route.segments.iter().any(|s| point_on_segment(p, s, eps))
+}
+
+fn point_on_segment(p: Point, s: &Segment, eps: f64) -> bool {
+    let dx = s.to.x - s.from.x;
+    let dy = s.to.y - s.from.y;
+
+    if dx.abs() <= eps {
+        return (p.x - s.from.x).abs() <= eps && between(p.y, s.from.y, s.to.y, eps);
+    }
+    if dy.abs() <= eps {
+        return (p.y - s.from.y).abs() <= eps && between(p.x, s.from.x, s.to.x, eps);
+    }
+
+    let len2 = dx * dx + dy * dy;
+    if len2 <= eps * eps {
+        return ((p.x - s.from.x).powi(2) + (p.y - s.from.y).powi(2)).sqrt() <= eps;
+    }
+
+    let t = ((p.x - s.from.x) * dx + (p.y - s.from.y) * dy) / len2;
+    if t < -eps || t > 1.0 + eps {
+        return false;
+    }
+    let t = t.clamp(0.0, 1.0);
+    let proj = Point::new(s.from.x + t * dx, s.from.y + t * dy);
+    ((p.x - proj.x).powi(2) + (p.y - proj.y).powi(2)).sqrt() <= eps
+}
+
+fn between(v: f64, a: f64, b: f64, eps: f64) -> bool {
+    v >= a.min(b) - eps && v <= a.max(b) + eps
 }
 
 // ============================================================================
@@ -367,7 +577,7 @@ mod tests {
     use crate::vector::builder::builder_report::{
         BuilderReport, DroppedNet, PartialNet, ResolutionOutcome, ResolutionRecord,
     };
-    use crate::vector::graph::box_def::IoSummary;
+    use crate::vector::graph::box_def::{BoxPin, IoSummary};
     use crate::vector::graph::net_def::{Point, Route, Segment};
     use crate::vector::graph::{BoxKind, EndpointRef, McVecBox, Symbol, VizNet};
 
@@ -409,6 +619,56 @@ mod tests {
         }
         n.route = Some(r);
         n
+    }
+
+    fn add_pin_and_entry(b: &mut McVecBox, pin_id: i64, side: EntrySide, offset: f64) {
+        add_pin(b, pin_id);
+        b.entry_points.push(EntryPoint {
+            pin_id,
+            pin_name: format!("P{pin_id}"),
+            side,
+            offset,
+        });
+    }
+
+    fn add_pin(b: &mut McVecBox, pin_id: i64) {
+        b.pins.push(BoxPin {
+            id: pin_id,
+            pin_id: format!("P{pin_id}"),
+            description: format!("P{pin_id}"),
+            io: crate::vector::graph::net_def::IoDirection::Unknown,
+        });
+    }
+
+    fn real_net(nid: i64, a_box: i64, a_pin: i64, b_box: i64, b_pin: i64) -> VizNet {
+        VizNet::new(
+            nid,
+            format!("n{nid}"),
+            NetKind::Signal,
+            vec![
+                EndpointRef::new(a_box, a_pin, format!("P{a_pin}")),
+                EndpointRef::new(b_box, b_pin, format!("P{b_pin}")),
+            ],
+        )
+    }
+
+    fn complete_two_point_graph() -> McVecGraph {
+        let mut g = McVecGraph::new(0, "t".into());
+        let mut b1 = mk_box(1, 0.0, 0.0);
+        let mut b2 = mk_box(2, 100.0, 0.0);
+        add_pin_and_entry(&mut b1, 11, EntrySide::Right, 0.5);
+        add_pin_and_entry(&mut b2, 22, EntrySide::Left, 0.5);
+        g.boxes.push(b1);
+        g.boxes.push(b2);
+        let mut net = real_net(1, 1, 11, 2, 22);
+        let mut route = Route::new();
+        route.segments.push(Segment {
+            from: Point::new(40.0, 10.0),
+            to: Point::new(100.0, 10.0),
+        });
+        net.route = Some(route);
+        g.nets.push(net);
+        g
     }
 
     /// Counts match hand calculation: 1 net, wirelen=100+50, 1 bend.
@@ -545,13 +805,109 @@ mod tests {
     }
 
     #[test]
-    fn quality_is_perfect_delegates_to_fidelity() {
-        let mut quality = SchematicQualityReport::default();
-        assert!(quality.is_perfect());
-        assert_eq!(quality.is_perfect(), quality.fidelity.is_perfect());
+    fn truth_detects_missing_route_for_drawable_net() {
+        let mut g = complete_two_point_graph();
+        g.nets[0].route = None;
 
-        quality.fidelity.wire_box = 1;
-        assert!(!quality.is_perfect());
-        assert_eq!(quality.is_perfect(), quality.fidelity.is_perfect());
+        let truth = snapshot_layer_truth(&g);
+
+        assert_eq!(truth.drawable_nets_total, 1);
+        assert_eq!(truth.nets_missing_route, 1);
+        assert!(!truth.is_perfect());
+    }
+
+    #[test]
+    fn truth_detects_empty_route() {
+        let mut g = complete_two_point_graph();
+        g.nets[0].route = Some(Route::new());
+
+        let truth = snapshot_layer_truth(&g);
+
+        assert_eq!(truth.nets_empty_route, 1);
+        assert!(!truth.is_perfect());
+    }
+
+    #[test]
+    fn truth_detects_missing_endpoint_box() {
+        let mut g = complete_two_point_graph();
+        g.nets[0].endpoints[1].box_id = 999;
+
+        let truth = snapshot_layer_truth(&g);
+
+        assert_eq!(truth.endpoints_box_missing, 1);
+        assert!(!truth.is_perfect());
+    }
+
+    #[test]
+    fn truth_detects_missing_physical_pin() {
+        let mut g = complete_two_point_graph();
+        g.boxes[1].pins.clear();
+
+        let truth = snapshot_layer_truth(&g);
+
+        assert_eq!(truth.endpoints_pin_missing, 1);
+        assert!(!truth.is_perfect());
+    }
+
+    #[test]
+    fn truth_detects_missing_entry_point() {
+        let mut g = complete_two_point_graph();
+        g.boxes[1].entry_points.clear();
+
+        let truth = snapshot_layer_truth(&g);
+
+        assert_eq!(truth.endpoints_entry_missing, 1);
+        assert!(truth.physical_pins_missing_entry >= 1);
+        assert!(!truth.is_perfect());
+    }
+
+    #[test]
+    fn truth_detects_route_unreached_endpoint() {
+        let mut g = complete_two_point_graph();
+        if let Some(route) = &mut g.nets[0].route {
+            route.segments[0] = Segment {
+                from: Point::new(50.0, 50.0),
+                to: Point::new(60.0, 50.0),
+            };
+        }
+
+        let truth = snapshot_layer_truth(&g);
+
+        assert_eq!(truth.endpoints_route_unreached, 2);
+        assert!(!truth.is_perfect());
+    }
+
+    #[test]
+    fn truth_accepts_complete_two_point_route() {
+        let g = complete_two_point_graph();
+        let mut acc = MetricsAccumulator::default();
+        acc.accumulate_layer(&g, &CollisionReport::default());
+        let quality = acc.finish_quality(None);
+
+        assert!(quality.truth.is_perfect());
+        assert!(quality.is_perfect());
+    }
+
+    #[test]
+    fn truth_skips_synthetic_pin_physical_checks() {
+        let mut g = complete_two_point_graph();
+        g.nets[0].endpoints[1] = EndpointRef::new(2, -1, "SYNTH");
+        g.boxes[1].pins.clear();
+        g.boxes[1].entry_points.clear();
+
+        let truth = snapshot_layer_truth(&g);
+
+        assert_eq!(truth.endpoints_pin_missing, 0);
+        assert_eq!(truth.endpoints_entry_missing, 0);
+        assert_eq!(truth.physical_pins_missing_entry, 0);
+    }
+
+    #[test]
+    fn report_lines_include_truth() {
+        let quality = SchematicQualityReport::default();
+        assert!(quality
+            .report_lines()
+            .iter()
+            .any(|line| line.contains("[metrics] TRUTH:")));
     }
 }
