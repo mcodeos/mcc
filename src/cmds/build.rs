@@ -25,7 +25,6 @@ use crate::output::{
     self, builder::ResultBuilder, diagnostic::PhaseTracker, envelope::*, renderer, OutputFormatExt,
 };
 use anyhow::{Context, Result};
-use mcc::McIds;
 use mcc::viz::{
     layout::{
         FlowLayouter, HierarchicalLayouter, RadialLayouter, SchematicRadialLayouter,
@@ -33,6 +32,7 @@ use mcc::viz::{
     },
     traits::Layouter,
 };
+use mcc::McIds;
 use serde_json::json;
 use std::path::{Path, PathBuf};
 

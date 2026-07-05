@@ -202,7 +202,10 @@ fn assign_pin_directions(graph: &McVecGraph, result: &SignalChainResult) -> DirM
     let by_pin = result.by_pin();
 
     for (&pin_id, chains) in &by_pin {
-        let pin_name = chains.first().map(|c| c.hub_pin_name.as_str()).unwrap_or("");
+        let pin_name = chains
+            .first()
+            .map(|c| c.hub_pin_name.as_str())
+            .unwrap_or("");
 
         // 1. 语义脚名（EN/LX/FB/Vin/GND）→ 理想布局（等上游修好名字后自动生效）
         // 2. ★ 轨/终点语义兜底：数字脚名时用链的电气终点判方向
@@ -234,21 +237,35 @@ fn dir_from_pin_name(name: &str, chains: &[&SignalChain]) -> ChainDir {
 /// rail-semantics fallback in `assign_pin_directions`.
 fn semantic_dir_from_name(name: &str) -> Option<ChainDir> {
     let u = name.to_uppercase();
-    if u.starts_with("VIN") || u.starts_with("VCC") || u.starts_with("VDD")
-        || u.starts_with("VBUS") || u == "IN" || u.starts_with("PVDD")
+    if u.starts_with("VIN")
+        || u.starts_with("VCC")
+        || u.starts_with("VDD")
+        || u.starts_with("VBUS")
+        || u == "IN"
+        || u.starts_with("PVDD")
     {
         return Some(ChainDir::Up);
     }
     if naming::is_ground(&u) {
         return Some(ChainDir::Down);
     }
-    if u == "EN" || u == "ENABLE" || u.starts_with("RST") || u.starts_with("NRST")
-        || u == "CE" || u == "SHDN" || u.starts_with("CLK") || u.starts_with("SCL")
+    if u == "EN"
+        || u == "ENABLE"
+        || u.starts_with("RST")
+        || u.starts_with("NRST")
+        || u == "CE"
+        || u == "SHDN"
+        || u.starts_with("CLK")
+        || u.starts_with("SCL")
     {
         return Some(ChainDir::Left);
     }
-    if u.starts_with("OUT") || u.starts_with("VOUT") || u == "LX" || u == "SW"
-        || u.starts_with("BUCK") || u.starts_with("BOOST")
+    if u.starts_with("OUT")
+        || u.starts_with("VOUT")
+        || u == "LX"
+        || u == "SW"
+        || u.starts_with("BUCK")
+        || u.starts_with("BOOST")
     {
         return Some(ChainDir::Right);
     }
@@ -259,32 +276,51 @@ fn semantic_dir_from_name(name: &str) -> Option<ChainDir> {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum RailTarget { Power, Ground, Loop, Signal }
+enum RailTarget {
+    Power,
+    Ground,
+    Loop,
+    Signal,
+}
 
 /// Classify what a chain electrically terminates at (by terminus net/box kind,
 /// not the possibly-numeric hub pin name).
 fn classify_chain_target(graph: &McVecGraph, chain: &SignalChain) -> RailTarget {
     let net_is_ground = |nid: i64| {
-        graph.nets.iter().find(|n| n.nid == nid).is_some_and(|n| {
-            matches!(n.kind, NetKind::Ground) || naming::is_ground(&n.name)
-        })
+        graph
+            .nets
+            .iter()
+            .find(|n| n.nid == nid)
+            .is_some_and(|n| matches!(n.kind, NetKind::Ground) || naming::is_ground(&n.name))
     };
     let net_is_power = |nid: i64| {
-        graph.nets.iter().find(|n| n.nid == nid).is_some_and(|n| {
-            matches!(n.kind, NetKind::Power) || naming::is_power_rail(&n.name)
-        })
+        graph
+            .nets
+            .iter()
+            .find(|n| n.nid == nid)
+            .is_some_and(|n| matches!(n.kind, NetKind::Power) || naming::is_power_rail(&n.name))
     };
 
     if let Some(t) = &chain.terminus {
-        if net_is_ground(t.net_id) { return RailTarget::Ground; }
-        if net_is_power(t.net_id) { return RailTarget::Power; }
+        if net_is_ground(t.net_id) {
+            return RailTarget::Ground;
+        }
+        if net_is_power(t.net_id) {
+            return RailTarget::Power;
+        }
         if let Some(b) = graph.boxes.iter().find(|b| b.id == t.box_id) {
-            if naming::is_ground(&b.name) { return RailTarget::Ground; }
-            if naming::is_power_rail(&b.name) { return RailTarget::Power; }
+            if naming::is_ground(&b.name) {
+                return RailTarget::Ground;
+            }
+            if naming::is_power_rail(&b.name) {
+                return RailTarget::Power;
+            }
         }
         return RailTarget::Signal;
     }
-    if chain.loops_to_hub { return RailTarget::Loop; }
+    if chain.loops_to_hub {
+        return RailTarget::Loop;
+    }
     RailTarget::Signal
 }
 
@@ -301,9 +337,15 @@ fn dir_from_rail_semantics(graph: &McVecGraph, chains: &[&SignalChain]) -> Optio
             RailTarget::Signal => signal += 1,
         }
     }
-    if ground > 0 && ground >= power && ground >= signal { return Some(ChainDir::Down); }
-    if power > 0 && power >= signal { return Some(ChainDir::Up); }
-    if looping > 0 && signal == 0 { return Some(ChainDir::Up); }
+    if ground > 0 && ground >= power && ground >= signal {
+        return Some(ChainDir::Down);
+    }
+    if power > 0 && power >= signal {
+        return Some(ChainDir::Up);
+    }
+    if looping > 0 && signal == 0 {
+        return Some(ChainDir::Up);
+    }
     None
 }
 

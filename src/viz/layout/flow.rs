@@ -102,6 +102,72 @@ impl FlowLayouter {
             hub_keep_semantic: false,
         }
     }
+
+    /// 相位 1 · Prepare — 拓扑归一 + 粗粒度 pin。
+    ///
+    /// 写：graph.fanout 相关的合成/拆分结构、盒子初始尺寸、coarse entry_points。
+    fn phase_prepare(&self, graph: &mut McVecGraph) {
+        explode_power_rails_to_flags(graph);
+        promote_synthetic_pins(graph);
+        split_shared_pins(graph);
+        assign_default_sizes(graph);
+        assign_entry_points_coarse(graph);
+    }
+
+    /// 备用出口 A — 完全无连接图：pin-aware 重算尺寸后走网格铺满画布。
+    fn exit_grid(&self, graph: &mut McVecGraph) -> (f64, f64) {
+        assign_default_sizes(graph);
+        place_grid(graph);
+        enforce_unique_offsets(graph);
+        normalize_positions(graph);
+        compute_canvas(graph)
+    }
+
+    /// 相位 2 · Size — 只增不减的尺寸调整。
+    fn phase_size(&self, graph: &mut McVecGraph) {
+        if self.recompute_sizes {
+            recompute_sizes_with_pin_count(graph);
+        }
+        size_by_core_fanout(graph);
+    }
+
+    /// 相位 3 · Placement — 只写盒子位置（x/y），全部先于 pin_place。
+    ///
+    /// 返回 (root_id, isolated_ids) 供后续相位使用。
+    fn phase_placement(&self, graph: &mut McVecGraph) -> (i64, HashSet<i64>) {
+        let ranks = assign_flow_ranks(graph, self.hub_min_degree);
+        let columns = order_columns(graph, &ranks, self.bary_sweeps);
+        self.place_columns(graph, &columns);
+        refine_y_coordinates(graph, 4, self.row_pitch);
+        PlaceOptimizer::default().run(graph);
+
+        let root_id = ranks
+            .iter()
+            .find(|(_, r)| **r == 0)
+            .map(|(id, _)| *id)
+            .unwrap_or(graph.boxes[0].id);
+
+        let isolated_ids = compute_isolated_ids(graph, root_id);
+
+        align_leaf_to_neighbor(graph, root_id);
+        group_supply_modules(graph, &isolated_ids);
+
+        (root_id, isolated_ids)
+    }
+
+    /// 相位 5 · Post — 几何保持的盒子移动，pin_place 之后安全。
+    fn phase_post(
+        &self,
+        graph: &mut McVecGraph,
+        flag_boxes: Vec<McVecBox>,
+        flag_meta: &FlagMeta,
+        isolated_ids: &HashSet<i64>,
+    ) {
+        graph.boxes.extend(flag_boxes);
+        self.place_flags(graph, flag_meta);
+        park_isolated_components(graph, isolated_ids);
+        normalize_positions(graph);
+    }
 }
 
 impl Layouter for FlowLayouter {
@@ -112,144 +178,45 @@ impl Layouter for FlowLayouter {
             return (200.0, 100.0);
         }
 
-        // Pass routing mode switch to router/scheduler. fanout_star=false (now default) → multi-terminal single-driver
-        //   net / bus goes TrunkTap/BusBundle (trunk + taps, standard schematic practice); =true → hub-star
-        //   (all loads converge to driver pin, fan out from one point). See fanout_star field description above.
         graph.fanout_star = self.fanout_star;
 
-        // ── A2: Power rail → local flag ──
-        explode_power_rails_to_flags(graph);
+        // ── 相位 1 · Prepare：拓扑归一 + 粗粒度 pin ──
+        self.phase_prepare(graph);
 
-        // ★ FIX (top-level collapse fix): Promote synthetic endpoints (rail-synth / same-name paired endpoints with pin_id<=0)
-        //   to independent pins. Otherwise their pin_ids are all -1, will be deduplicated to 1 entry in collect_pins_per_box
-        //   (box thinks it has only 1 pin → size not enlarged), and during routing collapse to same point on box edge
-        //   (tree-root style connection). Must run before assign_default_sizes / assign_entry_points.
-        //
-        //   ── Change: from "sub-layer only (recompute_sizes)" to **top-level + sub-layer both execute**. Top-level previously
-        //   had residual collapse, covered by fanout_star star fan-out; now top-level also promotes, with
-        //   fanout_star=false routing TrunkTap (trunk + taps), letting each pin connect at its own exit point
-        //   then wire out, while box size (size_by_core_fanout) also enlarges by real pin count.
-        promote_synthetic_pins(graph);
-
-        // ★ FIX (split shared pins / fix "fanning out from one point"): Composite/bundle ports (e.g.,
-        //   `[VDD_3V3, VCC_1V2]` / `[X, GND]`) flatten to **one pin_id**, but simultaneously attached to
-        //   multiple nets (3V3 net + 1V2 net, or GND net + signal net). Renderer draws one pin per pin_id
-        //   → multiple wires connected at this one point (mcu513 in user's screenshot image1 / flash in image2).
-        //   This pass splits "one pin connecting K nets" into "each net gets independent pin_id" → K independent entry
-        //   points → each net connects to its own point on component then wires out. Only affects truly cross-net shared pins, normal pins
-        //   unaffected. Must run before assign_default_sizes / assign_entry_points.
-        split_shared_pins(graph);
-
-        assign_default_sizes(graph);
-        assign_entry_points_coarse(graph);
-
-        // ★ FIX (sparse single column fix): Graphs with absolutely no cross-box connections (no inter-box net),
-        //   flow layering treats each isolated box as a component → all ranks are 1 → all pile into
-        //   same column, plus row_pitch=220 large row spacing, results in "over a dozen small boxes sparsely
-        //   squeezed into one vertical column" as in user's screenshot. This case switches to **grid layout**,
-        //   letting components fill the entire drawing.
-        //   (Graphs with power/same-name rail connections generate inter-box nets → don't enter this branch, normal flow unchanged.)
+        // 备用出口 A：完全无连接 → 网格布局（早退）
         if is_fully_disconnected(graph) {
-            // entry_points are now filled → recompute w/h by "pin-aware" sizing. First
-            //   assign_default_sizes ran before entry_points were filled, using fallback estimate (too small);
-            //   recompute here once, width by longest pin name, height by pin count per side, boxes become large enough and clear.
-            assign_default_sizes(graph);
-            place_grid(graph);
-            enforce_unique_offsets(graph);
-            normalize_positions(graph);
-            return compute_canvas(graph);
+            return self.exit_grid(graph);
         }
 
-        // ★ FIX (subgraph): Recompute size by pin name/number after pin assignment, activates box_size pin-aware
-        //   path (width by longest pin name, height by pin count per side). Flow never recomputed before →
-        //   box_size always takes entry_points empty fallback branch (only width by box name), this is exactly
-        //   the root cause of uC / SubModule not enlarging.
-        //   Must run before size_by_core_fanout: latter only "increases height", take larger of the two.
-        //   Sub-layer only enabled (default()=false), top-level size stays unchanged.
-        if self.recompute_sizes {
-            recompute_sizes_with_pin_count(graph);
-        }
-        // ★ Box height ∝ signal net count: boxes with more connections extend vertically, letting parallel wire bundles spread apart
-        size_by_core_fanout(graph);
+        // ── 相位 2 · Size：pin-aware 尺寸 + 按扇出增高 ──
+        self.phase_size(graph);
 
+        // 备用出口 B：单盒子（早退）
         if graph.boxes.len() == 1 {
             graph.boxes[0].x = CANVAS_MARGIN;
             graph.boxes[0].y = CANVAS_MARGIN;
             return compute_canvas(graph);
         }
 
-        // ── Extract flags for core layout ──
+        // 抽出 flags 供核心布局（Post 相位归位）
         let (flag_boxes, flag_meta) = split_flags(graph);
 
+        // 备用出口 C：抽走 flag 后只剩空（早退）
         if graph.boxes.is_empty() {
             graph.boxes.extend(flag_boxes);
             place_single_row(graph);
             return compute_canvas(graph);
         }
 
-        // ── B1/B2: Flow layering (signed rank, negative=left / 0=hub / positive=right) ──
-        let ranks = assign_flow_ranks(graph, self.hub_min_degree);
+        // ── 相位 3 · Placement：只写盒子位置，全部在 pin_place 之前 ──
+        let (root_id, isolated_ids) = self.phase_placement(graph);
 
-        // ── barycenter crossing removal → each column sorted ──
-        let columns = order_columns(graph, &ranks, self.bary_sweeps);
-
-        // ── Place by column ──
-        self.place_columns(graph, &columns);
-
-        // ── ★ P5: Y coordinate refinement within column (align to neighbor median, preserve order, only modify Y) ──
-        refine_y_coordinates(graph, 4, self.row_pitch);
-
-        // ── Core overlap + fine-tuning ──
-        PlaceOptimizer::default().run(graph);
-
-        // ★ P0: First determine hub
-        let root_id = ranks
-            .iter()
-            .find(|(_, r)| **r == 0)
-            .map(|(id, _)| *id)
-            .unwrap_or(graph.boxes[0].id);
-
-        // ── ★ PR-A: single-writer pin placement ──────────────────────────────────────────────
-        //   Invariant: every pass that changes the RELATIVE geometry between connected boxes runs
-        //   BEFORE pin_place_pipeline; pin_place is the SOLE writer of EntryPoint.{side,offset};
-        //   nothing touches EntryPoint after it. This makes pin placement a pure function of the
-        //   final box geometry ("what you edit is what you see") and lets the router — which reads
-        //   entry_points as authoritative and never writes them — reproduce these decisions exactly.
-
-        // ★ Isolated components: flags are extracted (build_adjacency is pure core adjacency),
-        //   compute boxes not containing hub. Position-independent → safe to compute here.
-        let isolated_ids = compute_isolated_ids(graph, root_id);
-
-        // ★ P0b: Leaf vertically aligns to its single core neighbour (moves the whole leaf BOX only,
-        //   with a collision guard). Relative-geometry change → MUST run before pin_place. Previously
-        //   this ran AFTER pin_place, invalidating the sides pin_place had just computed → wrap-around
-        //   wires. Kept before group_supply_modules (same relative order as before the reorder).
-        align_leaf_to_neighbor(graph, root_id);
-
-        // ★ Supply chain grouping: power modules (USB/LDO/DCDC...) → bottom row. This changes their
-        //   geometry relative to their neighbours, so it MUST run before pin_place so pin sides face
-        //   the final positions. (Exclude isolated boxes so e.g. moddcdc isn't dragged leftmost.)
-        group_supply_modules(graph, &isolated_ids);
-
-        // ── Pin placement (SOLE EntryPoint writer). The former flow::align_hub_to_spokes is now
-        //    folded into pin_place_pipeline as its `align_hub_to_spokes` pass (hub box stretch + hub
-        //    offset alignment), running after straighten/order and before the final unique-offset
-        //    guard — so the tall (stretched) hub keeps its aligned offsets instead of having them
-        //    flattened. The old trailing enforce_unique_offsets (PR-2 patch) is therefore deleted.
+        // ── 相位 4 · PinPlacement：EntryPoint 唯一写者 + hub 几何唯一终定者 ──
         super::pin_place::pin_place_pipeline(graph, Some(root_id), true, self.hub_keep_semantic);
 
-        // ── Downstream box moves that do NOT change relative geometry among connected boxes, and
-        //    are therefore safe AFTER pin_place: flags are excluded from pin_place (is_rail_box);
-        //    park is a rigid translation of a disconnected component (preserves internal layout).
+        // ── 相位 5 · Post：几何保持的移动，pin_place 之后安全 ──
+        self.phase_post(graph, flag_boxes, &flag_meta, &isolated_ids);
 
-        // ── B3: Attach flags back to consumer sides (centered evenly on same side) ──
-        graph.boxes.extend(flag_boxes);
-        self.place_flags(graph, &flag_meta);
-
-        // ★ Flags in position → move isolated components (with flags) as a group to open area below main body
-        park_isolated_components(graph, &isolated_ids);
-
-        normalize_positions(graph);
         compute_canvas(graph)
     }
 
