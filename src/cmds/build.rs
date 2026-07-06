@@ -708,8 +708,15 @@ mod phase0_golden {
         let (_, metrics) = mcc::viz::api::render_with_metrics(graph, opts);
         let quality = metrics.finish_quality(Some(&build_report));
 
+        let semantic = quality
+            .semantic
+            .as_ref()
+            .map(|s| mcc::viz::metrics::SemanticSnapshot::from_summary(s))
+            .unwrap_or_default();
+
         mcc::viz::metrics::SchematicMetricsSnapshot::from_quality(
             &quality,
+            semantic,
             "hbl1",
             "projects/hbl1/hbl.mc",
             "cargo run -- build projects/hbl1/hbl.mc --lib mcode --viz",
@@ -747,6 +754,30 @@ mod phase0_golden {
 
                 let report = mcc::viz::metrics::compare_metrics_snapshot(&snapshot, &baseline);
                 assert!(report.passed, "{}", report.report_text());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    /// Semantic smoke test: ensure hbl1 semantic analysis doesn't panic
+    /// and produces non-zero counts.
+    #[test]
+    fn hbl1_semantic_smoke() {
+        if std::env::var("MCC_HBL1_METRICS").is_err() {
+            eprintln!("skip hbl1 semantic smoke; set MCC_HBL1_METRICS=1");
+            return;
+        }
+
+        std::thread::Builder::new()
+            .name("hbl1-semantic".into())
+            .stack_size(32 * 1024 * 1024)
+            .spawn(move || {
+                let snapshot = build_hbl1_metrics_snapshot();
+                let s = &snapshot.semantic;
+                assert!(s.boxes_total > 0, "semantic boxes_total should be > 0");
+                assert!(s.nets_total > 0, "semantic nets_total should be > 0");
+                assert!(s.pins_total > 0, "semantic pins_total should be > 0");
             })
             .unwrap()
             .join()
