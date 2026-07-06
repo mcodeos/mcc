@@ -63,7 +63,7 @@ pub use traits::{
 };
 
 // Layout algorithms
-pub use layout::{GridLayouter, HierarchicalLayouter, RadialLayouter};
+pub use layout::{GridLayouter, HierarchicalLayouter, LayeredLayouter, RadialLayouter};
 
 // Routing algorithms (P4 new)
 pub use route::{smart_route_all, BusBundleRouter, OrthogonalRouter, StarRouter, StraightRouter};

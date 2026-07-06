@@ -31,6 +31,7 @@ pub mod entry_points;
 pub mod flow;
 pub mod grid;
 pub mod hierarchical;
+pub mod layered;
 pub mod multi_strategy;
 pub mod normalize;
 pub mod optimize;
@@ -44,6 +45,7 @@ pub mod schematic_radial;
 pub mod select;
 pub mod size;
 pub use flow::FlowLayouter;
+pub use layered::LayeredLayouter;
 pub use schematic_layout::SchematicSubLayouter;
 pub use schematic_radial::SchematicRadialLayouter;
 // ============================================================================

@@ -305,6 +305,26 @@ pub struct SemanticSummary {
     pub warnings: usize,
 }
 
+impl SemanticSummary {
+    /// Merge another summary into self (accumulate for multi-layer).
+    pub fn merge(&mut self, other: &SemanticSummary) {
+        self.boxes_total += other.boxes_total;
+        self.nets_total += other.nets_total;
+        self.pins_total += other.pins_total;
+        self.hubs_detected += other.hubs_detected;
+        self.signal_chains_detected += other.signal_chains_detected;
+        self.passive_chains_detected += other.passive_chains_detected;
+        self.component_groups_detected += other.component_groups_detected;
+        self.bus_groups_detected += other.bus_groups_detected;
+        self.rail_intents_detected += other.rail_intents_detected;
+        self.idioms_detected += other.idioms_detected;
+        self.pins_with_preferred_side += other.pins_with_preferred_side;
+        self.pins_with_actual_side += other.pins_with_actual_side;
+        self.preferred_actual_side_mismatches += other.preferred_actual_side_mismatches;
+        self.warnings += other.warnings;
+    }
+}
+
 // ============================================================================
 // SemanticModel
 // ============================================================================
@@ -432,42 +452,39 @@ impl SemanticModel {
     }
 
     fn classify_box_role(b: &McVecBox) -> BoxRole {
-        // Ground flag
-        if b.symbol.is_ground() || naming::is_ground(&b.name) {
-            if b.kind == BoxKind::PowerLabel || b.symbol.is_power_rail() {
-                return BoxRole::GroundFlag;
-            }
+        // 1. Junction dot
+        if b.kind == BoxKind::Dot {
+            return BoxRole::JunctionDot;
         }
-        // Power flag
-        if b.symbol.is_power_rail() || naming::is_power(&b.name) {
-            if b.kind == BoxKind::PowerLabel || b.symbol.is_power_rail() {
-                return BoxRole::PowerFlag;
-            }
-        }
-        // Rail boxes (via rails module logic)
+        // 2. Rail box (ground vs power via rails module + naming/symbol)
         if rails::is_rail_box(b) {
             if naming::is_ground(&b.name) || b.symbol.is_ground() {
                 return BoxRole::GroundFlag;
             }
             return BoxRole::PowerFlag;
         }
-        // Junction dot
-        if b.kind == BoxKind::Dot {
-            return BoxRole::JunctionDot;
-        }
-        // Module boundary
+        // 3. Module boundary
         if b.kind == BoxKind::SubModule {
             return BoxRole::ModuleBoundary;
         }
-        // Passive
+        // 4. Power/ground flag (non-rail)
+        if b.kind == BoxKind::PowerLabel {
+            if naming::is_ground(&b.name) || b.symbol.is_ground() {
+                return BoxRole::GroundFlag;
+            }
+            if b.symbol.is_power_rail() || naming::is_power(&b.name) {
+                return BoxRole::PowerFlag;
+            }
+        }
+        // 5. Two-pin passive
         if b.symbol.is_two_pin_passive() {
             return BoxRole::Passive;
         }
-        // Hub candidate
+        // 6. Hub candidate (MultiPin with enough pins)
         if b.kind == BoxKind::MultiPin && b.pin_count >= 3 {
             return BoxRole::Hub;
         }
-        // Connector (MultiPin with few pins)
+        // 7. Connector (MultiPin with few pins)
         if b.kind == BoxKind::MultiPin {
             return BoxRole::Connector;
         }

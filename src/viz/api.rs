@@ -49,7 +49,9 @@ use super::debug;
 use super::doc::VizDocument;
 use super::layer::VizLayer;
 use super::layout::select::layout_best;
-use super::layout::{FlowLayouter, HierarchicalLayouter, RadialLayouter, SchematicRadialLayouter};
+use super::layout::{
+    FlowLayouter, HierarchicalLayouter, LayeredLayouter, RadialLayouter, SchematicRadialLayouter,
+};
 use super::semantic::SemanticModel;
 use super::traits::{DefaultRenderer, Layouter, Renderer};
 
@@ -136,6 +138,18 @@ impl RenderOpts {
             apply_promote: true,
             top_candidates: vec![Box::new(SchematicRadialLayouter::default())],
             sub_candidates: vec![Box::new(RadialLayouter)],
+        }
+    }
+
+    /// ★ M6 — Semantic-driven layered placement prototype (experimental).
+    pub fn layered() -> Self {
+        Self {
+            top_layouter: Box::new(LayeredLayouter::default()),
+            sub_layouter: Box::new(LayeredLayouter::sub()),
+            renderer: Box::new(DefaultRenderer),
+            apply_promote: true,
+            top_candidates: vec![Box::new(LayeredLayouter::default())],
+            sub_candidates: vec![Box::new(LayeredLayouter::sub())],
         }
     }
 }
