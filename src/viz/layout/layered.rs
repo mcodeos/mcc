@@ -38,6 +38,7 @@ use crate::viz::layout::flow::eject_flags_from_boxes;
 use crate::viz::layout::normalize::{compute_canvas, normalize_positions, CANVAS_MARGIN};
 use crate::viz::layout::rails::{explode_power_rails_to_flags, is_rail_box};
 use crate::viz::layout::size::assign_default_sizes;
+use crate::viz::pins::{pin_anchor_pipeline, PinAnchorConfig};
 use crate::viz::semantic::SemanticModel;
 use crate::viz::traits::Layouter;
 
@@ -123,7 +124,7 @@ impl LogicalPlacement {
     pub fn from_graph_and_semantics(
         graph: &McVecGraph,
         semantic: &SemanticModel,
-        _config: &LayeredLayouter,
+        config: &LayeredLayouter,
     ) -> Self {
         let mut warnings: Vec<PlacementWarning> = Vec::new();
 
@@ -149,7 +150,7 @@ impl LogicalPlacement {
         };
 
         // ── Assign lanes within each rank ──
-        let lane_map = Self::assign_lanes(graph, &columns, &adj, &rank_map, &mut warnings);
+        let lane_map = Self::assign_lanes(graph, &columns, &adj, &rank_map, config);
 
         // ── Build logical box placements ──
         let mut boxes: BTreeMap<i64, LogicalBoxPlacement> = BTreeMap::new();
@@ -399,7 +400,7 @@ impl LogicalPlacement {
         columns: &BTreeMap<i32, Vec<i64>>,
         adj: &HashMap<i64, Vec<i64>>,
         rank_map: &HashMap<i64, i32>,
-        _warnings: &mut Vec<PlacementWarning>,
+        config: &LayeredLayouter,
     ) -> HashMap<i64, i32> {
         let _ = graph;
         let mut lane: HashMap<i64, i32> = HashMap::new();
@@ -412,7 +413,7 @@ impl LogicalPlacement {
         }
 
         // Barycenter sweeps
-        let sweeps = 6;
+        let sweeps = config.bary_sweeps;
         let sorted_ranks: Vec<i32> = {
             let mut v: Vec<i32> = columns.keys().copied().collect();
             v.sort();
@@ -714,9 +715,20 @@ impl Layouter for LayeredLayouter {
             }
         }
 
-        // ── Phase 5: Pin placement ──
+        // ── Phase 5: Pin placement (M7 PinAnchorModel) ──
         let root_id = logical.root_box_id.unwrap_or(graph.boxes[0].id);
-        super::pin_place::pin_place_pipeline(graph, Some(root_id), true, false);
+        let _report = pin_anchor_pipeline(
+            graph,
+            Some(&semantic),
+            PinAnchorConfig {
+                hub_id: Some(root_id),
+                lr_only: true,
+                hub_keep_semantic: false,
+                allow_power_ground_top_bottom: true,
+                align_hub_to_spokes: true,
+                straighten_facing_pairs: true,
+            },
+        );
 
         // ── Phase 6: Post / normalize ──
         eject_flags_from_boxes(graph);
