@@ -27,8 +27,8 @@ use crate::output::{
 use anyhow::{Context, Result};
 use mcc::viz::{
     layout::{
-        FlowLayouter, HierarchicalLayouter, RadialLayouter, SchematicRadialLayouter,
-        SchematicSubLayouter,
+        FlowLayouter, HierarchicalLayouter, LayeredLayouter, RadialLayouter,
+        SchematicRadialLayouter, SchematicSubLayouter,
     },
     traits::Layouter,
 };
@@ -447,9 +447,15 @@ fn build_viz_opts(layouter_name: Option<&str>) -> mcc::viz::api::RenderOpts {
                 vec![Box::new(RadialLayouter)],
                 vec![Box::new(RadialLayouter)],
             ),
+            "layered" => (
+                Box::new(LayeredLayouter::default()),
+                Box::new(LayeredLayouter::sub()),
+                vec![Box::new(LayeredLayouter::default())],
+                vec![Box::new(LayeredLayouter::sub())],
+            ),
             other => {
                 eprintln!(
-                    "[viz] unknown layouter '{}', using default. Choices: flow|schematic_radial|schematic_sub|hierarchical|radial",
+                    "[viz] unknown layouter '{}', using default. Choices: flow|schematic_radial|schematic_sub|hierarchical|radial|layered",
                     other
                 );
                 return opts;

@@ -237,6 +237,8 @@ impl LabelPlacementModel {
 
         let mut placed: BTreeMap<LabelKey, PlacedLabel> = BTreeMap::new();
         let mut placed_rects: Vec<(LabelKey, LabelRect, bool)> = Vec::new();
+        let mut labels_optimized = 0usize;
+        let mut labels_kept_default = 0usize;
 
         // ── Greedy placement ──
         for (key, text, font_size, is_designator) in &all_labels {
@@ -279,6 +281,12 @@ impl LabelPlacementModel {
                 continue;
             }
 
+            if best.is_default {
+                labels_kept_default += 1;
+            } else {
+                labels_optimized += 1;
+            }
+
             let placed_label = PlacedLabel {
                 key: *key,
                 text: text.clone(),
@@ -296,8 +304,8 @@ impl LabelPlacementModel {
             labels_total: all_labels.len(),
             labels_placed: placed.len(),
             labels_hidden: all_labels.len() - placed.len(),
-            labels_optimized: 0,
-            labels_kept_default: placed.len(),
+            labels_optimized,
+            labels_kept_default,
         };
 
         Self { placed, report }

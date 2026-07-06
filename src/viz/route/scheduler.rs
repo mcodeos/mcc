@@ -43,6 +43,7 @@ use crate::vector::graph::{McVecGraph, NetKind, Segment, VizNet};
 use super::audit;
 use super::channels::ChannelMap;
 use super::dispatch::{pick_router, RouteIntent, RouterChoice};
+use super::feedback::{self, RouteFeedbackConfig};
 use super::grid_router::{self, AStarCfg, Grid, GRID_CELL, GRID_GAP, GRID_INFLATE};
 
 // ============================================================================
@@ -269,81 +270,9 @@ pub fn route_layer_with_channels(graph: &mut McVecGraph) {
         graph.nets[plan.net_index] = tmp;
     }
 
-    // ── ★ M4 + M5: second pass rip-up & reroute ───────────────────────────
-    // Single-pass reservation is "first come, first served": the longest net is routed
-    // first, occupying channels, forcing later short nets to cross it (target box is
-    // on the other side of the long line, can't detour). This pass uses **geometric
-    // cross check** (doesn't care about cell ownership) to find still-crossing /
-    // box-piercing nets, then rip-up & reroute by span from large to small —— once
-    // the long line is ripped up, the left channel is full of short wires, and A*
-    // naturally throws it to the open area on the right. Multi-endpoint nets
-    // (endpoints≥3) reroute as a **tree** (M5). Bounded iteration, stop on convergence.
-    {
-        const MAX_RIPUP_ITERS: usize = 8;
-        const HIST_INC: i64 = 60; // Per-iteration historical cost accumulated at crossing points (≈6 cells equivalent)
-        for iter in 0..MAX_RIPUP_ITERS {
-            // ★ Negotiated congestion: first accumulate historical cost at all current
-            //   crossing points → cells that fight repeatedly become more expensive,
-            //   later A* reroutes increasingly avoid them → break the "back and forth"
-            //   oscillation, converge.
-            bump_crossings(&mut grid, graph, HIST_INC);
-
-            // Collect indices of nets still in conflict this iteration (geometric check)
-            let mut conflict: Vec<(f64, usize)> = (0..graph.nets.len())
-                .filter(|&i| audit::net_has_conflict(graph, i))
-                .map(|i| (net_span(graph, &graph.nets[i]), i))
-                .collect();
-            if conflict.is_empty() {
-                break;
-            }
-            // Span from large to small: reroute blocking long lines first
-            conflict.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-
-            let mut changed = false;
-            for (_, i) in conflict {
-                // Reconfirm still in conflict (may have resolved naturally after earlier nets moved)
-                if !audit::net_has_conflict(graph, i) {
-                    continue;
-                }
-                let nid = graph.nets[i].nid;
-                let n_eps = graph.nets[i].endpoints.len();
-
-                // Rip-up: clear this net's old reservations, so A* isn't biased by its old path
-                grid.unreserve_net(nid);
-
-                let placeholder = VizNet::new(0, String::new(), NetKind::Signal, Vec::new());
-                let mut tmp = std::mem::replace(&mut graph.nets[i], placeholder);
-
-                let new_route = if n_eps == 2 {
-                    grid_router::reroute_two_point(&grid, graph, &tmp, &acfg)
-                } else if n_eps > 2 {
-                    grid_router::reroute_multi_point(&grid, graph, &tmp, &acfg)
-                } else {
-                    None
-                };
-                if let Some(r2) = new_route {
-                    crate::vlog!(
-                        "[route::ripup] iter={} net='{}' nid={} rip-up & reroute ({} endpoints)",
-                        iter,
-                        tmp.name,
-                        nid,
-                        n_eps
-                    );
-                    tmp.route = Some(r2);
-                    changed = true;
-                }
-                // Re-reserve (new path; if reroute failed, still old path)
-                if let Some(r) = &tmp.route {
-                    grid.reserve_segments(&r.segments, nid, GRID_GAP);
-                }
-                graph.nets[i] = tmp;
-            }
-            if !changed {
-                break; // No one can improve this iteration → stop
-                       // (remaining are truly topologically-required crossings)
-            }
-        }
-    }
+    // ── ★ M9: Route feedback loop (replaces old rip-up block) ─────────────────
+    let _feedback_report =
+        feedback::run_route_feedback(graph, &mut grid, &acfg, &RouteFeedbackConfig::default());
 
     // 4. Debug statistics
     crate::vlog!(
