@@ -124,7 +124,10 @@ impl McPhrase {
         let node_type = node.get_type();
         let node_name = format!("{}", node_type);
         let node_str = node.to_string();
-        eprintln!("[PHRASE_DEBUG] new: type={}, str_repr={:?}", node_name, node_str);
+        eprintln!(
+            "[PHRASE_DEBUG] new: type={}, str_repr={:?}",
+            node_name, node_str
+        );
         match node_type {
             MCAST_OPD_USCORE => Some(McPhrase::Lead),
 
@@ -145,10 +148,16 @@ impl McPhrase {
                         McOpd::Id(ids) => {
                             let ids_str = ids.to_string();
                             let is_curly = ids.is_curly_bracket();
-                            eprintln!("[PHRASE_DEBUG] OPD Id: ids={:?}, is_curly={}", ids_str, is_curly);
+                            eprintln!(
+                                "[PHRASE_DEBUG] OPD Id: ids={:?}, is_curly={}",
+                                ids_str, is_curly
+                            );
                             let mut items: Vec<Option<crate::McInstance>> =
                                 vec![context.find_inst(&ids_str)];
-                            eprintln!("[PHRASE_DEBUG] OPD Id: find_inst result={:?}", items[0].is_some());
+                            eprintln!(
+                                "[PHRASE_DEBUG] OPD Id: find_inst result={:?}",
+                                items[0].is_some()
+                            );
                             if let Some(ident) = items.remove(0) {
                                 // ★ LSP: Register instance reference for MCAST_OPD path
                                 let span = (subnode.get_pos() as usize)
@@ -175,15 +184,21 @@ impl McPhrase {
                                 );
 
                                 if let Some(result) = validate_inst_reference(&ids, context, node) {
-                                    eprintln!("[PHRASE_DEBUG] curly: validate_inst_reference -> Some");
+                                    eprintln!(
+                                        "[PHRASE_DEBUG] curly: validate_inst_reference -> Some"
+                                    );
                                     if bus_info.is_some() {
                                         let span = (subnode.get_pos() as usize)
-                                            ..((subnode.get_pos() + subnode.get_sub_node()?.get_len()) as usize);
-                                        if let Some(decl_id) = crate::builder::mcb_lookup_instance_decl(
-                                            context.uri(),
-                                            &bus_info.unwrap().0,
-                                            scope.as_deref(),
-                                        ) {
+                                            ..((subnode.get_pos()
+                                                + subnode.get_sub_node()?.get_len())
+                                                as usize);
+                                        if let Some(decl_id) =
+                                            crate::builder::mcb_lookup_instance_decl(
+                                                context.uri(),
+                                                &bus_info.unwrap().0,
+                                                scope.as_deref(),
+                                            )
+                                        {
                                             mcb_register_instance_ref(
                                                 context.uri(),
                                                 span,
