@@ -207,6 +207,10 @@ impl GlobalInstTable {
         }
         result
     }
+
+    pub fn len(&self) -> u32 {
+        self.counter.raw()
+    }
 }
 
 impl WorkspaceManager {
