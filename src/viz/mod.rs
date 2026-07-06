@@ -39,6 +39,7 @@ pub mod api;
 pub mod debug;
 pub mod doc;
 pub mod idiom;
+pub mod labels;
 pub mod layer;
 pub mod layout;
 pub mod log;

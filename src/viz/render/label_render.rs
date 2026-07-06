@@ -36,6 +36,7 @@ pub(crate) struct LabelBounds {
 /// Output the SVG fragment for the designator + value
 ///
 /// When both designator and value are empty, returns an empty string (draws nothing).
+/// If the box has label_placements (from M8 label optimizer), use those instead.
 pub fn render_designator_and_value(b: &McVecBox) -> String {
     let designator = b.designator.as_deref().unwrap_or("");
     let value = b.value.as_deref().unwrap_or("");
@@ -43,6 +44,11 @@ pub fn render_designator_and_value(b: &McVecBox) -> String {
     // Both empty → draw nothing
     if designator.is_empty() && value.is_empty() {
         return String::new();
+    }
+
+    // M8: Use placed labels if available
+    if !b.label_placements.is_empty() {
+        return render_placed_labels(b);
     }
 
     let cx = b.x + b.w / 2.0;
@@ -106,11 +112,28 @@ pub fn render_designator_and_value(b: &McVecBox) -> String {
 /// Return approximate bounding boxes for labels produced by [`render_designator_and_value`].
 /// This mirrors the SVG positions without changing rendering; metrics use it as a
 /// deterministic readability proxy, not pixel-perfect text measurement.
+/// Falls back to old defaults if box has no M8 label_placements.
 pub(crate) fn designator_value_label_bounds(b: &McVecBox) -> Vec<LabelBounds> {
     let designator = b.designator.as_deref().unwrap_or("");
     let value = b.value.as_deref().unwrap_or("");
     if designator.is_empty() && value.is_empty() {
         return Vec::new();
+    }
+
+    // M8: Use placed labels for bounds if available
+    if !b.label_placements.is_empty() {
+        return b
+            .label_placements
+            .iter()
+            .map(|hint| LabelBounds {
+                text: hint.text.clone(),
+                x: hint.x,
+                y: hint.y,
+                w: hint.w,
+                h: hint.h,
+                inside_owner_box: hint.inside_owner_box,
+            })
+            .collect();
     }
 
     let cx = b.x + b.w / 2.0;
@@ -176,6 +199,45 @@ fn escape_xml(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+}
+
+/// Render labels from M8 placed label hints.
+fn render_placed_labels(b: &McVecBox) -> String {
+    use crate::vector::graph::box_def::LabelPlacementKind;
+    let mut out = String::new();
+    for hint in &b.label_placements {
+        let class = match hint.kind {
+            LabelPlacementKind::Designator => "designator",
+            LabelPlacementKind::Value => "value",
+        };
+        let fw = if matches!(hint.kind, LabelPlacementKind::Designator) {
+            " font-weight=\"600\""
+        } else {
+            ""
+        };
+        let fill = if matches!(hint.kind, LabelPlacementKind::Designator) {
+            "#333"
+        } else {
+            "#666"
+        };
+        let bx = hint.x + hint.w / 2.0;
+        let by = hint.y + hint.h;
+        out.push_str(&format!(
+            r##"    <text class="{class}" x="{x:.1}" y="{y:.1}"
+            text-anchor="{anchor}" font-size="{fs:.0}"{fw}
+            fill="{fill}">{text}</text>
+"##,
+            class = class,
+            x = bx,
+            y = by,
+            anchor = hint.text_anchor,
+            fs = hint.font_size,
+            fw = fw,
+            fill = fill,
+            text = escape_xml(&hint.text),
+        ));
+    }
+    out
 }
 
 // ============================================================================
