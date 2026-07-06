@@ -465,9 +465,12 @@ impl MetricsAccumulator {
         self.visual.merge(visual_quality_for_layer(graph, canvas));
     }
 
-    /// Accumulate semantic analysis result for this layer.
+    /// Accumulate semantic analysis result for this layer (merge across layers).
     pub fn accumulate_semantic(&mut self, summary: &SemanticSummary) {
-        self.semantic = Some(summary.clone());
+        match &mut self.semantic {
+            Some(existing) => existing.merge(summary),
+            None => self.semantic = Some(summary.clone()),
+        }
     }
 
     /// Merge build-phase dropped/partial, produce final two reports.
