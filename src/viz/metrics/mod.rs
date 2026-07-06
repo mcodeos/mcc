@@ -12,6 +12,7 @@ use crate::vector::graph::net_def::{Point, Route, Segment};
 use crate::vector::graph::{McVecGraph, NetKind};
 use crate::viz::render::label_render::{designator_value_label_bounds, LabelBounds};
 use crate::viz::route::audit::CollisionReport;
+use crate::viz::semantic::SemanticSummary;
 
 /// Alignment grid for off-grid penalty (no coordinate snapping in this codebase; soft alignment signal, tunable).
 pub const GRID: f64 = 10.0;
@@ -145,6 +146,7 @@ pub struct SchematicQualityReport {
     pub builder: BuilderQualitySummary,
     pub truth: TruthSnapshotReport,
     pub visual: VisualQualityReport,
+    pub semantic: Option<SemanticSummary>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -347,6 +349,25 @@ impl SchematicQualityReport {
             self.truth.report_line(),
         ];
         lines.extend(self.visual.report_lines());
+        if let Some(ref s) = self.semantic {
+            lines.push(format!(
+                "[metrics] SEMANTIC: hubs={} signal_chains={} passive_chains={} \
+                 component_groups={} bus_groups={} rail_intents={} idioms={} \
+                 pins_preferred_side={} pins_actual_side={} side_mismatches={} \
+                 warnings={}",
+                s.hubs_detected,
+                s.signal_chains_detected,
+                s.passive_chains_detected,
+                s.component_groups_detected,
+                s.bus_groups_detected,
+                s.rail_intents_detected,
+                s.idioms_detected,
+                s.pins_with_preferred_side,
+                s.pins_with_actual_side,
+                s.preferred_actual_side_mismatches,
+                s.warnings,
+            ));
+        }
         lines.push(format!(
             "[metrics] QUALITY: perfect={} weighted={:.1}",
             self.is_perfect(),
@@ -381,6 +402,7 @@ pub struct MetricsAccumulator {
     off_grid_penalty: f64,
     truth: TruthSnapshotReport,
     visual: VisualQualityReport,
+    semantic: Option<SemanticSummary>,
 }
 
 impl MetricsAccumulator {
@@ -443,15 +465,21 @@ impl MetricsAccumulator {
         self.visual.merge(visual_quality_for_layer(graph, canvas));
     }
 
+    /// Accumulate semantic analysis result for this layer.
+    pub fn accumulate_semantic(&mut self, summary: &SemanticSummary) {
+        self.semantic = Some(summary.clone());
+    }
+
     /// Merge build-phase dropped/partial, produce final two reports.
     pub fn finish(self, report: Option<&BuilderReport>) -> (FidelityReport, ReadabilityScore) {
-        let (fidelity, readability, _, _, _, _) = self.finish_parts(report);
+        let (fidelity, readability, _, _, _, _, _) = self.finish_parts(report);
         (fidelity, readability)
     }
 
     /// Merge build-phase diagnostics and produce the unified schematic quality report.
     pub fn finish_quality(self, report: Option<&BuilderReport>) -> SchematicQualityReport {
-        let (fidelity, readability, collisions, builder, truth, visual) = self.finish_parts(report);
+        let (fidelity, readability, collisions, builder, truth, visual, semantic) =
+            self.finish_parts(report);
         SchematicQualityReport {
             fidelity,
             readability,
@@ -459,6 +487,7 @@ impl MetricsAccumulator {
             builder,
             truth,
             visual,
+            semantic,
         }
     }
 
@@ -472,6 +501,7 @@ impl MetricsAccumulator {
         BuilderQualitySummary,
         TruthSnapshotReport,
         VisualQualityReport,
+        Option<SemanticSummary>,
     ) {
         let builder = BuilderQualitySummary::from_report(report);
         let dropped = builder.dropped_nets;
@@ -516,6 +546,7 @@ impl MetricsAccumulator {
             builder,
             self.truth,
             self.visual,
+            self.semantic,
         )
     }
 }
@@ -1354,6 +1385,45 @@ pub struct BuilderSnapshot {
     pub warnings: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct SemanticSnapshot {
+    pub boxes_total: usize,
+    pub nets_total: usize,
+    pub pins_total: usize,
+    pub hubs_detected: usize,
+    pub signal_chains_detected: usize,
+    pub passive_chains_detected: usize,
+    pub component_groups_detected: usize,
+    pub bus_groups_detected: usize,
+    pub rail_intents_detected: usize,
+    pub idioms_detected: usize,
+    pub pins_with_preferred_side: usize,
+    pub pins_with_actual_side: usize,
+    pub preferred_actual_side_mismatches: usize,
+    pub warnings: usize,
+}
+
+impl SemanticSnapshot {
+    pub fn from_summary(s: &SemanticSummary) -> Self {
+        Self {
+            boxes_total: s.boxes_total,
+            nets_total: s.nets_total,
+            pins_total: s.pins_total,
+            hubs_detected: s.hubs_detected,
+            signal_chains_detected: s.signal_chains_detected,
+            passive_chains_detected: s.passive_chains_detected,
+            component_groups_detected: s.component_groups_detected,
+            bus_groups_detected: s.bus_groups_detected,
+            rail_intents_detected: s.rail_intents_detected,
+            idioms_detected: s.idioms_detected,
+            pins_with_preferred_side: s.pins_with_preferred_side,
+            pins_with_actual_side: s.pins_with_actual_side,
+            preferred_actual_side_mismatches: s.preferred_actual_side_mismatches,
+            warnings: s.warnings,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ReadabilitySnapshot {
     pub wire_wire: usize,
@@ -1409,6 +1479,7 @@ pub struct SchematicMetricsSnapshot {
     pub visual: VisualSnapshot,
     pub route_quality: RouteQualitySnapshot,
     pub builder: BuilderSnapshot,
+    pub semantic: SemanticSnapshot,
     pub readability: ReadabilitySnapshot,
     pub thresholds: MetricsThresholds,
 }
@@ -1416,6 +1487,7 @@ pub struct SchematicMetricsSnapshot {
 impl SchematicMetricsSnapshot {
     pub fn from_quality(
         quality: &SchematicQualityReport,
+        semantic: SemanticSnapshot,
         project: impl Into<String>,
         entry: impl Into<String>,
         command: impl Into<String>,
@@ -1525,6 +1597,7 @@ impl SchematicMetricsSnapshot {
             visual,
             route_quality,
             builder,
+            semantic,
             readability,
             thresholds: MetricsThresholds::default(),
         }
@@ -1807,8 +1880,13 @@ mod snapshot_tests {
     #[test]
     fn snapshot_roundtrip_json() {
         let quality = SchematicQualityReport::default();
-        let snap =
-            SchematicMetricsSnapshot::from_quality(&quality, "test", "test.mc", "cargo test");
+        let snap = SchematicMetricsSnapshot::from_quality(
+            &quality,
+            SemanticSnapshot::default(),
+            "test",
+            "test.mc",
+            "cargo test",
+        );
         let json = snap.to_json();
         let parsed: SchematicMetricsSnapshot = SchematicMetricsSnapshot::from_json(&json).unwrap();
         assert_eq!(snap, parsed);
@@ -1818,6 +1896,7 @@ mod snapshot_tests {
     fn gate_hard_fail_detected() {
         let mut baseline = SchematicMetricsSnapshot::from_quality(
             &SchematicQualityReport::default(),
+            SemanticSnapshot::default(),
             "test",
             "test.mc",
             "",
@@ -1837,6 +1916,7 @@ mod snapshot_tests {
     fn wire_wire_regression_detected() {
         let mut baseline = SchematicMetricsSnapshot::from_quality(
             &SchematicQualityReport::default(),
+            SemanticSnapshot::default(),
             "test",
             "test.mc",
             "",
@@ -1856,6 +1936,7 @@ mod snapshot_tests {
     fn wire_wire_improvement_passes() {
         let mut baseline = SchematicMetricsSnapshot::from_quality(
             &SchematicQualityReport::default(),
+            SemanticSnapshot::default(),
             "test",
             "test.mc",
             "",
@@ -1871,6 +1952,7 @@ mod snapshot_tests {
     fn canvas_area_regression_detected() {
         let mut baseline = SchematicMetricsSnapshot::from_quality(
             &SchematicQualityReport::default(),
+            SemanticSnapshot::default(),
             "test",
             "test.mc",
             "",
@@ -1890,6 +1972,7 @@ mod snapshot_tests {
     fn snapshot_has_schema_version() {
         let snap = SchematicMetricsSnapshot::from_quality(
             &SchematicQualityReport::default(),
+            SemanticSnapshot::default(),
             "test",
             "test.mc",
             "",
@@ -1899,8 +1982,9 @@ mod snapshot_tests {
 
     #[test]
     fn hard_zero_checks_all_fields() {
-        let mut baseline = SchematicMetricsSnapshot::from_quality(
+        let baseline = SchematicMetricsSnapshot::from_quality(
             &SchematicQualityReport::default(),
+            SemanticSnapshot::default(),
             "test",
             "test.mc",
             "",

@@ -50,6 +50,7 @@ use super::doc::VizDocument;
 use super::layer::VizLayer;
 use super::layout::select::layout_best;
 use super::layout::{FlowLayouter, HierarchicalLayouter, RadialLayouter, SchematicRadialLayouter};
+use super::semantic::SemanticModel;
 use super::traits::{DefaultRenderer, Layouter, Renderer};
 
 // ============================================================================
@@ -262,6 +263,10 @@ fn render_layer_recursive(
     );
 
     metrics.accumulate_layer(&graph, &rep, canvas);
+
+    // ── Semantic analysis (read-only, soft signal) ──
+    let semantic = SemanticModel::analyze(&graph);
+    metrics.accumulate_semantic(&semantic.summary);
 
     debug::dump_route(&graph);
 
