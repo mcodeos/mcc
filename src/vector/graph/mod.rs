@@ -58,7 +58,9 @@ pub mod promote;
 // Top-level re-exports
 // ============================================================================
 
-pub use box_def::{EntryPoint, EntrySide, IoSummary, McVecBox, Wire};
+pub use box_def::{
+    BoxLabelPlacement, EntryPoint, EntrySide, IoSummary, LabelPlacementKind, McVecBox, Wire,
+};
 pub use graph_def::McVecGraph;
 pub use json::json_escape;
 pub use kinds::{BoxKind, EdgeType, NetKind};

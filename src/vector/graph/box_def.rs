@@ -213,6 +213,33 @@ pub struct CustomSymbol {
 }
 
 // ============================================================================
+// BoxLabelPlacement (M8)
+// ============================================================================
+
+/// A lightweight label placement hint stored on McVecBox.
+/// When non-empty, render and metrics use these instead of hardcoded defaults.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BoxLabelPlacement {
+    pub text: String,
+    pub kind: LabelPlacementKind,
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    pub inside_owner_box: bool,
+    pub font_size: f64,
+    pub text_anchor: &'static str,
+    pub dominant_baseline: &'static str,
+}
+
+/// Distinguishes designator vs value labels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LabelPlacementKind {
+    Designator,
+    Value,
+}
+
+// ============================================================================
 // McVecBox
 // ============================================================================
 
@@ -260,6 +287,12 @@ pub struct McVecBox {
     /// Empty by default. Connected pins still go through net->entry_points route;
     /// this field ensures "unconnected pins can also be drawn" (pin number / name / direction complete).
     pub pins: Vec<BoxPin>,
+
+    /// ★ M8: Label placement hints (filled by label optimizer, used by render/metrics).
+    ///
+    /// Empty by default. When non-empty, render and metrics use these positions
+    /// instead of the fixed default positions.
+    pub label_placements: Vec<BoxLabelPlacement>,
 
     /// ★ Reserved interface ①: component customizes pin-per-edge layout. `None` = goes through
     /// heuristic edge assignment (default). Filled by builder later from `McComponent.layout`;
@@ -329,6 +362,7 @@ impl McVecBox {
             h: 0.0,
             entry_points: Vec::new(),
             pins: Vec::new(),
+            label_placements: Vec::new(),
             layout_hint: None,
             custom_symbol: None,
         }

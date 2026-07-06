@@ -47,6 +47,7 @@ use crate::vector::graph::{apply_promote_recursive, McVecGraph};
 
 use super::debug;
 use super::doc::VizDocument;
+use super::labels::label_placement_pipeline;
 use super::layer::VizLayer;
 use super::layout::select::layout_best;
 use super::layout::{
@@ -274,6 +275,15 @@ fn render_layer_recursive(
         rep.wire_box,
         rep.wire_wire,
         rep.total()
+    );
+
+    // ── M8: Label placement optimization (after route, before metrics) ──
+    let label_report = label_placement_pipeline(&mut graph, canvas);
+    crate::vlog!(
+        "[viz::labels] placed={} total={} hidden={}",
+        label_report.labels_placed,
+        label_report.labels_total,
+        label_report.labels_hidden,
     );
 
     metrics.accumulate_layer(&graph, &rep, canvas);
