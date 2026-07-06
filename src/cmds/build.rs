@@ -686,6 +686,72 @@ mod phase0_golden {
         assert!(fid.nets_rendered <= fid.nets_total);
         assert!(read.total_wirelength >= 0.0 && read.weighted() >= 0.0);
     }
+
+    /// Build hbl1 and produce a metrics snapshot for regression comparison.
+    fn build_hbl1_metrics_snapshot() -> mcc::viz::metrics::SchematicMetricsSnapshot {
+        mcc::mcc_init_no_lib();
+        mcc::mcc_set_system_root(std::path::Path::new(""));
+        manifest::load_libs(&vec!["mcode".into()]);
+
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        let entry_rel = "projects/hbl1/hbl.mc";
+        let (entry_uri, top_name) = manifest::build_from_manifest(&root, None, Some(entry_rel))
+            .expect("build_from_manifest");
+
+        let ident = McIds::from(top_name.as_str());
+        let inst = mcc::mcc_build(&ident, &entry_uri).expect("mcc_build");
+        let table = mcc::mcc_build_flat(&ident, &entry_uri, 1000).expect("mcc_build_flat");
+        let (vec_block, build_report) = mcc::build_mc_vec_with_report(&inst, &table.1);
+        let graph = mcc::build_mc_vec_graph(&vec_block, &table.1);
+
+        let opts = build_viz_opts(None);
+        let (_, metrics) = mcc::viz::api::render_with_metrics(graph, opts);
+        let quality = metrics.finish_quality(Some(&build_report));
+
+        mcc::viz::metrics::SchematicMetricsSnapshot::from_quality(
+            &quality,
+            "hbl1",
+            "projects/hbl1/hbl.mc",
+            "cargo run -- build projects/hbl1/hbl.mc --lib mcode --viz",
+        )
+    }
+
+    /// Golden regression: first run (or UPDATE_GOLDEN=1) writes baseline;
+    /// subsequent runs compare using metrics snapshot rules.
+    #[test]
+    fn hbl1_metrics_golden_roundtrip() {
+        if std::env::var("MCC_HBL1_METRICS").is_err() {
+            eprintln!("skip hbl1 metrics golden; set MCC_HBL1_METRICS=1");
+            return;
+        }
+
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/golden/hbl1.metrics.json");
+
+        std::thread::Builder::new()
+            .name("hbl1-metrics".into())
+            .stack_size(32 * 1024 * 1024)
+            .spawn(move || {
+                let snapshot = build_hbl1_metrics_snapshot();
+
+                if std::env::var("UPDATE_GOLDEN").is_ok() || !path.exists() {
+                    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+                    std::fs::write(&path, snapshot.to_json()).unwrap();
+                    eprintln!("[metrics-golden] wrote baseline -> {}", path.display());
+                    return;
+                }
+
+                let baseline = mcc::viz::metrics::SchematicMetricsSnapshot::from_json(
+                    &std::fs::read_to_string(&path).unwrap(),
+                )
+                .expect("parse baseline");
+
+                let report = mcc::viz::metrics::compare_metrics_snapshot(&snapshot, &baseline);
+                assert!(report.passed, "{}", report.report_text());
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
 }
 
 // ============================================================================

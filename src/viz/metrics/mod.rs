@@ -4,6 +4,8 @@
 //! - ReadabilityScore.weighted() = score for generate-and-rank (iteration 04).
 //! - MetricsAccumulator passes through viz::api::render_layer_recursive, accumulating per layer.
 
+use serde::{Deserialize, Serialize};
+
 use crate::vector::builder::builder_report::BuilderReport;
 use crate::vector::graph::box_def::{EntryPoint, EntrySide, McVecBox};
 use crate::vector::graph::net_def::{Point, Route, Segment};
@@ -1255,5 +1257,661 @@ mod tests {
             .report_lines()
             .iter()
             .any(|line| line.contains("[metrics] TRUTH:")));
+    }
+}
+
+// ============================================================================
+// Milestone 4 — Stable snapshot types for regression baseline
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GateSnapshot {
+    pub quality_perfect: bool,
+    pub fidelity_perfect: bool,
+    pub truth_perfect: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FidelitySnapshot {
+    pub nets_total: usize,
+    pub nets_rendered: usize,
+    pub nets_dropped: usize,
+    pub nets_partial: usize,
+    pub pins_total: usize,
+    pub pins_rendered: usize,
+    pub bus_bits_total: usize,
+    pub bus_bits_paired_ok: usize,
+    pub authored_sides_total: usize,
+    pub authored_sides_honored: usize,
+    pub box_box: usize,
+    pub wire_box: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TruthSnapshot {
+    pub layers_total: usize,
+    pub nets_total: usize,
+    pub drawable_nets_total: usize,
+    pub routed_nets_total: usize,
+    pub nets_missing_route: usize,
+    pub nets_empty_route: usize,
+    pub endpoints_total: usize,
+    pub drawable_endpoints_total: usize,
+    pub endpoints_box_missing: usize,
+    pub endpoints_pin_missing: usize,
+    pub endpoints_entry_missing: usize,
+    pub endpoints_route_unreached: usize,
+    pub boxes_total: usize,
+    pub physical_pins_total: usize,
+    pub physical_pins_with_entry: usize,
+    pub physical_pins_missing_entry: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CollisionSnapshot {
+    pub box_box: usize,
+    pub wire_box: usize,
+    pub wire_wire: usize,
+    pub total: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct VisualSnapshot {
+    pub canvas_width: f64,
+    pub canvas_height: f64,
+    pub canvas_area: f64,
+    pub boxes_total: usize,
+    pub box_area_total: f64,
+    pub box_density: f64,
+    pub labels_total: usize,
+    pub label_label_overlaps: usize,
+    pub label_box_overlaps: usize,
+    pub label_wire_overlaps: usize,
+    pub labels_off_canvas: usize,
+    pub symmetry_penalty: f64,
+    pub idiom_violations: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RouteQualitySnapshot {
+    pub routed_nets: usize,
+    pub route_segments_total: usize,
+    pub route_bends_total: usize,
+    pub route_length_total: f64,
+    pub avg_segments_per_routed_net: f64,
+    pub avg_bends_per_routed_net: f64,
+    pub avg_route_length_per_routed_net: f64,
+    pub wire_wire: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BuilderSnapshot {
+    pub resolutions_total: usize,
+    pub resolution_success_rate: f64,
+    pub dropped_nets: usize,
+    pub partial_nets: usize,
+    pub unresolved_modules: usize,
+    pub warnings: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ReadabilitySnapshot {
+    pub wire_wire: usize,
+    pub total_wirelength: f64,
+    pub total_bends: usize,
+    pub off_grid_penalty: f64,
+    pub symmetry_penalty: f64,
+    pub idiom_violation: usize,
+    pub weighted: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct MetricsThresholds {
+    pub float_tolerance_abs: f64,
+    pub float_tolerance_ratio: f64,
+    pub max_label_label_overlaps_delta: usize,
+    pub max_label_box_overlaps_delta: usize,
+    pub max_label_wire_overlaps_delta: usize,
+    pub max_labels_off_canvas_delta: usize,
+    pub max_wire_wire_delta: usize,
+    pub max_avg_bends_ratio_increase: f64,
+    pub max_canvas_area_ratio_increase: f64,
+    pub max_weighted_readability_ratio_increase: f64,
+}
+
+impl Default for MetricsThresholds {
+    fn default() -> Self {
+        Self {
+            float_tolerance_abs: 0.1,
+            float_tolerance_ratio: 0.01,
+            max_label_label_overlaps_delta: 0,
+            max_label_box_overlaps_delta: 0,
+            max_label_wire_overlaps_delta: 0,
+            max_labels_off_canvas_delta: 0,
+            max_wire_wire_delta: 0,
+            max_avg_bends_ratio_increase: 0.05,
+            max_canvas_area_ratio_increase: 0.05,
+            max_weighted_readability_ratio_increase: 0.05,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SchematicMetricsSnapshot {
+    pub schema_version: u32,
+    pub project: String,
+    pub entry: String,
+    pub command: String,
+    pub gate: GateSnapshot,
+    pub fidelity: FidelitySnapshot,
+    pub truth: TruthSnapshot,
+    pub collisions: CollisionSnapshot,
+    pub visual: VisualSnapshot,
+    pub route_quality: RouteQualitySnapshot,
+    pub builder: BuilderSnapshot,
+    pub readability: ReadabilitySnapshot,
+    pub thresholds: MetricsThresholds,
+}
+
+impl SchematicMetricsSnapshot {
+    pub fn from_quality(
+        quality: &SchematicQualityReport,
+        project: impl Into<String>,
+        entry: impl Into<String>,
+        command: impl Into<String>,
+    ) -> Self {
+        let gate = GateSnapshot {
+            quality_perfect: quality.is_perfect(),
+            fidelity_perfect: quality.fidelity.is_perfect(),
+            truth_perfect: quality.truth.is_perfect(),
+        };
+
+        let fidelity = FidelitySnapshot {
+            nets_total: quality.fidelity.nets_total,
+            nets_rendered: quality.fidelity.nets_rendered,
+            nets_dropped: quality.fidelity.nets_dropped,
+            nets_partial: quality.fidelity.nets_partial,
+            pins_total: quality.fidelity.pins_total,
+            pins_rendered: quality.fidelity.pins_rendered,
+            bus_bits_total: quality.fidelity.bus_bits_total,
+            bus_bits_paired_ok: quality.fidelity.bus_bits_paired_ok,
+            authored_sides_total: quality.fidelity.authored_sides_total,
+            authored_sides_honored: quality.fidelity.authored_sides_honored,
+            box_box: quality.fidelity.box_box,
+            wire_box: quality.fidelity.wire_box,
+        };
+
+        let truth = TruthSnapshot {
+            layers_total: quality.truth.layers_total,
+            nets_total: quality.truth.nets_total,
+            drawable_nets_total: quality.truth.drawable_nets_total,
+            routed_nets_total: quality.truth.routed_nets_total,
+            nets_missing_route: quality.truth.nets_missing_route,
+            nets_empty_route: quality.truth.nets_empty_route,
+            endpoints_total: quality.truth.endpoints_total,
+            drawable_endpoints_total: quality.truth.drawable_endpoints_total,
+            endpoints_box_missing: quality.truth.endpoints_box_missing,
+            endpoints_pin_missing: quality.truth.endpoints_pin_missing,
+            endpoints_entry_missing: quality.truth.endpoints_entry_missing,
+            endpoints_route_unreached: quality.truth.endpoints_route_unreached,
+            boxes_total: quality.truth.boxes_total,
+            physical_pins_total: quality.truth.physical_pins_total,
+            physical_pins_with_entry: quality.truth.physical_pins_with_entry,
+            physical_pins_missing_entry: quality.truth.physical_pins_missing_entry,
+        };
+
+        let collisions = CollisionSnapshot {
+            box_box: quality.collisions.box_box,
+            wire_box: quality.collisions.wire_box,
+            wire_wire: quality.collisions.wire_wire,
+            total: quality.collisions.total(),
+        };
+
+        let visual = VisualSnapshot {
+            canvas_width: quality.visual.canvas_width,
+            canvas_height: quality.visual.canvas_height,
+            canvas_area: quality.visual.canvas_area,
+            boxes_total: quality.visual.boxes_total,
+            box_area_total: quality.visual.box_area_total,
+            box_density: quality.visual.box_density,
+            labels_total: quality.visual.labels_total,
+            label_label_overlaps: quality.visual.label_label_overlaps,
+            label_box_overlaps: quality.visual.label_box_overlaps,
+            label_wire_overlaps: quality.visual.label_wire_overlaps,
+            labels_off_canvas: quality.visual.labels_off_canvas,
+            symmetry_penalty: quality.visual.symmetry_penalty,
+            idiom_violations: quality.visual.idiom_violations,
+        };
+
+        let route_quality = RouteQualitySnapshot {
+            routed_nets: quality.visual.routed_nets,
+            route_segments_total: quality.visual.route_segments_total,
+            route_bends_total: quality.visual.route_bends_total,
+            route_length_total: quality.visual.route_length_total,
+            avg_segments_per_routed_net: quality.visual.avg_segments_per_routed_net,
+            avg_bends_per_routed_net: quality.visual.avg_bends_per_routed_net,
+            avg_route_length_per_routed_net: quality.visual.avg_route_length_per_routed_net,
+            wire_wire: quality.collisions.wire_wire,
+        };
+
+        let builder = BuilderSnapshot {
+            resolutions_total: quality.builder.resolutions_total,
+            resolution_success_rate: quality.builder.resolution_success_rate,
+            dropped_nets: quality.builder.dropped_nets,
+            partial_nets: quality.builder.partial_nets,
+            unresolved_modules: quality.builder.unresolved_modules,
+            warnings: quality.builder.warnings,
+        };
+
+        let readability = ReadabilitySnapshot {
+            wire_wire: quality.readability.wire_wire,
+            total_wirelength: quality.readability.total_wirelength,
+            total_bends: quality.readability.total_bends,
+            off_grid_penalty: quality.readability.off_grid_penalty,
+            symmetry_penalty: quality.readability.symmetry_penalty,
+            idiom_violation: quality.readability.idiom_violation,
+            weighted: quality.readability.weighted(),
+        };
+
+        Self {
+            schema_version: 1,
+            project: project.into(),
+            entry: entry.into(),
+            command: command.into(),
+            gate,
+            fidelity,
+            truth,
+            collisions,
+            visual,
+            route_quality,
+            builder,
+            readability,
+            thresholds: MetricsThresholds::default(),
+        }
+    }
+
+    pub fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self)
+            .unwrap_or_else(|e| format!("{{\"error\": \"serialization failed: {}\"}}", e))
+    }
+
+    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(json)
+    }
+}
+
+// ============================================================================
+// Milestone 4 — Comparison report
+// ============================================================================
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MetricRegression {
+    pub path: String,
+    pub baseline: String,
+    pub current: String,
+    pub rule: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MetricsComparisonReport {
+    pub passed: bool,
+    pub failures: Vec<MetricRegression>,
+    pub warnings: Vec<MetricRegression>,
+}
+
+impl MetricsComparisonReport {
+    pub fn report_text(&self) -> String {
+        let mut lines = vec![format!(
+            "[metrics-golden] {} hbl1 metrics regression",
+            if self.passed { "PASS" } else { "FAIL" }
+        )];
+
+        if !self.failures.is_empty() {
+            lines.push(String::new());
+            lines.push("Failures:".into());
+            for f in &self.failures {
+                lines.push(format!(
+                    "  - {}: baseline={} current={} rule={}",
+                    f.path, f.baseline, f.current, f.rule
+                ));
+            }
+        }
+
+        if !self.warnings.is_empty() {
+            lines.push(String::new());
+            lines.push("Warnings:".into());
+            for w in &self.warnings {
+                lines.push(format!(
+                    "  - {}: baseline={} current={} rule={}",
+                    w.path, w.baseline, w.current, w.rule
+                ));
+            }
+        }
+
+        lines.join("\n")
+    }
+}
+
+pub fn compare_metrics_snapshot(
+    current: &SchematicMetricsSnapshot,
+    baseline: &SchematicMetricsSnapshot,
+) -> MetricsComparisonReport {
+    let t = &baseline.thresholds;
+    let mut failures: Vec<MetricRegression> = Vec::new();
+    let mut warnings: Vec<MetricRegression> = Vec::new();
+
+    let mut add_failure = |path: &str, base: String, cur: String, rule: String| {
+        failures.push(MetricRegression {
+            path: path.into(),
+            baseline: base,
+            current: cur,
+            rule,
+        });
+    };
+
+    let _add_warning = |path: &str, base: String, cur: String, rule: String| {
+        warnings.push(MetricRegression {
+            path: path.into(),
+            baseline: base,
+            current: cur,
+            rule,
+        });
+    };
+
+    // ── Hard gate: true — current must not be worse than baseline ──
+    for (path, cur, base) in [
+        (
+            "gate.quality_perfect",
+            current.gate.quality_perfect,
+            baseline.gate.quality_perfect,
+        ),
+        (
+            "gate.fidelity_perfect",
+            current.gate.fidelity_perfect,
+            baseline.gate.fidelity_perfect,
+        ),
+        (
+            "gate.truth_perfect",
+            current.gate.truth_perfect,
+            baseline.gate.truth_perfect,
+        ),
+    ] {
+        if base && !cur {
+            add_failure(
+                path,
+                base.to_string(),
+                cur.to_string(),
+                "must be true (was true in baseline)".into(),
+            );
+        }
+    }
+
+    // ── Hard gate: zero — current must not be worse than baseline ──
+    for (path, cur, base) in [
+        (
+            "fidelity.nets_dropped",
+            current.fidelity.nets_dropped,
+            baseline.fidelity.nets_dropped,
+        ),
+        (
+            "fidelity.nets_partial",
+            current.fidelity.nets_partial,
+            baseline.fidelity.nets_partial,
+        ),
+        (
+            "truth.nets_missing_route",
+            current.truth.nets_missing_route,
+            baseline.truth.nets_missing_route,
+        ),
+        (
+            "truth.nets_empty_route",
+            current.truth.nets_empty_route,
+            baseline.truth.nets_empty_route,
+        ),
+        (
+            "truth.endpoints_box_missing",
+            current.truth.endpoints_box_missing,
+            baseline.truth.endpoints_box_missing,
+        ),
+        (
+            "truth.endpoints_pin_missing",
+            current.truth.endpoints_pin_missing,
+            baseline.truth.endpoints_pin_missing,
+        ),
+        (
+            "truth.endpoints_entry_missing",
+            current.truth.endpoints_entry_missing,
+            baseline.truth.endpoints_entry_missing,
+        ),
+        (
+            "truth.endpoints_route_unreached",
+            current.truth.endpoints_route_unreached,
+            baseline.truth.endpoints_route_unreached,
+        ),
+        (
+            "truth.physical_pins_missing_entry",
+            current.truth.physical_pins_missing_entry,
+            baseline.truth.physical_pins_missing_entry,
+        ),
+        (
+            "collisions.box_box",
+            current.collisions.box_box,
+            baseline.collisions.box_box,
+        ),
+        (
+            "collisions.wire_box",
+            current.collisions.wire_box,
+            baseline.collisions.wire_box,
+        ),
+    ] {
+        if cur > base {
+            add_failure(
+                path,
+                base.to_string(),
+                cur.to_string(),
+                "current <= baseline".into(),
+            );
+        }
+    }
+
+    // ── Integer non-regression: current <= baseline + delta ──
+    let int_rules: &[(&str, usize, usize, usize)] = &[
+        (
+            "collisions.wire_wire",
+            current.collisions.wire_wire,
+            baseline.collisions.wire_wire,
+            t.max_wire_wire_delta,
+        ),
+        (
+            "visual.label_label_overlaps",
+            current.visual.label_label_overlaps,
+            baseline.visual.label_label_overlaps,
+            t.max_label_label_overlaps_delta,
+        ),
+        (
+            "visual.label_box_overlaps",
+            current.visual.label_box_overlaps,
+            baseline.visual.label_box_overlaps,
+            t.max_label_box_overlaps_delta,
+        ),
+        (
+            "visual.label_wire_overlaps",
+            current.visual.label_wire_overlaps,
+            baseline.visual.label_wire_overlaps,
+            t.max_label_wire_overlaps_delta,
+        ),
+        (
+            "visual.labels_off_canvas",
+            current.visual.labels_off_canvas,
+            baseline.visual.labels_off_canvas,
+            t.max_labels_off_canvas_delta,
+        ),
+    ];
+
+    for (path, cur, base, delta) in int_rules {
+        if *cur > base.saturating_add(*delta) {
+            add_failure(
+                path,
+                base.to_string(),
+                cur.to_string(),
+                format!("current <= baseline + {}", delta),
+            );
+        }
+    }
+
+    // ── Float non-regression: current <= baseline * (1 + ratio) ──
+    let float_ratio_rules: &[(&str, f64, f64, f64)] = &[
+        (
+            "route_quality.avg_bends_per_routed_net",
+            current.route_quality.avg_bends_per_routed_net,
+            baseline.route_quality.avg_bends_per_routed_net,
+            t.max_avg_bends_ratio_increase,
+        ),
+        (
+            "visual.canvas_area",
+            current.visual.canvas_area,
+            baseline.visual.canvas_area,
+            t.max_canvas_area_ratio_increase,
+        ),
+        (
+            "readability.weighted",
+            current.readability.weighted,
+            baseline.readability.weighted,
+            t.max_weighted_readability_ratio_increase,
+        ),
+    ];
+
+    for (path, cur, base, ratio) in float_ratio_rules {
+        let threshold = base * (1.0 + ratio) + t.float_tolerance_abs;
+        if *cur > threshold {
+            add_failure(
+                path,
+                format!("{:.2}", base),
+                format!("{:.2}", cur),
+                format!("current <= baseline * {:.2}", 1.0 + ratio),
+            );
+        }
+    }
+
+    MetricsComparisonReport {
+        passed: failures.is_empty(),
+        failures,
+        warnings,
+    }
+}
+
+#[cfg(test)]
+mod snapshot_tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_roundtrip_json() {
+        let quality = SchematicQualityReport::default();
+        let snap =
+            SchematicMetricsSnapshot::from_quality(&quality, "test", "test.mc", "cargo test");
+        let json = snap.to_json();
+        let parsed: SchematicMetricsSnapshot = SchematicMetricsSnapshot::from_json(&json).unwrap();
+        assert_eq!(snap, parsed);
+    }
+
+    #[test]
+    fn gate_hard_fail_detected() {
+        let mut baseline = SchematicMetricsSnapshot::from_quality(
+            &SchematicQualityReport::default(),
+            "test",
+            "test.mc",
+            "",
+        );
+        baseline.gate.quality_perfect = true;
+        let mut current = baseline.clone();
+        current.gate.quality_perfect = false;
+        let report = compare_metrics_snapshot(&current, &baseline);
+        assert!(!report.passed);
+        assert!(report
+            .failures
+            .iter()
+            .any(|f| f.path == "gate.quality_perfect"));
+    }
+
+    #[test]
+    fn wire_wire_regression_detected() {
+        let mut baseline = SchematicMetricsSnapshot::from_quality(
+            &SchematicQualityReport::default(),
+            "test",
+            "test.mc",
+            "",
+        );
+        baseline.collisions.wire_wire = 10;
+        let mut current = baseline.clone();
+        current.collisions.wire_wire = 15;
+        let report = compare_metrics_snapshot(&current, &baseline);
+        assert!(!report.passed);
+        assert!(report
+            .failures
+            .iter()
+            .any(|f| f.path == "collisions.wire_wire"));
+    }
+
+    #[test]
+    fn wire_wire_improvement_passes() {
+        let mut baseline = SchematicMetricsSnapshot::from_quality(
+            &SchematicQualityReport::default(),
+            "test",
+            "test.mc",
+            "",
+        );
+        baseline.collisions.wire_wire = 10;
+        let mut current = baseline.clone();
+        current.collisions.wire_wire = 5;
+        let report = compare_metrics_snapshot(&current, &baseline);
+        assert!(report.passed);
+    }
+
+    #[test]
+    fn canvas_area_regression_detected() {
+        let mut baseline = SchematicMetricsSnapshot::from_quality(
+            &SchematicQualityReport::default(),
+            "test",
+            "test.mc",
+            "",
+        );
+        baseline.visual.canvas_area = 1000.0;
+        let mut current = baseline.clone();
+        current.visual.canvas_area = 1200.0; // 20% increase, above 5% threshold
+        let report = compare_metrics_snapshot(&current, &baseline);
+        assert!(!report.passed);
+        assert!(report
+            .failures
+            .iter()
+            .any(|f| f.path == "visual.canvas_area"));
+    }
+
+    #[test]
+    fn snapshot_has_schema_version() {
+        let snap = SchematicMetricsSnapshot::from_quality(
+            &SchematicQualityReport::default(),
+            "test",
+            "test.mc",
+            "",
+        );
+        assert_eq!(snap.schema_version, 1);
+    }
+
+    #[test]
+    fn hard_zero_checks_all_fields() {
+        let mut baseline = SchematicMetricsSnapshot::from_quality(
+            &SchematicQualityReport::default(),
+            "test",
+            "test.mc",
+            "",
+        );
+        let mut current = baseline.clone();
+        current.fidelity.nets_dropped = 3;
+        let report = compare_metrics_snapshot(&current, &baseline);
+        assert!(!report.passed);
+        assert!(report
+            .failures
+            .iter()
+            .any(|f| f.path == "fidelity.nets_dropped"));
     }
 }

@@ -1219,7 +1219,7 @@ impl McCode {
                         .global_inst_table
                         .lock()
                         .unwrap();
-                    
+
                     tracing::info!(target: "mcc::lsp", "  create_lapper: inst_table.len = {}", inst_table.len());
                     for (decl_id, scope, span) in inst_table.get_decls_for_uri(uri_str) {
                         // Add to symbol_lapper for LSP lookup
