@@ -1219,6 +1219,8 @@ impl McCode {
                         .global_inst_table
                         .lock()
                         .unwrap();
+                    
+                    tracing::info!(target: "mcc::lsp", "  create_lapper: inst_table.len = {}", inst_table.len());
                     for (decl_id, scope, span) in inst_table.get_decls_for_uri(uri_str) {
                         // Add to symbol_lapper for LSP lookup
                         symbol_lapper.insert(Interval {
@@ -1226,6 +1228,7 @@ impl McCode {
                             stop: span.end,
                             val: SymbolType::DeclareInstance(decl_id),
                         });
+                        tracing::info!(target: "mcc::lsp", "  create_lapper: inst in inst_table: {:?}, span={:?}", decl_id, span);
                         // ★ Store scope for LSP goto-def
                         if !scope.is_empty() {
                             sem.symbol_scope.insert((span.start, span.end), scope);
