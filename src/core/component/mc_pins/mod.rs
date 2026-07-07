@@ -1720,12 +1720,14 @@ impl McPinNames {
                         MCAST_OPD_SQUARE_VEC => {
                             // Expand `[VDD, GND]` -> Multi(["VDD","GND"])
                             if let Some(expr) = McExpression::new(&exp_node) {
+                                if dynamic::DynamicPinExpr::check_param_ref(&expr) {
+                                    myself.has_param_ref = true;
+                                    continue;
+                                }
                                 if let McExpression::Set(items) = expr {
                                     let mut out = Vec::<String>::new();
                                     for item in items {
-                                        if let Some(s) = item.evaluate() {
-                                            out.push(s);
-                                        }
+                                        out.extend(item.expand());
                                     }
                                     if out.len() == 1 {
                                         myself.push_option(
