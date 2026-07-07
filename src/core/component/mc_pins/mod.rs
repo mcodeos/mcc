@@ -1582,14 +1582,24 @@ impl McPinNames {
                                     };
                                     let lookup_uri =
                                         crate::current_uri::try_get().unwrap_or_default();
-                                    if let Some(McCMIE::Interface(iface_def)) =
-                                        mcb_get_cmie(&class_id, &lookup_uri)
-                                    {
+                                    let lookup_result = mcb_get_cmie(&class_id, &lookup_uri);
+                                    if let Some(McCMIE::Interface(iface_def)) = lookup_result {
                                         let mc2_iface = Mc2Interface::new(inst_id, iface_def);
                                         myself.push_option(
                                             McPinPort::Interface(Arc::new(mc2_iface)),
                                             err_node,
                                         );
+                                    } else if lookup_result.is_some() {
+                                        let class_str = class_id.to_string();
+                                        let inst_str = inst_id.to_string();
+                                        dlog_error(
+                                            2402,
+                                            err_node,
+                                            &format!(
+                                                "'{class_str}' is a component/module/enum, not an interface.",
+                                            ),
+                                        );
+                                        continue;
                                     } else {
                                         // W1304: same as DECLARE_UV branch
                                         let class_str = class_id.to_string();
@@ -1831,6 +1841,17 @@ impl McPinNames {
                                     McPinPort::Interface(Arc::new(mc2_iface)),
                                     err_node,
                                 );
+                            } else if lookup_result.is_some() {
+                                let class_str = class_name.to_string();
+                                let inst_str = inst_name.to_string();
+                                dlog_error(
+                                    2402,
+                                    inst_node.as_ref().unwrap_or(err_node),
+                                    &format!(
+                                        "'{class_str}' is a component/module/enum, not an interface.",
+                                    ),
+                                );
+                                continue;
                             } else {
                                 // 1304: mcb_get_cmie did not find the interface corresponding to class_name.
                                 //      Still fall back to alias, but emit a dlog_warning to inform the user.
