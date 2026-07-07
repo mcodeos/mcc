@@ -124,10 +124,10 @@ impl McPhrase {
         let node_type = node.get_type();
         let node_name = format!("{}", node_type);
         let node_str = node.to_string();
-        eprintln!(
-            "[PHRASE_DEBUG] new: type={}, str_repr={:?}",
-            node_name, node_str
-        );
+        // eprintln!(
+        //     "[PHRASE_DEBUG] new: type={}, str_repr={:?}",
+        //     node_name, node_str
+        // );
         match node_type {
             MCAST_OPD_USCORE => Some(McPhrase::Lead),
 
@@ -148,16 +148,16 @@ impl McPhrase {
                         McOpd::Id(ids) => {
                             let ids_str = ids.to_string();
                             let is_curly = ids.is_curly_bracket();
-                            eprintln!(
-                                "[PHRASE_DEBUG] OPD Id: ids={:?}, is_curly={}",
-                                ids_str, is_curly
-                            );
+                            // eprintln!(
+                            //     "[PHRASE_DEBUG] OPD Id: ids={:?}, is_curly={}",
+                            //     ids_str, is_curly
+                            // );
                             let mut items: Vec<Option<crate::McInstance>> =
                                 vec![context.find_inst(&ids_str)];
-                            eprintln!(
-                                "[PHRASE_DEBUG] OPD Id: find_inst result={:?}",
-                                items[0].is_some()
-                            );
+                            // eprintln!(
+                            //     "[PHRASE_DEBUG] OPD Id: find_inst result={:?}",
+                            //     items[0].is_some()
+                            // );
                             if let Some(ident) = items.remove(0) {
                                 // ★ LSP: Register instance reference for MCAST_OPD path
                                 let span = (subnode.get_pos() as usize)
@@ -178,15 +178,15 @@ impl McPhrase {
                             } else if ids.is_curly_bracket() {
                                 let bus_info = ids.as_bus();
                                 let comp_member = ids.as_component_member();
-                                eprintln!(
-                                    "[PHRASE_DEBUG] curly: ids={:?}, as_bus={:?}, as_comp_member={:?}",
-                                    ids_str, bus_info, comp_member
-                                );
+                                // eprintln!(
+                                //     "[PHRASE_DEBUG] curly: ids={:?}, as_bus={:?}, as_comp_member={:?}",
+                                //     ids_str, bus_info, comp_member
+                                // );
 
                                 if let Some(result) = validate_inst_reference(&ids, context, node) {
-                                    eprintln!(
-                                        "[PHRASE_DEBUG] curly: validate_inst_reference -> Some"
-                                    );
+                                    // eprintln!(
+                                    //     "[PHRASE_DEBUG] curly: validate_inst_reference -> Some"
+                                    // );
                                     if bus_info.is_some() {
                                         let span = (subnode.get_pos() as usize)
                                             ..((subnode.get_pos()
@@ -212,7 +212,7 @@ impl McPhrase {
                                     // Need to be able to deal with more general / complicated patterns
                                     return Some(result);
                                 }
-                                eprintln!("[PHRASE_DEBUG] curly: validate_inst_reference -> None");
+                                // eprintln!("[PHRASE_DEBUG] curly: validate_inst_reference -> None");
                                 if let Some((name, members)) = ids.as_bus() {
                                     if context.find_inst(&name).is_some() {
                                         dlog_error(1705, node, &format!("Name '{}' is already an instance, cannot create bus with members [{}]", name, members.join(", ")));
@@ -635,7 +635,7 @@ impl McPhrase {
                         if let Some(class_ids) = cls.get_sub_node().and_then(|cid| McIds::new(&cid))
                         {
                             let fname = class_ids.to_string();
-                            let build = !names.is_empty()
+                            let build = names.is_empty()
                                 && crate::vector::graph::naming::is_known_twopin_class(&fname);
                             if build {
                                 let mut params: Vec<McParamValue> = Vec::new();
