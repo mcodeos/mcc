@@ -386,6 +386,11 @@ impl McComponentInst {
                 let right = self.resolve_expr_to_literal(r)?;
                 Some(format!("{left}:{right}"))
             }
+            McExpression::Range(l, r) => {
+                let left = self.resolve_expr_to_literal(l)?;
+                let right = self.resolve_expr_to_literal(r)?;
+                Some(format!("{left}~{right}"))
+            }
             // Fallback: use the expression's Display representation
             _ => expr.evaluate(),
         }
