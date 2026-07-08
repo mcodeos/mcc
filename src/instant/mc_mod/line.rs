@@ -945,7 +945,20 @@ impl McModuleInst {
 
             let opd_single = is_single_ended(lp, rp);
 
-            if opd_single {
+            // ── P1 fix (Transposed not single-ended) ───────────────────────
+            // Transposed merges left+right into both lp and rp, so
+            // is_single_ended always returns true. This causes the opd to
+            // be broadcast to every lane instead of distributed lane-by-lane
+            // as a bridge/shunt element. Detect Transposed explicitly and
+            // push lp as-is to left_net (rp == lp, so skip right_net).
+            let is_transposed = matches!(lines[i], McPhrase::Transposed(_));
+
+            if is_transposed {
+                // Transposed bridge element: lp already contains all pins
+                // (left+right merged). Push to left_net for lane-slice
+                // distribution; do NOT push to right_net (rp == lp).
+                left_net.extend(lp.iter().cloned());
+            } else if opd_single {
                 // Single-end opd: only attached to left net (operand 1's left end)
                 // bugfix_report error 9 rule: "+ takes operand 1, single-end X connects to operand 1's left end"
                 //
@@ -1247,7 +1260,29 @@ impl McModuleInst {
                 }
             }
             McPhrase::Transposed(inner) => {
-                self.process_line(inner)?;
+                // ── P0 fix (Transposed auto_inst_map pointer mismatch) ──────
+                // Originally process_line(inner) cloned the FuncCall via
+                // phrase_to_members, causing the auto_inst_map key to land on
+                // the cloned pointer. Later get_left_points / get_right_points
+                // on the outer Transposed member use the original pointer to
+                // query auto_inst_map → MISS → pins not resolved.
+                // Fix: in-place process, keeping the original pointer (same
+                // pattern as the caller chain dispatch at line 1380-1393).
+                match inner.as_ref() {
+                    McPhrase::Series(elems) => {
+                        self.process_series_branch_inplace(elems)?;
+                    }
+                    McPhrase::FuncCall(_)
+                    | McPhrase::Endpoint(_)
+                    | McPhrase::Transposed(_)
+                    | McPhrase::Lead
+                    | McPhrase::Member(_, _) => {
+                        self.process_member_internal(inner)?;
+                    }
+                    _ => {
+                        self.process_line(inner)?;
+                    }
+                }
             }
             McPhrase::Closure(ref c) => {
                 // Phase 3.3: Closure instantiation (closure parameter binding)

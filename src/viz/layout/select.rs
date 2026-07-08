@@ -30,8 +30,8 @@ use crate::vector::graph::McVecGraph;
 use crate::viz::idiom;
 use crate::viz::layout::normalize::renormalize;
 use crate::viz::layout::passive_inline::{
-    apply_net_labels, place_passive_chains, place_series_passives, probe_box_collisions,
-    probe_rail_passive_candidates, probe_scatter_census,
+    apply_net_labels, place_bridge_passives, place_passive_chains, place_series_passives,
+    probe_box_collisions, probe_rail_passive_candidates, probe_scatter_census,
 };
 use crate::viz::metrics::{off_grid, route_bends, route_length, FidelityReport, ReadabilityScore};
 use crate::viz::route::audit::audit_all;
@@ -71,7 +71,8 @@ fn run_single(mut graph: McVecGraph, candidate: &dyn Layouter, _is_root: bool) -
     probe_rail_passive_candidates(&graph);
     place_series_passives(&mut graph);
     place_passive_chains(&mut graph);
-    // Pull any passive nudged to a negative coordinate back onto the canvas.
+    place_bridge_passives(&mut graph); // ★ P2: bridge passives (transposed CAP in two-lane series)
+                                       // Pull any passive nudged to a negative coordinate back onto the canvas.
     renormalize(&mut graph);
 
     // ── Phase 1.8: net labels ──

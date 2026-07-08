@@ -32,7 +32,7 @@
 use std::collections::HashSet;
 
 use crate::vector::graph::{
-    BoxKind, EndpointRef, EntryPoint, EntrySide, McVecBox, McVecGraph, NetKind, VizNet,
+    BoxKind, EndpointRef, EntryPoint, EntrySide, McVecBox, McVecGraph, NetKind, VisualRole, VizNet,
 };
 
 use super::rails::is_rail_box;
@@ -1188,5 +1188,220 @@ pub fn probe_box_collisions(graph: &McVecGraph) {
         for (a, b, ov) in &pairs {
             crate::vlog!("[PROBE-COLL]   {} ✕ {}  (overlap={:.0})", a, b, ov);
         }
+    }
+}
+
+// ============================================================================
+// ★ P2: Bridge passive placement (transposed CAP/R in two-lane series)
+// ============================================================================
+//
+// A bridge passive is a 2-pin passive whose two pins are in *different* nets,
+// and each net has 2+ non-passive, non-rail neighbours (one on each side of the
+// bridge). This corresponds to CAP' in expressions like:
+//
+//   [RES, RES] -> CAP' -> [RES, RES]
+//
+// We place the passive **vertically** between the two horizontal lanes, with
+// pin1 on the top lane and pin2 on the bottom lane.
+
+/// Detect and place bridge passives vertically between their two lanes.
+/// Runs **after** layout, **before** routing (right after place_passive_chains).
+pub fn place_bridge_passives(graph: &mut McVecGraph) {
+    let passive_ids: Vec<i64> = {
+        let mut v: Vec<i64> = graph
+            .boxes
+            .iter()
+            .filter(|b| b.is_two_pin_passive())
+            .map(|b| b.id)
+            .collect();
+        v.sort_unstable();
+        v
+    };
+    if passive_ids.is_empty() {
+        return;
+    }
+    let passive_set: HashSet<i64> = passive_ids.iter().copied().collect();
+    let rail_ids: HashSet<i64> = graph
+        .boxes
+        .iter()
+        .filter(|b| is_rail_box(b))
+        .map(|b| b.id)
+        .collect();
+
+    let mut count = 0usize;
+
+    for pid in passive_ids {
+        // P must touch exactly 2 nets.
+        let touching: Vec<usize> = graph
+            .nets
+            .iter()
+            .enumerate()
+            .filter(|(_, n)| n.endpoints.iter().any(|e| e.box_id == pid))
+            .map(|(i, _)| i)
+            .collect();
+        if touching.len() != 2 {
+            continue;
+        }
+
+        // For each net, collect the non-passive, non-rail neighbours.
+        let mut lane_neighbours: Vec<Vec<i64>> = Vec::new();
+        let mut lane_pins: Vec<i64> = Vec::new();
+        let mut ok = true;
+        for &ni in &touching {
+            let net = &graph.nets[ni];
+            let p_pin = net
+                .endpoints
+                .iter()
+                .find(|e| e.box_id == pid)
+                .map(|e| e.pin_id);
+            let others: Vec<i64> = net
+                .endpoints
+                .iter()
+                .filter(|e| {
+                    e.box_id != pid
+                        && !rail_ids.contains(&e.box_id)
+                        && !passive_set.contains(&e.box_id)
+                })
+                .map(|e| e.box_id)
+                .collect();
+            if others.len() < 2 {
+                // Need at least 2 non-passive neighbours (one on each side)
+                ok = false;
+                break;
+            }
+            if let Some(pp) = p_pin {
+                lane_neighbours.push(others);
+                lane_pins.push(pp);
+            } else {
+                ok = false;
+                break;
+            }
+        }
+        if !ok || lane_neighbours.len() != 2 {
+            continue;
+        }
+
+        // Safety: don't short Power to Ground
+        let k0 = &graph.nets[touching[0]].kind;
+        let k1 = &graph.nets[touching[1]].kind;
+        if is_power_ground_short(k0, k1) {
+            continue;
+        }
+
+        // Compute the average Y of each lane's neighbours.
+        let avg_y = |nbrs: &[i64]| -> Option<f64> {
+            let ys: Vec<f64> = nbrs
+                .iter()
+                .filter_map(|&bid| graph.boxes.iter().find(|b| b.id == bid))
+                .map(|b| b.y + b.h / 2.0)
+                .collect();
+            if ys.is_empty() {
+                None
+            } else {
+                Some(ys.iter().sum::<f64>() / ys.len() as f64)
+            }
+        };
+
+        let y0 = match avg_y(&lane_neighbours[0]) {
+            Some(v) => v,
+            None => continue,
+        };
+        let y1 = match avg_y(&lane_neighbours[1]) {
+            Some(v) => v,
+            None => continue,
+        };
+
+        // Determine top and bottom lane. Pin 0 → top lane, Pin 1 → bottom lane.
+        let (top_y, bot_y, top_pin, bot_pin, top_nbrs, bot_nbrs) = if y0 < y1 {
+            (
+                y0,
+                y1,
+                lane_pins[0],
+                lane_pins[1],
+                &lane_neighbours[0],
+                &lane_neighbours[1],
+            )
+        } else {
+            (
+                y1,
+                y0,
+                lane_pins[1],
+                lane_pins[0],
+                &lane_neighbours[1],
+                &lane_neighbours[0],
+            )
+        };
+
+        // Compute the X position: midpoint of the neighbours' X range.
+        let x_center = {
+            let mut xs: Vec<f64> = top_nbrs
+                .iter()
+                .chain(bot_nbrs.iter())
+                .filter_map(|&bid| graph.boxes.iter().find(|b| b.id == bid))
+                .map(|b| b.x + b.w / 2.0)
+                .collect();
+            if xs.is_empty() {
+                continue;
+            }
+            xs.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            (xs[0] + xs[xs.len() - 1]) / 2.0
+        };
+
+        // Get the box dimensions.
+        let (bw, bh, pin_name_a, pin_name_b) = match graph.boxes.iter().find(|x| x.id == pid) {
+            Some(bx) => (
+                bx.w,
+                bx.h,
+                pin_name_of(bx, top_pin),
+                pin_name_of(bx, bot_pin),
+            ),
+            None => continue,
+        };
+        let long = bw.max(bh);
+        let short = bw.min(bh);
+
+        // Place vertically: width=short, height=long.
+        let ow = short;
+        let oh = long;
+        let mid_y = (top_y + bot_y) / 2.0;
+
+        let bx = match graph.boxes.iter_mut().find(|x| x.id == pid) {
+            Some(b) => b,
+            None => continue,
+        };
+        bx.x = x_center - ow / 2.0;
+        bx.y = mid_y - oh / 2.0;
+        bx.w = ow;
+        bx.h = oh;
+        bx.visual_role = Some(VisualRole::BridgePassive);
+
+        // Entry points: top pin on Top side, bottom pin on Bottom side.
+        bx.entry_points = vec![
+            EntryPoint {
+                pin_id: top_pin,
+                pin_name: pin_name_a,
+                side: EntrySide::Top,
+                offset: 0.5,
+            },
+            EntryPoint {
+                pin_id: bot_pin,
+                pin_name: pin_name_b,
+                side: EntrySide::Bottom,
+                offset: 0.5,
+            },
+        ];
+
+        count += 1;
+        crate::vlog!(
+            "[layout::passive_inline] placed bridge passive {} (pid={pid}) between y={top_y:.0} and y={bot_y:.0}",
+            bx.name,
+        );
+    }
+
+    if count > 0 {
+        crate::vlog!(
+            "[layout::passive_inline] placed {} bridge passive(s)",
+            count
+        );
     }
 }

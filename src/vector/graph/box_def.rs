@@ -303,6 +303,19 @@ pub struct McVecBox {
     /// symbol (default). Filled by builder later based on class_name hitting user symbol library;
     /// see [`CustomSymbol`].
     pub custom_symbol: Option<CustomSymbol>,
+
+    /// ★ P2 (bridge passive): visual role hint for layout. `None` = normal placement.
+    /// Set to `Some(BridgePassive)` when a 2-pin passive component is a transposed
+    /// bridge/shunt across two parallel lanes (e.g., CAP' in two-lane series).
+    pub visual_role: Option<VisualRole>,
+}
+
+/// ★ P2: Visual role hint for layout placement
+#[derive(Debug, Clone, PartialEq)]
+pub enum VisualRole {
+    /// Transposed 2-pin passive that bridges two parallel lanes.
+    /// Pin1 connects to the upper lane, Pin2 to the lower lane.
+    BridgePassive,
 }
 
 impl McVecBox {
@@ -365,6 +378,7 @@ impl McVecBox {
             label_placements: Vec::new(),
             layout_hint: None,
             custom_symbol: None,
+            visual_role: None,
         }
     }
 

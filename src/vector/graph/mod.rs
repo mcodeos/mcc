@@ -59,7 +59,8 @@ pub mod promote;
 // ============================================================================
 
 pub use box_def::{
-    BoxLabelPlacement, EntryPoint, EntrySide, IoSummary, LabelPlacementKind, McVecBox, Wire,
+    BoxLabelPlacement, EntryPoint, EntrySide, IoSummary, LabelPlacementKind, McVecBox, VisualRole,
+    Wire,
 };
 pub use graph_def::McVecGraph;
 pub use json::json_escape;
