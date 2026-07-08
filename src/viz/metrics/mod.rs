@@ -147,6 +147,7 @@ pub struct SchematicQualityReport {
     pub truth: TruthSnapshotReport,
     pub visual: VisualQualityReport,
     pub semantic: Option<SemanticSummary>,
+    pub special: Option<super::special::PowerGroundBusReport>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -368,6 +369,9 @@ impl SchematicQualityReport {
                 s.warnings,
             ));
         }
+        if let Some(ref s) = self.special {
+            lines.push(s.report_line());
+        }
         lines.push(format!(
             "[metrics] QUALITY: perfect={} weighted={:.1}",
             self.is_perfect(),
@@ -403,6 +407,7 @@ pub struct MetricsAccumulator {
     truth: TruthSnapshotReport,
     visual: VisualQualityReport,
     semantic: Option<SemanticSummary>,
+    special: Option<super::special::PowerGroundBusReport>,
 }
 
 impl MetricsAccumulator {
@@ -473,15 +478,23 @@ impl MetricsAccumulator {
         }
     }
 
+    /// Accumulate M10 special (power/ground/bus) report across layers.
+    pub fn accumulate_special(&mut self, report: &super::special::PowerGroundBusReport) {
+        match &mut self.special {
+            Some(existing) => existing.merge(report),
+            None => self.special = Some(report.clone()),
+        }
+    }
+
     /// Merge build-phase dropped/partial, produce final two reports.
     pub fn finish(self, report: Option<&BuilderReport>) -> (FidelityReport, ReadabilityScore) {
-        let (fidelity, readability, _, _, _, _, _) = self.finish_parts(report);
+        let (fidelity, readability, _, _, _, _, _, _) = self.finish_parts(report);
         (fidelity, readability)
     }
 
     /// Merge build-phase diagnostics and produce the unified schematic quality report.
     pub fn finish_quality(self, report: Option<&BuilderReport>) -> SchematicQualityReport {
-        let (fidelity, readability, collisions, builder, truth, visual, semantic) =
+        let (fidelity, readability, collisions, builder, truth, visual, semantic, special) =
             self.finish_parts(report);
         SchematicQualityReport {
             fidelity,
@@ -491,6 +504,7 @@ impl MetricsAccumulator {
             truth,
             visual,
             semantic,
+            special,
         }
     }
 
@@ -505,6 +519,7 @@ impl MetricsAccumulator {
         TruthSnapshotReport,
         VisualQualityReport,
         Option<SemanticSummary>,
+        Option<super::special::PowerGroundBusReport>,
     ) {
         let builder = BuilderQualitySummary::from_report(report);
         let dropped = builder.dropped_nets;
@@ -550,6 +565,7 @@ impl MetricsAccumulator {
             self.truth,
             self.visual,
             self.semantic,
+            self.special,
         )
     }
 }

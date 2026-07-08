@@ -54,6 +54,7 @@ use super::layout::{
     FlowLayouter, HierarchicalLayouter, LayeredLayouter, RadialLayouter, SchematicRadialLayouter,
 };
 use super::semantic::SemanticModel;
+use super::special::PowerGroundBusModel;
 use super::traits::{DefaultRenderer, Layouter, Renderer};
 
 // ============================================================================
@@ -291,6 +292,10 @@ fn render_layer_recursive(
     // ── Semantic analysis (read-only, soft signal) ──
     let semantic = SemanticModel::analyze(&graph);
     metrics.accumulate_semantic(&semantic.summary);
+
+    // ── M10: Special power/ground/bus analysis (read-only) ──
+    let special = PowerGroundBusModel::analyze(&graph, Some(&semantic));
+    metrics.accumulate_special(&special.report);
 
     debug::dump_route(&graph);
 
