@@ -38,7 +38,7 @@
 //! - `obstacles::ObstacleMap` —— constructed separately for each net (exclude own endpoint box)
 //! - Here **newly create** one `ChannelMap`, shared by entire layer
 
-use crate::vector::graph::{McVecGraph, NetKind, Segment, VizNet};
+use crate::vector::graph::{BoxKind, McVecGraph, NetKind, Segment, VizNet};
 
 use super::audit;
 use super::channels::ChannelMap;
@@ -252,13 +252,42 @@ pub fn route_layer_with_channels(graph: &mut McVecGraph) {
                 .map(|r| grid.route_collides(&r.segments, tmp.nid, &ep_rects))
                 .unwrap_or(false);
             if hit {
+                let is_pg_stub = is_power_ground_flag_stub(graph, &tmp);
+                let original_len = tmp
+                    .route
+                    .as_ref()
+                    .map(|r| {
+                        r.segments
+                            .iter()
+                            .map(|s| {
+                                ((s.to.x - s.from.x).powi(2) + (s.to.y - s.from.y).powi(2)).sqrt()
+                            })
+                            .sum::<f64>()
+                    })
+                    .unwrap_or(0.0);
                 if let Some(r2) = grid_router::reroute_two_point(&grid, graph, &tmp, &acfg) {
-                    crate::vlog!(
-                        "[route::grid] net='{}' nid={} A* reroute (avoid box/avoid wire)",
-                        tmp.name,
-                        tmp.nid
-                    );
-                    tmp.route = Some(r2);
+                    let r2_len: f64 = r2
+                        .segments
+                        .iter()
+                        .map(|s| ((s.to.x - s.from.x).powi(2) + (s.to.y - s.from.y).powi(2)).sqrt())
+                        .sum();
+                    // M10b: PG flag stub guard — reject A* reroute if it produces a long detour
+                    if is_pg_stub && r2_len > LongStubGuard::max_allowed(original_len) {
+                        crate::vlog!(
+                            "[route::grid] PG flag stub '{}' A* reroute rejected: len {:.1} > max {:.1} (original {:.1})",
+                            tmp.name,
+                            r2_len,
+                            LongStubGuard::max_allowed(original_len),
+                            original_len,
+                        );
+                    } else {
+                        crate::vlog!(
+                            "[route::grid] net='{}' nid={} A* reroute (avoid box/avoid wire)",
+                            tmp.name,
+                            tmp.nid
+                        );
+                        tmp.route = Some(r2);
+                    }
                 }
             }
         }
@@ -649,6 +678,48 @@ mod tests {
         route_layer_with_channels(&mut g);
         for net in &g.nets {
             assert!(net.route.is_some(), "every net should be routed");
+        }
+    }
+}
+
+// ============================================================================
+// M10b: Power/Ground flag stub guard
+// ============================================================================
+
+/// Check if a net is a power/ground flag stub (2-endpoint net with one PowerLabel endpoint).
+fn is_power_ground_flag_stub(graph: &McVecGraph, net: &VizNet) -> bool {
+    if !matches!(net.kind, NetKind::Power | NetKind::Ground) {
+        return false;
+    }
+    if net.endpoints.len() != 2 {
+        return false;
+    }
+    let flag_count = net
+        .endpoints
+        .iter()
+        .filter(|ep| {
+            graph
+                .boxes
+                .iter()
+                .any(|b| b.id == ep.box_id && b.kind == BoxKind::PowerLabel)
+        })
+        .count();
+    flag_count == 1
+}
+
+/// Guard for PG flag stub reroute: reject A* candidate if it produces an excessive detour.
+struct LongStubGuard;
+
+impl LongStubGuard {
+    /// Maximum allowed reroute length for a PG flag stub.
+    /// `max(120.0, original_len * 2.0)`
+    fn max_allowed(original_len: f64) -> f64 {
+        const FLOOR: f64 = 120.0;
+        let double = original_len * 2.0;
+        if double > FLOOR {
+            double
+        } else {
+            FLOOR
         }
     }
 }
