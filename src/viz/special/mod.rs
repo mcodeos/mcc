@@ -32,6 +32,8 @@ pub struct PowerGroundBusModel {
     pub endpoint_roles: BTreeMap<SpecialEndpointKey, SpecialEndpointRole>,
     pub report: PowerGroundBusReport,
     pub warnings: Vec<PowerGroundBusWarning>,
+    /// Long PG stubs (stub_length > LONG_PG_STUB), for diagnostic output.
+    pub long_pg_stubs: Vec<PowerGroundNetIntent>,
 }
 
 // ============================================================================
@@ -395,6 +397,7 @@ impl PowerGroundBusModel {
         let mut pg_stubs = 0usize;
         let mut pg_stub_len = 0.0f64;
         let mut pg_long = 0usize;
+        let mut long_pg_stubs = Vec::new();
 
         for intent in power_nets.values().chain(ground_nets.values()) {
             pg_flags += intent.flag_endpoint_count;
@@ -403,9 +406,17 @@ impl PowerGroundBusModel {
                 pg_stub_len += intent.stub_length;
                 if intent.is_long_stub {
                     pg_long += 1;
+                    long_pg_stubs.push(intent.clone());
                 }
             }
         }
+
+        // Sort long stubs by length descending (most severe first)
+        long_pg_stubs.sort_by(|a, b| {
+            b.stub_length
+                .partial_cmp(&a.stub_length)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         let pg_avg = if pg_stubs > 0 {
             pg_stub_len / pg_stubs as f64
@@ -445,6 +456,30 @@ impl PowerGroundBusModel {
             endpoint_roles,
             report,
             warnings,
+            long_pg_stubs,
+        }
+    }
+
+    /// Return long PG stubs (stub_length > LONG_PG_STUB), sorted by length descending.
+    pub fn long_power_ground_stubs(&self) -> &[PowerGroundNetIntent] {
+        &self.long_pg_stubs
+    }
+
+    /// Log diagnostic vlog for each long PG stub.
+    pub fn vlog_long_stubs(&self, layer_name: &str) {
+        for stub in &self.long_pg_stubs {
+            let kind = if stub.is_ground { "Ground" } else { "Power" };
+            crate::vlog!(
+                "[viz::special] long_pg_stub layer='{}' nid={} name='{}' kind={} len={:.1} ep_count={} flag_eps={} role={:?}",
+                layer_name,
+                stub.net_id,
+                stub.name,
+                kind,
+                stub.stub_length,
+                stub.real_endpoint_count,
+                stub.flag_endpoint_count,
+                stub.role,
+            );
         }
     }
 }

@@ -235,8 +235,16 @@ impl Layouter for FlowLayouter {
 // Flag extraction / metadata
 // ============================================================================
 
-/// flag_id → (consumer_box_id, consumer_pin_id, is_ground)
-type FlagMeta = HashMap<i64, (i64, i64, bool)>;
+/// flag_id → (consumer_box_id, consumer_pin_id, is_ground, net_id, net_name)
+struct FlagTarget {
+    consumer_box_id: i64,
+    consumer_pin_id: i64,
+    is_ground: bool,
+    net_id: i64,
+    net_name: String,
+}
+
+type FlagMeta = HashMap<i64, FlagTarget>;
 
 fn split_flags(graph: &mut McVecGraph) -> (Vec<McVecBox>, FlagMeta) {
     let flag_ids: HashSet<i64> = graph
@@ -252,7 +260,16 @@ fn split_flags(graph: &mut McVecGraph) -> (Vec<McVecBox>, FlagMeta) {
         let cons_ep = net.endpoints.iter().find(|e| !flag_ids.contains(&e.box_id));
         if let (Some(fe), Some(ce)) = (flag_ep, cons_ep) {
             let is_gnd = matches!(net.kind, NetKind::Ground);
-            meta.insert(fe.box_id, (ce.box_id, ce.pin_id, is_gnd));
+            meta.insert(
+                fe.box_id,
+                FlagTarget {
+                    consumer_box_id: ce.box_id,
+                    consumer_pin_id: ce.pin_id,
+                    is_ground: is_gnd,
+                    net_id: net.nid,
+                    net_name: net.name.clone(),
+                },
+            );
         }
     }
 
@@ -1209,17 +1226,19 @@ impl FlowLayouter {
 
         // consumer → [(flag_id, name, is_gnd, consumer_pin)]
         let mut by_consumer: HashMap<i64, Vec<(i64, String, bool, i64)>> = HashMap::new();
-        for (&fid, &(cbox, cpin, is_gnd)) in meta.iter() {
+        for (&fid, ft) in meta.iter() {
             let name = graph
                 .boxes
                 .iter()
                 .find(|b| b.id == fid)
                 .map(|b| b.name.clone())
                 .unwrap_or_default();
-            by_consumer
-                .entry(cbox)
-                .or_default()
-                .push((fid, name, is_gnd, cpin));
+            by_consumer.entry(ft.consumer_box_id).or_default().push((
+                fid,
+                name,
+                ft.is_ground,
+                ft.consumer_pin_id,
+            ));
         }
 
         let mut flag_place: HashMap<i64, (f64, f64, EntrySide)> = HashMap::new();
@@ -1242,20 +1261,29 @@ impl FlowLayouter {
             let nsum = (na.0 + na.1).max(1e-6);
             let (busy_x, busy_y) = (na.0 / nsum, na.1 / nsum);
 
-            // Score 4 edges: 1.5×away-from-neighbor direction − busy axis penalty (emptier scores higher)
+            // Score 4 edges: 1.5×away-from-neighbor direction − busy axis penalty − stub length penalty (short stubs preferred)
             let edges = [
                 EntrySide::Top,
                 EntrySide::Bottom,
                 EntrySide::Left,
                 EntrySide::Right,
             ];
+            let (ccx, ccy) = (consumer.x + consumer.w / 2.0, consumer.y + consumer.h / 2.0);
             let mut scored: Vec<(EntrySide, f64)> = edges
                 .iter()
                 .map(|e| {
                     let (nx, ny, _) = outward_and_opposite(e);
                     let dir_term = -(nx * ndu.0 + ny * ndu.1);
                     let axis_pen = if nx.abs() > 0.5 { busy_x } else { busy_y };
-                    (e.clone(), 1.5 * dir_term - axis_pen)
+                    // Estimate stub length: distance from consumer center to edge midpoint + flag_gap
+                    let (ex, ey) = edge_midpoint(&consumer, e);
+                    let est_dist = ((ex - ccx).powi(2) + (ey - ccy).powi(2)).sqrt();
+                    let stub_pen = if est_dist > LONG_PG_STUB {
+                        (est_dist - LONG_PG_STUB) / 10.0
+                    } else {
+                        0.0
+                    };
+                    (e.clone(), 1.5 * dir_term - axis_pen - stub_pen)
                 })
                 .collect();
             scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -1303,7 +1331,15 @@ impl FlowLayouter {
                     let by = py + oy * self.flag_gap;
                     flag_place.insert(*fid, (bx, by, opp.clone()));
                     let off = offset_along_edge(&consumer, &edge, px, py);
-                    pin_moves.push((cbox, *pin, edge.clone(), off));
+                    let clamped = off.clamp(0.05, 0.95);
+                    pin_moves.push((cbox, *pin, edge.clone(), clamped));
+                    // Diagnostic: if clamped significantly, the flag is beyond edge bounds
+                    if (clamped - off).abs() > 0.01 {
+                        crate::vlog!(
+                            "[viz::flow] flag offset clamped: cbox={} pin={} edge={:?} off={:.3} clamped={:.3}",
+                            cbox, pin, edge, off, clamped
+                        );
+                    }
                 }
             }
         }
@@ -1763,6 +1799,9 @@ fn probe_no_ep_writes(pass: &str, graph: &McVecGraph, before: &HashMap<(i64, i64
 const MIN_BOX_W: f64 = 24.0;
 const MIN_BOX_H: f64 = 24.0;
 const SIZE_EPS: f64 = 1e-6;
+
+/// Threshold for long power/ground stub (same as special::LONG_PG_STUB).
+const LONG_PG_STUB: f64 = 120.0;
 
 /// 根因守卫：退化盒子兜底到最小尺寸，切断 NaN 传播链。
 /// 必须在 release 也跑。

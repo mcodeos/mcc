@@ -295,6 +295,7 @@ fn render_layer_recursive(
 
     // ── M10: Special power/ground/bus analysis (read-only) ──
     let special = PowerGroundBusModel::analyze(&graph, Some(&semantic));
+    special.vlog_long_stubs(&name);
     metrics.accumulate_special(&special.report);
 
     debug::dump_route(&graph);
