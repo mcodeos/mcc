@@ -1196,13 +1196,15 @@ pub fn probe_box_collisions(graph: &McVecGraph) {
 // ============================================================================
 //
 // A bridge passive is a 2-pin passive whose two pins are in *different* nets,
-// and each net has 2+ non-passive, non-rail neighbours (one on each side of the
-// bridge). This corresponds to CAP' in expressions like:
+// and each net has at least 1 non-passive, non-rail neighbour (anchor).
+// This corresponds to CAP' in expressions like:
 //
-//   [RES, RES] -> CAP' -> [RES, RES]
+//   [u1.3, u1.6] -> [RES, _] + CAP' -> [RES, RES] -> [u2.3, u2.6]
 //
 // We place the passive **vertically** between the two horizontal lanes, with
-// pin1 on the top lane and pin2 on the bottom lane.
+// pin1 on the top lane and pin2 on the bottom lane. Lane Y is computed from
+// the anchor's pin exit position (not box center), so two lanes sharing the
+// same anchor box are still distinguished by their pin positions.
 
 /// Detect and place bridge passives vertically between their two lanes.
 /// Runs **after** layout, **before** routing (right after place_passive_chains).
@@ -1243,10 +1245,22 @@ pub fn place_bridge_passives(graph: &mut McVecGraph) {
             continue;
         }
 
-        // For each net, collect the non-passive, non-rail neighbours.
-        let mut lane_neighbours: Vec<Vec<i64>> = Vec::new();
+        // Guard: if truth layer already set visual_role = BridgePassive,
+        // use relaxed detection (1 anchor per net). Otherwise use strict
+        // topology detection (2+ anchors per net) to avoid false positives.
+        let has_bridge_intent = graph
+            .boxes
+            .iter()
+            .any(|b| b.id == pid && b.visual_role == Some(VisualRole::BridgePassive));
+
+        // For each net, collect the non-rail neighbours as (box_id, pin_id).
+        // When has_bridge_intent is true, also include passive neighbours —
+        // bridge passives (CAP()') between passive-only nets (e.g., RES—CAP—RES)
+        // would otherwise have zero anchors.
+        let mut lane_anchors: Vec<Vec<(i64, i64)>> = Vec::new();
         let mut lane_pins: Vec<i64> = Vec::new();
         let mut ok = true;
+        let min_anchors: usize = if has_bridge_intent { 1 } else { 2 };
         for &ni in &touching {
             let net = &graph.nets[ni];
             let p_pin = net
@@ -1254,30 +1268,29 @@ pub fn place_bridge_passives(graph: &mut McVecGraph) {
                 .iter()
                 .find(|e| e.box_id == pid)
                 .map(|e| e.pin_id);
-            let others: Vec<i64> = net
+            let anchors: Vec<(i64, i64)> = net
                 .endpoints
                 .iter()
                 .filter(|e| {
                     e.box_id != pid
                         && !rail_ids.contains(&e.box_id)
-                        && !passive_set.contains(&e.box_id)
+                        && (has_bridge_intent || !passive_set.contains(&e.box_id))
                 })
-                .map(|e| e.box_id)
+                .map(|e| (e.box_id, e.pin_id))
                 .collect();
-            if others.len() < 2 {
-                // Need at least 2 non-passive neighbours (one on each side)
+            if anchors.len() < min_anchors {
                 ok = false;
                 break;
             }
             if let Some(pp) = p_pin {
-                lane_neighbours.push(others);
+                lane_anchors.push(anchors);
                 lane_pins.push(pp);
             } else {
                 ok = false;
                 break;
             }
         }
-        if !ok || lane_neighbours.len() != 2 {
+        if !ok || lane_anchors.len() != 2 {
             continue;
         }
 
@@ -1288,12 +1301,15 @@ pub fn place_bridge_passives(graph: &mut McVecGraph) {
             continue;
         }
 
-        // Compute the average Y of each lane's neighbours.
-        let avg_y = |nbrs: &[i64]| -> Option<f64> {
-            let ys: Vec<f64> = nbrs
+        // Compute the average Y of each lane's anchors, using pin exit positions.
+        let avg_y = |anchors: &[(i64, i64)]| -> Option<f64> {
+            let ys: Vec<f64> = anchors
                 .iter()
-                .filter_map(|&bid| graph.boxes.iter().find(|b| b.id == bid))
-                .map(|b| b.y + b.h / 2.0)
+                .filter_map(|&(bid, pin_id)| {
+                    let b = graph.boxes.iter().find(|b| b.id == bid)?;
+                    let ep = b.entry_points.iter().find(|e| e.pin_id == pin_id)?;
+                    Some(abs_of(b, &ep.side, ep.offset).1)
+                })
                 .collect();
             if ys.is_empty() {
                 None
@@ -1302,24 +1318,29 @@ pub fn place_bridge_passives(graph: &mut McVecGraph) {
             }
         };
 
-        let y0 = match avg_y(&lane_neighbours[0]) {
+        let y0 = match avg_y(&lane_anchors[0]) {
             Some(v) => v,
             None => continue,
         };
-        let y1 = match avg_y(&lane_neighbours[1]) {
+        let y1 = match avg_y(&lane_anchors[1]) {
             Some(v) => v,
             None => continue,
         };
 
+        // Two lanes must have different Y positions.
+        if (y0 - y1).abs() < 1e-6 {
+            continue;
+        }
+
         // Determine top and bottom lane. Pin 0 → top lane, Pin 1 → bottom lane.
-        let (top_y, bot_y, top_pin, bot_pin, top_nbrs, bot_nbrs) = if y0 < y1 {
+        let (top_y, bot_y, top_pin, bot_pin, top_anchors, bot_anchors) = if y0 < y1 {
             (
                 y0,
                 y1,
                 lane_pins[0],
                 lane_pins[1],
-                &lane_neighbours[0],
-                &lane_neighbours[1],
+                &lane_anchors[0],
+                &lane_anchors[1],
             )
         } else {
             (
@@ -1327,24 +1348,46 @@ pub fn place_bridge_passives(graph: &mut McVecGraph) {
                 y0,
                 lane_pins[1],
                 lane_pins[0],
-                &lane_neighbours[1],
-                &lane_neighbours[0],
+                &lane_anchors[1],
+                &lane_anchors[0],
             )
         };
 
-        // Compute the X position: midpoint of the neighbours' X range.
+        // ★ M11.4: compute X from nearest anchor pair across lanes (not global midpoint).
+        // For each lane, collect anchor X positions. Then find the closest pair
+        // across lanes and use their midpoint — this places the bridge at the
+        // semantic segment instead of the center of the entire net.
         let x_center = {
-            let mut xs: Vec<f64> = top_nbrs
-                .iter()
-                .chain(bot_nbrs.iter())
-                .filter_map(|&bid| graph.boxes.iter().find(|b| b.id == bid))
-                .map(|b| b.x + b.w / 2.0)
-                .collect();
-            if xs.is_empty() {
+            let anchor_x = |anchors: &[(i64, i64)]| -> Vec<f64> {
+                anchors
+                    .iter()
+                    .filter_map(|&(bid, _)| {
+                        graph
+                            .boxes
+                            .iter()
+                            .find(|b| b.id == bid)
+                            .map(|b| b.x + b.w / 2.0)
+                    })
+                    .collect()
+            };
+            let top_xs = anchor_x(top_anchors);
+            let bot_xs = anchor_x(bot_anchors);
+            if top_xs.is_empty() || bot_xs.is_empty() {
                 continue;
             }
-            xs.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-            (xs[0] + xs[xs.len() - 1]) / 2.0
+            // Find the closest pair across lanes
+            let mut best_x = 0.0f64;
+            let mut best_dist = f64::MAX;
+            for &tx in &top_xs {
+                for &bx in &bot_xs {
+                    let dist = (tx - bx).abs();
+                    if dist < best_dist {
+                        best_dist = dist;
+                        best_x = (tx + bx) / 2.0;
+                    }
+                }
+            }
+            best_x
         };
 
         // Get the box dimensions.
@@ -1403,5 +1446,171 @@ pub fn place_bridge_passives(graph: &mut McVecGraph) {
             "[layout::passive_inline] placed {} bridge passive(s)",
             count
         );
+    }
+}
+
+// ============================================================================
+// M11.0 Diagnostic helpers — detect lane semantics issues
+// ============================================================================
+
+/// Check if any net name contains `(lead)_` residue (unresolved pass-through `_`).
+pub fn has_lead_residue(nets: &[VizNet]) -> bool {
+    nets.iter().any(|n| n.name.contains("(lead)_"))
+}
+
+/// Return the count of nets with `(lead)_` residue.
+pub fn count_lead_residues(nets: &[VizNet]) -> usize {
+    nets.iter().filter(|n| n.name.contains("(lead)_")).count()
+}
+
+/// Check bridge passive correctness: a box with visual_role = BridgePassive
+/// should have its two pins in two different nets (not shorted together).
+pub fn check_bridge_passive_nets(boxes: &[McVecBox], nets: &[VizNet]) -> Vec<String> {
+    let mut issues = Vec::new();
+    for b in boxes
+        .iter()
+        .filter(|b| b.visual_role == Some(VisualRole::BridgePassive))
+    {
+        let pin_nets: Vec<usize> = b
+            .entry_points
+            .iter()
+            .filter_map(|ep| {
+                nets.iter().position(|n| {
+                    n.endpoints
+                        .iter()
+                        .any(|e| e.box_id == b.id && e.pin_id == ep.pin_id)
+                })
+            })
+            .collect();
+        if pin_nets.len() < 2 {
+            issues.push(format!(
+                "BridgePassive {} (id={}) has < 2 pins in nets (found {} pins)",
+                b.name,
+                b.id,
+                pin_nets.len()
+            ));
+        } else if pin_nets[0] == pin_nets[1] {
+            issues.push(format!(
+                "BridgePassive {} (id={}) has both pins in same net #{} — shorted",
+                b.name, b.id, pin_nets[0]
+            ));
+        }
+    }
+    issues
+}
+
+#[cfg(test)]
+mod m11_diagnostic_tests {
+    use super::*;
+    use crate::vector::graph::box_def::{EntryPoint, EntrySide, IoSummary, McVecBox};
+    use crate::vector::graph::kinds::NetKind;
+    use crate::vector::graph::net_def::{EndpointRef, IoDirection, VizNet};
+
+    fn make_box(id: i64, name: &str, w: f64, h: f64, x: f64, y: f64) -> McVecBox {
+        let mut b = McVecBox::new(
+            id,
+            name.to_string(),
+            String::new(),
+            BoxKind::TwoPin,
+            2,
+            IoSummary::new(),
+        );
+        b.w = w;
+        b.h = h;
+        b.x = x;
+        b.y = y;
+        b
+    }
+
+    fn make_net(name: &str, endpoints: Vec<(i64, i64)>) -> VizNet {
+        VizNet {
+            nid: 0,
+            name: name.to_string(),
+            endpoints: endpoints
+                .into_iter()
+                .map(|(box_id, pin_id)| EndpointRef {
+                    box_id,
+                    pin_id,
+                    pin_name: pin_id.to_string(),
+                    io_type: IoDirection::Unknown,
+                    pin_number: None,
+                })
+                .collect(),
+            kind: NetKind::Signal,
+            route: None,
+            src_pos: None,
+        }
+    }
+
+    #[test]
+    fn detects_lead_residue() {
+        let nets = vec![
+            make_net("net_0", vec![(1, 1), (2, 1)]),
+            make_net("(lead)_7fff1234", vec![(3, 1)]),
+            make_net("net_2", vec![(4, 1), (5, 1)]),
+        ];
+        assert!(has_lead_residue(&nets));
+        assert_eq!(count_lead_residues(&nets), 1);
+    }
+
+    #[test]
+    fn no_lead_residue_when_clean() {
+        let nets = vec![
+            make_net("net_0", vec![(1, 1), (2, 1)]),
+            make_net("net_1", vec![(3, 1), (4, 1)]),
+        ];
+        assert!(!has_lead_residue(&nets));
+        assert_eq!(count_lead_residues(&nets), 0);
+    }
+
+    #[test]
+    fn detects_bridge_passive_shorted() {
+        let mut boxes = vec![make_box(1, "C1", 40.0, 40.0, 100.0, 100.0)];
+        boxes[0].visual_role = Some(VisualRole::BridgePassive);
+        boxes[0].entry_points = vec![
+            EntryPoint {
+                pin_id: 1,
+                pin_name: "1".into(),
+                side: EntrySide::Top,
+                offset: 0.5,
+            },
+            EntryPoint {
+                pin_id: 2,
+                pin_name: "2".into(),
+                side: EntrySide::Bottom,
+                offset: 0.5,
+            },
+        ];
+        // Both pins in same net — shorted
+        let nets = vec![make_net("net_0", vec![(1, 1), (1, 2), (2, 1)])];
+        let issues = check_bridge_passive_nets(&boxes, &nets);
+        assert!(!issues.is_empty());
+        assert!(issues[0].contains("shorted"));
+    }
+
+    #[test]
+    fn bridge_passive_ok_when_pins_in_different_nets() {
+        let mut boxes = vec![make_box(1, "C1", 40.0, 40.0, 100.0, 100.0)];
+        boxes[0].visual_role = Some(VisualRole::BridgePassive);
+        boxes[0].entry_points = vec![
+            EntryPoint {
+                pin_id: 1,
+                pin_name: "1".into(),
+                side: EntrySide::Top,
+                offset: 0.5,
+            },
+            EntryPoint {
+                pin_id: 2,
+                pin_name: "2".into(),
+                side: EntrySide::Bottom,
+                offset: 0.5,
+            },
+        ];
+        let nets = vec![
+            make_net("top_lane", vec![(1, 1), (2, 1)]),
+            make_net("bot_lane", vec![(1, 2), (3, 1)]),
+        ];
+        let issues = check_bridge_passive_nets(&boxes, &nets);
+        assert!(issues.is_empty());
     }
 }

@@ -16,7 +16,7 @@
 
 use super::mc_mod::McModuleInst;
 use crate::core::common::IOType;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 // ============================================================================
 // InstKind - Instance entry type
@@ -140,6 +140,9 @@ pub struct InstTable {
     nets: BTreeMap<u32, NetEntry>,
     /// point_id -> net_id (reverse index from endpoint to network)
     point_to_net: HashMap<u32, u32>,
+
+    /// ★ M11.3: full paths of bridge passive components (Transposed 2-pin devices)
+    bridge_passive_paths: HashSet<String>,
 }
 
 impl InstTable {
@@ -152,6 +155,7 @@ impl InstTable {
             net_id_counter: start_id + 100_000, // Network ID and instance ID use separate number spaces
             nets: BTreeMap::new(),
             point_to_net: HashMap::new(),
+            bridge_passive_paths: HashSet::new(),
         }
     }
 
@@ -288,6 +292,11 @@ impl InstTable {
         self.entries.is_empty()
     }
 
+    /// ★ M11.3: check whether a component path is a bridge passive (Transposed 2-pin device)
+    pub fn is_bridge_passive(&self, path: &str) -> bool {
+        self.bridge_passive_paths.contains(path)
+    }
+
     // ====================================================================
     // Network query methods
     // ====================================================================
@@ -408,6 +417,11 @@ impl InstTable {
                 comp.def.name.to_string(),
                 IOType::None,
             );
+
+            // ★ M11.3: record bridge passive full paths
+            if inst.bridge_passive_names.contains(&comp.name) {
+                self.bridge_passive_paths.insert(comp_path.clone());
+            }
 
             // Each pin as an independent entry
             // ★ Use sorted keys to ensure stable pin order

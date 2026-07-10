@@ -42,7 +42,7 @@ use crate::core::basic::mc_param::{McParamBindings, McParamValue};
 use crate::core::common::IOType;
 use crate::core::module::McModule;
 use crate::{current_uri, McURI};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 // ============================================================================
@@ -101,6 +101,9 @@ pub struct McModuleInst {
     /// Records issues encountered during instantiation without interrupting the flow.
     /// The caller can inspect results via `has_errors()` / `all_diagnostics()`.
     pub diagnostics: Vec<InstDiagnostic>,
+
+    /// ★ M11.3: set of component instance names that are Transposed (bridge passive)
+    pub(super) bridge_passive_names: HashSet<String>,
 }
 
 impl McModuleInst {
@@ -135,6 +138,7 @@ impl McModuleInst {
             auto_inst_counter: HashMap::new(),
             auto_inst_map: HashMap::new(),
             diagnostics: Vec::new(),
+            bridge_passive_names: HashSet::new(),
         }
     }
 
@@ -164,6 +168,7 @@ impl McModuleInst {
             auto_inst_counter: HashMap::new(),
             auto_inst_map: HashMap::new(),
             diagnostics: Vec::new(),
+            bridge_passive_names: HashSet::new(),
         })
     }
 
