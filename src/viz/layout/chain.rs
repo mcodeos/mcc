@@ -4,7 +4,7 @@
 
 //! Chain topology detection + linear layout + IC-pin signal chain extraction
 
-use crate::vector::graph::{naming, BoxKind, EntrySide, McVecGraph, NetKind, VizNet};
+use crate::vector::graph::{naming, BoxKind, EntrySide, McVecGraph, NetKind, VisualRole, VizNet};
 use std::collections::{HashMap, HashSet};
 
 // ============================================================================
@@ -190,7 +190,8 @@ impl SignalChainResult {
 // ============================================================================
 
 pub fn find_hub(graph: &McVecGraph) -> Option<i64> {
-    graph
+    // Primary: MultiPin (IC) or SubModule — the canonical signal-chain anchors.
+    if let Some(id) = graph
         .boxes
         .iter()
         .filter(|b| b.id >= 0 && matches!(b.kind, BoxKind::MultiPin | BoxKind::SubModule))
@@ -202,6 +203,23 @@ pub fn find_hub(graph: &McVecGraph) -> Option<i64> {
             };
             tier + b.pin_count.max(b.entry_points.len())
         })
+        .map(|b| b.id)
+    {
+        return Some(id);
+    }
+
+    // Fallback: 2-pin components with clear I/O direction (e.g., test_simple
+    // with `out 3 = A, out 6 = B`). These anchor two-lane bus topologies where
+    // no MultiPin/SubModule exists.
+    graph
+        .boxes
+        .iter()
+        .filter(|b| {
+            b.id >= 0
+                && b.kind == BoxKind::TwoPin
+                && (b.io_summary.inputs > 0 || b.io_summary.outputs > 0)
+        })
+        .max_by_key(|b| b.pin_count.max(b.entry_points.len()))
         .map(|b| b.id)
 }
 
@@ -344,8 +362,11 @@ pub fn extract_signal_chains(graph: &McVecGraph) -> SignalChainResult {
             };
 
             if other_box.kind == BoxKind::TwoPin {
-                let mut visited = HashSet::new();
-                visited.insert(hub_id);
+                // Skip bridge passives — they cross between lanes and are handled
+                // by place_bridge_passives, not by single-lane chain tracing.
+                if other_box.visual_role == Some(VisualRole::BridgePassive) {
+                    continue;
+                }
                 trace_by_box(
                     graph,
                     &box_nets,
@@ -354,7 +375,7 @@ pub fn extract_signal_chains(graph: &McVecGraph) -> SignalChainResult {
                     &mut chain,
                     other.box_id,
                     net.nid,
-                    &mut visited,
+                    &mut chained,
                 );
             } else {
                 chain.terminus = Some(ChainNode {
@@ -433,6 +454,12 @@ fn trace_by_box(
         return;
     }
 
+    // Bridge passives (CAP()') cross between lanes — don't include them in
+    // single-lane chains. place_bridge_passives handles them separately.
+    if b.visual_role == Some(VisualRole::BridgePassive) {
+        return;
+    }
+
     // Add this passive to chain
     chain.nodes.push(ChainNode {
         box_id,
@@ -478,9 +505,21 @@ fn trace_by_box(
             return;
         }
 
-        // Look for next unvisited box on exit net
+        // Look for next unvisited box on exit net.
+        // Skip bridge passives (visual_role == BridgePassive) — they cross
+        // between lanes and should not be part of a single-lane chain.
+        // place_bridge_passives handles them separately.
+        let is_bridge = |bid: i64| -> bool {
+            graph
+                .boxes
+                .iter()
+                .any(|b| b.id == bid && b.visual_role == Some(VisualRole::BridgePassive))
+        };
         if let Some(next) = net.endpoints.iter().find(|e| {
-            e.box_id != box_id && !visited.contains(&e.box_id) && box_set.contains(&e.box_id)
+            e.box_id != box_id
+                && !visited.contains(&e.box_id)
+                && box_set.contains(&e.box_id)
+                && !is_bridge(e.box_id)
         }) {
             trace_by_box(
                 graph,

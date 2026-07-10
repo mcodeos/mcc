@@ -20,6 +20,12 @@ use crate::core::common::IOType;
 use crate::core::mc_inst::McInstance;
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
 
+// ── M11.4: lane item for position-aware bridge pin collection ──
+enum LaneItem<'a> {
+    Series(&'a McPhrase),
+    Bridge(NetPoint),
+}
+
 impl McModuleInst {
     /// Process connection line - accepts McPhrase
     pub(super) fn process_line(&mut self, phrase: &McPhrase) -> Result<(), InstError> {
@@ -47,6 +53,18 @@ impl McModuleInst {
         if shunt.iter().any(|&s| s) {
             self.wire_chain_with_shunts(&members, &shunt);
             return Ok(());
+        }
+
+        // ── M11.1 / M11.4: Lane-by-lane wiring ────────────────────────────
+        // Use lane-by-lane wiring when the chain contains:
+        // - Lead (_) pass-through elements (e.g. [RES, _])
+        // - Standalone Transposed bridge passives (e.g. CAP')
+        // - Parallel with Lead or Transposed (e.g. [RES, _] + CAP')
+        let needs_lane_by_lane = members
+            .iter()
+            .any(|m| Self::member_contains_lead(m) || matches!(m, McPhrase::Transposed(_)));
+        if needs_lane_by_lane {
+            return self.wire_chain_lane_by_lane(&members);
         }
 
         // handle adjacent member connections — per-pair fault-tolerant
@@ -221,6 +239,221 @@ impl McModuleInst {
         }
     }
 
+    // ── M11.2: check if a member contains Lead (recursively into Parallel) ──
+    fn member_contains_lead(member: &McPhrase) -> bool {
+        match member {
+            McPhrase::Multiple(inner) => inner.iter().any(|p| matches!(p, McPhrase::Lead)),
+            McPhrase::Parallel(lines) => lines.iter().any(|l| Self::member_contains_lead(l)),
+            _ => false,
+        }
+    }
+
+    // ── M11.2: determine lane width for a chain member ──
+    fn member_lane_width(&self, member: &McPhrase) -> usize {
+        match member {
+            McPhrase::Multiple(inner) => inner.len(),
+            McPhrase::Parallel(lines) => lines
+                .iter()
+                .map(|l| self.member_lane_width(l))
+                .max()
+                .unwrap_or(1),
+            McPhrase::Transposed(_) => {
+                // Transposed 2-pin components expose each pin as a lane
+                2
+            }
+            // ── M11.5: handle Bus with multiple members as multi-lane ──
+            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                base: McInstance::Bus(ref bus),
+                ..
+            })) if !bus.member.is_empty() => bus.member.len(),
+            _ => 1,
+        }
+    }
+
+    // ── M11.1 / M11.2 / M11.4: Lane-by-lane wiring for chains containing
+    // pass-through (_) or bridge passives (CAP').
+    //
+    // Each lane is wired independently. Lead elements are pass-through identity.
+    // Transposed elements (standalone or inside Parallel) act as bridge passives:
+    // each pin is attached to its corresponding lane net at the correct position
+    // in the chain.
+    //
+    // Example: [a.P, a.N] -> [RES, _] -> [b.P, b.N]
+    //   Lane 0: a.P → RES.1 → RES.2 → b.P
+    //   Lane 1: a.N → b.N  (pass-through, _ skipped)
+    //
+    // Example: [a.P, a.N] -> [RES, _] + CAP' -> [b.P, b.N]
+    //   Lane 0: a.P → RES.1 → RES.2 → b.P, CAP.1 on RES.2~b.P net
+    //   Lane 1: a.N → b.N, CAP.2 on a.N~b.N net
+    //
+    // Example: [a.P, a.N] -> [RES, _] -> CAP' -> [RES, RES] -> [b.P, b.N]
+    //   Lane 0: a.P → RES.1 → RES.2 → b.P, CAP.1 on RES.2~RES net
+    //   Lane 1: a.N → RES → b.N, CAP.2 on a.N~RES net
+    fn wire_chain_lane_by_lane(&mut self, members: &[McPhrase]) -> Result<(), InstError> {
+        let num_lanes = members
+            .iter()
+            .map(|m| self.member_lane_width(m))
+            .max()
+            .unwrap_or(0);
+        if num_lanes == 0 {
+            return Ok(());
+        }
+
+        for lane in 0..num_lanes {
+            // Collect lane items: series elements and bridge pins in order.
+            let items = self.collect_lane_items(members, lane);
+
+            // Extract series elements and their bridge pins.
+            // bridges_at[i] = bridge pins to attach to the net between series[i] and series[i+1].
+            let mut series_elems: Vec<&McPhrase> = Vec::new();
+            let mut bridges_at: Vec<Vec<NetPoint>> = Vec::new();
+            let mut pending_bridges: Vec<NetPoint> = Vec::new();
+
+            for item in &items {
+                match item {
+                    LaneItem::Series(elem) => {
+                        series_elems.push(elem);
+                        // Bridge pins collected before this series element belong to
+                        // the gap between the previous series element and this one.
+                        bridges_at.push(std::mem::take(&mut pending_bridges));
+                    }
+                    LaneItem::Bridge(pin) => {
+                        pending_bridges.push(pin.clone());
+                    }
+                }
+            }
+            // trailing bridges (after last series element) — attach to last gap
+            if !pending_bridges.is_empty() && !bridges_at.is_empty() {
+                let last = bridges_at.last_mut().unwrap();
+                last.extend(std::mem::take(&mut pending_bridges));
+            }
+
+            if series_elems.len() < 2 {
+                // Single series element: attach bridge pins directly to it
+                let all_bridges: Vec<NetPoint> = bridges_at.iter().flatten().cloned().collect();
+                if !all_bridges.is_empty() && series_elems.len() == 1 {
+                    let pts = self.get_left_points(series_elems[0]).unwrap_or_default();
+                    if !pts.is_empty() {
+                        let mut all_pts = vec![pts[0].clone()];
+                        all_pts.extend(all_bridges);
+                        if all_pts.len() >= 2 {
+                            let id = self.next_conn_id();
+                            self.connections.push(ConnectionInst::new(id, all_pts));
+                        }
+                    }
+                }
+                continue;
+            }
+
+            // Wire series elements in order. Bridge pins at position i+1 are
+            // attached to the net between series[i] and series[i+1].
+            // bridges_at[0] = leading bridges, bridges_at[k] = gap between series[k-1] and series[k]
+            let n = series_elems.len();
+            for i in 0..n.saturating_sub(1) {
+                let left_pts = self.get_right_points(series_elems[i]).unwrap_or_default();
+                let right_pts = self
+                    .get_left_points(series_elems[i + 1])
+                    .unwrap_or_default();
+                if left_pts.is_empty() || right_pts.is_empty() {
+                    continue;
+                }
+
+                let bridge_pins = if i + 1 < bridges_at.len() {
+                    &bridges_at[i + 1]
+                } else {
+                    continue;
+                };
+
+                if !bridge_pins.is_empty() {
+                    let mut all_pts = vec![left_pts[0].clone(), right_pts[0].clone()];
+                    all_pts.extend(bridge_pins.iter().cloned());
+                    let id = self.next_conn_id();
+                    self.connections.push(ConnectionInst::new(id, all_pts));
+                } else {
+                    self.create_connection(vec![left_pts[0].clone()], vec![right_pts[0].clone()])?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    // ── M11.4: collect lane items (series elements + bridge pins) preserving order ──
+    fn collect_lane_items<'a>(
+        &mut self,
+        members: &'a [McPhrase],
+        lane: usize,
+    ) -> Vec<LaneItem<'a>> {
+        let mut items: Vec<LaneItem<'a>> = Vec::new();
+        for member in members {
+            self.collect_one_lane_item(member, lane, &mut items);
+        }
+        items
+    }
+
+    fn collect_one_lane_item<'a>(
+        &mut self,
+        member: &'a McPhrase,
+        lane: usize,
+        items: &mut Vec<LaneItem<'a>>,
+    ) {
+        match member {
+            McPhrase::Multiple(inner) => {
+                if lane < inner.len() {
+                    let p = &inner[lane];
+                    if !matches!(p, McPhrase::Lead) {
+                        items.push(LaneItem::Series(p));
+                    }
+                }
+            }
+            McPhrase::Parallel(lines) => {
+                for line in lines {
+                    match line {
+                        McPhrase::Multiple(inner) => {
+                            if lane < inner.len() {
+                                let p = &inner[lane];
+                                if !matches!(p, McPhrase::Lead) {
+                                    items.push(LaneItem::Series(p));
+                                }
+                            }
+                        }
+                        McPhrase::Transposed(_) => {
+                            if let Some(pin) = self.get_transposed_lane_pin(line, lane) {
+                                items.push(LaneItem::Bridge(pin));
+                            }
+                        }
+                        _ => {
+                            if lane == 0 {
+                                items.push(LaneItem::Series(line));
+                            }
+                        }
+                    }
+                }
+            }
+            McPhrase::Transposed(_) => {
+                // M11.4: standalone Transposed in chain acts as bridge passive
+                if let Some(pin) = self.get_transposed_lane_pin(member, lane) {
+                    items.push(LaneItem::Bridge(pin));
+                }
+            }
+            _ => {
+                if lane == 0 {
+                    items.push(LaneItem::Series(member));
+                }
+            }
+        }
+    }
+
+    // ── M11.2: get the pin for a specific lane from a Transposed member ──
+    fn get_transposed_lane_pin(&mut self, member: &McPhrase, lane: usize) -> Option<NetPoint> {
+        let pts = self.get_left_points(member).unwrap_or_default();
+        if lane < pts.len() {
+            Some(pts[lane].clone())
+        } else {
+            None
+        }
+    }
+
     /// Convert McPhrase to expanded McPhrase list
     /// Series is recursively expanded to individual member McPhrases
     pub(super) fn phrase_to_members(&self, phrase: &McPhrase) -> Vec<McPhrase> {
@@ -326,6 +559,12 @@ impl McModuleInst {
                 // upstream AST input and symbol table interaction, large change surface; doing fix-up
                 // at phrase_to_members layer is surgical and can be rolled back cost-free after parser fix.
                 Self::merge_adjacent_curly_split(&mut result);
+
+                // ── M11.5: expand merged multi-member Buses to Multiple ──
+                // After merge_adjacent_curly_split, Buses like dc{VDD_3V3, GND}
+                // may have multiple members.  Expand them to Multiple so
+                // lane-by-lane wiring can handle each lane independently.
+                Self::expand_multi_member_buses(&mut result);
 
                 result
             }
@@ -531,9 +770,26 @@ impl McModuleInst {
                 base: McInstance::Bus(ref data),
                 ..
             })) => {
-                vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
-                    McInstance::Bus(data.clone()),
-                )))]
+                // ── M11.5: expand multi-member Bus to Multiple ──────────────
+                // When a Bus has multiple members (e.g. dc{VDD_3V3, GND}),
+                // expand to Multiple so lane-by-lane wiring can handle each
+                // lane independently.  Single-member buses stay as-is.
+                if data.member.len() > 1 {
+                    let inner: Vec<McPhrase> = data
+                        .member
+                        .iter()
+                        .map(|m| {
+                            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                                McInstance::Bus(McBus::member_ref(&data.name, m.clone())),
+                            )))
+                        })
+                        .collect();
+                    vec![McPhrase::Multiple(inner)]
+                } else {
+                    vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        McInstance::Bus(data.clone()),
+                    )))]
+                }
             }
             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
                 base: McInstance::Label(label),
@@ -660,6 +916,50 @@ impl McModuleInst {
             Some((curr_bus.member.clone(), curr_bus.full_members.clone()))
         } else {
             None
+        }
+    }
+
+    /// ── M11.5: expand multi-member Buses into Multiple ──────────────────
+    /// After merge_adjacent_curly_split, Buses may have multiple members
+    /// (e.g. dc{VDD_3V3, GND}).  Expand them to Multiple so lane-by-lane
+    /// wiring can handle each lane independently.
+    fn expand_multi_member_buses(members: &mut Vec<McPhrase>) {
+        let mut i = 0;
+        while i < members.len() {
+            let should_expand = match &members[i] {
+                McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                    base: McInstance::Bus(bus),
+                    members,
+                })) => {
+                    let n = bus.member.len().max(bus.full_members.len());
+                    n > 1 && members.is_empty()
+                }
+                _ => false,
+            };
+            if should_expand {
+                let old = members.remove(i);
+                if let McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                    base: McInstance::Bus(bus),
+                    ..
+                })) = old
+                {
+                    let names: Vec<String> = if !bus.member.is_empty() {
+                        bus.member.clone()
+                    } else {
+                        bus.full_members.clone()
+                    };
+                    let inner: Vec<McPhrase> = names
+                        .iter()
+                        .map(|m| {
+                            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                                McInstance::Bus(McBus::member_ref(&bus.name, m.clone())),
+                            )))
+                        })
+                        .collect();
+                    members.insert(i, McPhrase::Multiple(inner));
+                }
+            }
+            i += 1;
         }
     }
 
@@ -1278,6 +1578,16 @@ impl McModuleInst {
                     | McPhrase::Lead
                     | McPhrase::Member(_, _) => {
                         self.process_member_internal(inner)?;
+                        // ★ M11.3: record bridge passive instance names from Transposed
+                        if let Some(inst_name) = self.auto_inst_map.get(&Self::member_key(inner)) {
+                            if let Some(stripped) = inst_name.strip_prefix("@@ARRAY:") {
+                                for name in stripped.split(',') {
+                                    self.bridge_passive_names.insert(name.to_string());
+                                }
+                            } else {
+                                self.bridge_passive_names.insert(inst_name.clone());
+                            }
+                        }
                     }
                     _ => {
                         self.process_line(inner)?;

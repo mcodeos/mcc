@@ -19,7 +19,7 @@ use std::collections::HashMap;
 use crate::instant::inst_table::{InstEntry, InstKind, InstTable};
 
 use super::super::model::{ConnectionType, McVecBlock};
-use super::box_def::{BoxPin, CustomSymbol, IoSummary, McVecBox, PinLayout};
+use super::box_def::{BoxPin, CustomSymbol, IoSummary, McVecBox, PinLayout, VisualRole};
 use super::detect::{
     compute_io, detect_kind, detect_symbol, extract_designator, extract_last_segment,
     parse_pin_number, translate_io_type, warn_if_pin_mismatch, DetectedKind,
@@ -172,6 +172,10 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
             );
             b.set_pins(box_pins);
             warn_if_pin_mismatch(&b);
+            // ★ M11.3: propagate bridge passive intent from truth layer
+            if table.is_bridge_passive(&entry.path) {
+                b.visual_role = Some(VisualRole::BridgePassive);
+            }
             apply_reserved_overrides(&mut b); // ★ Reserved: layout / custom symbol (default no-op)
             Some(b)
         }
@@ -307,6 +311,10 @@ fn build_mc_vec_graph_inner(
                 );
                 b.set_pins(box_pins);
                 warn_if_pin_mismatch(&b);
+                // ★ M11.3: propagate bridge passive intent from truth layer
+                if table.is_bridge_passive(&entry.path) {
+                    b.visual_role = Some(VisualRole::BridgePassive);
+                }
                 apply_reserved_overrides(&mut b); // ★ Reserved: layout / custom symbol
                 graph.boxes.push(b);
                 box_ids_set.insert(id);
@@ -642,6 +650,10 @@ fn build_mc_vec_graph_inner(
                             io,
                         );
                         b.set_pins(box_pins);
+                        // ★ M11.3: propagate bridge passive intent from truth layer
+                        if table.is_bridge_passive(&parent_entry.path) {
+                            b.visual_role = Some(VisualRole::BridgePassive);
+                        }
                         graph.boxes.push(b);
                         box_ids_set.insert(parent_id);
                         continue;
