@@ -45,6 +45,14 @@ pub enum SymbolType {
     InterfaceDefinition(DeclareId), // ★ Interface definition
     InterfaceRef(ReferenceId),      // ★ Reference to interface
     PortDefinition(DeclareId),      // ★ Module port definition (ps/io/in/out)
+    // ★ enum support: separate kind for each side, since enum value references
+    //   cannot reuse declare_class / instance_ref. The id carried in lapper
+    //   is the *target* DeclareId (not the reference id), so F12 lookup is
+    //   a direct id-equality match against def entries or the global map.
+    EnumClassDefinition(DeclareId), // `enum PKG {` — class head
+    EnumValueDefinition(DeclareId), // `SOP8,` — body row; id packed as (class<<16 | idx)
+    EnumClassRef(DeclareId),        // `PKG` in `PKG.SOP8`
+    EnumValueRef(DeclareId),        // `SOP8` in `PKG.SOP8`
 }
 pub type SymbolRangeLapper = Lapper<usize, SymbolType>;
 
@@ -158,6 +166,14 @@ pub struct GlobalSymbolTable {
     // ★ LSP: Declare class -> target definition span (cross-file)
     // Used when class_id is from a different file than the reference
     pub declare_id_to_target_span: HashMap<ReferenceId, (McURI, Span)>,
+
+    // ★ LSP: enum global storage
+    // (uri, class_name) -> class_id
+    pub enum_class_name_to_id: HashMap<(McURI, String), DeclareId>,
+    // class_id -> (uri, span) — span of the `enum PKG { ... }` head
+    pub enum_class_id_to_span: HashMap<DeclareId, (McURI, Span)>,
+    // value_id (packed: class_id << 16 | value_idx) -> (uri, span) of the value row
+    pub enum_value_id_to_span: HashMap<DeclareId, (McURI, Span)>,
 }
 
 impl GlobalSymbolTable {
@@ -178,6 +194,10 @@ impl GlobalSymbolTable {
             global_inst_name_to_id: HashMap::new(),
             global_inst_id_to_span: HashMap::new(),
             declare_id_to_target_span: HashMap::new(),
+
+            enum_class_name_to_id: HashMap::new(),
+            enum_class_id_to_span: HashMap::new(),
+            enum_value_id_to_span: HashMap::new(),
         }
     }
     pub fn assign_class_id(&mut self) -> DeclareId {
@@ -189,6 +209,63 @@ impl GlobalSymbolTable {
         let rid = self.declare_class_id_counter;
         self.declare_class_id_counter += 1;
         rid
+    }
+
+    // ★ LSP: enum id helpers
+    /// Pack `(class_id, value_idx)` into a single DeclareId. Top 16 bits
+    /// carry the class id; bottom 16 bits carry the value position in the
+    /// body. This means a class can have up to 65536 values before
+    /// collisions.
+    pub fn pack_enum_value_id(class_id: DeclareId, value_idx: u32) -> DeclareId {
+        let c = class_id._raw;
+        let v = value_idx & 0xFFFF;
+        DeclareId {
+            _raw: ((c & 0xFFFF) << 16) | v,
+        }
+    }
+
+    /// Register an enum class definition (`enum PKG { ... }`).
+    pub fn add_enum_class(&mut self, uri: &McURI, class_name: &str, span: Span) -> DeclareId {
+        // Reuse class_id_counter so enum class ids do not collide with
+        // component / interface / module ids used elsewhere.
+        let cls_id = self.assign_class_id();
+        self.enum_class_name_to_id
+            .insert((uri.clone(), class_name.to_string()), cls_id);
+        self.enum_class_id_to_span
+            .insert(cls_id, (uri.clone(), span));
+        cls_id
+    }
+
+    /// Register an enum value row (`SOP8,` inside `enum PKG { ... }`).
+    /// `value_idx` is the position inside the class body (0-based).
+    pub fn add_enum_value(
+        &mut self,
+        uri: &McURI,
+        class_id: DeclareId,
+        value_idx: u32,
+        span: Span,
+    ) -> DeclareId {
+        let value_id = Self::pack_enum_value_id(class_id, value_idx);
+        self.enum_value_id_to_span
+            .insert(value_id, (uri.clone(), span));
+        value_id
+    }
+
+    /// Look up enum class id by (uri, class_name). Returns None if absent.
+    pub fn lookup_enum_class(&self, uri: &McURI, class_name: &str) -> Option<DeclareId> {
+        self.enum_class_name_to_id
+            .get(&(uri.clone(), class_name.to_string()))
+            .copied()
+    }
+
+    /// Look up enum class span by class_id.
+    pub fn enum_class_span(&self, class_id: DeclareId) -> Option<&(McURI, Span)> {
+        self.enum_class_id_to_span.get(&class_id)
+    }
+
+    /// Look up enum value span by value_id.
+    pub fn enum_value_span(&self, value_id: DeclareId) -> Option<&(McURI, Span)> {
+        self.enum_value_id_to_span.get(&value_id)
     }
 
     pub fn add_class(&mut self, uri: &McURI, class_name: &String, span: Span) -> DeclareId {
@@ -277,6 +354,10 @@ impl GlobalSymbolTable {
             global_inst_name_to_id: HashMap::new(),
             global_inst_id_to_span: HashMap::new(),
             declare_id_to_target_span: HashMap::new(),
+
+            enum_class_name_to_id: HashMap::new(),
+            enum_class_id_to_span: HashMap::new(),
+            enum_value_id_to_span: HashMap::new(),
         };
     }
 
@@ -345,6 +426,10 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
                 SymbolType::InterfaceDefinition(id) => ("interface_definition", id._raw),
                 SymbolType::InterfaceRef(id) => ("interface_ref", id._raw),
                 SymbolType::PortDefinition(id) => ("port_definition", id._raw),
+                SymbolType::EnumClassDefinition(id) => ("enum_class_def", id._raw),
+                SymbolType::EnumValueDefinition(id) => ("enum_value_def", id._raw),
+                SymbolType::EnumClassRef(id) => ("enum_class_ref", id._raw),
+                SymbolType::EnumValueRef(id) => ("enum_value_ref", id._raw),
             };
             let scope = symbols
                 .symbol_scope

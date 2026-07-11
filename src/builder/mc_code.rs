@@ -812,6 +812,34 @@ impl McCode {
                             }
                             MCAST_ENUM => {
                                 if let Some(enum_def) = McEnumDef::new(&node, &self.uri) {
+                                    // ★ LSP: register class + values in global table before
+                                    //   moving enum_def into Arc, so the value spans remain
+                                    //   accessible here. Clone out everything we need first
+                                    //   because add_* methods take &mut self.
+                                    let self_uri = self.uri.clone();
+                                    let class_name_str = enum_def.name.to_string();
+                                    let class_span =
+                                        enum_def.span[0] as usize..enum_def.span[1] as usize;
+                                    let value_spans: Vec<(usize, usize)> = enum_def
+                                        .values
+                                        .iter()
+                                        .map(|v| (v.span[0] as usize, v.span[1] as usize))
+                                        .collect();
+                                    if let Some(class_id) = self.add_enum_class(
+                                        &self_uri,
+                                        &class_name_str,
+                                        class_span.clone(),
+                                    ) {
+                                        for (idx, (vs, ve)) in value_spans.iter().enumerate() {
+                                            self.add_enum_value(
+                                                &self_uri,
+                                                class_id,
+                                                idx as u32,
+                                                *vs..*ve,
+                                            );
+                                        }
+                                    }
+
                                     let space_name = McSpaceName {
                                         ident: enum_def.name.clone(),
                                         uri: self.uri.clone(),
@@ -939,6 +967,23 @@ impl McCode {
                 }
                 MCAST_ENUM => {
                     if let Some(enum_def) = McEnumDef::new(&node, &self.uri) {
+                        // ★ LSP: register class + values in global table before the move.
+                        let self_uri = self.uri.clone();
+                        let class_name_str = enum_def.name.to_string();
+                        let class_span = enum_def.span[0] as usize..enum_def.span[1] as usize;
+                        let value_spans: Vec<(usize, usize)> = enum_def
+                            .values
+                            .iter()
+                            .map(|v| (v.span[0] as usize, v.span[1] as usize))
+                            .collect();
+                        if let Some(class_id) =
+                            self.add_enum_class(&self_uri, &class_name_str, class_span.clone())
+                        {
+                            for (idx, (vs, ve)) in value_spans.iter().enumerate() {
+                                self.add_enum_value(&self_uri, class_id, idx as u32, *vs..*ve);
+                            }
+                        }
+
                         let space_name = McSpaceName {
                             ident: enum_def.name.clone(),
                             uri: self.uri.clone(),
@@ -1089,6 +1134,59 @@ impl McCode {
             }
         }
     }
+
+    /// Register an enum class definition (`enum PKG { ... }`) in the global
+    /// table so `enum_class_def` lapper entries can resolve cross-file.
+    /// Returns the assigned DeclareId, or None on lock failure.
+    pub fn add_enum_class(
+        &mut self,
+        uri: &McURI,
+        class_name: &str,
+        span: Span,
+    ) -> Option<DeclareId> {
+        let result = match self.symbols.lock() {
+            Ok(sem) => match sem.global_table.lock() {
+                Ok(mut gt) => Some(gt.add_enum_class(uri, class_name, span.clone())),
+                Err(e) => {
+                    tracing::error!(target: "mcc::code", error = %e, "global_table mutex poisoned (add_enum_class)");
+                    None
+                }
+            },
+            Err(e) => {
+                tracing::error!(target: "mcc::code", error = %e, "symbols mutex poisoned (add_enum_class)");
+                None
+            }
+        };
+        if let Some(class_id) = result {
+            tracing::info!(target: "mcc::lsp", "  add_enum_class: registered '{}' in '{}' -> class_id={:?} span={:?}", class_name, uri, class_id, span);
+        }
+        result
+    }
+
+    /// Register an enum value row (`SOP8,` inside `enum PKG { ... }`) in the
+    /// global table. `value_idx` is the position inside the body (0-based).
+    /// Returns the packed value_id (class_id << 16 | value_idx), or None.
+    pub fn add_enum_value(
+        &mut self,
+        uri: &McURI,
+        class_id: DeclareId,
+        value_idx: u32,
+        span: Span,
+    ) -> Option<DeclareId> {
+        match self.symbols.lock() {
+            Ok(sem) => match sem.global_table.lock() {
+                Ok(mut gt) => Some(gt.add_enum_value(uri, class_id, value_idx, span)),
+                Err(e) => {
+                    tracing::error!(target: "mcc::code", error = %e, "global_table mutex poisoned (add_enum_value)");
+                    None
+                }
+            },
+            Err(e) => {
+                tracing::error!(target: "mcc::code", error = %e, "symbols mutex poisoned (add_enum_value)");
+                None
+            }
+        }
+    }
     pub fn add_declare_inst(&self, span: Span) -> Option<DeclareId> {
         self.add_declare_inst_with_name(span, None)
     }
@@ -1203,6 +1301,32 @@ impl McCode {
                                     start: span.start,
                                     stop: span.end,
                                     val: SymbolType::DeclareClass(*refid),
+                                });
+                            }
+                        }
+
+                        // ★ LSP: enum class + value defs — emit to lapper so cursor on the
+                        //   `enum PKG {` line or the `SOP8,` row self-locates (matches the
+                        //   existing `class_definition` / `port_definition` self-resolution
+                        //   pattern in gotodef).
+                        for ((uri, _name), class_id) in gt.enum_class_name_to_id.iter() {
+                            if uri != &self.uri {
+                                continue;
+                            }
+                            if let Some((_u, span)) = gt.enum_class_id_to_span.get(class_id) {
+                                symbol_lapper.insert(Interval {
+                                    start: span.start,
+                                    stop: span.end,
+                                    val: SymbolType::EnumClassDefinition(*class_id),
+                                });
+                            }
+                        }
+                        for (value_id, (uri, span)) in gt.enum_value_id_to_span.iter() {
+                            if uri == &self.uri {
+                                symbol_lapper.insert(Interval {
+                                    start: span.start,
+                                    stop: span.end,
+                                    val: SymbolType::EnumValueDefinition(*value_id),
                                 });
                             }
                         }
@@ -1391,6 +1515,184 @@ impl McCode {
                 }
 
                 tracing::info!(target: "mcc::lsp", "create_lapper: {} decls, {} local_refs, {} global_refs, lapper len={}", decl_count, ref_count, global_ref_count, symbol_lapper.len());
+
+                // ★ LSP: emit enum reference entries for qualified refs like
+                //   `package = PKG.SOP8`. We walk the AST for `MCAST_ATTRIBUTE`
+                //   whose `key` is `package` (or `pkg`), and inspect each value
+                //   OPD. When a value has the form `A.B` and `A` matches a known
+                //   enum class while `B` matches one of its values, we push:
+                //     - `enum_class_ref` at A's span, target = class_id
+                //     - `enum_value_ref` at B's span, target = packed_value_id
+                {
+                    use crate::ast::ast_semantic::GlobalSymbolTable;
+                    use rust_lapper::Interval;
+
+                    fn attr_key_name(attr_node: &AstNode) -> Option<String> {
+                        let sub = attr_node.get_sub_node()?;
+                        let ids_node = sub.get_sub_node()?;
+                        crate::core::basic::mc_ids::McIds::new(&ids_node).map(|ids| ids.to_string())
+                    }
+
+                    fn extract_dot_pair(
+                        value_node: &AstNode,
+                    ) -> Option<(
+                        String,
+                        String,
+                        u32, /*base_start*/
+                        u32, /*base_end*/
+                        u32, /*member_start*/
+                        u32, /*member_end*/
+                    )> {
+                        use crate::ast::c_macros::{MCAST_ID, MCAST_IDS, MCAST_OPD_DOT};
+                        // Get the inner MCAST_IDS, unwrapping MCAST_OPD if present.
+                        let ids_node = if value_node.is_type(crate::ast::c_macros::MCAST_OPD) {
+                            value_node.get_sub_node()?
+                        } else if value_node.is_type(MCAST_IDS) {
+                            value_node.clone()
+                        } else {
+                            return None;
+                        };
+                        if !ids_node.is_type(MCAST_IDS) {
+                            return None;
+                        }
+                        // MCAST_IDS children: MCAST_ID("PKG"), MCAST_OPD_DOT->MCAST_ID("QFN20")
+                        let mut children = ids_node.get_sub_node()?.iter();
+                        let first_id = children.next()?;
+                        if !first_id.is_type(MCAST_ID) && first_id.get_type() != 7 {
+                            // 7 = MCAST_IDA
+                            return None;
+                        }
+                        let dot_node = children.next()?;
+                        if !dot_node.is_type(MCAST_OPD_DOT) {
+                            return None;
+                        }
+                        let member_node = dot_node.get_sub_node()?;
+                        let (base_name, member_name) = {
+                            let base = crate::core::basic::mc_ids::McIds::new(&first_id)
+                                .map(|i| i.to_string())?;
+                            let mem = crate::core::basic::mc_ids::McIds::new(&member_node)
+                                .map(|i| i.to_string())?;
+                            (base, mem)
+                        };
+                        let base_start = first_id.get_pos();
+                        let base_end = base_start + first_id.get_len();
+                        let member_start = member_node.get_pos();
+                        let member_end = member_start + member_node.get_len();
+                        Some((
+                            base_name,
+                            member_name,
+                            base_start,
+                            base_end,
+                            member_start,
+                            member_end,
+                        ))
+                    }
+
+                    fn single_id_text(node: &AstNode) -> Option<String> {
+                        crate::core::basic::mc_ids::McIds::new(node).map(|ids| ids.to_string())
+                    }
+
+                    'outer: for attr_node in self.ast.iter() {
+                        if !attr_node.is_type(MCAST_ATTRIBUTE) {
+                            continue;
+                        }
+                        let key_name = match attr_key_name(&attr_node) {
+                            Some(k) => k,
+                            None => continue,
+                        };
+                        if key_name != "package" && key_name != "pkg" {
+                            continue;
+                        }
+                        let att_id = match attr_node.get_sub_node() {
+                            Some(s) => s,
+                            None => continue,
+                        };
+                        let values_node = match att_id.get_next() {
+                            Some(v) => v,
+                            None => continue,
+                        };
+                        if !values_node.is_type(MCAST_ATT_VALUES) {
+                            continue;
+                        }
+                        let values_sub = match values_node.get_sub_node() {
+                            Some(s) => s,
+                            None => continue,
+                        };
+                        for opd_node in values_sub.iter() {
+                            let parsed = match extract_dot_pair(&opd_node) {
+                                Some(p) => p,
+                                None => continue,
+                            };
+                            let (
+                                base_name,
+                                member_name,
+                                base_start,
+                                base_end,
+                                member_start,
+                                member_end,
+                            ) = parsed;
+
+                            // Resolve class_id via global table.
+                            let (class_id, value_idx) = {
+                                let gt = match sem.global_table.lock() {
+                                    Ok(g) => g,
+                                    Err(_) => continue 'outer,
+                                };
+                                let class_id_opt =
+                                    gt.lookup_enum_class(&self.uri, &base_name).or_else(|| {
+                                        let mut found = None;
+                                        for ((_uri, name), cid) in gt.enum_class_name_to_id.iter() {
+                                            if name == &base_name {
+                                                found = Some(*cid);
+                                                break;
+                                            }
+                                        }
+                                        found
+                                    });
+                                let class_id = match class_id_opt {
+                                    Some(c) => c,
+                                    None => continue,
+                                };
+                                drop(gt);
+                                let enums_guard =
+                                    crate::builder::workspace::WORKSPACE.enums.borrow();
+                                let mut idx = None;
+                                for entry in enums_guard.iter() {
+                                    if entry.key().ident.to_string() != base_name {
+                                        continue;
+                                    }
+                                    for (i, v) in entry.value().values.iter().enumerate() {
+                                        if v.name.to_string() == member_name {
+                                            idx = Some(i as u32);
+                                            break;
+                                        }
+                                    }
+                                    break;
+                                }
+                                match idx {
+                                    Some(i) => (class_id, i),
+                                    None => continue,
+                                }
+                            };
+                            let value_id =
+                                GlobalSymbolTable::pack_enum_value_id(class_id, value_idx);
+
+                            symbol_lapper.insert(Interval {
+                                start: base_start as usize,
+                                stop: base_end as usize,
+                                val: SymbolType::EnumClassRef(class_id),
+                            });
+                            symbol_lapper.insert(Interval {
+                                start: member_start as usize,
+                                stop: member_end as usize,
+                                val: SymbolType::EnumValueRef(value_id),
+                            });
+                            tracing::debug!(target: "mcc::enum_ref",
+                                "pushed enum_class_ref+enum_value_ref for {base_name}.{member_name} (class_id={class_id:?}, value_id={value_id:?})");
+                        }
+                    }
+                }
+
                 sem.symbol_lapper = symbol_lapper;
             }
             Err(e) => {
