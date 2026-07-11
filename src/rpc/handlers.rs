@@ -21,14 +21,14 @@
 //!   - `build.full`             Run Pass1 + Pass2 based on the active workspace    
 //!
 //! ## Error codes (extended JSON-RPC standard)
-//!   - -32100  IO / FS error
-//!   - -32101  workspace conflict / cannot create
-//!   - -32102  workspace does not exist
-//!   - -32103  archive / decode failed
-//!   - -32104  unsupported format
-//!   - -32105  entry file not found
-//!   - -32106  dependency not loaded
-//!   - -32107  Pass1 / Pass2 failed
+//!   - 32100  IO / FS error
+//!   - 32101  workspace conflict / cannot create
+//!   - 32102  workspace does not exist
+//!   - 32103  archive / decode failed
+//!   - 32104  unsupported format
+//!   - 32105  entry file not found
+//!   - 32106  dependency not loaded
+//!   - 32107  Pass1 / Pass2 failed
 
 use super::protocol::{JsonRpcError, RpcResult};
 use crate::builder::mc_code::McCode;
@@ -123,7 +123,7 @@ pub fn handle_project_info(params: Option<Value>) -> RpcResult {
     let name = parse_string_param(params, &["name", "project"])?;
     let pdir = project_dir(&name);
     if !pdir.exists() {
-        return Err(JsonRpcError::custom(-32102, "project not found"));
+        return Err(JsonRpcError::custom(32102, "project not found"));
     }
     let (active_id, _, _) = crate::workspace_info();
     Ok(json!({
@@ -269,7 +269,7 @@ pub fn handle_lib_load(params: Option<Value>) -> RpcResult {
     let name = parse_string_param(params, &["name", "lib"])?;
     let root = resolve_lib_root(&name)?;
     if !crate::mcb_load_lib(&name, &root) {
-        return Err(JsonRpcError::custom(-32107, "lib load failed"));
+        return Err(JsonRpcError::custom(32107, "lib load failed"));
     }
     let info = crate::mcb_lib_info(&name);
     Ok(json!({
@@ -395,7 +395,7 @@ pub fn handle_build_full(params: Option<Value>) -> RpcResult {
     let _root = PathBuf::from(&root_str);
     let entry_path = match kind.as_str() {
         "Project" => resolve_project_entry(&id, p.entry.as_deref())?,
-        _ => return Err(JsonRpcError::custom(-32102, "unknown workspace kind")),
+        _ => return Err(JsonRpcError::custom(32102, "unknown workspace kind")),
     };
     let top = p.top.or_else(read_project_top_from_workspace);
     run_full_build(
@@ -521,7 +521,7 @@ fn run_full_build(
         Some(t) => t.to_string(),
         None => crate::mcb_get_module_name_by_uri(&mc_uri)
             .or_else(crate::mcb_get_first_module_name)
-            .ok_or_else(|| JsonRpcError::custom(-32107, "no top module found"))?,
+            .ok_or_else(|| JsonRpcError::custom(32107, "no top module found"))?,
     };
 
     // Pass2
@@ -608,7 +608,7 @@ fn resolve_virtual_entry(
         .keys()
         .find(|k| k.ends_with(".mc"))
         .cloned()
-        .ok_or_else(|| JsonRpcError::custom(-32105, "no .mc entry found"))
+        .ok_or_else(|| JsonRpcError::custom(32105, "no .mc entry found"))
 }
 
 /// Load all files from memory and execute Pass1
@@ -695,7 +695,7 @@ fn run_full_build_from_memory(
         Some(t) => t.to_string(),
         None => crate::mcb_get_module_name_by_uri(&mc_uri)
             .or_else(crate::mcb_get_first_module_name)
-            .ok_or_else(|| JsonRpcError::custom(-32107, "no top module found"))?,
+            .ok_or_else(|| JsonRpcError::custom(32107, "no top module found"))?,
     };
 
     // Pass2
@@ -1094,7 +1094,7 @@ fn extract_from_uri(entry: &Path, top: Option<&str>, target: &str) -> RpcResult 
         Some(t) => t.to_string(),
         None => crate::mcb_get_module_name_by_uri(&mc_uri)
             .or_else(crate::mcb_get_first_module_name)
-            .ok_or_else(|| JsonRpcError::custom(-32107, "no top module found"))?,
+            .ok_or_else(|| JsonRpcError::custom(32107, "no top module found"))?,
     };
 
     match target {
@@ -1165,7 +1165,7 @@ fn extract_from_uri(entry: &Path, top: Option<&str>, target: &str) -> RpcResult 
                         .collect();
                     Ok(json!({ "target": "nets", "items": items }))
                 }
-                Ok(Err(e)) => Err(JsonRpcError::custom(-32107, &format!("build failed: {e}"))),
+                Ok(Err(e)) => Err(JsonRpcError::custom(32107, &format!("build failed: {e}"))),
                 Err(_) => Err(JsonRpcError::custom(
                     -32108,
                     "extract nets: Pass2 build panicked (engine bug); request aborted, server kept alive",
@@ -1227,7 +1227,7 @@ fn parse_string_param(params: Option<Value>, keys: &[&str]) -> Result<String, Js
 }
 
 fn io_err(e: std::io::Error) -> JsonRpcError {
-    JsonRpcError::custom(-32100, &format!("io error: {e}"))
+    JsonRpcError::custom(32100, &format!("io error: {e}"))
 }
 
 // ============================================================================
@@ -1287,7 +1287,7 @@ fn extract_archive(
     use base64::Engine;
     let data = base64::engine::general_purpose::STANDARD
         .decode(data_b64)
-        .map_err(|e| JsonRpcError::custom(-32103, &format!("base64 decode: {e}")))?;
+        .map_err(|e| JsonRpcError::custom(32103, &format!("base64 decode: {e}")))?;
     match format {
         "tar.gz" | "tgz" => extract_tar_gz(&data, dest, strip),
         "tar" => extract_tar(&data, dest, strip),
@@ -1320,13 +1320,13 @@ fn extract_tar_entries<R: std::io::Read>(
     let mut extracted = Vec::new();
     let entries = archive
         .entries()
-        .map_err(|e| JsonRpcError::custom(-32103, &format!("tar entries: {e}")))?;
+        .map_err(|e| JsonRpcError::custom(32103, &format!("tar entries: {e}")))?;
     for entry in entries {
         let mut entry =
-            entry.map_err(|e| JsonRpcError::custom(-32103, &format!("tar entry: {e}")))?;
+            entry.map_err(|e| JsonRpcError::custom(32103, &format!("tar entry: {e}")))?;
         let entry_path = entry
             .path()
-            .map_err(|e| JsonRpcError::custom(-32103, &format!("tar path: {e}")))?
+            .map_err(|e| JsonRpcError::custom(32103, &format!("tar path: {e}")))?
             .to_path_buf();
         let stripped: PathBuf = entry_path.components().skip(strip).collect();
         if stripped.as_os_str().is_empty() {
@@ -1349,7 +1349,7 @@ fn extract_tar_entries<R: std::io::Read>(
         }
         entry
             .unpack(&target)
-            .map_err(|e| JsonRpcError::custom(-32103, &format!("unpack: {e}")))?;
+            .map_err(|e| JsonRpcError::custom(32103, &format!("unpack: {e}")))?;
         extracted.push(stripped.to_string_lossy().to_string());
     }
     Ok(extracted)
@@ -1363,7 +1363,7 @@ fn resolve_project_entry(_name: &str, entry: Option<&str>) -> Result<PathBuf, Js
     // Prefer src/ directory
     if let Some(rel) = entry {
         if !is_safe_relative(rel) {
-            return Err(JsonRpcError::custom(-32105, "unsafe entry path"));
+            return Err(JsonRpcError::custom(32105, "unsafe entry path"));
         }
         // Search in src/
         let p = src_root.join(rel);
@@ -1401,7 +1401,7 @@ fn resolve_project_entry(_name: &str, entry: Option<&str>) -> Result<PathBuf, Js
     if let Some(rel) = found.first() {
         return Ok(src_root.join(rel));
     }
-    Err(JsonRpcError::custom(-32105, "no .mc entry found in src/"))
+    Err(JsonRpcError::custom(32105, "no .mc entry found in src/"))
 }
 
 fn scan_mc_files_recursive(root: &Path, current: &Path, out: &mut Vec<String>) {
@@ -1475,7 +1475,7 @@ fn activate_workspace(name: &str) -> Result<(), JsonRpcError> {
         return Ok(());
     }
     if !crate::workspace_switch(name) {
-        return Err(JsonRpcError::custom(-32102, "workspace not found"));
+        return Err(JsonRpcError::custom(32102, "workspace not found"));
     }
     Ok(())
 }
@@ -1492,7 +1492,7 @@ fn resolve_lib_root(name: &str) -> Result<PathBuf, JsonRpcError> {
         if sibling.exists() {
             return Ok(sibling);
         }
-        return Err(JsonRpcError::custom(-32102, "mcode dir not found"));
+        return Err(JsonRpcError::custom(32102, "mcode dir not found"));
     }
     let tp = mcc_system_root();
     if tp.exists() {
@@ -1921,7 +1921,7 @@ pub fn handle_sem(params: Option<Value>) -> RpcResult {
         let result = try_lookup_sem(&[McURI::from(&canonical_uri)]);
         // ★ Fix: DON'T remove the entry - mcc_query needs it for goto_definition
         // crate::builder::workspace::WORKSPACE.mcodes.borrow().remove(&McURI::from(&canonical_uri));
-        return result.ok_or_else(|| JsonRpcError::custom(-32100, "parse from string failed"));
+        return result.ok_or_else(|| JsonRpcError::custom(32100, "parse from string failed"));
     }
 
     // Build candidate URIs: exact match + relative path (strip project root from absolute)
@@ -1955,11 +1955,11 @@ pub fn handle_sem(params: Option<Value>) -> RpcResult {
         if workspace_empty && raw_path.is_absolute() {
             auto_load_from_file_path(raw_path);
             return try_lookup_sem(&candidates)
-                .ok_or_else(|| JsonRpcError::custom(-32100, "file not found in workspace"));
+                .ok_or_else(|| JsonRpcError::custom(32100, "file not found in workspace"));
         }
     }
 
-    result.ok_or_else(|| JsonRpcError::custom(-32100, "file not found in workspace"))
+    result.ok_or_else(|| JsonRpcError::custom(32100, "file not found in workspace"))
 }
 
 /// Detect project root from a file path and load the project
