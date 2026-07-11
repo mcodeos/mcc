@@ -1551,6 +1551,44 @@ pub fn mcb_iter_enums() -> Vec<(String, String)> {
     items
 }
 
+/// Same as `mcb_iter_enums`, but also returns the class span
+/// `[start, end)` of the `enum PKG { ... }` head — needed by LSP
+/// gotodef to know where to land when jumping to the class itself.
+pub fn mcb_iter_enums_with_span() -> Vec<(String, String, [u32; 2])> {
+    let mut items: Vec<(String, String, [u32; 2])> = workspace::WORKSPACE
+        .enums
+        .borrow()
+        .iter()
+        .map(|entry| {
+            let name = entry.key().ident.to_string();
+            let uri = entry.key().uri.clone();
+            let span = entry.value().span;
+            (name, uri, span)
+        })
+        .collect();
+    items.sort_by(|a, b| a.0.cmp(&b.0));
+    items
+}
+
+/// Iterate all enum value rows project-wide.
+/// Returns `Vec<(class, value, uri, [u32;2])>` sorted by class then value.
+pub fn mcb_iter_enum_values() -> Vec<(String, String, String, [u32; 2])> {
+    let mut items: Vec<(String, String, String, [u32; 2])> = Vec::new();
+    let enums_guard = workspace::WORKSPACE.enums.borrow();
+    for entry in enums_guard.iter() {
+        let class = entry.key().ident.to_string();
+        let uri = entry.key().uri.clone();
+        let enum_def = entry.value();
+        for v in enum_def.values.iter() {
+            let value_name = v.name.to_string();
+            items.push((class.clone(), value_name, uri.clone(), v.span));
+        }
+    }
+    drop(enums_guard);
+    items.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    items
+}
+
 /// Iterate all module port definitions (ps/io/in/out).
 /// Returns Vec of (port_name, iotype, module_name, uri).
 pub fn mcb_iter_ports() -> Vec<(String, String, String, String)> {
@@ -1797,19 +1835,40 @@ pub fn mcb_register_instance_ref(uri: &McURI, span: Span, decl_id: DeclareId, sc
 /// Registers the class reference so LSP can jump from the reference to the class definition.
 pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
     // Step 1: Find (class_id, target_uri, target_span) — try global_class_table first
+    // Priority: same URI as reference > other URIs (for duplicate class definitions)
+    let uri_str = uri.to_string();
     let found = {
         let class_table = workspace::WORKSPACE.global_class_table.lock().unwrap();
         tracing::debug!(target: "mcc::lsp", "  register_declare_class: global_class_table size={}", class_table.len());
-        let result =
+
+        // First try: exact URI match (same file as reference)
+        let same_uri_result =
             class_table
                 .iter()
                 .find_map(|((target_uri, name), &(class_id, ref target_span))| {
-                    if name == class_name {
+                    if name == class_name && target_uri == &uri_str {
                         Some((class_id, target_uri.clone(), target_span.clone()))
                     } else {
                         None
                     }
                 });
+
+        // Second try: different URI (fallback for cross-file references)
+        let other_uri_result = if same_uri_result.is_none() {
+            class_table
+                .iter()
+                .find_map(|((target_uri, name), &(class_id, ref target_span))| {
+                    if name == class_name && target_uri != &uri_str {
+                        Some((class_id, target_uri.clone(), target_span.clone()))
+                    } else {
+                        None
+                    }
+                })
+        } else {
+            None
+        };
+
+        let result = same_uri_result.or(other_uri_result);
         if result.is_none() {
             tracing::debug!(target: "mcc::lsp", "  register_declare_class: global_class_table miss for '{}'", class_name);
         } else {

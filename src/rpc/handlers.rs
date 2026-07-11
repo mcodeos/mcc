@@ -2305,10 +2305,11 @@ pub fn handle_diagnostics(params: Option<Value>) -> RpcResult {
     Ok(serde_json::json!({ "diagnostics": diags }))
 }
 
-/// Handle project_symbols RPC - return project-wide symbols (components, interfaces, enums, modules)
+/// Handle project_symbols RPC - return project-wide symbols (components, interfaces, enums, modules, enum_values)
 pub fn handle_project_symbols(_params: Option<Value>) -> RpcResult {
     use crate::builder::main::{
-        mcb_iter_components, mcb_iter_enums, mcb_iter_interfaces, mcb_iter_modules,
+        mcb_iter_components, mcb_iter_enum_values, mcb_iter_enums_with_span, mcb_iter_interfaces,
+        mcb_iter_modules,
     };
 
     let components: Vec<serde_json::Value> = mcb_iter_components()
@@ -2321,9 +2322,15 @@ pub fn handle_project_symbols(_params: Option<Value>) -> RpcResult {
         .map(|(name, uri)| serde_json::json!({ "name": name, "uri": uri }))
         .collect();
 
-    let enums: Vec<serde_json::Value> = mcb_iter_enums()
+    let enums: Vec<serde_json::Value> = mcb_iter_enums_with_span()
         .into_iter()
-        .map(|(name, uri)| serde_json::json!({ "name": name, "uri": uri }))
+        .map(|(name, uri, span)| {
+            serde_json::json!({
+                "name": name,
+                "uri": uri,
+                "span": [span[0], span[1]],
+            })
+        })
         .collect();
 
     let modules: Vec<serde_json::Value> = mcb_iter_modules()
@@ -2331,11 +2338,26 @@ pub fn handle_project_symbols(_params: Option<Value>) -> RpcResult {
         .map(|(name, uri)| serde_json::json!({ "name": name, "uri": uri }))
         .collect();
 
+    // Per-value rows so the extension can do (class, value) -> uri+span lookup
+    // for F12 on the value half of `PKG.SOP8`.
+    let enum_values: Vec<serde_json::Value> = mcb_iter_enum_values()
+        .into_iter()
+        .map(|(class, name, uri, span)| {
+            serde_json::json!({
+                "class": class,
+                "name": name,
+                "uri": uri,
+                "span": [span[0], span[1]],
+            })
+        })
+        .collect();
+
     Ok(serde_json::json!({
         "components": components,
         "interfaces": interfaces,
         "enums": enums,
         "modules": modules,
+        "enum_values": enum_values,
     }))
 }
 
