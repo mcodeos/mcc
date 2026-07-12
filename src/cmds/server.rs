@@ -205,7 +205,10 @@ pub fn run_start(args: &StartArgs) -> Result<()> {
 pub fn run_server_internal(host: &str, port: u16, libs: &[String]) -> Result<()> {
     // Skip is_server_running check (since this is internal startup)
     mcc::mcc_set_system_root(data_dir::data_root().as_path());
-    mcc::mcc_init_no_lib();
+    // Load system libraries (e.g. mcode) according to config (libs.load).
+    // Previously this used mcc_init_no_lib(), which skipped mcode loading and
+    // caused enum PKG (and other system symbols) to be missing for LSP gotodef.
+    mcc::mcc_init();
     if !libs.is_empty() {
         crate::cmds::manifest::load_libs(libs);
     }

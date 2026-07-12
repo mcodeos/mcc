@@ -51,7 +51,7 @@
     #include "lex.h"
     #include "common.h"
     struct YYLTYPE;
-    void mca_error(struct YYLTYPE *loc, mc_value* mcast, const char *msg);
+    void mca_error(struct YYLTYPE *_loc, mc_value* mcast, const char *msg);
     extern mc_lex_token* g_last_token;
     #define YYMAXDEPTH 2000000
 # ifndef YY_CAST
@@ -5415,7 +5415,8 @@ yypdumpstack (yyGLRStack* yystackp)
 #define yydebug mca_debug
 #define yynerrs mca_nerrs
 #define yylloc  mca_lloc
-void mca_error(struct YYLTYPE *loc, mc_value* mcast, const char *msg) {
+void mca_error(struct YYLTYPE *_loc, mc_value* mcast, const char *msg) {
+    (void)_loc;
     (void)mcast;
     (void)msg;
     

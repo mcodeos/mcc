@@ -1592,7 +1592,26 @@ impl McCode {
                         crate::core::basic::mc_ids::McIds::new(node).map(|ids| ids.to_string())
                     }
 
-                    'outer: for attr_node in self.ast.iter() {
+                    // `AstNode::iter()` only walks sibling nodes (via `.next`), it does
+                    // NOT descend into children (`.sub`). Attributes like
+                    // `package = PKG.QFN20` are nested inside `component { ... }` /
+                    // `class { ... }` bodies, so a flat top-level scan misses them.
+                    // Collect every reachable node via an explicit DFS first.
+                    let all_ast_nodes: Vec<AstNode> = {
+                        let mut acc: Vec<AstNode> = Vec::new();
+                        let mut stack: Vec<AstNode> = self.ast.iter().collect();
+                        while let Some(node) = stack.pop() {
+                            if let Some(sub) = node.get_sub_node() {
+                                for child in sub.iter() {
+                                    stack.push(child);
+                                }
+                            }
+                            acc.push(node);
+                        }
+                        acc
+                    };
+
+                    'outer: for attr_node in all_ast_nodes.iter().cloned() {
                         if !attr_node.is_type(MCAST_ATTRIBUTE) {
                             continue;
                         }
@@ -1654,9 +1673,13 @@ impl McCode {
                                     None => continue,
                                 };
                                 drop(gt);
+
+                                // Search enum values in both workspace and system library
+                                let mut idx = None;
+
+                                // First search workspace enums
                                 let enums_guard =
                                     crate::builder::workspace::WORKSPACE.enums.borrow();
-                                let mut idx = None;
                                 for entry in enums_guard.iter() {
                                     if entry.key().ident.to_string() != base_name {
                                         continue;
@@ -1669,6 +1692,26 @@ impl McCode {
                                     }
                                     break;
                                 }
+                                drop(enums_guard);
+
+                                // If not found, search system library enums
+                                if idx.is_none() {
+                                    let sys_enums_guard =
+                                        crate::builder::global::mcc_enums.borrow();
+                                    for entry in sys_enums_guard.iter() {
+                                        if entry.key().ident.to_string() != base_name {
+                                            continue;
+                                        }
+                                        for (i, v) in entry.value().values.iter().enumerate() {
+                                            if v.name.to_string() == member_name {
+                                                idx = Some(i as u32);
+                                                break;
+                                            }
+                                        }
+                                        break;
+                                    }
+                                }
+
                                 match idx {
                                     Some(i) => (class_id, i),
                                     None => continue,
