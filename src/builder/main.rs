@@ -1539,14 +1539,20 @@ pub fn mcb_iter_interfaces() -> Vec<(String, String)> {
     items
 }
 
-/// Iterate all registered project enum definitions.
+/// Iterate all registered enum definitions (both workspace and system library).
 pub fn mcb_iter_enums() -> Vec<(String, String)> {
-    let mut items: Vec<(String, String)> = workspace::WORKSPACE
-        .enums
-        .borrow()
-        .iter()
-        .map(|entry| (entry.key().ident.to_string(), entry.key().uri.clone()))
-        .collect();
+    let mut items: Vec<(String, String)> = Vec::new();
+
+    // Workspace enums (project files)
+    for entry in workspace::WORKSPACE.enums.borrow().iter() {
+        items.push((entry.key().ident.to_string(), entry.key().uri.clone()));
+    }
+
+    // System library enums (e.g. enum PKG in mcode/package.mc)
+    for entry in global::mcc_enums.borrow().iter() {
+        items.push((entry.key().ident.to_string(), entry.key().uri.clone()));
+    }
+
     items.sort_by(|a, b| a.0.cmp(&b.0));
     items
 }
@@ -1554,26 +1560,42 @@ pub fn mcb_iter_enums() -> Vec<(String, String)> {
 /// Same as `mcb_iter_enums`, but also returns the class span
 /// `[start, end)` of the `enum PKG { ... }` head — needed by LSP
 /// gotodef to know where to land when jumping to the class itself.
+/// Includes both workspace and system library enums.
 pub fn mcb_iter_enums_with_span() -> Vec<(String, String, [u32; 2])> {
-    let mut items: Vec<(String, String, [u32; 2])> = workspace::WORKSPACE
-        .enums
-        .borrow()
-        .iter()
-        .map(|entry| {
-            let name = entry.key().ident.to_string();
-            let uri = entry.key().uri.clone();
-            let span = entry.value().span;
-            (name, uri, span)
-        })
-        .collect();
+    let mut items: Vec<(String, String, [u32; 2])> = Vec::new();
+
+    // Workspace enums (project files)
+    let enums_guard = workspace::WORKSPACE.enums.borrow();
+    for entry in enums_guard.iter() {
+        items.push((
+            entry.key().ident.to_string(),
+            entry.key().uri.clone(),
+            entry.value().span,
+        ));
+    }
+    drop(enums_guard);
+
+    // System library enums (e.g. enum PKG in mcode/package.mc)
+    let sys_enums_guard = global::mcc_enums.borrow();
+    for entry in sys_enums_guard.iter() {
+        items.push((
+            entry.key().ident.to_string(),
+            entry.key().uri.clone(),
+            entry.value().span,
+        ));
+    }
+    drop(sys_enums_guard);
+
     items.sort_by(|a, b| a.0.cmp(&b.0));
     items
 }
 
-/// Iterate all enum value rows project-wide.
+/// Iterate all enum value rows project-wide (both workspace and system library).
 /// Returns `Vec<(class, value, uri, [u32;2])>` sorted by class then value.
 pub fn mcb_iter_enum_values() -> Vec<(String, String, String, [u32; 2])> {
     let mut items: Vec<(String, String, String, [u32; 2])> = Vec::new();
+
+    // Iterate workspace enums (project files)
     let enums_guard = workspace::WORKSPACE.enums.borrow();
     for entry in enums_guard.iter() {
         let class = entry.key().ident.to_string();
@@ -1585,6 +1607,20 @@ pub fn mcb_iter_enum_values() -> Vec<(String, String, String, [u32; 2])> {
         }
     }
     drop(enums_guard);
+
+    // Iterate system library enums (e.g. enum PKG in mcode/package.mc)
+    let sys_enums_guard = global::mcc_enums.borrow();
+    for entry in sys_enums_guard.iter() {
+        let class = entry.key().ident.to_string();
+        let uri = entry.key().uri.clone();
+        let enum_def = entry.value();
+        for v in enum_def.values.iter() {
+            let value_name = v.name.to_string();
+            items.push((class.clone(), value_name, uri.clone(), v.span));
+        }
+    }
+    drop(sys_enums_guard);
+
     items.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
     items
 }

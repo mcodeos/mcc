@@ -1368,13 +1368,19 @@ fn resolve_project_entry(_name: &str, entry: Option<&str>) -> Result<PathBuf, Js
             if abs_path.exists() {
                 return Ok(abs_path);
             } else {
-                return Err(JsonRpcError::custom(32105, &format!("entry not found: {rel}")));
+                return Err(JsonRpcError::custom(
+                    32105,
+                    &format!("entry not found: {rel}"),
+                ));
             }
         }
 
         // Relative path: check safety
         if !is_safe_relative(rel) {
-            return Err(JsonRpcError::custom(32105, &format!("unsafe entry path: {rel}")));
+            return Err(JsonRpcError::custom(
+                32105,
+                &format!("unsafe entry path: {rel}"),
+            ));
         }
         // Search in src/
         let p = src_root.join(rel);
