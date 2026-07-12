@@ -2404,7 +2404,12 @@ pub fn handle_set_system_root(params: Option<Value>) -> RpcResult {
 
 /// Handle init RPC - initialize mcc system
 pub fn handle_init(_params: Option<Value>) -> RpcResult {
-    crate::mcc_init_no_lib();
+    // Use mcc_init() (not mcc_init_no_lib) so that configured system libraries
+    // (e.g. `mcode`, providing `enum PKG`) are loaded. The LSP client (mcext)
+    // calls `init` on startup; using the no-lib variant here previously wiped
+    // the mcode library that was loaded at server startup, which broke enum
+    // reference resolution (e.g. goto-definition on `PKG.QFN20`).
+    crate::mcc_init();
     Ok(serde_json::json!({ "ok": true }))
 }
 
