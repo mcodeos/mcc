@@ -30,8 +30,8 @@
    This special exception was added by the Free Software Foundation in
    version 2.2 of Bison.  */
 
-#ifndef YY_MCA_SRC_MCA_TAB_H_INCLUDED
-# define YY_MCA_SRC_MCA_TAB_H_INCLUDED
+#ifndef YY_MCA_MCA_TAB_H_INCLUDED
+# define YY_MCA_MCA_TAB_H_INCLUDED
 /* Debug traces.  */
 #ifndef MCA_DEBUG
 # if defined YYDEBUG
@@ -223,4 +223,4 @@ struct MCA_LTYPE
 
 int mca_parse (mc_value* mcast);
 
-#endif /* !YY_MCA_SRC_MCA_TAB_H_INCLUDED  */
+#endif /* !YY_MCA_MCA_TAB_H_INCLUDED  */
