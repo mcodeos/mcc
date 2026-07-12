@@ -1591,7 +1591,7 @@ impl McPinNames {
                                         );
                                     } else if lookup_result.is_some() {
                                         let class_str = class_id.to_string();
-                                        let inst_str = inst_id.to_string();
+                                        let _inst_str = inst_id.to_string();
                                         dlog_error(
                                             2402,
                                             err_node,
@@ -1845,7 +1845,7 @@ impl McPinNames {
                                 );
                             } else if lookup_result.is_some() {
                                 let class_str = class_name.to_string();
-                                let inst_str = inst_name.to_string();
+                                let _inst_str = inst_name.to_string();
                                 dlog_error(
                                     2402,
                                     inst_node.as_ref().unwrap_or(err_node),
