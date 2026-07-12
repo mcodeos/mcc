@@ -122,8 +122,8 @@ impl McPhrase {
         use McPhrase::*;
         let scope = context.scope_name();
         let node_type = node.get_type();
-        let node_name = format!("{}", node_type);
-        let node_str = node.to_string();
+        let _node_name = format!("{}", node_type);
+        let _node_str = node.to_string();
         // eprintln!(
         //     "[PHRASE_DEBUG] new: type={}, str_repr={:?}",
         //     node_name, node_str
@@ -147,7 +147,7 @@ impl McPhrase {
                     match opdc {
                         McOpd::Id(ids) => {
                             let ids_str = ids.to_string();
-                            let is_curly = ids.is_curly_bracket();
+                            let _is_curly = ids.is_curly_bracket();
                             // eprintln!(
                             //     "[PHRASE_DEBUG] OPD Id: ids={:?}, is_curly={}",
                             //     ids_str, is_curly
@@ -177,7 +177,7 @@ impl McPhrase {
                                 Some(ident.into())
                             } else if ids.is_curly_bracket() {
                                 let bus_info = ids.as_bus();
-                                let comp_member = ids.as_component_member();
+                                let _comp_member = ids.as_component_member();
                                 // eprintln!(
                                 //     "[PHRASE_DEBUG] curly: ids={:?}, as_bus={:?}, as_comp_member={:?}",
                                 //     ids_str, bus_info, comp_member
