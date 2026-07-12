@@ -1575,7 +1575,12 @@ impl McCode {
                             (base, mem)
                         };
                         let base_start = first_id.get_pos();
-                        let base_end = base_start + first_id.get_len();
+                        // The parser's first_id.get_len() sometimes spans the whole
+                        // dotted path (`PKG.QFN20`), which would make the class-ref
+                        // interval overlap the value-ref interval. Clamp it to just
+                        // the base identifier so `PKG` and `QFN20` map to disjoint
+                        // lapper ranges.
+                        let base_end = base_start + base_name.len() as u32;
                         let member_start = member_node.get_pos();
                         let member_end = member_start + member_node.get_len();
                         Some((
@@ -1610,7 +1615,6 @@ impl McCode {
                         }
                         acc
                     };
-
                     'outer: for attr_node in all_ast_nodes.iter().cloned() {
                         if !attr_node.is_type(MCAST_ATTRIBUTE) {
                             continue;
@@ -1651,50 +1655,53 @@ impl McCode {
                                 member_end,
                             ) = parsed;
 
-                            // Resolve class_id via global table.
+                            // Resolve the enum class + value index. The enum may be:
+                            //   (a) defined in a project/workspace file — registered in
+                            //       this file's semantic `global_table`, or
+                            //   (b) a system-library enum (e.g. `enum PKG` in mcode) —
+                            //       only present in `global::mcc_enums`; the per-file
+                            //       semantic table does NOT know about it.
+                            // We therefore look up the class id best-effort and search
+                            // both the workspace and the system-library enum stores for
+                            // the value. mcext resolves `enum_value_ref` by (class,value)
+                            // name via the project index, so the packed id is only used
+                            // for display, not navigation — a system enum still gets a
+                            // usable lapper entry even without a per-file class id.
                             let (class_id, value_idx) = {
-                                let gt = match sem.global_table.lock() {
-                                    Ok(g) => g,
+                                // Best-effort class id from the per-file semantic table.
+                                let class_id = match sem.global_table.lock() {
+                                    Ok(gt) => gt
+                                        .lookup_enum_class(&self.uri, &base_name)
+                                        .or_else(|| {
+                                            gt.enum_class_name_to_id.iter().find_map(
+                                                |((_uri, name), cid)| {
+                                                    (name == &base_name).then_some(*cid)
+                                                },
+                                            )
+                                        })
+                                        .unwrap_or_default(),
                                     Err(_) => continue 'outer,
                                 };
-                                let class_id_opt =
-                                    gt.lookup_enum_class(&self.uri, &base_name).or_else(|| {
-                                        let mut found = None;
-                                        for ((_uri, name), cid) in gt.enum_class_name_to_id.iter() {
-                                            if name == &base_name {
-                                                found = Some(*cid);
+
+                                // Search enum values in workspace enums first, then the
+                                // system-library enum store.
+                                let mut idx = None;
+                                {
+                                    let enums_guard =
+                                        crate::builder::workspace::WORKSPACE.enums.borrow();
+                                    for entry in enums_guard.iter() {
+                                        if entry.key().ident.to_string() != base_name {
+                                            continue;
+                                        }
+                                        for (i, v) in entry.value().values.iter().enumerate() {
+                                            if v.name.to_string() == member_name {
+                                                idx = Some(i as u32);
                                                 break;
                                             }
                                         }
-                                        found
-                                    });
-                                let class_id = match class_id_opt {
-                                    Some(c) => c,
-                                    None => continue,
-                                };
-                                drop(gt);
-
-                                // Search enum values in both workspace and system library
-                                let mut idx = None;
-
-                                // First search workspace enums
-                                let enums_guard =
-                                    crate::builder::workspace::WORKSPACE.enums.borrow();
-                                for entry in enums_guard.iter() {
-                                    if entry.key().ident.to_string() != base_name {
-                                        continue;
+                                        break;
                                     }
-                                    for (i, v) in entry.value().values.iter().enumerate() {
-                                        if v.name.to_string() == member_name {
-                                            idx = Some(i as u32);
-                                            break;
-                                        }
-                                    }
-                                    break;
                                 }
-                                drop(enums_guard);
-
-                                // If not found, search system library enums
                                 if idx.is_none() {
                                     let sys_enums_guard =
                                         crate::builder::global::mcc_enums.borrow();
@@ -1712,6 +1719,8 @@ impl McCode {
                                     }
                                 }
 
+                                // Not a known enum value (base_name isn't an enum class,
+                                // or member isn't one of its values) — skip silently.
                                 match idx {
                                     Some(i) => (class_id, i),
                                     None => continue,
