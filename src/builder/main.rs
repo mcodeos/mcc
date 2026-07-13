@@ -1436,9 +1436,9 @@ fn scan_mc_files(dir: &Path) -> Vec<PathBuf> {
 /// Similar to Python's builtins or C's standard header preloading.
 ///
 /// system_root convention:
-///   - MCC_SYSTEM_ROOT points to the mc/ directory (mcode's parent)
+///   - MCC_SYSTEM_ROOT points to the data root directory
 ///   - System library is under system_root/mcode/
-///   - If the environment variable is not set, defaults to ~/.mcode/mcode (compatible with old logic)
+///   - If the environment variable is not set, defaults to ~/.mcode/mcode
 ///
 /// Config-based loading:
 ///   - Check `libs.load` config (mcc.yaml or project.toml)
@@ -1459,7 +1459,6 @@ pub fn mcb_init_system_lib() {
 
     if !should_load_mcode(project_root_ref) {
         debug!(target: "mcc::sysinit", "mcode not in libs.load config, skipping");
-        // Ensure the mcc_blibs["mcode"] entry exists (empty stub)
         if !global::mcc_blibs.borrow().contains_key("mcode") {
             global::mcc_blibs
                 .borrow_mut()
@@ -1473,7 +1472,7 @@ pub fn mcb_init_system_lib() {
     let mcode_root = if system_root.as_os_str().is_empty() {
         dirs::home_dir()
             .map(|h| h.join(".mcode").join("mcode"))
-            .unwrap_or_else(|| PathBuf::from(".mcode"))
+            .unwrap_or_else(|| PathBuf::from(".mcode/mcode"))
     } else {
         system_root.join("mcode")
     };
@@ -1481,10 +1480,9 @@ pub fn mcb_init_system_lib() {
 
     if mcode_root.exists() {
         lib_mgr::mcb_load_lib("mcode", &mcode_root);
-        debug!(target: "mcc::sysinit", "system lib loaded from disk");
+        debug!(target: "mcc::sysinit", "system lib loaded");
     } else {
-        debug!(target: "mcc::sysinit", "mcode directory not found, will register builtins only");
-        // Ensure the mcc_blibs["mcode"] entry exists (even if the system library directory does not exist)
+        debug!(target: "mcc::sysinit", "mcode directory not found, registering builtins only");
         if !global::mcc_blibs.borrow().contains_key("mcode") {
             global::mcc_blibs
                 .borrow_mut()
@@ -1492,7 +1490,6 @@ pub fn mcb_init_system_lib() {
         }
     }
 
-    // ★ Builtin primitives removed - require explicit --lib mcode loading
     debug!(target: "mcc::sysinit", "system lib init done");
 }
 pub fn mcb_interface_count() -> usize {

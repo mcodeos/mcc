@@ -205,6 +205,7 @@ pub fn do_install(name: &str, from: &str, version: Option<&str>) -> Result<(Stri
 
     let ver = version.unwrap_or("0.0.0");
     let lib_name_ver = format!("{}@{}", name, ver);
+    // Flat layout: install into <root>/<name>@<ver>
     let target = data_dir::data_root().join(&lib_name_ver);
 
     if target.exists() {
@@ -223,6 +224,9 @@ pub fn do_install(name: &str, from: &str, version: Option<&str>) -> Result<(Stri
             target.display()
         )
     })?;
+
+    // Refresh index.json so `lib list` sees the new install.
+    let _ = data_dir::rebuild_index();
 
     Ok((lib_name_ver, target))
 }
@@ -314,7 +318,7 @@ fn cmd_show(name: &str, format: OutputFormat) -> Result<()> {
 // ============================================================================
 
 /// Resolve the on-disk root directory for a library.
-/// Priority: 1. mcode → system_dir/mcode  2. public → thirdparty_dir/<name>@*
+/// Priority: 1. mcode → data_root/mcode  2. public → data_root/<name>@*
 fn resolve_lib_root(name: &str) -> Result<PathBuf> {
     // Built-in mcode
     if name == "mcode" {
@@ -510,14 +514,16 @@ pub fn do_uninstall(name: &str, force: bool) -> Result<PathBuf> {
     std::fs::remove_dir_all(&lib_dir)
         .with_context(|| format!("lib uninstall: failed to delete {}", lib_dir.display()))?;
 
+    // Refresh index.json so `lib list` no longer shows the deleted install.
+    let _ = data_dir::rebuild_index();
+
     Ok(lib_dir)
 }
 
 fn resolve_lib_uninstall_dir(name: &str) -> Result<PathBuf> {
-    let tp = data_dir::data_root();
-
-    // Look for directories in the form <name>@<version>
-    if let Ok(entries) = std::fs::read_dir(&tp) {
+    // Flat layout: scan data_root for <name>@<ver> entries.
+    let root = data_dir::data_root();
+    if let Ok(entries) = std::fs::read_dir(&root) {
         let prefix = format!("{}@", name);
         for entry in entries.flatten() {
             let fname = entry.file_name().to_string_lossy().to_string();
@@ -528,7 +534,7 @@ fn resolve_lib_uninstall_dir(name: &str) -> Result<PathBuf> {
     }
 
     // Also check the bare directory without @version
-    let bare = tp.join(name);
+    let bare = root.join(name);
     if bare.exists() {
         return Ok(bare);
     }

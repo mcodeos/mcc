@@ -50,24 +50,10 @@ extern "C" {
 const MCC_SYSTEM_ENV: &str = "MCC_SYSTEM_ROOT";
 
 fn mcc_system_root() -> PathBuf {
-    if let Ok(val) = std::env::var(MCC_SYSTEM_ENV) {
-        let p = PathBuf::from(&val);
-        return if p.is_absolute() {
-            p
-        } else {
-            std::env::current_dir().unwrap_or_default().join(p)
-        };
-    }
-    // Prefer local mc/ directory in current working directory
-    if let Ok(cwd) = std::env::current_dir() {
-        let local = cwd.join("mc");
-        if local.exists() {
-            return local;
-        }
-    }
-    dirs::home_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(".mcode")
+    // Single source of truth: delegate to data_dir::data_root() (which honors
+    // $MCC_SYSTEM_ROOT). The cwd/mc/ probe and the `~/.mcode` fallback live
+    // there now.
+    crate::cli::data_dir::data_root()
 }
 
 fn projects_dir() -> PathBuf {
@@ -149,32 +135,60 @@ pub fn handle_library_list(_params: Option<Value>) -> RpcResult {
             "components": info.as_ref().map(|i| i.component_count).unwrap_or(0),
         }));
     }
-    // Disk-installed libraries
+    // Disk-installed libraries: prefer reading the v1 layout's index.json.
+    // Falls back to filesystem scan if index is missing or stale.
     let mut installed = Vec::new();
-    if mcode_dir().exists() && !loaded.contains(&"mcode".to_string()) {
-        installed.push(json!({"name":"mcode","version":"*","loaded":false}));
-    }
-    // Skip system directories
-    let system_dirs = ["logs", "config", "mclibs", "projects", "unitest", "mcode"];
-    if let Ok(entries) = fs::read_dir(mcc_system_root()) {
-        for entry in entries.flatten() {
-            let fname = entry.file_name().to_string_lossy().to_string();
-            if entry.path().is_dir() && !system_dirs.contains(&fname.as_str()) {
-                let (name, version) = match fname.find('@') {
-                    Some(at) => (fname[..at].to_string(), fname[at + 1..].to_string()),
-                    None => (fname.clone(), "0.0.0".to_string()),
-                };
-                // Skip mcode (already handled above)
-                if name == "mcode" || loaded.contains(&name) {
-                    continue;
+    if let Some(index) = crate::cli::data_dir::read_index_if_present() {
+        // v1 index path: enumerate system + 3rdparty from JSON.
+        for entry in index.system {
+            let name = entry
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if name == "mcode" && !loaded.contains(&"mcode".to_string()) {
+                installed.push(json!({"name":"mcode","version":entry.get("version").and_then(|v| v.as_str()).unwrap_or("0.0.0"),"loaded":false}));
+            }
+        }
+        for entry in index.thirdparty {
+            let name = entry
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            if name.is_empty() || loaded.contains(&name) {
+                continue;
+            }
+            installed.push(json!({
+                "name": name,
+                "version": entry.get("version").and_then(|v| v.as_str()).unwrap_or("0.0.0"),
+                "loaded": false,
+            }));
+        }
+    } else {
+        // Fallback: scan mcc_system_root(), system/, and 3rdparty/ (legacy).
+        if mcode_dir().exists() && !loaded.contains(&"mcode".to_string()) {
+            installed.push(json!({"name":"mcode","version":"*","loaded":false}));
+        }
+        let system_dirs = ["logs", "config", "mclibs", "projects", "unitest"];
+        if let Ok(entries) = fs::read_dir(mcc_system_root()) {
+            for entry in entries.flatten() {
+                let fname = entry.file_name().to_string_lossy().to_string();
+                if entry.path().is_dir() && !system_dirs.contains(&fname.as_str()) {
+                    let (name, version) = match fname.find('@') {
+                        Some(at) => (fname[..at].to_string(), fname[at + 1..].to_string()),
+                        None => (fname.clone(), "0.0.0".to_string()),
+                    };
+                    if name == "mcode" || loaded.contains(&name) {
+                        continue;
+                    }
+                    let lib_path = mcc_system_root().join(&fname);
+                    let entry_file = lib_path.join(format!("{name}.mc"));
+                    if !entry_file.exists() {
+                        continue;
+                    }
+                    installed.push(json!({"name":name,"version":version,"loaded":false}));
                 }
-                // Check for valid .mc entry file
-                let lib_path = mcc_system_root().join(&fname);
-                let entry_file = lib_path.join(format!("{name}.mc"));
-                if !entry_file.exists() {
-                    continue;
-                }
-                installed.push(json!({"name":name,"version":version,"loaded":false}));
             }
         }
     }
@@ -316,7 +330,8 @@ pub fn handle_lib_install(params: Option<Value>) -> RpcResult {
     }
     let ver = p.version.as_deref().unwrap_or("0.0.0");
     let name_ver = format!("{}@{}", p.name, ver);
-    let target = mcc_system_root().join(&name_ver);
+    // Flat layout: install into <root>/<name>@<ver>
+    let target = crate::cli::data_dir::data_root().join(&name_ver);
     if target.exists() {
         return Err(JsonRpcError::custom(
             32101,
@@ -324,6 +339,8 @@ pub fn handle_lib_install(params: Option<Value>) -> RpcResult {
         ));
     }
     copy_dir_recursive(&src, &target).map_err(io_err)?;
+    // Refresh index.json so lib.list sees the new install.
+    let _ = crate::cli::data_dir::rebuild_index();
     Ok(json!({
         "installed": name_ver,
         "path": target.to_string_lossy(),
@@ -362,6 +379,8 @@ pub fn handle_lib_uninstall(params: Option<Value>) -> RpcResult {
         )
     })?;
     fs::remove_dir_all(&lib_dir).map_err(io_err)?;
+    // Refresh index.json so lib.list no longer shows the deleted install.
+    let _ = crate::cli::data_dir::rebuild_index();
     Ok(json!({
         "uninstalled": p.name,
         "path": lib_dir.to_string_lossy(),
@@ -383,7 +402,10 @@ pub fn handle_lib_search(params: Option<Value>) -> RpcResult {
             "path": mcode_dir().to_string_lossy(),
         }));
     }
-    let system_dirs = ["logs", "config", "mclibs", "projects", "unitest", "mcode"];
+
+    // Scan flat root directory for installed libs.
+    let system_dirs = ["logs", "config", "mclibs", "projects", "unitest"];
+
     if let Ok(entries) = fs::read_dir(mcc_system_root()) {
         for entry in entries.flatten() {
             let fname = entry.file_name().to_string_lossy().to_string();
@@ -607,10 +629,18 @@ pub fn handle_export(params: Option<Value>) -> RpcResult {
     }))
 }
 
-/// Resolve an installed library directory under the system root
-/// (either `<name>@<version>` or the bare `<name>`).
+/// Resolve an installed library directory under the system root.
+/// Flat layout: checks `<root>/<name>` (built-in) and `<root>/<name>@<version>` (3rd-party).
 fn resolve_installed_lib_dir(name: &str) -> Option<PathBuf> {
     let root = mcc_system_root();
+
+    // Built-in: <root>/<name> (e.g. mcode)
+    let bare = root.join(name);
+    if bare.exists() {
+        return Some(bare);
+    }
+
+    // 3rd-party: <root>/<name>@<version>
     if let Ok(entries) = fs::read_dir(&root) {
         let prefix = format!("{name}@");
         for entry in entries.flatten() {
@@ -619,10 +649,6 @@ fn resolve_installed_lib_dir(name: &str) -> Option<PathBuf> {
                 return Some(entry.path());
             }
         }
-    }
-    let bare = root.join(name);
-    if bare.exists() {
-        return Some(bare);
     }
     None
 }

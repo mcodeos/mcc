@@ -200,16 +200,14 @@ pub fn load_libs(lib_names: &[String]) {
 fn load_lib_by_name(lib_name: &str) {
     let system_root = mcc::mcb_get_system_root();
 
-    // Determine the actual root to use
+    // Determine the actual root to use (flat layout).
     let lib_path = if system_root.as_os_str().is_empty() {
-        // Use default system root like mcb_init_system_lib does
         let default_root = dirs::home_dir()
             .map(|h| h.join(".mcode"))
             .unwrap_or_else(|| std::path::PathBuf::from(".mcode"));
         default_root.join(lib_name)
     } else {
         let joined = system_root.join(lib_name);
-        // Check if the path exists; if not, try default root
         if !joined.exists() {
             let default_root = dirs::home_dir()
                 .map(|h| h.join(".mcode"))
