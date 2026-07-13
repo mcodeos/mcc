@@ -105,6 +105,9 @@ pub enum Command {
 
     /// Electrical rule check (M6) — single-point nets, unconnected ports, etc.
     Erc(ErcArgs),
+
+    /// Find all references to a symbol (M6)
+    Refs(RefsArgs),
 }
 
 // ============================================================================
@@ -777,6 +780,24 @@ pub enum ConfigAction {
 #[derive(Parser, Debug)]
 pub struct DefArgs {
     /// Symbol name to find
+    pub name: String,
+
+    /// Load system library (can be specified multiple times)
+    #[arg(long = "lib", value_name = "NAME")]
+    pub lib: Vec<String>,
+
+    /// Parse directly from file
+    #[arg(long, short = 'F')]
+    pub file: Option<String>,
+}
+
+// ============================================================================
+// refs (M6)
+// ============================================================================
+
+#[derive(Parser, Debug)]
+pub struct RefsArgs {
+    /// Symbol name to find references for
     pub name: String,
 
     /// Load system library (can be specified multiple times)

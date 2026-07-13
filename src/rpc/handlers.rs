@@ -1487,6 +1487,34 @@ pub fn handle_check(params: Option<Value>) -> RpcResult {
 }
 
 // ============================================================================
+// Refs (M6)
+// ============================================================================
+
+pub fn handle_refs(params: Option<Value>) -> RpcResult {
+    #[derive(Deserialize)]
+    struct RefsParams {
+        name: String,
+    }
+
+    let p: RefsParams = parse_strict(params)?;
+    let refs = crate::mcb_get_refs(&p.name);
+
+    let items: Vec<Value> = refs
+        .iter()
+        .map(|(uri, scope, span)| {
+            json!({
+                "uri": uri,
+                "scope": scope,
+                "pos": span.start,
+                "end": span.end,
+            })
+        })
+        .collect();
+
+    Ok(json!({ "name": p.name, "count": items.len(), "refs": items }))
+}
+
+// ============================================================================
 // ERC — Electrical Rule Check (M6)
 // ============================================================================
 
@@ -3483,7 +3511,7 @@ pub fn handle_caps(_params: Option<Value>) -> RpcResult {
             "lib.list", "lib.info", "lib.load", "lib.unload",
             "lib.install", "lib.uninstall", "lib.search",
             "defs.search", "defs.query",
-            "export", "explain", "def", "erc", "caps",
+            "export", "explain", "def", "erc", "refs", "caps",
             "trace.set", "trace.get",
             "sem", "diagnostics",
             "project_symbols", "set_project_root", "set_system_root",

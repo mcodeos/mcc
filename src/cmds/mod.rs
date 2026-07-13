@@ -8,6 +8,7 @@ pub mod config;
 pub mod def;
 pub mod erc;
 pub mod explain;
+pub mod refs;
 pub mod export;
 pub mod extract;
 pub mod filter;

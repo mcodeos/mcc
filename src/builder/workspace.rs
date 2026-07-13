@@ -195,6 +195,15 @@ impl GlobalInstTable {
         self.refs.get(&decl_id).cloned().unwrap_or_default()
     }
 
+    /// M6: Find all decl_ids with the given name.
+    pub fn find_decls_by_name(&self, name: &str) -> Vec<DeclareId> {
+        self.name_to_id
+            .iter()
+            .filter(|((_, _, n), _)| n == name)
+            .map(|(_, id)| *id)
+            .collect()
+    }
+
     // ★ LSP: Get all refs for all decls in a specific file
     pub fn get_all_refs_for_uri(&self, uri: &str) -> Vec<(DeclareId, String, Span)> {
         let mut result = Vec::new();
