@@ -45,9 +45,14 @@ fn run_local(args: &ReportArgs) -> Result<()> {
     let enums = mcc::mcb_iter_enums();
 
     // Aggregate components by prefix (R, C, L, D, X, etc.)
-    let mut by_prefix: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    let mut by_prefix: std::collections::BTreeMap<String, usize> =
+        std::collections::BTreeMap::new();
     for (name, _) in &comps {
-        let prefix = name.chars().next().map(|c| c.to_string()).unwrap_or_else(|| "?".into());
+        let prefix = name
+            .chars()
+            .next()
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "?".into());
         *by_prefix.entry(prefix).or_default() += 1;
     }
 

@@ -2611,9 +2611,7 @@ fn inst_kind_class(inst: &crate::McInstance) -> (&'static str, String) {
         crate::McInstance::Label(l) => ("label", l.clone()),
         crate::McInstance::Interface(i) => ("interface", i.name.to_string()),
         crate::McInstance::Bus(b) => ("bus", b.name().to_string()),
-        crate::McInstance::BusRef { component, bus } => {
-            ("busref", format!("{component}.{bus}"))
-        }
+        crate::McInstance::BusRef { component, bus } => ("busref", format!("{component}.{bus}")),
         crate::McInstance::List(l) => ("list", l.name().to_string()),
     }
 }
@@ -3464,9 +3462,14 @@ pub fn handle_report(_params: Option<Value>) -> RpcResult {
     let ifaces = crate::mcb_iter_interfaces();
     let enums = crate::mcb_iter_enums();
 
-    let mut by_prefix: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    let mut by_prefix: std::collections::BTreeMap<String, usize> =
+        std::collections::BTreeMap::new();
     for (name, _) in &comps {
-        let prefix = name.chars().next().map(|c| c.to_string()).unwrap_or_else(|| "?".into());
+        let prefix = name
+            .chars()
+            .next()
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "?".into());
         *by_prefix.entry(prefix).or_default() += 1;
     }
 

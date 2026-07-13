@@ -106,7 +106,8 @@ fn run_local(args: &ExportArgs) -> Result<()> {
         OutputFormat::Yaml => 3u8,
         OutputFormat::Csv => 4u8,
     };
-    let (raw_text, items, count) = export_api::build_payload(&tree, &table, &top, kind_tag, format_tag);
+    let (raw_text, items, count) =
+        export_api::build_payload(&tree, &table, &top, kind_tag, format_tag);
 
     if format == OutputFormat::Json {
         let data = ExportData {
