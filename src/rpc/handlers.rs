@@ -295,6 +295,8 @@ pub fn handle_methods(_params: Option<Value>) -> RpcResult {
         "defs.query",
         // export (M5)
         "export",
+        // explain (M6)
+        "explain",
     ];
     Ok(json!(methods
         .iter()
@@ -3250,6 +3252,48 @@ fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
         }
     }
     None
+}
+
+// ============================================================================
+// Explain (M6)
+// ============================================================================
+
+/// Handle explain RPC — look up error code descriptions.
+pub fn handle_explain(params: Option<Value>) -> RpcResult {
+    #[derive(Deserialize, Default)]
+    struct ExplainParams {
+        code: Option<u32>,
+    }
+
+    let p: ExplainParams = parse_or_default(params)?;
+
+    match p.code {
+        Some(code) => match crate::error_codes::describe(code) {
+            Some(info) => Ok(json!({
+                "code": info.code,
+                "name": info.name,
+                "description": info.description,
+            })),
+            None => Err(JsonRpcError::custom(
+                -32003,
+                &format!("unknown error code: {code}"),
+            )),
+        },
+        None => {
+            let all = crate::error_codes::all_codes();
+            let items: Vec<Value> = all
+                .iter()
+                .map(|e| {
+                    json!({
+                        "code": e.code,
+                        "name": e.name,
+                        "description": e.description,
+                    })
+                })
+                .collect();
+            Ok(json!({ "codes": items }))
+        }
+    }
 }
 
 /// Handle diagnostics RPC - return parse/semantic diagnostics for a file

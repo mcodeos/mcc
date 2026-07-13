@@ -93,6 +93,9 @@ pub enum Command {
 
     /// Configuration management (get / set / list / reset)
     Config(ConfigArgs),
+
+    /// Explain error codes (M6)
+    Explain(ExplainArgs),
 }
 
 // ============================================================================
@@ -756,4 +759,14 @@ pub enum ConfigAction {
 
     /// Reset to default values
     Reset,
+}
+
+// ============================================================================
+// explain (M6)
+// ============================================================================
+
+#[derive(Parser, Debug)]
+pub struct ExplainArgs {
+    /// Error code to look up (omit to list all)
+    pub code: Option<u32>,
 }
