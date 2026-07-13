@@ -44,6 +44,7 @@ pub use crate::core::{
     mc_inst::{McInstance, McInstances},
     module::{Mc2Module, McModule},
 };
+pub mod export_api;
 pub mod query_api;
 pub mod search_api;
 pub use ast::ast_semantic::{McSemSymbols, Span, SymbolType};
@@ -52,6 +53,11 @@ pub use ast::c_macros::*;
 pub use ast::error::*;
 pub use builder::{mcb_print, MccProjectTree};
 pub use core::basic::mc_param::{McParamBindings, McParamDeclare, McParamDeclares, McParamValue};
+pub use instant::inst_table::InstKind;
+pub use instant::inst_table::InstTable;
+pub use instant::mc_comp::McComponentInst;
+pub use instant::mc_mod::McModuleInst;
+pub use instant::mc_net::NetPoint;
 
 pub use builder::{
     mcb_get_first_module_name, mcb_get_module_name_by_uri, mcb_module_count, mcb_print_lines,
@@ -83,9 +89,6 @@ pub use core::basic::mc_ids::McIds;
 pub use core::basic::mc_literal::{McConst, McFloat, McInt, McLiteral, McString};
 pub use core::component::mc_attr::{McAttrVal, McAttribute};
 pub use core::mc_func::{McFunction, McFunctions};
-
-// 🆕 Step 7: Flattened instance table exports
-pub use instant::inst_table::{InstEntry, InstKind, InstTable};
 
 // 🆕 Step 8: McVec rendering side data structure exports
 pub use vector::builder::build_mc_vec;

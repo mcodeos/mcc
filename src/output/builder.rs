@@ -80,6 +80,11 @@ impl ResultBuilder {
         self
     }
 
+    pub fn set_export(&mut self, e: ExportData) -> &mut Self {
+        self.result.export = Some(e);
+        self
+    }
+
     /// Print a summary of collected diagnostics (without consuming self).
     /// Useful for displaying diagnostics before Net Summary.
     pub fn print_diagnostics_summary(&self) {

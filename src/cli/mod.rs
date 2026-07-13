@@ -70,6 +70,9 @@ pub enum Command {
     /// Query top-level definitions with the structured DSL
     Query(QueryArgs),
 
+    /// Export netlist / BOM / SPICE (text|csv|json)
+    Export(ExportArgs),
+
     /// Manifest-driven one-click build (load dependencies + Pass1 + Pass2)
     Build(BuildArgs),
 
@@ -203,6 +206,7 @@ pub enum OutputFormat {
     Json,
     JsonPretty,
     Yaml,
+    Csv,
 }
 
 /// Instance Tree pin list sorting mode
@@ -452,6 +456,50 @@ pub struct QueryArgs {
     /// Output to file
     #[arg(long, short = 'o', value_name = "FILE")]
     pub output: Option<String>,
+}
+
+// ============================================================================
+// export
+// ============================================================================
+
+#[derive(Parser, Debug)]
+pub struct ExportArgs {
+    /// What to export
+    #[arg(value_enum)]
+    pub kind: ExportKind,
+
+    /// Source .mc file (must define a top module)
+    pub file: String,
+
+    /// Top module name (defaults to first module in file)
+    #[arg(long, value_name = "NAME")]
+    pub top: Option<String>,
+
+    /// Load system library (can be specified multiple times)
+    #[arg(long = "lib", value_name = "NAME")]
+    pub lib: Vec<String>,
+
+    /// Output format (text|json|csv — kind-specific defaults)
+    #[arg(long, short = 'f', value_enum, default_value_t = OutputFormat::Text)]
+    pub format: OutputFormat,
+
+    /// Shorthand for `--format json`
+    #[arg(long, conflicts_with = "format")]
+    pub json: bool,
+
+    /// Output to file
+    #[arg(long, short = 'o', value_name = "FILE")]
+    pub output: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+pub enum ExportKind {
+    /// SPICE-like text netlist (nets → points)
+    Netlist,
+    /// Bill of materials (CSV / text / JSON)
+    Bom,
+    /// SPICE deck (hierarchical .SUBCKT + X lines)
+    Spice,
 }
 
 // ============================================================================

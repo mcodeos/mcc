@@ -117,6 +117,7 @@ fn main() -> ExitCode {
         Some(Command::Show(_)) => false,
         Some(Command::Search(_)) => false,
         Some(Command::Query(_)) => false,
+        Some(Command::Export(_)) => false,
         Some(Command::Parse(_)) => false,
         Some(Command::Check(_)) => false,
         Some(Command::Extract(_)) => false,
@@ -180,6 +181,10 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
             cmds::query::run(&args)?;
             Ok(ExitCode::SUCCESS)
         }
+        Some(Command::Export(args)) => {
+            cmds::export::run(&args)?;
+            Ok(ExitCode::SUCCESS)
+        }
         Some(Command::Build(args)) => {
             let o = cmds::build::run(&args)?;
             Ok(ExitCode::from(o.exit_code.clamp(0, 255) as u8))
@@ -226,6 +231,7 @@ fn print_help_hint() {
     eprintln!("  extract  Extract instances/netlist/components/interfaces");
     eprintln!("  search   Search across loaded definitions (text/regex/fuzzy)");
     eprintln!("  query    Structured DSL query (operators, AND/OR/NOT, attr())");
+    eprintln!("  export   Export netlist / BOM / SPICE (text|csv|json)");
     eprintln!(
         "  lib      System library management (list / install / load / unload / info / search)"
     );
@@ -379,6 +385,7 @@ const KNOWN_SUBCMDS: &[&str] = &[
     "show",
     "search",
     "query",
+    "export",
     "extract",
     "lib",
     "proj",

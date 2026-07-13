@@ -50,6 +50,8 @@ where
         OutputFormat::Json => serde_json::to_string(value)?,
         OutputFormat::JsonPretty => serde_json::to_string_pretty(value)?,
         OutputFormat::Yaml => serde_yaml::to_string(value)?,
+        // CSV is rendered by callers (extract/export), not by emit().
+        OutputFormat::Csv => format!("{}", value),
     })
 }
 
@@ -78,6 +80,11 @@ pub fn emit_envelope(
         OutputFormat::JsonPretty => serde_json::to_string_pretty(env)?,
         OutputFormat::Yaml => serde_yaml::to_string(env)?,
         OutputFormat::Text => render_envelope_text(env, skip_diagnostics),
+        // CSV is structured data emitted by individual commands (extract,
+        // export), not by emit_envelope. Fall through to text here so the
+        // match is exhaustive; commands that support CSV render the artifact
+        // directly to stdout/file.
+        OutputFormat::Csv => render_envelope_text(env, skip_diagnostics),
     };
     write_out(&buf, target)
 }
@@ -200,6 +207,13 @@ pub fn render_envelope_text(env: &envelope::Envelope, skip_diagnostics: bool) ->
         out.push_str(&format!("  query: expr={:?}, count={}\n", q.expr, q.count));
     }
 
+    if let Some(e) = &r.export {
+        out.push_str(&format!(
+            "  export: kind={}, format={}, count={}\n",
+            e.kind, e.format, e.count
+        ));
+    }
+
     let s = &r.summary;
     if skip_diagnostics {
         out.push_str("\n═══════════════════════════════════════════════════════════════\n");
@@ -277,7 +291,7 @@ pub fn print_report<T: Serialize + std::fmt::Display>(
 }
 
 pub trait OutputFormatExt {
-    /// JSON / JsonPretty / Yaml count as structured (go through envelope), Text does not.
+    /// JSON / JsonPretty / Yaml count as structured (go through envelope), Text and Csv do not.
     fn is_structured(&self) -> bool;
 }
 
