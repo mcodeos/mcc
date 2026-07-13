@@ -102,6 +102,9 @@ pub enum Command {
 
     /// Go-to-definition for a symbol (M6)
     Def(DefArgs),
+
+    /// Electrical rule check (M6) — single-point nets, unconnected ports, etc.
+    Erc(ErcArgs),
 }
 
 // ============================================================================
@@ -783,6 +786,24 @@ pub struct DefArgs {
     /// Parse directly from file
     #[arg(long, short = 'F')]
     pub file: Option<String>,
+}
+
+// ============================================================================
+// erc (M6)
+// ============================================================================
+
+#[derive(Parser, Debug)]
+pub struct ErcArgs {
+    /// Target file or project directory
+    pub target: Option<String>,
+
+    /// Load system library (can be specified multiple times)
+    #[arg(long = "lib", value_name = "NAME")]
+    pub lib: Vec<String>,
+
+    /// Top-level module name (for Pass2 build)
+    #[arg(long, value_name = "NAME")]
+    pub top: Option<String>,
 }
 
 // ============================================================================

@@ -1405,7 +1405,6 @@ struct CheckRpcParams {
     #[serde(default)]
     entry: Option<String>,
     /// Inline source content (M6). When set, loaded from memory — no disk I/O.
-    /// AI uses this for dry-run validation before committing code.
     #[serde(default)]
     content: Option<String>,
     #[serde(default)]
@@ -1485,6 +1484,85 @@ pub fn handle_check(params: Option<Value>) -> RpcResult {
 
     let bp = json!({ "entry": p.entry, "include_system": false });
     handle_build_full(Some(bp))
+}
+
+// ============================================================================
+// ERC — Electrical Rule Check (M6)
+// ============================================================================
+
+pub fn handle_erc(_params: Option<Value>) -> RpcResult {
+    run_erc()
+}
+
+/// Run Pass2 ERC: single-point nets, unconnected ports, net stats.
+fn run_erc() -> RpcResult {
+    let top = crate::mcb_get_first_module_name()
+        .ok_or_else(|| JsonRpcError::custom(-32003, "semantic: no modules found"))?;
+
+    let uri = crate::McURI::from(top.as_str());
+    let ident = crate::McIds::from(top.as_str());
+
+    let inst = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::mcc_build(&ident, &uri)
+    }))
+    .map_err(|_| JsonRpcError::custom(-32002, "semantic: build panicked"))?
+    .map_err(|e| JsonRpcError::custom(-32002, &format!("semantic: build failed: {e}")))?;
+
+    let mut diags: Vec<Value> = Vec::new();
+
+    // ── Single-point nets ──
+    let single_point: Vec<&String> = inst
+        .nets
+        .iter()
+        .filter(|(name, points)| {
+            !name.starts_with("__net_") && points.len() <= 1 && name.as_str() != "NC"
+        })
+        .map(|(name, _)| name)
+        .collect();
+
+    for net in &single_point {
+        diags.push(json!({
+            "code": 5001,
+            "severity": "warning",
+            "message": format!("single-point net: '{net}' has only one connection — may be unconnected"),
+            "check": "single_point_net",
+        }));
+    }
+
+    // ── Unconnected ports ──
+    let all_net_paths: std::collections::HashSet<&str> = inst
+        .nets
+        .values()
+        .flat_map(|pts| pts.iter())
+        .map(|p| p.path.as_str())
+        .collect();
+
+    for port in &inst.ports {
+        if !all_net_paths.contains(port.name.as_str()) {
+            diags.push(json!({
+                "code": 5002,
+                "severity": "warning",
+                "message": format!("unconnected port: '{}' is declared but not connected to any net", port.name),
+                "check": "unconnected_port",
+            }));
+        }
+    }
+
+    Ok(json!({
+        "summary": {
+            "errors": 0,
+            "warnings": diags.len(),
+            "semantic": {
+                "net_count": inst.nets.len(),
+                "connection_count": inst.connections.len(),
+                "component_count": inst.components.len(),
+                "port_count": inst.ports.len(),
+                "single_point_nets": single_point.len(),
+                "unconnected_ports": diags.iter().filter(|d| d["check"] == "unconnected_port").count(),
+            }
+        },
+        "diagnostics": diags,
+    }))
 }
 
 #[derive(Deserialize, Default)]
@@ -3386,6 +3464,7 @@ pub fn handle_caps(_params: Option<Value>) -> RpcResult {
             "overlay_dry_run": true,
             "simulation": false,
             "pcb_export": false,
+            "erc": true,
             "semantic_lint": false
         },
         "rpc_methods": [
@@ -3404,7 +3483,7 @@ pub fn handle_caps(_params: Option<Value>) -> RpcResult {
             "lib.list", "lib.info", "lib.load", "lib.unload",
             "lib.install", "lib.uninstall", "lib.search",
             "defs.search", "defs.query",
-            "export", "explain", "def", "caps",
+            "export", "explain", "def", "erc", "caps",
             "trace.set", "trace.get",
             "sem", "diagnostics",
             "project_symbols", "set_project_root", "set_system_root",
