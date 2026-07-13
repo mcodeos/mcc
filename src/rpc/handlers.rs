@@ -3453,6 +3453,37 @@ fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
 }
 
 // ============================================================================
+// Report (M5b)
+// ============================================================================
+
+pub fn handle_report(_params: Option<Value>) -> RpcResult {
+    let comps = crate::mcb_iter_components();
+    let mods = crate::mcb_iter_modules();
+    let ifaces = crate::mcb_iter_interfaces();
+    let enums = crate::mcb_iter_enums();
+
+    let mut by_prefix: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for (name, _) in &comps {
+        let prefix = name.chars().next().map(|c| c.to_string()).unwrap_or_else(|| "?".into());
+        *by_prefix.entry(prefix).or_default() += 1;
+    }
+
+    Ok(json!({
+        "summary": {
+            "component_count": comps.len(),
+            "module_count": mods.len(),
+            "interface_count": ifaces.len(),
+            "enum_count": enums.len(),
+        },
+        "components_by_prefix": by_prefix,
+        "components": comps.iter().take(20).map(|(n, u)| json!({"name": n, "uri": u})).collect::<Vec<_>>(),
+        "modules": mods.iter().take(10).map(|(n, u)| json!({"name": n, "uri": u})).collect::<Vec<_>>(),
+        "interfaces": ifaces.iter().take(10).map(|(n, u)| json!({"name": n, "uri": u})).collect::<Vec<_>>(),
+        "enums": enums.iter().map(|(n, u)| json!({"name": n, "uri": u})).collect::<Vec<_>>(),
+    }))
+}
+
+// ============================================================================
 // Convert (M5b)
 // ============================================================================
 

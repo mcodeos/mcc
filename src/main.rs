@@ -99,6 +99,7 @@ fn main() -> ExitCode {
         Some(Command::Erc(_)) => false,
         Some(Command::Refs(_)) => false,
         Some(Command::Convert(_)) => false,
+        Some(Command::Report(_)) => false,
         _ => true,
     };
     if need_logging {
@@ -245,6 +246,11 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
         Some(Command::Convert(args)) => {
             mcc::set_trace_stdout_suppressed(true);
             cmds::convert::run(&args)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Some(Command::Report(args)) => {
+            mcc::set_trace_stdout_suppressed(true);
+            cmds::report::run(&args)?;
             Ok(ExitCode::SUCCESS)
         }
         Some(Command::Caps) => {
