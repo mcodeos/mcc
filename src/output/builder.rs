@@ -70,6 +70,11 @@ impl ResultBuilder {
         self
     }
 
+    pub fn set_search(&mut self, s: SearchData) -> &mut Self {
+        self.result.search = Some(s);
+        self
+    }
+
     /// Print a summary of collected diagnostics (without consuming self).
     /// Useful for displaying diagnostics before Net Summary.
     pub fn print_diagnostics_summary(&self) {

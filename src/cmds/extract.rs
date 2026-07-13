@@ -5,6 +5,7 @@
 //! `mcc extract` — structured data extraction (envelope version)
 
 use crate::cli::{rpc_client::RpcClient, ExtractArgs, ExtractTarget};
+use crate::cmds::filter;
 use crate::cmds::manifest;
 use crate::cmds::proj::resolve_workspace_ref;
 use crate::output::{
@@ -15,7 +16,7 @@ use crate::output::{
 };
 use anyhow::{Context, Result};
 use mcc::{McCMIE, McIds, McInstance, McURI};
-use serde_json::json;
+use serde_json::{json, Value};
 use std::path::Path;
 
 pub fn run(args: &ExtractArgs) -> Result<()> {
@@ -45,6 +46,9 @@ pub fn run(args: &ExtractArgs) -> Result<()> {
         ExtractTarget::Interfaces => return extract_interfaces(args),
         _ => {}
     }
+
+    // Note: --filter is applied per-target below; for components/interfaces
+    // we apply it after building the items vec, before emit_extract.
 
     // instances / nets require an entry
     let uri = if let Some(file) = &args.file {
@@ -92,7 +96,7 @@ fn extract_instances(uri: &McURI, top_name: &str, ident: &McIds, args: &ExtractA
         }
     };
 
-    let items: Vec<serde_json::Value> = module_def
+    let mut items: Vec<serde_json::Value> = module_def
         .insts
         .iter()
         .map(|(name, inst)| {
@@ -111,7 +115,16 @@ fn extract_instances(uri: &McURI, top_name: &str, ident: &McIds, args: &ExtractA
         })
         .collect();
 
-    emit_extract(args, "instances", json!(items))
+    items = filter::apply_to_values(
+        args.filter.as_deref(),
+        Value::Array(items),
+        &["name", "kind", "class"],
+    )?
+    .as_array()
+    .cloned()
+    .unwrap_or_default();
+
+    emit_extract(args, "instances", Value::Array(items))
 }
 
 fn extract_nets(uri: &McURI, _top_name: &str, ident: &McIds, args: &ExtractArgs) -> Result<()> {
@@ -148,7 +161,8 @@ fn extract_nets(uri: &McURI, _top_name: &str, ident: &McIds, args: &ExtractArgs)
         .map(|(name, points)| json!({ "name": name, "points": points }))
         .collect();
 
-    emit_extract(args, "nets", json!(items))
+    let items = filter::apply_to_values(args.filter.as_deref(), Value::Array(items), &["name"])?;
+    emit_extract(args, "nets", items)
 }
 
 fn extract_components(args: &ExtractArgs) -> Result<()> {
@@ -156,7 +170,9 @@ fn extract_components(args: &ExtractArgs) -> Result<()> {
         .into_iter()
         .map(|(name, uri)| json!({ "name": name, "uri": uri }))
         .collect();
-    emit_extract(args, "components", json!(items))
+    // components emit `name` + `uri` only — `class=` / `kind=` keys are rejected.
+    let items = filter::apply_to_values(args.filter.as_deref(), Value::Array(items), &["name"])?;
+    emit_extract(args, "components", items)
 }
 
 fn extract_interfaces(args: &ExtractArgs) -> Result<()> {
@@ -164,7 +180,8 @@ fn extract_interfaces(args: &ExtractArgs) -> Result<()> {
         .into_iter()
         .map(|(name, uri)| json!({ "name": name, "uri": uri }))
         .collect();
-    emit_extract(args, "interfaces", json!(items))
+    let items = filter::apply_to_values(args.filter.as_deref(), Value::Array(items), &["name"])?;
+    emit_extract(args, "interfaces", items)
 }
 
 // ── helpers ──

@@ -185,6 +185,17 @@ pub fn render_envelope_text(env: &envelope::Envelope, skip_diagnostics: bool) ->
         ));
     }
 
+    if let Some(s) = &r.search {
+        out.push_str(&format!(
+            "  search: pattern={:?}, kind={}, regex={}, fuzzy={}, count={}\n",
+            s.pattern,
+            s.kind.as_deref().unwrap_or("*"),
+            s.regex,
+            s.fuzzy,
+            s.count
+        ));
+    }
+
     let s = &r.summary;
     if skip_diagnostics {
         out.push_str("\n═══════════════════════════════════════════════════════════════\n");

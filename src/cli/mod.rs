@@ -64,6 +64,9 @@ pub enum Command {
     /// Show detailed information for specified component/module/interface
     Show(ShowArgs),
 
+    /// Search across loaded definitions (text/regex/fuzzy)
+    Search(SearchArgs),
+
     /// Manifest-driven one-click build (load dependencies + Pass1 + Pass2)
     Build(BuildArgs),
 
@@ -239,6 +242,11 @@ pub struct ExtractArgs {
     #[arg(long, value_name = "TYPE")]
     pub r#type: Option<String>,
 
+    /// Structured filter: comma-separated key=value (key in name|kind|class).
+    /// RHS supports `*`/`?` wildcards (converted to regex).
+    #[arg(long, value_name = "EXPR")]
+    pub filter: Option<String>,
+
     /// Output format
     #[arg(long, short = 'f', value_enum, default_value_t = OutputFormat::Text)]
     pub format: OutputFormat,
@@ -290,6 +298,11 @@ pub struct ShowArgs {
     #[arg(long = "type", value_name = "TYPE")]
     pub r#type: Option<String>,
 
+    /// Structured filter (used with `--list` targets).
+    /// Comma-separated key=value (key in name|kind|class). RHS supports `*`/`?` wildcards.
+    #[arg(long, value_name = "EXPR")]
+    pub filter: Option<String>,
+
     /// Output format
     #[arg(long, short = 'f', value_enum, default_value_t = OutputFormat::Text)]
     pub format: OutputFormat,
@@ -338,6 +351,71 @@ pub enum ShowTarget {
     Roles,
     /// Values of an enum
     Values,
+}
+
+// ============================================================================
+// search
+// ============================================================================
+
+#[derive(Parser, Debug)]
+pub struct SearchArgs {
+    /// Pattern to match (substring by default; regex with --regex; fuzzy with --fuzzy)
+    pub pattern: String,
+
+    /// Optional file or directory to load before searching (required for
+    /// `--kind instance` together with `--top`, so the target module is in
+    /// scope for this invocation).
+    pub target: Option<String>,
+
+    /// Restrict to one kind: component|module|interface|enum|instance
+    #[arg(long, value_enum)]
+    pub kind: Option<SearchKind>,
+
+    /// Treat pattern as a regular expression
+    #[arg(long)]
+    pub regex: bool,
+
+    /// Fuzzy match (Levenshtein distance ≤ 2)
+    #[arg(long)]
+    pub fuzzy: bool,
+
+    /// Load system library (can be specified multiple times)
+    #[arg(long = "lib", value_name = "NAME")]
+    pub lib: Vec<String>,
+
+    /// When set, also drill into the instances of this top module (Pass2)
+    #[arg(long, value_name = "NAME")]
+    pub top: Option<String>,
+
+    /// Cap on result count (0 = unlimited)
+    #[arg(long, default_value_t = 0)]
+    pub limit: usize,
+
+    /// Output format
+    #[arg(long, short = 'f', value_enum, default_value_t = OutputFormat::Text)]
+    pub format: OutputFormat,
+
+    /// Shorthand for `--format json`
+    #[arg(long, conflicts_with = "format")]
+    pub json: bool,
+
+    /// Output to file
+    #[arg(long, short = 'o', value_name = "FILE")]
+    pub output: Option<String>,
+}
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+pub enum SearchKind {
+    /// Component definitions
+    Component,
+    /// Module definitions
+    Module,
+    /// Interface definitions
+    Interface,
+    /// Enum definitions
+    Enum,
+    /// Instances inside a top module (requires --top)
+    Instance,
 }
 
 // ============================================================================

@@ -33,6 +33,7 @@
 use super::protocol::{JsonRpcError, RpcResult};
 use crate::builder::mc_code::McCode;
 use crate::builder::workspace;
+use crate::search_api::{walk_defs, SearchInputs, SearchKind};
 use crate::McURI;
 use serde::Deserialize;
 use serde_json::{json, Value};
@@ -257,6 +258,8 @@ pub fn handle_methods(_params: Option<Value>) -> RpcResult {
         "show.interface.list",
         "show.net",
         "show.net.list",
+        // search (M5)
+        "defs.search",
     ];
     Ok(json!(methods
         .iter()
@@ -337,7 +340,10 @@ pub fn handle_lib_uninstall(params: Option<Value>) -> RpcResult {
     if is_loaded && !p.force {
         return Err(JsonRpcError::custom(
             32101,
-            &format!("lib uninstall: '{}' is loaded; unload first or pass force", p.name),
+            &format!(
+                "lib uninstall: '{}' is loaded; unload first or pass force",
+                p.name
+            ),
         ));
     }
     if is_loaded && !crate::mcb_unload_lib(&p.name) {
@@ -347,7 +353,10 @@ pub fn handle_lib_uninstall(params: Option<Value>) -> RpcResult {
         ));
     }
     let lib_dir = resolve_installed_lib_dir(&p.name).ok_or_else(|| {
-        JsonRpcError::custom(32102, &format!("lib uninstall: '{}' is not installed", p.name))
+        JsonRpcError::custom(
+            32102,
+            &format!("lib uninstall: '{}' is not installed", p.name),
+        )
     })?;
     fs::remove_dir_all(&lib_dir).map_err(io_err)?;
     Ok(json!({
@@ -391,6 +400,80 @@ pub fn handle_lib_search(params: Option<Value>) -> RpcResult {
     Ok(json!({
         "pattern": p.pattern,
         "total": results.len(),
+        "results": results,
+    }))
+}
+
+// ============================================================================
+// defs.search (M5) — text/regex/fuzzy search across loaded definitions
+// ============================================================================
+
+#[derive(Deserialize, Default)]
+struct DefsSearchParams {
+    pattern: String,
+    #[serde(default)]
+    kind: Option<String>,
+    #[serde(default)]
+    regex: bool,
+    #[serde(default)]
+    fuzzy: bool,
+    #[serde(default)]
+    top: Option<String>,
+    #[serde(default)]
+    limit: usize,
+}
+
+pub fn handle_defs_search(params: Option<Value>) -> RpcResult {
+    let p: DefsSearchParams = parse_or_default(params)?;
+    let kind = match p.kind.as_deref() {
+        None => None,
+        Some("component") => Some(SearchKind::Component),
+        Some("module") => Some(SearchKind::Module),
+        Some("interface") => Some(SearchKind::Interface),
+        Some("enum") => Some(SearchKind::Enum),
+        Some("instance") => Some(SearchKind::Instance),
+        Some(other) => {
+            return Err(JsonRpcError::custom(
+                -32602,
+                &format!(
+                    "defs.search: unknown kind '{}', expected one of component|module|interface|enum|instance",
+                    other
+                ),
+            ));
+        }
+    };
+    let inputs = SearchInputs {
+        pattern: p.pattern,
+        kind,
+        regex: p.regex,
+        fuzzy: p.fuzzy,
+        top: p.top,
+        limit: p.limit,
+        libs: Vec::new(),
+    };
+    let hits = walk_defs(&inputs)
+        .map_err(|e| JsonRpcError::custom(-32603, &format!("defs.search: {}", e)))?;
+    let count = hits.len();
+    let results: Vec<Value> = hits
+        .into_iter()
+        .map(|h| {
+            let mut v = json!({
+                "kind": h.kind,
+                "name": h.name,
+                "uri": h.uri,
+            });
+            if let Some(c) = h.class {
+                v["class"] = json!(c);
+            }
+            v
+        })
+        .collect();
+    Ok(json!({
+        "pattern": inputs.pattern,
+        "kind": inputs.kind.map(|k| format!("{:?}", k).to_lowercase()),
+        "regex": inputs.regex,
+        "fuzzy": inputs.fuzzy,
+        "count": count,
         "results": results,
     }))
 }

@@ -272,6 +272,7 @@ pub fn register_all(builder: RpcServerBuilder) -> RpcServerBuilder {
         .register_method("show.net.list", handlers::handle_show_net_list)
         .register_method("check", handlers::handle_check)
         .register_method("extract", handlers::handle_extract)
+        .register_method("defs.search", handlers::handle_defs_search)
         .register_method("sem", handlers::handle_sem)
         .register_method("diagnostics", handlers::handle_diagnostics)
         .register_method("project_symbols", handlers::handle_project_symbols)

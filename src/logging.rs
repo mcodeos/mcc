@@ -381,13 +381,6 @@ pub fn init_with_log_file_and_stderr(
         .ok();
 }
 
-pub fn server_log_path() -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("mcc")
-        .join("server.log")
-}
-
 #[cfg(test)]
 #[allow(dead_code)]
 pub fn init_for_test() {
