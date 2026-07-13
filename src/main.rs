@@ -149,6 +149,7 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
         Some(Command::Show(a)) => Some(a.format),
         Some(Command::Search(a)) => Some(a.format),
         Some(Command::Query(a)) => Some(if a.json { OutputFormat::Json } else { a.format }),
+        Some(Command::Export(a)) => Some(if a.json { OutputFormat::Json } else { a.format }),
         Some(Command::Build(a)) => Some(a.format),
         _ => None,
     };
