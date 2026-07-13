@@ -96,6 +96,9 @@ pub enum Command {
 
     /// Explain error codes (M6)
     Explain(ExplainArgs),
+
+    /// Show compiler capabilities (M6) — self-describing API for AI
+    Caps,
 }
 
 // ============================================================================
