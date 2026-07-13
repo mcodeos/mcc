@@ -255,8 +255,8 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
         }
         Some(Command::Caps) => {
             // Capabilities is self-describing; call the handler directly.
-            let result = mcc::rpc::handlers::handle_caps(None)
-                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            let result =
+                mcc::rpc::handlers::handle_caps(None).map_err(|e| anyhow::anyhow!("{e:?}"))?;
             println!("{}", serde_json::to_string_pretty(&result)?);
             Ok(ExitCode::SUCCESS)
         }

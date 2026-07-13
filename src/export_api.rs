@@ -66,7 +66,9 @@ pub fn build_tree(
 
     let ident = McIds::from(top.as_str());
     let uri = McURI::from(file);
-    let built = panic::catch_unwind(panic::AssertUnwindSafe(|| mcc::mcc_build_flat(&ident, &uri, 0)));
+    let built = panic::catch_unwind(panic::AssertUnwindSafe(|| {
+        mcc::mcc_build_flat(&ident, &uri, 0)
+    }));
     match built {
         Ok(Ok((tree, table))) => Ok((tree, table)),
         Ok(Err(e)) => Err(format!("build failed: {}", e)),
@@ -201,21 +203,22 @@ pub fn build_bom(tree: &McModuleInst, top: &str, format: u8) -> (String, Value, 
 // SPICE
 // ============================================================================
 
-pub fn build_spice(
-    tree: &McModuleInst,
-    table: &InstTable,
-    top: &str,
-) -> (String, Value, usize) {
+pub fn build_spice(tree: &McModuleInst, table: &InstTable, top: &str) -> (String, Value, usize) {
     let mut out = String::new();
     out.push_str(&format!("* SPICE netlist: top={}\n", top));
     out.push_str(&format!("* Generated: {}\n\n", chrono_like_now()));
     out.push_str(&format!(".SUBCKT {}\n", top));
 
     // Build a name→class lookup from InstTable components.
-    let mut name_to_class: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut name_to_class: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
     for comp in table.get_components() {
         // path is like "r1" (instance name). Extract just the instance part.
-        let inst_name = comp.path.rsplit_once('.').map(|(i, _)| i).unwrap_or(&comp.path);
+        let inst_name = comp
+            .path
+            .rsplit_once('.')
+            .map(|(i, _)| i)
+            .unwrap_or(&comp.path);
         let class = comp.class_name.clone();
         if !inst_name.is_empty() && !class.is_empty() {
             name_to_class.insert(inst_name.to_string(), class);
@@ -231,11 +234,16 @@ pub fn build_spice(
         std::collections::HashMap::new();
 
     for (net_name, points) in &netmap {
-        if net_name == "NC" || net_name.starts_with("__net_") { continue; }
+        if net_name == "NC" || net_name.starts_with("__net_") {
+            continue;
+        }
         let node = net_name.replace('.', "_").replace('-', "_");
         for pt in points {
             if let Some((inst, _pin)) = pt.rsplit_once('.') {
-                inst_nodes.entry(inst.to_string()).or_default().insert(node.clone());
+                inst_nodes
+                    .entry(inst.to_string())
+                    .or_default()
+                    .insert(node.clone());
             }
         }
     }
@@ -246,7 +254,10 @@ pub fn build_spice(
         let class = name_to_class.get(inst).map(|c| c.as_str()).unwrap_or(inst);
         let prefix = spice_prefix_for_class(class);
         if node_list.len() >= 2 {
-            out.push_str(&format!("{}{} {} {}\n", prefix, inst, node_list[0], node_list[1]));
+            out.push_str(&format!(
+                "{}{} {} {}\n",
+                prefix, inst, node_list[0], node_list[1]
+            ));
             total += 1;
         }
     }
@@ -269,18 +280,17 @@ fn collect_components_in_inst(
 ) {
     for conn in &inst.connections {
         for np in &conn.points {
-            // Derive instance name from np.path. Two patterns:
-            //   - "<instance>.<pin_id>" → instance = "<instance>"
-            //   - "<instance>" (label/port) → instance = "<instance>"
-            // Owner is None in the engine's Pass2 result; the instance
-            // name is encoded in the path.
-            let instance = np
-                .path
-                .rsplit_once('.')
-                .map(|(inst, _pin)| inst.to_string())
-                .unwrap_or_else(|| np.path.clone());
-            if !instance.is_empty() && !instance.starts_with("__") {
-                out.insert(("instance".to_string(), instance));
+            // Only paths with a dot are component pins: "r1.1" → instance "r1".
+            // Labels/ports (no dot) are not components — skip them.
+            if let Some((instance, _pin)) = np.path.rsplit_once('.') {
+                if !instance.is_empty() && !instance.starts_with("__") {
+                    let prefix = instance
+                        .chars()
+                        .next()
+                        .map(|c| c.to_ascii_uppercase().to_string())
+                        .unwrap_or_else(|| "?".into());
+                    out.insert((prefix, instance.to_string()));
+                }
             }
         }
     }
@@ -300,14 +310,22 @@ pub fn build_kicad_netlist(
 ) -> (String, Value, usize) {
     let mut out = String::new();
     out.push_str("(export (version D)\n");
-    out.push_str(&format!("  (design\n    (source \"{}\")\n    (date \"{}\"))\n",
-        top, chrono_like_now()));
+    out.push_str(&format!(
+        "  (design\n    (source \"{}\")\n    (date \"{}\"))\n",
+        top,
+        chrono_like_now()
+    ));
 
     // Components
     out.push_str("  (components\n");
-    let mut name_to_class: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut name_to_class: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
     for comp in table.get_components() {
-        let inst = comp.path.rsplit_once('.').map(|(i, _)| i).unwrap_or(&comp.path);
+        let inst = comp
+            .path
+            .rsplit_once('.')
+            .map(|(i, _)| i)
+            .unwrap_or(&comp.path);
         if !inst.is_empty() && !comp.class_name.is_empty() {
             name_to_class.insert(inst.to_string(), comp.class_name.clone());
         }
@@ -343,13 +361,16 @@ pub fn build_kicad_netlist(
     out.push_str("  (nets\n");
     let mut net_code: u32 = 1;
     for (net_name, points) in &netmap {
-        if net_name == "NC" || net_name.starts_with("__net_") { continue; }
+        if net_name == "NC" || net_name.starts_with("__net_") {
+            continue;
+        }
         out.push_str(&format!(
-            "    (net (code {}) (name \"{}\")\n", net_code, net_name));
+            "    (net (code {}) (name \"{}\")\n",
+            net_code, net_name
+        ));
         for pt in points {
             if let Some((inst, pin)) = pt.rsplit_once('.') {
-                out.push_str(&format!(
-                    "      (node (ref {}) (pin {}))\n", inst, pin));
+                out.push_str(&format!("      (node (ref {}) (pin {}))\n", inst, pin));
             }
         }
         out.push_str("    )\n");
@@ -361,10 +382,7 @@ pub fn build_kicad_netlist(
     (out, Value::Null, netmap.len())
 }
 
-fn collect_instances_from_tree(
-    inst: &McModuleInst,
-    out: &mut std::collections::BTreeSet<String>,
-) {
+fn collect_instances_from_tree(inst: &McModuleInst, out: &mut std::collections::BTreeSet<String>) {
     for conn in &inst.connections {
         for np in &conn.points {
             if let Some((inst_name, _pin)) = np.path.rsplit_once('.') {
@@ -388,7 +406,11 @@ fn spice_prefix_for_class(class: &str) -> String {
         "C".into()
     } else if up.starts_with("IND") || up == "L" {
         "L".into()
-    } else if up.starts_with("DIO") || up.starts_with("MOSFET") || up.starts_with("MOS") || up == "D" {
+    } else if up.starts_with("DIO")
+        || up.starts_with("MOSFET")
+        || up.starts_with("MOS")
+        || up == "D"
+    {
         "D".into()
     } else {
         // Heuristic: use first letter of instance name (r1→R, c1→C, l1→L, d1→D)

@@ -191,14 +191,18 @@ pub fn read_index_if_present() -> Option<IndexFile> {
 /// Read and parse `index.json`. Returns an error if missing or malformed.
 pub fn read_index() -> std::io::Result<IndexFile> {
     let path = index_file();
-    let text =
-        std::fs::read_to_string(&path).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, format!("read {}: {}", path.display(), e))
-        })?;
-    let v: serde_json::Value =
-        serde_json::from_str(&text).map_err(|e| {
-            std::io::Error::new(std::io::ErrorKind::Other, format!("parse {}: {}", path.display(), e))
-        })?;
+    let text = std::fs::read_to_string(&path).map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("read {}: {}", path.display(), e),
+        )
+    })?;
+    let v: serde_json::Value = serde_json::from_str(&text).map_err(|e| {
+        std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("parse {}: {}", path.display(), e),
+        )
+    })?;
     let version = v.get("version").and_then(|x| x.as_u64()).unwrap_or(0) as u32;
     let system = v
         .get("system")

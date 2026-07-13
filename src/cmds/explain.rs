@@ -31,19 +31,17 @@ pub fn run(args: &ExplainArgs) -> Result<()> {
 
 fn run_local(args: &ExplainArgs) -> Result<()> {
     match args.code {
-        Some(code) => {
-            match error_codes::describe(code) {
-                Some(info) => {
-                    println!("Error {}: {}", info.code, info.name);
-                    println!("  {}", info.description);
-                }
-                None => {
-                    eprintln!("Unknown error code: {code}");
-                    eprintln!("Run `mcc explain` to see all known codes.");
-                    std::process::exit(1);
-                }
+        Some(code) => match error_codes::describe(code) {
+            Some(info) => {
+                println!("Error {}: {}", info.code, info.name);
+                println!("  {}", info.description);
             }
-        }
+            None => {
+                eprintln!("Unknown error code: {code}");
+                eprintln!("Run `mcc explain` to see all known codes.");
+                std::process::exit(1);
+            }
+        },
         None => {
             let all = error_codes::all_codes();
             let items: Vec<Value> = all
@@ -56,7 +54,10 @@ fn run_local(args: &ExplainArgs) -> Result<()> {
                     })
                 })
                 .collect();
-            println!("{}", serde_json::to_string_pretty(&json!({ "codes": items }))?);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({ "codes": items }))?
+            );
         }
     }
     Ok(())

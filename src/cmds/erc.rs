@@ -43,7 +43,9 @@ fn run_local(args: &ErcArgs) -> Result<()> {
             let path = if p.is_absolute() {
                 p.to_path_buf()
             } else {
-                std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")).join(p)
+                std::env::current_dir()
+                    .unwrap_or_else(|_| PathBuf::from("."))
+                    .join(p)
             };
             let uri = McURI::from(path.to_string_lossy().as_ref());
             mcc::mcc_load_project(&uri);
