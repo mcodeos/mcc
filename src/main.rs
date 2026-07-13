@@ -94,6 +94,7 @@ fn main() -> ExitCode {
         Some(Command::Config(_)) => false,
         Some(Command::Proj(_)) => false,
         Some(Command::Explain(_)) => false,
+        Some(Command::Caps) => false,
         _ => true,
     };
     if need_logging {
@@ -223,6 +224,13 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
         }
         Some(Command::Explain(args)) => {
             cmds::explain::run(&args)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Some(Command::Caps) => {
+            // Capabilities is self-describing; call the handler directly.
+            let result = mcc::rpc::handlers::handle_caps(None)
+                .map_err(|e| anyhow::anyhow!("{e:?}"))?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
             Ok(ExitCode::SUCCESS)
         }
         None => {

@@ -297,6 +297,7 @@ pub fn handle_methods(_params: Option<Value>) -> RpcResult {
         "export",
         // explain (M6)
         "explain",
+        "caps",
     ];
     Ok(json!(methods
         .iter()
@@ -3252,6 +3253,63 @@ fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
         }
     }
     None
+}
+
+// ============================================================================
+// Capabilities (M6)
+// ============================================================================
+
+/// Handle capabilities RPC — self-describing API for AI discovery.
+pub fn handle_caps(_params: Option<Value>) -> RpcResult {
+    Ok(json!({
+        "server": "mcc",
+        "version": env!("CARGO_PKG_VERSION"),
+        "schema_version": 1,
+        "features": {
+            "diagnostics": {
+                "byte_range": false,
+                "end_line": true,
+                "end_column": true,
+                "suggestions": true,
+                "related": true
+            },
+            "explain": true,
+            "search": true,
+            "query": true,
+            "export": ["netlist", "bom", "spice"],
+            "show_drilldown": true,
+            "show_global_ports": true,
+            "show_files": true,
+            "parse_code": true,
+            "parse_directory": true,
+            "overlay_dry_run": false,
+            "simulation": false,
+            "pcb_export": false,
+            "semantic_lint": false
+        },
+        "rpc_methods": [
+            "server.info", "server.methods",
+            "parse", "check", "build.full", "extract",
+            "show.all", "show.file", "show.files",
+            "show.component", "show.component.list",
+            "show.module", "show.module.list",
+            "show.interface", "show.interface.list",
+            "show.enum", "show.enum.list",
+            "show.net", "show.net.list",
+            "show.pins", "show.ports", "show.ports.list",
+            "show.labels", "show.instances", "show.nets",
+            "show.attrs", "show.funcs", "show.params",
+            "show.roles", "show.values",
+            "lib.list", "lib.info", "lib.load", "lib.unload",
+            "lib.install", "lib.uninstall", "lib.search",
+            "defs.search", "defs.query",
+            "export", "explain", "caps",
+            "trace.set", "trace.get",
+            "sem", "diagnostics",
+            "project_symbols", "set_project_root", "set_system_root",
+            "init", "load_project", "add_file", "remove_file"
+        ]
+    }))
 }
 
 // ============================================================================
