@@ -316,6 +316,9 @@ pub enum VisualRole {
     /// Transposed 2-pin passive that bridges two parallel lanes.
     /// Pin1 connects to the upper lane, Pin2 to the lower lane.
     BridgePassive,
+    /// Series 2-pin passive already placed inline on a lane by a dedicated
+    /// layouter (e.g. two_lane_ladder). Generic passive passes skip it.
+    SeriesInline,
 }
 
 impl McVecBox {

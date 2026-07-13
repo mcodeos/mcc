@@ -102,7 +102,7 @@ pub fn collapse_passives(graph: &mut McVecGraph) -> PassiveStash {
     let passive_ids: Vec<i64> = graph
         .boxes
         .iter()
-        .filter(|b| b.is_two_pin_passive())
+        .filter(|b| b.is_two_pin_passive() && b.visual_role.is_none())
         .map(|b| b.id)
         .collect();
     if passive_ids.is_empty() {
@@ -236,7 +236,7 @@ pub fn place_series_passives(graph: &mut McVecGraph) {
         let mut v: Vec<i64> = graph
             .boxes
             .iter()
-            .filter(|b| b.is_two_pin_passive())
+            .filter(|b| b.is_two_pin_passive() && b.visual_role.is_none())
             .map(|b| b.id)
             .collect();
         v.sort_unstable();
@@ -361,7 +361,7 @@ pub fn place_passive_chains(graph: &mut McVecGraph) {
         let mut v: Vec<i64> = graph
             .boxes
             .iter()
-            .filter(|b| b.is_two_pin_passive())
+            .filter(|b| b.is_two_pin_passive() && b.visual_role.is_none())
             .map(|b| b.id)
             .collect();
         v.sort_unstable();
@@ -597,7 +597,7 @@ pub fn straighten_rail_passives(graph: &mut McVecGraph) {
     let passive_set: HashSet<i64> = graph
         .boxes
         .iter()
-        .filter(|b| b.is_two_pin_passive())
+        .filter(|b| b.is_two_pin_passive() && b.visual_role.is_none())
         .map(|b| b.id)
         .collect();
     if passive_set.is_empty() || rail_ids.is_empty() {
@@ -1034,7 +1034,7 @@ pub fn probe_rail_passive_candidates(graph: &McVecGraph) {
     let passive_set: HashSet<i64> = graph
         .boxes
         .iter()
-        .filter(|b| b.is_two_pin_passive())
+        .filter(|b| b.is_two_pin_passive() && b.visual_role.is_none())
         .map(|b| b.id)
         .collect();
     if rail_ids.is_empty() || passive_set.is_empty() {
@@ -1523,7 +1523,8 @@ pub fn place_bridge_passives(graph: &mut McVecGraph) {
     }) {
         let role = match b.visual_role {
             Some(VisualRole::BridgePassive) => "BridgePassive",
-            _ => "-",
+            Some(VisualRole::SeriesInline) => "SeriesInline",
+            None => "-",
         };
         let eps: Vec<String> = b
             .entry_points
