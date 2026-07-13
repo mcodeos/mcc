@@ -12,6 +12,7 @@ pub mod manifest;
 pub mod parse;
 pub mod print;
 pub mod proj;
+pub mod query;
 pub mod search;
 pub mod server;
 pub mod show;

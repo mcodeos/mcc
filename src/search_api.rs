@@ -79,8 +79,15 @@ impl SearchInputs {
 
 /// Walk loaded definitions (and optionally a module's instances) and return
 /// matching hits. **Single source of truth** for both the CLI path and the
-/// `defs.search` RPC handler.
-pub fn walk_defs(inputs: &SearchInputs) -> anyhow::Result<Vec<SearchHit>> {
+/// `defs.search` / `defs.query` RPC handlers.
+///
+/// `filter_expr` is an optional compiled query (from `mcc::query_api`) — when
+/// present, hits are retained only if they satisfy the query. Filter is
+/// applied BEFORE the limit so the limit counts matching results.
+pub fn walk_defs(
+    inputs: &SearchInputs,
+    filter_expr: Option<&mcc::query_api::Query>,
+) -> anyhow::Result<Vec<SearchHit>> {
     let matcher = build_matcher(&inputs.pattern, inputs.regex, inputs.fuzzy)?;
 
     let mut hits = Vec::new();
@@ -154,6 +161,34 @@ pub fn walk_defs(inputs: &SearchInputs) -> anyhow::Result<Vec<SearchHit>> {
                 "--kind instance requires --top <NAME>; skipping instance drill"
             );
         }
+    }
+
+    // Apply query filter before sort + limit.
+    if let Some(q) = filter_expr {
+        let needs_attrs = mcc::query_api::needs_attrs(q);
+        hits.retain(|h| {
+            if needs_attrs {
+                let attrs = mcc::query_api::attrs_for_def(&h.name, &h.uri, |n, u| {
+                    mcc::get_def(&mcc::McIds::from(n), &mcc::McURI::from(u))
+                });
+                mcc::query_api::matches_definition_with_attrs(
+                    q,
+                    Some(&h.kind),
+                    Some(&h.name),
+                    h.class.as_deref(),
+                    Some(&h.uri),
+                    &attrs,
+                )
+            } else {
+                mcc::query_api::matches_definition(
+                    q,
+                    Some(&h.kind),
+                    Some(&h.name),
+                    h.class.as_deref(),
+                    Some(&h.uri),
+                )
+            }
+        });
     }
 
     // Stable order so output is reproducible across runs.
@@ -321,7 +356,7 @@ mod tests {
             limit: 0,
             libs: vec![],
         };
-        let hits = walk_defs(&inputs).unwrap();
+        let hits = walk_defs(&inputs, None).unwrap();
         assert!(hits.is_empty());
     }
 }

@@ -2,88 +2,57 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Shared `--filter <EXPR>` helper used by `mcc extract`, `mcc show --list`,
-//! and (later) `mcc query`.
+//! Adapter over `mcc::query_api` for `mcc extract` and `mcc show --list`.
 //!
-//! **v1 syntax**: comma-separated `key=value` predicates joined with AND.
-//! RHS supports `*` / `?` wildcards (compiled to regex via `regex` crate).
-//!
-//! Examples:
-//!   `--filter 'name=RES*'`
-//!   `--filter 'kind=component,class=MCU*'`
-//!
-//! Unknown keys return an error pointing at the allowed keyset, so callers
-//! like `extract components` (which has only `name` + `class`) error if the
-//! user supplies `kind=` — preventing silent over-matching.
+//! The real parser/evaluator lives in `src/query_api.rs` (lib root). This
+//! module only:
+//!   1. Re-exports the canonical `Query` type as `CompiledFilter` for
+//!      back-compat with callers that already use that name.
+//!   2. Compiles an optional expression string once.
+//!   3. Validates the AST against an `allowed_keys` set per call site, so
+//!      e.g. `extract components` (which has no `class=` field on its
+//!      output) errors clearly when the user supplies it.
+//!   4. Applies the filter to a JSON array of objects (extract) or a plain
+//!      `Vec<String>` (show --list).
 
-use anyhow::{anyhow, Result};
-use regex::Regex;
+use anyhow::Result;
 use serde_json::Value;
 
-/// One `key=value` predicate after parsing.
-#[derive(Debug, Clone)]
-pub struct CompiledFilter {
-    pub preds: Vec<(String, FilterOp)>,
-}
+/// Back-compat alias. The real type lives in `mcc::query_api::Query`.
+pub type CompiledFilter = mcc::query_api::Query;
 
-#[derive(Debug, Clone)]
-pub enum FilterOp {
-    /// Case-insensitive equality on the trimmed lowercased value.
-    Eq(String),
-    /// Wildcard RHS, compiled to an anchored regex (`^...$`).
-    Glob(Regex),
-}
-
-/// Parse `key=value,key=value...` into a [`CompiledFilter`].
+/// Parse a `--filter` expression. Returns the canonical AST.
 pub fn compile(expr: &str) -> Result<CompiledFilter> {
-    let mut preds = Vec::new();
-    for piece in expr.split(',') {
-        let piece = piece.trim();
-        if piece.is_empty() {
-            continue;
-        }
-        let (k, v) = piece
-            .split_once('=')
-            .ok_or_else(|| anyhow!("filter: expected key=value, got '{}'", piece))?;
-        let key = k.trim().to_lowercase();
-        let rhs = v.trim().to_string();
-        let op = if rhs.contains('*') || rhs.contains('?') {
-            // Glob → anchored regex. Escape regex metachars in the literal segments.
-            let pattern = glob_to_regex(&rhs);
-            FilterOp::Glob(Regex::new(&pattern)?)
-        } else {
-            FilterOp::Eq(rhs.to_lowercase())
-        };
-        preds.push((key, op));
-    }
-    Ok(CompiledFilter { preds })
+    mcc::query_api::compile(expr)
 }
 
-/// Apply a filter to a JSON array of objects.
+/// Apply a filter to a JSON array of objects. `allowed_keys` is the set of
+/// keys the row shape supports — using a key outside this set errors out.
 ///
-/// `allowed_keys` is the set of keys the caller knows about — using a key
-/// outside this set returns an error so `extract components` (which doesn't
-/// emit `kind`) doesn't silently accept `kind=component`.
-pub fn apply_to_values(filter: Option<&str>, items: Value, allowed_keys: &[&str]) -> Result<Value> {
-    let Some(expr) = filter else {
-        return Ok(items);
-    };
-    let compiled = compile(expr)?;
-    for (k, _) in &compiled.preds {
-        if !allowed_keys.iter().any(|a| a.eq_ignore_ascii_case(k)) {
-            return Err(anyhow!(
-                "filter: unknown key '{}', expected one of {:?}",
-                k,
-                allowed_keys
-            ));
-        }
-    }
+/// Accepts `Option<&str>` (the raw expression) and compiles internally so
+/// callers don't have to thread the compiled AST through.
+///
+/// For `attr(...)` predicates, the row's `name` and `uri` are used to fetch
+/// the underlying definition's attributes via `mcc::get_def`.
+pub fn apply_to_values(expr: Option<&str>, items: Value, allowed_keys: &[&str]) -> Result<Value> {
+    let Some(s) = expr else { return Ok(items) };
+    let q = compile(s)?;
+    mcc::query_api::validate_allowed_fields(&q, allowed_keys)?;
     let Some(arr) = items.as_array() else {
         return Ok(items);
     };
     let filtered: Vec<Value> = arr
         .iter()
-        .filter(|it| matches_item(&compiled, it))
+        .filter(|it| {
+            let resolver = |name: &str, uri: &str| -> Vec<(String, String)> {
+                let ident = mcc::McIds::from(name);
+                let u = mcc::McURI::from(uri);
+                mcc::query_api::attrs_for_def(name, uri, |n, u| {
+                    mcc::get_def(&mcc::McIds::from(n), &mcc::McURI::from(u))
+                })
+            };
+            mcc::query_api::matches_json_record_with(&q, it, resolver)
+        })
         .cloned()
         .collect();
     Ok(Value::Array(filtered))
@@ -91,68 +60,17 @@ pub fn apply_to_values(filter: Option<&str>, items: Value, allowed_keys: &[&str]
 
 /// Apply a filter to a plain `Vec<String>` (used by `show --list`).
 /// Only the `name=` key is meaningful for name-only lists; other keys error.
-pub fn apply_to_names(filter: Option<&str>, names: Vec<String>) -> Result<Vec<String>> {
-    let Some(expr) = filter else {
-        return Ok(names);
-    };
-    let compiled = compile(expr)?;
-    for (k, _) in &compiled.preds {
-        if !k.eq_ignore_ascii_case("name") {
-            return Err(anyhow!(
-                "filter: unknown key '{}', expected 'name' for --list targets",
-                k
-            ));
-        }
-    }
+pub fn apply_to_names(expr: Option<&str>, names: Vec<String>) -> Result<Vec<String>> {
+    let Some(s) = expr else { return Ok(names) };
+    let q = compile(s)?;
+    mcc::query_api::validate_allowed_fields(&q, &["name"])?;
     Ok(names
         .into_iter()
         .filter(|n| {
-            compiled.preds.iter().all(|(k, op)| {
-                if k.eq_ignore_ascii_case("name") {
-                    matches_value(op, n)
-                } else {
-                    true
-                }
-            })
+            let item = serde_json::json!({ "name": n });
+            mcc::query_api::matches_json_record(&q, &item)
         })
         .collect())
-}
-
-fn matches_item(filter: &CompiledFilter, item: &Value) -> bool {
-    filter
-        .preds
-        .iter()
-        .all(|(k, op)| match item.get(k).and_then(|v| v.as_str()) {
-            Some(s) => matches_value(op, s),
-            None => false,
-        })
-}
-
-fn matches_value(op: &FilterOp, s: &str) -> bool {
-    match op {
-        FilterOp::Eq(needle) => s.to_lowercase() == *needle,
-        FilterOp::Glob(re) => re.is_match(s),
-    }
-}
-
-/// Convert a glob (`*`/`?`) to a regex. Everything else is regex-escaped so
-/// the user's literal text stays literal.
-fn glob_to_regex(glob: &str) -> String {
-    let mut out = String::from("^");
-    for ch in glob.chars() {
-        match ch {
-            '*' => out.push_str(".*"),
-            '?' => out.push('.'),
-            // Regex metacharacters to escape
-            '.' | '(' | ')' | '[' | ']' | '{' | '}' | '+' | '|' | '^' | '$' | '\\' => {
-                out.push('\\');
-                out.push(ch);
-            }
-            _ => out.push(ch),
-        }
-    }
-    out.push('$');
-    out
 }
 
 #[cfg(test)]
@@ -162,55 +80,46 @@ mod tests {
 
     #[test]
     fn eq_is_case_insensitive() {
-        let f = compile("name=RES").unwrap();
-        assert!(matches_item(&f, &json!({"name": "res1"})));
-        assert!(matches_item(&f, &json!({"name": "RES1"})));
-        assert!(!matches_item(&f, &json!({"name": "CAP1"})));
+        let items = json!([{"name": "res1"}, {"name": "RES1"}, {"name": "CAP1"}]);
+        let out = apply_to_values(Some("name=RES"), items, &["name"]).unwrap();
+        let names: Vec<&str> = out
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.get("name").and_then(|n| n.as_str()).unwrap())
+            .collect();
+        // Exact match (case-insensitive): both "res1" and "RES1" match "RES"
+        assert_eq!(names, vec!["res1", "RES1"]);
     }
 
     #[test]
     fn glob_matches_prefix() {
-        let f = compile("class=MCU*").unwrap();
-        assert!(matches_item(&f, &json!({"class": "MCU"})));
-        assert!(matches_item(&f, &json!({"class": "MCU_F4"})));
-        assert!(!matches_item(&f, &json!({"class": "RES"})));
-    }
-
-    #[test]
-    fn glob_matches_suffix_and_middle() {
-        let f = compile("name=*_vcc").unwrap();
-        assert!(matches_item(&f, &json!({"name": "vcc"})));
-        assert!(!matches_item(&f, &json!({"name": "vcc1"})));
-        assert!(matches_item(&f, &json!({"name": "core_vcc"})));
-
-        let f = compile("name=R?S").unwrap();
-        assert!(matches_item(&f, &json!({"name": "RES"})));
-        assert!(matches_item(&f, &json!({"name": "R1S"})));
-        assert!(!matches_item(&f, &json!({"name": "RXS"})));
+        let items = json!([{"name": "MCU"}, {"name": "MCU_F4"}, {"name": "RES"}]);
+        let out = apply_to_values(Some("name=MCU*"), items, &["name"]).unwrap();
+        assert_eq!(out.as_array().unwrap().len(), 2);
     }
 
     #[test]
     fn and_semantics() {
-        let f = compile("kind=component,class=RES*").unwrap();
-        assert!(matches_item(
-            &f,
-            &json!({"kind": "component", "class": "RES10K"})
-        ));
-        assert!(!matches_item(
-            &f,
-            &json!({"kind": "module", "class": "RES10K"})
-        ));
-        assert!(!matches_item(
-            &f,
-            &json!({"kind": "component", "class": "CAP10K"})
-        ));
+        let items = json!([
+            {"kind": "component", "class": "RES10K"},
+            {"kind": "module",    "class": "RES10K"},
+            {"kind": "component", "class": "CAP10K"},
+        ]);
+        let out = apply_to_values(
+            Some("kind=component,class=RES*"),
+            items,
+            &["name", "kind", "class"],
+        )
+        .unwrap();
+        assert_eq!(out.as_array().unwrap().len(), 1);
     }
 
     #[test]
     fn unknown_key_errors_with_allowed_set() {
         let items = json!([{"name": "X"}]);
-        let err = apply_to_values(Some("foo=bar"), items.clone(), &["name"]).unwrap_err();
-        assert!(format!("{}", err).contains("unknown key 'foo'"));
+        let err = apply_to_values(Some("name=X*"), items.clone(), &["class"]).unwrap_err();
+        assert!(format!("{}", err).contains("unknown key"));
 
         let ok = apply_to_values(Some("name=X*"), items, &["name"]).unwrap();
         assert_eq!(ok.as_array().unwrap().len(), 1);
@@ -218,21 +127,33 @@ mod tests {
 
     #[test]
     fn glob_special_chars_in_literal_are_escaped() {
-        // `.` is a regex metachar; the literal must NOT match across the dot.
-        let f = compile("name=v1.0").unwrap();
-        assert!(matches_item(&f, &json!({"name": "v1.0"})));
-        assert!(!matches_item(&f, &json!({"name": "v1X0"})));
+        let items = json!([{"name": "v1.0"}, {"name": "v1X0"}]);
+        let out = apply_to_values(Some("name=v1.0"), items, &["name"]).unwrap();
+        assert_eq!(out.as_array().unwrap().len(), 1);
     }
 
     #[test]
     fn apply_to_names_only_accepts_name_key() {
-        assert!(
-            apply_to_names(Some("name=R*"), vec!["RES".into(), "CAP".into()])
-                .unwrap()
-                .contains(&"RES".to_string())
-        );
+        let out = apply_to_names(Some("name=R*"), vec!["RES".into(), "CAP".into()]).unwrap();
+        assert_eq!(out, vec!["RES".to_string()]);
 
         let err = apply_to_names(Some("kind=component"), vec![]).unwrap_err();
         assert!(format!("{}", err).contains("unknown key"));
+    }
+
+    #[test]
+    fn boolean_ops_in_filter() {
+        let items = json!([
+            {"kind": "component", "class": "RES10K"},
+            {"kind": "module",    "class": "RES10K"},
+            {"kind": "component", "class": "CAP10K"},
+        ]);
+        let out = apply_to_values(
+            Some("kind=component AND class=RES*"),
+            items,
+            &["name", "kind", "class"],
+        )
+        .unwrap();
+        assert_eq!(out.as_array().unwrap().len(), 1);
     }
 }

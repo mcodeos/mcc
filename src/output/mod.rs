@@ -196,6 +196,10 @@ pub fn render_envelope_text(env: &envelope::Envelope, skip_diagnostics: bool) ->
         ));
     }
 
+    if let Some(q) = &r.query {
+        out.push_str(&format!("  query: expr={:?}, count={}\n", q.expr, q.count));
+    }
+
     let s = &r.summary;
     if skip_diagnostics {
         out.push_str("\n═══════════════════════════════════════════════════════════════\n");

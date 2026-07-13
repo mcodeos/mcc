@@ -260,6 +260,7 @@ pub fn handle_methods(_params: Option<Value>) -> RpcResult {
         "show.net.list",
         // search (M5)
         "defs.search",
+        "defs.query",
     ];
     Ok(json!(methods
         .iter()
@@ -451,7 +452,7 @@ pub fn handle_defs_search(params: Option<Value>) -> RpcResult {
         limit: p.limit,
         libs: Vec::new(),
     };
-    let hits = walk_defs(&inputs)
+    let hits = walk_defs(&inputs, None)
         .map_err(|e| JsonRpcError::custom(-32603, &format!("defs.search: {}", e)))?;
     let count = hits.len();
     let results: Vec<Value> = hits
@@ -473,6 +474,50 @@ pub fn handle_defs_search(params: Option<Value>) -> RpcResult {
         "kind": inputs.kind.map(|k| format!("{:?}", k).to_lowercase()),
         "regex": inputs.regex,
         "fuzzy": inputs.fuzzy,
+        "count": count,
+        "results": results,
+    }))
+}
+
+// ============================================================================
+// defs.query (M5 PR#2) — structured DSL query
+// ============================================================================
+
+#[derive(Deserialize, Default)]
+struct DefsQueryParams {
+    expr: String,
+    #[serde(default)]
+    limit: usize,
+}
+
+pub fn handle_defs_query(params: Option<Value>) -> RpcResult {
+    let p: DefsQueryParams = parse_or_default(params)?;
+    let query = crate::query_api::compile(&p.expr)
+        .map_err(|e| JsonRpcError::custom(-32602, &format!("defs.query: {}", e)))?;
+    let inputs = SearchInputs {
+        pattern: String::new(),
+        kind: None,
+        regex: false,
+        fuzzy: false,
+        top: None,
+        limit: p.limit,
+        libs: Vec::new(),
+    };
+    let hits = walk_defs(&inputs, Some(&query))
+        .map_err(|e| JsonRpcError::custom(-32603, &format!("defs.query: {}", e)))?;
+    let count = hits.len();
+    let results: Vec<Value> = hits
+        .into_iter()
+        .map(|h| {
+            let mut v = json!({"kind": h.kind, "name": h.name, "uri": h.uri});
+            if let Some(c) = h.class {
+                v["class"] = json!(c);
+            }
+            v
+        })
+        .collect();
+    Ok(json!({
+        "expr": p.expr,
         "count": count,
         "results": results,
     }))

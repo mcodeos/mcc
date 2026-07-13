@@ -116,6 +116,7 @@ fn main() -> ExitCode {
         Some(Command::Proj(_)) => false,
         Some(Command::Show(_)) => false,
         Some(Command::Search(_)) => false,
+        Some(Command::Query(_)) => false,
         Some(Command::Parse(_)) => false,
         Some(Command::Check(_)) => false,
         Some(Command::Extract(_)) => false,
@@ -146,6 +147,7 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
         Some(Command::Extract(a)) => Some(a.format),
         Some(Command::Show(a)) => Some(a.format),
         Some(Command::Search(a)) => Some(a.format),
+        Some(Command::Query(a)) => Some(if a.json { OutputFormat::Json } else { a.format }),
         Some(Command::Build(a)) => Some(a.format),
         _ => None,
     };
@@ -172,6 +174,10 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
         }
         Some(Command::Search(args)) => {
             cmds::search::run(&args)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Some(Command::Query(args)) => {
+            cmds::query::run(&args)?;
             Ok(ExitCode::SUCCESS)
         }
         Some(Command::Build(args)) => {
@@ -219,6 +225,7 @@ fn print_help_hint() {
     eprintln!("  show     Show component / module / interface / net / file details");
     eprintln!("  extract  Extract instances/netlist/components/interfaces");
     eprintln!("  search   Search across loaded definitions (text/regex/fuzzy)");
+    eprintln!("  query    Structured DSL query (operators, AND/OR/NOT, attr())");
     eprintln!(
         "  lib      System library management (list / install / load / unload / info / search)"
     );
@@ -371,6 +378,7 @@ const KNOWN_SUBCMDS: &[&str] = &[
     "build",
     "show",
     "search",
+    "query",
     "extract",
     "lib",
     "proj",

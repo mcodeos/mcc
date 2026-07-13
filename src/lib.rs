@@ -44,6 +44,7 @@ pub use crate::core::{
     mc_inst::{McInstance, McInstances},
     module::{Mc2Module, McModule},
 };
+pub mod query_api;
 pub mod search_api;
 pub use ast::ast_semantic::{McSemSymbols, Span, SymbolType};
 pub use ast::ast_token::{McSemToken, McSemTokens};

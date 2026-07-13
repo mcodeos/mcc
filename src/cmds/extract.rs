@@ -20,18 +20,24 @@ use serde_json::{json, Value};
 use std::path::Path;
 
 pub fn run(args: &ExtractArgs) -> Result<()> {
-    if let Some(client) = RpcClient::probe() {
-        let result = client.call(
-            "extract",
-            json!({
-                "entry":  args.file.clone(),
-                "target": format!("{:?}", args.target).to_lowercase(),
-                "top":    args.top.clone(),
-                "libs":   args.lib.clone(),
-            }),
-        )?;
-        println!("{}", serde_json::to_string_pretty(&result)?);
-        return Ok(());
+    // Compile filter once and skip RPC if present (RPC filter parity deferred).
+    // This forces filtered extracts to use the local evaluator so the filter
+    // expression is actually applied (RPC handler doesn't accept filter today).
+    let compiled_filter = args.filter.as_deref().map(filter::compile).transpose()?;
+    if compiled_filter.is_none() {
+        if let Some(client) = RpcClient::probe() {
+            let result = client.call(
+                "extract",
+                json!({
+                    "entry":  args.file.clone(),
+                    "target": format!("{:?}", args.target).to_lowercase(),
+                    "top":    args.top.clone(),
+                    "libs":   args.lib.clone(),
+                }),
+            )?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+            return Ok(());
+        }
     }
 
     // Initialize (do not load system libraries)
@@ -170,8 +176,13 @@ fn extract_components(args: &ExtractArgs) -> Result<()> {
         .into_iter()
         .map(|(name, uri)| json!({ "name": name, "uri": uri }))
         .collect();
-    // components emit `name` + `uri` only — `class=` / `kind=` keys are rejected.
-    let items = filter::apply_to_values(args.filter.as_deref(), Value::Array(items), &["name"])?;
+    // components emit `name` + `uri`; `attr(...)` works because matches_json_record
+    // resolves attrs from get_def (via mcc::query_api::attrs_for_def).
+    let items = filter::apply_to_values(
+        args.filter.as_deref(),
+        Value::Array(items),
+        &["name", "attr"],
+    )?;
     emit_extract(args, "components", items)
 }
 
@@ -180,7 +191,11 @@ fn extract_interfaces(args: &ExtractArgs) -> Result<()> {
         .into_iter()
         .map(|(name, uri)| json!({ "name": name, "uri": uri }))
         .collect();
-    let items = filter::apply_to_values(args.filter.as_deref(), Value::Array(items), &["name"])?;
+    let items = filter::apply_to_values(
+        args.filter.as_deref(),
+        Value::Array(items),
+        &["name", "attr"],
+    )?;
     emit_extract(args, "interfaces", items)
 }
 

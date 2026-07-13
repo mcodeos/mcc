@@ -75,6 +75,11 @@ impl ResultBuilder {
         self
     }
 
+    pub fn set_query(&mut self, q: QueryData) -> &mut Self {
+        self.result.query = Some(q);
+        self
+    }
+
     /// Print a summary of collected diagnostics (without consuming self).
     /// Useful for displaying diagnostics before Net Summary.
     pub fn print_diagnostics_summary(&self) {
