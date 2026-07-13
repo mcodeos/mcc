@@ -148,8 +148,10 @@ pub fn run(action: &LibAction, format: OutputFormat) -> Result<()> {
         },
         LibAction::Uninstall { name, force } => match &client {
             Some(c) => {
-                let result =
-                    c.call("lib.uninstall", serde_json::json!({ "name": name, "force": force }))?;
+                let result = c.call(
+                    "lib.uninstall",
+                    serde_json::json!({ "name": name, "force": force }),
+                )?;
                 println!("{}", serde_json::to_string_pretty(&result)?);
                 Ok(())
             }

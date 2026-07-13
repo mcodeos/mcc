@@ -4,6 +4,11 @@
 
 #![allow(dead_code)]
 
+// Allow `mcc::*` references inside lib-root modules to resolve to self
+// (the crate is itself named `mcc`; without this, `mcc::foo` would look for
+// an external crate called `mcc`).
+extern crate self as mcc;
+
 //1. lib internal
 use crate::builder::diagnostic::Diagnostic;
 use std::env;
@@ -39,6 +44,7 @@ pub use crate::core::{
     mc_inst::{McInstance, McInstances},
     module::{Mc2Module, McModule},
 };
+pub mod search_api;
 pub use ast::ast_semantic::{McSemSymbols, Span, SymbolType};
 pub use ast::ast_token::{McSemToken, McSemTokens};
 pub use ast::c_macros::*;

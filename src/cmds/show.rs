@@ -11,6 +11,7 @@
 //!                   / `funcs` / `params` / `roles` / `values` (<name> = owning entity)
 
 use crate::cli::{rpc_client::RpcClient, OutputFormat, ShowArgs, ShowTarget};
+use crate::cmds::filter;
 use anyhow::Result;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
@@ -269,7 +270,10 @@ fn show_all(args: &ShowArgs) -> Result<()> {
         .into_iter()
         .map(|(n, _)| n)
         .collect();
-    let modules: Vec<String> = mcc::mcb_iter_modules().into_iter().map(|(n, _)| n).collect();
+    let modules: Vec<String> = mcc::mcb_iter_modules()
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect();
     let interfaces: Vec<String> = mcc::mcb_iter_interfaces()
         .into_iter()
         .map(|(n, _)| n)
@@ -297,7 +301,10 @@ fn show_file(args: &ShowArgs) -> Result<()> {
         .into_iter()
         .map(|(n, _)| n)
         .collect();
-    let modules: Vec<String> = mcc::mcb_iter_modules().into_iter().map(|(n, _)| n).collect();
+    let modules: Vec<String> = mcc::mcb_iter_modules()
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect();
     let interfaces: Vec<String> = mcc::mcb_iter_interfaces()
         .into_iter()
         .map(|(n, _)| n)
@@ -327,6 +334,8 @@ fn list_kind(kind: Kind, args: &ShowArgs) -> Result<()> {
         Kind::Enum => ("enum", mcc::mcb_iter_enums()),
     };
     let names: Vec<String> = items.into_iter().map(|(n, _)| n).collect();
+    // `--filter` only accepts `name=` for `--list` targets (single string per row).
+    let names = filter::apply_to_names(args.filter.as_deref(), names)?;
     let data = json!({ "type": ty, "count": names.len(), "list": names });
     output(&data, args)
 }
@@ -411,7 +420,9 @@ fn show_net(name: &str, args: &ShowArgs) -> Result<()> {
     } else {
         match nets.get(name) {
             Some(points) => json!({ "name": name, "points": points }),
-            None => json!({ "name": name, "points": Vec::<String>::new(), "error": "net not found" }),
+            None => {
+                json!({ "name": name, "points": Vec::<String>::new(), "error": "net not found" })
+            }
         }
     };
     output(&data, args)
@@ -613,7 +624,9 @@ fn pinport_json(v: &mcc::McPinPort) -> Value {
         mcc::McPinPort::Single(pid) => json!({ "kind": "Single", "pin": pid }),
         mcc::McPinPort::Multi(pids) => json!({ "kind": "Multi", "pins": pids }),
         mcc::McPinPort::MultiGroup(groups) => json!({ "kind": "MultiGroup", "groups": groups }),
-        mcc::McPinPort::List(name, items) => json!({ "kind": "List", "name": name, "items": items }),
+        mcc::McPinPort::List(name, items) => {
+            json!({ "kind": "List", "name": name, "items": items })
+        }
         mcc::McPinPort::Bus(bus) => json!({ "kind": "Bus", "debug": format!("{:?}", bus) }),
         mcc::McPinPort::Interface(iface) => json!({
             "kind": "Interface",
@@ -669,8 +682,9 @@ fn nets_map(top: &str) -> BTreeMap<String, Vec<String>> {
     let ident = mcc::McIds::from(top);
 
     // Guardrail: a Pass2 panic must not abort the process.
-    let built =
-        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| mcc::mcc_build(&ident, &uri)));
+    let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        mcc::mcc_build(&ident, &uri)
+    }));
     let inst = match built {
         Ok(Ok(i)) => i,
         Ok(Err(e)) => {
