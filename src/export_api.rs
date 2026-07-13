@@ -203,18 +203,36 @@ pub fn build_spice(tree: &McModuleInst, top: &str) -> (String, Value, usize) {
     out.push_str(&format!("* SPICE netlist: top={}\n", top));
     out.push_str(&format!("* Generated: {}\n\n", chrono_like_now()));
     out.push_str(&format!(".SUBCKT {}\n", top));
-    let mut total: usize = 0;
-    // Walk connections to discover component instances.
-    for (kind, name) in collect_component_instances(tree) {
-        let mut sorted = (kind.clone(), name.clone());
-        sorted.1 = name;
-        let prefix = spice_prefix_for_class(&kind);
-        out.push_str(&format!(
-            "* {} {} (class={}; pin-level SPICE model is v2)\n",
-            prefix, sorted.1, kind
-        ));
-        total += 1;
+
+    // Use collect_nets to get proper net→points mapping (same as netlist export).
+    let mut netmap: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    collect_nets(tree, &mut netmap);
+
+    // Build instance → {node1, node2, ...} from net data.
+    let mut inst_nodes: std::collections::HashMap<String, std::collections::BTreeSet<String>> =
+        std::collections::HashMap::new();
+
+    for (net_name, points) in &netmap {
+        if net_name == "NC" || net_name.starts_with("__net_") { continue; }
+        let node = net_name.replace('.', "_").replace('-', "_");
+        for pt in points {
+            // "r1.1" → instance "r1"
+            if let Some((inst, _pin)) = pt.rsplit_once('.') {
+                inst_nodes.entry(inst.to_string()).or_default().insert(node.clone());
+            }
+        }
     }
+
+    let mut total: usize = 0;
+    for (inst, nodes) in &inst_nodes {
+        let node_list: Vec<&String> = nodes.iter().collect();
+        let prefix = spice_prefix_for_class(inst);
+        if node_list.len() >= 2 {
+            out.push_str(&format!("{}{} {} {}\n", prefix, inst, node_list[0], node_list[1]));
+            total += 1;
+        }
+    }
+
     out.push_str(&format!(".ENDS {}\n\n.END\n", top));
     (out, Value::Null, total)
 }
@@ -255,16 +273,22 @@ fn collect_components_in_inst(
 
 fn spice_prefix_for_class(class: &str) -> String {
     let up = class.to_uppercase();
+    // Try class name first (e.g., "RES", "CAP")
     if up.starts_with("RES") || up == "R" {
         "R".into()
     } else if up.starts_with("CAP") || up == "C" {
         "C".into()
     } else if up.starts_with("IND") || up == "L" {
         "L".into()
-    } else if up.starts_with("DIO") || up.starts_with("MOS") {
+    } else if up.starts_with("DIO") || up.starts_with("MOSFET") || up.starts_with("MOS") || up == "D" {
         "D".into()
     } else {
-        "X".into()
+        // Heuristic: use first letter of instance name (r1→R, c1→C, l1→L, d1→D)
+        let first = class.chars().next().unwrap_or('X').to_ascii_uppercase();
+        match first {
+            'R' | 'C' | 'L' | 'D' => first.to_string(),
+            _ => "X".into(),
+        }
     }
 }
 
