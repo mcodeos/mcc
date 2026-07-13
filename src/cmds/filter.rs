@@ -45,8 +45,8 @@ pub fn apply_to_values(expr: Option<&str>, items: Value, allowed_keys: &[&str]) 
         .iter()
         .filter(|it| {
             let resolver = |name: &str, uri: &str| -> Vec<(String, String)> {
-                let ident = mcc::McIds::from(name);
-                let u = mcc::McURI::from(uri);
+                let _ident = mcc::McIds::from(name);
+                let _u = mcc::McURI::from(uri);
                 mcc::query_api::attrs_for_def(name, uri, |n, u| {
                     mcc::get_def(&mcc::McIds::from(n), &mcc::McURI::from(u))
                 })

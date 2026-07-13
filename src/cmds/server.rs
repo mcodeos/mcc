@@ -205,6 +205,11 @@ pub fn run_start(args: &StartArgs) -> Result<()> {
 pub fn run_server_internal(host: &str, port: u16, libs: &[String]) -> Result<()> {
     // Skip is_server_running check (since this is internal startup)
     mcc::mcc_set_system_root(data_dir::data_root().as_path());
+    // Ensure canonical dirs exist + run one-shot migration. Idempotent.
+    // (The CLI's main.rs calls ensure_dirs once at startup; doing it again
+    // here is cheap and protects the server from any startup paths that
+    // bypass main.)
+    let _ = data_dir::ensure_dirs();
     // Load system libraries (e.g. mcode) according to config (libs.load).
     // Previously this used mcc_init_no_lib(), which skipped mcode loading and
     // caused enum PKG (and other system symbols) to be missing for LSP gotodef.
