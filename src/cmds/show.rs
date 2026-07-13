@@ -2,47 +2,35 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! `mcc show` — Show detailed information for specified component/module/interface/net
+//! `mcc show` — Show detailed information for parsed definitions.
+//!
+//! Two families of queries (structured `verb <what> [<name>]` syntax):
+//!   * containers  : `all` / `file` / `component` / `module` / `interface` / `enum` / `net`
+//!                   (omit <name> → list; give <name> → detail)
+//!   * drill-down  : `pins` / `ports` / `labels` / `instances` / `nets` / `attrs`
+//!                   / `funcs` / `params` / `roles` / `values` (<name> = owning entity)
 
 use crate::cli::{rpc_client::RpcClient, OutputFormat, ShowArgs, ShowTarget};
 use anyhow::Result;
-use serde_json::json;
+use serde_json::{json, Map, Value};
+use std::collections::BTreeMap;
+use std::path::Path;
 use tracing::error;
 
 pub fn run(args: &ShowArgs) -> Result<()> {
-    let client = RpcClient::probe();
-
-    if let Some(c) = &client {
-        let (method, params) = if args.name.is_none() {
-            // List all
-            let method = match args.target {
-                ShowTarget::Component => "show.component.list",
-                ShowTarget::Module => "show.module.list",
-                ShowTarget::Interface => "show.interface.list",
-                ShowTarget::Net => "show.net.list",
-                ShowTarget::File => "show.file",
-            };
-            (method, json!({ "file": args.file }))
-        } else {
-            // Show single
-            let method = match args.target {
-                ShowTarget::Component => "show.component",
-                ShowTarget::Module => "show.module",
-                ShowTarget::Interface => "show.interface",
-                ShowTarget::Net => "show.net",
-                ShowTarget::File => "show.file",
-            };
-            (method, json!({ "name": args.name, "file": args.file }))
-        };
-
-        match c.call(method, params) {
-            Ok(result) => {
-                println!("{}", serde_json::to_string_pretty(&result)?);
-                return Ok(());
-            }
-            Err(e) => {
-                // RPC call failed (e.g., method doesn't exist), fallback to local mode
-                tracing::debug!(target: "mcc::show", "RPC failed, using local mode: {}", e);
+    // Server path: only legacy container targets have RPC methods today
+    // (server/local parity for the rest is tracked by roadmap M3). Everything
+    // else falls through to local execution.
+    if let Some(c) = RpcClient::probe() {
+        if let Some((method, params)) = rpc_mapping(args) {
+            match c.call(method, params) {
+                Ok(result) => {
+                    println!("{}", serde_json::to_string_pretty(&result)?);
+                    return Ok(());
+                }
+                Err(e) => {
+                    tracing::debug!(target: "mcc::show", "RPC failed, using local mode: {}", e);
+                }
             }
         }
     }
@@ -50,53 +38,156 @@ pub fn run(args: &ShowArgs) -> Result<()> {
     run_local(args)
 }
 
-fn run_local(args: &ShowArgs) -> Result<()> {
-    // First initialize (don't auto-load system library)
-    mcc::mcc_init_no_lib();
-
-    // If file is specified, load it (all targets need it)
-    if let Some(file) = &args.file {
-        let uri = mcc::McURI::from(file.as_str());
-        mcc::mcc_load_project(&uri);
-    }
-
-    // List all when name is None
-    if args.name.is_none() {
-        return list_all(args);
-    }
-
+/// Map legacy container targets to their RPC method + params. Returns `None`
+/// for the new targets (they run locally).
+fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
     match args.target {
-        ShowTarget::Component => show_component(args.name.as_ref().unwrap(), args),
-        ShowTarget::Module => show_module(args.name.as_ref().unwrap(), args),
-        ShowTarget::Interface => show_interface(args.name.as_ref().unwrap(), args),
-        ShowTarget::Net => show_net(args.name.as_deref().unwrap_or(""), args),
-        ShowTarget::File => show_file(args),
+        ShowTarget::File => Some(("show.file", json!({ "file": args.name }))),
+        ShowTarget::Component | ShowTarget::Module | ShowTarget::Interface | ShowTarget::Net => {
+            if args.name.is_none() {
+                let m = match args.target {
+                    ShowTarget::Component => "show.component.list",
+                    ShowTarget::Module => "show.module.list",
+                    ShowTarget::Interface => "show.interface.list",
+                    ShowTarget::Net => "show.net.list",
+                    _ => unreachable!(),
+                };
+                Some((m, json!({ "file": args.file })))
+            } else {
+                let m = match args.target {
+                    ShowTarget::Component => "show.component",
+                    ShowTarget::Module => "show.module",
+                    ShowTarget::Interface => "show.interface",
+                    ShowTarget::Net => "show.net",
+                    _ => unreachable!(),
+                };
+                Some((m, json!({ "name": args.name, "file": args.file })))
+            }
+        }
+        _ => None,
     }
 }
 
-/// Search for files with the same name, recursively in common directories
+fn run_local(args: &ShowArgs) -> Result<()> {
+    prepare(args);
+
+    let name = args.name.as_deref();
+    match args.target {
+        // ── containers ─────────────────────────────────────────────────────
+        ShowTarget::All => show_all(args),
+        ShowTarget::File => show_file(args),
+        ShowTarget::Component => match name {
+            None => list_kind(Kind::Component, args),
+            Some(n) => show_component(n, args),
+        },
+        ShowTarget::Module => match name {
+            None => list_kind(Kind::Module, args),
+            Some(n) => show_module(n, args),
+        },
+        ShowTarget::Interface => match name {
+            None => list_kind(Kind::Interface, args),
+            Some(n) => show_interface(n, args),
+        },
+        ShowTarget::Enum => match name {
+            None => list_kind(Kind::Enum, args),
+            Some(n) => show_enum(n, args),
+        },
+        ShowTarget::Net => show_net(name.unwrap_or(""), args),
+
+        // ── drill-down ─────────────────────────────────────────────────────
+        ShowTarget::Pins => drill_pins(require_name(args), args),
+        ShowTarget::Ports => drill_ports(require_name(args), args),
+        ShowTarget::Labels => drill_labels(require_name(args), args),
+        ShowTarget::Instances => drill_instances(require_name(args), args),
+        ShowTarget::Nets => drill_nets(require_name(args), args),
+        ShowTarget::Attrs => drill_attrs(require_name(args), args),
+        ShowTarget::Funcs => drill_funcs(require_name(args), args),
+        ShowTarget::Params => drill_params(require_name(args), args),
+        ShowTarget::Roles => drill_roles(require_name(args), args),
+        ShowTarget::Values => drill_values(require_name(args), args),
+    }
+}
+
+// ============================================================================
+// Setup
+// ============================================================================
+
+/// One-shot environment setup: init engine, load `--lib` libraries, load the
+/// target file. All handlers assume this ran, so none of them re-init.
+fn prepare(args: &ShowArgs) {
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(Path::new(""));
+
+    if !args.lib.is_empty() {
+        crate::cmds::manifest::load_libs(&args.lib);
+    }
+
+    // File target keeps the path in <name>; all others use `-F/--file`.
+    let file_opt = match args.target {
+        ShowTarget::File => args.name.as_deref(),
+        _ => args.file.as_deref(),
+    };
+
+    if let Some(f) = file_opt {
+        let actual = resolve_file(f);
+        let uri = mcc::McURI::from(actual.as_str());
+        mcc::mcc_load_project(&uri);
+    }
+}
+
+fn require_name<'a>(args: &'a ShowArgs) -> &'a str {
+    match args.name.as_deref() {
+        Some(n) => n,
+        None => {
+            error!(target: "mcc::show", "'show {:?}' requires an entity name", args.target);
+            std::process::exit(2);
+        }
+    }
+}
+
+/// Resolve a file path; if it doesn't exist, search by base name in the tree.
+fn resolve_file(file: &str) -> String {
+    if Path::new(file).exists() {
+        return file.to_string();
+    }
+    let matches = find_files_with_name(file);
+    match matches.len() {
+        0 => {
+            error!(target: "mcc::show", "file not found: {}", file);
+            std::process::exit(1);
+        }
+        1 => matches[0].clone(),
+        _ => {
+            let list: Vec<String> = matches
+                .iter()
+                .enumerate()
+                .map(|(i, p)| format!("  {}: {}", i + 1, p))
+                .collect();
+            error!(target: "mcc::show", "multiple files named '{}':\n{}", file, list.join("\n"));
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Search for files with the same name, recursively in common directories.
 fn find_files_with_name(name: &str) -> Vec<String> {
     use std::fs;
 
-    // Extract file name (remove directory part)
-    let file_name = std::path::Path::new(name)
+    let file_name = Path::new(name)
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or(name);
 
     let mut matches = Vec::new();
 
-    // Recursively search directory
-    fn search_dir(dir: &std::path::Path, file_name: &str, matches: &mut Vec<String>, depth: usize) {
+    fn search_dir(dir: &Path, file_name: &str, matches: &mut Vec<String>, depth: usize) {
         if depth > 5 {
-            return; // Limit recursion depth
+            return;
         }
-
         if let Ok(entries) = fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
-                    // Skip hidden directories and common build directories
                     if let Some(fname) = path.file_name().and_then(|n| n.to_str()) {
                         if !fname.starts_with('.') && fname != "target" && fname != "node_modules" {
                             search_dir(&path, file_name, matches, depth + 1);
@@ -117,261 +208,368 @@ fn find_files_with_name(name: &str) -> Vec<String> {
         }
     }
 
-    // Start search from current directory
-    search_dir(std::path::Path::new("."), file_name, &mut matches, 0);
-
+    search_dir(Path::new("."), file_name, &mut matches, 0);
     matches
 }
 
-fn show_file(args: &ShowArgs) -> Result<()> {
-    // For File target, name is the file path
-    let file = args.name.as_ref().expect("show file requires file name");
+// ============================================================================
+// Definition lookup
+// ============================================================================
 
-    // Check if file exists, if not try to search
-    let actual_path = if std::path::Path::new(file).exists() {
-        file.to_string()
-    } else {
-        // Try to search for files with same name
-        let matches = find_files_with_name(file);
-        if matches.is_empty() {
-            error!(target: "mcc::show", "file not found: {}", file);
-            std::process::exit(1);
-        } else if matches.len() == 1 {
-            // Only one match, use directly
-            matches[0].clone()
-        } else {
-            // Multiple matches, list for user to choose
-            let list: Vec<String> = matches
-                .iter()
-                .enumerate()
-                .map(|(i, p)| format!("  {}: {}", i + 1, p))
-                .collect();
-            error!(target: "mcc::show", "multiple files named '{}':\n{}", file, list.join("\n"));
-            std::process::exit(1);
-        }
-    };
-
-    // Initialize (don't auto-load system library)
-    mcc::mcc_init_no_lib();
-
-    // Load file
-    let uri = mcc::McURI::from(actual_path.as_str());
-    mcc::mcc_load_project(&uri);
-
-    // Get all definitions
-    let components: Vec<(String, String)> = mcc::mcb_iter_components();
-    let modules: Vec<(String, String)> = mcc::mcb_iter_modules();
-    let interfaces: Vec<(String, String)> = mcc::mcb_iter_interfaces();
-
-    // Human-readable format: flat structure
-    let data = json!({
-        "type": "file",
-        "file": actual_path,
-        "module_count": modules.len(),
-        "module_list": modules.iter().map(|(n, _)| n).cloned().collect::<Vec<_>>(),
-        "component_count": components.len(),
-        "component_list": components.iter().map(|(n, _)| n).cloned().collect::<Vec<_>>(),
-        "interface_count": interfaces.len(),
-        "interface_list": interfaces.iter().map(|(n, _)| n).cloned().collect::<Vec<_>>(),
-    });
-    output_json(&data, args.format)?;
-    Ok(())
+#[derive(Copy, Clone)]
+enum Kind {
+    Component,
+    Module,
+    Interface,
+    Enum,
 }
 
-fn list_all(args: &ShowArgs) -> Result<()> {
-    // Initialize (don't auto-load system library)
-    mcc::mcc_init_no_lib();
-
-    // If file is specified, first find the file then load
-    if let Some(file) = &args.file {
-        let actual_path = if std::path::Path::new(file).exists() {
-            file.clone()
-        } else {
-            let matches = find_files_with_name(file);
-            if matches.is_empty() {
-                error!(target: "mcc::show", "file not found: {}", file);
-                return Ok(());
-            } else if matches.len() == 1 {
-                matches[0].clone()
-            } else {
-                let list: Vec<String> = matches
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p)| format!("  {}: {}", i + 1, p))
-                    .collect();
-                error!(target: "mcc::show", "multiple files named '{}':\n{}", file, list.join("\n"));
-                return Ok(());
+/// Find a definition by name across all kinds; returns its CMIE.
+fn find_def(name: &str) -> Option<mcc::McCMIE> {
+    let lists = [
+        mcc::mcb_iter_components(),
+        mcc::mcb_iter_modules(),
+        mcc::mcb_iter_interfaces(),
+        mcc::mcb_iter_enums(),
+    ];
+    for list in &lists {
+        if let Some((n, u)) = list.iter().find(|(n, _)| n == name) {
+            if let Some(cmie) =
+                mcc::get_def(&mcc::McIds::from(n.as_str()), &mcc::McURI::from(u.as_str()))
+            {
+                return Some(cmie);
             }
-        };
-        let uri = mcc::McURI::from(actual_path.as_str());
-        mcc::mcc_load_project(&uri);
-    }
-
-    match args.target {
-        ShowTarget::Component => {
-            let comps: Vec<(String, String)> = mcc::mcb_iter_components();
-            let names: Vec<String> = comps.iter().map(|(n, _)| n.clone()).collect();
-            let data = json!({
-                "type": "component",
-                "count": names.len(),
-                "list": names,
-            });
-            output_json(&data, args.format)?;
-        }
-        ShowTarget::Module => {
-            let modules: Vec<(String, String)> = mcc::mcb_iter_modules();
-            let names: Vec<String> = modules.iter().map(|(n, _)| n.clone()).collect();
-            let data = json!({
-                "type": "module",
-                "count": names.len(),
-                "list": names,
-            });
-            output_json(&data, args.format)?;
-        }
-        ShowTarget::Interface => {
-            let ifaces: Vec<(String, String)> = mcc::mcb_iter_interfaces();
-            let names: Vec<String> = ifaces.iter().map(|(n, _)| n.clone()).collect();
-            let data = json!({
-                "type": "interface",
-                "count": names.len(),
-                "list": names,
-            });
-            output_json(&data, args.format)?;
-        }
-        ShowTarget::Net => {
-            // File already loaded in run_local; build netlist: prefer --top, otherwise get first module
-            let top_name = args
-                .top
-                .as_ref()
-                .cloned()
-                .or_else(|| mcc::mcb_get_first_module_name());
-
-            // Find URI corresponding to top_name from loaded modules (mcc_build needs correct URI)
-            let uri: Option<mcc::McURI> = top_name.as_ref().and_then(|name: &String| {
-                mcc::mcb_iter_modules()
-                    .iter()
-                    .find(|(n, _)| *n == *name)
-                    .map(|(_, u)| mcc::McURI::from(u.as_str()))
-            });
-
-            let built = top_name.as_ref().and_then(|name: &String| {
-                let ident = mcc::McIds::from(name.as_str());
-                let uri = uri.clone()?;
-                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    mcc::mcc_build(&ident, &uri)
-                }))
-                .ok() // panic → None
-                .and_then(|r| r.ok()) // Err → None
-            });
-
-            let items: Vec<serde_json::Value> = if let Some(inst) = built {
-                use std::collections::BTreeMap;
-                let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
-                for conn in &inst.connections {
-                    let net = conn
-                        .net_name
-                        .clone()
-                        .unwrap_or_else(|| format!("__net_{}", conn.id));
-                    if net == "NC" {
-                        continue;
-                    }
-                    let bucket = nets.entry(net).or_default();
-                    for p in &conn.points {
-                        if p.path == "NC" {
-                            continue;
-                        }
-                        let label = if let Some(ref o) = p.owner {
-                            format!("{}.{}", o, p.path.split('.').last().unwrap_or(&p.path))
-                        } else {
-                            p.path.clone()
-                        };
-                        if !bucket.contains(&label) {
-                            bucket.push(label);
-                        }
-                    }
-                }
-                nets.into_iter()
-                    .map(|(n, pts)| json!({ "name": n, "points": pts }))
-                    .collect()
-            } else {
-                vec![]
-            };
-            let data = json!({
-                "type": "net",
-                "count": items.len(),
-                "nets": items,
-            });
-            output_json(&data, args.format)?;
-        }
-        ShowTarget::File => {
-            // File type is used via show file <path>
-            let data = json!({
-                "type": "file",
-                "note": "Use 'mcc show file <path>' to view all elements in file",
-            });
-            output_json(&data, args.format)?;
         }
     }
-    Ok(())
+    None
+}
+
+fn def_or_exit(name: &str) -> mcc::McCMIE {
+    match find_def(name) {
+        Some(c) => c,
+        None => {
+            error!(target: "mcc::show", "definition not found: {}\nhint: load a file with -F, a library with --lib, or start a server", name);
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Report that `<what>` is not applicable to the kind of `<name>`, then exit.
+fn not_applicable(what: &str, name: &str) -> ! {
+    error!(target: "mcc::show", "'{}' is not available for '{}'", what, name);
+    std::process::exit(1);
+}
+
+// ============================================================================
+// Containers: overview / list / detail
+// ============================================================================
+
+fn show_all(args: &ShowArgs) -> Result<()> {
+    let components: Vec<String> = mcc::mcb_iter_components()
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect();
+    let modules: Vec<String> = mcc::mcb_iter_modules().into_iter().map(|(n, _)| n).collect();
+    let interfaces: Vec<String> = mcc::mcb_iter_interfaces()
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect();
+    let enums: Vec<String> = mcc::mcb_iter_enums().into_iter().map(|(n, _)| n).collect();
+
+    let data = json!({
+        "type": "all",
+        "module_count": modules.len(),
+        "module_list": modules,
+        "component_count": components.len(),
+        "component_list": components,
+        "interface_count": interfaces.len(),
+        "interface_list": interfaces,
+        "enum_count": enums.len(),
+        "enum_list": enums,
+    });
+    output(&data, args)
+}
+
+fn show_file(args: &ShowArgs) -> Result<()> {
+    // File was resolved+loaded in prepare(); report what the load produced.
+    let file = args.name.as_deref().unwrap_or("");
+    let components: Vec<String> = mcc::mcb_iter_components()
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect();
+    let modules: Vec<String> = mcc::mcb_iter_modules().into_iter().map(|(n, _)| n).collect();
+    let interfaces: Vec<String> = mcc::mcb_iter_interfaces()
+        .into_iter()
+        .map(|(n, _)| n)
+        .collect();
+    let enums: Vec<String> = mcc::mcb_iter_enums().into_iter().map(|(n, _)| n).collect();
+
+    let data = json!({
+        "type": "file",
+        "file": file,
+        "module_count": modules.len(),
+        "module_list": modules,
+        "component_count": components.len(),
+        "component_list": components,
+        "interface_count": interfaces.len(),
+        "interface_list": interfaces,
+        "enum_count": enums.len(),
+        "enum_list": enums,
+    });
+    output(&data, args)
+}
+
+fn list_kind(kind: Kind, args: &ShowArgs) -> Result<()> {
+    let (ty, items) = match kind {
+        Kind::Component => ("component", mcc::mcb_iter_components()),
+        Kind::Module => ("module", mcc::mcb_iter_modules()),
+        Kind::Interface => ("interface", mcc::mcb_iter_interfaces()),
+        Kind::Enum => ("enum", mcc::mcb_iter_enums()),
+    };
+    let names: Vec<String> = items.into_iter().map(|(n, _)| n).collect();
+    let data = json!({ "type": ty, "count": names.len(), "list": names });
+    output(&data, args)
 }
 
 fn show_component(name: &str, args: &ShowArgs) -> Result<()> {
-    // Initialize (don't auto-load system library)
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-
-    // Load libraries specified by --lib, so interface bindings can be resolved
-    if !args.lib.is_empty() {
-        crate::cmds::manifest::load_libs(&args.lib);
-    }
-
-    // If file is specified, load it
-    if let Some(file) = &args.file {
-        let uri = mcc::McURI::from(file.as_str());
-        mcc::mcc_load_project(&uri);
-    }
-
-    // Only search from loaded components
-    let comps: Vec<(String, String)> = mcc::mcb_iter_components();
-
-    // Exact match
-    let found = comps.iter().find(|(n, _)| n == name);
-
-    let (matched_name, uri) = match found {
-        Some((n, u)) => (n.clone(), u.clone()),
-        None => {
-            if args.file.is_some() {
-                error!(target: "mcc::show", "component not found: {} in file '{}'", name, args.file.as_ref().unwrap());
-            } else {
-                error!(target: "mcc::show", "component not found: {}\nhint: load library first (mcc lib load <name>) or use --file", name);
-            }
-            std::process::exit(1);
-        }
-    };
-
-    let cmie = match mcc::get_def(
-        &mcc::McIds::from(matched_name.as_str()),
-        &mcc::McURI::from(uri.as_str()),
-    ) {
-        Some(c) => c,
-        None => {
-            error!(target: "mcc::show", "component not found: {}", name);
-            std::process::exit(1);
-        }
-    };
-
+    let cmie = def_or_exit(name);
     let mcc::McCMIE::Component(comp) = cmie else {
         error!(target: "mcc::show", "'{}' is not a Component", name);
         std::process::exit(1);
     };
+    let mut data = pins_json(&comp.pins);
+    data["name"] = json!(name);
+    data["uri"] = json!(comp.uri.to_string());
+    output(&data, args)
+}
 
-    // Build detailed pin info: iterate all defined pins
-    let pins: Vec<serde_json::Value> = comp
-        .pins
+fn show_module(name: &str, args: &ShowArgs) -> Result<()> {
+    let cmie = def_or_exit(name);
+    let mcc::McCMIE::Module(module) = cmie else {
+        error!(target: "mcc::show", "'{}' is not a Module", name);
+        std::process::exit(1);
+    };
+    let data = json!({
+        "name": name,
+        "uri": module.uri.to_string(),
+        "instances": instances_json(&module.insts, None),
+    });
+    output(&data, args)
+}
+
+fn show_interface(name: &str, args: &ShowArgs) -> Result<()> {
+    let cmie = def_or_exit(name);
+    let mcc::McCMIE::Interface(iface) = cmie else {
+        error!(target: "mcc::show", "'{}' is not an Interface", name);
+        std::process::exit(1);
+    };
+    let roles: Vec<String> = iface.roles.iter().map(|r| r.name.to_string()).collect();
+    let data = json!({
+        "name": name,
+        "uri": iface.uri.to_string(),
+        "pin_count": iface.pins.pins.len(),
+        "role_count": roles.len(),
+        "roles": roles,
+        "params": iface.params.names(),
+    });
+    output(&data, args)
+}
+
+fn show_enum(name: &str, args: &ShowArgs) -> Result<()> {
+    let cmie = def_or_exit(name);
+    let mcc::McCMIE::Enum(en) = cmie else {
+        error!(target: "mcc::show", "'{}' is not an Enum", name);
+        std::process::exit(1);
+    };
+    let values: Vec<String> = en.values.iter().map(|v| v.name.to_string()).collect();
+    let data = json!({
+        "name": name,
+        "uri": en.uri.to_string(),
+        "value_count": values.len(),
+        "values": values,
+    });
+    output(&data, args)
+}
+
+fn show_net(name: &str, args: &ShowArgs) -> Result<()> {
+    let top = args
+        .top
+        .clone()
+        .or_else(mcc::mcb_get_first_module_name)
+        .unwrap_or_else(|| {
+            error!(target: "mcc::show", "no modules found\nhint: load a file with -F or use --top");
+            std::process::exit(1);
+        });
+    let nets = nets_map(&top);
+
+    let data = if name.is_empty() {
+        let items: Vec<Value> = nets
+            .iter()
+            .map(|(n, points)| json!({ "name": n, "points": points }))
+            .collect();
+        json!({ "type": "net", "count": items.len(), "nets": items })
+    } else {
+        match nets.get(name) {
+            Some(points) => json!({ "name": name, "points": points }),
+            None => json!({ "name": name, "points": Vec::<String>::new(), "error": "net not found" }),
+        }
+    };
+    output(&data, args)
+}
+
+// ============================================================================
+// Drill-down handlers
+// ============================================================================
+
+fn drill_pins(name: &str, args: &ShowArgs) -> Result<()> {
+    let cmie = def_or_exit(name);
+    let pins = match &cmie {
+        mcc::McCMIE::Component(c) => &c.pins,
+        mcc::McCMIE::Interface(i) => &i.pins,
+        _ => not_applicable("pins", name),
+    };
+    let mut data = pins_json(pins);
+    data["name"] = json!(name);
+    output(&data, args)
+}
+
+fn drill_ports(name: &str, args: &ShowArgs) -> Result<()> {
+    let cmie = def_or_exit(name);
+    let mcc::McCMIE::Module(module) = &cmie else {
+        not_applicable("ports", name);
+    };
+    let ports: Vec<Value> = module
+        .insts
+        .iter_ports()
+        .map(|(pname, io)| json!({ "name": pname, "iotype": format!("{:?}", io) }))
+        .collect();
+    let data = json!({ "name": name, "port_count": ports.len(), "ports": ports });
+    output(&data, args)
+}
+
+fn drill_labels(name: &str, args: &ShowArgs) -> Result<()> {
+    let cmie = def_or_exit(name);
+    let mcc::McCMIE::Module(module) = &cmie else {
+        not_applicable("labels", name);
+    };
+    let labels: Vec<String> = module
+        .insts
+        .iter()
+        .filter(|(_, inst)| matches!(inst, mcc::McInstance::Label(_)))
+        .map(|(n, _)| n.to_string())
+        .collect();
+    let data = json!({ "name": name, "label_count": labels.len(), "labels": labels });
+    output(&data, args)
+}
+
+fn drill_instances(name: &str, args: &ShowArgs) -> Result<()> {
+    let cmie = def_or_exit(name);
+    let insts = match &cmie {
+        mcc::McCMIE::Component(c) => &c.insts,
+        mcc::McCMIE::Module(m) => &m.insts,
+        _ => not_applicable("instances", name),
+    };
+    let items = instances_json(insts, args.r#type.as_deref());
+    let data = json!({ "name": name, "count": items.len(), "instances": items });
+    output(&data, args)
+}
+
+fn drill_nets(name: &str, args: &ShowArgs) -> Result<()> {
+    // `nets <module>` uses the entity as the top module.
+    let top = args.top.clone().unwrap_or_else(|| name.to_string());
+    let nets = nets_map(&top);
+    let items: Vec<Value> = nets
+        .iter()
+        .map(|(n, points)| json!({ "name": n, "points": points }))
+        .collect();
+    let data = json!({ "name": name, "count": items.len(), "nets": items });
+    output(&data, args)
+}
+
+fn drill_attrs(name: &str, args: &ShowArgs) -> Result<()> {
+    let cmie = def_or_exit(name);
+    let attrs = match &cmie {
+        mcc::McCMIE::Component(c) => &c.attrs,
+        mcc::McCMIE::Interface(i) => &i.attrs,
+        _ => not_applicable("attrs", name),
+    };
+    let items: Vec<Value> = attrs
+        .iter()
+        .map(|a| {
+            let values: Vec<Value> = a.values.iter().map(attrval_json).collect();
+            json!({ "no": a.no, "name": a.id.to_string(), "values": values })
+        })
+        .collect();
+    let data = json!({ "name": name, "count": items.len(), "attrs": items });
+    output(&data, args)
+}
+
+fn drill_funcs(name: &str, args: &ShowArgs) -> Result<()> {
+    let cmie = def_or_exit(name);
+    let funcs = match &cmie {
+        mcc::McCMIE::Component(c) => &c.funcs,
+        mcc::McCMIE::Module(m) => &m.funcs,
+        _ => not_applicable("funcs", name),
+    };
+    let items: Vec<Value> = funcs
+        .iter()
+        .map(|f| json!({ "name": f.name.to_string(), "params": f.params.names() }))
+        .collect();
+    let data = json!({ "name": name, "count": items.len(), "funcs": items });
+    output(&data, args)
+}
+
+fn drill_params(name: &str, args: &ShowArgs) -> Result<()> {
+    let cmie = def_or_exit(name);
+    let params = match &cmie {
+        mcc::McCMIE::Component(c) => c.params.names(),
+        mcc::McCMIE::Module(m) => m.params.names(),
+        mcc::McCMIE::Interface(i) => i.params.names(),
+        _ => not_applicable("params", name),
+    };
+    let data = json!({ "name": name, "count": params.len(), "params": params });
+    output(&data, args)
+}
+
+fn drill_roles(name: &str, args: &ShowArgs) -> Result<()> {
+    let cmie = def_or_exit(name);
+    let mcc::McCMIE::Interface(iface) = &cmie else {
+        not_applicable("roles", name);
+    };
+    let items: Vec<Value> = iface
+        .roles
+        .iter()
+        .map(|r| {
+            json!({
+                "name": r.name.to_string(),
+                "pins": pins_json(&r.pins),
+            })
+        })
+        .collect();
+    let data = json!({ "name": name, "count": items.len(), "roles": items });
+    output(&data, args)
+}
+
+fn drill_values(name: &str, args: &ShowArgs) -> Result<()> {
+    let cmie = def_or_exit(name);
+    let mcc::McCMIE::Enum(en) = &cmie else {
+        not_applicable("values", name);
+    };
+    let values: Vec<String> = en.values.iter().map(|v| v.name.to_string()).collect();
+    let data = json!({ "name": name, "count": values.len(), "values": values });
+    output(&data, args)
+}
+
+// ============================================================================
+// Rendering helpers
+// ============================================================================
+
+/// Build the JSON view of a `McPins` (pins + name/id mappings).
+fn pins_json(pins: &mcc::McPins) -> Value {
+    let pin_list: Vec<Value> = pins
         .pins
         .iter()
         .map(|(pin_id, pin)| {
-            // Try to extract description from values
             let mut desc = String::new();
             for val in pin.values.iter() {
                 if let mcc::McAttrVal::AttrLiteral(mcc::McLiteral::String(s)) = val {
@@ -381,7 +579,6 @@ fn show_component(name: &str, args: &ShowArgs) -> Result<()> {
                     desc.push_str(&s.value);
                 }
             }
-
             let mut pin_json = json!({
                 "id": pin_id,
                 "iotype": format!("{:?}", pin.iotype),
@@ -394,187 +591,86 @@ fn show_component(name: &str, args: &ShowArgs) -> Result<()> {
         })
         .collect();
 
-    // names_to_id: structurize output of each McPinPort variant, let user directly see pin↔interface binding
-    let mut names_to_id = serde_json::Map::new();
-    for (k, v) in &comp.pins.names_to_id {
-        let entry = match v {
-            mcc::McPinPort::Single(pid) => json!({"kind": "Single", "pin": pid}),
-            mcc::McPinPort::Multi(pids) => json!({"kind": "Multi", "pins": pids}),
-            mcc::McPinPort::MultiGroup(groups) => json!({"kind": "MultiGroup", "groups": groups}),
-            mcc::McPinPort::List(name, items) => {
-                json!({"kind": "List", "name": name, "items": items})
-            }
-            mcc::McPinPort::Bus(bus) => json!({"kind": "Bus", "debug": format!("{:?}", bus)}),
-            mcc::McPinPort::Interface(iface) => json!({
-                "kind": "Interface",
-                "inst_name": iface.name.to_string(),
-                "base_name": iface.base_name(),
-                "registered_pins": iface.registered_pins,
-            }),
-            mcc::McPinPort::NC => json!({"kind": "NC"}),
-        };
-        names_to_id.insert(k.clone(), entry);
+    let mut names_to_id = Map::new();
+    for (k, v) in &pins.names_to_id {
+        names_to_id.insert(k.clone(), pinport_json(v));
     }
-
-    let mut pin_id_to_names = serde_json::Map::new();
-    for (k, v) in &comp.pins.pin_id_to_names {
+    let mut pin_id_to_names = Map::new();
+    for (k, v) in &pins.pin_id_to_names {
         pin_id_to_names.insert(k.clone(), json!(v));
     }
 
-    let data = json!({
-        "name": matched_name,
-        "uri": uri,
-        "pins": pins,
-        "pin_count": comp.pins.pins.len(),
-        "names_to_id": names_to_id,
-        "pin_id_to_names": pin_id_to_names,
-    });
-
-    output_json(&data, args.format)
+    json!({
+        "pin_count": pins.pins.len(),
+        "pins": pin_list,
+        "names_to_id": Value::Object(names_to_id),
+        "pin_id_to_names": Value::Object(pin_id_to_names),
+    })
 }
 
-fn show_module(name: &str, args: &ShowArgs) -> Result<()> {
-    // Initialize (don't auto-load system library)
-    mcc::mcc_init_no_lib();
-
-    // If file is specified, load it
-    if let Some(file) = &args.file {
-        let uri = mcc::McURI::from(file.as_str());
-        mcc::mcc_load_project(&uri);
+fn pinport_json(v: &mcc::McPinPort) -> Value {
+    match v {
+        mcc::McPinPort::Single(pid) => json!({ "kind": "Single", "pin": pid }),
+        mcc::McPinPort::Multi(pids) => json!({ "kind": "Multi", "pins": pids }),
+        mcc::McPinPort::MultiGroup(groups) => json!({ "kind": "MultiGroup", "groups": groups }),
+        mcc::McPinPort::List(name, items) => json!({ "kind": "List", "name": name, "items": items }),
+        mcc::McPinPort::Bus(bus) => json!({ "kind": "Bus", "debug": format!("{:?}", bus) }),
+        mcc::McPinPort::Interface(iface) => json!({
+            "kind": "Interface",
+            "inst_name": iface.name.to_string(),
+            "base_name": iface.base_name(),
+            "registered_pins": iface.registered_pins,
+        }),
+        mcc::McPinPort::NC => json!({ "kind": "NC" }),
     }
+}
 
-    // Exact match from loaded modules (no longer misuse first_module_name as URI)
-    let modules: Vec<(String, String)> = mcc::mcb_iter_modules();
-    let (matched_name, uri) = match modules.iter().find(|(n, _)| n == name) {
-        Some((n, u)) => (n.clone(), u.clone()),
-        None => {
-            error!(target: "mcc::show", "module not found: {}", name);
-            std::process::exit(1);
-        }
-    };
+fn inst_kind_class(inst: &mcc::McInstance) -> (&'static str, String) {
+    match inst {
+        mcc::McInstance::Component(c) => ("component", c.name.to_string()),
+        mcc::McInstance::Module(m) => ("module", m.name.to_string()),
+        mcc::McInstance::Label(l) => ("label", l.clone()),
+        mcc::McInstance::Interface(i) => ("interface", i.name.to_string()),
+        mcc::McInstance::Bus(b) => ("bus", b.name().to_string()),
+        mcc::McInstance::BusRef { component, bus } => ("busref", format!("{}.{}", component, bus)),
+        mcc::McInstance::List(l) => ("list", l.name().to_string()),
+    }
+}
 
-    let cmie = match mcc::get_def(
-        &mcc::McIds::from(matched_name.as_str()),
-        &mcc::McURI::from(uri.as_str()),
-    ) {
-        Some(c) => c,
-        None => {
-            error!(target: "mcc::show", "module not found: {}", name);
-            std::process::exit(1);
-        }
-    };
-
-    let mcc::McCMIE::Module(module) = cmie else {
-        error!(target: "mcc::show", "'{}' is not a Module", name);
-        std::process::exit(1);
-    };
-
-    let insts: Vec<serde_json::Value> = module
-        .insts
+fn instances_json(insts: &mcc::McInstances, type_filter: Option<&str>) -> Vec<Value> {
+    insts
         .iter()
-        .map(|(n, inst)| {
-            let (kind, class) = match inst {
-                mcc::McInstance::Component(c) => ("component", c.name.to_string()),
-                mcc::McInstance::Module(m) => ("module", m.name.to_string()),
-                mcc::McInstance::Label(l) => ("label", l.clone()),
-                mcc::McInstance::Interface(i) => ("interface", i.name.to_string()),
-                mcc::McInstance::Bus(b) => ("bus", b.name().to_string()),
-                mcc::McInstance::BusRef { component, bus } => {
-                    ("busref", format!("{}.{}", component, bus))
+        .filter_map(|(n, inst)| {
+            let (kind, class) = inst_kind_class(inst);
+            if let Some(t) = type_filter {
+                if !kind.eq_ignore_ascii_case(t) {
+                    return None;
                 }
-                mcc::McInstance::List(l) => ("list", l.name().to_string()),
-            };
-            json!({ "name": n.to_string(), "kind": kind, "class": class })
+            }
+            Some(json!({ "name": n.to_string(), "kind": kind, "class": class }))
         })
-        .collect();
-
-    let data = json!({
-        "name": matched_name,
-        "uri": uri,
-        "instances": insts,
-    });
-
-    output_json(&data, args.format)
+        .collect()
 }
 
-fn show_interface(name: &str, args: &ShowArgs) -> Result<()> {
-    // Initialize (don't auto-load system library)
-    mcc::mcc_init_no_lib();
-
-    // If file is specified, load it
-    if let Some(file) = &args.file {
-        let uri = mcc::McURI::from(file.as_str());
-        mcc::mcc_load_project(&uri);
+fn attrval_json(v: &mcc::McAttrVal) -> Value {
+    match v {
+        mcc::McAttrVal::AttrLiteral(mcc::McLiteral::String(s)) => json!(s.value),
+        other => json!(format!("{:?}", other)),
     }
-
-    let ifaces: Vec<(String, String)> = mcc::mcb_iter_interfaces();
-
-    let (matched_name, uri) = match ifaces.iter().find(|(n, _)| n == name) {
-        Some((n, u)) => (n.clone(), u.clone()),
-        None => {
-            error!(target: "mcc::show", "interface not found: {}", name);
-            std::process::exit(1);
-        }
-    };
-
-    let ident = mcc::McIds::from(matched_name.as_str());
-    let uri_obj = mcc::McURI::from(uri.as_str());
-
-    let cmie = match mcc::get_def(&ident, &uri_obj) {
-        Some(c) => c,
-        None => {
-            error!(target: "mcc::show", "interface not found: {}", name);
-            std::process::exit(1);
-        }
-    };
-
-    let mcc::McCMIE::Interface(_) = cmie else {
-        error!(target: "mcc::show", "'{}' is not an Interface", name);
-        std::process::exit(1);
-    };
-
-    let data = json!({
-        "name": matched_name,
-        "uri": uri,
-    });
-
-    output_json(&data, args.format)
 }
 
-fn show_net(name: &str, args: &ShowArgs) -> Result<()> {
-    // Initialize (do not auto-load system libraries)
-    mcc::mcc_init_no_lib();
-
-    // If file is specified, load it
-    if let Some(file) = &args.file {
-        let uri = mcc::McURI::from(file.as_str());
-        mcc::mcc_load_project(&uri);
-    }
-
-    // Top level: prefer --top, otherwise first module
-    let top_name = args
-        .top
-        .as_ref()
-        .cloned()
-        .or_else(|| mcc::mcb_get_first_module_name())
-        .unwrap_or_else(|| {
-            error!(target: "mcc::show", "no modules found\nhint: load file first or use --file");
-            std::process::exit(1);
-        });
-
-    // Find URI corresponding to top_name from loaded modules
+/// Build the top module and aggregate its connections into a net → points map.
+fn nets_map(top: &str) -> BTreeMap<String, Vec<String>> {
     let uri = mcc::mcb_iter_modules()
         .iter()
-        .find(|(n, _)| *n == top_name)
+        .find(|(n, _)| n == top)
         .map(|(_, u)| mcc::McURI::from(u.as_str()))
-        .unwrap_or_else(|| mcc::McURI::from(top_name.as_str()));
+        .unwrap_or_else(|| mcc::McURI::from(top));
+    let ident = mcc::McIds::from(top);
 
-    let ident = mcc::McIds::from(top_name.as_str());
-
-    // Guardrail: Pass2 panic doesn't exit directly
-    let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        mcc::mcc_build(&ident, &uri)
-    }));
+    // Guardrail: a Pass2 panic must not abort the process.
+    let built =
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| mcc::mcc_build(&ident, &uri)));
     let inst = match built {
         Ok(Ok(i)) => i,
         Ok(Err(e)) => {
@@ -587,9 +683,7 @@ fn show_net(name: &str, args: &ShowArgs) -> Result<()> {
         }
     };
 
-    use std::collections::BTreeMap;
     let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
-
     for conn in &inst.connections {
         let net = conn
             .net_name
@@ -613,41 +707,34 @@ fn show_net(name: &str, args: &ShowArgs) -> Result<()> {
             }
         }
     }
+    nets
+}
 
-    // Find matching net
-    let data = if name.is_empty() {
-        let items: Vec<serde_json::Value> = nets
-            .iter()
-            .map(|(n, points)| json!({ "name": n, "points": points }))
-            .collect();
-        json!({ "nets": items })
-    } else {
-        match nets.get(name) {
-            Some(points) => json!({ "name": name, "points": points }),
-            None => {
-                json!({ "name": name, "points": Vec::<String>::new(), "error": "net not found" })
+// ============================================================================
+// Output
+// ============================================================================
+
+fn output(data: &Value, args: &ShowArgs) -> Result<()> {
+    let rendered = match args.format {
+        OutputFormat::Json => data.to_string(),
+        OutputFormat::JsonPretty => serde_json::to_string_pretty(data)?,
+        OutputFormat::Yaml => serde_yaml::to_string(data).unwrap_or_default(),
+        OutputFormat::Text => {
+            if let Some(obj) = data.as_object() {
+                obj.iter()
+                    .map(|(k, v)| format!("{}: {}", k, v))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            } else {
+                data.to_string()
             }
         }
     };
 
-    output_json(&data, args.format)
-}
-
-fn output_json(data: &serde_json::Value, format: OutputFormat) -> Result<()> {
-    match format {
-        OutputFormat::Json => println!("{}", data),
-        OutputFormat::JsonPretty => println!("{}", serde_json::to_string_pretty(data).unwrap()),
-        OutputFormat::Yaml => println!("{}", serde_yaml::to_string(data).unwrap_or_default()),
-        OutputFormat::Text => {
-            // Text format: human-readable format
-            if let Some(obj) = data.as_object() {
-                for (k, v) in obj {
-                    println!("{}: {}", k, v);
-                }
-            } else {
-                println!("{}", data);
-            }
-        }
+    if let Some(path) = &args.output {
+        std::fs::write(path, rendered)?;
+    } else {
+        println!("{}", rendered);
     }
     Ok(())
 }

@@ -282,7 +282,9 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                             renderer.instances(&first_inst, 0);
                             renderer.connections(&first_inst, 0);
                             renderer.nets(&first_inst, 0);
-                            builder.print_diagnostics_summary();
+                            if args.format == crate::cli::OutputFormat::Text {
+                                builder.print_diagnostics_summary();
+                            }
                             renderer.net_summary(&first_inst);
                         } else {
                             // Build and output subsequent modules
@@ -320,7 +322,9 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                     builder.set_pass2(pass2);
 
                     // Print diagnostics before Net Summary
-                    builder.print_diagnostics_summary();
+                    if args.format == crate::cli::OutputFormat::Text {
+                        builder.print_diagnostics_summary();
+                    }
                     renderer.net_summary(&inst);
                 }
                 Err(e) => {

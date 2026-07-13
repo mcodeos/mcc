@@ -231,10 +231,13 @@ pub fn handle_methods(_params: Option<Value>) -> RpcResult {
         "server.info",
         "server.methods",
         // lib
-        "library.list",
-        "library.show",
+        "lib.list",
+        "lib.info",
         "lib.load",
         "lib.unload",
+        "lib.install",
+        "lib.uninstall",
+        "lib.search",
         // trace
         "trace.set",
         "trace.get",
@@ -286,6 +289,145 @@ pub fn handle_lib_unload(params: Option<Value>) -> RpcResult {
     let name = parse_string_param(params, &["name", "lib"])?;
     let ok = crate::mcb_unload_lib(&name);
     Ok(json!({"name": name, "unloaded": ok}))
+}
+
+#[derive(Deserialize)]
+struct LibInstallParams {
+    name: String,
+    from: String,
+    #[serde(default)]
+    version: Option<String>,
+}
+
+pub fn handle_lib_install(params: Option<Value>) -> RpcResult {
+    let p: LibInstallParams = parse_strict(params)?;
+    let src = PathBuf::from(&p.from);
+    if !src.exists() {
+        return Err(JsonRpcError::custom(
+            32100,
+            &format!("lib install: source path does not exist '{}'", p.from),
+        ));
+    }
+    let ver = p.version.as_deref().unwrap_or("0.0.0");
+    let name_ver = format!("{}@{}", p.name, ver);
+    let target = mcc_system_root().join(&name_ver);
+    if target.exists() {
+        return Err(JsonRpcError::custom(
+            32101,
+            &format!("lib install: {} is already installed", name_ver),
+        ));
+    }
+    copy_dir_recursive(&src, &target).map_err(io_err)?;
+    Ok(json!({
+        "installed": name_ver,
+        "path": target.to_string_lossy(),
+    }))
+}
+
+#[derive(Deserialize)]
+struct LibUninstallParams {
+    name: String,
+    #[serde(default)]
+    force: bool,
+}
+
+pub fn handle_lib_uninstall(params: Option<Value>) -> RpcResult {
+    let p: LibUninstallParams = parse_strict(params)?;
+    let is_loaded = crate::mcb_loaded_libs().contains(&p.name);
+    if is_loaded && !p.force {
+        return Err(JsonRpcError::custom(
+            32101,
+            &format!("lib uninstall: '{}' is loaded; unload first or pass force", p.name),
+        ));
+    }
+    if is_loaded && !crate::mcb_unload_lib(&p.name) {
+        return Err(JsonRpcError::custom(
+            32107,
+            &format!("lib uninstall: failed to unload '{}'", p.name),
+        ));
+    }
+    let lib_dir = resolve_installed_lib_dir(&p.name).ok_or_else(|| {
+        JsonRpcError::custom(32102, &format!("lib uninstall: '{}' is not installed", p.name))
+    })?;
+    fs::remove_dir_all(&lib_dir).map_err(io_err)?;
+    Ok(json!({
+        "uninstalled": p.name,
+        "path": lib_dir.to_string_lossy(),
+    }))
+}
+
+#[derive(Deserialize)]
+struct LibSearchParams {
+    pattern: String,
+}
+
+pub fn handle_lib_search(params: Option<Value>) -> RpcResult {
+    let p: LibSearchParams = parse_strict(params)?;
+    let pat = p.pattern.to_lowercase();
+    let mut results = Vec::new();
+    if mcode_dir().exists() && ("mcode".contains(&pat) || pat.is_empty()) {
+        results.push(json!({
+            "name": "mcode", "version": "*",
+            "path": mcode_dir().to_string_lossy(),
+        }));
+    }
+    let system_dirs = ["logs", "config", "mclibs", "projects", "unitest", "mcode"];
+    if let Ok(entries) = fs::read_dir(mcc_system_root()) {
+        for entry in entries.flatten() {
+            let fname = entry.file_name().to_string_lossy().to_string();
+            if !entry.path().is_dir() || system_dirs.contains(&fname.as_str()) {
+                continue;
+            }
+            let (name, version) = match fname.find('@') {
+                Some(at) => (fname[..at].to_string(), fname[at + 1..].to_string()),
+                None => (fname.clone(), "0.0.0".to_string()),
+            };
+            let path = entry.path().to_string_lossy().to_string();
+            if name.to_lowercase().contains(&pat) || path.to_lowercase().contains(&pat) {
+                results.push(json!({"name": name, "version": version, "path": path}));
+            }
+        }
+    }
+    Ok(json!({
+        "pattern": p.pattern,
+        "total": results.len(),
+        "results": results,
+    }))
+}
+
+/// Resolve an installed library directory under the system root
+/// (either `<name>@<version>` or the bare `<name>`).
+fn resolve_installed_lib_dir(name: &str) -> Option<PathBuf> {
+    let root = mcc_system_root();
+    if let Ok(entries) = fs::read_dir(&root) {
+        let prefix = format!("{name}@");
+        for entry in entries.flatten() {
+            let fname = entry.file_name().to_string_lossy().to_string();
+            if fname.starts_with(&prefix) && entry.path().is_dir() {
+                return Some(entry.path());
+            }
+        }
+    }
+    let bare = root.join(name);
+    if bare.exists() {
+        return Some(bare);
+    }
+    None
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    Ok(())
 }
 
 // ============================================================================

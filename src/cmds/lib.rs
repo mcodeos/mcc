@@ -93,7 +93,7 @@ pub fn run(action: &LibAction, format: OutputFormat) -> Result<()> {
     match action {
         LibAction::List => match &client {
             Some(c) => {
-                let result = c.call("library.list", serde_json::json!({}))?;
+                let result = c.call("lib.list", serde_json::json!({}))?;
                 println!("{}", serde_json::to_string_pretty(&result)?);
                 Ok(())
             }
@@ -103,7 +103,17 @@ pub fn run(action: &LibAction, format: OutputFormat) -> Result<()> {
             name,
             from,
             version,
-        } => cmd_install(name, from, version.as_deref(), format),
+        } => match &client {
+            Some(c) => {
+                let result = c.call(
+                    "lib.install",
+                    serde_json::json!({ "name": name, "from": from, "version": version }),
+                )?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
+                Ok(())
+            }
+            None => cmd_install(name, from, version.as_deref(), format),
+        },
         LibAction::Load { name } => match &client {
             Some(c) => {
                 let result = c.call("lib.load", serde_json::json!({ "name": name }))?;
@@ -122,14 +132,29 @@ pub fn run(action: &LibAction, format: OutputFormat) -> Result<()> {
         },
         LibAction::Show { name } => match &client {
             Some(c) => {
-                let result = c.call("library.show", serde_json::json!({ "name": name }))?;
+                let result = c.call("lib.info", serde_json::json!({ "name": name }))?;
                 println!("{}", serde_json::to_string_pretty(&result)?);
                 Ok(())
             }
             None => cmd_show(name, format),
         },
-        LibAction::Search { pattern } => cmd_search(pattern, format),
-        LibAction::Uninstall { name, force } => cmd_uninstall(name, *force, format),
+        LibAction::Search { pattern } => match &client {
+            Some(c) => {
+                let result = c.call("lib.search", serde_json::json!({ "pattern": pattern }))?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
+                Ok(())
+            }
+            None => cmd_search(pattern, format),
+        },
+        LibAction::Uninstall { name, force } => match &client {
+            Some(c) => {
+                let result =
+                    c.call("lib.uninstall", serde_json::json!({ "name": name, "force": force }))?;
+                println!("{}", serde_json::to_string_pretty(&result)?);
+                Ok(())
+            }
+            None => cmd_uninstall(name, *force, format),
+        },
     }
 }
 
@@ -163,6 +188,14 @@ fn cmd_list(format: OutputFormat) -> Result<()> {
 // ============================================================================
 
 fn cmd_install(name: &str, from: &str, version: Option<&str>, _format: OutputFormat) -> Result<()> {
+    let (lib_name_ver, target) = do_install(name, from, version)?;
+    eprintln!("✓ installed {} → {}", lib_name_ver, target.display());
+    Ok(())
+}
+
+/// Pure install: copy library dir into data_root. Returns (name@version, target path).
+/// Shared by CLI (`mcc lib install`) and RPC (`lib.install`) for local/server parity.
+pub fn do_install(name: &str, from: &str, version: Option<&str>) -> Result<(String, PathBuf)> {
     let src = PathBuf::from(from);
     if !src.exists() {
         anyhow::bail!("lib install: source path does not exist '{}'", from);
@@ -189,8 +222,7 @@ fn cmd_install(name: &str, from: &str, version: Option<&str>, _format: OutputFor
         )
     })?;
 
-    eprintln!("✓ installed {} → {}", lib_name_ver, target.display());
-    Ok(())
+    Ok((lib_name_ver, target))
 }
 
 // ============================================================================
@@ -409,6 +441,13 @@ impl fmt::Display for LibSearchReport {
 }
 
 fn cmd_search(pattern: &str, format: OutputFormat) -> Result<()> {
+    let report = do_search(pattern);
+    output::emit(&report, format, None)
+}
+
+/// Pure search: filter installed libs by name/path substring.
+/// Shared by CLI (`mcc lib search`) and RPC (`lib.search`) for local/server parity.
+pub fn do_search(pattern: &str) -> LibSearchReport {
     let installed = scan_installed_libs();
 
     let pattern_lower = pattern.to_lowercase();
@@ -421,12 +460,11 @@ fn cmd_search(pattern: &str, format: OutputFormat) -> Result<()> {
         .collect();
 
     let total = results.len();
-    let report = LibSearchReport {
+    LibSearchReport {
         pattern: pattern.to_string(),
         results,
         total,
-    };
-    output::emit(&report, format, None)
+    }
 }
 
 // ============================================================================
@@ -434,6 +472,14 @@ fn cmd_search(pattern: &str, format: OutputFormat) -> Result<()> {
 // ============================================================================
 
 fn cmd_uninstall(name: &str, force: bool, _format: OutputFormat) -> Result<()> {
+    let lib_dir = do_uninstall(name, force)?;
+    eprintln!("✓ uninstalled '{}' (deleted {})", name, lib_dir.display());
+    Ok(())
+}
+
+/// Pure uninstall: unload if loaded (force), then delete the install dir. Returns deleted path.
+/// Shared by CLI (`mcc lib uninstall`) and RPC (`lib.uninstall`) for local/server parity.
+pub fn do_uninstall(name: &str, force: bool) -> Result<PathBuf> {
     // First check whether it has already been loaded into memory
     let loaded = mcc::mcb_loaded_libs();
     let is_loaded = loaded.contains(&name.to_string());
@@ -447,11 +493,8 @@ fn cmd_uninstall(name: &str, force: bool, _format: OutputFormat) -> Result<()> {
     }
 
     // If already loaded, force unload
-    if is_loaded {
-        eprintln!("Unloading '{}' from memory...", name);
-        if !mcc::mcb_unload_lib(name) {
-            anyhow::bail!("lib uninstall: failed to unload '{}' from memory", name);
-        }
+    if is_loaded && !mcc::mcb_unload_lib(name) {
+        anyhow::bail!("lib uninstall: failed to unload '{}' from memory", name);
     }
 
     // Resolve the library directory
@@ -465,8 +508,7 @@ fn cmd_uninstall(name: &str, force: bool, _format: OutputFormat) -> Result<()> {
     std::fs::remove_dir_all(&lib_dir)
         .with_context(|| format!("lib uninstall: failed to delete {}", lib_dir.display()))?;
 
-    eprintln!("✓ uninstalled '{}' (deleted {})", name, lib_dir.display());
-    Ok(())
+    Ok(lib_dir)
 }
 
 fn resolve_lib_uninstall_dir(name: &str) -> Result<PathBuf> {
