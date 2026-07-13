@@ -4,8 +4,8 @@
 
 [package]
 name = "mcc"
-version = "0.7.1"
-edition = "2026"
+version = "0.7.2"
+edition = "2021"
 default-run = "mcc"
 
 [lib]
