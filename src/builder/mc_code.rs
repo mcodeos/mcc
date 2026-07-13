@@ -1447,12 +1447,14 @@ impl McCode {
                         }
 
                         // Ports from params (e.g. `module m(dc24v, GPIO[1:2])`)
-                        eprintln!(
+                        tracing::debug!(
+                            target: "mcc::lsp",
                             "[LAPPER_DEBUG] Processing module params: {}",
                             entry.key().ident
                         );
                         let param_port_count = m.params.iter_ports_with_span().count();
-                        eprintln!(
+                        tracing::debug!(
+                            target: "mcc::lsp",
                             "[LAPPER_DEBUG] module={}, param_port_count={}",
                             entry.key().ident,
                             param_port_count
@@ -1462,7 +1464,8 @@ impl McCode {
                             let decl_id = sem
                                 .local_table
                                 .add_declare_with_name(span_clone, Some(name.to_string()));
-                            eprintln!(
+                            tracing::debug!(
+                                target: "mcc::lsp",
                                 "[LAPPER_DEBUG]   param port: name={}, span=[{},{}], decl_id={:?}",
                                 name, span.start, span.end, decl_id
                             );
@@ -1479,7 +1482,8 @@ impl McCode {
                             let decl_id = sem
                                 .local_table
                                 .add_declare_with_name(span_clone, Some(name.to_string()));
-                            eprintln!(
+                            tracing::debug!(
+                                target: "mcc::lsp",
                                 "[LAPPER_DEBUG]   inst port: name={}, span=[{},{}], decl_id={:?}",
                                 name, span.start, span.end, decl_id
                             );
