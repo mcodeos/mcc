@@ -21,7 +21,8 @@
 //! `phase_size` (boxes sized) and AFTER `phase_placement`, but BEFORE
 //! `pin_place` — so pin sides are assigned from these final anchor positions.
 
-use crate::vector::graph::{BoxKind, McVecGraph, VisualRole};
+use crate::vector::graph::box_def::PinLayout;
+use crate::vector::graph::{BoxKind, EntrySide, McVecGraph, VisualRole};
 
 const MARGIN: f64 = 100.0;
 /// Horizontal room reserved per inline passive/rung slot on a lane.
@@ -103,6 +104,15 @@ pub fn try_two_lane_ladder(graph: &mut McVecGraph) -> Option<()> {
         // NB: deliberately touch nothing else — RES/CAP are handled inline.
     }
 
+    // ── 5. Freeze the anchor pin sides. A directional lane has a-priori known
+    //       terminal sides: the source (left) faces RIGHT toward its lanes, the
+    //       sink (right) faces LEFT. Freezing them (side + layout_hint) makes
+    //       BOTH pin_place and the later place_passive_chains agree, so the
+    //       inline resistors land on the correct side of each anchor instead of
+    //       wrapping around it. ────────────────────────────────────────────────
+    freeze_anchor_side(graph, left, EntrySide::Right);
+    freeze_anchor_side(graph, right, EntrySide::Left);
+
     crate::vlog!(
         "[ladder] anchors only: left={} @x{:.0} right={} @x{:.0} (span for {} passives + {} rungs)",
         left,
@@ -114,4 +124,27 @@ pub fn try_two_lane_ladder(graph: &mut McVecGraph) -> Option<()> {
     );
 
     Some(())
+}
+
+/// Set every entry point of `id` to `side` and freeze it via `layout_hint`, so
+/// `pin_place::desired_side_pass` (which skips authored pins) won't flip it back.
+fn freeze_anchor_side(graph: &mut McVecGraph, id: i64, side: EntrySide) {
+    let Some(b) = graph.boxes.iter_mut().find(|b| b.id == id) else {
+        return;
+    };
+    let mut names: Vec<String> = Vec::new();
+    for ep in &mut b.entry_points {
+        ep.side = side.clone();
+        // desired_side_pass matches authored pins by name OR by pin_id string.
+        names.push(ep.pin_name.clone());
+        names.push(ep.pin_id.to_string());
+    }
+    let mut hint = PinLayout::default();
+    match side {
+        EntrySide::Right => hint.right = names,
+        EntrySide::Left => hint.left = names,
+        EntrySide::Top => hint.top = names,
+        EntrySide::Bottom => hint.bottom = names,
+    }
+    b.set_layout_hint(hint);
 }
