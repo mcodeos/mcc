@@ -611,15 +611,8 @@ pub fn handle_export(params: Option<Value>) -> RpcResult {
         json: p.format.as_deref() == Some("json"),
         output: None,
     };
-    let (tree, _table) = (|| -> Result<(_, ()), String> {
-        Ok((
-            crate::export_api::build_tree(&args.file, args.top.as_deref(), &args.lib)?,
-            (),
-        ))
-    })()
-    .map_err(|e| JsonRpcError::custom(-32603, &format!("export: {}", e)))?;
-    let _ = _table;
-    let tree = tree;
+    let (tree, table) = crate::export_api::build_tree(&args.file, args.top.as_deref(), &args.lib)
+        .map_err(|e| JsonRpcError::custom(-32603, &format!("export: {}", e)))?;
     let top = args.top.clone().unwrap_or_else(|| "?".to_string());
     // Convert local cli enums → u8 tags for export_api.
     let kind_tag = match args.kind {
@@ -635,7 +628,7 @@ pub fn handle_export(params: Option<Value>) -> RpcResult {
         crate::cli::OutputFormat::Csv => 4u8,
     };
     let (raw_text, items, count) =
-        crate::export_api::build_payload(&tree, &top, kind_tag, format_tag);
+        crate::export_api::build_payload(&tree, &table, &top, kind_tag, format_tag);
     let kind_str = match kind_tag {
         1 => "bom",
         2 => "spice",
@@ -3457,6 +3450,23 @@ fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
         }
     }
     None
+}
+
+// ============================================================================
+// Convert (M5b)
+// ============================================================================
+
+pub fn handle_convert(params: Option<Value>) -> RpcResult {
+    #[derive(Deserialize)]
+    struct ConvertParams {
+        entry: String,
+        #[serde(default)]
+        format: Option<String>,
+    }
+    let p: ConvertParams = parse_strict(params)?;
+    // Delegate to parse — convert is a thin wrapper
+    let bp = json!({ "entry": p.entry, "format": p.format.unwrap_or_else(|| "json".into()), "include_system": false });
+    handle_parse(Some(bp))
 }
 
 // ============================================================================

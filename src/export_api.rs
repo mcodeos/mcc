@@ -9,6 +9,7 @@
 //! library's `rpc` module can call into it. Pattern mirrors `query_api` and
 //! `search_api`.
 
+use crate::instant::inst_table::InstTable;
 use crate::{McAttribute, McComponentInst, McIds, McModuleInst, McURI, NetPoint};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -45,14 +46,13 @@ pub fn format_from_str(s: &str) -> u8 {
 }
 
 /// Load project + libs, resolve top module, run Pass2 (with panic guard).
-/// Returns the root `McModuleInst` (== `MccProjectTree`).
-///
-/// For component enumeration (BOM/SPICE) we walk `inst.connections` and
-/// extract unique (name, kind) pairs from `NetPoint.owner`. The
-/// `InstTable`-based path doesn't work for us because `inst.components`
-/// is empty in Pass2 results (the engine populates `connections` instead).
-pub fn build_tree(file: &str, top: Option<&str>, libs: &[String]) -> Result<McModuleInst, String> {
-    let _ = libs; // load_libs is bin-private; lib only sees the engine state
+/// Returns the root `McModuleInst` and the flat `InstTable`.
+pub fn build_tree(
+    file: &str,
+    top: Option<&str>,
+    libs: &[String],
+) -> Result<(McModuleInst, InstTable), String> {
+    let _ = libs;
     let _ = mcc::mcc_load_project(&McURI::from(file));
 
     let top = match top {
@@ -65,9 +65,9 @@ pub fn build_tree(file: &str, top: Option<&str>, libs: &[String]) -> Result<McMo
 
     let ident = McIds::from(top.as_str());
     let uri = McURI::from(file);
-    let built = panic::catch_unwind(panic::AssertUnwindSafe(|| mcc::mcc_build(&ident, &uri)));
+    let built = panic::catch_unwind(panic::AssertUnwindSafe(|| mcc::mcc_build_flat(&ident, &uri, 0)));
     match built {
-        Ok(Ok(t)) => Ok(t),
+        Ok(Ok((tree, table))) => Ok((tree, table)),
         Ok(Err(e)) => Err(format!("build failed: {}", e)),
         Err(_) => Err("build panicked (engine Pass2 bug)".into()),
     }
@@ -79,13 +79,14 @@ pub fn build_tree(file: &str, top: Option<&str>, libs: &[String]) -> Result<McMo
 /// for JSON mode.
 pub fn build_payload(
     tree: &McModuleInst,
+    table: &InstTable,
     top: &str,
     kind: u8,
     format: u8,
 ) -> (String, Value, usize) {
     match kind {
         1 => build_bom(tree, top, format),
-        2 => build_spice(tree, top),
+        2 => build_spice(tree, table, top),
         _ => build_netlist(tree, top, format),
     }
 }
@@ -198,13 +199,28 @@ pub fn build_bom(tree: &McModuleInst, top: &str, format: u8) -> (String, Value, 
 // SPICE
 // ============================================================================
 
-pub fn build_spice(tree: &McModuleInst, top: &str) -> (String, Value, usize) {
+pub fn build_spice(
+    tree: &McModuleInst,
+    table: &InstTable,
+    top: &str,
+) -> (String, Value, usize) {
     let mut out = String::new();
     out.push_str(&format!("* SPICE netlist: top={}\n", top));
     out.push_str(&format!("* Generated: {}\n\n", chrono_like_now()));
     out.push_str(&format!(".SUBCKT {}\n", top));
 
-    // Use collect_nets to get proper net→points mapping (same as netlist export).
+    // Build a name→class lookup from InstTable components.
+    let mut name_to_class: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for comp in table.get_components() {
+        // path is like "r1" (instance name). Extract just the instance part.
+        let inst_name = comp.path.rsplit_once('.').map(|(i, _)| i).unwrap_or(&comp.path);
+        let class = comp.class_name.clone();
+        if !inst_name.is_empty() && !class.is_empty() {
+            name_to_class.insert(inst_name.to_string(), class);
+        }
+    }
+
+    // Use collect_nets to get proper net→points mapping.
     let mut netmap: BTreeMap<String, Vec<String>> = BTreeMap::new();
     collect_nets(tree, &mut netmap);
 
@@ -216,7 +232,6 @@ pub fn build_spice(tree: &McModuleInst, top: &str) -> (String, Value, usize) {
         if net_name == "NC" || net_name.starts_with("__net_") { continue; }
         let node = net_name.replace('.', "_").replace('-', "_");
         for pt in points {
-            // "r1.1" → instance "r1"
             if let Some((inst, _pin)) = pt.rsplit_once('.') {
                 inst_nodes.entry(inst.to_string()).or_default().insert(node.clone());
             }
@@ -226,7 +241,8 @@ pub fn build_spice(tree: &McModuleInst, top: &str) -> (String, Value, usize) {
     let mut total: usize = 0;
     for (inst, nodes) in &inst_nodes {
         let node_list: Vec<&String> = nodes.iter().collect();
-        let prefix = spice_prefix_for_class(inst);
+        let class = name_to_class.get(inst).map(|c| c.as_str()).unwrap_or(inst);
+        let prefix = spice_prefix_for_class(class);
         if node_list.len() >= 2 {
             out.push_str(&format!("{}{} {} {}\n", prefix, inst, node_list[0], node_list[1]));
             total += 1;

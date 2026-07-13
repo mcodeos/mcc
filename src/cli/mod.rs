@@ -108,6 +108,9 @@ pub enum Command {
 
     /// Find all references to a symbol (M6)
     Refs(RefsArgs),
+
+    /// Convert .mc files to/from other formats (M5b)
+    Convert(ConvertArgs),
 }
 
 // ============================================================================
@@ -807,6 +810,28 @@ pub struct RefsArgs {
     /// Parse directly from file
     #[arg(long, short = 'F')]
     pub file: Option<String>,
+}
+
+// ============================================================================
+// convert (M5b)
+// ============================================================================
+
+#[derive(Parser, Debug)]
+pub struct ConvertArgs {
+    /// Source .mc file
+    pub file: String,
+
+    /// Target format: json, yaml
+    #[arg(long, default_value = "json")]
+    pub to: String,
+
+    /// Load system library (can be specified multiple times)
+    #[arg(long = "lib", value_name = "NAME")]
+    pub lib: Vec<String>,
+
+    /// Output to file
+    #[arg(long, short = 'o', value_name = "FILE")]
+    pub output: Option<String>,
 }
 
 // ============================================================================

@@ -73,7 +73,7 @@ fn run_local(args: &ExportArgs) -> Result<()> {
         args.format
     };
 
-    let tree = match export_api::build_tree(&args.file, args.top.as_deref(), &args.lib) {
+    let (tree, table) = match export_api::build_tree(&args.file, args.top.as_deref(), &args.lib) {
         Ok(t) => t,
         Err(e) => {
             eprintln!("{}", e);
@@ -105,7 +105,7 @@ fn run_local(args: &ExportArgs) -> Result<()> {
         OutputFormat::Yaml => 3u8,
         OutputFormat::Csv => 4u8,
     };
-    let (raw_text, items, count) = export_api::build_payload(&tree, &top, kind_tag, format_tag);
+    let (raw_text, items, count) = export_api::build_payload(&tree, &table, &top, kind_tag, format_tag);
 
     if format == OutputFormat::Json {
         let data = ExportData {
