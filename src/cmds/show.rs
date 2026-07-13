@@ -40,8 +40,13 @@ pub fn run(args: &ShowArgs) -> Result<()> {
 }
 
 /// Map legacy container targets to their RPC method + params. Returns `None`
-/// for the new targets (they run locally).
+/// for the new targets (they run locally). Also returns `None` when
+/// `args.filter` is set — RPC list methods don't apply filters, so we must
+/// fall through to local to honor the filter (filter RPC parity deferred).
 fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
+    if args.filter.is_some() {
+        return None;
+    }
     match args.target {
         ShowTarget::File => Some(("show.file", json!({ "file": args.name }))),
         ShowTarget::Component | ShowTarget::Module | ShowTarget::Interface | ShowTarget::Net => {

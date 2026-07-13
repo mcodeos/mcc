@@ -173,6 +173,9 @@ pub struct CommandResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub search: Option<SearchData>,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query: Option<QueryData>,
+
     pub summary: Summary,
 }
 
@@ -379,6 +382,20 @@ pub struct SearchData {
     pub regex: bool,
     /// Whether pattern was fuzzy-matched (Levenshtein ≤ 2)
     pub fuzzy: bool,
+    /// Number of items in `items`
+    pub count: usize,
+    /// Vec<{kind, name, uri}> serialized as JSON array
+    pub items: serde_json::Value,
+}
+
+/// Query result — used by `mcc query` and `defs.query` RPC.
+///
+/// Distinct from `SearchData` (no pattern mode, regex flag, fuzzy flag, or kind
+/// option) so the contract can evolve independently.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct QueryData {
+    /// The expression the user queried (as-typed)
+    pub expr: String,
     /// Number of items in `items`
     pub count: usize,
     /// Vec<{kind, name, uri}> serialized as JSON array

@@ -67,6 +67,9 @@ pub enum Command {
     /// Search across loaded definitions (text/regex/fuzzy)
     Search(SearchArgs),
 
+    /// Query top-level definitions with the structured DSL
+    Query(QueryArgs),
+
     /// Manifest-driven one-click build (load dependencies + Pass1 + Pass2)
     Build(BuildArgs),
 
@@ -416,6 +419,39 @@ pub enum SearchKind {
     Enum,
     /// Instances inside a top module (requires --top)
     Instance,
+}
+
+// ============================================================================
+// query
+// ============================================================================
+
+#[derive(Parser, Debug)]
+pub struct QueryArgs {
+    /// Structured query expression (e.g. 'kind=component AND name=RES*')
+    pub expr: String,
+
+    /// Optional file or directory to load before querying
+    pub target: Option<String>,
+
+    /// Load system library (can be specified multiple times)
+    #[arg(long = "lib", value_name = "NAME")]
+    pub lib: Vec<String>,
+
+    /// Cap on result count (0 = unlimited)
+    #[arg(long, default_value_t = 0)]
+    pub limit: usize,
+
+    /// Output format
+    #[arg(long, short = 'f', value_enum, default_value_t = OutputFormat::Text)]
+    pub format: OutputFormat,
+
+    /// Shorthand for `--format json`
+    #[arg(long, conflicts_with = "format")]
+    pub json: bool,
+
+    /// Output to file
+    #[arg(long, short = 'o', value_name = "FILE")]
+    pub output: Option<String>,
 }
 
 // ============================================================================

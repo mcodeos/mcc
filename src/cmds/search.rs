@@ -97,7 +97,7 @@ fn run_local(args: &SearchArgs) -> Result<()> {
         limit: args.limit,
         libs: args.lib.clone(),
     };
-    let hits = mcc::search_api::walk_defs(&inputs)?;
+    let hits = mcc::search_api::walk_defs(&inputs, None)?;
 
     let items: Vec<Value> = hits
         .iter()
