@@ -2,35 +2,37 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Two-lane bridged-passive ladder — **anchor-only** placement (M11 `c07_pins`).
+//! Two-lane bridged-passive ladder — deterministic placement (M11 `c07_pins`).
 //!
-//! Design principle (see `passive_inline`): a two-terminal passive is an *inline
-//! wire element*, not a layout box. So this pass **only** places the real
-//! components — the two port-like anchors u1 / u2 — at left / right on a shared
-//! baseline. The series resistors on each lane are then dropped onto the lane
-//! wire by `place_passive_chains`, and the bridge caps by `place_bridge_passives`
-//! (both already run in `select::run_single`, after layout, before routing).
+//! For a directional two-lane bus the picture is trivial: two anchors (u1/u2)
+//! and two straight horizontal wires between them, with the series resistors
+//! sitting *on* the wires and the bridge caps crossing vertically. So we don't
+//! hand this pattern to the general passive-inline heuristic (which is built for
+//! scattering passives around an IC and can push them past an anchor). Instead
+//! the ladder — which already reconstructs the exact lane order by walking the
+//! nets — places everything deterministically:
 //!
-//! Because u1's A(top) / B(bottom) pins sit at two different heights, the two
-//! lanes separate automatically: each passive inherits its lane from whichever
-//! anchor pin its chain hangs off. We therefore do **not** touch any RES/CAP
-//! box here — doing so previously fought the inline passes and produced the
-//! stranded / zig-zagged wires.
+//!   * u1 at left, u2 at right, on a shared baseline;
+//!   * each lane's resistors evenly spaced on the straight line between the two
+//!     anchor centres (side-independent → no circular dependency), oriented
+//!     horizontally with pins Left/Right;
+//!   * anchor pins sided by lane direction: source (u1) → Right, sink (u2) → Left;
+//!   * resistors tagged `VisualRole::SeriesInline` so the generic passive passes
+//!     leave them alone; caps stay `BridgePassive` for `place_bridge_passives`.
 //!
-//! Invoked from `FlowLayouter::layout` as a placement override: AFTER
-//! `phase_size` (boxes sized) and AFTER `phase_placement`, but BEFORE
-//! `pin_place` — so pin sides are assigned from these final anchor positions.
+//! Invoked from `FlowLayouter::layout` after `phase_size`, after `phase_placement`,
+//! before `pin_place`.
 
 use crate::vector::graph::box_def::PinLayout;
-use crate::vector::graph::{BoxKind, EntrySide, McVecGraph, VisualRole};
+use crate::vector::graph::{BoxKind, EntryPoint, EntrySide, McVecGraph, VisualRole};
+use std::collections::{HashMap, HashSet};
 
 const MARGIN: f64 = 100.0;
-/// Horizontal room reserved per inline passive/rung slot on a lane.
-const SLOT: f64 = 220.0;
+/// Horizontal room reserved per inline element on a lane.
+const SLOT: f64 = 180.0;
+/// Vertical distance between the two lane baselines.
+const LANE_SEP: f64 = 150.0;
 
-/// If the graph is a two-lane bridged-passive ladder, pin the two anchors at
-/// left/right on a shared baseline and return `Some(())`. Passives are left for
-/// the inline passes. Returns `None` (no-op) if the pattern doesn't match.
 pub fn try_two_lane_ladder(graph: &mut McVecGraph) -> Option<()> {
     // ── 1. anchors: non-passive TwoPin boxes carrying I/O direction ──────────
     let anchor_ids: Vec<i64> = graph
@@ -47,9 +49,6 @@ pub fn try_two_lane_ladder(graph: &mut McVecGraph) -> Option<()> {
     if anchor_ids.len() != 2 {
         return None;
     }
-
-    // ── 2. require at least one BridgePassive — otherwise it isn't a bridged
-    //       two-lane ladder and Flow's generic placement is fine. ─────────────
     let has_bridge = graph
         .boxes
         .iter()
@@ -58,7 +57,6 @@ pub fn try_two_lane_ladder(graph: &mut McVecGraph) -> Option<()> {
         return None;
     }
 
-    // left = source (more outputs), right = sink. Deterministic on tie.
     let out_of = |id: i64| {
         graph
             .boxes
@@ -73,69 +71,200 @@ pub fn try_two_lane_ladder(graph: &mut McVecGraph) -> Option<()> {
         (anchor_ids[1], anchor_ids[0])
     };
 
-    // ── 3. space the anchors so the inline resistors + caps have room ────────
-    let n_pass = graph
-        .boxes
-        .iter()
-        .filter(|b| b.is_two_pin_passive() && b.visual_role != Some(VisualRole::BridgePassive))
-        .count();
-    let n_bridge = graph
-        .boxes
-        .iter()
-        .filter(|b| b.visual_role == Some(VisualRole::BridgePassive))
-        .count();
-    let span = ((n_pass + n_bridge) as f64) * SLOT;
-
-    // ── 4. place ONLY the two anchors, same baseline, left / right ───────────
-    let lw = graph.boxes.iter().find(|b| b.id == left).map(|b| b.w).unwrap_or(0.0);
-
-    let y = MARGIN; // shared baseline → A-A and B-B are level (two horizontal lanes)
-    let left_x = MARGIN;
-    let right_x = MARGIN + lw + span;
-
-    for b in graph.boxes.iter_mut() {
-        if b.id == left {
-            b.x = left_x;
-            b.y = y;
-        } else if b.id == right {
-            b.x = right_x;
-            b.y = y;
+    // ── 2. reconstruct the two lanes (ordered non-bridge passives u1→u2) ─────
+    let is_bridge = |g: &McVecGraph, bid: i64| {
+        g.boxes
+            .iter()
+            .any(|b| b.id == bid && b.visual_role == Some(VisualRole::BridgePassive))
+    };
+    let is_lane_passive = |g: &McVecGraph, bid: i64| {
+        g.boxes.iter().any(|b| {
+            b.id == bid
+                && b.kind == BoxKind::TwoPin
+                && b.is_two_pin_passive()
+                && b.visual_role != Some(VisualRole::BridgePassive)
+        })
+    };
+    let mut box_nets: HashMap<i64, Vec<usize>> = HashMap::new();
+    for (ni, net) in graph.nets.iter().enumerate() {
+        let mut seen = HashSet::new();
+        for ep in &net.endpoints {
+            if seen.insert(ep.box_id) {
+                box_nets.entry(ep.box_id).or_default().push(ni);
+            }
         }
-        // NB: deliberately touch nothing else — RES/CAP are handled inline.
+    }
+    let walk = |g: &McVecGraph, start_net: usize| -> Option<Vec<i64>> {
+        let mut lane = Vec::new();
+        let mut cur = start_net;
+        let mut prev = left;
+        for _ in 0..(g.boxes.len() + 2) {
+            let next = g.nets[cur]
+                .endpoints
+                .iter()
+                .map(|e| e.box_id)
+                .find(|&b| b != prev && !is_bridge(g, b) && !lane.contains(&b))?;
+            if next == right {
+                return Some(lane);
+            }
+            if !is_lane_passive(g, next) {
+                return None;
+            }
+            let exit = box_nets.get(&next)?.iter().copied().find(|&n| n != cur)?;
+            lane.push(next);
+            prev = next;
+            cur = exit;
+        }
+        None
+    };
+    let left_nets = box_nets.get(&left)?.clone();
+    if left_nets.len() < 2 {
+        return None;
+    }
+    let lane0 = walk(graph, left_nets[0])?;
+    let lane1 = walk(graph, left_nets[1])?;
+    if lane0.is_empty() && lane1.is_empty() {
+        return None;
     }
 
-    // ── 5. Freeze the anchor pin sides. A directional lane has a-priori known
-    //       terminal sides: the source (left) faces RIGHT toward its lanes, the
-    //       sink (right) faces LEFT. Freezing them (side + layout_hint) makes
-    //       BOTH pin_place and the later place_passive_chains agree, so the
-    //       inline resistors land on the correct side of each anchor instead of
-    //       wrapping around it. ────────────────────────────────────────────────
-    freeze_anchor_side(graph, left, EntrySide::Right);
-    freeze_anchor_side(graph, right, EntrySide::Left);
+    // ── 3. anchor geometry + lane baselines ──────────────────────────────────
+    let (lw, lh) = graph
+        .boxes
+        .iter()
+        .find(|b| b.id == left)
+        .map(|b| (b.w, b.h))
+        .unwrap_or((80.0, 80.0));
+    let max_lane = lane0.len().max(lane1.len());
+    let inner_left = MARGIN + lw;
+    let span = ((max_lane + 1) as f64) * SLOT;
+    let inner_right = inner_left + span;
+    let right_x = inner_right;
+
+    let center_y = MARGIN + lh / 2.0;
+    let lane0_y = center_y - LANE_SEP / 2.0; // top lane
+    let lane1_y = center_y + LANE_SEP / 2.0; // bottom lane
+
+    // anchors: keep box top-left so vertical centre == center_y
+    for b in graph.boxes.iter_mut() {
+        if b.id == left {
+            b.x = MARGIN;
+            b.y = center_y - b.h / 2.0;
+        } else if b.id == right {
+            b.x = right_x;
+            b.y = center_y - b.h / 2.0;
+        }
+    }
+
+    // ── 4. place each lane's resistors evenly on its baseline (horizontal) ────
+    place_lane(graph, &lane0, left, right, inner_left, inner_right, lane0_y);
+    place_lane(graph, &lane1, left, right, inner_left, inner_right, lane1_y);
+
+    // ── 5. anchor pin sides by lane direction (net-derived, not a blind lock) ─
+    freeze_side(graph, left, EntrySide::Right);
+    freeze_side(graph, right, EntrySide::Left);
 
     crate::vlog!(
-        "[ladder] anchors only: left={} @x{:.0} right={} @x{:.0} (span for {} passives + {} rungs)",
+        "[ladder] two-lane deterministic: lane0={} lane1={} (u1={} u2={} y0={:.0} y1={:.0})",
+        lane0.len(),
+        lane1.len(),
         left,
-        left_x,
         right,
-        right_x,
-        n_pass,
-        n_bridge
+        lane0_y,
+        lane1_y
     );
-
     Some(())
 }
 
-/// Set every entry point of `id` to `side` and freeze it via `layout_hint`, so
-/// `pin_place::desired_side_pass` (which skips authored pins) won't flip it back.
-fn freeze_anchor_side(graph: &mut McVecGraph, id: i64, side: EntrySide) {
+/// Evenly place a lane's resistors on `lane_y`, oriented horizontally, pins
+/// Left/Right (Left = pin toward the lane's left neighbour). Tag each as
+/// `SeriesInline` so the generic passive passes skip it, and freeze its pins.
+fn place_lane(
+    graph: &mut McVecGraph,
+    lane: &[i64],
+    left: i64,
+    right: i64,
+    inner_left: f64,
+    inner_right: f64,
+    lane_y: f64,
+) {
+    let n = lane.len();
+    if n == 0 {
+        return;
+    }
+    let step = (inner_right - inner_left) / (n as f64 + 1.0);
+    for (i, &rid) in lane.iter().enumerate() {
+        let cx = inner_left + (i as f64 + 1.0) * step;
+
+        // left/right neighbours in the chain (anchors at the ends)
+        let left_nb = if i == 0 { left } else { lane[i - 1] };
+        let right_nb = if i + 1 == n { right } else { lane[i + 1] };
+        let left_pin = pin_toward(graph, rid, left_nb);
+        let right_pin = pin_toward(graph, rid, right_nb);
+
+        let Some(b) = graph.boxes.iter_mut().find(|b| b.id == rid) else {
+            continue;
+        };
+        // orient horizontal: long side across the lane
+        let long = b.w.max(b.h);
+        let short = b.w.min(b.h);
+        b.w = long;
+        b.h = short;
+        b.x = cx - b.w / 2.0;
+        b.y = lane_y - b.h / 2.0;
+        b.visual_role = Some(VisualRole::SeriesInline);
+
+        // pins: left toward left neighbour, right toward right neighbour
+        let ids: Vec<(i64, String)> =
+            b.entry_points.iter().map(|e| (e.pin_id, e.pin_name.clone())).collect();
+        let ids = if ids.len() == 2 {
+            ids
+        } else {
+            b.pins
+                .iter()
+                .map(|p| (p.id, p.id.to_string()))
+                .take(2)
+                .collect()
+        };
+        if ids.len() == 2 {
+            let (lp, rp) = match (left_pin, right_pin) {
+                (Some(l), Some(r)) if l != r => (l, r),
+                _ => (ids[0].0, ids[1].0), // fallback: existing order
+            };
+            let name_of = |pid: i64| ids.iter().find(|(id, _)| *id == pid).map(|(_, n)| n.clone()).unwrap_or_default();
+            b.entry_points = vec![
+                EntryPoint { pin_id: lp, pin_name: name_of(lp), side: EntrySide::Left, offset: 0.5 },
+                EntryPoint { pin_id: rp, pin_name: name_of(rp), side: EntrySide::Right, offset: 0.5 },
+            ];
+            let mut hint = PinLayout::default();
+            hint.left = vec![name_of(lp), lp.to_string()];
+            hint.right = vec![name_of(rp), rp.to_string()];
+            b.set_layout_hint(hint);
+        }
+    }
+}
+
+/// The pin_id of `bid` that lies on the net shared with `neighbor`.
+fn pin_toward(graph: &McVecGraph, bid: i64, neighbor: i64) -> Option<i64> {
+    for net in &graph.nets {
+        let has_nb = net.endpoints.iter().any(|e| e.box_id == neighbor);
+        if !has_nb {
+            continue;
+        }
+        if let Some(e) = net.endpoints.iter().find(|e| e.box_id == bid) {
+            return Some(e.pin_id);
+        }
+    }
+    None
+}
+
+/// Set every entry point of `id` to `side` and freeze it via `layout_hint`.
+fn freeze_side(graph: &mut McVecGraph, id: i64, side: EntrySide) {
     let Some(b) = graph.boxes.iter_mut().find(|b| b.id == id) else {
         return;
     };
     let mut names: Vec<String> = Vec::new();
     for ep in &mut b.entry_points {
         ep.side = side.clone();
-        // desired_side_pass matches authored pins by name OR by pin_id string.
         names.push(ep.pin_name.clone());
         names.push(ep.pin_id.to_string());
     }
