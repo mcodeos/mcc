@@ -326,6 +326,8 @@ pub enum ShowTarget {
     All,
     /// Show all elements in a file (<name> is the file path)
     File,
+    /// List all loaded files with their module/component counts
+    Files,
     /// List all components, or show one component's details
     Component,
     /// List all modules, or show one module's details
