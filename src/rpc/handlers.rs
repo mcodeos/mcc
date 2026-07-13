@@ -596,6 +596,7 @@ pub fn handle_export(params: Option<Value>) -> RpcResult {
         kind: match p.kind.as_str() {
             "bom" => crate::cli::ExportKind::Bom,
             "spice" => crate::cli::ExportKind::Spice,
+            "kicad" | "kicad-netlist" => crate::cli::ExportKind::KiCad,
             _ => crate::cli::ExportKind::Netlist,
         },
         file: p.entry,
@@ -618,6 +619,7 @@ pub fn handle_export(params: Option<Value>) -> RpcResult {
     let kind_tag = match args.kind {
         crate::cli::ExportKind::Netlist => 0u8,
         crate::cli::ExportKind::Bom => 1u8,
+        crate::cli::ExportKind::KiCad => 3u8,
         crate::cli::ExportKind::Spice => 2u8,
     };
     let format_tag = match args.format {
@@ -3575,7 +3577,7 @@ pub fn handle_caps(_params: Option<Value>) -> RpcResult {
             "explain": true,
             "search": true,
             "query": true,
-            "export": ["netlist", "bom", "spice"],
+            "export": ["netlist", "bom", "spice", "kicad"],
             "show_drilldown": true,
             "show_global_ports": true,
             "show_files": true,

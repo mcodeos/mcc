@@ -4,7 +4,7 @@
 
 //! `mcc convert` — Format conversion: mc → json / yaml (M5b).
 
-use crate::cli::{rpc_client::RpcClient, ConvertArgs, OutputFormat};
+use crate::cli::{rpc_client::RpcClient, ConvertArgs};
 use crate::cmds::manifest;
 use anyhow::Result;
 use mcc::McURI;

@@ -48,6 +48,7 @@ fn rpc_mapping(args: &ExportArgs) -> Option<(&'static str, Value)> {
                     ExportKind::Netlist => "netlist",
                     ExportKind::Bom => "bom",
                     ExportKind::Spice => "spice",
+                    ExportKind::KiCad => "kicad-netlist",
                 },
                 "entry":  args.file,
                 "top":    args.top,
@@ -90,13 +91,13 @@ fn run_local(args: &ExportArgs) -> Result<()> {
         ExportKind::Netlist => "netlist",
         ExportKind::Bom => "bom",
         ExportKind::Spice => "spice",
+        ExportKind::KiCad => "kicad-netlist",
     };
-    // Convert local cli enums → u8 tags for export_api (avoids cross-crate
-    // type visibility issue with the binary's pub(crate) cli module).
     let kind_tag = match args.kind {
         ExportKind::Netlist => 0u8,
         ExportKind::Bom => 1u8,
         ExportKind::Spice => 2u8,
+        ExportKind::KiCad => 3u8,
     };
     let format_tag = match format {
         OutputFormat::Text => 0u8,
