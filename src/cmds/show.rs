@@ -39,8 +39,7 @@ pub fn run(args: &ShowArgs) -> Result<()> {
     run_local(args)
 }
 
-/// Map legacy container targets to their RPC method + params. Returns `None`
-/// for the new targets (they run locally). Also returns `None` when
+/// Map show targets to their RPC method + params. Returns `None` when
 /// `args.filter` is set — RPC list methods don't apply filters, so we must
 /// fall through to local to honor the filter (filter RPC parity deferred).
 fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
@@ -48,14 +47,19 @@ fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
         return None;
     }
     match args.target {
+        // ── overview ───────────────────────────────────────────────────────
+        ShowTarget::All => Some(("show.all", json!({}))),
         ShowTarget::File => Some(("show.file", json!({ "file": args.name }))),
-        ShowTarget::Component | ShowTarget::Module | ShowTarget::Interface | ShowTarget::Net => {
+        ShowTarget::Files => Some(("show.files", json!({}))),
+
+        // ── container list/detail ──────────────────────────────────────────
+        ShowTarget::Component | ShowTarget::Module | ShowTarget::Interface | ShowTarget::Enum => {
             if args.name.is_none() {
                 let m = match args.target {
                     ShowTarget::Component => "show.component.list",
                     ShowTarget::Module => "show.module.list",
                     ShowTarget::Interface => "show.interface.list",
-                    ShowTarget::Net => "show.net.list",
+                    ShowTarget::Enum => "show.enum.list",
                     _ => unreachable!(),
                 };
                 Some((m, json!({ "file": args.file })))
@@ -64,14 +68,52 @@ fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
                     ShowTarget::Component => "show.component",
                     ShowTarget::Module => "show.module",
                     ShowTarget::Interface => "show.interface",
-                    ShowTarget::Net => "show.net",
+                    ShowTarget::Enum => "show.enum",
                     _ => unreachable!(),
                 };
                 Some((m, json!({ "name": args.name, "file": args.file })))
             }
         }
-        _ => None,
+        ShowTarget::Net => {
+            if args.name.is_none() {
+                Some(("show.net.list", json!({})))
+            } else {
+                Some(("show.net", json!({ "name": args.name })))
+            }
+        }
+
+        // ── drill-down ─────────────────────────────────────────────────────
+        ShowTarget::Pins => drill_rpc("show.pins", args),
+        ShowTarget::Ports => {
+            if args.name.is_some() {
+                drill_rpc("show.ports", args)
+            } else {
+                Some(("show.ports.list", json!({})))
+            }
+        }
+        ShowTarget::Labels => drill_rpc("show.labels", args),
+        ShowTarget::Instances => drill_rpc("show.instances", args),
+        ShowTarget::Nets => drill_rpc("show.nets", args),
+        ShowTarget::Attrs => drill_rpc("show.attrs", args),
+        ShowTarget::Funcs => drill_rpc("show.funcs", args),
+        ShowTarget::Params => drill_rpc("show.params", args),
+        ShowTarget::Roles => drill_rpc("show.roles", args),
+        ShowTarget::Values => drill_rpc("show.values", args),
     }
+}
+
+/// Build an RPC call for a drill-down target. All drill-down targets require
+/// `name`; `--type` and `--top` are passed through when present.
+fn drill_rpc(method: &'static str, args: &ShowArgs) -> Option<(&'static str, Value)> {
+    let name = args.name.as_ref()?;
+    let mut params = json!({ "name": name });
+    if let Some(t) = &args.r#type {
+        params["type"] = json!(t);
+    }
+    if let Some(t) = &args.top {
+        params["top"] = json!(t);
+    }
+    Some((method, params))
 }
 
 fn run_local(args: &ShowArgs) -> Result<()> {
@@ -82,6 +124,7 @@ fn run_local(args: &ShowArgs) -> Result<()> {
         // ── containers ─────────────────────────────────────────────────────
         ShowTarget::All => show_all(args),
         ShowTarget::File => show_file(args),
+        ShowTarget::Files => show_files(args),
         ShowTarget::Component => match name {
             None => list_kind(Kind::Component, args),
             Some(n) => show_component(n, args),
@@ -102,7 +145,10 @@ fn run_local(args: &ShowArgs) -> Result<()> {
 
         // ── drill-down ─────────────────────────────────────────────────────
         ShowTarget::Pins => drill_pins(require_name(args), args),
-        ShowTarget::Ports => drill_ports(require_name(args), args),
+        ShowTarget::Ports => match name {
+            None => list_ports(args),
+            Some(n) => drill_ports(n, args),
+        },
         ShowTarget::Labels => drill_labels(require_name(args), args),
         ShowTarget::Instances => drill_instances(require_name(args), args),
         ShowTarget::Nets => drill_nets(require_name(args), args),
@@ -430,6 +476,69 @@ fn show_net(name: &str, args: &ShowArgs) -> Result<()> {
             }
         }
     };
+    output(&data, args)
+}
+
+// ============================================================================
+// Files overview
+// ============================================================================
+
+fn show_files(args: &ShowArgs) -> Result<()> {
+    use std::collections::BTreeMap;
+
+    // Aggregate counts per URI across all definition kinds.
+    #[derive(Default)]
+    struct FileInfo {
+        component_count: usize,
+        module_count: usize,
+        interface_count: usize,
+        enum_count: usize,
+    }
+
+    let mut files: BTreeMap<String, FileInfo> = BTreeMap::new();
+
+    for (_, uri) in mcc::mcb_iter_components() {
+        files.entry(uri).or_default().component_count += 1;
+    }
+    for (_, uri) in mcc::mcb_iter_modules() {
+        files.entry(uri).or_default().module_count += 1;
+    }
+    for (_, uri) in mcc::mcb_iter_interfaces() {
+        files.entry(uri).or_default().interface_count += 1;
+    }
+    for (_, uri) in mcc::mcb_iter_enums() {
+        files.entry(uri).or_default().enum_count += 1;
+    }
+
+    let items: Vec<Value> = files
+        .into_iter()
+        .map(|(uri, info)| {
+            json!({
+                "uri": uri,
+                "component_count": info.component_count,
+                "module_count": info.module_count,
+                "interface_count": info.interface_count,
+                "enum_count": info.enum_count,
+            })
+        })
+        .collect();
+
+    let data = json!({ "type": "files", "count": items.len(), "files": items });
+    output(&data, args)
+}
+
+// ============================================================================
+// Ports list (global)
+// ============================================================================
+
+fn list_ports(args: &ShowArgs) -> Result<()> {
+    let ports: Vec<Value> = mcc::mcb_iter_ports()
+        .into_iter()
+        .map(|(name, iotype, module, uri)| {
+            json!({ "name": name, "iotype": iotype, "module": module, "uri": uri })
+        })
+        .collect();
+    let data = json!({ "type": "port", "count": ports.len(), "ports": ports });
     output(&data, args)
 }
 

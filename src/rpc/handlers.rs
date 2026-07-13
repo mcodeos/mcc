@@ -272,6 +272,24 @@ pub fn handle_methods(_params: Option<Value>) -> RpcResult {
         "show.interface.list",
         "show.net",
         "show.net.list",
+        // show — missing containers (M5 drill-down)
+        "show.all",
+        "show.file",
+        "show.files",
+        "show.enum",
+        "show.enum.list",
+        // show — drill-down (M5)
+        "show.pins",
+        "show.ports",
+        "show.ports.list",
+        "show.labels",
+        "show.instances",
+        "show.nets",
+        "show.attrs",
+        "show.funcs",
+        "show.params",
+        "show.roles",
+        "show.values",
         // search (M5)
         "defs.search",
         "defs.query",
@@ -2005,6 +2023,9 @@ pub fn handle_parse(params: Option<Value>) -> RpcResult {
 struct ShowParams {
     name: Option<String>,
     file: Option<String>,
+    #[serde(rename = "type")]
+    type_filter: Option<String>,
+    top: Option<String>,
 }
 
 pub fn handle_show_component_list(params: Option<Value>) -> RpcResult {
@@ -2290,6 +2311,569 @@ pub fn handle_show_net(params: Option<Value>) -> RpcResult {
             ),
         }
     }
+}
+
+// ============================================================================
+// Show helpers (shared across drill-down handlers)
+// ============================================================================
+
+/// Find a definition by name across all four kinds.
+fn find_def_by_name(name: &str) -> Option<(crate::McCMIE, String)> {
+    let iterators: [(&str, Vec<(String, String)>); 4] = [
+        ("component", crate::mcb_iter_components()),
+        ("module", crate::mcb_iter_modules()),
+        ("interface", crate::mcb_iter_interfaces()),
+        ("enum", crate::mcb_iter_enums()),
+    ];
+    for (_, items) in &iterators {
+        if let Some((matched, uri)) = items.iter().find(|(n, _)| n == name) {
+            let ident = crate::McIds::from(matched.as_str());
+            let uri_obj = crate::McURI::from(uri.as_str());
+            if let Some(cmie) = crate::get_def(&ident, &uri_obj) {
+                return Some((cmie, uri.clone()));
+            }
+        }
+    }
+    None
+}
+
+/// Build a pin JSON object (mirrors pins_json in show.rs).
+fn pins_json(pins: &crate::McPins) -> Value {
+    let pin_list: Vec<Value> = pins
+        .pins
+        .iter()
+        .map(|(pin_id, pin)| {
+            let mut desc = String::new();
+            for val in pin.values.iter() {
+                if let crate::McAttrVal::AttrLiteral(crate::McLiteral::String(s)) = val {
+                    if !desc.is_empty() {
+                        desc.push(' ');
+                    }
+                    desc.push_str(&s.value);
+                }
+            }
+            let mut j = json!({
+                "id": pin_id,
+                "iotype": format!("{:?}", pin.iotype),
+                "names": pin.names,
+            });
+            if !desc.is_empty() {
+                j["description"] = json!(desc);
+            }
+            j
+        })
+        .collect();
+
+    let mut names_to_id = serde_json::Map::new();
+    for (k, v) in &pins.names_to_id {
+        names_to_id.insert(k.clone(), pinport_json(v));
+    }
+    let mut pin_id_to_names = serde_json::Map::new();
+    for (k, v) in &pins.pin_id_to_names {
+        pin_id_to_names.insert(k.clone(), json!(v));
+    }
+
+    json!({
+        "pin_count": pins.pins.len(),
+        "pins": pin_list,
+        "names_to_id": Value::Object(names_to_id),
+        "pin_id_to_names": Value::Object(pin_id_to_names),
+    })
+}
+
+fn pinport_json(v: &crate::McPinPort) -> Value {
+    match v {
+        crate::McPinPort::Single(pid) => json!({ "kind": "Single", "pin": pid }),
+        crate::McPinPort::Multi(pids) => json!({ "kind": "Multi", "pins": pids }),
+        crate::McPinPort::MultiGroup(groups) => {
+            json!({ "kind": "MultiGroup", "groups": groups })
+        }
+        crate::McPinPort::List(name, items) => {
+            json!({ "kind": "List", "name": name, "items": items })
+        }
+        crate::McPinPort::Bus(bus) => json!({ "kind": "Bus", "debug": format!("{:?}", bus) }),
+        crate::McPinPort::Interface(iface) => json!({
+            "kind": "Interface",
+            "inst_name": iface.name.to_string(),
+            "base_name": iface.base_name(),
+            "registered_pins": iface.registered_pins,
+        }),
+        crate::McPinPort::NC => json!({ "kind": "NC" }),
+    }
+}
+
+fn inst_kind_class(inst: &crate::McInstance) -> (&'static str, String) {
+    match inst {
+        crate::McInstance::Component(c) => ("component", c.name.to_string()),
+        crate::McInstance::Module(m) => ("module", m.name.to_string()),
+        crate::McInstance::Label(l) => ("label", l.clone()),
+        crate::McInstance::Interface(i) => ("interface", i.name.to_string()),
+        crate::McInstance::Bus(b) => ("bus", b.name().to_string()),
+        crate::McInstance::BusRef { component, bus } => {
+            ("busref", format!("{component}.{bus}"))
+        }
+        crate::McInstance::List(l) => ("list", l.name().to_string()),
+    }
+}
+
+fn attrval_json(v: &crate::McAttrVal) -> Value {
+    match v {
+        crate::McAttrVal::AttrLiteral(crate::McLiteral::String(s)) => json!(s.value),
+        other => json!(format!("{:?}", other)),
+    }
+}
+
+// ============================================================================
+// Show — missing container handlers
+// ============================================================================
+
+pub fn handle_show_all(_params: Option<Value>) -> RpcResult {
+    let comps = crate::mcb_iter_components();
+    let mods = crate::mcb_iter_modules();
+    let ifaces = crate::mcb_iter_interfaces();
+    let enums = crate::mcb_iter_enums();
+
+    Ok(json!({
+        "type": "all",
+        "component_count": comps.len(),
+        "component_list": comps.iter().map(|(n,_)| n).collect::<Vec<_>>(),
+        "module_count": mods.len(),
+        "module_list": mods.iter().map(|(n,_)| n).collect::<Vec<_>>(),
+        "interface_count": ifaces.len(),
+        "interface_list": ifaces.iter().map(|(n,_)| n).collect::<Vec<_>>(),
+        "enum_count": enums.len(),
+        "enum_list": enums.iter().map(|(n,_)| n).collect::<Vec<_>>(),
+    }))
+}
+
+pub fn handle_show_file(params: Option<Value>) -> RpcResult {
+    let p: ShowParams = parse_or_default(params)?;
+    let file = p.name.unwrap_or_default();
+
+    // Load the file if provided
+    if !file.is_empty() {
+        let uri = McURI::from(file.as_str());
+        crate::mcc_load_project(&uri);
+    }
+
+    let comps = crate::mcb_iter_components();
+    let mods = crate::mcb_iter_modules();
+    let ifaces = crate::mcb_iter_interfaces();
+    let enums = crate::mcb_iter_enums();
+
+    Ok(json!({
+        "type": "file",
+        "file": file,
+        "component_count": comps.len(),
+        "component_list": comps.iter().map(|(n,_)| n).collect::<Vec<_>>(),
+        "module_count": mods.len(),
+        "module_list": mods.iter().map(|(n,_)| n).collect::<Vec<_>>(),
+        "interface_count": ifaces.len(),
+        "interface_list": ifaces.iter().map(|(n,_)| n).collect::<Vec<_>>(),
+        "enum_count": enums.len(),
+        "enum_list": enums.iter().map(|(n,_)| n).collect::<Vec<_>>(),
+    }))
+}
+
+pub fn handle_show_files(_params: Option<Value>) -> RpcResult {
+    use std::collections::BTreeMap;
+
+    #[derive(Default)]
+    struct FileInfo {
+        component_count: usize,
+        module_count: usize,
+        interface_count: usize,
+        enum_count: usize,
+    }
+
+    let mut files: BTreeMap<String, FileInfo> = BTreeMap::new();
+    for (_, uri) in crate::mcb_iter_components() {
+        files.entry(uri).or_default().component_count += 1;
+    }
+    for (_, uri) in crate::mcb_iter_modules() {
+        files.entry(uri).or_default().module_count += 1;
+    }
+    for (_, uri) in crate::mcb_iter_interfaces() {
+        files.entry(uri).or_default().interface_count += 1;
+    }
+    for (_, uri) in crate::mcb_iter_enums() {
+        files.entry(uri).or_default().enum_count += 1;
+    }
+
+    let items: Vec<Value> = files
+        .into_iter()
+        .map(|(uri, info)| {
+            json!({
+                "uri": uri,
+                "component_count": info.component_count,
+                "module_count": info.module_count,
+                "interface_count": info.interface_count,
+                "enum_count": info.enum_count,
+            })
+        })
+        .collect();
+
+    Ok(json!({ "type": "files", "count": items.len(), "files": items }))
+}
+
+pub fn handle_show_enum_list(params: Option<Value>) -> RpcResult {
+    let p: ShowParams = parse_or_default(params)?;
+    if let Some(file) = &p.file {
+        let uri = McURI::from(file.as_str());
+        crate::mcc_load_project(&uri);
+    }
+    let enums = crate::mcb_iter_enums();
+    let names: Vec<String> = enums.iter().map(|(n, _)| n.clone()).collect();
+    Ok(json!({ "type": "enum", "count": names.len(), "list": names }))
+}
+
+pub fn handle_show_enum(params: Option<Value>) -> RpcResult {
+    let p: ShowParams = parse_strict(params)?;
+    let name = p
+        .name
+        .as_ref()
+        .ok_or_else(|| JsonRpcError::custom(-32602, "show.enum: need to specify name"))?;
+
+    let (cmie, uri) = find_def_by_name(name)
+        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("enum not found: {name}")))?;
+
+    match cmie {
+        crate::McCMIE::Enum(en) => {
+            let values: Vec<String> = en.values.iter().map(|v| v.name.to_string()).collect();
+            Ok(json!({
+                "name": name,
+                "uri": uri,
+                "value_count": values.len(),
+                "values": values,
+            }))
+        }
+        _ => Err(JsonRpcError::custom(
+            -32002,
+            &format!("'{name}' is not an Enum"),
+        )),
+    }
+}
+
+// ============================================================================
+// Show — drill-down handlers
+// ============================================================================
+
+pub fn handle_show_pins(params: Option<Value>) -> RpcResult {
+    let p: ShowParams = parse_strict(params)?;
+    let name = p
+        .name
+        .as_ref()
+        .ok_or_else(|| JsonRpcError::custom(-32602, "show.pins: need to specify name"))?;
+
+    let (cmie, _) = find_def_by_name(name)
+        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
+
+    let pins = match &cmie {
+        crate::McCMIE::Component(c) => &c.pins,
+        crate::McCMIE::Interface(i) => &i.pins,
+        _ => {
+            return Err(JsonRpcError::custom(
+                -32002,
+                &format!("'{name}' does not have pins (only components and interfaces do)"),
+            ))
+        }
+    };
+    let mut data = pins_json(pins);
+    data["name"] = json!(name);
+    Ok(data)
+}
+
+pub fn handle_show_ports(params: Option<Value>) -> RpcResult {
+    let p: ShowParams = parse_strict(params)?;
+    let name = p
+        .name
+        .as_ref()
+        .ok_or_else(|| JsonRpcError::custom(-32602, "show.ports: need to specify name"))?;
+
+    let (cmie, _) = find_def_by_name(name)
+        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
+
+    let module = match &cmie {
+        crate::McCMIE::Module(m) => m,
+        _ => {
+            return Err(JsonRpcError::custom(
+                -32002,
+                &format!("'{name}' is not a Module"),
+            ))
+        }
+    };
+    let ports: Vec<Value> = module
+        .insts
+        .iter_ports()
+        .map(|(pname, io)| json!({ "name": pname, "iotype": format!("{:?}", io) }))
+        .collect();
+    Ok(json!({ "name": name, "port_count": ports.len(), "ports": ports }))
+}
+
+pub fn handle_show_ports_list(_params: Option<Value>) -> RpcResult {
+    let ports: Vec<Value> = crate::mcb_iter_ports()
+        .into_iter()
+        .map(|(name, iotype, module, uri)| {
+            json!({ "name": name, "iotype": iotype, "module": module, "uri": uri })
+        })
+        .collect();
+    Ok(json!({ "type": "port", "count": ports.len(), "ports": ports }))
+}
+
+pub fn handle_show_labels(params: Option<Value>) -> RpcResult {
+    let p: ShowParams = parse_strict(params)?;
+    let name = p
+        .name
+        .as_ref()
+        .ok_or_else(|| JsonRpcError::custom(-32602, "show.labels: need to specify name"))?;
+
+    let (cmie, _) = find_def_by_name(name)
+        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
+
+    let module = match &cmie {
+        crate::McCMIE::Module(m) => m,
+        _ => {
+            return Err(JsonRpcError::custom(
+                -32002,
+                &format!("'{name}' is not a Module"),
+            ))
+        }
+    };
+    let labels: Vec<String> = module
+        .insts
+        .iter()
+        .filter(|(_, inst)| matches!(inst, crate::McInstance::Label(_)))
+        .map(|(n, _)| n.to_string())
+        .collect();
+    Ok(json!({ "name": name, "label_count": labels.len(), "labels": labels }))
+}
+
+pub fn handle_show_instances(params: Option<Value>) -> RpcResult {
+    let p: ShowParams = parse_strict(params)?;
+    let name = p
+        .name
+        .as_ref()
+        .ok_or_else(|| JsonRpcError::custom(-32602, "show.instances: need to specify name"))?;
+
+    let (cmie, _) = find_def_by_name(name)
+        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
+
+    let insts = match &cmie {
+        crate::McCMIE::Component(c) => &c.insts,
+        crate::McCMIE::Module(m) => &m.insts,
+        _ => {
+            return Err(JsonRpcError::custom(
+                -32002,
+                &format!("'{name}' does not have instances (only components and modules do)"),
+            ))
+        }
+    };
+    let items: Vec<Value> = insts
+        .iter()
+        .filter_map(|(n, inst)| {
+            let (kind, class) = inst_kind_class(inst);
+            if let Some(ref t) = p.type_filter {
+                if !kind.eq_ignore_ascii_case(t) {
+                    return None;
+                }
+            }
+            Some(json!({ "name": n.to_string(), "kind": kind, "class": class }))
+        })
+        .collect();
+    Ok(json!({ "name": name, "count": items.len(), "instances": items }))
+}
+
+pub fn handle_show_nets(params: Option<Value>) -> RpcResult {
+    let p: ShowParams = parse_strict(params)?;
+    let name = p
+        .name
+        .as_ref()
+        .ok_or_else(|| JsonRpcError::custom(-32602, "show.nets: need to specify name"))?;
+
+    let top = p.top.as_ref().unwrap_or(name);
+    let top_uri = crate::mcb_iter_modules()
+        .iter()
+        .find(|(n, _)| n == top)
+        .map(|(_, u)| crate::McURI::from(u.as_str()))
+        .unwrap_or_else(|| crate::McURI::from(top));
+    let ident = crate::McIds::from(top.as_str());
+
+    let inst = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::mcc_build(&ident, &top_uri)
+    }))
+    .map_err(|_| JsonRpcError::custom(-32002, "build panicked (engine Pass2 bug)"))?
+    .map_err(|e| JsonRpcError::custom(-32002, &format!("build failed: {e}")))?;
+
+    let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for conn in &inst.connections {
+        let net = conn
+            .net_name
+            .clone()
+            .unwrap_or_else(|| format!("__net_{}", conn.id));
+        if net == "NC" {
+            continue;
+        }
+        let bucket = nets.entry(net).or_default();
+        for pt in &conn.points {
+            if pt.path == "NC" {
+                continue;
+            }
+            let label = if let Some(ref o) = pt.owner {
+                format!(
+                    "{}.{}",
+                    o,
+                    pt.path.split('.').next_back().unwrap_or(&pt.path)
+                )
+            } else {
+                pt.path.clone()
+            };
+            if !bucket.contains(&label) {
+                bucket.push(label);
+            }
+        }
+    }
+
+    let items: Vec<Value> = nets
+        .iter()
+        .map(|(n, points)| json!({ "name": n, "points": points }))
+        .collect();
+    Ok(json!({ "name": name, "count": items.len(), "nets": items }))
+}
+
+pub fn handle_show_attrs(params: Option<Value>) -> RpcResult {
+    let p: ShowParams = parse_strict(params)?;
+    let name = p
+        .name
+        .as_ref()
+        .ok_or_else(|| JsonRpcError::custom(-32602, "show.attrs: need to specify name"))?;
+
+    let (cmie, _) = find_def_by_name(name)
+        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
+
+    let attrs = match &cmie {
+        crate::McCMIE::Component(c) => &c.attrs,
+        crate::McCMIE::Interface(i) => &i.attrs,
+        _ => {
+            return Err(JsonRpcError::custom(
+                -32002,
+                &format!("'{name}' does not have attributes (only components and interfaces do)"),
+            ))
+        }
+    };
+    let items: Vec<Value> = attrs
+        .iter()
+        .map(|a| {
+            let values: Vec<Value> = a.values.iter().map(attrval_json).collect();
+            json!({ "no": a.no, "name": a.id.to_string(), "values": values })
+        })
+        .collect();
+    Ok(json!({ "name": name, "count": items.len(), "attrs": items }))
+}
+
+pub fn handle_show_funcs(params: Option<Value>) -> RpcResult {
+    let p: ShowParams = parse_strict(params)?;
+    let name = p
+        .name
+        .as_ref()
+        .ok_or_else(|| JsonRpcError::custom(-32602, "show.funcs: need to specify name"))?;
+
+    let (cmie, _) = find_def_by_name(name)
+        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
+
+    let funcs = match &cmie {
+        crate::McCMIE::Component(c) => &c.funcs,
+        crate::McCMIE::Module(m) => &m.funcs,
+        _ => {
+            return Err(JsonRpcError::custom(
+                -32002,
+                &format!("'{name}' does not have functions (only components and modules do)"),
+            ))
+        }
+    };
+    let items: Vec<Value> = funcs
+        .iter()
+        .map(|f| json!({ "name": f.name.to_string(), "params": f.params.names() }))
+        .collect();
+    Ok(json!({ "name": name, "count": items.len(), "funcs": items }))
+}
+
+pub fn handle_show_params(params: Option<Value>) -> RpcResult {
+    let p: ShowParams = parse_strict(params)?;
+    let name = p
+        .name
+        .as_ref()
+        .ok_or_else(|| JsonRpcError::custom(-32602, "show.params: need to specify name"))?;
+
+    let (cmie, _) = find_def_by_name(name)
+        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
+
+    let param_names = match &cmie {
+        crate::McCMIE::Component(c) => c.params.names(),
+        crate::McCMIE::Module(m) => m.params.names(),
+        crate::McCMIE::Interface(i) => i.params.names(),
+        _ => {
+            return Err(JsonRpcError::custom(
+                -32002,
+                &format!("'{name}' does not have params"),
+            ))
+        }
+    };
+    Ok(json!({ "name": name, "count": param_names.len(), "params": param_names }))
+}
+
+pub fn handle_show_roles(params: Option<Value>) -> RpcResult {
+    let p: ShowParams = parse_strict(params)?;
+    let name = p
+        .name
+        .as_ref()
+        .ok_or_else(|| JsonRpcError::custom(-32602, "show.roles: need to specify name"))?;
+
+    let (cmie, _) = find_def_by_name(name)
+        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
+
+    let iface = match &cmie {
+        crate::McCMIE::Interface(i) => i,
+        _ => {
+            return Err(JsonRpcError::custom(
+                -32002,
+                &format!("'{name}' is not an Interface"),
+            ))
+        }
+    };
+    let items: Vec<Value> = iface
+        .roles
+        .iter()
+        .map(|r| {
+            json!({
+                "name": r.name.to_string(),
+                "pins": pins_json(&r.pins),
+            })
+        })
+        .collect();
+    Ok(json!({ "name": name, "count": items.len(), "roles": items }))
+}
+
+pub fn handle_show_values(params: Option<Value>) -> RpcResult {
+    let p: ShowParams = parse_strict(params)?;
+    let name = p
+        .name
+        .as_ref()
+        .ok_or_else(|| JsonRpcError::custom(-32602, "show.values: need to specify name"))?;
+
+    let (cmie, _) = find_def_by_name(name)
+        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
+
+    let en = match &cmie {
+        crate::McCMIE::Enum(e) => e,
+        _ => {
+            return Err(JsonRpcError::custom(
+                -32002,
+                &format!("'{name}' is not an Enum"),
+            ))
+        }
+    };
+    let values: Vec<String> = en.values.iter().map(|v| v.name.to_string()).collect();
+    Ok(json!({ "name": name, "count": values.len(), "values": values }))
 }
 
 // ============================================================================
