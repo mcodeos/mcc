@@ -208,6 +208,7 @@ impl McCode {
                 // Skip during system library loading, to prevent mcode loading from preempting user file visit quota
                 if crate::cli::config::get_trace_visit() == Some(true)
                     && !crate::cli::config::is_system_lib_loading()
+                    && !crate::cli::config::is_trace_stdout_suppressed()
                     && !AST_VISIT_DONE.swap(true, Ordering::SeqCst)
                 {
                     crate::ast::c_bindings::mcc_visit_tree_color(ast.get_ptr() as *mut McValueFFI);
@@ -481,6 +482,7 @@ impl McCode {
                 // Skip during system library loading, to prevent mcode loading from preempting user file visit quota
                 if crate::cli::config::get_trace_visit() == Some(true)
                     && !crate::cli::config::is_system_lib_loading()
+                    && !crate::cli::config::is_trace_stdout_suppressed()
                     && !AST_VISIT_DONE.swap(true, Ordering::SeqCst)
                 {
                     crate::ast::c_bindings::mcc_visit_tree_color(ast.get_ptr() as *mut McValueFFI);

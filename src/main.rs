@@ -136,6 +136,21 @@ fn main() -> ExitCode {
 }
 
 fn dispatch(cli: Cli) -> Result<ExitCode> {
+    // Suppress engine-level stdout traces (e.g. AST visit tree from `trace.visit`) for
+    // commands that emit a structured JSON result on stdout, so a globally-enabled
+    // `trace.visit` can't corrupt the JSON contract.
+    let result_format = match &cli.command {
+        Some(Command::Parse(a)) => Some(a.format),
+        Some(Command::Check(a)) => Some(a.format),
+        Some(Command::Extract(a)) => Some(a.format),
+        Some(Command::Show(a)) => Some(a.format),
+        Some(Command::Build(a)) => Some(a.format),
+        _ => None,
+    };
+    if matches!(result_format, Some(f) if f != OutputFormat::Text) {
+        mcc::set_trace_stdout_suppressed(true);
+    }
+
     match cli.command {
         Some(Command::Parse(args)) => {
             cmds::parse::run(&args)?;
