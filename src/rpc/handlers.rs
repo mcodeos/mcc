@@ -1404,6 +1404,10 @@ fn load_libs_rpc(libs: &[String]) {
 struct CheckRpcParams {
     #[serde(default)]
     entry: Option<String>,
+    /// Inline source content (M6). When set, loaded from memory — no disk I/O.
+    /// AI uses this for dry-run validation before committing code.
+    #[serde(default)]
+    content: Option<String>,
     #[serde(default)]
     libs: Vec<String>,
     #[serde(default)]
@@ -1412,16 +1416,59 @@ struct CheckRpcParams {
     errors_only: bool,
 }
 
+/// Overlay URI used when `content` is provided — virtual file, never touches disk.
+const CHECK_OVERLAY_URI: &str = "/mcc/check.mc";
+
 pub fn handle_check(params: Option<Value>) -> RpcResult {
     let p: CheckRpcParams = parse_or_default(params)?;
     load_libs_rpc(&p.libs);
 
+    // ── Mode A: inline content (AI dry-run) (M6) ──
+    if let Some(content) = &p.content {
+        let uri = McURI::from(CHECK_OVERLAY_URI);
+        crate::mcc_load_from_string(&uri, content);
+
+        let raw = crate::mcc_diagnose_all();
+        let diags: Vec<Value> = raw
+            .iter()
+            .map(|d| {
+                let sev = match d.level {
+                    crate::DiagnosticLevel::Error => "error",
+                    crate::DiagnosticLevel::Warning => "warning",
+                    crate::DiagnosticLevel::Info => "info",
+                    crate::DiagnosticLevel::Hint => "hint",
+                };
+                json!({
+                    "code": d.code,
+                    "severity": sev,
+                    "message": d.msg,
+                    "location": {
+                        "file": d.loc.uri,
+                        "line": d.loc.row,
+                        "column": d.loc.col,
+                        "pos": d.loc.pos,
+                        "len": d.loc.len,
+                    }
+                })
+            })
+            .collect();
+
+        let errors = diags.iter().filter(|d| d["severity"] == "error").count();
+        let warnings = diags.iter().filter(|d| d["severity"] == "warning").count();
+
+        return Ok(json!({
+            "summary": { "errors": errors, "warnings": warnings },
+            "diagnostics": diags,
+        }));
+    }
+
+    // ── Mode B/C/D: disk file / project / workspace ──
     let (id, kind, _) = crate::workspace_info();
     if kind == "Anonymous" {
         let entry = p
             .entry
             .as_deref()
-            .ok_or_else(|| JsonRpcError::custom(-32602, "check: need to specify <entry>"))?;
+            .ok_or_else(|| JsonRpcError::custom(-32602, "check: need <entry> or <content>"))?;
 
         let cwd = std::env::current_dir().unwrap_or_default();
         let entry_path = PathBuf::from(entry);
@@ -3256,6 +3303,60 @@ fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
 }
 
 // ============================================================================
+// Def (M6)
+// ============================================================================
+
+/// Handle def RPC — go-to-definition for a symbol.
+pub fn handle_def(params: Option<Value>) -> RpcResult {
+    #[derive(Deserialize)]
+    struct DefParams {
+        name: String,
+    }
+
+    let p: DefParams = parse_strict(params)?;
+    let name = &p.name;
+
+    let iterators: [(&str, Vec<(String, String)>); 4] = [
+        ("component", crate::mcb_iter_components()),
+        ("module", crate::mcb_iter_modules()),
+        ("interface", crate::mcb_iter_interfaces()),
+        ("enum", crate::mcb_iter_enums()),
+    ];
+
+    for (kind, items) in &iterators {
+        if let Some((matched, uri)) = items.iter().find(|(n, _)| n == name) {
+            let ident = crate::McIds::from(matched.as_str());
+            let uri_obj = crate::McURI::from(uri.as_str());
+
+            return match crate::get_def(&ident, &uri_obj) {
+                Some(crate::McCMIE::Component(c)) => Ok(json!({
+                    "kind": "component", "name": matched, "uri": uri,
+                    "pin_count": c.pins.pins.len(),
+                })),
+                Some(crate::McCMIE::Module(m)) => Ok(json!({
+                    "kind": "module", "name": matched, "uri": uri,
+                    "instance_count": m.insts.iter().count(),
+                })),
+                Some(crate::McCMIE::Interface(i)) => Ok(json!({
+                    "kind": "interface", "name": matched, "uri": uri,
+                    "pin_count": i.pins.pins.len(),
+                })),
+                Some(crate::McCMIE::Enum(e)) => Ok(json!({
+                    "kind": "enum", "name": matched, "uri": uri,
+                    "value_count": e.values.len(),
+                })),
+                None => Ok(json!({ "kind": kind, "name": matched, "uri": uri })),
+            };
+        }
+    }
+
+    Err(JsonRpcError::custom(
+        -32003,
+        &format!("definition not found: {name}"),
+    ))
+}
+
+// ============================================================================
 // Capabilities (M6)
 // ============================================================================
 
@@ -3282,7 +3383,7 @@ pub fn handle_caps(_params: Option<Value>) -> RpcResult {
             "show_files": true,
             "parse_code": true,
             "parse_directory": true,
-            "overlay_dry_run": false,
+            "overlay_dry_run": true,
             "simulation": false,
             "pcb_export": false,
             "semantic_lint": false
@@ -3303,7 +3404,7 @@ pub fn handle_caps(_params: Option<Value>) -> RpcResult {
             "lib.list", "lib.info", "lib.load", "lib.unload",
             "lib.install", "lib.uninstall", "lib.search",
             "defs.search", "defs.query",
-            "export", "explain", "caps",
+            "export", "explain", "def", "caps",
             "trace.set", "trace.get",
             "sem", "diagnostics",
             "project_symbols", "set_project_root", "set_system_root",
