@@ -69,8 +69,8 @@ pub use builder::{mcb_lib_info, mcb_load_lib, mcb_loaded_libs, mcb_unload_lib};
 pub use cli::config::{get_libs_load_list, should_load_mcode};
 
 pub use builder::{
-    mcb_add_recursive, mcb_get_system_root, mcb_loaded_file_count, mcb_parse_all_modules,
-    mcb_print_loaded_files,
+    mcb_add_recursive, mcb_get_refs, mcb_get_system_root, mcb_loaded_file_count,
+    mcb_parse_all_modules, mcb_print_loaded_files,
 };
 
 pub use builder::diagnostic::{

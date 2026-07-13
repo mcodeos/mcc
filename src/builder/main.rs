@@ -1862,6 +1862,18 @@ pub fn mcb_register_instance_ref(uri: &McURI, span: Span, decl_id: DeclareId, sc
     tracing::info!(target: "mcc::lsp", "Registered inst ref: decl_id={:?} scope={:?} at {:?}", decl_id, scope, span_clone);
 }
 
+/// M6: Get all references for a named declaration.
+/// Returns Vec<(uri, scope, span)>.
+pub fn mcb_get_refs(name: &str) -> Vec<(String, String, Span)> {
+    let table = workspace::WORKSPACE.global_inst_table.lock().unwrap();
+    let decl_ids = table.find_decls_by_name(name);
+    let mut results = Vec::new();
+    for decl_id in &decl_ids {
+        results.extend(table.get_refs(*decl_id));
+    }
+    results
+}
+
 /// 🆕 Register a class reference for goto-definition
 ///
 /// Called when a class name is used in a declare statement (e.g., `MCU.US513_20_F uC`).
