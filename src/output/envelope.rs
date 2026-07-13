@@ -176,6 +176,9 @@ pub struct CommandResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub query: Option<QueryData>,
 
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub export: Option<ExportData>,
+
     pub summary: Summary,
 }
 
@@ -399,6 +402,22 @@ pub struct QueryData {
     /// Number of items in `items`
     pub count: usize,
     /// Vec<{kind, name, uri}> serialized as JSON array
+    pub items: serde_json::Value,
+}
+
+/// Export result — used by `mcc export` and `export` RPC.
+///
+/// When format is `text` or `csv` (raw stdout), `items` is null and the
+/// artifact was emitted directly to stdout/file.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExportData {
+    /// "netlist" | "bom" | "spice"
+    pub kind: String,
+    /// Output format actually used: "text" | "json" | "csv"
+    pub format: String,
+    /// For bom: row count; for netlist: net count; for spice: instance count
+    pub count: usize,
+    /// Structured payload for JSON; null for text/csv (raw artifact on stdout).
     pub items: serde_json::Value,
 }
 

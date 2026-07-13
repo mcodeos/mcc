@@ -738,6 +738,8 @@ fn output(data: &Value, args: &ShowArgs) -> Result<()> {
         OutputFormat::Json => data.to_string(),
         OutputFormat::JsonPretty => serde_json::to_string_pretty(data)?,
         OutputFormat::Yaml => serde_yaml::to_string(data).unwrap_or_default(),
+        // CSV is rendered by callers (extract/export), not by show.
+        OutputFormat::Csv => data.to_string(),
         OutputFormat::Text => {
             if let Some(obj) = data.as_object() {
                 obj.iter()
