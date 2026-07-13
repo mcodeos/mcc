@@ -93,6 +93,7 @@ fn main() -> ExitCode {
         Some(Command::Status(_)) => false,
         Some(Command::Config(_)) => false,
         Some(Command::Proj(_)) => false,
+        Some(Command::Explain(_)) => false,
         _ => true,
     };
     if need_logging {
@@ -218,6 +219,10 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
         }
         Some(Command::Config(args)) => {
             cmds::config::run(&args.action)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Some(Command::Explain(args)) => {
+            cmds::explain::run(&args)?;
             Ok(ExitCode::SUCCESS)
         }
         None => {

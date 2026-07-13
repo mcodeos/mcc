@@ -44,6 +44,7 @@ pub use crate::core::{
     mc_inst::{McInstance, McInstances},
     module::{Mc2Module, McModule},
 };
+pub mod error_codes;
 pub mod export_api;
 pub mod query_api;
 pub mod search_api;

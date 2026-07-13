@@ -5,6 +5,7 @@
 pub mod build;
 pub mod check;
 pub mod config;
+pub mod explain;
 pub mod export;
 pub mod extract;
 pub mod filter;

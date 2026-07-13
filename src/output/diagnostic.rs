@@ -10,22 +10,38 @@
 //! pub struct Diagnostic {
 //!     pub code: u32,
 //!     pub level: DiagnosticLevel,  // Error | Warning | Info | Hint
-//!     pub loc: Location { uri, pos, len },
+//!     pub loc: Location { uri, pos, len, row, col },
 //!     pub msg: String,
 //!     pub other: Vec<RelatedInformation>,
 //! }
 //! ```
 //!
-//! We convert it to a flat [`super::envelope::Diagnostic`], carrying the [`Phase`] tag indicating
-//! which phase it comes from. The work of converting `pos` to `(line, column)` is left to the `mcc` library itself;
-//! here we only pass through `pos / len` for now; line/column will be added in PR-3 once the library
-//! exposes `pos_to_line_col` as a public API.
+//! We convert it to a flat [`super::envelope::Diagnostic`], carrying the [`Phase`] tag and
+//! mapping `other` → `related` (M6). Suggestions are not yet populated by the builder; the
+//! field is reserved for future use.
 
-use super::envelope::{DiagLocation, Diagnostic, Phase, Severity};
+use super::envelope::{DiagLocation, Diagnostic, DiagnosticRelated, Phase, Severity};
 use mcc::{DiagnosticLevel, McDiagnostic};
 
 /// Single mcc::Diagnostic -> our Diagnostic
 pub fn from_mcc(d: &McDiagnostic, phase: Phase) -> Diagnostic {
+    let related: Vec<DiagnosticRelated> = d
+        .other
+        .iter()
+        .map(|ri| DiagnosticRelated {
+            message: ri.get_formatted_message(),
+            location: DiagLocation {
+                file: ri.location.uri.clone(),
+                line: ri.location.row,
+                column: ri.location.col,
+                end_line: None,
+                end_column: None,
+                pos: ri.location.pos,
+                len: ri.location.len,
+            },
+        })
+        .collect();
+
     Diagnostic {
         phase,
         severity: severity_from(d.level),
@@ -35,9 +51,13 @@ pub fn from_mcc(d: &McDiagnostic, phase: Phase) -> Diagnostic {
             file: d.loc.uri.clone(),
             line: d.loc.row,
             column: d.loc.col,
+            end_line: None,
+            end_column: None,
             pos: d.loc.pos,
             len: d.loc.len,
         }),
+        suggestions: vec![],
+        related,
     }
 }
 

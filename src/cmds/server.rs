@@ -299,6 +299,7 @@ pub fn register_all(builder: RpcServerBuilder) -> RpcServerBuilder {
         .register_method("defs.query", handlers::handle_defs_query)
         .register_method("export", handlers::handle_export)
         .register_method("sem", handlers::handle_sem)
+        .register_method("explain", handlers::handle_explain)
         .register_method("diagnostics", handlers::handle_diagnostics)
         .register_method("project_symbols", handlers::handle_project_symbols)
         .register_method("set_project_root", handlers::handle_set_project_root)
