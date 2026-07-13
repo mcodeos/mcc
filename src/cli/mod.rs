@@ -111,6 +111,9 @@ pub enum Command {
 
     /// Convert .mc files to/from other formats (M5b)
     Convert(ConvertArgs),
+
+    /// Generate structured design report (M5b)
+    Report(ReportArgs),
 }
 
 // ============================================================================
@@ -810,6 +813,20 @@ pub struct RefsArgs {
     /// Parse directly from file
     #[arg(long, short = 'F')]
     pub file: Option<String>,
+}
+
+// ============================================================================
+// report (M5b)
+// ============================================================================
+
+#[derive(Parser, Debug)]
+pub struct ReportArgs {
+    /// Target file or project (optional — uses current workspace if omitted)
+    pub target: Option<String>,
+
+    /// Load system library (can be specified multiple times)
+    #[arg(long = "lib", value_name = "NAME")]
+    pub lib: Vec<String>,
 }
 
 // ============================================================================
