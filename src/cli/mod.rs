@@ -523,6 +523,9 @@ pub enum ExportKind {
     Bom,
     /// SPICE deck (hierarchical .SUBCKT + X lines)
     Spice,
+    /// KiCad s-expression netlist (M8)
+    #[value(name = "kicad")]
+    KiCad,
 }
 
 // ============================================================================
