@@ -56,6 +56,10 @@ pub fn audit_collisions(graph: &McVecGraph) -> CollisionReport {
         for j in (i + 1)..boxes.len() {
             let a = &boxes[i];
             let b = &boxes[j];
+            // 容器/边框盒（负 id）天然框住子盒，不算碰撞。
+            if a.id < 0 || b.id < 0 {
+                continue;
+            }
             if rects_overlap(a.x, a.y, a.w, a.h, b.x, b.y, b.w, b.h, BOX_INFLATE) {
                 rep.box_box += 1;
                 if keep_details {
