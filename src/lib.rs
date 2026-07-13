@@ -618,6 +618,10 @@ pub fn mcc_log_close() {
 // Allow binary to register filter override callback
 pub use crate::cli::config::set_log_stream_applier;
 
+// Allow binary to suppress engine-level stdout traces (e.g. AST visit tree) when a
+// command emits a structured JSON result on stdout, protecting the JSON contract.
+pub use crate::cli::config::set_trace_stdout_suppressed;
+
 /// Load trace config from global config file
 /// Called by binary at startup
 pub fn init_trace_config() {

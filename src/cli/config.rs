@@ -37,6 +37,20 @@ pub fn set_system_lib_loading(loading: bool) {
     SYSTEM_LIB_LOADING.store(loading, std::sync::atomic::Ordering::SeqCst);
 }
 
+/// When true, engine-level stdout traces (e.g. AST visit tree) are suppressed even if
+/// `trace.visit` is configured on. Set by CLI commands emitting a structured JSON result
+/// on stdout, so a globally-enabled `trace.visit` can't corrupt the JSON contract.
+static SUPPRESS_TRACE_STDOUT: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+pub fn is_trace_stdout_suppressed() -> bool {
+    SUPPRESS_TRACE_STDOUT.load(std::sync::atomic::Ordering::SeqCst)
+}
+
+pub fn set_trace_stdout_suppressed(suppress: bool) {
+    SUPPRESS_TRACE_STDOUT.store(suppress, std::sync::atomic::Ordering::SeqCst);
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct MccConfig {
     #[serde(default)]

@@ -123,11 +123,14 @@ fn base_filter(verbose: u8, quiet: bool) -> EnvFilter {
     }
 
     let level = if quiet {
-        "warn"
+        "error"
     } else {
+        // Default (no -v) = WARN so stdout results aren't drowned by engine INFO noise.
+        // -v = INFO, -vv = DEBUG, -vvv = TRACE (matches CLI `--verbose` doc).
         match verbose {
-            0 => "info",
-            1 => "debug",
+            0 => "warn",
+            1 => "info",
+            2 => "debug",
             _ => "trace",
         }
     };
