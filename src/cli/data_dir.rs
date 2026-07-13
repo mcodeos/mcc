@@ -6,7 +6,7 @@
 //!
 //! ## Data directory
 //!
-//! Priority: `$MCC_SYSTEM_ROOT` > local mc/ directory > `~/.mcode`
+//! Priority: `$MCC_SYSTEM_ROOT` > `~/.mcode`
 //!
 //! ## Directory structure
 //!
@@ -26,7 +26,7 @@ use tracing::debug;
 pub const MCC_SYSTEM_ENV: &str = "MCC_SYSTEM_ROOT";
 
 /// MCC data root directory.
-/// Priority: `$MCC_SYSTEM_ROOT` > local mc/ directory > `~/.mcode`
+/// Priority: `$MCC_SYSTEM_ROOT` > `~/.mcode`
 pub fn data_root() -> PathBuf {
     if let Ok(val) = std::env::var(MCC_SYSTEM_ENV) {
         return PathBuf::from(val);
@@ -51,8 +51,19 @@ pub fn config_dir() -> PathBuf {
 pub fn log_file() -> PathBuf {
     logs_dir().join("mcc.log")
 }
+
+/// Fixed data root, **decoupled from `$MCC_SYSTEM_ROOT`** — always `~/.mcode`.
+/// Used for daemon discovery files (the PID file) so `start`/`stop`/`status` and
+/// clients in any shell locate the same single daemon regardless of env vars.
+fn fixed_root() -> PathBuf {
+    dirs::home_dir()
+        .map(|h| h.join(".mcode"))
+        .unwrap_or_else(|| PathBuf::from(".mcode"))
+}
+
+/// Daemon PID file — single source of truth, fixed at `~/.mcode/logs/mcc.pid`.
 pub fn pid_file() -> PathBuf {
-    logs_dir().join("mcc.pid")
+    fixed_root().join("logs").join("mcc.pid")
 }
 
 /// Ensure all necessary directories exist. Called once at startup.

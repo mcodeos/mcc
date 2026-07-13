@@ -284,12 +284,9 @@ pub fn register_all(builder: RpcServerBuilder) -> RpcServerBuilder {
 }
 
 fn pid_file_path() -> PathBuf {
-    // PID file is fixed at ~/.mcode/logs/mcc.pid, decoupled from MCC_SYSTEM_ROOT,
-    // to avoid start/stop locating different files due to env var differences.
-    let base = dirs::home_dir()
-        .map(|h| h.join(".mcode"))
-        .unwrap_or_else(|| PathBuf::from(".mcode"));
-    base.join("logs").join("mcc.pid")
+    // Single source of truth: fixed at ~/.mcode/logs/mcc.pid, decoupled from MCC_SYSTEM_ROOT,
+    // so start/stop/status locate the same daemon regardless of env var differences.
+    data_dir::pid_file()
 }
 
 fn write_pid_file(host: &str, port: u16) -> Result<()> {
