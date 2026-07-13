@@ -99,6 +99,9 @@ pub enum Command {
 
     /// Show compiler capabilities (M6) — self-describing API for AI
     Caps,
+
+    /// Go-to-definition for a symbol (M6)
+    Def(DefArgs),
 }
 
 // ============================================================================
@@ -762,6 +765,24 @@ pub enum ConfigAction {
 
     /// Reset to default values
     Reset,
+}
+
+// ============================================================================
+// def (M6)
+// ============================================================================
+
+#[derive(Parser, Debug)]
+pub struct DefArgs {
+    /// Symbol name to find
+    pub name: String,
+
+    /// Load system library (can be specified multiple times)
+    #[arg(long = "lib", value_name = "NAME")]
+    pub lib: Vec<String>,
+
+    /// Parse directly from file
+    #[arg(long, short = 'F')]
+    pub file: Option<String>,
 }
 
 // ============================================================================
