@@ -285,23 +285,59 @@ pub struct ShowArgs {
     #[arg(long, short = 'T', value_name = "NAME")]
     pub top: Option<String>,
 
+    /// Filter by instance kind (component|module|label|interface|bus|busref|list),
+    /// used with `show instances <entity>`
+    #[arg(long = "type", value_name = "TYPE")]
+    pub r#type: Option<String>,
+
     /// Output format
     #[arg(long, short = 'f', value_enum, default_value_t = OutputFormat::Text)]
     pub format: OutputFormat,
+
+    /// Output to file
+    #[arg(long, short = 'o', value_name = "FILE")]
+    pub output: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 pub enum ShowTarget {
-    /// Show component details
-    Component,
-    /// Show module details
-    Module,
-    /// Show interface details
-    Interface,
-    /// Show net details
-    Net,
-    /// Show all elements in file
+    // ── Overview / containers ──────────────────────────────────────────────
+    /// Overview of all definitions in scope (counts + name lists)
+    All,
+    /// Show all elements in a file (<name> is the file path)
     File,
+    /// List all components, or show one component's details
+    Component,
+    /// List all modules, or show one module's details
+    Module,
+    /// List all interfaces, or show one interface's details
+    Interface,
+    /// List all enums, or show one enum's details
+    Enum,
+    /// List/show net details (Pass2, uses --top)
+    Net,
+
+    // ── Entity internals drill-down (<name> = owning entity, required) ──────
+    /// Pins of a component / interface
+    Pins,
+    /// Ports (in/out/io) of a module
+    Ports,
+    /// Labels of a module
+    Labels,
+    /// Sub-instances of a component / module (filter with --type)
+    Instances,
+    /// Netlist of a module (Pass2)
+    Nets,
+    /// Attributes of a component / interface
+    Attrs,
+    /// Functions of a component / module
+    Funcs,
+    /// Parameter declarations of a component / module / interface
+    Params,
+    /// Roles of an interface
+    Roles,
+    /// Values of an enum
+    Values,
 }
 
 // ============================================================================
