@@ -101,6 +101,51 @@ fn run_local(args: &ErcArgs) -> Result<()> {
         }
     }
 
+    // ── Multi-drive / floating net detection ──
+    let mut multi_drive = 0u32;
+    let mut floating = 0u32;
+
+    for (name, points) in &inst.nets {
+        if name.starts_with("__net_") || name.as_str() == "NC" {
+            continue;
+        }
+        let drivers: Vec<_> = points
+            .iter()
+            .filter(|p| {
+                matches!(
+                    p.iotype,
+                    mcc::IOType::Out
+                        | mcc::IOType::InOut
+                        | mcc::IOType::Power
+                        | mcc::IOType::Analog
+                )
+            })
+            .collect();
+
+        if drivers.len() > 1 {
+            multi_drive += 1;
+            let names: Vec<_> = drivers.iter().map(|d| d.path.as_str()).collect();
+            diags.push(json!({
+                "code": 5003,
+                "severity": "error",
+                "check": "multi_drive",
+                "message": format!(
+                    "multi-drive net: '{}' has {} drivers ({})",
+                    name, drivers.len(),
+                    names.join(", ")
+                ),
+            }));
+        } else if drivers.is_empty() && points.len() > 1 {
+            floating += 1;
+            diags.push(json!({
+                "code": 5004,
+                "severity": "warning",
+                "check": "floating_net",
+                "message": format!("floating net: '{}' has no driver", name),
+            }));
+        }
+    }
+
     let result = json!({
         "command": "erc",
         "top": top,
@@ -112,6 +157,8 @@ fn run_local(args: &ErcArgs) -> Result<()> {
             "violations": diags.len(),
             "single_point_nets": diags.iter().filter(|d| d["check"] == "single_point_net").count(),
             "unconnected_ports": diags.iter().filter(|d| d["check"] == "unconnected_port").count(),
+            "multi_drive_nets": multi_drive,
+            "floating_nets": floating,
         },
         "violations": diags,
     });

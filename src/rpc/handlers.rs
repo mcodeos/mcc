@@ -1570,23 +1570,74 @@ fn run_erc() -> RpcResult {
             diags.push(json!({
                 "code": 5002,
                 "severity": "warning",
-                "message": format!("unconnected port: '{}' is declared but not connected to any net", port.name),
+                "message": format!("unconnected port: '{}' is not connected to any net", port.name),
                 "check": "unconnected_port",
+            }));
+        }
+    }
+
+    // ── Multi-drive / floating net detection ──
+    let mut multi_drive = 0u32;
+    let mut floating = 0u32;
+
+    for (name, points) in &inst.nets {
+        if name.starts_with("__net_") || name.as_str() == "NC" {
+            continue;
+        }
+        // Classify points: is_driver (Out, InOut, Power, Analog) vs is_load (In, ...)
+        let drivers: Vec<_> = points
+            .iter()
+            .filter(|p| {
+                matches!(
+                    p.iotype,
+                    crate::core::common::IOType::Out
+                        | crate::core::common::IOType::InOut
+                        | crate::core::common::IOType::Power
+                        | crate::core::common::IOType::Analog
+                )
+            })
+            .collect();
+
+        if drivers.len() > 1 {
+            multi_drive += 1;
+            let names: Vec<_> = drivers.iter().map(|d| d.path.as_str()).collect();
+            diags.push(json!({
+                "code": 5003,
+                "severity": "error",
+                "check": "multi_drive",
+                "message": format!(
+                    "multi-drive net: '{}' has {} drivers ({}) — short circuit risk",
+                    name, drivers.len(),
+                    names.join(", ")
+                ),
+            }));
+        } else if drivers.is_empty() && points.len() > 1 {
+            floating += 1;
+            diags.push(json!({
+                "code": 5004,
+                "severity": "warning",
+                "check": "floating_net",
+                "message": format!(
+                    "floating net: '{}' has no driver (no Out/InOut/Power/Analog pin)",
+                    name
+                ),
             }));
         }
     }
 
     Ok(json!({
         "summary": {
-            "errors": 0,
-            "warnings": diags.len(),
-            "semantic": {
+            "errors": diags.iter().filter(|d| d["severity"] == "error").count(),
+            "warnings": diags.iter().filter(|d| d["severity"] == "warning").count(),
+            "erc": {
                 "net_count": inst.nets.len(),
                 "connection_count": inst.connections.len(),
                 "component_count": inst.components.len(),
                 "port_count": inst.ports.len(),
                 "single_point_nets": single_point.len(),
                 "unconnected_ports": diags.iter().filter(|d| d["check"] == "unconnected_port").count(),
+                "multi_drive_nets": multi_drive,
+                "floating_nets": floating,
             }
         },
         "diagnostics": diags,
