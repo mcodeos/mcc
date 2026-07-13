@@ -361,7 +361,7 @@ pub fn extract_signal_chains(graph: &McVecGraph) -> SignalChainResult {
                 loops_to_hub: false,
             };
 
-            if other_box.kind == BoxKind::TwoPin {
+            if other_box.kind == BoxKind::TwoPin && other_box.is_two_pin_passive() {
                 // Skip bridge passives — they cross between lanes and are handled
                 // by place_bridge_passives, not by single-lane chain tracing.
                 if other_box.visual_role == Some(VisualRole::BridgePassive) {
@@ -445,8 +445,12 @@ fn trace_by_box(
         None => return,
     };
 
-    // Non-TwoPin → terminus
-    if b.kind != BoxKind::TwoPin {
+    // Non-TwoPin or non-passive TwoPin → terminus
+    // Only continue tracing through genuinely passive TwoPin boxes (R/C/L).
+    // Port-like TwoPin components (test_simple, etc.) are NOT passive —
+    // they are the endpoints of the chain, not something to walk through.
+    let passthrough = b.kind == BoxKind::TwoPin && b.is_two_pin_passive();
+    if !passthrough {
         chain.terminus = Some(ChainNode {
             box_id,
             net_id: from_net_id,
