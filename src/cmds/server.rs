@@ -303,6 +303,7 @@ pub fn register_all(builder: RpcServerBuilder) -> RpcServerBuilder {
         .register_method("def", handlers::handle_def)
         .register_method("erc", handlers::handle_erc)
         .register_method("refs", handlers::handle_refs)
+        .register_method("convert", handlers::handle_convert)
         .register_method("caps", handlers::handle_caps)
         .register_method("diagnostics", handlers::handle_diagnostics)
         .register_method("project_symbols", handlers::handle_project_symbols)
