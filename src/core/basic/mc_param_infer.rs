@@ -155,9 +155,21 @@ fn collect_usages_recursive(param_name: &str, node: &AstNode, usages: &mut Vec<U
 
 /// Check if an AST subtree contains a reference to the given parameter name.
 fn node_contains_name(node: &AstNode, name: &str) -> bool {
-    let text = format!("{:?}", node);
-    // Simple string match — works for most cases since param names are identifiers
-    text.contains(name)
+    // Check this node itself via text extraction (works for MCAST_ID, MCAST_IDS, etc.)
+    if let Some(text) = node.to_string() {
+        if text == name {
+            return true;
+        }
+    }
+    // Recurse into children for composite nodes (MCAST_ATTRIBUTE, MCAST_NET, etc.)
+    if let Some(child) = node.get_sub_node() {
+        for n in child.iter() {
+            if node_contains_name(&n, name) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 /// Extract attribute name from MCAST_ATTRIBUTE node (e.g., "spec.resistance")
@@ -379,14 +391,28 @@ pub fn infer_param(param_name: &str, body: &AstNode) -> InferenceResult {
 }
 
 /// Check for unused parameters and return their names.
+/// Handles Multiple (anonymous list) by iterating each member.
 pub fn find_unused_params(declares: &[McParamDeclare], body: &AstNode) -> Vec<String> {
     let mut unused = Vec::new();
     for declare in declares {
-        if let Some(name) = declare.get_primary_name() {
-            // Skip params with type constraints (they're explicitly typed, may be used declaratively)
-            if declare.has_type_constraint() {
-                continue;
+        // Skip explicitly typed params
+        if declare.has_type_constraint() {
+            continue;
+        }
+        // Collect all names to check from this declaration
+        let names: Vec<String> = match &declare.kind {
+            crate::core::basic::mc_paramd::McParamDeclareKind::Multiple(members) => {
+                members.iter().filter_map(|ids| ids.get_primary_name()).collect()
             }
+            _ => {
+                if let Some(name) = declare.get_primary_name() {
+                    vec![name]
+                } else {
+                    vec![]
+                }
+            }
+        };
+        for name in names {
             let usages = collect_usages(&name, body);
             if usages.is_empty() {
                 unused.push(name);

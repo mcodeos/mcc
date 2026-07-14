@@ -3062,18 +3062,15 @@ pub fn handle_params_diag(_params: Option<Value>) -> RpcResult {
     Ok(json!({
         "count": count,
         "diagnostics": diags.iter().map(|d| {
-            // Parse the diagnostic string to extract structured info
-            // Format: "[Unused] Parameter 'X' in 'Def' is never used..."
-            let (kind, rest) = if let Some(stripped) = d.strip_prefix("[Unused] ") {
-                ("unused", stripped)
-            } else if let Some(stripped) = d.strip_prefix("[Untyped] ") {
-                ("untyped", stripped)
-            } else {
-                ("unknown", d.as_str())
+            let severity = match d.kind {
+                mcc::ParamDiagKind::Unused => "unused",
+                mcc::ParamDiagKind::Untyped => "untyped",
             };
             json!({
-                "severity": kind,
-                "message": rest,
+                "severity": severity,
+                "message": d.message,
+                "pos": d.pos,
+                "len": d.len,
             })
         }).collect::<Vec<Value>>(),
     }))

@@ -165,7 +165,7 @@ impl McComponent {
                     .params
                     .finalize(Some(&body), &comp_name.to_string());
                 for d in &diags {
-                    mcc::mcc_record_param_diag(&format!("[{:?}] {}", d.kind, d.message));
+                    mcc::mcc_record_param_diag(d);
                 }
             }
         }
