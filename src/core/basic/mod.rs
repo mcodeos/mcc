@@ -15,6 +15,8 @@ pub(crate) mod mc_kvs;
 pub(crate) mod mc_literal;
 pub(crate) mod mc_opd;
 pub(crate) mod mc_param;
+pub(crate) mod mc_param_infer;
+pub(crate) mod mc_param_type;
 pub(crate) mod mc_paramd;
 pub(crate) mod mc_phrase;
 pub(crate) mod mc_role;

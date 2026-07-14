@@ -87,6 +87,13 @@ impl McInterface {
             Self::parse_first_cond_pins(&mut ret.pins, &body_node);
         }
 
+        // ★ Smart Param (M5): Finalize after body parsed
+        let ifs_name = ret.name.to_string();
+        let diags = ret.params.finalize(Some(&body_node), &ifs_name);
+        for d in &diags {
+            mcc::mcc_record_param_diag(&format!("[{:?}] {}", d.kind, d.message));
+        }
+
         Some(ret)
     }
 

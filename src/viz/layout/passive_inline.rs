@@ -1332,10 +1332,7 @@ pub fn place_bridge_passives(graph: &mut McVecGraph) {
                 lane_anchors.push(anchors);
                 lane_pins.push(pp);
             } else {
-                crate::vlog!(
-                    "[bridge] {pname}({pid}) bail: no pin found in net[{}]",
-                    ni
-                );
+                crate::vlog!("[bridge] {pname}({pid}) bail: no pin found in net[{}]", ni);
                 ok = false;
                 break;
             }

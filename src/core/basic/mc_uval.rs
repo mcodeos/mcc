@@ -9,7 +9,7 @@ use crate::{
 };
 use regex::Regex;
 
-#[derive(PartialEq, Eq, Debug, Clone)]
+#[derive(PartialEq, Eq, Hash, Debug, Clone)]
 pub enum McUnit {
     Int,
     Hex,

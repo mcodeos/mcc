@@ -214,8 +214,11 @@ fn place_lane(
         b.visual_role = Some(VisualRole::SeriesInline);
 
         // pins: left toward left neighbour, right toward right neighbour
-        let ids: Vec<(i64, String)> =
-            b.entry_points.iter().map(|e| (e.pin_id, e.pin_name.clone())).collect();
+        let ids: Vec<(i64, String)> = b
+            .entry_points
+            .iter()
+            .map(|e| (e.pin_id, e.pin_name.clone()))
+            .collect();
         let ids = if ids.len() == 2 {
             ids
         } else {
@@ -230,10 +233,25 @@ fn place_lane(
                 (Some(l), Some(r)) if l != r => (l, r),
                 _ => (ids[0].0, ids[1].0), // fallback: existing order
             };
-            let name_of = |pid: i64| ids.iter().find(|(id, _)| *id == pid).map(|(_, n)| n.clone()).unwrap_or_default();
+            let name_of = |pid: i64| {
+                ids.iter()
+                    .find(|(id, _)| *id == pid)
+                    .map(|(_, n)| n.clone())
+                    .unwrap_or_default()
+            };
             b.entry_points = vec![
-                EntryPoint { pin_id: lp, pin_name: name_of(lp), side: EntrySide::Left, offset: 0.5 },
-                EntryPoint { pin_id: rp, pin_name: name_of(rp), side: EntrySide::Right, offset: 0.5 },
+                EntryPoint {
+                    pin_id: lp,
+                    pin_name: name_of(lp),
+                    side: EntrySide::Left,
+                    offset: 0.5,
+                },
+                EntryPoint {
+                    pin_id: rp,
+                    pin_name: name_of(rp),
+                    side: EntrySide::Right,
+                    offset: 0.5,
+                },
             ];
             let mut hint = PinLayout::default();
             hint.left = vec![name_of(lp), lp.to_string()];

@@ -291,6 +291,7 @@ pub fn register_all(builder: RpcServerBuilder) -> RpcServerBuilder {
         .register_method("show.attrs", handlers::handle_show_attrs)
         .register_method("show.funcs", handlers::handle_show_funcs)
         .register_method("show.params", handlers::handle_show_params)
+        .register_method("params.diag", handlers::handle_params_diag)
         .register_method("show.roles", handlers::handle_show_roles)
         .register_method("show.values", handlers::handle_show_values)
         .register_method("check", handlers::handle_check)

@@ -2,6 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+use crate::core::basic::mc_param_type::McParamType;
 use crate::core::basic::mc_uval::McUnitValueDeclare;
 use crate::McIds;
 use crate::{ast::ast_node::AstNode, ast::c_macros::*, builder::diagnostic::dlog_error};
@@ -180,6 +181,109 @@ impl McParamDeclares {
             .filter_map(|d| d.get_name_with_default())
             .collect()
     }
+
+    /// After type inference, filter port_spans: only Category A params are ports.
+    pub fn filter_port_spans(&mut self) {
+        let port_names: std::collections::HashSet<String> = self
+            .declares
+            .iter()
+            .filter(|d| d.is_port())
+            .filter_map(|d| d.get_primary_name())
+            .collect();
+        self.port_spans.retain(|name, _| port_names.contains(name));
+    }
+
+    /// Compute arity: total, required, and optional parameter counts.
+    pub fn arity(&self) -> crate::core::basic::mc_param_type::McParamArity {
+        crate::core::basic::mc_param_type::McParamArity::from_declares(&self.declares)
+    }
+
+    /// Finalize parameters after body parsing: run usage inference on Unknown params,
+    /// check for unused parameters, filter port spans.
+    ///
+    /// Returns a list of diagnostic messages for unused/untyped parameters.
+    pub fn finalize(&mut self, body: Option<&AstNode>, def_name: &str) -> Vec<ParamDiagnostic> {
+        let mut diagnostics = Vec::new();
+
+        // Step 1: Run usage-based inference for Unknown params
+        if let Some(body_node) = body {
+            let unused =
+                crate::core::basic::mc_param_infer::find_unused_params(&self.declares, body_node);
+            for name in &unused {
+                diagnostics.push(ParamDiagnostic {
+                    kind: ParamDiagKind::Unused,
+                    param_name: name.clone(),
+                    definition: def_name.to_string(),
+                    message: format!(
+                        "Parameter '{}' in '{}' is never used. Consider removing it or adding a type annotation.",
+                        name, def_name
+                    ),
+                });
+            }
+
+            // Step 2: Run inference on Unknown (bare identifier) params
+            for declare in self.declares.iter_mut() {
+                if declare.param_type.kind
+                    == crate::core::basic::mc_param_type::McParamTypeKind::Unknown
+                {
+                    if let Some(name) = declare.get_primary_name() {
+                        if !unused.contains(&name) {
+                            let result =
+                                crate::core::basic::mc_param_infer::infer_param(&name, body_node);
+                            if result.confidence >= 0.7 {
+                                declare.set_param_type(result.param_type);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Step 3: Filter port_spans based on final type classification
+        self.filter_port_spans();
+
+        // Step 4: Warn about remaining Unknown params (have usages but couldn't determine type)
+        for declare in self.declares.iter() {
+            if declare.param_type.kind
+                == crate::core::basic::mc_param_type::McParamTypeKind::Unknown
+            {
+                if let Some(name) = declare.get_primary_name() {
+                    // Only warn if it wasn't already flagged as unused
+                    let already_unused = diagnostics.iter().any(|d| d.param_name == name);
+                    if !already_unused {
+                        diagnostics.push(ParamDiagnostic {
+                            kind: ParamDiagKind::Untyped,
+                            param_name: name.clone(),
+                            definition: def_name.to_string(),
+                            message: format!(
+                                "Parameter '{}' in '{}' has no type annotation and its type could not be inferred. Consider adding ::INT, ::STRING, ::UV.VOLT, etc.",
+                                name, def_name
+                            ),
+                        });
+                    }
+                }
+            }
+        }
+
+        diagnostics
+    }
+}
+
+/// Diagnostic from parameter analysis.
+#[derive(Debug, Clone)]
+pub struct ParamDiagnostic {
+    pub kind: ParamDiagKind,
+    pub param_name: String,
+    pub definition: String,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ParamDiagKind {
+    /// Parameter has no usages in the body
+    Unused,
+    /// Parameter is untyped and could not be inferred
+    Untyped,
 }
 
 impl std::ops::Deref for McParamDeclares {
@@ -207,7 +311,16 @@ impl<'a> IntoIterator for &'a McParamDeclares {
 
 /// Single parameter declaration
 #[derive(Debug, Clone)]
-pub enum McParamDeclare {
+pub struct McParamDeclare {
+    pub kind: McParamDeclareKind,
+    /// Semantic type classification — set during parse (明显标注)
+    /// or via usage-based inference (未标注). Controls port filtering.
+    pub param_type: McParamType,
+}
+
+/// The structural form of a parameter declaration (shape, not type).
+#[derive(Debug, Clone)]
+pub enum McParamDeclareKind {
     Role(McIds),
     Single(McIds),
     Multiple(Vec<McIds>),
@@ -215,47 +328,31 @@ pub enum McParamDeclare {
 }
 
 impl McParamDeclare {
-    /// Create parameter declaration from AST node
+    /// Create parameter declaration from AST node, with syntactic type classification.
     pub fn new(node: &AstNode) -> Option<Self> {
-        //mc_pard: MCK_ROLE
-        //       | mc_ids
-        //       | MCPT_LBRACKET mc_phrases MCPT_RBRACKET
-        //       | mc_ids MCPT_DBCOLON mc_unit_type
-        //       | mc_ids MCPT_DBCOLON mc_unit_type MCOP_EQUAL mc_literal
-        //       | mc_ids MCPT_DBCOLON mc_unit_type MCOP_EQUAL mc_phrase
-
-        // ── Iter-3.B2 ────────────────────────────────────────────────────
-        // Allow two incoming forms:
-        //   (A) node IS MCAST_PARAM, with one child as actual param body
-        //   (B) node IS the param body (MCAST_DECLARE / MCAST_ID / MCAST_SQUARE_VEC / ...)
-        //       —— some parser paths pass MCAST_PARAMS child node directly,
-        //       no longer wrapping MCAST_PARAM layer
-        // Old code only recognized (A), once parser goes (B) path, the whole param gets swallowed,
-        // causing both formal params of `func power(V3V3::DC(3.3V), V1V2::DC(1.2V))` to be lost.
         let subnode = if node.get_type() == MCAST_PARAM {
             node.get_sub_node()?
         } else {
-            // (B) form: use node directly as param body
             node.clone()
         };
 
-        match subnode.get_type() {
-            MCAST_ROLE => Some(McParamDeclare::Role(McIds::from("role"))),
+        // Syntactic type classification (handles 明显标注 immediately)
+        let param_type = McParamType::from_ast(node);
+
+        let kind = match subnode.get_type() {
+            MCAST_ROLE => McParamDeclareKind::Role(McIds::from("role")),
             MCAST_ID | MCAST_IDA | MCAST_IDS => {
                 if let Some(ids) = McIds::new(&subnode) {
-                    Some(McParamDeclare::Single(ids))
+                    McParamDeclareKind::Single(ids)
                 } else {
                     dlog_error(1304, node, "Invalid param name.");
-                    None
+                    return None;
                 }
             }
             MCAST_SQUARE_VEC => {
-                // [VDD, GND] parses as Set
-                // subnode is mc_phrases (linked list), each element is mc_phrase
                 let mut phrases = Vec::new();
                 let mut current = subnode.get_sub_node();
                 while let Some(phrase_node) = current {
-                    // mc_phrase may be mc_ids, need to extract child node
                     let ids_node = phrase_node
                         .get_sub_node()
                         .unwrap_or_else(|| phrase_node.clone());
@@ -265,40 +362,23 @@ impl McParamDeclare {
                     current = phrase_node.get_next();
                 }
                 if !phrases.is_empty() {
-                    Some(McParamDeclare::Multiple(phrases))
+                    McParamDeclareKind::Multiple(phrases)
                 } else {
                     dlog_error(1305, node, "Invalid param set.");
-                    None
+                    return None;
                 }
             }
 
             MCAST_DECLARE_UV => {
                 if let Some(uval) = McUnitValueDeclare::new(&subnode) {
-                    Some(McParamDeclare::UValue(uval))
+                    McParamDeclareKind::UValue(uval)
                 } else {
                     dlog_error(1307, node, "Invalid param uval.");
-                    None
+                    return None;
                 }
             }
 
-            // ── Iter-3.B ────────────────────────────────────────────────
-            // Handle `id::Interface(args)` / `id{members}::Interface()` /
-            // `[members]::Interface()` / `id[range]::Interface()` forms.
-            // These are MCAST_DECLARE nodes in AST:
-            //   MCAST_DECLARE
-            //     ├─ MCAST_CLASS (interface/type name, e.g. DC)
-            //     └─ MCAST_INSTANCE (param name, e.g. V3V3 / dc{VDD_3V3, GND})
-            //       [or multiple MCAST_INSTANCE, if parser pre-expands pwr[1:3]]
-            // Previously no such branch, so `func power(V3V3::DC(3.3V), V1V2::DC(1.2V))`
-            // both formal params were lost, causing TooManyArguments on call.
-            //
-            // ── Iter-3.B4 fix ──────────────────────────────────────────
-            // Important: traversing MCAST_DECLARE children must first `get_sub_node()` to get
-            // first child, then `.iter()` traverse sibling chain. Directly iter on subnode itself
-            // only gets subnode and its siblings (usually itself), can't see inner MCAST_CLASS/
-            // MCAST_INSTANCE. This is the culprit of Iter-3.B v1 silently returning 0 params.
             MCAST_DECLARE => {
-                // Collect all MCAST_INSTANCE formal param names McIds
                 let mut inst_ids_list: Vec<McIds> = Vec::new();
                 if let Some(decl_first_child) = subnode.get_sub_node() {
                     for child in decl_first_child
@@ -306,14 +386,12 @@ impl McParamDeclare {
                         .filter(|n| n.get_type() == MCAST_INSTANCE)
                     {
                         if let Some(inner) = child.get_sub_node() {
-                            // inner may be IDS directly, or MCAST_OPD wrapped
                             let ids_node = if inner.get_type() == MCAST_OPD {
                                 inner.get_sub_node().unwrap_or(inner.clone())
                             } else {
                                 inner.clone()
                             };
 
-                            // [members]::Type form: ids_node is SQUARE_VEC -> flatten into Multiple
                             if ids_node.get_type() == MCAST_SQUARE_VEC {
                                 let mut current = ids_node.get_sub_node();
                                 while let Some(phrase_node) = current {
@@ -326,7 +404,6 @@ impl McParamDeclare {
                                     current = phrase_node.get_next();
                                 }
                             } else if let Some(ids) = McIds::new(&ids_node) {
-                                // Common forms: id / id{members} / id[range]
                                 inst_ids_list.push(ids);
                             }
                         }
@@ -340,83 +417,108 @@ impl McParamDeclare {
                             node,
                             "Failed to extract parameter name from MCAST_DECLARE",
                         );
-                        None
+                        return None;
                     }
-                    1 => Some(McParamDeclare::Single(
-                        inst_ids_list.into_iter().next().unwrap(),
-                    )),
-                    _ => Some(McParamDeclare::Multiple(inst_ids_list)),
+                    1 => McParamDeclareKind::Single(inst_ids_list.into_iter().next().unwrap()),
+                    _ => McParamDeclareKind::Multiple(inst_ids_list),
                 }
             }
 
             _ => {
                 dlog_error(1303, node, "Invalid param declare node.");
-                None
+                return None;
             }
-        }
+        };
+
+        Some(Self { kind, param_type })
     }
 
-    /// Check if the name matches
+    // ── Name matching ──
+
     pub fn match_name(&self, target: &str) -> bool {
-        match self {
-            McParamDeclare::Role(role) => role.match_name(target),
-            McParamDeclare::Single(ids) => ids.match_name(target),
-            McParamDeclare::Multiple(_) => false,
-            McParamDeclare::UValue(_) => false,
+        match &self.kind {
+            McParamDeclareKind::Role(role) => role.match_name(target),
+            McParamDeclareKind::Single(ids) => ids.match_name(target),
+            McParamDeclareKind::Multiple(_) => false,
+            McParamDeclareKind::UValue(_) => false,
         }
     }
 
-    /// Get the primary name
     pub fn get_primary_name(&self) -> Option<String> {
-        match self {
-            McParamDeclare::Role(role) => role.get_primary_name(),
-            McParamDeclare::Single(ids) => ids.get_primary_name(),
-            McParamDeclare::Multiple(_) => None,
-            McParamDeclare::UValue(uval) => uval.name.get_primary_name(),
+        match &self.kind {
+            McParamDeclareKind::Role(role) => role.get_primary_name(),
+            McParamDeclareKind::Single(ids) => ids.get_primary_name(),
+            McParamDeclareKind::Multiple(_) => None,
+            McParamDeclareKind::UValue(uval) => uval.name.get_primary_name(),
         }
     }
 
-    /// Get the type name string
-    pub fn get_class_name(&self) -> Option<String> {
-        match self {
-            McParamDeclare::Role(_) => None,
-            McParamDeclare::Single(_) => None,
-            McParamDeclare::Multiple(_) => None,
-            McParamDeclare::UValue(_) => None,
-        }
-    }
+    // ── Type classification ──
 
-    /// Check if there is a type constraint
+    /// Check if this parameter has an explicit type constraint (明显标注, not Unknown).
     pub fn has_type_constraint(&self) -> bool {
-        match self {
-            McParamDeclare::Role(_) => false,
-            McParamDeclare::Single(_) => false,
-            McParamDeclare::Multiple(_) => false,
-            McParamDeclare::UValue(_) => false,
+        self.param_type.is_explicitly_typed()
+    }
+
+    /// Get the class/interface name if this is an interface-typed param (A3-A5).
+    pub fn get_class_name(&self) -> Option<String> {
+        match &self.param_type.kind {
+            crate::core::basic::mc_param_type::McParamTypeKind::Interface { class_name }
+            | crate::core::basic::mc_param_type::McParamTypeKind::InterfaceWithRole {
+                class_name,
+                ..
+            }
+            | crate::core::basic::mc_param_type::McParamTypeKind::ComponentInstance {
+                class_name,
+            } => Some(class_name.clone()),
+            _ => None,
         }
     }
 
-    /// Check if there are type parameters
+    /// Check if this is an interface-typed parameter (has class params like `DC(5V)`).
     pub fn has_class_params(&self) -> bool {
-        false
+        self.get_class_name().is_some()
     }
 
-    /// Expand parameter names into a string list
+    // ── Port classification ──
+
+    /// Whether this is a port (Category A) — affects port_spans and LSP goto-def.
+    pub fn is_port(&self) -> bool {
+        self.param_type.is_port()
+    }
+
+    /// Set the type (called by usage-based inference post-parse).
+    pub fn set_param_type(&mut self, pt: McParamType) {
+        self.param_type = pt;
+    }
+
+    // ── Default value ──
+
+    /// Whether this parameter has a default value (making it optional at call sites).
+    pub fn has_default_value(&self) -> bool {
+        self.param_type.has_default()
+    }
+
+    // ── Expansion ──
+
     pub fn expand(&self) -> Vec<String> {
-        match self {
-            McParamDeclare::Role(role) => role.expand(),
-            McParamDeclare::Single(ids) => ids.expand(),
-            McParamDeclare::Multiple(_) => Vec::new(),
-            McParamDeclare::UValue(_) => Vec::new(),
+        match &self.kind {
+            McParamDeclareKind::Role(role) => role.expand(),
+            McParamDeclareKind::Single(ids) => ids.expand(),
+            McParamDeclareKind::Multiple(_) => Vec::new(),
+            McParamDeclareKind::UValue(_) => Vec::new(),
         }
     }
 
     pub fn get_name_with_default(&self) -> Option<(McIds, String)> {
-        match self {
-            McParamDeclare::Single(ids) => ids
-                .get_primary_name()
-                .map(|name| (McIds::from(name.as_str()), String::new())),
-            McParamDeclare::UValue(uval) => uval
+        match &self.kind {
+            McParamDeclareKind::Single(ids) => {
+                let name = ids.get_primary_name()?;
+                self.param_type
+                    .default_value()
+                    .map(|dv| (McIds::from(name.as_str()), dv.to_string()))
+            }
+            McParamDeclareKind::UValue(uval) => uval
                 .default
                 .as_ref()
                 .map(|default| (uval.name.clone(), default.clone())),
@@ -427,11 +529,11 @@ impl McParamDeclare {
 
 impl std::fmt::Display for McParamDeclare {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            McParamDeclare::Role(role) => write!(f, "{role}"),
-            McParamDeclare::Single(ids) => write!(f, "{ids}"),
-            McParamDeclare::Multiple(_phrases) => write!(f, "[, ]"),
-            McParamDeclare::UValue(uval) => write!(f, "{uval}"),
+        match &self.kind {
+            McParamDeclareKind::Role(role) => write!(f, "{role}"),
+            McParamDeclareKind::Single(ids) => write!(f, "{ids}"),
+            McParamDeclareKind::Multiple(_phrases) => write!(f, "[, ]"),
+            McParamDeclareKind::UValue(uval) => write!(f, "{uval}"),
         }
     }
 }

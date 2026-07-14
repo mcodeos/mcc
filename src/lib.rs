@@ -108,6 +108,36 @@ pub struct ParserResult {
 pub type McSemTokensArcCell = Arc<Mutex<McSemTokens>>;
 pub type McSemSymbolsArcCell = Arc<Mutex<McSemSymbols>>;
 
+// ============================================================================
+// Smart Parameter Diagnostics (M6)
+// ============================================================================
+
+use std::sync::LazyLock;
+
+/// Global store for smart parameter diagnostics produced during compilation.
+static PARAM_DIAGNOSTICS: LazyLock<Mutex<Vec<String>>> = LazyLock::new(|| Mutex::new(Vec::new()));
+
+/// Record a parameter diagnostic message (called by finalize() in mc_paramd).
+pub fn mcc_record_param_diag(msg: &str) {
+    if let Ok(mut diags) = PARAM_DIAGNOSTICS.lock() {
+        diags.push(msg.to_string());
+    }
+}
+
+/// Retrieve and clear all parameter diagnostics.
+pub fn mcc_flush_param_diags() -> Vec<String> {
+    let mut diags = PARAM_DIAGNOSTICS.lock().unwrap_or_else(|e| e.into_inner());
+    std::mem::take(&mut *diags)
+}
+
+/// Retrieve parameter diagnostics without clearing.
+pub fn mcc_get_param_diags() -> Vec<String> {
+    PARAM_DIAGNOSTICS
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone()
+}
+
 /// Set system root path (parent directory of mcode library)
 ///
 /// When to call:
