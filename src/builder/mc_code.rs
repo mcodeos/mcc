@@ -1050,7 +1050,7 @@ impl McCode {
     /// Phase 1b: parse all module definitions (at this point all component/interface/enum are already registered)
     pub fn parse_pass1_modules(&mut self) {
         if self.modules_parsed {
-            return; // already parsed (can be called from both parse_pass1_types and mcb_parse_all_modules)
+            return;
         }
         self.modules_parsed = true;
 
@@ -1455,14 +1455,14 @@ impl McCode {
                             "[LAPPER_DEBUG] Processing module params: {}",
                             entry.key().ident
                         );
-                        let param_port_count = m.params.iter_ports_with_span().count();
+                        let param_def_count = m.params.iter_defs_with_span().count();
                         tracing::debug!(
                             target: "mcc::lsp",
-                            "[LAPPER_DEBUG] module={}, param_port_count={}",
+                            "[LAPPER_DEBUG] module={}, param_def_count={}",
                             entry.key().ident,
-                            param_port_count
+                            param_def_count
                         );
-                        for (name, span) in m.params.iter_ports_with_span() {
+                        for (name, span) in m.params.iter_defs_with_span() {
                             let span_clone = span.clone();
                             let decl_id = sem
                                 .local_table
@@ -1535,7 +1535,7 @@ impl McCode {
                             continue;
                         }
                         // Component params (e.g. `component RESA(rs, volt)`)
-                        for (name, span) in comp.params.iter_ports_with_span() {
+                        for (name, span) in comp.params.iter_defs_with_span() {
                             let span_clone = span.clone();
                             let decl_id = sem
                                 .local_table

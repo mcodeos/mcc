@@ -54,6 +54,8 @@ pub use ast::c_macros::*;
 pub use ast::error::*;
 pub use builder::{mcb_print, MccProjectTree};
 pub use core::basic::mc_param::{McParamBindings, McParamDeclare, McParamDeclares, McParamValue};
+pub use core::basic::mc_param_type::{McIoTy, McParamArity, McParamType, McParamTypeKind};
+pub use core::basic::mc_paramd::{ParamDiagKind, ParamDiagnostic};
 pub use instant::inst_table::InstKind;
 pub use instant::inst_table::InstTable;
 pub use instant::mc_comp::McComponentInst;
@@ -115,23 +117,24 @@ pub type McSemSymbolsArcCell = Arc<Mutex<McSemSymbols>>;
 use std::sync::LazyLock;
 
 /// Global store for smart parameter diagnostics produced during compilation.
-static PARAM_DIAGNOSTICS: LazyLock<Mutex<Vec<String>>> = LazyLock::new(|| Mutex::new(Vec::new()));
+static PARAM_DIAGNOSTICS: LazyLock<Mutex<Vec<ParamDiagnostic>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
 
-/// Record a parameter diagnostic message (called by finalize() in mc_paramd).
-pub fn mcc_record_param_diag(msg: &str) {
+/// Record a parameter diagnostic (called by finalize() in mc_paramd).
+pub fn mcc_record_param_diag(diag: &ParamDiagnostic) {
     if let Ok(mut diags) = PARAM_DIAGNOSTICS.lock() {
-        diags.push(msg.to_string());
+        diags.push(diag.clone());
     }
 }
 
 /// Retrieve and clear all parameter diagnostics.
-pub fn mcc_flush_param_diags() -> Vec<String> {
+pub fn mcc_flush_param_diags() -> Vec<ParamDiagnostic> {
     let mut diags = PARAM_DIAGNOSTICS.lock().unwrap_or_else(|e| e.into_inner());
     std::mem::take(&mut *diags)
 }
 
 /// Retrieve parameter diagnostics without clearing.
-pub fn mcc_get_param_diags() -> Vec<String> {
+pub fn mcc_get_param_diags() -> Vec<ParamDiagnostic> {
     PARAM_DIAGNOSTICS
         .lock()
         .unwrap_or_else(|e| e.into_inner())

@@ -110,10 +110,10 @@ impl McModule {
                     MCAST_DECLARE => {
                         self.insts.parse(&subnode, &self.uri);
                     }
-                    // IOTYPE-prefix parameter -> insts (e.g. ps dc24v, in GPIO[1:2])
-                    // Need to pass complete param_node, let McInstances::parse handle IOTYPE and operands
+                    // IOTYPE-prefix parameter -> insts + params (e.g. ps dc24v, in GPIO[1:2])
                     MCAST_IOTYPE => {
                         self.insts.parse(&param_node, &self.uri);
+                        self.params.parse(&param_node); // also register for unused detection
                     }
                     _ => {
                         // Unknown type, try to parse as data parameter
@@ -188,7 +188,33 @@ impl McModule {
             let mod_name = self.name.to_string();
             let diags = self.params.finalize(Some(body), &mod_name);
             for d in &diags {
-                mcc::mcc_record_param_diag(&format!("[{:?}] {}", d.kind, d.message));
+                mcc::mcc_record_param_diag(d);
+            }
+            // ★ Also check body-internal port declarations (insts)
+            let param_names: std::collections::HashSet<String> = self
+                .params
+                .iter()
+                .filter_map(|d| d.get_primary_name())
+                .collect();
+            for (port_name, _iotype, span) in self.insts.iter_ports_with_span() {
+                if param_names.contains(port_name) {
+                    continue; // already covered by params.finalize()
+                }
+                let usages =
+                    crate::core::basic::mc_param_infer::collect_usages(port_name, body);
+                if usages.is_empty() {
+                    mcc::mcc_record_param_diag(&crate::core::basic::mc_paramd::ParamDiagnostic {
+                        kind: crate::core::basic::mc_paramd::ParamDiagKind::Unused,
+                        param_name: port_name.to_string(),
+                        definition: mod_name.clone(),
+                        message: format!(
+                            "Port '{}' in '{}' is declared but never used in any net connection.",
+                            port_name, mod_name
+                        ),
+                        pos: span.start,
+                        len: span.end - span.start,
+                    });
+                }
             }
         }
     }
