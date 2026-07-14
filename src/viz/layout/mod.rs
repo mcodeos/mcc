@@ -44,6 +44,7 @@ pub mod schematic_layout;
 pub mod schematic_radial;
 pub mod select;
 pub mod size;
+pub mod two_lane_ladder;
 pub use flow::FlowLayouter;
 pub use layered::LayeredLayouter;
 pub use schematic_layout::SchematicSubLayouter;

@@ -102,7 +102,7 @@ pub fn collapse_passives(graph: &mut McVecGraph) -> PassiveStash {
     let passive_ids: Vec<i64> = graph
         .boxes
         .iter()
-        .filter(|b| b.is_two_pin_passive())
+        .filter(|b| b.is_two_pin_passive() && b.visual_role.is_none())
         .map(|b| b.id)
         .collect();
     if passive_ids.is_empty() {
@@ -236,7 +236,7 @@ pub fn place_series_passives(graph: &mut McVecGraph) {
         let mut v: Vec<i64> = graph
             .boxes
             .iter()
-            .filter(|b| b.is_two_pin_passive())
+            .filter(|b| b.is_two_pin_passive() && b.visual_role.is_none())
             .map(|b| b.id)
             .collect();
         v.sort_unstable();
@@ -361,7 +361,7 @@ pub fn place_passive_chains(graph: &mut McVecGraph) {
         let mut v: Vec<i64> = graph
             .boxes
             .iter()
-            .filter(|b| b.is_two_pin_passive())
+            .filter(|b| b.is_two_pin_passive() && b.visual_role.is_none())
             .map(|b| b.id)
             .collect();
         v.sort_unstable();
@@ -375,6 +375,15 @@ pub fn place_passive_chains(graph: &mut McVecGraph) {
         .boxes
         .iter()
         .filter(|b| is_rail_box(b))
+        .map(|b| b.id)
+        .collect();
+
+    // Bridge passives tap a junction but are NOT series neighbours — filter them
+    // out when identifying a chain's two sides. place_bridge_passives handles them.
+    let bridge_ids: HashSet<i64> = graph
+        .boxes
+        .iter()
+        .filter(|b| b.visual_role == Some(VisualRole::BridgePassive))
         .map(|b| b.id)
         .collect();
 
@@ -408,8 +417,11 @@ pub fn place_passive_chains(graph: &mut McVecGraph) {
                     .iter()
                     .find(|e| e.box_id == pid)
                     .map(|e| e.pin_id);
-                let others: Vec<&EndpointRef> =
-                    net.endpoints.iter().filter(|e| e.box_id != pid).collect();
+                let others: Vec<&EndpointRef> = net
+                    .endpoints
+                    .iter()
+                    .filter(|e| e.box_id != pid && !bridge_ids.contains(&e.box_id))
+                    .collect();
                 match (p_pin, others.as_slice()) {
                     (Some(pp), [o]) => {
                         if passive_set.contains(&o.box_id) {
@@ -585,7 +597,7 @@ pub fn straighten_rail_passives(graph: &mut McVecGraph) {
     let passive_set: HashSet<i64> = graph
         .boxes
         .iter()
-        .filter(|b| b.is_two_pin_passive())
+        .filter(|b| b.is_two_pin_passive() && b.visual_role.is_none())
         .map(|b| b.id)
         .collect();
     if passive_set.is_empty() || rail_ids.is_empty() {
@@ -1022,7 +1034,7 @@ pub fn probe_rail_passive_candidates(graph: &McVecGraph) {
     let passive_set: HashSet<i64> = graph
         .boxes
         .iter()
-        .filter(|b| b.is_two_pin_passive())
+        .filter(|b| b.is_two_pin_passive() && b.visual_role.is_none())
         .map(|b| b.id)
         .collect();
     if rail_ids.is_empty() || passive_set.is_empty() {
@@ -1230,9 +1242,33 @@ pub fn place_bridge_passives(graph: &mut McVecGraph) {
         .map(|b| b.id)
         .collect();
 
+    crate::vlog!(
+        "[bridge] candidates: {}",
+        passive_ids
+            .iter()
+            .map(|&id| {
+                let name = graph
+                    .boxes
+                    .iter()
+                    .find(|b| b.id == id)
+                    .map(|b| b.name.as_str())
+                    .unwrap_or("?");
+                format!("{name}({id})")
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
+
     let mut count = 0usize;
 
     for pid in passive_ids {
+        let pname = graph
+            .boxes
+            .iter()
+            .find(|b| b.id == pid)
+            .map(|b| b.name.clone())
+            .unwrap_or_else(|| format!("?{pid}"));
+
         // P must touch exactly 2 nets.
         let touching: Vec<usize> = graph
             .nets
@@ -1242,6 +1278,10 @@ pub fn place_bridge_passives(graph: &mut McVecGraph) {
             .map(|(i, _)| i)
             .collect();
         if touching.len() != 2 {
+            crate::vlog!(
+                "[bridge] {pname}({pid}) bail: touches {} net(s) (need 2)",
+                touching.len()
+            );
             continue;
         }
 
@@ -1279,6 +1319,12 @@ pub fn place_bridge_passives(graph: &mut McVecGraph) {
                 .map(|e| (e.box_id, e.pin_id))
                 .collect();
             if anchors.len() < min_anchors {
+                crate::vlog!(
+                    "[bridge] {pname}({pid}) bail: net[{}] has {} anchor(s) (need {})",
+                    ni,
+                    anchors.len(),
+                    min_anchors
+                );
                 ok = false;
                 break;
             }
@@ -1286,11 +1332,21 @@ pub fn place_bridge_passives(graph: &mut McVecGraph) {
                 lane_anchors.push(anchors);
                 lane_pins.push(pp);
             } else {
+                crate::vlog!(
+                    "[bridge] {pname}({pid}) bail: no pin found in net[{}]",
+                    ni
+                );
                 ok = false;
                 break;
             }
         }
         if !ok || lane_anchors.len() != 2 {
+            if ok {
+                crate::vlog!(
+                    "[bridge] {pname}({pid}) bail: {} lane(s) (need 2)",
+                    lane_anchors.len()
+                );
+            }
             continue;
         }
 
@@ -1320,15 +1376,24 @@ pub fn place_bridge_passives(graph: &mut McVecGraph) {
 
         let y0 = match avg_y(&lane_anchors[0]) {
             Some(v) => v,
-            None => continue,
+            None => {
+                crate::vlog!("[bridge] {pname}({pid}) bail: no anchor Y for lane 0");
+                continue;
+            }
         };
         let y1 = match avg_y(&lane_anchors[1]) {
             Some(v) => v,
-            None => continue,
+            None => {
+                crate::vlog!("[bridge] {pname}({pid}) bail: no anchor Y for lane 1");
+                continue;
+            }
         };
 
         // Two lanes must have different Y positions.
         if (y0 - y1).abs() < 1e-6 {
+            crate::vlog!(
+                "[bridge] {pname}({pid}) bail: y0={y0:.1} y1={y1:.1} (same row, not a bridge)"
+            );
             continue;
         }
 
@@ -1445,6 +1510,36 @@ pub fn place_bridge_passives(graph: &mut McVecGraph) {
         crate::vlog!(
             "[layout::passive_inline] placed {} bridge passive(s)",
             count
+        );
+    }
+
+    // Box dump for diagnostics: show x,y,w,h + visual_role + entry_points.side
+    // for all two-pin passives and non-passive boxes with visual_role set.
+    crate::vlog!("[bridge] post-placement box dump:");
+    for b in graph.boxes.iter().filter(|b| {
+        b.is_two_pin_passive()
+            || b.visual_role == Some(VisualRole::BridgePassive)
+            || matches!(b.kind, BoxKind::TwoPin | BoxKind::MultiPin)
+    }) {
+        let role = match b.visual_role {
+            Some(VisualRole::BridgePassive) => "BridgePassive",
+            Some(VisualRole::SeriesInline) => "SeriesInline",
+            None => "-",
+        };
+        let eps: Vec<String> = b
+            .entry_points
+            .iter()
+            .map(|e| format!("{}({:?})", e.pin_name, e.side))
+            .collect();
+        crate::vlog!(
+            "[bridge]   {name}({id}) x={x:.1} y={y:.1} w={w:.1} h={h:.1} visual_role={role} eps=[{eps}]",
+            name = b.name,
+            id = b.id,
+            x = b.x,
+            y = b.y,
+            w = b.w,
+            h = b.h,
+            eps = eps.join(", "),
         );
     }
 }
