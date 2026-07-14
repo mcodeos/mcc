@@ -417,10 +417,11 @@ impl McModuleInst {
                                 }
                             }
                         }
-                        McPhrase::Transposed(_) => {
+                        McPhrase::Transposed(inner) => {
                             if let Some(pin) = self.get_transposed_lane_pin(line, lane) {
                                 items.push(LaneItem::Bridge(pin));
                             }
+                            self.try_record_bridge_passive(inner);
                         }
                         _ => {
                             if lane == 0 {
@@ -430,11 +431,12 @@ impl McModuleInst {
                     }
                 }
             }
-            McPhrase::Transposed(_) => {
+            McPhrase::Transposed(inner) => {
                 // M11.4: standalone Transposed in chain acts as bridge passive
                 if let Some(pin) = self.get_transposed_lane_pin(member, lane) {
                     items.push(LaneItem::Bridge(pin));
                 }
+                self.try_record_bridge_passive(inner);
             }
             _ => {
                 if lane == 0 {
@@ -451,6 +453,38 @@ impl McModuleInst {
             Some(pts[lane].clone())
         } else {
             None
+        }
+    }
+
+    /// Record bridge passive instance names from a Transposed inner phrase.
+    /// Same logic as the Transposed branch in process_member_internal (lines 1582-1589).
+    fn try_record_bridge_passive(&mut self, inner: &McPhrase) {
+        // For Endpoint(Component(c)), the component was instantiated during Pass1
+        // and c.name is already the instance name (e.g. "@CAP_2"). Use it directly
+        // instead of auto_inst_map (which is only populated for FuncCall paths).
+        if let McPhrase::Endpoint(McEndpoint::Single(iref)) = inner {
+            if let McInstance::Component(c) = &iref.base {
+                let inst_name = c.name.to_string();
+                eprintln!("[try_rbp] Endpoint.Component: inst_name={inst_name}");
+                self.bridge_passive_names.insert(inst_name);
+                return;
+            }
+        }
+        // Fallback: try auto_inst_map (for FuncCall inner, though this shouldn't
+        // normally happen since Transposed with FuncCall inner is handled
+        // separately in process_member_internal).
+        let key = Self::member_key(inner);
+        if let Some(inst_name) = self.auto_inst_map.get(&key) {
+            eprintln!("[try_rbp] auto_inst_map HIT: key={key} inst_name={inst_name}");
+            if let Some(stripped) = inst_name.strip_prefix("@@ARRAY:") {
+                for name in stripped.split(',') {
+                    self.bridge_passive_names.insert(name.to_string());
+                }
+            } else {
+                self.bridge_passive_names.insert(inst_name.clone());
+            }
+        } else {
+            eprintln!("[try_rbp] MISS: key={key}");
         }
     }
 
@@ -1579,13 +1613,25 @@ impl McModuleInst {
                     | McPhrase::Member(_, _) => {
                         self.process_member_internal(inner)?;
                         // ★ M11.3: record bridge passive instance names from Transposed
-                        if let Some(inst_name) = self.auto_inst_map.get(&Self::member_key(inner)) {
-                            if let Some(stripped) = inst_name.strip_prefix("@@ARRAY:") {
-                                for name in stripped.split(',') {
-                                    self.bridge_passive_names.insert(name.to_string());
+                        let key = Self::member_key(inner);
+                        let variant = match inner.as_ref() {
+                            McPhrase::FuncCall(_) => "FuncCall",
+                            McPhrase::Endpoint(_) => "Endpoint",
+                            _ => "Other",
+                        };
+                        match self.auto_inst_map.get(&key) {
+                            Some(inst_name) => {
+                                eprintln!("[pmi Transposed] HIT: variant={variant} key={key} inst_name={inst_name}");
+                                if let Some(stripped) = inst_name.strip_prefix("@@ARRAY:") {
+                                    for name in stripped.split(',') {
+                                        self.bridge_passive_names.insert(name.to_string());
+                                    }
+                                } else {
+                                    self.bridge_passive_names.insert(inst_name.clone());
                                 }
-                            } else {
-                                self.bridge_passive_names.insert(inst_name.clone());
+                            }
+                            None => {
+                                eprintln!("[pmi Transposed] MISS: variant={variant} key={key}");
                             }
                         }
                     }

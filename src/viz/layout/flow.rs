@@ -216,6 +216,10 @@ impl Layouter for FlowLayouter {
         let (root_id, isolated_ids) = self.phase_placement(graph);
         probe_no_ep_writes("phase_placement", graph, &ep_snap);
 
+        // ★ M11: 双 lane bridge ladder —— 用 ladder 几何覆盖通用 placement。
+        // 此时 phase_size 已设好 w/h，ladder 用真实尺寸居中；pin_place / post 在其后照跑。
+        super::two_lane_ladder::try_two_lane_ladder(graph);
+
         // ── 相位 4 · PinPlacement：EntryPoint 唯一写者 + hub 几何唯一终定者 ──
         super::pin_place::pin_place_pipeline(graph, Some(root_id), true, self.hub_keep_semantic);
         probe_degenerate_boxes(graph, "after pin_place");
