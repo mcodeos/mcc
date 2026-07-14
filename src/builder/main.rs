@@ -127,8 +127,15 @@ pub fn mcb_add_from_string(uri: &McURI, content: &str) {
             let binding = workspace::WORKSPACE.mcodes.borrow();
             binding.contains_key(&canonical_uri)
         };
+        tracing::info!(target: "mcc::lsp", "mcb_add_from_string: already_exists={}", already_exists);
         if already_exists {
             remove_defines(&canonical_uri);
+            // Also clear diagnostics for this file
+            workspace::WORKSPACE
+                .diagnostics
+                .borrow_mut()
+                .clear_file(&canonical_uri);
+            tracing::info!(target: "mcc::lsp", "mcb_add_from_string: cleared diagnostics for {}", canonical_uri);
         }
 
         mcfile.parse_ast_from_string(content);
@@ -517,6 +524,12 @@ fn remove_defines(uri: &McURI) {
     for space_name in to_remove {
         global::mcc_enums.borrow().remove(&space_name);
     }
+
+    // Clear diagnostics for this file so they don't accumulate across edits
+    workspace::WORKSPACE
+        .diagnostics
+        .borrow_mut()
+        .clear_file(uri);
 }
 
 /// Pass2: Instantiation entry point

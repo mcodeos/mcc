@@ -3667,10 +3667,17 @@ pub fn handle_diagnostics(params: Option<Value>) -> RpcResult {
     }
 
     let p: DiagnosticsParams = parse_strict(params)?;
-    let mc_uri = McURI::from(p.uri.as_str());
+    let raw_uri = McURI::from(p.uri.as_str());
+    // Canonicalize URI to match the keys used when storing diagnostics
+    // (mcb_add_from_string and all diagnostic_log calls use canonical URIs)
+    let mc_uri = McURI::from(crate::builder::canonicalize_project_uri(&raw_uri));
+
+    tracing::info!(target: "mcc::rpc", "handle_diagnostics: raw={} canonical={}", raw_uri, mc_uri);
 
     // Get all diagnostics for this file
     let diagnostics = crate::mcc_diagnose(&mc_uri);
+
+    tracing::info!(target: "mcc::rpc", "handle_diagnostics: found {} diagnostics", diagnostics.len());
 
     // Convert to JSON
     let diags: Vec<serde_json::Value> = diagnostics

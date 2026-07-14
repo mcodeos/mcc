@@ -272,6 +272,18 @@ void mc_error_token_add(void* ptoken)
         g_error_token_list_tail = token;
     }
 }
+void mcc_clear_error_tokens()
+{
+    mc_sem_token* current = g_error_token_list;
+    while (current != NULL) {
+        mc_sem_token* next = current->next;
+        free(current);
+        current = next;
+    }
+    g_error_token_list = NULL;
+    g_error_token_list_tail = NULL;
+}
+
 void mc_error_token_print()
 {
     mprintf(MCC_LOG_ERROR, "\n------------------------------------------------------------\n[error tokens]\n");

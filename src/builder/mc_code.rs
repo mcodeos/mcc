@@ -449,6 +449,9 @@ impl McCode {
         current_uri::set(&self.uri);
         crate::builder::diagnostic::dlog_clear_file(&self.uri);
 
+        // Clear C-level error tokens before parsing to prevent accumulation
+        unsafe { crate::ast::c_bindings::mcc_clear_error_tokens() };
+
         let c_content = std::ffi::CString::new(content).expect("Failed to create CString");
         let fcontent_ptr = unsafe {
             crate::ast::c_bindings::mcc_load_from_string(
