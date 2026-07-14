@@ -486,9 +486,12 @@ fn choose_root(
     if let Some(s) = src {
         return s;
     }
+    // Iter 1: exclude two-pin passives from max-degree fallback —
+    // aligns with chain::find_hub semantics so flow and chain agree on the hub.
     graph
         .boxes
         .iter()
+        .filter(|b| !b.is_two_pin_passive())
         .max_by_key(|b| adj.get(&b.id).map(|v| v.len()).unwrap_or(0))
         .map(|b| b.id)
         .unwrap_or(graph.boxes[0].id)

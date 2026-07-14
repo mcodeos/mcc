@@ -213,58 +213,70 @@ pub fn build_trunk_tap_route<'a>(
     let span_x = max_x - min_x;
     let span_y = max_y - min_y;
 
-    // Most endpoints exit T/B → trunk horizontal (taps extend vertically, natural)
-    // Most endpoints exit L/R → trunk vertical (taps extend horizontally, natural)
-    // Tied: use stub_ends aspect ratio
-    let trunk_horizontal = match n_vert_exit.cmp(&n_horiz_exit) {
-        std::cmp::Ordering::Greater => true,
-        std::cmp::Ordering::Less => false,
-        std::cmp::Ordering::Equal => span_x >= span_y,
+    // ── Step 2.5: spine detection (Iter 1.5) ──
+    // If ≥2 endpoints are collinear with facing exits, pin the trunk to that axis.
+    let (trunk_horizontal, pinned_axis) = match detect_spine(exits, &stub_ends) {
+        Some((h, axis)) => {
+            crate::vlog!(
+                "[route::trunk_tap] spine detected: {} @ {axis:.0}",
+                if h { "horizontal" } else { "vertical" }
+            );
+            (h, Some(axis))
+        }
+        None => {
+            // Original majority-vote logic
+            let th = match n_vert_exit.cmp(&n_horiz_exit) {
+                std::cmp::Ordering::Greater => true,
+                std::cmp::Ordering::Less => false,
+                std::cmp::Ordering::Equal => span_x >= span_y,
+            };
+            (th, None)
+        }
     };
 
     // ── Step 3: trunk position ──
-    // P10 prefers channels.reserve_*; failed/unavailable → P09 (choose_trunk_axis); fallback → mean
-    let n = stub_ends.len() as f64;
-    let mean_axis = if trunk_horizontal {
-        stub_ends.iter().map(|p| p.1).sum::<f64>() / n
+    let trunk_axis = if let Some(axis) = pinned_axis {
+        // Spine pinned: use the geometric axis directly, skip channel/obstacle search
+        axis
     } else {
-        stub_ends.iter().map(|p| p.0).sum::<f64>() / n
-    };
-
-    // P09 fallback (when obstacles given, compute an obstacle-free mean)
-    let p09_axis = if let Some(obstacles) = opts.obstacles {
-        choose_trunk_axis(&stub_ends, trunk_horizontal, obstacles)
-    } else {
-        mean_axis
-    };
-
-    // ★ P10: channel-aware
-    let net_id = opts.net_id;
-    let trunk_axis = if let Some(channels) = opts.channels {
-        // Use channel reservation
-        let reserved = if trunk_horizontal {
-            // Horizontal trunk → find y in horizontal channel
-            channels.reserve_horizontal(min_x, max_x, p09_axis, net_id)
+        // P10 prefers channels.reserve_*; failed/unavailable → P09 (choose_trunk_axis); fallback → mean
+        let n = stub_ends.len() as f64;
+        let mean_axis = if trunk_horizontal {
+            stub_ends.iter().map(|p| p.1).sum::<f64>() / n
         } else {
-            // Vertical trunk → find x in vertical channel
-            channels.reserve_vertical(min_y, max_y, p09_axis, net_id)
+            stub_ends.iter().map(|p| p.0).sum::<f64>() / n
         };
-        match reserved {
-            Some(actual) => {
-                crate::vlog!(
-                    "[route::trunk_tap] net_id={net_id} trunk in channel @ {actual:.0} (prefer {p09_axis:.0}, mean {mean_axis:.0})"
-                );
-                actual
+
+        let p09_axis = if let Some(obstacles) = opts.obstacles {
+            choose_trunk_axis(&stub_ends, trunk_horizontal, obstacles)
+        } else {
+            mean_axis
+        };
+
+        let net_id = opts.net_id;
+        if let Some(channels) = opts.channels {
+            let reserved = if trunk_horizontal {
+                channels.reserve_horizontal(min_x, max_x, p09_axis, net_id)
+            } else {
+                channels.reserve_vertical(min_y, max_y, p09_axis, net_id)
+            };
+            match reserved {
+                Some(actual) => {
+                    crate::vlog!(
+                        "[route::trunk_tap] net_id={net_id} trunk in channel @ {actual:.0} (prefer {p09_axis:.0}, mean {mean_axis:.0})"
+                    );
+                    actual
+                }
+                None => {
+                    crate::vlog!(
+                        "[route::trunk_tap] net_id={net_id} no channel available, fallback to {p09_axis:.0}"
+                    );
+                    p09_axis
+                }
             }
-            None => {
-                crate::vlog!(
-                    "[route::trunk_tap] net_id={net_id} no channel available, fallback to {p09_axis:.0}"
-                );
-                p09_axis
-            }
+        } else {
+            p09_axis
         }
-    } else {
-        p09_axis
     };
 
     // ── Step 4: trunk segment ──
@@ -297,8 +309,15 @@ pub fn build_trunk_tap_route<'a>(
                 from: Point::new(sx, sy),
                 to: trunk_pt,
             });
+            // Only push junction when tap lands inside the trunk (not at endpoints).
+            // A tap hitting the trunk endpoint is a corner, not a T-junction.
+            let at_endpoint = (trunk_pt.x - trunk.from.x).abs() < 0.5
+                && (trunk_pt.y - trunk.from.y).abs() < 0.5
+                || (trunk_pt.x - trunk.to.x).abs() < 0.5 && (trunk_pt.y - trunk.to.y).abs() < 0.5;
+            if !at_endpoint {
+                route.junctions.push(trunk_pt);
+            }
         }
-        route.junctions.push(trunk_pt);
     }
 
     route
@@ -345,6 +364,139 @@ fn build_two_point_route(exits: &[((f64, f64), ExitSide)]) -> Route {
         });
     }
     route
+}
+
+// ============================================================================
+// ★ Iter 1.5 — spine detection: geometrically detect the trunk axis from
+//    collinear facing pins (e.g. series resistors on a lane)
+// ============================================================================
+
+/// Detect if ≥2 endpoints form a collinear spine with facing exit directions.
+///
+/// When series components (like resistors on a lane) sit on the same horizontal
+/// line with their pins facing each other, the trunk should be pinned to that
+/// line — no channel search, no obstacle avoidance. This produces a clean
+/// T-shaped tap for any vertical stub (e.g. a bridge capacitor).
+///
+/// Returns `Some((horizontal, axis))` if a spine is detected, `None` otherwise.
+fn detect_spine(
+    exits: &[((f64, f64), ExitSide)],
+    stub_ends: &[(f64, f64)],
+) -> Option<(bool /*horizontal*/, f64 /*axis*/)> {
+    // ── Horizontal spine: cluster by y ──
+    if let Some(y) = spine_on_axis(exits, stub_ends, true) {
+        return Some((true, y));
+    }
+    // ── Vertical spine: cluster by x ──
+    if let Some(x) = spine_on_axis(exits, stub_ends, false) {
+        return Some((false, x));
+    }
+    None
+}
+
+/// Cluster stub_ends along one axis and check for a spine.
+///
+/// `horizontal=true` → cluster by y, require horizontal exits, facing Left/Right.
+/// `horizontal=false` → cluster by x, require vertical exits, facing Top/Bottom.
+fn spine_on_axis(
+    exits: &[((f64, f64), ExitSide)],
+    stub_ends: &[(f64, f64)],
+    horizontal: bool,
+) -> Option<f64> {
+    let tol = 1.0;
+
+    // Group stub_ends by axis coordinate (y for horizontal, x for vertical)
+    let mut groups: Vec<(f64, Vec<usize>)> = Vec::new();
+    for (i, &(sx, sy)) in stub_ends.iter().enumerate() {
+        let coord = if horizontal { sy } else { sx };
+        let mut found = false;
+        for (g_coord, ref mut indices) in groups.iter_mut() {
+            if (coord - *g_coord).abs() <= tol {
+                indices.push(i);
+                // Recompute centroid
+                let sum: f64 = indices
+                    .iter()
+                    .map(|&j| {
+                        if horizontal {
+                            stub_ends[j].1
+                        } else {
+                            stub_ends[j].0
+                        }
+                    })
+                    .sum();
+                *g_coord = sum / indices.len() as f64;
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            groups.push((coord, vec![i]));
+        }
+    }
+
+    // Find the largest cluster with ≥ 2 members
+    let best = groups.into_iter().max_by_key(|(_, v)| v.len())?;
+    if best.1.len() < 2 {
+        return None;
+    }
+    let (cluster_axis, indices) = best;
+
+    // All exits in this cluster must be along the spine direction
+    // (horizontal for horizontal spine, vertical for vertical spine)
+    let all_aligned = indices.iter().all(|&i| {
+        let (_, side) = exits[i];
+        if horizontal {
+            side.is_horizontal()
+        } else {
+            !side.is_horizontal()
+        }
+    });
+    if !all_aligned {
+        return None;
+    }
+
+    // Check for facing pairs
+    if horizontal {
+        let right_xs: Vec<f64> = indices
+            .iter()
+            .filter(|&&i| matches!(exits[i].1, ExitSide::Right))
+            .map(|&i| stub_ends[i].0)
+            .collect();
+        let left_xs: Vec<f64> = indices
+            .iter()
+            .filter(|&&i| matches!(exits[i].1, ExitSide::Left))
+            .map(|&i| stub_ends[i].0)
+            .collect();
+        if right_xs.is_empty() || left_xs.is_empty() {
+            return None;
+        }
+        let max_right = right_xs.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min_left = left_xs.iter().cloned().fold(f64::INFINITY, f64::min);
+        if max_right >= min_left {
+            return None; // not facing
+        }
+    } else {
+        let bottom_ys: Vec<f64> = indices
+            .iter()
+            .filter(|&&i| matches!(exits[i].1, ExitSide::Bottom))
+            .map(|&i| stub_ends[i].1)
+            .collect();
+        let top_ys: Vec<f64> = indices
+            .iter()
+            .filter(|&&i| matches!(exits[i].1, ExitSide::Top))
+            .map(|&i| stub_ends[i].1)
+            .collect();
+        if bottom_ys.is_empty() || top_ys.is_empty() {
+            return None;
+        }
+        let max_bottom = bottom_ys.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+        let min_top = top_ys.iter().cloned().fold(f64::INFINITY, f64::min);
+        if max_bottom >= min_top {
+            return None; // not facing
+        }
+    }
+
+    Some(cluster_axis)
 }
 
 // ============================================================================
@@ -473,8 +625,8 @@ mod tests {
         // Stubs: 3 segments + trunk: 1 segment + taps: ≤ 3 segments
         assert!(r.segments.len() >= 4);
 
-        // 3 junctions
-        assert_eq!(r.junctions.len(), 3);
+        // All stub_ends are on the trunk → no taps, no junctions
+        assert_eq!(r.junctions.len(), 0);
 
         // trunk should be vertical (from.x == to.x), at the x mean of stub_ends
         // stub_ends all at x=110.0, so trunk_x = 110.0
@@ -640,8 +792,65 @@ mod tests {
                 ..Default::default()
             },
         );
-        // Should at least have stubs + trunk + junctions
+        // Should at least have stubs + trunk
         assert!(!r.segments.is_empty());
-        assert_eq!(r.junctions.len(), 3);
+        // P09 shifts trunk away from obstacle → middle tap lands inside trunk → 1 junction
+        assert_eq!(r.junctions.len(), 1);
+    }
+
+    // ========================================================================
+    // ★ Iter 1.5 — spine detection tests
+    // ========================================================================
+
+    fn l_exit(x: f64, y: f64) -> ((f64, f64), ExitSide) {
+        ((x, y), ExitSide::Left)
+    }
+    fn b_exit(x: f64, y: f64) -> ((f64, f64), ExitSide) {
+        ((x, y), ExitSide::Bottom)
+    }
+
+    #[test]
+    fn spine_horizontal_two_facing_pins() {
+        // Simulates net_1: RES1.2 exits Right, RES3.1 exits Left (facing),
+        // CAP2.1 exits Top (vertical stub). Spine should be horizontal at y=71.
+        let exits = vec![
+            h_exit(445.0, 71.0), // RES1.2: Right exit, x=445, y=71
+            l_exit(505.0, 71.0), // RES3.1: Left exit,  x=505, y=71
+            v_exit(420.0, 60.3), // CAP2.1: Top exit,   x=420, y=60.3
+        ];
+        let r = build_trunk_tap_route(&exits, BuildOptions::default());
+
+        // Stubs: 3 segments + trunk: 1 segment + tap (CAP2.1): 1 segment = 5
+        assert_eq!(r.segments.len(), 5);
+
+        // CAP2.1's tap lands at trunk endpoint (x=420 = min_x) → corner, not T-junction.
+        // (Iter 3 column grid will move CAP2 inside the trunk, producing a true T.)
+        assert_eq!(r.junctions.len(), 0);
+
+        // Trunk should be horizontal
+        let trunk = &r.segments[3]; // [stub0, stub1, stub2, trunk, ...]
+        assert!((trunk.from.y - trunk.to.y).abs() < 0.5); // horizontal
+                                                          // Trunk axis at y=71
+        assert!((trunk.from.y - 71.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn ic_fanout_still_vertical() {
+        // IC fanout: 8 pins all exiting Right from the same x, different y.
+        // No spine should be detected (all exits same direction, no facing pairs).
+        // Falls back to majority vote → vertical trunk. Behavior unchanged.
+        let exits: Vec<((f64, f64), ExitSide)> = (0..8)
+            .map(|i| h_exit(110.0, 50.0 + i as f64 * 50.0))
+            .collect();
+        let r = build_trunk_tap_route(&exits, BuildOptions::default());
+
+        // 8 stubs + trunk = 9 segments (all stub_ends on trunk → no taps)
+        assert_eq!(r.segments.len(), 9);
+        assert_eq!(r.junctions.len(), 0);
+
+        // Trunk should be vertical
+        let trunk = &r.segments[8]; // last segment is trunk
+        assert!((trunk.from.x - trunk.to.x).abs() < 0.5); // vertical
+        assert!((trunk.from.x - 120.0).abs() < 0.5); // 110 + PIN_STUB_LEN
     }
 }
