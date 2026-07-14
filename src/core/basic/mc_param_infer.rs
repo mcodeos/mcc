@@ -82,13 +82,10 @@ fn collect_usages_recursive(param_name: &str, node: &AstNode, usages: &mut Vec<U
             let pos = n.get_pos() as usize;
 
             match ntype {
-                // Net expressions: P - X, P + X, P -> X, X -> P
+                // Net expressions
                 MCAST_OPD_MINUS | MCAST_OPD_PLUS | MCAST_OPD_RIGHTARROW | MCAST_OPD_LEFTARROW => {
                     if node_contains_name(&n, param_name) {
-                        usages.push(UsageSite {
-                            kind: UsageKind::NetConnection,
-                            pos,
-                        });
+                        usages.push(UsageSite { kind: UsageKind::NetConnection, pos });
                     }
                 }
                 // Attribute: key = value
@@ -101,29 +98,18 @@ fn collect_usages_recursive(param_name: &str, node: &AstNode, usages: &mut Vec<U
                                 pos,
                             });
                         } else {
-                            usages.push(UsageSite {
-                                kind: UsageKind::AttrValue(attr_name),
-                                pos,
-                            });
+                            usages.push(UsageSite { kind: UsageKind::AttrValue(attr_name), pos });
                         }
                     }
                 }
-                // Pin attribute: pins = [...]
                 MCAST_ATTRIBUTE_PIN => {
                     if node_contains_name(&n, param_name) {
-                        usages.push(UsageSite {
-                            kind: UsageKind::PinBinding,
-                            pos,
-                        });
+                        usages.push(UsageSite { kind: UsageKind::PinBinding, pos });
                     }
                 }
-                // Function call
                 MCAST_OPD_FCALL => {
                     if node_contains_name(&n, param_name) {
-                        usages.push(UsageSite {
-                            kind: UsageKind::FcallArg,
-                            pos,
-                        });
+                        usages.push(UsageSite { kind: UsageKind::FcallArg, pos });
                     }
                 }
                 // Arithmetic
@@ -131,15 +117,6 @@ fn collect_usages_recursive(param_name: &str, node: &AstNode, usages: &mut Vec<U
                     if node_contains_name(&n, param_name) {
                         usages.push(UsageSite {
                             kind: UsageKind::ArithmeticExpr,
-                            pos,
-                        });
-                    }
-                }
-                // Conditional: if (P) { ... }
-                MCAST_CONDS => {
-                    if node_contains_name(&n, param_name) {
-                        usages.push(UsageSite {
-                            kind: UsageKind::Conditional,
                             pos,
                         });
                     }
