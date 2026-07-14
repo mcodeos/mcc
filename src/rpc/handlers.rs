@@ -288,6 +288,7 @@ pub fn handle_methods(_params: Option<Value>) -> RpcResult {
         "show.attrs",
         "show.funcs",
         "show.params",
+        "params.diag",
         "show.roles",
         "show.values",
         // search (M5)
@@ -3007,10 +3008,19 @@ pub fn handle_show_params(params: Option<Value>) -> RpcResult {
     let (cmie, _) = find_def_by_name(name)
         .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
 
-    let param_names = match &cmie {
-        crate::McCMIE::Component(c) => c.params.names(),
-        crate::McCMIE::Module(m) => m.params.names(),
-        crate::McCMIE::Interface(i) => i.params.names(),
+    let (param_list, arity) = match &cmie {
+        crate::McCMIE::Component(c) => {
+            let list: Vec<Value> = c.params.iter().map(|d| param_declare_to_json(d)).collect();
+            (list, c.params.arity())
+        }
+        crate::McCMIE::Module(m) => {
+            let list: Vec<Value> = m.params.iter().map(|d| param_declare_to_json(d)).collect();
+            (list, m.params.arity())
+        }
+        crate::McCMIE::Interface(i) => {
+            let list: Vec<Value> = i.params.iter().map(|d| param_declare_to_json(d)).collect();
+            (list, i.params.arity())
+        }
         _ => {
             return Err(JsonRpcError::custom(
                 -32002,
@@ -3018,7 +3028,55 @@ pub fn handle_show_params(params: Option<Value>) -> RpcResult {
             ))
         }
     };
-    Ok(json!({ "name": name, "count": param_names.len(), "params": param_names }))
+    Ok(json!({
+        "name": name,
+        "count": param_list.len(),
+        "required": arity.required,
+        "optional": arity.optional,
+        "params": param_list
+    }))
+}
+
+/// Convert a McParamDeclare to a JSON object with smart parameter metadata.
+fn param_declare_to_json(d: &mcc::core::basic::mc_paramd::McParamDeclare) -> Value {
+    let name = d.get_primary_name().unwrap_or_default();
+    let is_port = d.is_port();
+    let has_default = d.has_default_value();
+    let default_val = d.param_type.default_value().map(|s| s.to_string());
+    let class_name = d.get_class_name();
+    json!({
+        "name": name,
+        "type": d.param_type.category_name(),
+        "is_port": is_port,
+        "has_default": has_default,
+        "default": default_val,
+        "class": class_name,
+    })
+}
+
+/// Handler for `params.diag` — returns smart parameter diagnostics
+/// (unused params, untyped params) collected during compilation.
+pub fn handle_params_diag(_params: Option<Value>) -> RpcResult {
+    let diags = mcc::mcc_flush_param_diags();
+    let count = diags.len();
+    Ok(json!({
+        "count": count,
+        "diagnostics": diags.iter().map(|d| {
+            // Parse the diagnostic string to extract structured info
+            // Format: "[Unused] Parameter 'X' in 'Def' is never used..."
+            let (kind, rest) = if let Some(stripped) = d.strip_prefix("[Unused] ") {
+                ("unused", stripped)
+            } else if let Some(stripped) = d.strip_prefix("[Untyped] ") {
+                ("untyped", stripped)
+            } else {
+                ("unknown", d.as_str())
+            };
+            json!({
+                "severity": kind,
+                "message": rest,
+            })
+        }).collect::<Vec<Value>>(),
+    }))
 }
 
 pub fn handle_show_roles(params: Option<Value>) -> RpcResult {
@@ -3604,6 +3662,7 @@ pub fn handle_caps(_params: Option<Value>) -> RpcResult {
             "show.pins", "show.ports", "show.ports.list",
             "show.labels", "show.instances", "show.nets",
             "show.attrs", "show.funcs", "show.params",
+            "params.diag",
             "show.roles", "show.values",
             "lib.list", "lib.info", "lib.load", "lib.unload",
             "lib.install", "lib.uninstall", "lib.search",

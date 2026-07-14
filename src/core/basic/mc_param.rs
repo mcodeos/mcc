@@ -556,6 +556,33 @@ impl McParamBindings {
     ) -> Result<Self, ParamBindError> {
         let mut bindings = Vec::new();
 
+        // ── Arity validation (M4) ──────────────────────────────────────
+        let arity = declares.arity();
+        let call_count = values.len();
+
+        // Check for too many arguments (strict error unless silent mode)
+        if call_count > arity.total && !silent_extras {
+            return Err(ParamBindError::TooManyArguments {
+                expected: arity.total,
+                got: call_count,
+            });
+        }
+
+        // Check for too few arguments (missing required)
+        if call_count < arity.required {
+            // Find which required params would be missing
+            let required_names: Vec<String> = declares
+                .iter()
+                .filter(|d| !d.has_default_value())
+                .filter_map(|d| d.get_primary_name())
+                .collect();
+            if call_count < required_names.len() {
+                return Err(ParamBindError::MissingRequired {
+                    name: required_names.get(call_count).cloned().unwrap_or_default(),
+                });
+            }
+        }
+
         // Separate named parameters (Attribute type) and positional parameters
         let mut named_values: Vec<&McParamValue> = Vec::new();
         let mut positional_values: Vec<McParamValue> = Vec::new();
@@ -569,16 +596,7 @@ impl McParamBindings {
         }
 
         // ── Iter-3.G ────────────────────────────────────────────────────
-        // Set re-grouping heuristic: if positional count is an integer multiple (>= 2x) of declares
-        // and declares count > 0, it means the parser may have flattened `f([A,B], [C,D])` at the
-        // call-site into 4 independent scalars A, B, C, D.
-        // In this case, group evenly by declares count, re-wrap each group as a Set.
-        //
-        // Example: 2 formal + 4 positional => group[0]=[A,B], group[1]=[C,D]
-        //          formal0 bind to Set([A,B]), formal1 bind to Set([C,D])
-        //
-        // This heuristic only triggers when all actual args are "trivial" Opd / NC / Literal
-        // (not Set/Phrase), to avoid mistaking 4 truly independent scalars for 2 Sets.
+        // Set re-grouping heuristic
         let decl_count = declares.iter().count();
         if decl_count > 0
             && positional_values.len() > decl_count
@@ -648,32 +666,35 @@ impl McParamBindings {
             bindings.push(McParamBinding::new(declare.clone(), value));
         }
 
-        // ── Iter-3.B2 ────────────────────────────────────────────────────
-        // Check for extra positional arguments —— emit soft warning.
-        //
-        // Reason: MC has special calling convention like `X6.setup(NC)`
-        // to pass "NC as default not soldered" marker to `setup()`
-        // which has no formal params.
-        // Previously hard-reporting `TooManyArguments` would interrupt the entire func expansion,
-        // preventing the resistors/capacitors inside setup() from being generated.
-        //
-        // Correct approach: emit one eprintln warning (diagnostic layering handled by upper layer),
-        // but still return Ok —— extra actual args are dropped, already-bound formal params still take effect,
-        // and the function body expands with default behavior.
-        //
-        // ── Iter-3.E2 ────────────────────────────────────────────────────
-        // Further: If all extra positional arguments are NC,
-        // it's a special "NC as default not soldered" convention call
-        // like `X6.setup(NC)`, so we shouldn't emit warning.
+        // ── Fill defaults for omitted optional params (M4) ───────────────
+        // After positional binding, check if any optional params (with defaults)
+        // were omitted. If so, create bindings with default values.
+        for declare in declares.iter() {
+            if declare.has_default_value() {
+                // Check if this param already has a binding
+                let already_bound = bindings
+                    .iter()
+                    .any(|b| b.declare.get_primary_name() == declare.get_primary_name());
+                if !already_bound {
+                    // Create binding with default value
+                    bindings.push(McParamBinding::new(declare.clone(), None));
+                }
+            }
+        }
+
+        // ── Extra positional arguments check ────────────────────────────
+        // MC has special calling convention like `X6.setup(NC)` to pass
+        // "NC as default not soldered" marker to `setup()` which has no formal params.
+        // If all extra args are NC → silent (convention call).
+        // Otherwise, if arity check already caught too-many, this won't trigger.
         if pos_idx < positional_values.len() {
             let extras = &positional_values[pos_idx..];
             let all_nc = extras.iter().all(|v| matches!(v, McParamValue::NC(_)));
-            if !all_nc && !silent_extras {
+            if !all_nc && !silent_extras && arity.total > 0 {
                 eprintln!(
-                    "Warning: Function param binding has {} extra positional argument(s) \
-                     (expected {}, got {}); extras are ignored.",
+                    "Warning: extra {} positional argument(s) (expected {}, got {}); extras ignored.",
                     positional_values.len() - pos_idx,
-                    declares.len(),
+                    arity.total,
                     values.len()
                 );
             }

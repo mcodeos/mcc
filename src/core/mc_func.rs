@@ -331,10 +331,16 @@ impl McFunction {
                         //.. todo
                     }
                     _ => {
-                        // other nodes illegal
                         dlog_error(1308, &body_node, "Invalid function body node.");
                     }
                 }
+            }
+
+            // ★ Smart Param (M5): Finalize after body parsed
+            let func_name = self.name.to_string();
+            let diags = self.params.finalize(Some(body), &func_name);
+            for d in &diags {
+                mcc::mcc_record_param_diag(&format!("[{:?}] {}", d.kind, d.message));
             }
         }
     }

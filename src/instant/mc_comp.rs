@@ -10,6 +10,7 @@ use super::mc_net::{InstError, NetPoint};
 use crate::core::basic::mc_conds::McConds;
 use crate::core::basic::mc_expr::McExpression;
 use crate::core::basic::mc_param::{McParamBindings, McParamValue};
+use crate::core::basic::mc_paramd::McParamDeclareKind;
 use crate::core::common::IOType;
 use crate::core::component::McComponent;
 use std::collections::HashMap;
@@ -295,17 +296,7 @@ impl McComponentInst {
     fn lookup_param_value(&self, name: &str) -> Option<String> {
         // 1. Check instance parameter bindings
         for binding in self.params.iter() {
-            let matched = match &binding.declare {
-                crate::core::basic::mc_paramd::McParamDeclare::Role(ids)
-                | crate::core::basic::mc_paramd::McParamDeclare::Single(ids) => {
-                    ids.get_primary_name().as_deref() == Some(name)
-                }
-                crate::core::basic::mc_paramd::McParamDeclare::UValue(uval) => {
-                    uval.name.get_primary_name().as_deref() == Some(name)
-                }
-                _ => false,
-            };
-            if matched {
+            if binding.declare.match_name(name) {
                 if let Some(value) = binding.get_value() {
                     return Some(format!("{value}"));
                 }
@@ -314,16 +305,16 @@ impl McComponentInst {
         // 2. Fall back to declared parameter defaults from the component definition
         //    (used when no arguments were passed, e.g. TEST_EXPRESSION u1)
         for declare in self.def.params.iter() {
-            match declare {
-                crate::core::basic::mc_paramd::McParamDeclare::UValue(uval) => {
+            match &declare.kind {
+                crate::core::basic::mc_paramd::McParamDeclareKind::UValue(uval) => {
                     if uval.name.get_primary_name().as_deref() == Some(name) {
                         if let Some(ref default) = uval.default {
                             return Some(default.clone());
                         }
                     }
                 }
-                crate::core::basic::mc_paramd::McParamDeclare::Single(ids)
-                | crate::core::basic::mc_paramd::McParamDeclare::Role(ids) => {
+                crate::core::basic::mc_paramd::McParamDeclareKind::Single(ids)
+                | crate::core::basic::mc_paramd::McParamDeclareKind::Role(ids) => {
                     if ids.get_primary_name().as_deref() == Some(name) {
                         return Some(String::new());
                     }
@@ -463,7 +454,6 @@ impl McComponentInst {
 
     /// Get (name, i64) list of parameter bindings
     fn get_param_bindings(&self) -> Vec<(String, i64)> {
-        use crate::core::basic::mc_paramd::McParamDeclare;
         let mut bindings = Vec::new();
 
         for binding in self.params.iter() {
@@ -474,7 +464,7 @@ impl McComponentInst {
             }
 
             // Handle UValue type (like cols::INT = 6)
-            if let McParamDeclare::UValue(uval) = &binding.declare {
+            if let McParamDeclareKind::UValue(uval) = &binding.declare.kind {
                 let name = uval.name.get_primary_name().unwrap_or_default();
                 if let Some(value) = &binding.value {
                     if let crate::core::basic::mc_param::McParamValue::Int(int_val) = value {
@@ -493,7 +483,7 @@ impl McComponentInst {
         // when no instance bindings exist (e.g., instantiated without args)
         if bindings.is_empty() {
             for declare in self.def.params.iter() {
-                if let McParamDeclare::UValue(uval) = declare {
+                if let McParamDeclareKind::UValue(uval) = &declare.kind {
                     let name = uval.name.get_primary_name().unwrap_or_default();
                     if let Some(ref default_str) = uval.default {
                         if let Ok(default_val) = default_str.parse::<i64>() {

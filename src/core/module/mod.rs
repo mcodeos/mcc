@@ -183,6 +183,13 @@ impl McModule {
                     }
                 }
             }
+
+            // ★ Smart Param (M5): Finalize after body parsed
+            let mod_name = self.name.to_string();
+            let diags = self.params.finalize(Some(body), &mod_name);
+            for d in &diags {
+                mcc::mcc_record_param_diag(&format!("[{:?}] {}", d.kind, d.message));
+            }
         }
     }
 

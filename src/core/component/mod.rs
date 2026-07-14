@@ -156,6 +156,17 @@ impl McComponent {
                     &mut new_comp.cond_attrs,
                 );
                 //8. todo: net not supported
+
+                // ★ LSP: Scan body for references to component parameters
+                Self::collect_param_refs_in_body(&body, &mut new_comp.params);
+
+                // ★ Smart Param (M5): Finalize — run inference + unused check + port filter
+                let diags = new_comp
+                    .params
+                    .finalize(Some(&body), &comp_name.to_string());
+                for d in &diags {
+                    mcc::mcc_record_param_diag(&format!("[{:?}] {}", d.kind, d.message));
+                }
             }
         }
 
@@ -272,6 +283,38 @@ impl McComponent {
                             else_attrs,
                         });
                     }
+                }
+            }
+        }
+    }
+
+    /// Recursively scan AST nodes in the component body for identifiers matching
+    /// component parameter names (e.g. `spec.value = rs` where rs is a parameter).
+    /// Record their spans for LSP goto-definition.
+    fn collect_param_refs_in_body(body_node: &AstNode, params: &mut McParamDeclares) {
+        Self::collect_param_refs_in_node(body_node, params);
+    }
+
+    fn collect_param_refs_in_node(node: &AstNode, params: &mut McParamDeclares) {
+        match node.get_type() {
+            MCAST_ID | MCAST_IDA => {
+                if let Some(text) = node.to_string() {
+                    if params.contains(&text) {
+                        let span =
+                            (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
+                        params.record_port_ref(span, &text);
+                    }
+                }
+            }
+            _ => {}
+        }
+        if let Some(sub) = node.get_sub_node() {
+            let mut current = sub;
+            loop {
+                Self::collect_param_refs_in_node(&current, params);
+                match current.get_next() {
+                    Some(next) => current = next,
+                    None => break,
                 }
             }
         }

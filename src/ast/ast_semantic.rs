@@ -54,14 +54,14 @@ pub enum SymbolType {
     EnumClassRef(DeclareId),        // `PKG` in `PKG.SOP8`
     EnumValueRef(DeclareId),        // `SOP8` in `PKG.SOP8`
     // ── M6 gaps: language constructs not previously tracked ──
-    FunctionDefinition(DeclareId),  // `func i2c()` — func name definition
-    FunctionRef(DeclareId),         // function call reference
-    MethodRef(DeclareId),           // `.method()` call on instance
-    ClassRef(DeclareId),            // standalone class ref: `RES(10k)` (not in declare)
-    PinNameDefinition(DeclareId),   // pin name in component body: `1 = _CS`
-    PinNameRef(DeclareId),          // pin name reference: `Pullup(_CS, V3V3)`
-    DefineDefinition(DeclareId),    // `define name body`
-    RoleDefinition(DeclareId),      // `role id { ... }`
+    FunctionDefinition(DeclareId), // `func i2c()` — func name definition
+    FunctionRef(DeclareId),        // function call reference
+    MethodRef(DeclareId),          // `.method()` call on instance
+    ClassRef(DeclareId),           // standalone class ref: `RES(10k)` (not in declare)
+    PinNameDefinition(DeclareId),  // pin name in component body: `1 = _CS`
+    PinNameRef(DeclareId),         // pin name reference: `Pullup(_CS, V3V3)`
+    DefineDefinition(DeclareId),   // `define name body`
+    RoleDefinition(DeclareId),     // `role id { ... }`
 }
 pub type SymbolRangeLapper = Lapper<usize, SymbolType>;
 

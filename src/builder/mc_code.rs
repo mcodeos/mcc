@@ -1525,6 +1525,43 @@ impl McCode {
 
                 tracing::info!(target: "mcc::lsp", "create_lapper: {} decls, {} local_refs, {} global_refs, lapper len={}", decl_count, ref_count, global_ref_count, symbol_lapper.len());
 
+                // ★ LSP: Add component parameter definitions to symbol_lapper
+                //   (e.g. `component RESA(rs, volt)` -> rs, volt are PortDefinition)
+                {
+                    let components = crate::builder::workspace::WORKSPACE.components.borrow();
+                    for entry in components.iter() {
+                        let comp = entry.value();
+                        if entry.key().uri.as_str() != self.uri.as_str() {
+                            continue;
+                        }
+                        // Component params (e.g. `component RESA(rs, volt)`)
+                        for (name, span) in comp.params.iter_ports_with_span() {
+                            let span_clone = span.clone();
+                            let decl_id = sem
+                                .local_table
+                                .add_declare_with_name(span_clone, Some(name.to_string()));
+                            symbol_lapper.insert(Interval {
+                                start: span.start,
+                                stop: span.end,
+                                val: SymbolType::PortDefinition(decl_id),
+                            });
+                        }
+                        // Component param references from body expressions
+                        // (e.g. `spec.value = rs` where rs is a param)
+                        for (span, port_name) in comp.params.iter_port_refs() {
+                            if let Some(decl_id) =
+                                sem.local_table.name_to_declare_id.get(port_name).copied()
+                            {
+                                symbol_lapper.insert(Interval {
+                                    start: span.start,
+                                    stop: span.end,
+                                    val: SymbolType::InstanceRef(decl_id),
+                                });
+                            }
+                        }
+                    }
+                }
+
                 // ★ LSP: emit enum reference entries for qualified refs like
                 //   `package = PKG.SOP8`. We walk the AST for `MCAST_ATTRIBUTE`
                 //   whose `key` is `package` (or `pkg`), and inspect each value
@@ -1761,7 +1798,9 @@ impl McCode {
                         let mut stack: Vec<AstNode> = self.ast.iter().collect();
                         while let Some(node) = stack.pop() {
                             if let Some(sub) = node.get_sub_node() {
-                                for child in sub.iter() { stack.push(child); }
+                                for child in sub.iter() {
+                                    stack.push(child);
+                                }
                             }
                             acc.push(node);
                         }
@@ -1771,31 +1810,46 @@ impl McCode {
                         let ntype = node.get_type();
                         if ntype == MCAST_FUNCTION {
                             if let Some(name_node) = node.get_sub_node() {
-                                let span = (name_node.get_pos() as usize, (name_node.get_pos() + name_node.get_len()) as usize);
+                                let span = (
+                                    name_node.get_pos() as usize,
+                                    (name_node.get_pos() + name_node.get_len()) as usize,
+                                );
                                 let decl_id = sem.local_table.add_declare_with_name(
                                     span.0..span.1,
-                                    crate::core::basic::mc_ids::McIds::new(&name_node).map(|ids| ids.to_string()),
+                                    crate::core::basic::mc_ids::McIds::new(&name_node)
+                                        .map(|ids| ids.to_string()),
                                 );
                                 symbol_lapper.insert(Interval {
-                                    start: span.0, stop: span.1,
+                                    start: span.0,
+                                    stop: span.1,
                                     val: SymbolType::FunctionDefinition(decl_id),
                                 });
                             }
                         } else if ntype == MCAST_DEFINE {
                             if let Some(name_node) = node.get_sub_node() {
-                                let span = (name_node.get_pos() as usize, (name_node.get_pos() + name_node.get_len()) as usize);
-                                let decl_id = sem.local_table.add_declare_with_name(span.0..span.1, None);
+                                let span = (
+                                    name_node.get_pos() as usize,
+                                    (name_node.get_pos() + name_node.get_len()) as usize,
+                                );
+                                let decl_id =
+                                    sem.local_table.add_declare_with_name(span.0..span.1, None);
                                 symbol_lapper.insert(Interval {
-                                    start: span.0, stop: span.1,
+                                    start: span.0,
+                                    stop: span.1,
                                     val: SymbolType::DefineDefinition(decl_id),
                                 });
                             }
                         } else if ntype == MCAST_ROLE {
                             if let Some(name_node) = node.get_sub_node() {
-                                let span = (name_node.get_pos() as usize, (name_node.get_pos() + name_node.get_len()) as usize);
-                                let decl_id = sem.local_table.add_declare_with_name(span.0..span.1, None);
+                                let span = (
+                                    name_node.get_pos() as usize,
+                                    (name_node.get_pos() + name_node.get_len()) as usize,
+                                );
+                                let decl_id =
+                                    sem.local_table.add_declare_with_name(span.0..span.1, None);
                                 symbol_lapper.insert(Interval {
-                                    start: span.0, stop: span.1,
+                                    start: span.0,
+                                    stop: span.1,
                                     val: SymbolType::RoleDefinition(decl_id),
                                 });
                             }
@@ -1806,17 +1860,35 @@ impl McCode {
                                     MCAST_INSTANCE => s.get_next(),
                                     _ => Some(s.clone()),
                                 }
-                            } else { None };
+                            } else {
+                                None
+                            };
                             if let Some(nn) = name_node {
-                                let span = (nn.get_pos() as usize, (nn.get_pos() + nn.get_len()) as usize);
-                                let has_instance = sub.as_ref().map(|s| s.get_type() == MCAST_INSTANCE).unwrap_or(false);
-                                let decl_id = sem.local_table.add_declare_with_name(span.0..span.1,
-                                    crate::core::basic::mc_ids::McIds::new(&nn).map(|ids| ids.to_string()),
+                                let span = (
+                                    nn.get_pos() as usize,
+                                    (nn.get_pos() + nn.get_len()) as usize,
+                                );
+                                let has_instance = sub
+                                    .as_ref()
+                                    .map(|s| s.get_type() == MCAST_INSTANCE)
+                                    .unwrap_or(false);
+                                let decl_id = sem.local_table.add_declare_with_name(
+                                    span.0..span.1,
+                                    crate::core::basic::mc_ids::McIds::new(&nn)
+                                        .map(|ids| ids.to_string()),
                                 );
                                 if has_instance {
-                                    symbol_lapper.insert(Interval { start: span.0, stop: span.1, val: SymbolType::MethodRef(decl_id) });
+                                    symbol_lapper.insert(Interval {
+                                        start: span.0,
+                                        stop: span.1,
+                                        val: SymbolType::MethodRef(decl_id),
+                                    });
                                 } else {
-                                    symbol_lapper.insert(Interval { start: span.0, stop: span.1, val: SymbolType::ClassRef(decl_id) });
+                                    symbol_lapper.insert(Interval {
+                                        start: span.0,
+                                        stop: span.1,
+                                        val: SymbolType::ClassRef(decl_id),
+                                    });
                                 }
                             }
                         }
