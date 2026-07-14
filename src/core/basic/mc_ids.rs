@@ -913,6 +913,47 @@ impl McIds {
         }
     }
 
+    /// Return all possible name forms that could appear at a usage site.
+    /// For unused-parameter detection, check if ANY of these appear in the body.
+    ///
+    /// Forms included:
+    /// 1. Canonical form: `to_string()` → "GPIO[1:2]", "rs485{A, B}"
+    /// 2. Expanded individual names: `expand()` → ["GPIO1", "GPIO2"], ["rs485.A", "rs485.B"]
+    /// 3. Base name: `base_name()` → "GPIO", "rs485"
+    /// 4. Dot-member forms for curly bus: "rs485.A", "rs485.B"
+    /// 5. DOT access base: "DC2" from "DC2.VDD"
+    pub fn all_name_forms(&self) -> Vec<String> {
+        let mut forms = Vec::new();
+
+        // 1. Canonical
+        forms.push(self.to_string());
+
+        // 2. Expanded
+        forms.extend(self.expand());
+
+        // 3. Base name
+        let base = self.base_name();
+        if !base.is_empty() {
+            forms.push(base.clone());
+        }
+
+        // 4. Curly bus → dot-member forms
+        if let Some((bus_name, members)) = self.as_bus() {
+            for m in &members {
+                forms.push(format!("{}.{}", bus_name, m));
+            }
+        }
+
+        // 5. DOT access → base name
+        if let Some((d_base, _member)) = self.as_dot_access() {
+            if d_base != base {
+                forms.push(d_base);
+            }
+        }
+
+        forms
+    }
+
     /// Get the member list
     pub fn get_members(&self) -> Vec<&McIds> {
         // McIds does not have the concept of members, return empty list
