@@ -85,7 +85,10 @@ fn collect_usages_recursive(param_name: &str, node: &AstNode, usages: &mut Vec<U
                 // Net expressions
                 MCAST_OPD_MINUS | MCAST_OPD_PLUS | MCAST_OPD_RIGHTARROW | MCAST_OPD_LEFTARROW => {
                     if node_contains_name(&n, param_name) {
-                        usages.push(UsageSite { kind: UsageKind::NetConnection, pos });
+                        usages.push(UsageSite {
+                            kind: UsageKind::NetConnection,
+                            pos,
+                        });
                     }
                 }
                 // Attribute: key = value
@@ -98,18 +101,27 @@ fn collect_usages_recursive(param_name: &str, node: &AstNode, usages: &mut Vec<U
                                 pos,
                             });
                         } else {
-                            usages.push(UsageSite { kind: UsageKind::AttrValue(attr_name), pos });
+                            usages.push(UsageSite {
+                                kind: UsageKind::AttrValue(attr_name),
+                                pos,
+                            });
                         }
                     }
                 }
                 MCAST_ATTRIBUTE_PIN => {
                     if node_contains_name(&n, param_name) {
-                        usages.push(UsageSite { kind: UsageKind::PinBinding, pos });
+                        usages.push(UsageSite {
+                            kind: UsageKind::PinBinding,
+                            pos,
+                        });
                     }
                 }
                 MCAST_OPD_FCALL => {
                     if node_contains_name(&n, param_name) {
-                        usages.push(UsageSite { kind: UsageKind::FcallArg, pos });
+                        usages.push(UsageSite {
+                            kind: UsageKind::FcallArg,
+                            pos,
+                        });
                     }
                 }
                 // Arithmetic
@@ -367,32 +379,23 @@ pub fn infer_param(param_name: &str, body: &AstNode) -> InferenceResult {
     aggregate_usages(param_name, &usages)
 }
 
-/// Check for unused parameters and return their names.
-/// Handles Multiple (anonymous list) by iterating each member.
+/// Check for unused parameters — uses all_name_forms() for IDX-aware matching.
 pub fn find_unused_params(declares: &[McParamDeclare], body: &AstNode) -> Vec<String> {
     let mut unused = Vec::new();
     for declare in declares {
-        // Skip explicitly typed params
         if declare.has_type_constraint() {
             continue;
         }
-        // Collect all names to check from this declaration
-        let names: Vec<String> = match &declare.kind {
-            crate::core::basic::mc_paramd::McParamDeclareKind::Multiple(members) => {
-                members.iter().filter_map(|ids| ids.get_primary_name()).collect()
-            }
-            _ => {
-                if let Some(name) = declare.get_primary_name() {
-                    vec![name]
-                } else {
-                    vec![]
-                }
-            }
-        };
-        for name in names {
-            let usages = collect_usages(&name, body);
-            if usages.is_empty() {
-                unused.push(name);
+        let name_forms = declare.all_name_forms();
+        if name_forms.is_empty() {
+            continue;
+        }
+        let has_usage = name_forms
+            .iter()
+            .any(|name| !collect_usages(name, body).is_empty());
+        if !has_usage {
+            if let Some(primary) = declare.get_primary_name() {
+                unused.push(primary);
             }
         }
     }

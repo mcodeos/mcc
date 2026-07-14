@@ -88,7 +88,7 @@ pub struct LocalSymbolTable {
     pub declare_inst_to_span: HashMap<DeclareId, Span>,
     pub span_to_declare_inst: HashMap<Span, DeclareId>,
     pub declare_inst_to_inst_ids: HashMap<DeclareId, Vec<ReferenceId>>,
-    pub name_to_declare_id: HashMap<String, DeclareId>, // ★ LSP: name -> declare_id mapping
+    pub name_to_declare_id: HashMap<(String, String), DeclareId>, // ★ LSP: (cmie_name, port_name) -> declare_id
 
     pub inst_id_to_span: HashMap<ReferenceId, Span>,
     pub span_to_inst_id: HashMap<Span, ReferenceId>,
@@ -122,16 +122,18 @@ impl LocalSymbolTable {
     }
 
     pub fn add_declare(&mut self, span: Span) -> DeclareId {
-        self.add_declare_with_name(span, None)
+        self.add_declare_with_name(span, None, None)
     }
 
-    pub fn add_declare_with_name(&mut self, span: Span, name: Option<String>) -> DeclareId {
+    pub fn add_declare_with_name(
+        &mut self, span: Span, name: Option<String>, scope: Option<&str>,
+    ) -> DeclareId {
         let declare_id = self.assign_declare_id();
         self.declare_inst_to_span.insert(declare_id, span.clone());
         self.span_to_declare_inst.insert(span, declare_id);
-        // ★ LSP: Also store name -> declare_id mapping
         if let Some(n) = name {
-            self.name_to_declare_id.insert(n, declare_id);
+            let scope_key = scope.unwrap_or("");
+            self.name_to_declare_id.insert((scope_key.to_string(), n), declare_id);
         }
         declare_id
     }

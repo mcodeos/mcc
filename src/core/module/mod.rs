@@ -141,10 +141,12 @@ impl McModule {
                                 continue;
                             }
                             // Collect port reference spans before parsing the net
+                            let scope = self.name.to_string();
                             Self::collect_port_refs_in_node(
                                 &subnode,
                                 &mut self.insts,
                                 &mut self.params,
+                                &scope,
                             );
                             match McPhrase::new(&subnode, self) {
                                 Some(net) => {
@@ -184,30 +186,49 @@ impl McModule {
                 }
             }
 
-            // ★ Smart Param (M5): Finalize after body parsed
+            // ★ Smart Param (M5): Check both formal params and body ports.
             let mod_name = self.name.to_string();
             let diags = self.params.finalize(Some(body), &mod_name);
-            for d in &diags {
-                mcc::mcc_record_param_diag(d);
+            let warned: std::collections::HashSet<String> = diags.iter().map(|d| d.param_name.clone()).collect();
+            for d in diags {
+                mcc::mcc_record_param_diag(&d);
             }
-            // ★ Also check body-internal port declarations (insts)
-            let param_names: std::collections::HashSet<String> = self
-                .params
-                .iter()
-                .filter_map(|d| d.get_primary_name())
-                .collect();
-            // Check body-internal port declarations (insts)
             for port_name in self.insts.iter_instance_names() {
-                if param_names.contains(port_name) {
-                    continue;
-                }
-                let span = self.insts.port_spans().get(port_name)
+                if warned.contains(port_name) { continue; }
+                let mut span = self
+                    .insts
+                    .port_spans()
+                    .get(port_name)
                     .and_then(|s| s.first().cloned())
                     .unwrap_or(0..1);
-                let real_count = crate::core::basic::mc_param_infer::collect_usages(port_name, body)
+                // Fallback for IDX members stored individually without span:
+                // try base name (strip trailing digits) in port_spans.
+                if span.start == 0 && span.end == 1 {
+                    // Try sibling labels with same base (GPIO2 → find GPIO1's span)
+                    if let Some(base) = McInstances::strip_trailing_digits(port_name) {
+                        for other in self.insts.iter_instance_names() {
+                            if other == port_name { continue; }
+                            if let Some(other_base) = McInstances::strip_trailing_digits(other) {
+                                if other_base == base {
+                                    if let Some(s) = self.insts.port_spans().get(other).and_then(|v| v.first()) {
+                                        span = s.clone();
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                let all_forms = self.insts.all_name_forms_for(port_name);
+                let real_count: usize = all_forms
                     .iter()
-                    .filter(|u| u.pos != span.start)
-                    .count();
+                    .map(|form| {
+                        crate::core::basic::mc_param_infer::collect_usages(form, body)
+                            .iter()
+                            .filter(|u| u.pos != span.start)
+                            .count()
+                    })
+                    .sum();
                 if real_count == 0 {
                     mcc::mcc_record_param_diag(&crate::core::basic::mc_paramd::ParamDiagnostic {
                         kind: crate::core::basic::mc_paramd::ParamDiagKind::Unused,
@@ -559,19 +580,26 @@ impl McModule {
         node: &AstNode,
         insts: &mut McInstances,
         params: &mut McParamDeclares,
+        scope: &str,
     ) {
         // Check this node (only leaf identifier nodes for precise spans)
         match node.get_type() {
             MCAST_ID | MCAST_IDA => {
                 if let Some(text) = node.to_string() {
-                    if insts.contains(&text) {
-                        let span =
-                            (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
-                        insts.record_port_ref(span, &text);
-                    } else if params.contains(&text) {
-                        let span =
-                            (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
-                        params.record_port_ref(span, &text);
+                    let span =
+                        (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
+                    // Exact match first (DC2.VDD), then IDX-aware match (GPIO[1] → GPIO)
+                    let matched_key: Option<String> = if insts.port_spans().contains_key(&text) {
+                        Some(text.clone())
+                    } else {
+                        insts.iter_instance_names()
+                            .find(|k| insts.all_name_forms_for(k).contains(&text))
+                            .cloned()
+                    };
+                    if let Some(ref key) = matched_key {
+                        insts.record_port_ref(span, key, scope);
+                    } else if params.is_defined(&text) {
+                        params.record_port_ref(span, &text, scope);
                     }
                 }
             }
@@ -581,7 +609,7 @@ impl McModule {
         if let Some(sub) = node.get_sub_node() {
             let mut current = sub;
             loop {
-                Self::collect_port_refs_in_node(&current, insts, params);
+                Self::collect_port_refs_in_node(&current, insts, params, scope);
                 match current.get_next() {
                     Some(next) => current = next,
                     None => break,

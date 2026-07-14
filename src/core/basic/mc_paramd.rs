@@ -20,7 +20,7 @@ pub struct McParamDeclares {
     /// Filtered by `filter_port_spans()` after type inference.
     port_spans: HashMap<String, Vec<Range<usize>>>,
     /// Port reference spans from net lines (for LSP goto-definition)
-    port_ref_spans: Vec<(Range<usize>, String)>,
+    port_ref_spans: Vec<(Range<usize>, String, String)>, // (span, port_name, scope)
 }
 
 impl McParamDeclares {
@@ -84,24 +84,36 @@ impl McParamDeclares {
                                 break;
                             }
                             let current = param_iter.next().unwrap();
-                            // Delegate to McParamDeclare::new() for consistent handling.
-                            // It handles MCAST_ID/IDS/IDA and MCAST_SQUARE_VEC uniformly.
-                            if let Some(paramd) = McParamDeclare::new(&current) {
-                                // Store def_span using the canonical name
-                                if let Some(name) = paramd.get_primary_name() {
-                                    let span = (current.get_pos() as usize)
-                                        ..((current.get_pos() + current.get_len()) as usize);
-                                    self.store_def_span(&name, span);
-                                } else if let McParamDeclareKind::Multiple(ref members) = paramd.kind {
-                                    let span = (current.get_pos() as usize)
-                                        ..((current.get_pos() + current.get_len()) as usize);
-                                    for m in members {
-                                        if let Some(name) = m.get_primary_name() {
-                                            self.store_def_span(&name, span.clone());
-                                        }
+                            let op_type = current.get_type();
+                            if matches!(op_type, MCAST_ID | MCAST_IDA | MCAST_IDS) {
+                                if let Some(paramd) = McParamDeclare::new(&current) {
+                                    if let Some(name) = paramd.get_primary_name() {
+                                        let span = (current.get_pos() as usize)
+                                            ..((current.get_pos() + current.get_len()) as usize);
+                                        self.store_def_span(&name, span);
                                     }
+                                    self.declares.push(paramd);
                                 }
-                                self.declares.push(paramd);
+                            } else if op_type == MCAST_OPD || op_type == MCAST_OPD_SQUARE_VEC {
+                                let mut inner =
+                                    current.get_sub_node().unwrap_or_else(|| current.clone());
+                                if inner.get_type() == MCAST_OPD {
+                                    inner = inner.get_sub_node().unwrap_or_else(|| inner.clone());
+                                }
+                                if let Some(paramd) = McParamDeclare::new(&inner) {
+                                    let span = (current.get_pos() as usize)
+                                        ..((current.get_pos() + current.get_len()) as usize);
+                                    if let McParamDeclareKind::Multiple(members) = &paramd.kind {
+                                        for m in members {
+                                            if let Some(name) = m.get_primary_name() {
+                                                self.store_def_span(&name, span.clone());
+                                            }
+                                        }
+                                    } else if let Some(name) = paramd.get_primary_name() {
+                                        self.store_def_span(&name, span);
+                                    }
+                                    self.declares.push(paramd);
+                                }
                             }
                         }
                         continue;
@@ -173,19 +185,17 @@ impl McParamDeclares {
 
     /// Record a reference to this parameter (for LSP goto-def from body references).
     /// Uses `def_spans` so ALL params (including B/C categories) support goto-def.
-    pub(crate) fn record_port_ref(&mut self, span: Range<usize>, port_name: &str) {
+    pub(crate) fn record_port_ref(
+        &mut self, span: Range<usize>, port_name: &str, scope: &str,
+    ) {
         if let Some(spans) = self.def_spans.get_mut(port_name) {
-            if !spans
-                .iter()
-                .any(|s| s.start == span.start && s.end == span.end)
-            {
-                self.port_ref_spans.push((span, port_name.to_string()));
+            if !spans.iter().any(|s| s.start == span.start && s.end == span.end) {
+                self.port_ref_spans.push((span, port_name.to_string(), scope.to_string()));
             }
         }
     }
 
-    /// Iterate param port reference spans (from net lines)
-    pub fn iter_port_refs(&self) -> impl Iterator<Item = &(Range<usize>, String)> + '_ {
+    pub fn iter_port_refs(&self) -> impl Iterator<Item = &(Range<usize>, String, String)> + '_ {
         self.port_ref_spans.iter()
     }
 
@@ -282,36 +292,7 @@ impl McParamDeclares {
         // Step 3: Filter port_spans based on final type classification
         self.filter_port_spans();
 
-        // Step 4: Warn about remaining Unknown params (have usages but couldn't determine type)
-        for declare in self.declares.iter() {
-            if declare.param_type.kind
-                == crate::core::basic::mc_param_type::McParamTypeKind::Unknown
-            {
-                if let Some(name) = declare.get_primary_name() {
-                    // Only warn if it wasn't already flagged as unused
-                    let already_unused = diagnostics.iter().any(|d| d.param_name == name);
-                    if !already_unused {
-                        let (pos, len) = self
-                            .def_spans
-                            .get(&name)
-                            .and_then(|spans| spans.first())
-                            .map(|s| (s.start, s.end - s.start))
-                            .unwrap_or((0, 0));
-                        diagnostics.push(ParamDiagnostic {
-                            kind: ParamDiagKind::Untyped,
-                            param_name: name.clone(),
-                            definition: def_name.to_string(),
-                            message: format!(
-                                "Parameter '{}' in '{}' has no type annotation and its type could not be inferred. Consider adding ::INT, ::STRING, ::UV.VOLT, etc.",
-                                name, def_name
-                            ),
-                            pos,
-                            len,
-                        });
-                    }
-                }
-            }
-        }
+        // Step 4: (reserved for future type-annotation suggestions)
 
         diagnostics
     }
@@ -562,6 +543,19 @@ impl McParamDeclare {
         }
     }
 
+    /// Return all possible name forms for usage-site matching.
+    pub fn all_name_forms(&self) -> Vec<String> {
+        match &self.kind {
+            McParamDeclareKind::Single(ids) => ids.all_name_forms(),
+            McParamDeclareKind::Multiple(members) => members
+                .iter()
+                .flat_map(|ids| ids.all_name_forms())
+                .collect(),
+            McParamDeclareKind::Role(role) => role.all_name_forms(),
+            McParamDeclareKind::UValue(uval) => uval.name.all_name_forms(),
+        }
+    }
+
     pub fn get_name_with_default(&self) -> Option<(McIds, String)> {
         match &self.kind {
             McParamDeclareKind::Single(ids) => {
@@ -652,7 +646,7 @@ mod tests {
         params.filter_port_spans();
 
         // Reference should still be recorded via def_spans
-        params.record_port_ref(50..52, "rs");
+        params.record_port_ref(50..52, "rs", "test");
         assert_eq!(params.port_ref_spans.len(), 1);
         assert_eq!(params.port_ref_spans[0].1, "rs");
     }

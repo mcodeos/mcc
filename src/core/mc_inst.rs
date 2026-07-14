@@ -233,7 +233,7 @@ pub struct McInstances {
     /// Port spans for LSP goto-definition (name -> span ranges, multiple for DOT patterns)
     port_spans: HashMap<String, Vec<Range<usize>>>,
     /// LSP: spans in module body that reference port definitions (span, port_name)
-    port_ref_spans: Vec<(Range<usize>, String)>,
+    port_ref_spans: Vec<(Range<usize>, String, String)>, // (span, port_name, scope)
     /// ★ LSP: Enclosing scope name (module/component/function name)
     pub(crate) scope: Option<String>,
 }
@@ -277,6 +277,45 @@ impl McInstances {
         self.insts.keys()
     }
 
+    /// Return all possible name forms that could reference this port at a usage site.
+    pub fn all_name_forms_for(&self, key: &str) -> Vec<String> {
+        let mut forms = vec![key.to_string()];
+        if let Some((_, inst)) = self.insts.get(key) {
+            match inst {
+                McInstance::Bus(bus) => {
+                    for m in &bus.member {
+                        forms.push(format!("{}.{}", bus.name, m));
+                        // Also bare member name (e.g. "A" from rs485{A,B})
+                        forms.push(m.clone());
+                    }
+                }
+                McInstance::List(list) => {
+                    // Square-indexed: generate GPIO1, GPIO[1], GPIO2, GPIO[2], 1, 2
+                    for m in &list.member {
+                        forms.push(format!("{}[{}]", list.name, m));
+                        forms.push(format!("{}{}", list.name, m)); // GPIO1, GPIO2
+                        forms.push(m.clone()); // bare "1", "2"
+                    }
+                }
+                McInstance::Label(label) => {
+                    forms.push(label.clone());
+                    if let Some(base) = Self::strip_trailing_digits(label) {
+                        if let Some(num) = label.strip_prefix(&base) {
+                            forms.push(base.clone());
+                            forms.push(format!("{}[{}]", base, num));
+                        }
+                    }
+                    // "DC1{VDD,GND}" → also "DC1"
+                    if let Some(pos) = label.find('{') {
+                        forms.push(label[..pos].to_string());
+                    }
+                }
+                _ => {}
+            }
+        }
+        forms
+    }
+
     /// Store port span when a port is inserted
     pub(crate) fn store_port_span(&mut self, name: &str, span: Range<usize>) {
         self.port_spans
@@ -303,12 +342,11 @@ impl McInstances {
     }
 
     /// Record a net-line reference to a port definition (for LSP goto-definition)
-    pub(crate) fn record_port_ref(&mut self, span: Range<usize>, port_name: &str) {
-        self.port_ref_spans.push((span, port_name.to_string()));
+    pub(crate) fn record_port_ref(&mut self, span: Range<usize>, port_name: &str, scope: &str) {
+        self.port_ref_spans.push((span, port_name.to_string(), scope.to_string()));
     }
 
-    /// Iterate port reference spans collected from net lines
-    pub fn iter_port_refs(&self) -> impl Iterator<Item = &(Range<usize>, String)> {
+    pub fn iter_port_refs(&self) -> impl Iterator<Item = &(Range<usize>, String, String)> {
         self.port_ref_spans.iter()
     }
 
@@ -324,8 +362,7 @@ impl McInstances {
                             let ctype = child.get_type();
                             match ctype {
                                 MCAST_DECLARE => {
-                                    let before: Vec<String> =
-                                        self.insts.keys().cloned().collect();
+                                    let before: Vec<String> = self.insts.keys().cloned().collect();
                                     self.parse_declare(&child, uri, &IOType::Power);
                                     let new_keys: Vec<String> = self
                                         .insts
@@ -477,10 +514,13 @@ impl McInstances {
                                             )),
                                         ),
                                     );
-                                    self.store_port_span(&base_name, span);
+                                    self.store_port_span(&base_name, span.clone());
+                                    let full_name = format!("{}.{}", base_name, dot_member);
+                                    self.store_port_span(&full_name, span);
                                     continue;
                                 }
                             }
+                            let dot_member_clone = dot_member.clone();
                             let members = vec![dot_member];
                             self.insts.insert(
                                 base_name.clone(),
@@ -489,7 +529,9 @@ impl McInstances {
                                     McInstance::Bus(McBus::new_with_members(&base_name, members)),
                                 ),
                             );
-                            self.store_port_span(&base_name, span);
+                            self.store_port_span(&base_name, span.clone());
+                            let full_name = format!("{}.{}", base_name, dot_member_clone);
+                            self.store_port_span(&full_name, span);
                             continue;
                         }
 
@@ -708,7 +750,7 @@ impl McInstances {
                                                 )),
                                             ),
                                         );
-                                        self.store_port_span(&base_name, span);
+                                        // Don't overwrite existing span
                                         continue;
                                     }
                                 }
@@ -905,6 +947,17 @@ impl McInstances {
     }
 
     /// Parse a MCAST_DECLARE node directly and create McInstance variants
+    /// Strip trailing digits from a name like "GPIO1" → Some("GPIO"), "VDD1" → Some("VDD").
+    /// Returns None if no trailing digits or name is all digits.
+    pub fn strip_trailing_digits(s: &str) -> Option<String> {
+        let base_end = s.trim_end_matches(|c: char| c.is_ascii_digit());
+        if base_end.is_empty() || base_end.len() == s.len() {
+            None
+        } else {
+            Some(base_end.to_string())
+        }
+    }
+
     /// Extract the instance identifier span from a MCAST_DECLARE node.
     /// Returns (pos, len) of the first MCAST_INSTANCE child's identifier.
     fn find_instance_span(node: &AstNode) -> std::ops::Range<usize> {
@@ -1054,6 +1107,7 @@ impl McInstances {
                 // Get the span of the instance name from ids_node
                 let inst_span = (ids_node.get_pos() as usize)
                     ..((ids_node.get_pos() + ids_node.get_len()) as usize);
+                self.store_port_span(inst_name_ref, inst_span.clone());
                 let scope = self.scope.as_deref();
                 let decl_id = mcb_register_instance_decl(
                     uri,
