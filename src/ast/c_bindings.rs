@@ -21,6 +21,7 @@ extern "C" {
     pub fn mcc_get_sem_tokens() -> *mut McSemTokenFFI;
     pub fn mc_sem_token_free();
     pub fn mcc_get_error_tokens() -> *mut McSemTokenFFI;
+    pub fn mcc_clear_error_tokens();
     pub fn mc_log_init(log_file: *const libc::c_char);
     pub fn mc_log_close();
 }

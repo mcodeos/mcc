@@ -255,6 +255,7 @@ void mc_sem_token_free();
 
 mc_sem_token* mcc_get_error_tokens();
 void mc_error_token_add(void* ptoken);
+void mcc_clear_error_tokens(void);
 void mc_error_token_print();
 void mc_error_token_free();
 
