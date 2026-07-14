@@ -292,7 +292,7 @@ impl McComponent {
     /// Recursively scan AST nodes in the component body for identifiers matching
     /// component parameter names (e.g. `spec.value = rs` where rs is a parameter).
     /// Record their spans for LSP goto-definition.
-    fn collect_param_refs_in_body(
+    pub(crate) fn collect_param_refs_in_body(
         body_node: &AstNode, params: &mut McParamDeclares, scope: &str,
     ) {
         Self::collect_param_refs_in_node(body_node, params, scope);

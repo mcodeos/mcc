@@ -338,6 +338,8 @@ impl McFunction {
 
             // ★ Smart Param (M5): Finalize after body parsed
             let func_name = self.name.to_string();
+            // ★ Collect param references in function body for LSP goto-def
+            crate::core::component::McComponent::collect_param_refs_in_body(body, &mut self.params, &func_name);
             let diags = self.params.finalize(Some(body), &func_name);
             for d in &diags {
                 mcc::mcc_record_param_diag(d);
