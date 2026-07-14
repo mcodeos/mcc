@@ -1751,6 +1751,75 @@ impl McCode {
                     }
                 }
 
+                // ── M6: func / define / role definitions ──
+                {
+                    let all_nodes: Vec<AstNode> = {
+                        let mut acc = Vec::new();
+                        let mut stack: Vec<AstNode> = self.ast.iter().collect();
+                        while let Some(node) = stack.pop() {
+                            if let Some(sub) = node.get_sub_node() {
+                                for child in sub.iter() { stack.push(child); }
+                            }
+                            acc.push(node);
+                        }
+                        acc
+                    };
+                    for node in &all_nodes {
+                        let ntype = node.get_type();
+                        if ntype == MCAST_FUNCTION {
+                            if let Some(name_node) = node.get_sub_node() {
+                                let span = (name_node.get_pos() as usize, (name_node.get_pos() + name_node.get_len()) as usize);
+                                let decl_id = sem.local_table.add_declare_with_name(
+                                    span.0..span.1,
+                                    crate::core::basic::mc_ids::McIds::new(&name_node).map(|ids| ids.to_string()),
+                                );
+                                symbol_lapper.insert(Interval {
+                                    start: span.0, stop: span.1,
+                                    val: SymbolType::FunctionDefinition(decl_id),
+                                });
+                            }
+                        } else if ntype == MCAST_DEFINE {
+                            if let Some(name_node) = node.get_sub_node() {
+                                let span = (name_node.get_pos() as usize, (name_node.get_pos() + name_node.get_len()) as usize);
+                                let decl_id = sem.local_table.add_declare_with_name(span.0..span.1, None);
+                                symbol_lapper.insert(Interval {
+                                    start: span.0, stop: span.1,
+                                    val: SymbolType::DefineDefinition(decl_id),
+                                });
+                            }
+                        } else if ntype == MCAST_ROLE {
+                            if let Some(name_node) = node.get_sub_node() {
+                                let span = (name_node.get_pos() as usize, (name_node.get_pos() + name_node.get_len()) as usize);
+                                let decl_id = sem.local_table.add_declare_with_name(span.0..span.1, None);
+                                symbol_lapper.insert(Interval {
+                                    start: span.0, stop: span.1,
+                                    val: SymbolType::RoleDefinition(decl_id),
+                                });
+                            }
+                        } else if ntype == MCAST_OPD_FCALL {
+                            let sub = node.get_sub_node();
+                            let name_node = if let Some(s) = &sub {
+                                match s.get_type() {
+                                    MCAST_INSTANCE => s.get_next(),
+                                    _ => Some(s.clone()),
+                                }
+                            } else { None };
+                            if let Some(nn) = name_node {
+                                let span = (nn.get_pos() as usize, (nn.get_pos() + nn.get_len()) as usize);
+                                let has_instance = sub.as_ref().map(|s| s.get_type() == MCAST_INSTANCE).unwrap_or(false);
+                                let decl_id = sem.local_table.add_declare_with_name(span.0..span.1,
+                                    crate::core::basic::mc_ids::McIds::new(&nn).map(|ids| ids.to_string()),
+                                );
+                                if has_instance {
+                                    symbol_lapper.insert(Interval { start: span.0, stop: span.1, val: SymbolType::MethodRef(decl_id) });
+                                } else {
+                                    symbol_lapper.insert(Interval { start: span.0, stop: span.1, val: SymbolType::ClassRef(decl_id) });
+                                }
+                            }
+                        }
+                    }
+                }
+
                 sem.symbol_lapper = symbol_lapper;
             }
             Err(e) => {

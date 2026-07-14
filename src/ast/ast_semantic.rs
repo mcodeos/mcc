@@ -53,6 +53,15 @@ pub enum SymbolType {
     EnumValueDefinition(DeclareId), // `SOP8,` — body row; id packed as (class<<16 | idx)
     EnumClassRef(DeclareId),        // `PKG` in `PKG.SOP8`
     EnumValueRef(DeclareId),        // `SOP8` in `PKG.SOP8`
+    // ── M6 gaps: language constructs not previously tracked ──
+    FunctionDefinition(DeclareId),  // `func i2c()` — func name definition
+    FunctionRef(DeclareId),         // function call reference
+    MethodRef(DeclareId),           // `.method()` call on instance
+    ClassRef(DeclareId),            // standalone class ref: `RES(10k)` (not in declare)
+    PinNameDefinition(DeclareId),   // pin name in component body: `1 = _CS`
+    PinNameRef(DeclareId),          // pin name reference: `Pullup(_CS, V3V3)`
+    DefineDefinition(DeclareId),    // `define name body`
+    RoleDefinition(DeclareId),      // `role id { ... }`
 }
 pub type SymbolRangeLapper = Lapper<usize, SymbolType>;
 
@@ -430,6 +439,14 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
                 SymbolType::EnumValueDefinition(id) => ("enum_value_def", id._raw),
                 SymbolType::EnumClassRef(id) => ("enum_class_ref", id._raw),
                 SymbolType::EnumValueRef(id) => ("enum_value_ref", id._raw),
+                SymbolType::FunctionDefinition(id) => ("function_definition", id._raw),
+                SymbolType::FunctionRef(id) => ("function_ref", id._raw),
+                SymbolType::MethodRef(id) => ("method_ref", id._raw),
+                SymbolType::ClassRef(id) => ("class_ref", id._raw),
+                SymbolType::PinNameDefinition(id) => ("pin_name_definition", id._raw),
+                SymbolType::PinNameRef(id) => ("pin_name_ref", id._raw),
+                SymbolType::DefineDefinition(id) => ("define_definition", id._raw),
+                SymbolType::RoleDefinition(id) => ("role_definition", id._raw),
             };
             let scope = symbols
                 .symbol_scope
