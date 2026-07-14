@@ -196,16 +196,22 @@ impl McModule {
                 .iter()
                 .filter_map(|d| d.get_primary_name())
                 .collect();
-            for (port_name, _iotype, span) in self.insts.iter_ports_with_span() {
+            // Check body-internal port declarations (insts)
+            for port_name in self.insts.iter_instance_names() {
                 if param_names.contains(port_name) {
-                    continue; // already covered by params.finalize()
+                    continue;
                 }
-                let usages =
-                    crate::core::basic::mc_param_infer::collect_usages(port_name, body);
-                if usages.is_empty() {
+                let span = self.insts.port_spans().get(port_name)
+                    .and_then(|s| s.first().cloned())
+                    .unwrap_or(0..1);
+                let real_count = crate::core::basic::mc_param_infer::collect_usages(port_name, body)
+                    .iter()
+                    .filter(|u| u.pos != span.start)
+                    .count();
+                if real_count == 0 {
                     mcc::mcc_record_param_diag(&crate::core::basic::mc_paramd::ParamDiagnostic {
                         kind: crate::core::basic::mc_paramd::ParamDiagKind::Unused,
-                        param_name: port_name.to_string(),
+                        param_name: port_name.clone(),
                         definition: mod_name.clone(),
                         message: format!(
                             "Port '{}' in '{}' is declared but never used in any net connection.",

@@ -267,6 +267,16 @@ impl McInstances {
         self.port_spans.get(name).and_then(|v| v.first().cloned())
     }
 
+    /// Access port_spans for diagnostic purposes (all ports, no IOType filter).
+    pub fn port_spans(&self) -> &HashMap<String, Vec<Range<usize>>> {
+        &self.port_spans
+    }
+
+    /// Iterate all instance names (for unused-port diagnostics).
+    pub fn iter_instance_names(&self) -> impl Iterator<Item = &String> {
+        self.insts.keys()
+    }
+
     /// Store port span when a port is inserted
     pub(crate) fn store_port_span(&mut self, name: &str, span: Range<usize>) {
         self.port_spans
@@ -314,7 +324,22 @@ impl McInstances {
                             let ctype = child.get_type();
                             match ctype {
                                 MCAST_DECLARE => {
+                                    let before: Vec<String> =
+                                        self.insts.keys().cloned().collect();
                                     self.parse_declare(&child, uri, &IOType::Power);
+                                    let new_keys: Vec<String> = self
+                                        .insts
+                                        .keys()
+                                        .filter(|k| !before.contains(k))
+                                        .cloned()
+                                        .collect();
+                                    if new_keys.len() == 1 {
+                                        // Use instance ID position from the DECLARE's child
+                                        let inst_span = Self::find_instance_span(&child);
+                                        for k in new_keys {
+                                            self.store_port_span(&k, inst_span.clone());
+                                        }
+                                    }
                                 }
                                 MCAST_OPD => {
                                     let span = (child.get_pos() as usize)
@@ -880,6 +905,29 @@ impl McInstances {
     }
 
     /// Parse a MCAST_DECLARE node directly and create McInstance variants
+    /// Extract the instance identifier span from a MCAST_DECLARE node.
+    /// Returns (pos, len) of the first MCAST_INSTANCE child's identifier.
+    fn find_instance_span(node: &AstNode) -> std::ops::Range<usize> {
+        if let Some(sub) = node.get_sub_node() {
+            for child in sub.iter() {
+                if child.get_type() == MCAST_INSTANCE {
+                    if let Some(inst_sub) = child.get_sub_node() {
+                        let ids_node = if inst_sub.get_type() == MCAST_OPD {
+                            inst_sub.get_sub_node().unwrap_or(inst_sub)
+                        } else {
+                            inst_sub
+                        };
+                        let start = ids_node.get_pos() as usize;
+                        let end = start + ids_node.get_len() as usize;
+                        return start..end;
+                    }
+                }
+            }
+        }
+        // Fallback to DECLARE node position
+        (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize)
+    }
+
     pub(crate) fn parse_declare(&mut self, node: &AstNode, uri: &McURI, iotype: &IOType) {
         // MCAST_DECLARE structure:
         // |- MCAST_CLASS (class_id, class_params)
