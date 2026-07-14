@@ -1048,6 +1048,31 @@ impl McCode {
     }
 
     /// Phase 1b: parse all module definitions (at this point all component/interface/enum are already registered)
+    /// Extract (name, span) pairs from MCAST_PARAMS node for function parameter
+    /// definitions. Handles MCAST_PARAM wrappers and direct ID/IDS nodes.
+    fn extract_func_param_spans(params_node: &AstNode) -> Vec<(String, std::ops::Range<usize>)> {
+        let mut result = Vec::new();
+        if let Some(sub) = params_node.get_sub_node() {
+            for param in sub.iter() {
+                let inner = if param.get_type() == MCAST_PARAM {
+                    param.get_sub_node().unwrap_or(param)
+                } else {
+                    param.clone()
+                };
+                if let Some(ids) = McIds::new(&inner) {
+                    let span = (inner.get_pos() as usize)
+                        ..((inner.get_pos() + inner.get_len()) as usize);
+                    result.push((ids.to_string(), span));
+                }
+            }
+        }
+        result
+    }
+
+    fn extract_pin_name_spans(comp: &McComponent) -> Vec<(String, std::ops::Range<usize>)> {
+        comp.pins.pin_name_spans.iter().map(|(n, s)| (n.clone(), s.clone())).collect()
+    }
+
     pub fn parse_pass1_modules(&mut self) {
         if self.modules_parsed {
             return;
@@ -1533,6 +1558,28 @@ impl McCode {
 
                 tracing::info!(target: "mcc::lsp", "create_lapper: {} decls, {} local_refs, {} global_refs, lapper len={}", decl_count, ref_count, global_ref_count, symbol_lapper.len());
 
+                // ★ G2: Register function parameter refs from module functions
+                {
+                    let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
+                    for entry in modules.iter() {
+                        let m = entry.value();
+                        if entry.key().uri.as_str() != self.uri.as_str() { continue; }
+                        for func in m.funcs.iter() {
+                            let fscope = func.name.to_string();
+                            for (span, port_name, scope) in func.params.iter_port_refs() {
+                                let scoped_key = (scope.clone(), port_name.clone());
+                                if let Some(decl_id) = sem.local_table.name_to_declare_id.get(&scoped_key).copied() {
+                                    symbol_lapper.insert(Interval {
+                                        start: span.start, stop: span.end,
+                                        val: SymbolType::InstanceRef(decl_id),
+                                    });
+                                    sem.symbol_scope.insert((span.start, span.end), scope.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // ★ LSP: Add component parameter definitions to symbol_lapper
                 //   (e.g. `component RESA(rs, volt)` -> rs, volt are PortDefinition)
                 {
@@ -1555,6 +1602,16 @@ impl McCode {
                                 val: SymbolType::PortDefinition(decl_id),
                             });
                             sem.symbol_scope.insert((span.start, span.end), comp_ident.clone());
+                        }
+                        // ★ G5: Pin name definitions from component pins
+                        for (pin_name, pin_span) in Self::extract_pin_name_spans(comp) {
+                            let pdecl_id = sem.local_table.add_declare_with_name(
+                                pin_span.clone(), Some(pin_name.clone()), Some(&comp_ident));
+                            symbol_lapper.insert(Interval {
+                                start: pin_span.start, stop: pin_span.end,
+                                val: SymbolType::PinNameDefinition(pdecl_id),
+                            });
+                            sem.symbol_scope.insert((pin_span.start, pin_span.end), comp_ident.clone());
                         }
                         // Component param references from body expressions
                         // (e.g. `spec.value = rs` where rs is a param)
@@ -1837,6 +1894,24 @@ impl McCode {
                                     stop: span.1,
                                     val: SymbolType::FunctionDefinition(decl_id),
                                 });
+                                // ★ G2: function parameter definitions
+                                if let Some(params_node) = node.get_sub_node()
+                                    .and_then(|s| s.iter().find(|n| n.is_type(MCAST_PARAMS)))
+                                {
+                                    let func_scope = crate::core::basic::mc_ids::McIds::new(&name_node)
+                                        .map(|ids| ids.to_string())
+                                        .unwrap_or_default();
+                                    for (pname, pspan) in Self::extract_func_param_spans(&params_node) {
+                                        let pdecl_id = sem.local_table.add_declare_with_name(
+                                            pspan.clone(), Some(pname.clone()), Some(&func_scope));
+                                        symbol_lapper.insert(Interval {
+                                            start: pspan.start, stop: pspan.end,
+                                            val: SymbolType::PortDefinition(pdecl_id),
+                                        });
+                                        sem.symbol_scope.insert(
+                                            (pspan.start, pspan.end), func_scope.clone());
+                                    }
+                                }
                             }
                         } else if ntype == MCAST_DEFINE {
                             if let Some(name_node) = node.get_sub_node() {

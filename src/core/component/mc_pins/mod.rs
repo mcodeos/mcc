@@ -50,6 +50,9 @@ pub struct McPins {
 
     pub names_to_id: BTreeMap<String, McPinPort>, // all registered/exported names to pin/pins/bus/ifs table, <name, McPinPort> btreemap
 
+    /// Source spans for pin names (for LSP goto-definition).
+    pub pin_name_spans: std::collections::HashMap<String, std::ops::Range<usize>>,
+
     // pin -> multiple function name/alias mapping (supports multi-option like I2C0 | GPIO)
     // e.g.: "1" -> ["GPIO3", "I2C0.SCL"], "2" -> ["GPIO4", "I2C0.SDA"]
     pub pin_id_to_names: BTreeMap<String, Vec<String>>,
@@ -96,6 +99,7 @@ impl McPins {
         Self {
             pins: BTreeMap::new(),
             names_to_id: BTreeMap::new(),
+            pin_name_spans: std::collections::HashMap::new(),
             pin_id_to_names: BTreeMap::new(),
             values_pool: Vec::new(),
             dynamic_pins: Vec::new(),
@@ -276,6 +280,20 @@ impl McPins {
                     MCAST_PIN_NAMES => {
                         pinnames = McPinNames::new(&subnode);
                         pinnames_node = Some(subnode.clone());
+                        // ★ G5: collect pin name spans for LSP
+                        if let Some(ref names_node) = pinnames_node {
+                            if let Some(child) = names_node.get_sub_node() {
+                                for pn in child.iter().filter(|n| n.get_type() == MCAST_PIN_NAME) {
+                                    if let Some(id_node) = pn.get_sub_node() {
+                                        if let Some(id) = id_node.to_string() {
+                                            let span = (id_node.get_pos() as usize)
+                                                ..((id_node.get_pos() + id_node.get_len()) as usize);
+                                            self.pin_name_spans.insert(id, span);
+                                        }
+                                    }
+                                }
+                            }
+                        }
                         if let Some(names) = &pinnames {
                             pin_name_has_param_ref = names.has_param_ref();
                         }
