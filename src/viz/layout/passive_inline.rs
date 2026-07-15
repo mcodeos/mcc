@@ -1269,6 +1269,11 @@ pub fn place_bridge_passives(graph: &mut McVecGraph) {
             .map(|b| b.name.clone())
             .unwrap_or_else(|| format!("?{pid}"));
 
+        if graph.boxes.iter().any(|b| b.id == pid && b.geom_locked) {
+            crate::vlog!("[bridge] {pname}({pid}) skip: geom_locked (placed by ladder)");
+            continue;
+        }
+
         // P must touch exactly 2 nets.
         let touching: Vec<usize> = graph
             .nets
