@@ -37,6 +37,8 @@ use super::components::{build_adjacency, find_connected_components};
 use super::entry_points::{
     assign_entry_points_coarse, enforce_unique_offsets, promote_synthetic_pins, split_shared_pins,
 };
+use super::ladder_model::LadderModel;
+use super::ladder_place::{apply_ladder_model, LadderGeometry};
 use super::normalize::{compute_canvas, normalize_positions, CANVAS_MARGIN};
 use super::optimize::PlaceOptimizer;
 use super::rails::{explode_power_rails_to_flags, is_rail_box};
@@ -71,6 +73,9 @@ pub struct FlowLayouter {
     pub fanout_star: bool,
     /// 05b: hub keep semantic sides (Input=Left, Output=Right). true = old behavior, false = connectivity-first.
     pub hub_keep_semantic: bool,
+    /// Ladder model + committed geometry (populated by Phase B when the graph is a clean
+    /// two-lane bridged-passive ladder). `None` = graph is not a ladder, or model bailed.
+    pub ladder: Option<(LadderModel, LadderGeometry)>,
 }
 
 impl Default for FlowLayouter {
@@ -84,6 +89,7 @@ impl Default for FlowLayouter {
             recompute_sizes: false,
             fanout_star: false,
             hub_keep_semantic: false,
+            ladder: None,
         }
     }
 }
@@ -100,6 +106,7 @@ impl FlowLayouter {
             recompute_sizes: true,
             fanout_star: false,
             hub_keep_semantic: false,
+            ladder: None,
         }
     }
 
@@ -216,13 +223,18 @@ impl Layouter for FlowLayouter {
         let (root_id, isolated_ids) = self.phase_placement(graph);
         probe_no_ep_writes("phase_placement", graph, &ep_snap);
 
-        // ★ M11: 双 lane bridge ladder —— 用 ladder 几何覆盖通用 placement。
-        // 此时 phase_size 已设好 w/h，ladder 用真实尺寸居中；pin_place / post 在其后照跑。
+        // 旧路径照跑：模型命中时被 ladder_place 完全覆盖，模型 bail 时兜底
         super::two_lane_ladder::try_two_lane_ladder(graph);
 
         // ── 相位 4 · PinPlacement：EntryPoint 唯一写者 + hub 几何唯一终定者 ──
         super::pin_place::pin_place_pipeline(graph, Some(root_id), true, self.hub_keep_semantic);
         probe_degenerate_boxes(graph, "after pin_place");
+
+        // ★ Ladder：net 表推导的确定性摆位。必须在 pin_place 之后 —— 做最后一个写者。
+        // 模型命中时覆盖 two_lane_ladder 写的一切；模型 bail 时旧路径已兜底。
+        if let Some(m) = super::ladder_model::try_build_ladder_model(graph) {
+            apply_ladder_model(graph, &m);
+        }
 
         // ── 相位 5 · Post：几何保持的移动，pin_place 之后安全 ──
         self.phase_post(graph, flag_boxes, &flag_meta, &isolated_ids);
