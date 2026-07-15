@@ -138,6 +138,7 @@ impl CheckRegistry {
         let mut r = Self::new();
         r.register(Box::new(check_duplicate::DuplicateCmieCheck));
         r.register(Box::new(check_dup_within::DupWithinCheck));
+        r.register(Box::new(check_enums::EnumsCheck));
         r.register(Box::new(check_attrs::AttrsCheck));
         r.register(Box::new(check_defs::DefsCheck));
         r.register(Box::new(check_imports::ImportsCheck));
@@ -184,6 +185,7 @@ pub mod check_attrs;
 pub mod check_defs;
 pub mod check_dup_within;
 pub mod check_duplicate;
+pub mod check_enums;
 pub mod check_exprs;
 pub mod check_extra;
 pub mod check_imports;
