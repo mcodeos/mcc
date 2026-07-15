@@ -293,14 +293,14 @@ impl McComponent {
     /// component parameter names (e.g. `spec.value = rs` where rs is a parameter).
     /// Record their spans for LSP goto-definition.
     pub(crate) fn collect_param_refs_in_body(
-        body_node: &AstNode, params: &mut McParamDeclares, scope: &str,
+        body_node: &AstNode,
+        params: &mut McParamDeclares,
+        scope: &str,
     ) {
         Self::collect_param_refs_in_node(body_node, params, scope);
     }
 
-    fn collect_param_refs_in_node(
-        node: &AstNode, params: &mut McParamDeclares, scope: &str,
-    ) {
+    fn collect_param_refs_in_node(node: &AstNode, params: &mut McParamDeclares, scope: &str) {
         match node.get_type() {
             MCAST_ID | MCAST_IDA => {
                 if let Some(text) = node.to_string() {

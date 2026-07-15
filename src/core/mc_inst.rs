@@ -343,7 +343,8 @@ impl McInstances {
 
     /// Record a net-line reference to a port definition (for LSP goto-definition)
     pub(crate) fn record_port_ref(&mut self, span: Range<usize>, port_name: &str, scope: &str) {
-        self.port_ref_spans.push((span, port_name.to_string(), scope.to_string()));
+        self.port_ref_spans
+            .push((span, port_name.to_string(), scope.to_string()));
     }
 
     pub fn iter_port_refs(&self) -> impl Iterator<Item = &(Range<usize>, String, String)> {

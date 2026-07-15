@@ -185,12 +185,14 @@ impl McParamDeclares {
 
     /// Record a reference to this parameter (for LSP goto-def from body references).
     /// Uses `def_spans` so ALL params (including B/C categories) support goto-def.
-    pub(crate) fn record_port_ref(
-        &mut self, span: Range<usize>, port_name: &str, scope: &str,
-    ) {
+    pub(crate) fn record_port_ref(&mut self, span: Range<usize>, port_name: &str, scope: &str) {
         if let Some(spans) = self.def_spans.get_mut(port_name) {
-            if !spans.iter().any(|s| s.start == span.start && s.end == span.end) {
-                self.port_ref_spans.push((span, port_name.to_string(), scope.to_string()));
+            if !spans
+                .iter()
+                .any(|s| s.start == span.start && s.end == span.end)
+            {
+                self.port_ref_spans
+                    .push((span, port_name.to_string(), scope.to_string()));
             }
         }
     }
