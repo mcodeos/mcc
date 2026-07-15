@@ -140,6 +140,8 @@ pub struct McAttribute {
     pub no: i32,
     pub id: McIds,
     pub values: Vec<McAttrVal>,
+    /// Source span of the key identifier (for LSP goto-definition).
+    pub key_span: Option<std::ops::Range<usize>>,
 }
 
 impl McAttribute {
@@ -159,6 +161,10 @@ impl McAttribute {
         let snode1_ids_node = subnode1.get_sub_node().expect(MISSING_SUBNODE);
 
         let attr_id = McIds::new(&snode1_ids_node)?;
+        let key_span = Some(
+            (snode1_ids_node.get_pos() as usize)
+                ..((snode1_ids_node.get_pos() + snode1_ids_node.get_len()) as usize),
+        );
 
         // Special case: if value is MCAST_OPD_SQUARE_VEC containing colon expressions,
         // treat the attribute id as the KVS key
@@ -169,6 +175,7 @@ impl McAttribute {
                     no: 0,
                     id: attr_id,
                     values: kvs_values,
+                    key_span,
                 });
             }
         }
@@ -177,6 +184,7 @@ impl McAttribute {
             no: 0,
             id: attr_id,
             values: McAttribute::new_attr_values(&subnode2)?,
+            key_span,
         })
     }
 
