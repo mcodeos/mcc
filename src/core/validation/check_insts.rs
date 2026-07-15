@@ -47,7 +47,6 @@ impl ValidationCheck for InstsCheck {
 /// For each module, check that Component/Module/Interface instance constructor
 /// args match the definition's parameter arity.
 fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
-
     let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
@@ -78,7 +77,12 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                         });
                     } else if call_arg_count < def_param_count {
                         // Count required (non-default) params
-                        let required = c2.base.params.iter().filter(|d| !d.has_default_value()).count();
+                        let required = c2
+                            .base
+                            .params
+                            .iter()
+                            .filter(|d| !d.has_default_value())
+                            .count();
                         if call_arg_count < required {
                             acc.push(CheckResult {
                                 check_name: "insts",
@@ -113,7 +117,12 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                             code: 2801,
                         });
                     } else if call_arg_count < def_param_count {
-                        let required = m2.base.params.iter().filter(|d| !d.has_default_value()).count();
+                        let required = m2
+                            .base
+                            .params
+                            .iter()
+                            .filter(|d| !d.has_default_value())
+                            .count();
                         if call_arg_count < required {
                             acc.push(CheckResult {
                                 check_name: "insts",
@@ -148,7 +157,12 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                             code: 2801,
                         });
                     } else if call_arg_count < def_param_count {
-                        let required = i2.base.params.iter().filter(|d| !d.has_default_value()).count();
+                        let required = i2
+                            .base
+                            .params
+                            .iter()
+                            .filter(|d| !d.has_default_value())
+                            .count();
                         if call_arg_count < required {
                             acc.push(CheckResult {
                                 check_name: "insts",
@@ -188,7 +202,10 @@ fn check_role_empty_body(acc: &mut CheckAccumulator) {
             let has_pins = !role.pins.names_to_id.is_empty();
             let has_attrs = !role.attrs.is_empty();
             // Check if the body AST has any children beyond the default node
-            let has_body = role.body.get_sub_node().map_or(false, |sub| sub.iter().next().is_some());
+            let has_body = role
+                .body
+                .get_sub_node()
+                .map_or(false, |sub| sub.iter().next().is_some());
 
             if !has_pins && !has_attrs && !has_body {
                 acc.push(CheckResult {
@@ -223,12 +240,7 @@ fn check_role_name_conflict(acc: &mut CheckAccumulator) {
         let iface = entry.value();
 
         // Collect all pin/port names in the interface
-        let pin_names: HashSet<String> = iface
-            .pins
-            .names_to_id
-            .keys()
-            .cloned()
-            .collect();
+        let pin_names: HashSet<String> = iface.pins.names_to_id.keys().cloned().collect();
 
         // Collect param names
         let param_names: HashSet<String> = iface
@@ -372,7 +384,8 @@ fn check_role_param_outside_interface(acc: &mut CheckAccumulator) {
                             message: format!(
                                 "Component '{}' uses 'role' keyword for param '{}'. \
                                  'role' is only valid in interface definitions.",
-                                entry.key().ident, pname
+                                entry.key().ident,
+                                pname
                             ),
                             code: 2805,
                         });
@@ -402,7 +415,8 @@ fn check_role_param_outside_interface(acc: &mut CheckAccumulator) {
                             message: format!(
                                 "Module '{}' uses 'role' keyword for param '{}'. \
                                  'role' is only valid in interface definitions.",
-                                entry.key().ident, pname
+                                entry.key().ident,
+                                pname
                             ),
                             code: 2805,
                         });
@@ -466,7 +480,9 @@ fn check_non_constant_default(acc: &mut CheckAccumulator) {
                         message: format!(
                             "Param '{}' in component '{}' has a non-constant default value '{}'. \
                              Use a simple literal or unit-value.",
-                            pname, entry.key().ident, def_val
+                            pname,
+                            entry.key().ident,
+                            def_val
                         ),
                         code: 2806,
                     });
