@@ -152,6 +152,7 @@ impl CheckRegistry {
         r.register(Box::new(check_extra::ExtraCheck));
         r.register(Box::new(check_insts::InstsCheck));
         r.register(Box::new(check_body::BodyCheck));
+        r.register(Box::new(check_hw::HwCheck));
         r
     }
 
@@ -193,6 +194,7 @@ pub mod check_duplicate;
 pub mod check_enums;
 pub mod check_exprs;
 pub mod check_extra;
+pub mod check_hw;
 pub mod check_imports;
 pub mod check_insts;
 pub mod check_interface;
