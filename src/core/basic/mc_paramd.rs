@@ -116,14 +116,20 @@ impl McParamDeclares {
                                     }
                                     self.declares.push(paramd);
                                 }
-                            } else if op_type == MCAST_OPD || op_type == MCAST_OPD_SQUARE_VEC || op_type == MCAST_SQUARE_VEC {
+                            } else if op_type == MCAST_OPD
+                                || op_type == MCAST_OPD_SQUARE_VEC
+                                || op_type == MCAST_SQUARE_VEC
+                            {
                                 // For OPD_SQUARE_VEC, pass the node directly to McParamDeclare::new()
                                 // (which handles it via the MCAST_OPD_SQUARE_VEC arm).
                                 // For plain OPD, unwrap to reach the inner ID/SQUARE_VEC.
-                                let inner = if op_type == MCAST_OPD_SQUARE_VEC || op_type == MCAST_SQUARE_VEC {
+                                let inner = if op_type == MCAST_OPD_SQUARE_VEC
+                                    || op_type == MCAST_SQUARE_VEC
+                                {
                                     current.clone()
                                 } else {
-                                    let inner = current.get_sub_node().unwrap_or_else(|| current.clone());
+                                    let inner =
+                                        current.get_sub_node().unwrap_or_else(|| current.clone());
                                     if matches!(inner.get_type(), MCAST_OPD) {
                                         inner.get_sub_node().unwrap_or(inner)
                                     } else {
@@ -252,10 +258,7 @@ impl McParamDeclares {
     /// Get all parameter names including compound forms.
     /// `[VDD1, GND1]` style params are rendered as `[VDD1, GND1]`.
     pub fn names_full(&self) -> Vec<String> {
-        self.declares
-            .iter()
-            .map(|d| d.display_name())
-            .collect()
+        self.declares.iter().map(|d| d.display_name()).collect()
     }
 
     pub fn get_params_with_defaults(&self) -> Vec<(McIds, String)> {
@@ -451,9 +454,7 @@ impl McParamDeclare {
                 let mut current = subnode.get_sub_node();
                 while let Some(opd_node) = current {
                     // Unwrap MCAST_OPD → inner ID node
-                    let inner = opd_node
-                        .get_sub_node()
-                        .unwrap_or_else(|| opd_node.clone());
+                    let inner = opd_node.get_sub_node().unwrap_or_else(|| opd_node.clone());
                     let ids_node = if inner.get_type() == MCAST_OPD {
                         inner.get_sub_node().unwrap_or(inner)
                     } else {

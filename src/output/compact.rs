@@ -45,7 +45,17 @@ pub fn render_all(data: &Value) -> String {
 pub fn render_entity(e: &Value) -> String {
     let kind = e["kind"].as_str().unwrap_or("unknown");
     let name = e["name"].as_str().unwrap_or("?");
-    let mut out = format!("{} {}\n", kind, name);
+    let span = e
+        .get("span")
+        .map(|s| {
+            format!(
+                "@{}:{}",
+                s["start"].as_u64().unwrap_or(0),
+                s["end"].as_u64().unwrap_or(0)
+            )
+        })
+        .unwrap_or_default();
+    let mut out = format!("{} {}{}\n", kind, name, span);
 
     match kind {
         "component" => {

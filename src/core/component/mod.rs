@@ -61,6 +61,8 @@ pub struct McComponent {
     /// Conditional attribute blocks that could not be evaluated at parse time
     /// (because parameters have no default values). Evaluated at instantiation time.
     pub cond_attrs: Vec<CondAttrs>,
+    /// Source span for LSP goto-definition (byte range in `uri`).
+    pub span: crate::ast::ast_semantic::Span,
 }
 
 impl McComponent {
@@ -79,6 +81,8 @@ impl McComponent {
                 .expect(MISSING_SUBNODE),
         )?;
 
+        let start = node.get_pos() as usize;
+        let end = start + node.get_len() as usize;
         let mut new_comp = Self {
             name: comp_name.clone(),
             params: McParamDeclares::new(),
@@ -90,6 +94,7 @@ impl McComponent {
             layout: McLayout::empty(),
             cond_pins: Vec::new(),
             cond_attrs: Vec::new(),
+            span: crate::ast::ast_semantic::Span { start, end },
         };
 
         //2. param

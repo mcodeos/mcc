@@ -1723,14 +1723,14 @@ fn extract_from_uri(entry: &Path, top: Option<&str>, target: &str) -> RpcResult 
                                     ("busref", format!("{component}.{bus}"))
                                 }
                                 crate::McInstance::List(l) => {
-            let name = l.name().to_string();
-            let class = format!("{:?}", l);
-            if class != name {
-                ("list", class)
-            } else {
-                ("list", name)
-            }
-        },
+                                    let name = l.name().to_string();
+                                    let class = format!("{:?}", l);
+                                    if class != name {
+                                        ("list", class)
+                                    } else {
+                                        ("list", name)
+                                    }
+                                }
                             };
                             json!({ "name": name.to_string(), "kind": kind, "class": class })
                         })
@@ -2465,14 +2465,14 @@ pub fn handle_show_module(params: Option<Value>) -> RpcResult {
                             ("busref", format!("{component}.{bus}"))
                         }
                         crate::McInstance::List(l) => {
-            let name = l.name().to_string();
-            let class = format!("{:?}", l);
-            if class != name {
-                ("list", class)
-            } else {
-                ("list", name)
-            }
-        },
+                            let name = l.name().to_string();
+                            let class = format!("{:?}", l);
+                            if class != name {
+                                ("list", class)
+                            } else {
+                                ("list", name)
+                            }
+                        }
                     };
                     json!({ "name": n.to_string(), "kind": kind, "class": class })
                 })
@@ -2691,7 +2691,7 @@ fn inst_kind_class(inst: &crate::McInstance) -> (&'static str, String) {
             } else {
                 ("list", name)
             }
-        },
+        }
     }
 }
 
@@ -3295,18 +3295,8 @@ pub fn handle_show_dump_all(params: Option<Value>) -> RpcResult {
         }
     }
 
-    // Filter by file if specified
-    let all = if p.file.is_some() {
-        all // already filtered by mcb_iter_* after file load? No — we need to filter here.
-        // Actually, the file was loaded above. The file param here is used for loading
-        // and the list handlers (component/module/etc.) do their own filtering.
-        // For dump_all, we return everything that's loaded.
-    } else {
-        all
-    };
-
-    // Actually, let's apply the same file filter for consistency
-    let all = if let Some(ref file) = p.file {
+    // Apply file filter for consistency
+    let mut all = if let Some(ref file) = p.file {
         let target = resolve_to_abs_uri(file);
         let parent_dir = std::path::Path::new(&target)
             .parent()
@@ -3320,6 +3310,11 @@ pub fn handle_show_dump_all(params: Option<Value>) -> RpcResult {
     } else {
         all
     };
+
+    // Sort by source position
+    all.sort_by_key(|e| {
+        e["span"]["start"].as_u64().unwrap_or(u64::MAX)
+    });
 
     Ok(json!({
         "type": "dump_all",
@@ -3338,22 +3333,27 @@ fn dump_component_json(name: &str, comp: &crate::McComponent, uri: &str) -> Valu
         .map(|(id, default)| json!({"name": id.to_string(), "default": default}))
         .collect();
     let attrs: Vec<Value> = comp
-        .attrs.iter()
+        .attrs
+        .iter()
         .map(|a| {
             let values: Vec<Value> = a.values.iter().map(attrval_json).collect();
             json!({"no": a.no, "name": a.id.to_string(), "values": values})
         })
         .collect();
-    let funcs: Vec<Value> = comp.funcs.iter().map(|f| {
-        let body_lines: Vec<String> = f.lines.iter().map(|l| l.to_string()).collect();
-        json!({
-            "name": f.name.to_string(),
-            "params": f.params.names(),
-            "returns": f.returns.kind_str(),
-            "called_time": f.called_time,
-            "body_lines": body_lines,
+    let funcs: Vec<Value> = comp
+        .funcs
+        .iter()
+        .map(|f| {
+            let body_lines: Vec<String> = f.lines.iter().map(|l| l.to_string()).collect();
+            json!({
+                "name": f.name.to_string(),
+                "params": f.params.names(),
+                "returns": f.returns.kind_str(),
+                "called_time": f.called_time,
+                "body_lines": body_lines,
+            })
         })
-    }).collect();
+        .collect();
     let instances: Vec<Value> = instances_json(&comp.insts, None);
     let layout = json!({
         "left": comp.layout.left,
@@ -3361,13 +3361,22 @@ fn dump_component_json(name: &str, comp: &crate::McComponent, uri: &str) -> Valu
         "top": comp.layout.top,
         "bottom": comp.layout.bottom,
     });
-    let cond_pins: Vec<String> = comp.cond_pins.iter().map(|cp| format!("{:?}", cp)).collect();
-    let cond_attrs: Vec<String> = comp.cond_attrs.iter().map(|ca| format!("{:?}", ca)).collect();
+    let cond_pins: Vec<String> = comp
+        .cond_pins
+        .iter()
+        .map(|cp| format!("{:?}", cp))
+        .collect();
+    let cond_attrs: Vec<String> = comp
+        .cond_attrs
+        .iter()
+        .map(|ca| format!("{:?}", ca))
+        .collect();
 
     let mut data = pins_json(&comp.pins);
     data["name"] = json!(name);
     data["kind"] = json!("component");
     data["uri"] = json!(uri);
+    data["span"] = json!({"start": comp.span.start, "end": comp.span.end});
     data["params"] = json!(params);
     data["params_with_defaults"] = json!(params_with_defaults);
     data["attrs"] = json!(attrs);
@@ -3382,7 +3391,12 @@ fn dump_component_json(name: &str, comp: &crate::McComponent, uri: &str) -> Valu
 }
 
 fn dump_module_json(name: &str, module: &crate::McModule, uri: &str) -> Value {
-    let params: Vec<Value> = module.params.names_full().iter().map(|n| json!(n)).collect();
+    let params: Vec<Value> = module
+        .params
+        .names_full()
+        .iter()
+        .map(|n| json!(n))
+        .collect();
     let params_with_defaults: Vec<Value> = module
         .params
         .get_params_with_defaults()
@@ -3391,20 +3405,25 @@ fn dump_module_json(name: &str, module: &crate::McModule, uri: &str) -> Value {
         .collect();
     let instances: Vec<Value> = instances_json(&module.insts, None);
     let lines: Vec<String> = module.lines.iter().map(|l| l.to_string()).collect();
-    let funcs: Vec<Value> = module.funcs.iter().map(|f| {
-        let body_lines: Vec<String> = f.lines.iter().map(|l| l.to_string()).collect();
-        json!({
-            "name": f.name.to_string(),
-            "params": f.params.names(),
-            "returns": f.returns.kind_str(),
-            "called_time": f.called_time,
-            "body_lines": body_lines,
+    let funcs: Vec<Value> = module
+        .funcs
+        .iter()
+        .map(|f| {
+            let body_lines: Vec<String> = f.lines.iter().map(|l| l.to_string()).collect();
+            json!({
+                "name": f.name.to_string(),
+                "params": f.params.names(),
+                "returns": f.returns.kind_str(),
+                "called_time": f.called_time,
+                "body_lines": body_lines,
+            })
         })
-    }).collect();
+        .collect();
     json!({
         "name": name,
         "kind": "module",
         "uri": uri,
+        "span": {"start": module.span.start, "end": module.span.end},
         "params": params,
         "params_with_defaults": params_with_defaults,
         "instances": instances,
@@ -3422,13 +3441,19 @@ fn dump_interface_json(name: &str, iface: &crate::McInterface, uri: &str) -> Val
         .iter()
         .map(|(id, default)| json!({"name": id.to_string(), "default": default}))
         .collect();
-    let attrs: Vec<Value> = iface.attrs.iter().map(|a| {
-        let values: Vec<Value> = a.values.iter().map(attrval_json).collect();
-        json!({"no": a.no, "name": a.id.to_string(), "values": values})
-    }).collect();
-    let roles: Vec<Value> = iface.roles.iter().map(|r| {
-        json!({"name": r.name.to_string(), "pins": pins_json(&r.pins)})
-    }).collect();
+    let attrs: Vec<Value> = iface
+        .attrs
+        .iter()
+        .map(|a| {
+            let values: Vec<Value> = a.values.iter().map(attrval_json).collect();
+            json!({"no": a.no, "name": a.id.to_string(), "values": values})
+        })
+        .collect();
+    let roles: Vec<Value> = iface
+        .roles
+        .iter()
+        .map(|r| json!({"name": r.name.to_string(), "pins": pins_json(&r.pins)}))
+        .collect();
 
     let mut data = pins_json(&iface.pins);
     data["name"] = json!(name);
@@ -3443,9 +3468,11 @@ fn dump_interface_json(name: &str, iface: &crate::McInterface, uri: &str) -> Val
 }
 
 fn dump_enum_json(name: &str, en: &crate::McEnumDef, uri: &str) -> Value {
-    let values: Vec<Value> = en.values.iter().map(|v| {
-        json!({"name": v.name.to_string(), "span": [v.span[0], v.span[1]]})
-    }).collect();
+    let values: Vec<Value> = en
+        .values
+        .iter()
+        .map(|v| json!({"name": v.name.to_string(), "span": [v.span[0], v.span[1]]}))
+        .collect();
     json!({
         "name": name,
         "kind": "enum",
