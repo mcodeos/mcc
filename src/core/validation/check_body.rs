@@ -495,20 +495,35 @@ fn check_bitwise_in_condition(acc: &mut CheckAccumulator) {
 /// (they'd be parsed as arithmetic), so this is a heuristic check
 /// on the raw `{:?}` text.
 fn check_condition_for_bitwise(
-    _cond_text: &str,
-    _uri: &str,
-    _context: &str,
-    _acc: &mut CheckAccumulator,
+    cond_text: &str,
+    uri: &str,
+    context: &str,
+    acc: &mut CheckAccumulator,
 ) {
-    // McCondition is parsed into structured Eq/NotEq/Lt/Gt/In variants.
-    // Bitwise `&`/`|` would be rejected at the parser level with
-    // "expected condition expression" errors before reaching here.
-    //
-    // This check is a no-op for the McCondition-based path. For full
-    // coverage, a source-text scan in the parser or lexer would be needed.
-    //
-    // We keep the check scaffolding here so that if McCondition gains
-    // a BitAnd/BitOr variant in the future, the check can be filled in.
+    // McCondition::In with a single binary value ("0" or "1") could indicate
+    // that a bitwise operation result is being used as a boolean condition.
+    // e.g., `if flags & MASK:` where the condition checks if a single-bit
+    // result equals 0 or 1 — this is valid but worth reviewing for clarity.
+    if cond_text.contains("In {") {
+        let value_count = cond_text.match_indices("Literal(").count();
+        if value_count == 1 {
+            if cond_text.contains("Literal(\"0\")") || cond_text.contains("Literal(\"1\")") {
+                acc.push(CheckResult {
+                    check_name: "body",
+                    severity: CheckSeverity::Info,
+                    uri: Some(uri.to_string()),
+                    span: None,
+                    message: format!(
+                        "In {}: condition compares against a single binary value. \
+                         If this is a bitwise operation result used as boolean, \
+                         consider using explicit comparison (e.g., `(flags & MASK) != 0`).",
+                        context
+                    ),
+                    code: 3208,
+                });
+            }
+        }
+    }
 }
 
 // ============================================================================
