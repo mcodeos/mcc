@@ -31,6 +31,8 @@ pub struct McModule {
     pub lines: Vec<McPhrase>,
     pub funcs: McFunctions,
     pub uri: McURI,
+    /// Source span for LSP goto-definition (byte range in `uri`).
+    pub span: crate::ast::ast_semantic::Span,
     anon_counter: usize,
 }
 
@@ -52,6 +54,8 @@ impl McModule {
 
             let module_name = module_name?;
 
+            let start = node.get_pos() as usize;
+            let end = start + node.get_len() as usize;
             let mut module = Self {
                 name: module_name,
                 params: McParamDeclares::new(),
@@ -59,6 +63,7 @@ impl McModule {
                 insts: McInstances::new(),
                 lines: Vec::new(),
                 uri: uri.clone(),
+                span: crate::ast::ast_semantic::Span { start, end },
                 anon_counter: 1,
             };
 

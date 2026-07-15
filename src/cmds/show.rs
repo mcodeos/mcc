@@ -732,6 +732,9 @@ fn show_dump_all(args: &ShowArgs) -> Result<()> {
         }
     }
 
+    // Sort by source position
+    all.sort_by_key(|e| e["span"]["start"].as_u64().unwrap_or(u64::MAX));
+
     let data = json!({
         "type": "dump_all",
         "total": all.len(),
@@ -753,12 +756,7 @@ fn show_dump(name: &str, args: &ShowArgs) -> Result<()> {
 
 fn dump_component(name: &str, comp: &mcc::McComponent) -> Value {
     // Params
-    let params: Vec<Value> = comp
-        .params
-        .names_full()
-        .iter()
-        .map(|n| json!(n))
-        .collect();
+    let params: Vec<Value> = comp.params.names_full().iter().map(|n| json!(n)).collect();
     let params_with_defaults: Vec<Value> = comp
         .params
         .get_params_with_defaults()
@@ -781,11 +779,7 @@ fn dump_component(name: &str, comp: &mcc::McComponent) -> Value {
         .funcs
         .iter()
         .map(|f| {
-            let body_lines: Vec<String> = f
-                .lines
-                .iter()
-                .map(|l| l.to_string())
-                .collect();
+            let body_lines: Vec<String> = f.lines.iter().map(|l| l.to_string()).collect();
             json!({
                 "name": f.name.to_string(),
                 "params": f.params.names_full(),
@@ -823,6 +817,7 @@ fn dump_component(name: &str, comp: &mcc::McComponent) -> Value {
     data["name"] = json!(name);
     data["kind"] = json!("component");
     data["uri"] = json!(comp.uri.to_string());
+    data["span"] = json!({"start": comp.span.start, "end": comp.span.end});
     data["params"] = json!(params);
     data["params_with_defaults"] = json!(params_with_defaults);
     data["attrs"] = json!(attrs);
@@ -855,22 +850,14 @@ fn dump_module(name: &str, module: &mcc::McModule) -> Value {
     let instances = instances_json(&module.insts, None);
 
     // Lines (connection phrases)
-    let lines: Vec<String> = module
-        .lines
-        .iter()
-        .map(|l| l.to_string())
-        .collect();
+    let lines: Vec<String> = module.lines.iter().map(|l| l.to_string()).collect();
 
     // Funcs
     let funcs: Vec<Value> = module
         .funcs
         .iter()
         .map(|f| {
-            let body_lines: Vec<String> = f
-                .lines
-                .iter()
-                .map(|l| l.to_string())
-                .collect();
+            let body_lines: Vec<String> = f.lines.iter().map(|l| l.to_string()).collect();
             json!({
                 "name": f.name.to_string(),
                 "params": f.params.names_full(),
@@ -885,6 +872,7 @@ fn dump_module(name: &str, module: &mcc::McModule) -> Value {
         "name": name,
         "kind": "module",
         "uri": module.uri.to_string(),
+        "span": {"start": module.span.start, "end": module.span.end},
         "params": params,
         "params_with_defaults": params_with_defaults,
         "instances": instances,
@@ -895,12 +883,7 @@ fn dump_module(name: &str, module: &mcc::McModule) -> Value {
 }
 
 fn dump_interface(name: &str, iface: &mcc::McInterface) -> Value {
-    let params: Vec<Value> = iface
-        .params
-        .names_full()
-        .iter()
-        .map(|n| json!(n))
-        .collect();
+    let params: Vec<Value> = iface.params.names_full().iter().map(|n| json!(n)).collect();
     let params_with_defaults: Vec<Value> = iface
         .params
         .get_params_with_defaults()
@@ -1046,7 +1029,7 @@ fn inst_kind_class(inst: &mcc::McInstance) -> (&'static str, String) {
             } else {
                 ("list", name)
             }
-        },
+        }
     }
 }
 
@@ -1158,4 +1141,3 @@ fn output(data: &Value, args: &ShowArgs) -> Result<()> {
     }
     Ok(())
 }
-
