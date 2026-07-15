@@ -79,14 +79,36 @@ impl McParamDeclares {
                         }
                     }
                     MCAST_IOTYPE => {
-                        while let Some(next) = param_iter.peek() {
-                            if next.get_type() == MCAST_IOTYPE {
-                                break;
+                        // Collect children of this IOTYPE node.
+                        // Two call patterns:
+                        // 1) Full MCAST_PARAMS: children follow the IOTYPE as siblings in param_iter.
+                        // 2) Single MCAST_PARAM: children are inside the IOTYPE node itself.
+                        let children: Vec<AstNode> = {
+                            // First try siblings from param_iter (full-params call)
+                            let mut v: Vec<AstNode> = Vec::new();
+                            while let Some(next) = param_iter.peek() {
+                                if next.get_type() == MCAST_IOTYPE {
+                                    break;
+                                }
+                                v.push(param_iter.next().unwrap());
                             }
-                            let current = param_iter.next().unwrap();
+                            if v.is_empty() {
+                                // Single-param call — iterate IOTYPE's own children
+                                if let Some(first) = inner.get_sub_node() {
+                                    // Skip the iotype token itself, iterate subsequent children
+                                    let mut cur = first.get_next();
+                                    while let Some(child) = cur {
+                                        v.push(child.clone());
+                                        cur = child.get_next();
+                                    }
+                                }
+                            }
+                            v
+                        };
+                        for current in &children {
                             let op_type = current.get_type();
                             if matches!(op_type, MCAST_ID | MCAST_IDA | MCAST_IDS) {
-                                if let Some(paramd) = McParamDeclare::new(&current) {
+                                if let Some(paramd) = McParamDeclare::new(current) {
                                     if let Some(name) = paramd.get_primary_name() {
                                         let span = (current.get_pos() as usize)
                                             ..((current.get_pos() + current.get_len()) as usize);
@@ -94,12 +116,20 @@ impl McParamDeclares {
                                     }
                                     self.declares.push(paramd);
                                 }
-                            } else if op_type == MCAST_OPD || op_type == MCAST_OPD_SQUARE_VEC {
-                                let mut inner =
-                                    current.get_sub_node().unwrap_or_else(|| current.clone());
-                                if inner.get_type() == MCAST_OPD {
-                                    inner = inner.get_sub_node().unwrap_or_else(|| inner.clone());
-                                }
+                            } else if op_type == MCAST_OPD || op_type == MCAST_OPD_SQUARE_VEC || op_type == MCAST_SQUARE_VEC {
+                                // For OPD_SQUARE_VEC, pass the node directly to McParamDeclare::new()
+                                // (which handles it via the MCAST_OPD_SQUARE_VEC arm).
+                                // For plain OPD, unwrap to reach the inner ID/SQUARE_VEC.
+                                let inner = if op_type == MCAST_OPD_SQUARE_VEC || op_type == MCAST_SQUARE_VEC {
+                                    current.clone()
+                                } else {
+                                    let inner = current.get_sub_node().unwrap_or_else(|| current.clone());
+                                    if matches!(inner.get_type(), MCAST_OPD) {
+                                        inner.get_sub_node().unwrap_or(inner)
+                                    } else {
+                                        inner
+                                    }
+                                };
                                 if let Some(paramd) = McParamDeclare::new(&inner) {
                                     let span = (current.get_pos() as usize)
                                         ..((current.get_pos() + current.get_len()) as usize);
@@ -211,11 +241,20 @@ impl McParamDeclares {
         self.declares.is_empty()
     }
 
-    /// Get all parameter names
+    /// Get all parameter names (single params only, drops Multiples).
     pub fn names(&self) -> Vec<String> {
         self.declares
             .iter()
             .filter_map(|d| d.get_primary_name())
+            .collect()
+    }
+
+    /// Get all parameter names including compound forms.
+    /// `[VDD1, GND1]` style params are rendered as `[VDD1, GND1]`.
+    pub fn names_full(&self) -> Vec<String> {
+        self.declares
+            .iter()
+            .map(|d| d.display_name())
             .collect()
     }
 
@@ -405,6 +444,33 @@ impl McParamDeclare {
                     return None;
                 }
             }
+            MCAST_OPD_SQUARE_VEC => {
+                // [VDD1, GND1] as operand (e.g. after ps/in/io).
+                // Each child is an MCAST_OPD wrapping an ID — iterate and collect.
+                let mut phrases = Vec::new();
+                let mut current = subnode.get_sub_node();
+                while let Some(opd_node) = current {
+                    // Unwrap MCAST_OPD → inner ID node
+                    let inner = opd_node
+                        .get_sub_node()
+                        .unwrap_or_else(|| opd_node.clone());
+                    let ids_node = if inner.get_type() == MCAST_OPD {
+                        inner.get_sub_node().unwrap_or(inner)
+                    } else {
+                        inner
+                    };
+                    if let Some(ids) = McIds::new(&ids_node) {
+                        phrases.push(ids);
+                    }
+                    current = opd_node.get_next();
+                }
+                if !phrases.is_empty() {
+                    McParamDeclareKind::Multiple(phrases)
+                } else {
+                    dlog_error(1305, node, "Invalid param set.");
+                    return None;
+                }
+            }
 
             MCAST_DECLARE_UV => {
                 if let Some(uval) = McUnitValueDeclare::new(&subnode) {
@@ -487,6 +553,18 @@ impl McParamDeclare {
             McParamDeclareKind::Single(ids) => ids.get_primary_name(),
             McParamDeclareKind::Multiple(_) => None,
             McParamDeclareKind::UValue(uval) => uval.name.get_primary_name(),
+        }
+    }
+
+    /// Human-readable display name, including compound forms.
+    /// `[VDD1, GND1]` → `"[VDD1, GND1]"`, `GPIO[1:2]` → `"GPIO[1:2]"`, etc.
+    pub fn display_name(&self) -> String {
+        match &self.kind {
+            McParamDeclareKind::Multiple(members) => {
+                let names: Vec<String> = members.iter().map(|m| m.to_string()).collect();
+                format!("[{}]", names.join(", "))
+            }
+            _ => self.get_primary_name().unwrap_or_default(),
         }
     }
 

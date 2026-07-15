@@ -13,6 +13,7 @@
 //! the command should take the envelope path; otherwise continue with the [`emit`] text path (backward compatible).
 
 pub mod builder;
+pub mod compact;
 pub mod diagnostic;
 pub mod envelope;
 pub mod renderer;

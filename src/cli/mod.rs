@@ -385,6 +385,10 @@ pub enum ShowTarget {
     Roles,
     /// Values of an enum
     Values,
+
+    /// Dump ALL parsed fields of an entity (component/module/interface/enum)
+    /// for debugging input parsing issues.
+    Dump,
 }
 
 // ============================================================================
