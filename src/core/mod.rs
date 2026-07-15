@@ -3,6 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 pub(crate) mod basic;
+pub mod check;
 pub(crate) mod common;
 pub(crate) mod component;
 pub(crate) mod mc_define;

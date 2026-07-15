@@ -636,12 +636,24 @@ pub(crate) fn mcb_pass2(entry: &McSpaceName) -> Result<MccProjectTree, Box<dyn E
 ///
 /// First execute mcb_pass2 to build McModuleInst tree,
 /// then flatten it into InstTable one-dimensional table.
-pub(crate) fn mcb_pass2_flat(
+pub fn mcb_pass2_flat(
     entry: &McSpaceName,
     start_id: u32,
 ) -> Result<(MccProjectTree, crate::instant::inst_table::InstTable), Box<dyn Error>> {
     let inst = mcb_pass2(entry)?;
     let table = crate::instant::inst_table::InstTable::from_module_inst(&inst, start_id);
+    // ★ Electrical checks after pass2
+    let net_results = crate::core::check::nets::run_net_checks(&table);
+    for r in &net_results {
+        crate::mcc_record_param_diag(&crate::ParamDiagnostic {
+            kind: crate::ParamDiagKind::Unused,
+            param_name: r.check.to_string(),
+            definition: r.net_name.clone(),
+            message: format!("[{}] {}", r.severity, r.message),
+            pos: 0,
+            len: 0,
+        });
+    }
     Ok((inst, table))
 }
 

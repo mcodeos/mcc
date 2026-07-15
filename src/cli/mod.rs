@@ -212,6 +212,10 @@ pub struct CheckArgs {
     #[arg(long)]
     pub strict: bool,
 
+    /// Run pass2 electrical net checks (driver conflict, floating inputs, etc.)
+    #[arg(long)]
+    pub nets: bool,
+
     /// Output format
     #[arg(long, short = 'f', value_enum, default_value_t = OutputFormat::Text)]
     pub format: OutputFormat,
