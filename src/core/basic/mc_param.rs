@@ -654,13 +654,17 @@ impl McParamBindings {
                 None
             };
 
-            // Type constraint check (soft warning)
-            if let Some(ref _val) = &value {
-                // TODO: complete type checking needs to parse interface definitions
-                // Currently only record constraint info, no hard check
-                // Future additions:
-                //   - check whether val satisfies expected_class constraint
-                //   - emit diagnostic warning on type mismatch
+            // I3: NC misuse — NC should not replace electrically meaningful typed params
+            if let Some(ref val) = &value {
+                if matches!(val, McParamValue::NC(_)) && declare.has_type_constraint() {
+                    if let Some(name) = declare.get_primary_name() {
+                        eprintln!(
+                            "Warning: NC passed for typed parameter '{}'. \
+                             NC should only be used for optional/non-electrical params.",
+                            name
+                        );
+                    }
+                }
             }
 
             bindings.push(McParamBinding::new(declare.clone(), value));
