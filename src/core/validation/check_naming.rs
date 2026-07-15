@@ -43,7 +43,7 @@ impl ValidationCheck for NamingCheck {
                 let name = entry.key().ident.to_string();
                 let uri = entry.key().uri.to_string();
                 // Skip test/lab files
-                if uri.contains("/unitest/") || uri.contains("/cases") || uri.contains("/lab/") {
+                if super::is_test_file(&uri) || uri.contains("/lab/") {
                     continue;
                 }
                 // Component names should start with uppercase or digit (like 74HC)

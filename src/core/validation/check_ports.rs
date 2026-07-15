@@ -79,7 +79,7 @@ fn check_param_inst_overlap(mod_name: &str, m: &crate::McModule, acc: &mut Check
 /// E2: net connections referencing identifiers not declared as ports/instances.
 fn check_undefined_net_refs(mod_name: &str, m: &crate::McModule, acc: &mut CheckAccumulator) {
     let uri = m.uri.to_string();
-    if uri.contains("/unitest/") || uri.contains("/cases") {
+    if super::is_test_file(&uri) {
         return;
     }
     for phrase in &m.lines {

@@ -103,6 +103,15 @@ impl CheckAccumulator {
 }
 
 // ============================================================================
+// Shared Utilities
+// ============================================================================
+
+/// Returns true if the given URI belongs to a test file (unit test or test case).
+pub(crate) fn is_test_file(uri: &str) -> bool {
+    uri.contains("/unitest/") || uri.contains("/cases")
+}
+
+// ============================================================================
 // Check Trait
 // ============================================================================
 
@@ -129,10 +138,14 @@ impl CheckRegistry {
         let mut r = Self::new();
         r.register(Box::new(check_duplicate::DuplicateCmieCheck));
         r.register(Box::new(check_dup_within::DupWithinCheck));
+        r.register(Box::new(check_attrs::AttrsCheck));
+        r.register(Box::new(check_defs::DefsCheck));
+        r.register(Box::new(check_imports::ImportsCheck));
         r.register(Box::new(check_naming::NamingCheck));
         r.register(Box::new(check_ports::PortInstanceCheck));
         r.register(Box::new(check_refs::RefIntegrityCheck));
         r.register(Box::new(check_style::StyleCheck));
+        r.register(Box::new(check_exprs::ExprsCheck));
         r.register(Box::new(check_extra::ExtraCheck));
         r
     }
@@ -166,9 +179,13 @@ impl CheckRegistry {
 // Sub-modules
 // ============================================================================
 
+pub mod check_attrs;
+pub mod check_defs;
 pub mod check_dup_within;
 pub mod check_duplicate;
+pub mod check_exprs;
 pub mod check_extra;
+pub mod check_imports;
 pub mod check_naming;
 pub mod check_ports;
 pub mod check_refs;

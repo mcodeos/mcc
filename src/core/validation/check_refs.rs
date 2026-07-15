@@ -33,7 +33,7 @@ fn check_comp_func_unused_params(acc: &mut CheckAccumulator) {
     let comps = crate::builder::workspace::WORKSPACE.components.borrow();
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
-        if uri.contains("/unitest/") || uri.contains("/cases") {
+        if super::is_test_file(&uri) {
             continue;
         }
         let comp = entry.value();
@@ -63,7 +63,7 @@ fn check_bare_params(acc: &mut CheckAccumulator) {
     for entry in comps.iter() {
         let comp_name = entry.key().ident.to_string();
         let uri = entry.key().uri.to_string();
-        if uri.contains("/unitest/") || uri.contains("/cases") {
+        if super::is_test_file(&uri) {
             continue;
         }
         let comp = entry.value();
@@ -98,7 +98,7 @@ fn check_spec_refs(acc: &mut CheckAccumulator) {
     for entry in comps.iter() {
         let comp_name = entry.key().ident.to_string();
         let uri = entry.key().uri.to_string();
-        if uri.contains("/unitest/") || uri.contains("/cases") {
+        if super::is_test_file(&uri) {
             continue;
         }
         let comp = entry.value();

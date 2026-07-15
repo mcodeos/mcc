@@ -350,13 +350,20 @@ pub fn mcb_parse_all_modules() {
             let ctx = PostParseContext::new();
             let registry = CheckRegistry::with_defaults();
             for r in registry.run_post_parse(&ctx) {
+                let sev = r.severity.as_str();
+                let msg = format!("[{}:{}:{}] {}", sev, r.check_name, r.code, r.message);
+                let (pos, len) = r
+                    .span
+                    .as_ref()
+                    .map(|s| (s.start, s.end - s.start))
+                    .unwrap_or((0, 0));
                 mcc::mcc_record_param_diag(&mcc::ParamDiagnostic {
-                    kind: mcc::ParamDiagKind::Unused,
+                    kind: mcc::ParamDiagKind::Validation,
                     param_name: r.check_name.to_string(),
-                    definition: String::new(),
-                    message: r.message,
-                    pos: 0,
-                    len: 0,
+                    definition: format!("{}", r.code),
+                    message: msg,
+                    pos,
+                    len,
                 });
             }
         }
