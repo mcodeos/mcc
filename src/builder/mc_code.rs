@@ -1060,8 +1060,8 @@ impl McCode {
                     param.clone()
                 };
                 if let Some(ids) = McIds::new(&inner) {
-                    let span = (inner.get_pos() as usize)
-                        ..((inner.get_pos() + inner.get_len()) as usize);
+                    let span =
+                        (inner.get_pos() as usize)..((inner.get_pos() + inner.get_len()) as usize);
                     result.push((ids.to_string(), span));
                 }
             }
@@ -1070,7 +1070,11 @@ impl McCode {
     }
 
     fn extract_pin_name_spans(comp: &McComponent) -> Vec<(String, std::ops::Range<usize>)> {
-        comp.pins.pin_name_spans.iter().map(|(n, s)| (n.clone(), s.clone())).collect()
+        comp.pins
+            .pin_name_spans
+            .iter()
+            .map(|(n, s)| (n.clone(), s.clone()))
+            .collect()
     }
 
     pub fn parse_pass1_modules(&mut self) {
@@ -1229,9 +1233,10 @@ impl McCode {
         match self.symbols.lock() {
             Ok(mut symbols) => {
                 // Register to local table
-                let local_id = symbols
-                    .local_table
-                    .add_declare_with_name(span.clone(), name.clone(), None);
+                let local_id =
+                    symbols
+                        .local_table
+                        .add_declare_with_name(span.clone(), name.clone(), None);
                 // ★ Also register to global table for cross-file lookup
                 if let Some(ref n) = name {
                     if let Ok(mut gtable) = symbols.global_table.lock() {
@@ -1258,7 +1263,11 @@ impl McCode {
                     }
                 }
                 // Then check local table
-                symbols.local_table.name_to_declare_id.get(&(String::new(), name.to_string())).copied()
+                symbols
+                    .local_table
+                    .name_to_declare_id
+                    .get(&(String::new(), name.to_string()))
+                    .copied()
             }
             Err(e) => {
                 tracing::error!(target: "mcc::code", error = %e, "symbols mutex poisoned (get_declare_id_by_name)");
@@ -1490,9 +1499,11 @@ impl McCode {
                         let mod_ident = entry.key().ident.to_string();
                         for (name, span) in m.params.iter_defs_with_span() {
                             let span_clone = span.clone();
-                            let decl_id = sem
-                                .local_table
-                                .add_declare_with_name(span_clone, Some(name.to_string()), Some(&mod_ident));
+                            let decl_id = sem.local_table.add_declare_with_name(
+                                span_clone,
+                                Some(name.to_string()),
+                                Some(&mod_ident),
+                            );
                             tracing::debug!(
                                 target: "mcc::lsp",
                                 "[LAPPER_DEBUG]   param port: name={}, span=[{},{}], decl_id={:?}",
@@ -1503,16 +1514,19 @@ impl McCode {
                                 stop: span.end,
                                 val: SymbolType::PortDefinition(decl_id),
                             });
-                            sem.symbol_scope.insert((span.start, span.end), mod_ident.clone());
+                            sem.symbol_scope
+                                .insert((span.start, span.end), mod_ident.clone());
                         }
 
                         // Ports from body declarations (e.g. `ps dc24v`, `io GPIO[1:2]`)
                         let mod_ident2 = entry.key().ident.to_string();
                         for (name, _iotype, span) in m.insts.iter_ports_with_span() {
                             let span_clone = span.clone();
-                            let decl_id = sem
-                                .local_table
-                                .add_declare_with_name(span_clone, Some(name.to_string()), Some(&mod_ident2));
+                            let decl_id = sem.local_table.add_declare_with_name(
+                                span_clone,
+                                Some(name.to_string()),
+                                Some(&mod_ident2),
+                            );
                             tracing::debug!(
                                 target: "mcc::lsp",
                                 "[LAPPER_DEBUG]   inst port: name={}, span=[{},{}], decl_id={:?}",
@@ -1523,7 +1537,8 @@ impl McCode {
                                 stop: span.end,
                                 val: SymbolType::PortDefinition(decl_id),
                             });
-                            sem.symbol_scope.insert((span.start, span.end), mod_ident2.clone());
+                            sem.symbol_scope
+                                .insert((span.start, span.end), mod_ident2.clone());
                         }
                         // Register port references from net lines (e.g. GPIO1 - A references port GPIO1)
                         for (span, port_name, scope) in m.insts.iter_port_refs() {
@@ -1536,7 +1551,8 @@ impl McCode {
                                     stop: span.end,
                                     val: SymbolType::InstanceRef(decl_id),
                                 });
-                                sem.symbol_scope.insert((span.start, span.end), scope.clone());
+                                sem.symbol_scope
+                                    .insert((span.start, span.end), scope.clone());
                             }
                         }
                         // Register param port references from net lines
@@ -1550,7 +1566,8 @@ impl McCode {
                                     stop: span.end,
                                     val: SymbolType::InstanceRef(decl_id),
                                 });
-                                sem.symbol_scope.insert((span.start, span.end), scope.clone());
+                                sem.symbol_scope
+                                    .insert((span.start, span.end), scope.clone());
                             }
                         }
                     }
@@ -1563,17 +1580,23 @@ impl McCode {
                     let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
                     for entry in modules.iter() {
                         let m = entry.value();
-                        if entry.key().uri.as_str() != self.uri.as_str() { continue; }
+                        if entry.key().uri.as_str() != self.uri.as_str() {
+                            continue;
+                        }
                         for func in m.funcs.iter() {
                             let fscope = func.name.to_string();
                             for (span, port_name, scope) in func.params.iter_port_refs() {
                                 let scoped_key = (scope.clone(), port_name.clone());
-                                if let Some(decl_id) = sem.local_table.name_to_declare_id.get(&scoped_key).copied() {
+                                if let Some(decl_id) =
+                                    sem.local_table.name_to_declare_id.get(&scoped_key).copied()
+                                {
                                     symbol_lapper.insert(Interval {
-                                        start: span.start, stop: span.end,
+                                        start: span.start,
+                                        stop: span.end,
                                         val: SymbolType::InstanceRef(decl_id),
                                     });
-                                    sem.symbol_scope.insert((span.start, span.end), scope.clone());
+                                    sem.symbol_scope
+                                        .insert((span.start, span.end), scope.clone());
                                 }
                             }
                         }
@@ -1593,25 +1616,33 @@ impl McCode {
                         let comp_ident = entry.key().ident.to_string();
                         for (name, span) in comp.params.iter_defs_with_span() {
                             let span_clone = span.clone();
-                            let decl_id = sem
-                                .local_table
-                                .add_declare_with_name(span_clone, Some(name.to_string()), Some(&comp_ident));
+                            let decl_id = sem.local_table.add_declare_with_name(
+                                span_clone,
+                                Some(name.to_string()),
+                                Some(&comp_ident),
+                            );
                             symbol_lapper.insert(Interval {
                                 start: span.start,
                                 stop: span.end,
                                 val: SymbolType::PortDefinition(decl_id),
                             });
-                            sem.symbol_scope.insert((span.start, span.end), comp_ident.clone());
+                            sem.symbol_scope
+                                .insert((span.start, span.end), comp_ident.clone());
                         }
                         // ★ G5: Pin name definitions from component pins
                         for (pin_name, pin_span) in Self::extract_pin_name_spans(comp) {
                             let pdecl_id = sem.local_table.add_declare_with_name(
-                                pin_span.clone(), Some(pin_name.clone()), Some(&comp_ident));
+                                pin_span.clone(),
+                                Some(pin_name.clone()),
+                                Some(&comp_ident),
+                            );
                             symbol_lapper.insert(Interval {
-                                start: pin_span.start, stop: pin_span.end,
+                                start: pin_span.start,
+                                stop: pin_span.end,
                                 val: SymbolType::PinNameDefinition(pdecl_id),
                             });
-                            sem.symbol_scope.insert((pin_span.start, pin_span.end), comp_ident.clone());
+                            sem.symbol_scope
+                                .insert((pin_span.start, pin_span.end), comp_ident.clone());
                         }
                         // Component param references from body expressions
                         // (e.g. `spec.value = rs` where rs is a param)
@@ -1625,7 +1656,8 @@ impl McCode {
                                     stop: span.end,
                                     val: SymbolType::InstanceRef(decl_id),
                                 });
-                                sem.symbol_scope.insert((span.start, span.end), scope.clone());
+                                sem.symbol_scope
+                                    .insert((span.start, span.end), scope.clone());
                             }
                         }
                     }
@@ -1895,21 +1927,29 @@ impl McCode {
                                     val: SymbolType::FunctionDefinition(decl_id),
                                 });
                                 // ★ G2: function parameter definitions
-                                if let Some(params_node) = node.get_sub_node()
+                                if let Some(params_node) = node
+                                    .get_sub_node()
                                     .and_then(|s| s.iter().find(|n| n.is_type(MCAST_PARAMS)))
                                 {
-                                    let func_scope = crate::core::basic::mc_ids::McIds::new(&name_node)
-                                        .map(|ids| ids.to_string())
-                                        .unwrap_or_default();
-                                    for (pname, pspan) in Self::extract_func_param_spans(&params_node) {
+                                    let func_scope =
+                                        crate::core::basic::mc_ids::McIds::new(&name_node)
+                                            .map(|ids| ids.to_string())
+                                            .unwrap_or_default();
+                                    for (pname, pspan) in
+                                        Self::extract_func_param_spans(&params_node)
+                                    {
                                         let pdecl_id = sem.local_table.add_declare_with_name(
-                                            pspan.clone(), Some(pname.clone()), Some(&func_scope));
+                                            pspan.clone(),
+                                            Some(pname.clone()),
+                                            Some(&func_scope),
+                                        );
                                         symbol_lapper.insert(Interval {
-                                            start: pspan.start, stop: pspan.end,
+                                            start: pspan.start,
+                                            stop: pspan.end,
                                             val: SymbolType::PortDefinition(pdecl_id),
                                         });
-                                        sem.symbol_scope.insert(
-                                            (pspan.start, pspan.end), func_scope.clone());
+                                        sem.symbol_scope
+                                            .insert((pspan.start, pspan.end), func_scope.clone());
                                     }
                                 }
                             }
@@ -1919,8 +1959,11 @@ impl McCode {
                                     name_node.get_pos() as usize,
                                     (name_node.get_pos() + name_node.get_len()) as usize,
                                 );
-                                let decl_id =
-                                    sem.local_table.add_declare_with_name(span.0..span.1, None, None);
+                                let decl_id = sem.local_table.add_declare_with_name(
+                                    span.0..span.1,
+                                    None,
+                                    None,
+                                );
                                 symbol_lapper.insert(Interval {
                                     start: span.0,
                                     stop: span.1,
@@ -1933,8 +1976,11 @@ impl McCode {
                                     name_node.get_pos() as usize,
                                     (name_node.get_pos() + name_node.get_len()) as usize,
                                 );
-                                let decl_id =
-                                    sem.local_table.add_declare_with_name(span.0..span.1, None, None);
+                                let decl_id = sem.local_table.add_declare_with_name(
+                                    span.0..span.1,
+                                    None,
+                                    None,
+                                );
                                 symbol_lapper.insert(Interval {
                                     start: span.0,
                                     stop: span.1,

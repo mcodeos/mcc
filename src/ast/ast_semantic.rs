@@ -126,14 +126,18 @@ impl LocalSymbolTable {
     }
 
     pub fn add_declare_with_name(
-        &mut self, span: Span, name: Option<String>, scope: Option<&str>,
+        &mut self,
+        span: Span,
+        name: Option<String>,
+        scope: Option<&str>,
     ) -> DeclareId {
         let declare_id = self.assign_declare_id();
         self.declare_inst_to_span.insert(declare_id, span.clone());
         self.span_to_declare_inst.insert(span, declare_id);
         if let Some(n) = name {
             let scope_key = scope.unwrap_or("");
-            self.name_to_declare_id.insert((scope_key.to_string(), n), declare_id);
+            self.name_to_declare_id
+                .insert((scope_key.to_string(), n), declare_id);
         }
         declare_id
     }
