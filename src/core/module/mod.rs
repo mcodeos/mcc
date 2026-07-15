@@ -189,12 +189,15 @@ impl McModule {
             // ★ Smart Param (M5): Check both formal params and body ports.
             let mod_name = self.name.to_string();
             let diags = self.params.finalize(Some(body), &mod_name);
-            let warned: std::collections::HashSet<String> = diags.iter().map(|d| d.param_name.clone()).collect();
+            let warned: std::collections::HashSet<String> =
+                diags.iter().map(|d| d.param_name.clone()).collect();
             for d in diags {
                 mcc::mcc_record_param_diag(&d);
             }
             for port_name in self.insts.iter_instance_names() {
-                if warned.contains(port_name) { continue; }
+                if warned.contains(port_name) {
+                    continue;
+                }
                 let mut span = self
                     .insts
                     .port_spans()
@@ -207,10 +210,14 @@ impl McModule {
                     // Try sibling labels with same base (GPIO2 → find GPIO1's span)
                     if let Some(base) = McInstances::strip_trailing_digits(port_name) {
                         for other in self.insts.iter_instance_names() {
-                            if other == port_name { continue; }
+                            if other == port_name {
+                                continue;
+                            }
                             if let Some(other_base) = McInstances::strip_trailing_digits(other) {
                                 if other_base == base {
-                                    if let Some(s) = self.insts.port_spans().get(other).and_then(|v| v.first()) {
+                                    if let Some(s) =
+                                        self.insts.port_spans().get(other).and_then(|v| v.first())
+                                    {
                                         span = s.clone();
                                         break;
                                     }
@@ -592,7 +599,8 @@ impl McModule {
                     let matched_key: Option<String> = if insts.port_spans().contains_key(&text) {
                         Some(text.clone())
                     } else {
-                        insts.iter_instance_names()
+                        insts
+                            .iter_instance_names()
                             .find(|k| insts.all_name_forms_for(k).contains(&text))
                             .cloned()
                     };

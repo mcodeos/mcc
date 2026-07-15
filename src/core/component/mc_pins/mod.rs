@@ -287,7 +287,8 @@ impl McPins {
                                     if let Some(id_node) = pn.get_sub_node() {
                                         if let Some(id) = id_node.to_string() {
                                             let span = (id_node.get_pos() as usize)
-                                                ..((id_node.get_pos() + id_node.get_len()) as usize);
+                                                ..((id_node.get_pos() + id_node.get_len())
+                                                    as usize);
                                             self.pin_name_spans.insert(id, span);
                                         }
                                     }
