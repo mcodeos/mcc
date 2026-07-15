@@ -40,6 +40,7 @@ pub use crate::core::{
         mc_pins::{McPinPort, McPins},
         Mc2Component, McComponent,
     },
+    mc_define::McDefineDef,
     mc_enum::McEnumDef,
     mc_inst::{McInstance, McInstances},
     module::{Mc2Module, McModule},

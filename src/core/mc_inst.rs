@@ -277,6 +277,11 @@ impl McInstances {
         self.insts.keys()
     }
 
+    /// Access the raw insts table for diagnostics.
+    pub fn insts(&self) -> &BTreeMap<String, (IOType, McInstance)> {
+        &self.insts
+    }
+
     /// Return all possible name forms that could reference this port at a usage site.
     pub fn all_name_forms_for(&self, key: &str) -> Vec<String> {
         let mut forms = vec![key.to_string()];

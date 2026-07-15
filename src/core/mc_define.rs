@@ -2,11 +2,14 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use super::mc_func::McFunctions;
 use crate::{
-    ast_node::AstNode, c_macros::*, error::message::*,
+    ast::ast_node::AstNode,
+    ast::c_macros::*,
+    ast::error::message::*,
+    core::basic::mc_ids::McIds,
+    core::basic::mc_param::McParamDeclares,
     core::component::mc_attr::McAttributes,
-    mc_ids::McIds, mc_param::McParamDeclares, McURI,
+    McURI,
 };
 use std::sync::Arc;
 

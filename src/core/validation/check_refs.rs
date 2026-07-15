@@ -14,8 +14,34 @@ impl ValidationCheck for RefIntegrityCheck {
     fn default_severity(&self) -> CheckSeverity { CheckSeverity::Warning }
 
     fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
-        check_bare_params(acc);    // I2
-        check_spec_refs(acc);     // I1
+        check_bare_params(acc);              // I2
+        check_spec_refs(acc);               // I1
+        check_comp_func_unused_params(acc); // B1 for component funcs
+    }
+}
+
+/// B1 extension: unused parameters in component functions.
+fn check_comp_func_unused_params(acc: &mut CheckAccumulator) {
+    let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+    for entry in comps.iter() {
+        let uri = entry.key().uri.to_string();
+        if uri.contains("/unitest/") || uri.contains("/cases") { continue; }
+        let comp = entry.value();
+        let comp_name = entry.key().ident.to_string();
+        for func in comp.funcs.iter() {
+            if !func.params.is_empty() && func.lines.is_empty() && func.insts.is_empty() {
+                let param_names = func.params.names().join(", ");
+                acc.push(CheckResult {
+                    check_name: "ref-integrity", severity: CheckSeverity::Warning,
+                    uri: Some(uri.clone()), span: None,
+                    message: format!(
+                        "Function '{}' in component '{}' has unused params: [{}].",
+                        func.name, comp_name, param_names
+                    ),
+                    code: 2303,
+                });
+            }
+        }
     }
 }
 

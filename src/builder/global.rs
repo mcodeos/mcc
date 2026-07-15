@@ -5,7 +5,7 @@
 use crate::{
     builder::mc_code::McCode,
     builder::util::MultiThreadRefCell,
-    core::{component::McComponent, mc_enum::McEnumDef, mc_ifs::McInterface, module::McModule},
+    core::{component::McComponent, mc_define::McDefineDef, mc_enum::McEnumDef, mc_ifs::McInterface, module::McModule},
     McSpaceName,
 };
 use dashmap::DashMap;
@@ -26,6 +26,8 @@ lazy_static! {
     pub static ref mcc_interfaces: MultiThreadRefCell<DashMap<McSpaceName, Arc<McInterface>>> =
         MultiThreadRefCell::new(DashMap::new());
     pub static ref mcc_enums: MultiThreadRefCell<DashMap<McSpaceName, Arc<McEnumDef>>> =
+        MultiThreadRefCell::new(DashMap::new());
+    pub static ref mcc_defines: MultiThreadRefCell<DashMap<McSpaceName, Arc<McDefineDef>>> =
         MultiThreadRefCell::new(DashMap::new());
     pub(crate) static ref mcc_parsing_modules: DashMap<String, ()> = DashMap::new();
 }

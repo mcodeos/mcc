@@ -41,6 +41,7 @@ use crate::builder::diagnostic::DiagnosticManager;
 use crate::builder::mc_code::McCode;
 use crate::builder::util::MultiThreadRefCell;
 use crate::core::component::McComponent;
+use crate::core::mc_define::McDefineDef;
 use crate::core::mc_enum::McEnumDef;
 use crate::core::mc_ifs::McInterface;
 use crate::core::module::McModule;
@@ -103,6 +104,7 @@ struct WorkspaceSnapshot {
     components: DashMap<McSpaceName, Arc<McComponent>>,
     interfaces: DashMap<McSpaceName, Arc<McInterface>>,
     enums: DashMap<McSpaceName, Arc<McEnumDef>>,
+    defines: DashMap<McSpaceName, Arc<McDefineDef>>,
     diagnostics: DiagnosticManager,
 }
 
@@ -116,6 +118,7 @@ pub struct WorkspaceManager {
     pub(crate) components: MultiThreadRefCell<DashMap<McSpaceName, Arc<McComponent>>>,
     pub(crate) interfaces: MultiThreadRefCell<DashMap<McSpaceName, Arc<McInterface>>>,
     pub(crate) enums: MultiThreadRefCell<DashMap<McSpaceName, Arc<McEnumDef>>>,
+    pub(crate) defines: MultiThreadRefCell<DashMap<McSpaceName, Arc<McDefineDef>>>,
     pub(crate) diagnostics: MultiThreadRefCell<DiagnosticManager>,
 
     meta: MultiThreadRefCell<WorkspaceMeta>,
@@ -230,6 +233,7 @@ impl WorkspaceManager {
             components: MultiThreadRefCell::new(DashMap::new()),
             interfaces: MultiThreadRefCell::new(DashMap::new()),
             enums: MultiThreadRefCell::new(DashMap::new()),
+            defines: MultiThreadRefCell::new(DashMap::new()),
             diagnostics: MultiThreadRefCell::new(DiagnosticManager::new()),
             meta: MultiThreadRefCell::new(WorkspaceMeta::default()),
             saved: MultiThreadRefCell::new(HashMap::new()),
@@ -381,6 +385,7 @@ impl WorkspaceManager {
         let components = clone_and_clear(&self.components);
         let interfaces = clone_and_clear(&self.interfaces);
         let enums = clone_and_clear(&self.enums);
+        let defines = clone_and_clear(&self.defines);
         let diagnostics = self.diagnostics.borrow_mut().take();
 
         let snap = WorkspaceSnapshot {
@@ -390,6 +395,7 @@ impl WorkspaceManager {
             components,
             interfaces,
             enums,
+            defines,
             diagnostics,
         };
 
@@ -408,6 +414,7 @@ impl WorkspaceManager {
         fill_dashmap(&self.components, snap.components);
         fill_dashmap(&self.interfaces, snap.interfaces);
         fill_dashmap(&self.enums, snap.enums);
+        fill_dashmap(&self.defines, snap.defines);
 
         *self.diagnostics.borrow_mut() = snap.diagnostics;
     }
