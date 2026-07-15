@@ -12,6 +12,7 @@
 
 use crate::cli::{rpc_client::RpcClient, OutputFormat, ShowArgs, ShowTarget};
 use crate::cmds::filter;
+use crate::output::compact;
 use anyhow::Result;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
@@ -99,6 +100,7 @@ fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
         ShowTarget::Params => drill_rpc("show.params", args),
         ShowTarget::Roles => drill_rpc("show.roles", args),
         ShowTarget::Values => drill_rpc("show.values", args),
+        ShowTarget::Dump => None, // local-only: compact text rendering
     }
 }
 
@@ -117,6 +119,10 @@ fn drill_rpc(method: &'static str, args: &ShowArgs) -> Option<(&'static str, Val
 }
 
 fn run_local(args: &ShowArgs) -> Result<()> {
+    // Suppress C-layer AST tree printing for dump targets (local-only, compact output)
+    if matches!(args.target, ShowTarget::Dump) {
+        mcc::set_trace_stdout_suppressed(true);
+    }
     prepare(args);
 
     let name = args.name.as_deref();
@@ -157,6 +163,10 @@ fn run_local(args: &ShowArgs) -> Result<()> {
         ShowTarget::Params => drill_params(require_name(args), args),
         ShowTarget::Roles => drill_roles(require_name(args), args),
         ShowTarget::Values => drill_values(require_name(args), args),
+        ShowTarget::Dump => match name {
+            None => show_dump_all(args),
+            Some(n) => show_dump(n, args),
+        },
     }
 }
 
@@ -430,7 +440,7 @@ fn show_interface(name: &str, args: &ShowArgs) -> Result<()> {
         "pin_count": iface.pins.pins.len(),
         "role_count": roles.len(),
         "roles": roles,
-        "params": iface.params.names(),
+        "params": iface.params.names_full(),
     });
     output(&data, args)
 }
@@ -638,7 +648,7 @@ fn drill_funcs(name: &str, args: &ShowArgs) -> Result<()> {
     };
     let items: Vec<Value> = funcs
         .iter()
-        .map(|f| json!({ "name": f.name.to_string(), "params": f.params.names() }))
+        .map(|f| json!({ "name": f.name.to_string(), "params": f.params.names_full() }))
         .collect();
     let data = json!({ "name": name, "count": items.len(), "funcs": items });
     output(&data, args)
@@ -647,9 +657,9 @@ fn drill_funcs(name: &str, args: &ShowArgs) -> Result<()> {
 fn drill_params(name: &str, args: &ShowArgs) -> Result<()> {
     let cmie = def_or_exit(name);
     let params = match &cmie {
-        mcc::McCMIE::Component(c) => c.params.names(),
-        mcc::McCMIE::Module(m) => m.params.names(),
-        mcc::McCMIE::Interface(i) => i.params.names(),
+        mcc::McCMIE::Component(c) => c.params.names_full(),
+        mcc::McCMIE::Module(m) => m.params.names_full(),
+        mcc::McCMIE::Interface(i) => i.params.names_full(),
         _ => not_applicable("params", name),
     };
     let data = json!({ "name": name, "count": params.len(), "params": params });
@@ -683,6 +693,273 @@ fn drill_values(name: &str, args: &ShowArgs) -> Result<()> {
     let values: Vec<String> = en.values.iter().map(|v| v.name.to_string()).collect();
     let data = json!({ "name": name, "count": values.len(), "values": values });
     output(&data, args)
+}
+
+// ============================================================================
+// Dump — full-field dump of any entity for parse debugging
+// ============================================================================
+
+/// Dump all entities in scope (when no name given).
+fn show_dump_all(args: &ShowArgs) -> Result<()> {
+    let mut all = Vec::new();
+
+    for (name, _uri) in mcc::mcb_iter_components() {
+        if let Some(cmie) = find_def(&name) {
+            if let mcc::McCMIE::Component(comp) = &cmie {
+                all.push(dump_component(&name, comp));
+            }
+        }
+    }
+    for (name, _uri) in mcc::mcb_iter_modules() {
+        if let Some(cmie) = find_def(&name) {
+            if let mcc::McCMIE::Module(module) = &cmie {
+                all.push(dump_module(&name, module));
+            }
+        }
+    }
+    for (name, _uri) in mcc::mcb_iter_interfaces() {
+        if let Some(cmie) = find_def(&name) {
+            if let mcc::McCMIE::Interface(iface) = &cmie {
+                all.push(dump_interface(&name, iface));
+            }
+        }
+    }
+    for (name, _uri) in mcc::mcb_iter_enums() {
+        if let Some(cmie) = find_def(&name) {
+            if let mcc::McCMIE::Enum(en) = &cmie {
+                all.push(dump_enum(&name, en));
+            }
+        }
+    }
+
+    let data = json!({
+        "type": "dump_all",
+        "total": all.len(),
+        "entities": all,
+    });
+    output(&data, args)
+}
+
+fn show_dump(name: &str, args: &ShowArgs) -> Result<()> {
+    let cmie = def_or_exit(name);
+    let data = match &cmie {
+        mcc::McCMIE::Component(comp) => dump_component(name, comp),
+        mcc::McCMIE::Module(module) => dump_module(name, module),
+        mcc::McCMIE::Interface(iface) => dump_interface(name, iface),
+        mcc::McCMIE::Enum(en) => dump_enum(name, en),
+    };
+    output(&data, args)
+}
+
+fn dump_component(name: &str, comp: &mcc::McComponent) -> Value {
+    // Params
+    let params: Vec<Value> = comp
+        .params
+        .names_full()
+        .iter()
+        .map(|n| json!(n))
+        .collect();
+    let params_with_defaults: Vec<Value> = comp
+        .params
+        .get_params_with_defaults()
+        .iter()
+        .map(|(id, default)| json!({"name": id.to_string(), "default": default}))
+        .collect();
+
+    // Attrs
+    let attrs: Vec<Value> = comp
+        .attrs
+        .iter()
+        .map(|a| {
+            let values: Vec<Value> = a.values.iter().map(attrval_json).collect();
+            json!({"no": a.no, "name": a.id.to_string(), "values": values})
+        })
+        .collect();
+
+    // Funcs (with body lines)
+    let funcs: Vec<Value> = comp
+        .funcs
+        .iter()
+        .map(|f| {
+            let body_lines: Vec<String> = f
+                .lines
+                .iter()
+                .map(|l| l.to_string())
+                .collect();
+            json!({
+                "name": f.name.to_string(),
+                "params": f.params.names_full(),
+                "returns": f.returns.kind_str(),
+                "called_time": f.called_time,
+                "body_lines": body_lines,
+            })
+        })
+        .collect();
+
+    // Insts (sub-instances)
+    let instances = instances_json(&comp.insts, None);
+
+    // Layout
+    let layout = json!({
+        "left": comp.layout.left,
+        "right": comp.layout.right,
+        "top": comp.layout.top,
+        "bottom": comp.layout.bottom,
+    });
+
+    // CondPins / CondAttrs (debug representation)
+    let cond_pins: Vec<String> = comp
+        .cond_pins
+        .iter()
+        .map(|cp| format!("{:?}", cp))
+        .collect();
+    let cond_attrs: Vec<String> = comp
+        .cond_attrs
+        .iter()
+        .map(|ca| format!("{:?}", ca))
+        .collect();
+
+    let mut data = pins_json(&comp.pins);
+    data["name"] = json!(name);
+    data["kind"] = json!("component");
+    data["uri"] = json!(comp.uri.to_string());
+    data["params"] = json!(params);
+    data["params_with_defaults"] = json!(params_with_defaults);
+    data["attrs"] = json!(attrs);
+    data["funcs"] = json!(funcs);
+    data["instances"] = json!(instances);
+    data["layout"] = layout;
+    data["cond_pins_count"] = json!(comp.cond_pins.len());
+    data["cond_pins"] = json!(cond_pins);
+    data["cond_attrs_count"] = json!(comp.cond_attrs.len());
+    data["cond_attrs"] = json!(cond_attrs);
+    data
+}
+
+fn dump_module(name: &str, module: &mcc::McModule) -> Value {
+    // Params
+    let params: Vec<Value> = module
+        .params
+        .names_full()
+        .iter()
+        .map(|n| json!(n))
+        .collect();
+    let params_with_defaults: Vec<Value> = module
+        .params
+        .get_params_with_defaults()
+        .iter()
+        .map(|(id, default)| json!({"name": id.to_string(), "default": default}))
+        .collect();
+
+    // Insts (ports + sub-instances)
+    let instances = instances_json(&module.insts, None);
+
+    // Lines (connection phrases)
+    let lines: Vec<String> = module
+        .lines
+        .iter()
+        .map(|l| l.to_string())
+        .collect();
+
+    // Funcs
+    let funcs: Vec<Value> = module
+        .funcs
+        .iter()
+        .map(|f| {
+            let body_lines: Vec<String> = f
+                .lines
+                .iter()
+                .map(|l| l.to_string())
+                .collect();
+            json!({
+                "name": f.name.to_string(),
+                "params": f.params.names_full(),
+                "returns": f.returns.kind_str(),
+                "called_time": f.called_time,
+                "body_lines": body_lines,
+            })
+        })
+        .collect();
+
+    json!({
+        "name": name,
+        "kind": "module",
+        "uri": module.uri.to_string(),
+        "params": params,
+        "params_with_defaults": params_with_defaults,
+        "instances": instances,
+        "lines_count": module.lines.len(),
+        "lines": lines,
+        "funcs": funcs,
+    })
+}
+
+fn dump_interface(name: &str, iface: &mcc::McInterface) -> Value {
+    let params: Vec<Value> = iface
+        .params
+        .names_full()
+        .iter()
+        .map(|n| json!(n))
+        .collect();
+    let params_with_defaults: Vec<Value> = iface
+        .params
+        .get_params_with_defaults()
+        .iter()
+        .map(|(id, default)| json!({"name": id.to_string(), "default": default}))
+        .collect();
+
+    let attrs: Vec<Value> = iface
+        .attrs
+        .iter()
+        .map(|a| {
+            let values: Vec<Value> = a.values.iter().map(attrval_json).collect();
+            json!({"no": a.no, "name": a.id.to_string(), "values": values})
+        })
+        .collect();
+
+    let roles: Vec<Value> = iface
+        .roles
+        .iter()
+        .map(|r| {
+            json!({
+                "name": r.name.to_string(),
+                "pins": pins_json(&r.pins),
+            })
+        })
+        .collect();
+
+    let mut data = pins_json(&iface.pins);
+    data["name"] = json!(name);
+    data["kind"] = json!("interface");
+    data["uri"] = json!(iface.uri.to_string());
+    data["params"] = json!(params);
+    data["params_with_defaults"] = json!(params_with_defaults);
+    data["attrs"] = json!(attrs);
+    data["roles"] = json!(roles);
+    data["span"] = json!({"start": iface.span.start, "end": iface.span.end});
+    data
+}
+
+fn dump_enum(name: &str, en: &mcc::McEnumDef) -> Value {
+    let values: Vec<Value> = en
+        .values
+        .iter()
+        .map(|v| {
+            json!({
+                "name": v.name.to_string(),
+                "span": [v.span[0], v.span[1]],
+            })
+        })
+        .collect();
+
+    json!({
+        "name": name,
+        "kind": "enum",
+        "uri": en.uri.to_string(),
+        "span": [en.span[0], en.span[1]],
+        "value_count": values.len(),
+        "values": values,
+    })
 }
 
 // ============================================================================
@@ -758,9 +1035,18 @@ fn inst_kind_class(inst: &mcc::McInstance) -> (&'static str, String) {
         mcc::McInstance::Module(m) => ("module", m.name.to_string()),
         mcc::McInstance::Label(l) => ("label", l.clone()),
         mcc::McInstance::Interface(i) => ("interface", i.name.to_string()),
-        mcc::McInstance::Bus(b) => ("bus", b.name().to_string()),
+        mcc::McInstance::Bus(b) => ("bus", b.to_string()),
         mcc::McInstance::BusRef { component, bus } => ("busref", format!("{}.{}", component, bus)),
-        mcc::McInstance::List(l) => ("list", l.name().to_string()),
+        mcc::McInstance::List(l) => {
+            let name = l.name().to_string();
+            // Show debug form (includes members) for lists with members
+            let class = format!("{:?}", l);
+            if class != name {
+                ("list", class)
+            } else {
+                ("list", name)
+            }
+        },
     }
 }
 
@@ -782,7 +1068,7 @@ fn instances_json(insts: &mcc::McInstances, type_filter: Option<&str>) -> Vec<Va
 fn attrval_json(v: &mcc::McAttrVal) -> Value {
     match v {
         mcc::McAttrVal::AttrLiteral(mcc::McLiteral::String(s)) => json!(s.value),
-        other => json!(format!("{:?}", other)),
+        other => json!(other.to_string()),
     }
 }
 
@@ -847,10 +1133,14 @@ fn output(data: &Value, args: &ShowArgs) -> Result<()> {
         OutputFormat::Json => data.to_string(),
         OutputFormat::JsonPretty => serde_json::to_string_pretty(data)?,
         OutputFormat::Yaml => serde_yaml::to_string(data).unwrap_or_default(),
-        // CSV is rendered by callers (extract/export), not by show.
         OutputFormat::Csv => data.to_string(),
         OutputFormat::Text => {
-            if let Some(obj) = data.as_object() {
+            // Detect dump output and render in compact .mc-like format
+            if data.get("kind").and_then(|v| v.as_str()).is_some() {
+                compact::render_entity(data)
+            } else if data.get("type").and_then(|v| v.as_str()) == Some("dump_all") {
+                compact::render_all(data)
+            } else if let Some(obj) = data.as_object() {
                 obj.iter()
                     .map(|(k, v)| format!("{}: {}", k, v))
                     .collect::<Vec<_>>()
@@ -868,3 +1158,4 @@ fn output(data: &Value, args: &ShowArgs) -> Result<()> {
     }
     Ok(())
 }
+

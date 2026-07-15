@@ -291,6 +291,8 @@ pub fn handle_methods(_params: Option<Value>) -> RpcResult {
         "params.diag",
         "show.roles",
         "show.values",
+        "show.dump",
+        "show.dump.all",
         // search (M5)
         "defs.search",
         "defs.query",
@@ -1716,11 +1718,19 @@ fn extract_from_uri(entry: &Path, top: Option<&str>, target: &str) -> RpcResult 
                                 crate::McInstance::Interface(i) => {
                                     ("interface", i.name.to_string())
                                 }
-                                crate::McInstance::Bus(b) => ("bus", b.name().to_string()),
+                                crate::McInstance::Bus(b) => ("bus", b.to_string()),
                                 crate::McInstance::BusRef { component, bus } => {
                                     ("busref", format!("{component}.{bus}"))
                                 }
-                                crate::McInstance::List(l) => ("list", l.name().to_string()),
+                                crate::McInstance::List(l) => {
+            let name = l.name().to_string();
+            let class = format!("{:?}", l);
+            if class != name {
+                ("list", class)
+            } else {
+                ("list", name)
+            }
+        },
                             };
                             json!({ "name": name.to_string(), "kind": kind, "class": class })
                         })
@@ -2231,6 +2241,46 @@ struct ShowParams {
     top: Option<String>,
 }
 
+/// Resolve a file path to an absolute URI string for filtering.
+fn resolve_to_abs_uri(file: &str) -> String {
+    let path = std::path::Path::new(file);
+    if let Ok(canonical) = path.canonicalize() {
+        canonical.to_string_lossy().to_string()
+    } else if path.is_absolute() {
+        file.to_string()
+    } else if let Ok(cwd) = std::env::current_dir() {
+        cwd.join(path).to_string_lossy().to_string()
+    } else {
+        file.to_string()
+    }
+}
+
+/// Filter (name, uri) pairs to only those that belong to the same project as
+/// `file`. An item belongs if its URI equals the resolved file path, or is
+/// under the same directory as the file (transitive `$include` files).
+fn filter_items_by_file<T: Clone>(items: &[(T, String)], file: &str) -> Vec<T> {
+    let target = resolve_to_abs_uri(file);
+    let parent_dir = std::path::Path::new(&target)
+        .parent()
+        .map(|p| p.to_string_lossy().to_string());
+
+    items
+        .iter()
+        .filter(|(_, uri)| {
+            if uri == &target {
+                return true;
+            }
+            if let Some(ref dir) = parent_dir {
+                if uri.starts_with(dir) {
+                    return true;
+                }
+            }
+            false
+        })
+        .map(|(n, _)| n.clone())
+        .collect()
+}
+
 pub fn handle_show_component_list(params: Option<Value>) -> RpcResult {
     let p: ShowParams = parse_or_default(params)?;
 
@@ -2241,7 +2291,11 @@ pub fn handle_show_component_list(params: Option<Value>) -> RpcResult {
     }
 
     let comps: Vec<(String, String)> = crate::mcb_iter_components();
-    let names: Vec<String> = comps.iter().map(|(n, _)| n.clone()).collect();
+    let names: Vec<String> = if let Some(ref file) = p.file {
+        filter_items_by_file(&comps, file)
+    } else {
+        comps.iter().map(|(n, _)| n.clone()).collect()
+    };
 
     Ok(json!({
         "type": "component",
@@ -2260,7 +2314,11 @@ pub fn handle_show_module_list(params: Option<Value>) -> RpcResult {
     }
 
     let modules: Vec<(String, String)> = crate::mcb_iter_modules();
-    let names: Vec<String> = modules.iter().map(|(n, _)| n.clone()).collect();
+    let names: Vec<String> = if let Some(ref file) = p.file {
+        filter_items_by_file(&modules, file)
+    } else {
+        modules.iter().map(|(n, _)| n.clone()).collect()
+    };
 
     Ok(json!({
         "type": "module",
@@ -2279,7 +2337,11 @@ pub fn handle_show_interface_list(params: Option<Value>) -> RpcResult {
     }
 
     let ifaces: Vec<(String, String)> = crate::mcb_iter_interfaces();
-    let names: Vec<String> = ifaces.iter().map(|(n, _)| n.clone()).collect();
+    let names: Vec<String> = if let Some(ref file) = p.file {
+        filter_items_by_file(&ifaces, file)
+    } else {
+        ifaces.iter().map(|(n, _)| n.clone()).collect()
+    };
 
     Ok(json!({
         "type": "interface",
@@ -2398,11 +2460,19 @@ pub fn handle_show_module(params: Option<Value>) -> RpcResult {
                         crate::McInstance::Module(m) => ("module", m.name.to_string()),
                         crate::McInstance::Label(l) => ("label", l.clone()),
                         crate::McInstance::Interface(i) => ("interface", i.name.to_string()),
-                        crate::McInstance::Bus(b) => ("bus", b.name().to_string()),
+                        crate::McInstance::Bus(b) => ("bus", b.to_string()),
                         crate::McInstance::BusRef { component, bus } => {
                             ("busref", format!("{component}.{bus}"))
                         }
-                        crate::McInstance::List(l) => ("list", l.name().to_string()),
+                        crate::McInstance::List(l) => {
+            let name = l.name().to_string();
+            let class = format!("{:?}", l);
+            if class != name {
+                ("list", class)
+            } else {
+                ("list", name)
+            }
+        },
                     };
                     json!({ "name": n.to_string(), "kind": kind, "class": class })
                 })
@@ -2611,16 +2681,24 @@ fn inst_kind_class(inst: &crate::McInstance) -> (&'static str, String) {
         crate::McInstance::Module(m) => ("module", m.name.to_string()),
         crate::McInstance::Label(l) => ("label", l.clone()),
         crate::McInstance::Interface(i) => ("interface", i.name.to_string()),
-        crate::McInstance::Bus(b) => ("bus", b.name().to_string()),
+        crate::McInstance::Bus(b) => ("bus", b.to_string()),
         crate::McInstance::BusRef { component, bus } => ("busref", format!("{component}.{bus}")),
-        crate::McInstance::List(l) => ("list", l.name().to_string()),
+        crate::McInstance::List(l) => {
+            let name = l.name().to_string();
+            let class = format!("{:?}", l);
+            if class != name {
+                ("list", class)
+            } else {
+                ("list", name)
+            }
+        },
     }
 }
 
 fn attrval_json(v: &crate::McAttrVal) -> Value {
     match v {
         crate::McAttrVal::AttrLiteral(crate::McLiteral::String(s)) => json!(s.value),
-        other => json!(format!("{:?}", other)),
+        other => json!(other.to_string()),
     }
 }
 
@@ -2649,7 +2727,7 @@ pub fn handle_show_all(_params: Option<Value>) -> RpcResult {
 
 pub fn handle_show_file(params: Option<Value>) -> RpcResult {
     let p: ShowParams = parse_or_default(params)?;
-    let file = p.name.unwrap_or_default();
+    let file = p.file.unwrap_or_default();
 
     // Load the file if provided
     if !file.is_empty() {
@@ -2657,22 +2735,39 @@ pub fn handle_show_file(params: Option<Value>) -> RpcResult {
         crate::mcc_load_project(&uri);
     }
 
-    let comps = crate::mcb_iter_components();
-    let mods = crate::mcb_iter_modules();
-    let ifaces = crate::mcb_iter_interfaces();
-    let enums = crate::mcb_iter_enums();
+    let comps: Vec<(String, String)> = crate::mcb_iter_components();
+    let mods: Vec<(String, String)> = crate::mcb_iter_modules();
+    let ifaces: Vec<(String, String)> = crate::mcb_iter_interfaces();
+    let enums: Vec<(String, String)> = crate::mcb_iter_enums();
+
+    // Filter by file when a file path is specified
+    let (component_list, module_list, interface_list, enum_list) = if file.is_empty() {
+        (
+            comps.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>(),
+            mods.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>(),
+            ifaces.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>(),
+            enums.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>(),
+        )
+    } else {
+        (
+            filter_items_by_file(&comps, &file),
+            filter_items_by_file(&mods, &file),
+            filter_items_by_file(&ifaces, &file),
+            filter_items_by_file(&enums, &file),
+        )
+    };
 
     Ok(json!({
         "type": "file",
         "file": file,
-        "component_count": comps.len(),
-        "component_list": comps.iter().map(|(n,_)| n).collect::<Vec<_>>(),
-        "module_count": mods.len(),
-        "module_list": mods.iter().map(|(n,_)| n).collect::<Vec<_>>(),
-        "interface_count": ifaces.len(),
-        "interface_list": ifaces.iter().map(|(n,_)| n).collect::<Vec<_>>(),
-        "enum_count": enums.len(),
-        "enum_list": enums.iter().map(|(n,_)| n).collect::<Vec<_>>(),
+        "component_count": component_list.len(),
+        "component_list": component_list,
+        "module_count": module_list.len(),
+        "module_list": module_list,
+        "interface_count": interface_list.len(),
+        "interface_list": interface_list,
+        "enum_count": enum_list.len(),
+        "enum_list": enum_list,
     }))
 }
 
@@ -2724,7 +2819,11 @@ pub fn handle_show_enum_list(params: Option<Value>) -> RpcResult {
         crate::mcc_load_project(&uri);
     }
     let enums = crate::mcb_iter_enums();
-    let names: Vec<String> = enums.iter().map(|(n, _)| n.clone()).collect();
+    let names: Vec<String> = if let Some(ref file) = p.file {
+        filter_items_by_file(&enums, file)
+    } else {
+        enums.iter().map(|(n, _)| n.clone()).collect()
+    };
     Ok(json!({ "type": "enum", "count": names.len(), "list": names }))
 }
 
@@ -3130,6 +3229,247 @@ pub fn handle_show_values(params: Option<Value>) -> RpcResult {
     };
     let values: Vec<String> = en.values.iter().map(|v| v.name.to_string()).collect();
     Ok(json!({ "name": name, "count": values.len(), "values": values }))
+}
+
+pub fn handle_show_dump(params: Option<Value>) -> RpcResult {
+    let p: ShowParams = parse_strict(params)?;
+    let name = p
+        .name
+        .as_ref()
+        .ok_or_else(|| JsonRpcError::custom(-32602, "show.dump: need to specify name"))?;
+
+    // If a file is specified, load it first
+    if let Some(file) = &p.file {
+        let uri = McURI::from(file.as_str());
+        crate::mcc_load_project(&uri);
+    }
+
+    let (cmie, uri) = find_def_by_name(name)
+        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
+
+    let data = match &cmie {
+        crate::McCMIE::Component(comp) => dump_component_json(name, comp, &uri),
+        crate::McCMIE::Module(module) => dump_module_json(name, module, &uri),
+        crate::McCMIE::Interface(iface) => dump_interface_json(name, iface, &uri),
+        crate::McCMIE::Enum(en) => dump_enum_json(name, en, &uri),
+    };
+    Ok(data)
+}
+
+pub fn handle_show_dump_all(params: Option<Value>) -> RpcResult {
+    let p: ShowParams = parse_or_default(params)?;
+
+    // Load file if specified
+    if let Some(file) = &p.file {
+        let uri = McURI::from(file.as_str());
+        crate::mcc_load_project(&uri);
+    }
+
+    let mut all = Vec::new();
+    for (name, _) in crate::mcb_iter_components() {
+        if let Some((cmie, uri)) = find_def_by_name(&name) {
+            if let crate::McCMIE::Component(comp) = &cmie {
+                all.push(dump_component_json(&name, comp, &uri));
+            }
+        }
+    }
+    for (name, _) in crate::mcb_iter_modules() {
+        if let Some((cmie, uri)) = find_def_by_name(&name) {
+            if let crate::McCMIE::Module(module) = &cmie {
+                all.push(dump_module_json(&name, module, &uri));
+            }
+        }
+    }
+    for (name, _) in crate::mcb_iter_interfaces() {
+        if let Some((cmie, uri)) = find_def_by_name(&name) {
+            if let crate::McCMIE::Interface(iface) = &cmie {
+                all.push(dump_interface_json(&name, iface, &uri));
+            }
+        }
+    }
+    for (name, _) in crate::mcb_iter_enums() {
+        if let Some((cmie, uri)) = find_def_by_name(&name) {
+            if let crate::McCMIE::Enum(en) = &cmie {
+                all.push(dump_enum_json(&name, en, &uri));
+            }
+        }
+    }
+
+    // Filter by file if specified
+    let all = if p.file.is_some() {
+        all // already filtered by mcb_iter_* after file load? No — we need to filter here.
+        // Actually, the file was loaded above. The file param here is used for loading
+        // and the list handlers (component/module/etc.) do their own filtering.
+        // For dump_all, we return everything that's loaded.
+    } else {
+        all
+    };
+
+    // Actually, let's apply the same file filter for consistency
+    let all = if let Some(ref file) = p.file {
+        let target = resolve_to_abs_uri(file);
+        let parent_dir = std::path::Path::new(&target)
+            .parent()
+            .map(|p| p.to_string_lossy().to_string());
+        all.into_iter()
+            .filter(|e| {
+                let uri = e["uri"].as_str().unwrap_or("");
+                uri == target || parent_dir.as_ref().map_or(false, |d| uri.starts_with(d))
+            })
+            .collect::<Vec<_>>()
+    } else {
+        all
+    };
+
+    Ok(json!({
+        "type": "dump_all",
+        "total": all.len(),
+        "entities": all,
+    }))
+}
+
+// JSON builders for each entity kind (used by handle_show_dump and handle_show_dump_all)
+fn dump_component_json(name: &str, comp: &crate::McComponent, uri: &str) -> Value {
+    let params: Vec<Value> = comp.params.names_full().iter().map(|n| json!(n)).collect();
+    let params_with_defaults: Vec<Value> = comp
+        .params
+        .get_params_with_defaults()
+        .iter()
+        .map(|(id, default)| json!({"name": id.to_string(), "default": default}))
+        .collect();
+    let attrs: Vec<Value> = comp
+        .attrs.iter()
+        .map(|a| {
+            let values: Vec<Value> = a.values.iter().map(attrval_json).collect();
+            json!({"no": a.no, "name": a.id.to_string(), "values": values})
+        })
+        .collect();
+    let funcs: Vec<Value> = comp.funcs.iter().map(|f| {
+        let body_lines: Vec<String> = f.lines.iter().map(|l| l.to_string()).collect();
+        json!({
+            "name": f.name.to_string(),
+            "params": f.params.names(),
+            "returns": f.returns.kind_str(),
+            "called_time": f.called_time,
+            "body_lines": body_lines,
+        })
+    }).collect();
+    let instances: Vec<Value> = instances_json(&comp.insts, None);
+    let layout = json!({
+        "left": comp.layout.left,
+        "right": comp.layout.right,
+        "top": comp.layout.top,
+        "bottom": comp.layout.bottom,
+    });
+    let cond_pins: Vec<String> = comp.cond_pins.iter().map(|cp| format!("{:?}", cp)).collect();
+    let cond_attrs: Vec<String> = comp.cond_attrs.iter().map(|ca| format!("{:?}", ca)).collect();
+
+    let mut data = pins_json(&comp.pins);
+    data["name"] = json!(name);
+    data["kind"] = json!("component");
+    data["uri"] = json!(uri);
+    data["params"] = json!(params);
+    data["params_with_defaults"] = json!(params_with_defaults);
+    data["attrs"] = json!(attrs);
+    data["funcs"] = json!(funcs);
+    data["instances"] = json!(instances);
+    data["layout"] = layout;
+    data["cond_pins_count"] = json!(comp.cond_pins.len());
+    data["cond_pins"] = json!(cond_pins);
+    data["cond_attrs_count"] = json!(comp.cond_attrs.len());
+    data["cond_attrs"] = json!(cond_attrs);
+    data
+}
+
+fn dump_module_json(name: &str, module: &crate::McModule, uri: &str) -> Value {
+    let params: Vec<Value> = module.params.names_full().iter().map(|n| json!(n)).collect();
+    let params_with_defaults: Vec<Value> = module
+        .params
+        .get_params_with_defaults()
+        .iter()
+        .map(|(id, default)| json!({"name": id.to_string(), "default": default}))
+        .collect();
+    let instances: Vec<Value> = instances_json(&module.insts, None);
+    let lines: Vec<String> = module.lines.iter().map(|l| l.to_string()).collect();
+    let funcs: Vec<Value> = module.funcs.iter().map(|f| {
+        let body_lines: Vec<String> = f.lines.iter().map(|l| l.to_string()).collect();
+        json!({
+            "name": f.name.to_string(),
+            "params": f.params.names(),
+            "returns": f.returns.kind_str(),
+            "called_time": f.called_time,
+            "body_lines": body_lines,
+        })
+    }).collect();
+    json!({
+        "name": name,
+        "kind": "module",
+        "uri": uri,
+        "params": params,
+        "params_with_defaults": params_with_defaults,
+        "instances": instances,
+        "lines_count": module.lines.len(),
+        "lines": lines,
+        "funcs": funcs,
+    })
+}
+
+fn dump_interface_json(name: &str, iface: &crate::McInterface, uri: &str) -> Value {
+    let params: Vec<Value> = iface.params.names_full().iter().map(|n| json!(n)).collect();
+    let params_with_defaults: Vec<Value> = iface
+        .params
+        .get_params_with_defaults()
+        .iter()
+        .map(|(id, default)| json!({"name": id.to_string(), "default": default}))
+        .collect();
+    let attrs: Vec<Value> = iface.attrs.iter().map(|a| {
+        let values: Vec<Value> = a.values.iter().map(attrval_json).collect();
+        json!({"no": a.no, "name": a.id.to_string(), "values": values})
+    }).collect();
+    let roles: Vec<Value> = iface.roles.iter().map(|r| {
+        json!({"name": r.name.to_string(), "pins": pins_json(&r.pins)})
+    }).collect();
+
+    let mut data = pins_json(&iface.pins);
+    data["name"] = json!(name);
+    data["kind"] = json!("interface");
+    data["uri"] = json!(uri);
+    data["params"] = json!(params);
+    data["params_with_defaults"] = json!(params_with_defaults);
+    data["attrs"] = json!(attrs);
+    data["roles"] = json!(roles);
+    data["span"] = json!({"start": iface.span.start, "end": iface.span.end});
+    data
+}
+
+fn dump_enum_json(name: &str, en: &crate::McEnumDef, uri: &str) -> Value {
+    let values: Vec<Value> = en.values.iter().map(|v| {
+        json!({"name": v.name.to_string(), "span": [v.span[0], v.span[1]]})
+    }).collect();
+    json!({
+        "name": name,
+        "kind": "enum",
+        "uri": uri,
+        "span": [en.span[0], en.span[1]],
+        "value_count": values.len(),
+        "values": values,
+    })
+}
+
+// Helper: serialize instances (mirrors instances_json in show.rs)
+fn instances_json(insts: &crate::McInstances, type_filter: Option<&str>) -> Vec<Value> {
+    insts
+        .iter()
+        .filter_map(|(n, inst)| {
+            let (kind, class) = inst_kind_class(inst);
+            if let Some(t) = type_filter {
+                if !kind.eq_ignore_ascii_case(t) {
+                    return None;
+                }
+            }
+            Some(json!({"name": n.to_string(), "kind": kind, "class": class}))
+        })
+        .collect()
 }
 
 // ============================================================================
@@ -3662,6 +4002,7 @@ pub fn handle_caps(_params: Option<Value>) -> RpcResult {
             "show.attrs", "show.funcs", "show.params",
             "params.diag",
             "show.roles", "show.values",
+            "show.dump", "show.dump.all",
             "lib.list", "lib.info", "lib.load", "lib.unload",
             "lib.install", "lib.uninstall", "lib.search",
             "defs.search", "defs.query",

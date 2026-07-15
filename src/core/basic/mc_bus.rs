@@ -4,6 +4,22 @@
 
 use std::{convert::From, iter::Iterator};
 
+/// A bus or parameterised identifier with optional member access.
+///
+/// # `.` (dot) and `{}` (curly braces) equivalence
+///
+/// In MCode, member/sub access via dot (`.`) and curly braces (`{}`) is semantically
+/// equivalent:
+///
+/// ```text
+/// DC2.VDD    ≡  DC2{VDD}      // single member access
+/// res5.1     ≡  res5{1}       // single member (index)
+/// rs485.A    ≡  rs485{A}      // bus member access
+/// ```
+///
+/// Both forms resolve to the same internal representation (`McBus`). Which form is
+/// used in source code is a stylistic choice; the parser normalises both to the same
+/// AST and the Display/Debug output uses `{}` notation.
 #[derive(Clone)]
 pub struct McBus {
     pub(crate) name: String,
@@ -142,6 +158,13 @@ impl From<McBus> for Vec<McBus> {
 // ============================================================================
 
 #[derive(Clone)]
+/// A list of identifiers, e.g. `[VDD1, GND1]`.
+///
+/// # `.` (dot) and `{}` (curly braces) equivalence
+///
+/// Same equivalence as [`McBus`]: square-bracket grouped identifiers are internally
+/// represented as a list, and member access via `.` or `{}` resolves to the same
+/// underlying element.
 pub struct McList {
     pub(crate) name: String,
     pub(crate) member: Vec<String>,
