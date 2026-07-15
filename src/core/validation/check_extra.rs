@@ -140,6 +140,8 @@ impl ValidationCheck for ExtraCheck {
         check_reserved_names(acc, &lib_names); // F1
         check_port_direction_mismatch(acc); // C3
         check_default_value_range(acc); // B7
+        check_body_literal_as_arg(acc); // S5
+        check_module_func_unused_params(acc); // B1-ext for module funcs
     }
 }
 
@@ -759,6 +761,122 @@ fn check_default_value_range(acc: &mut CheckAccumulator) {
                     }
                     _ => {}
                 }
+            }
+        }
+    }
+}
+
+/// S5: Body literal used as a call argument.
+///
+/// Passing an inline body block `{...}` as a positional argument to a
+/// component/module constructor is unusual and likely a mistake.
+/// Body literals are for component definition, not instantiation.
+fn check_body_literal_as_arg(acc: &mut CheckAccumulator) {
+    let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
+    for entry in modules.iter() {
+        let uri = entry.key().uri.to_string();
+        if super::is_test_file(&uri) {
+            continue;
+        }
+        let m = entry.value();
+
+        for phrase in &m.lines {
+            let text = format!("{}", phrase);
+
+            // Look for `({` patterns — a body literal block being passed as an
+            // argument inside a constructor call like `COMP({...})` or `COMP(a, {...})`
+            if text.contains("({") {
+                // Check that this isn't a component definition `component NAME({...})`
+                if text.starts_with("component") || text.starts_with("module") {
+                    continue;
+                }
+
+                // Check that the `({` is inside a constructor call (has `(` before it)
+                if let Some(paren_pos) = text.find('(') {
+                    if let Some(body_pos) = text.find("({") {
+                        if body_pos > paren_pos {
+                            acc.push(CheckResult {
+                                check_name: "extra",
+                                severity: CheckSeverity::Warning,
+                                uri: Some(uri.clone()),
+                                span: None,
+                                message: format!(
+                                    "Module '{}': inline body literal used as call argument \
+                                     in '{}'. Body blocks are for definitions, not \
+                                     instantiation arguments.",
+                                    entry.key().ident,
+                                    text.trim()
+                                ),
+                                code: 2616,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// B1-ext: unused parameters in module-level functions.
+///
+/// Module functions should use all declared parameters. An unused parameter
+/// may indicate dead code or an incomplete implementation.
+fn check_module_func_unused_params(acc: &mut CheckAccumulator) {
+    let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
+    for entry in modules.iter() {
+        let uri = entry.key().uri.to_string();
+        if super::is_test_file(&uri) {
+            continue;
+        }
+        let m = entry.value();
+        let mod_name = entry.key().ident.to_string();
+
+        for func in m.funcs.iter() {
+            if func.params.is_empty() {
+                continue;
+            }
+            if func.lines.is_empty() && func.insts.is_empty() {
+                // Already caught by R4 (empty function body) — skip
+                continue;
+            }
+
+            // Collect param names
+            let param_names: HashSet<String> = func
+                .params
+                .iter()
+                .filter_map(|d| d.get_primary_name())
+                .collect();
+
+            // Collect all identifiers referenced in the function body
+            let mut used_names: HashSet<String> = HashSet::new();
+            for phrase in &func.lines {
+                let text = format!("{}", phrase);
+                for word in text.split_whitespace() {
+                    let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+                    if !clean.is_empty() {
+                        used_names.insert(clean.to_string());
+                    }
+                }
+            }
+
+            // Find unused params
+            let unused: Vec<String> = param_names.difference(&used_names).cloned().collect();
+
+            if !unused.is_empty() {
+                acc.push(CheckResult {
+                    check_name: "extra",
+                    severity: CheckSeverity::Warning,
+                    uri: Some(uri.clone()),
+                    span: None,
+                    message: format!(
+                        "Function '{}' in module '{}' declares but never uses params: [{}]. \
+                         Consider removing unused parameters.",
+                        func.name,
+                        mod_name,
+                        unused.join(", ")
+                    ),
+                    code: 2617,
+                });
             }
         }
     }

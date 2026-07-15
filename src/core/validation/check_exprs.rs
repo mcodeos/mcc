@@ -422,12 +422,8 @@ fn check_pins_ref_not_found(acc: &mut CheckAccumulator) {
             let comp = entry.value();
 
             // Build set of valid pin names for this component
-            let pin_names: std::collections::HashSet<String> = comp
-                .pins
-                .names_to_id
-                .keys()
-                .cloned()
-                .collect();
+            let pin_names: std::collections::HashSet<String> =
+                comp.pins.names_to_id.keys().cloned().collect();
 
             // Also collect from McPins.pins entries
             let pin_id_names: std::collections::HashSet<String> = comp
@@ -437,10 +433,8 @@ fn check_pins_ref_not_found(acc: &mut CheckAccumulator) {
                 .flat_map(|p| p.names.iter().cloned())
                 .collect();
 
-            let all_pin_names: std::collections::HashSet<String> = pin_names
-                .union(&pin_id_names)
-                .cloned()
-                .collect();
+            let all_pin_names: std::collections::HashSet<String> =
+                pin_names.union(&pin_id_names).cloned().collect();
 
             if all_pin_names.is_empty() {
                 continue;
@@ -496,11 +490,8 @@ fn check_pins_ref_not_found(acc: &mut CheckAccumulator) {
             let m = entry.value();
 
             // Build set of valid port/instance names
-            let port_names: std::collections::HashSet<String> = m
-                .insts
-                .iter_instance_names()
-                .cloned()
-                .collect();
+            let port_names: std::collections::HashSet<String> =
+                m.insts.iter_instance_names().cloned().collect();
 
             if port_names.is_empty() {
                 continue;
@@ -574,7 +565,8 @@ fn scan_pins_refs(
                             if valid_names.len() <= 10 {
                                 let mut names: Vec<_> = valid_names.iter().collect();
                                 names.sort();
-                                names.into_iter()
+                                names
+                                    .into_iter()
                                     .map(|s| s.as_str())
                                     .collect::<Vec<_>>()
                                     .join(", ")

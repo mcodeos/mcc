@@ -30,6 +30,7 @@ impl ValidationCheck for PortInstanceCheck {
             check_duplicate_ports(&mod_name, m, acc); // C2
             check_duplicate_instances(&mod_name, m, acc); // D1
             check_undefined_net_refs(&mod_name, m, acc); // E2
+            check_param_inst_overlap(&mod_name, m, acc); // param+port naming overlap
         }
     }
 }
