@@ -6,6 +6,7 @@
 //!
 //! Checks:
 //!   Q1 — `this` used outside instance context
+//!   Q2 — `pins.X` where X not in pin table
 //!   Q3 — `_` as sole net endpoint
 //!   T3 — empty conditional body
 //!   E4 — constant expression overflow
@@ -33,6 +34,7 @@ impl ValidationCheck for ExprsCheck {
 
     fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
         check_this_outside_instance(acc); // Q1
+        check_pins_ref_not_found(acc); // Q2
         check_uscore_sole_endpoint(acc); // Q3
         check_empty_conditional(acc); // T3
         check_constant_overflow(acc); // E4
@@ -398,6 +400,197 @@ fn check_idx_key_collision(acc: &mut CheckAccumulator) {
                     code: 2908,
                 });
             }
+        }
+    }
+}
+
+// ============================================================================
+// Q2: `pins.X` where X not in pin table
+// ============================================================================
+
+/// Scans component function bodies and module body lines for `pins.X`
+/// references, and verifies that X exists in the relevant pin/port table.
+fn check_pins_ref_not_found(acc: &mut CheckAccumulator) {
+    // ── Component-level: function body lines ──
+    {
+        let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+        for entry in comps.iter() {
+            let uri = entry.key().uri.to_string();
+            if super::is_test_file(&uri) {
+                continue;
+            }
+            let comp = entry.value();
+
+            // Build set of valid pin names for this component
+            let pin_names: std::collections::HashSet<String> = comp
+                .pins
+                .names_to_id
+                .keys()
+                .cloned()
+                .collect();
+
+            // Also collect from McPins.pins entries
+            let pin_id_names: std::collections::HashSet<String> = comp
+                .pins
+                .pins
+                .values()
+                .flat_map(|p| p.names.iter().cloned())
+                .collect();
+
+            let all_pin_names: std::collections::HashSet<String> = pin_names
+                .union(&pin_id_names)
+                .cloned()
+                .collect();
+
+            if all_pin_names.is_empty() {
+                continue;
+            }
+
+            // Check function body lines
+            for func in comp.funcs.iter() {
+                for phrase in &func.lines {
+                    scan_pins_refs(
+                        &format!("{}", phrase),
+                        &all_pin_names,
+                        &uri,
+                        &format!("component '{}' function '{}'", comp.name, func.name),
+                        acc,
+                    );
+                }
+            }
+
+            // Check bus member names that reference pins
+            for (_name, (_iotype, instance)) in comp.insts.iter_with_iotype() {
+                if let crate::McInstance::Bus(bus) = instance {
+                    for member in &bus.member {
+                        if let Some((prefix, suffix)) = member.split_once('.') {
+                            if prefix == "pins" && !all_pin_names.contains(suffix) {
+                                acc.push(CheckResult {
+                                    check_name: "exprs",
+                                    severity: CheckSeverity::Warning,
+                                    uri: Some(uri.clone()),
+                                    span: None,
+                                    message: format!(
+                                        "Component '{}': 'pins.{}' references pin '{}' which \
+                                         is not a defined pin name.",
+                                        comp.name, suffix, suffix
+                                    ),
+                                    code: 2307,
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Module-level: body lines ──
+    {
+        let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
+        for entry in modules.iter() {
+            let uri = entry.key().uri.to_string();
+            if super::is_test_file(&uri) {
+                continue;
+            }
+            let m = entry.value();
+
+            // Build set of valid port/instance names
+            let port_names: std::collections::HashSet<String> = m
+                .insts
+                .iter_instance_names()
+                .cloned()
+                .collect();
+
+            if port_names.is_empty() {
+                continue;
+            }
+
+            // Check module body lines
+            for phrase in &m.lines {
+                scan_pins_refs(
+                    &format!("{}", phrase),
+                    &port_names,
+                    &uri,
+                    &format!("module '{}'", entry.key().ident),
+                    acc,
+                );
+            }
+
+            // Check function body lines within module
+            for func in m.funcs.iter() {
+                for phrase in &func.lines {
+                    scan_pins_refs(
+                        &format!("{}", phrase),
+                        &port_names,
+                        &uri,
+                        &format!("module '{}' function '{}'", entry.key().ident, func.name),
+                        acc,
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Scan phrase text for `pins.XXX` patterns and verify XXX is a known pin name.
+fn scan_pins_refs(
+    text: &str,
+    valid_names: &std::collections::HashSet<String>,
+    uri: &str,
+    context: &str,
+    acc: &mut CheckAccumulator,
+) {
+    let mut search_from = 0usize;
+    while let Some(dot_pos) = text[search_from..].find("pins.") {
+        let abs_dot = search_from + dot_pos;
+        let after_dot = abs_dot + 5; // "pins." is 5 chars
+
+        if let Some(rest) = text.get(after_dot..) {
+            let pin_ref: String = rest
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+
+            if !pin_ref.is_empty() && !valid_names.contains(&pin_ref) {
+                // Skip sub-member access: pins.VDD.something
+                let after_pin_ref = after_dot + pin_ref.len();
+                let has_sub_member = text
+                    .get(after_pin_ref..)
+                    .map_or(false, |s| s.starts_with('.'));
+
+                if !has_sub_member {
+                    acc.push(CheckResult {
+                        check_name: "exprs",
+                        severity: CheckSeverity::Warning,
+                        uri: Some(uri.to_string()),
+                        span: None,
+                        message: format!(
+                            "In {}: 'pins.{}' references '{}' which is not a defined pin/port. \
+                             Known names: {}",
+                            context,
+                            pin_ref,
+                            pin_ref,
+                            if valid_names.len() <= 10 {
+                                let mut names: Vec<_> = valid_names.iter().collect();
+                                names.sort();
+                                names.into_iter()
+                                    .map(|s| s.as_str())
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            } else {
+                                format!("{} names", valid_names.len())
+                            }
+                        ),
+                        code: 2307,
+                    });
+                }
+            }
+        }
+
+        search_from = after_dot;
+        if search_from >= text.len() {
+            break;
         }
     }
 }

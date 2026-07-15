@@ -140,6 +140,7 @@ impl CheckRegistry {
         r.register(Box::new(check_dup_within::DupWithinCheck));
         r.register(Box::new(check_enums::EnumsCheck));
         r.register(Box::new(check_attrs::AttrsCheck));
+        r.register(Box::new(check_conds::CondsCheck));
         r.register(Box::new(check_defs::DefsCheck));
         r.register(Box::new(check_imports::ImportsCheck));
         r.register(Box::new(check_naming::NamingCheck));
@@ -182,6 +183,7 @@ impl CheckRegistry {
 // ============================================================================
 
 pub mod check_attrs;
+pub mod check_conds;
 pub mod check_defs;
 pub mod check_dup_within;
 pub mod check_duplicate;
