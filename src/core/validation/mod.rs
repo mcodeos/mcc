@@ -143,6 +143,7 @@ impl CheckRegistry {
         r.register(Box::new(check_conds::CondsCheck));
         r.register(Box::new(check_defs::DefsCheck));
         r.register(Box::new(check_imports::ImportsCheck));
+        r.register(Box::new(check_interface::InterfaceCheck));
         r.register(Box::new(check_naming::NamingCheck));
         r.register(Box::new(check_ports::PortInstanceCheck));
         r.register(Box::new(check_refs::RefIntegrityCheck));
@@ -191,6 +192,7 @@ pub mod check_enums;
 pub mod check_exprs;
 pub mod check_extra;
 pub mod check_imports;
+pub mod check_interface;
 pub mod check_insts;
 pub mod check_naming;
 pub mod check_ports;
