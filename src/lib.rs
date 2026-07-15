@@ -47,13 +47,14 @@ pub use crate::core::{
 };
 pub mod error_codes;
 pub mod export_api;
+pub use core::check;
 pub mod query_api;
 pub mod search_api;
 pub use ast::ast_semantic::{McSemSymbols, Span, SymbolType};
 pub use ast::ast_token::{McSemToken, McSemTokens};
 pub use ast::c_macros::*;
 pub use ast::error::*;
-pub use builder::{mcb_print, MccProjectTree};
+pub use builder::{mcb_pass2_flat, mcb_print, MccProjectTree};
 pub use core::basic::mc_param::{McParamBindings, McParamDeclare, McParamDeclares, McParamValue};
 pub use core::basic::mc_param_type::{McIoTy, McParamArity, McParamType, McParamTypeKind};
 pub use core::basic::mc_paramd::{ParamDiagKind, ParamDiagnostic};

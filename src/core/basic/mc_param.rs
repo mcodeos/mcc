@@ -655,14 +655,26 @@ impl McParamBindings {
             };
 
             // I3: NC misuse — NC should not replace electrically meaningful typed params
+            // E3: Unit dimension mismatch — passing value with wrong physical unit
             if let Some(ref val) = &value {
                 if matches!(val, McParamValue::NC(_)) && declare.has_type_constraint() {
                     if let Some(name) = declare.get_primary_name() {
-                        eprintln!(
-                            "Warning: NC passed for typed parameter '{}'. \
-                             NC should only be used for optional/non-electrical params.",
-                            name
-                        );
+                        eprintln!("Warning: NC passed for typed parameter '{}'.", name);
+                    }
+                }
+                // E3: check UValue unit vs declared type
+                if let McParamValue::UValue(uval) = val {
+                    if let crate::core::basic::mc_paramd::McParamDeclareKind::UValue(ref decl_uv) =
+                        declare.kind
+                    {
+                        if &decl_uv.unit != uval.unit() {
+                            if let Some(name) = declare.get_primary_name() {
+                                eprintln!(
+                                    "Warning: Unit mismatch for '{}': declared {:?} but passed {:?} ({}).",
+                                    name, decl_uv.unit, uval.unit(), uval
+                                );
+                            }
+                        }
                     }
                 }
             }

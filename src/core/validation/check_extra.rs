@@ -136,8 +136,8 @@ impl ValidationCheck for ExtraCheck {
         check_dry_functions(acc);
         // F2: naming convention enforcement
         check_naming_convention(acc);
-        // F1: reserved name usage
-        check_reserved_names(acc, &lib_names);
+        check_func_name_conflict(acc); // R5
+        check_reserved_names(acc, &lib_names); // F1
     }
 }
 
@@ -618,6 +618,40 @@ fn check_reserved_names(acc: &mut CheckAccumulator, _lib_names: &HashSet<String>
                         code: 2601,
                     });
                 }
+            }
+        }
+    }
+}
+
+/// R5: function name conflicts with a port/instance name in the same module.
+fn check_func_name_conflict(acc: &mut CheckAccumulator) {
+    let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
+    for entry in modules.iter() {
+        let uri = entry.key().uri.to_string();
+        if uri.contains("/unitest/") || uri.contains("/cases") {
+            continue;
+        }
+        let m = entry.value();
+        let inst_names: HashSet<String> = m.insts.iter_instance_names().cloned().collect();
+        let param_names: HashSet<String> = m
+            .params
+            .iter()
+            .filter_map(|d| d.get_primary_name())
+            .collect();
+        for func in m.funcs.iter() {
+            let fname = func.name.to_string();
+            if inst_names.contains(&fname) || param_names.contains(&fname) {
+                acc.push(CheckResult {
+                    check_name: "extra",
+                    severity: CheckSeverity::Warning,
+                    uri: Some(uri.clone()),
+                    span: None,
+                    message: format!(
+                        "Function '{}' shares name with a port/param in the same module.",
+                        fname
+                    ),
+                    code: 2614,
+                });
             }
         }
     }

@@ -109,6 +109,34 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
         anyhow::bail!("check: <target> not specified");
     };
 
+    // ── Nets flag: run pass2 and collect electrical checks ──
+    if args.nets {
+        let entry = mcc::McSpaceName {
+            ident: mcc::McIds::from("main"),
+            uri: _uri.clone(),
+        };
+        if let Ok((_tree, table)) = mcc::mcb_pass2_flat(&entry, 1) {
+            let net_results = mcc::check::nets::run_net_checks(&table);
+            if !net_results.is_empty() {
+                eprintln!(
+                    "=== Electrical Net Checks ({} issues) ===",
+                    net_results.len()
+                );
+                for r in &net_results {
+                    eprintln!("  [{}] {}: {}", r.severity, r.check, r.message);
+                }
+            }
+        }
+        let diags = mcc::mcc_flush_param_diags();
+        let errors = diags
+            .iter()
+            .filter(|d| d.message.starts_with("[error]"))
+            .count();
+        return Ok(CheckOutcome {
+            exit_code: if errors > 0 { 1 } else { 0 },
+        });
+    }
+
     // ── Collect diagnostics (use the real from_mcc instead of guess_severity) ──
     // `check` is a diagnostic overview; there's no pass1/pass2 distinction,
     // so everything is attributed to Pass0.
