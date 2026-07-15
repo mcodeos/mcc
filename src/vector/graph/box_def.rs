@@ -308,6 +308,10 @@ pub struct McVecBox {
     /// Set to `Some(BridgePassive)` when a 2-pin passive component is a transposed
     /// bridge/shunt across two parallel lanes (e.g., CAP' in two-lane series).
     pub visual_role: Option<VisualRole>,
+
+    /// Geometry + entry points owned by a deterministic placer (ladder). Passes that
+    /// reposition boxes heuristically must skip these.
+    pub geom_locked: bool,
 }
 
 /// ★ P2: Visual role hint for layout placement
@@ -382,6 +386,7 @@ impl McVecBox {
             layout_hint: None,
             custom_symbol: None,
             visual_role: None,
+            geom_locked: false,
         }
     }
 

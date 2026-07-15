@@ -83,6 +83,16 @@ pub fn pin_place_pipeline(
 /// hub↔peripheral wires run straight. Peripherals are **not** moved (no new collisions). Only
 /// left/right signal pins are aligned (top/bottom and power pins keep their offset).
 fn align_hub_to_spokes(graph: &mut McVecGraph, root_id: i64) {
+    // Iter 0: skip two-pin passives and boxes with explicit visual roles —
+    // they are not real hubs and should not be stretched.
+    let root_box = match graph.boxes.iter().find(|b| b.id == root_id) {
+        Some(b) => b,
+        None => return,
+    };
+    if root_box.is_two_pin_passive() || root_box.visual_role.is_some() {
+        return;
+    }
+
     let flag_ids: HashSet<i64> = graph
         .boxes
         .iter()
