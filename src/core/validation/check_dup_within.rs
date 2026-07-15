@@ -4,15 +4,23 @@
 
 //! Within-file duplicate detection: pin names, enum values, overlapping pin ranges.
 
-use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck};
+use super::{
+    CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
+};
 use std::collections::HashMap;
 
 pub struct DupWithinCheck;
 
 impl ValidationCheck for DupWithinCheck {
-    fn name(&self) -> &'static str { "dup-within" }
-    fn phase(&self) -> CheckPhase { CheckPhase::PostParse }
-    fn default_severity(&self) -> CheckSeverity { CheckSeverity::Warning }
+    fn name(&self) -> &'static str {
+        "dup-within"
+    }
+    fn phase(&self) -> CheckPhase {
+        CheckPhase::PostParse
+    }
+    fn default_severity(&self) -> CheckSeverity {
+        CheckSeverity::Warning
+    }
 
     fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
         // Check components
@@ -45,7 +53,9 @@ fn check_pin_name_duplicates(
         // Pin names like "GND" that appear multiple times with different pin IDs
         // are already tracked by names_to_id's McPinPort structure
         // Check if any pin name is explicitly duplicated
-        seen.entry(pin_name.clone()).or_default().push(pin_name.clone());
+        seen.entry(pin_name.clone())
+            .or_default()
+            .push(pin_name.clone());
     }
     for (name, entries) in &seen {
         if entries.len() > 1 {
@@ -57,7 +67,9 @@ fn check_pin_name_duplicates(
                 message: format!(
                     "Pin name '{}' appears {} times in component '{}'. \
                      Duplicate pin labels make net references ambiguous.",
-                    name, entries.len(), comp_name
+                    name,
+                    entries.len(),
+                    comp_name
                 ),
                 code: 2151,
             });

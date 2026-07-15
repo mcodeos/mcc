@@ -3,13 +3,8 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::{
-    ast::ast_node::AstNode,
-    ast::c_macros::*,
-    ast::error::message::*,
-    core::basic::mc_ids::McIds,
-    core::basic::mc_param::McParamDeclares,
-    core::component::mc_attr::McAttributes,
-    McURI,
+    ast::ast_node::AstNode, ast::c_macros::*, ast::error::message::*, core::basic::mc_ids::McIds,
+    core::basic::mc_param::McParamDeclares, core::component::mc_attr::McAttributes, McURI,
 };
 use std::sync::Arc;
 
@@ -52,8 +47,7 @@ impl McDefineDef {
                 .filter(|x| x.is_type(MCAST_ATTRIBUTE))
                 .for_each(|x| ret.attrs.parse(&x));
         }
-        
+
         Some(ret)
     }
-
 }

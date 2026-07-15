@@ -7,14 +7,22 @@
 //! Warns when a user file defines a component/interface/enum/module with the
 //! same name as one already defined in the system library or another file.
 
-use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck};
+use super::{
+    CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
+};
 
 pub struct DuplicateCmieCheck;
 
 impl ValidationCheck for DuplicateCmieCheck {
-    fn name(&self) -> &'static str { "duplicate-cmie" }
-    fn phase(&self) -> CheckPhase { CheckPhase::PostParse }
-    fn default_severity(&self) -> CheckSeverity { CheckSeverity::Warning }
+    fn name(&self) -> &'static str {
+        "duplicate-cmie"
+    }
+    fn phase(&self) -> CheckPhase {
+        CheckPhase::PostParse
+    }
+    fn default_severity(&self) -> CheckSeverity {
+        CheckSeverity::Warning
+    }
 
     fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
         use std::collections::HashMap;
@@ -63,7 +71,8 @@ impl ValidationCheck for DuplicateCmieCheck {
         for (name, uris) in &name_uris {
             if uris.len() > 1 {
                 // Filter out test files (unitest/ and cases*/)
-                let non_test_uris: Vec<_> = uris.iter()
+                let non_test_uris: Vec<_> = uris
+                    .iter()
                     .filter(|u| !u.contains("/unitest/") && !u.contains("/cases"))
                     .collect();
                 if non_test_uris.len() > 1 {

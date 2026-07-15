@@ -4,15 +4,23 @@
 
 //! Naming convention checks: component case, instance case, library shadowing.
 
-use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck};
+use super::{
+    CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
+};
 use std::collections::HashSet;
 
 pub struct NamingCheck;
 
 impl ValidationCheck for NamingCheck {
-    fn name(&self) -> &'static str { "naming" }
-    fn phase(&self) -> CheckPhase { CheckPhase::PostParse }
-    fn default_severity(&self) -> CheckSeverity { CheckSeverity::Warning }
+    fn name(&self) -> &'static str {
+        "naming"
+    }
+    fn phase(&self) -> CheckPhase {
+        CheckPhase::PostParse
+    }
+    fn default_severity(&self) -> CheckSeverity {
+        CheckSeverity::Warning
+    }
 
     fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
         // Collect library CMIE names first (for shadow detection)
