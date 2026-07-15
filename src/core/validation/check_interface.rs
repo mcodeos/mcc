@@ -314,8 +314,7 @@ fn check_deprecated_cmie_usage(acc: &mut CheckAccumulator) {
                     _ => continue,
                 };
 
-                if deprecated_comps.contains(&class_name)
-                    || deprecated_ifaces.contains(&class_name)
+                if deprecated_comps.contains(&class_name) || deprecated_ifaces.contains(&class_name)
                 {
                     acc.push(CheckResult {
                         check_name: "interface",
@@ -324,7 +323,8 @@ fn check_deprecated_cmie_usage(acc: &mut CheckAccumulator) {
                         span: None,
                         message: format!(
                             "Module '{}' uses '{}' which is deprecated.",
-                            entry.key().ident, class_name
+                            entry.key().ident,
+                            class_name
                         ),
                         code: 3104,
                     });
@@ -421,8 +421,14 @@ fn check_module_member_refs(acc: &mut CheckAccumulator) {
         // Check module top-level body lines
         for phrase in &m.lines {
             check_phrase_member_refs(
-                phrase, &inst_class, &comp_ports, &iface_ports, &mod_ports,
-                &uri, &entry.key().ident.to_string(), acc,
+                phrase,
+                &inst_class,
+                &comp_ports,
+                &iface_ports,
+                &mod_ports,
+                &uri,
+                &entry.key().ident.to_string(),
+                acc,
             );
         }
 
@@ -430,8 +436,14 @@ fn check_module_member_refs(acc: &mut CheckAccumulator) {
         for func in m.funcs.iter() {
             for phrase in &func.lines {
                 check_phrase_member_refs(
-                    phrase, &inst_class, &comp_ports, &iface_ports, &mod_ports,
-                    &uri, &entry.key().ident.to_string(), acc,
+                    phrase,
+                    &inst_class,
+                    &comp_ports,
+                    &iface_ports,
+                    &mod_ports,
+                    &uri,
+                    &entry.key().ident.to_string(),
+                    acc,
                 );
             }
         }
@@ -488,7 +500,11 @@ fn check_phrase_member_refs(
                             message: format!(
                                 "Module '{}': '{}.{}' — '{}' is not a defined port of \
                                  component '{}'. Available: {}",
-                                mod_name, first, port_name, port_name, class_name,
+                                mod_name,
+                                first,
+                                port_name,
+                                port_name,
+                                class_name,
                                 summarize_names(ports)
                             ),
                             code: 3105,
@@ -543,7 +559,10 @@ fn summarize_names(names: &HashSet<String>) -> String {
     if names.len() <= 10 {
         let mut v: Vec<_> = names.iter().collect();
         v.sort();
-        v.into_iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+        v.into_iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
     } else {
         format!("{} ports", names.len())
     }
