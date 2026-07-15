@@ -147,6 +147,7 @@ impl CheckRegistry {
         r.register(Box::new(check_style::StyleCheck));
         r.register(Box::new(check_exprs::ExprsCheck));
         r.register(Box::new(check_extra::ExtraCheck));
+        r.register(Box::new(check_insts::InstsCheck));
         r
     }
 
@@ -186,6 +187,7 @@ pub mod check_duplicate;
 pub mod check_exprs;
 pub mod check_extra;
 pub mod check_imports;
+pub mod check_insts;
 pub mod check_naming;
 pub mod check_ports;
 pub mod check_refs;
