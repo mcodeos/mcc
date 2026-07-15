@@ -37,6 +37,9 @@ impl ValidationCheck for HwCheck {
         check_consecutive_nc_pins(acc); // HW4
         check_role_peer_dangling(acc); // HW5
         check_single_ioc_type_component(acc); // HW6
+        check_component_metadata(acc); // HW7
+        check_func_param_pin_shadow(acc); // HW8
+        check_unused_interface(acc); // HW9
     }
 }
 
@@ -467,6 +470,159 @@ fn check_single_ioc_type_component(acc: &mut CheckAccumulator) {
                     comp.name, pin_count, io_desc
                 ),
                 code: 3307,
+            });
+        }
+    }
+}
+
+// ============================================================================
+// HW7: Component metadata completeness
+// ============================================================================
+
+/// Every component should have basic documentation attributes:
+/// `name` (human-readable name) and ideally `description`.
+/// Missing metadata makes library browsing and BOM generation harder.
+fn check_component_metadata(acc: &mut CheckAccumulator) {
+    let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+    for entry in comps.iter() {
+        let uri = entry.key().uri.to_string();
+        if super::is_test_file(&uri) {
+            continue;
+        }
+        let comp = entry.value();
+
+        let has_name = comp.attrs.iter().any(|a| a.id.to_string() == "name");
+        let has_desc = comp.attrs.iter().any(|a| a.id.to_string() == "description");
+
+        if !has_name && !comp.name.to_string().is_empty() {
+            // The component's MCode identifier (e.g., "RES") is different
+            // from its human-readable name (e.g., "Resistor").
+            // Having both is best practice for BOM generation.
+            acc.push(CheckResult {
+                check_name: "hw",
+                severity: CheckSeverity::Info,
+                uri: Some(uri.clone()),
+                span: None,
+                message: format!(
+                    "Component '{}' has no 'name' attribute. \
+                     Consider adding `name = \"Human Readable Name\"` for BOM/documentation.",
+                    comp.name
+                ),
+                code: 3308,
+            });
+        }
+
+        if has_name && !has_desc && comp.pins.pins.len() > 2 {
+            acc.push(CheckResult {
+                check_name: "hw",
+                severity: CheckSeverity::Hint,
+                uri: Some(uri.clone()),
+                span: None,
+                message: format!(
+                    "Component '{}' has a name but no 'description' attribute. \
+                     Adding a description helps library maintainability.",
+                    comp.name
+                ),
+                code: 3309,
+            });
+        }
+    }
+}
+
+// ============================================================================
+// HW8: Function parameter shadows a component pin name
+// ============================================================================
+
+/// When a component function declares a parameter with the same name as a
+/// component pin, it creates ambiguity in net expressions. The function
+/// parameter may unintentionally shadow the pin reference.
+fn check_func_param_pin_shadow(acc: &mut CheckAccumulator) {
+    let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+    for entry in comps.iter() {
+        let uri = entry.key().uri.to_string();
+        if super::is_test_file(&uri) {
+            continue;
+        }
+        let comp = entry.value();
+
+        // Collect all pin names
+        let pin_names: HashSet<String> = comp.pins.names_to_id.keys().cloned().collect();
+
+        if pin_names.is_empty() || comp.funcs.is_empty() {
+            continue;
+        }
+
+        for func in comp.funcs.iter() {
+            for d in func.params.iter() {
+                if let Some(pname) = d.get_primary_name() {
+                    if pin_names.contains(&pname) {
+                        acc.push(CheckResult {
+                            check_name: "hw",
+                            severity: CheckSeverity::Warning,
+                            uri: Some(uri.clone()),
+                            span: None,
+                            message: format!(
+                                "Component '{}': function '{}' param '{}' shadows a pin name. \
+                                 This may cause ambiguity in net expressions within the function body.",
+                                comp.name,
+                                func.name,
+                                pname
+                            ),
+                            code: 3310,
+                        });
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// HW9: Unused interface — defined but never bound by any component
+// ============================================================================
+
+/// An interface that is defined in the workspace but never referenced by
+/// any component's pin bindings is dead code. It may indicate an incomplete
+/// component definition or an obsolete interface.
+fn check_unused_interface(acc: &mut CheckAccumulator) {
+    let ifaces = crate::builder::workspace::WORKSPACE.interfaces.borrow();
+    let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+
+    // Collect all interface names that are bound by at least one component
+    let mut used_ifaces: HashSet<String> = HashSet::new();
+    for entry in comps.iter() {
+        let comp = entry.value();
+        for (_pin_name, port) in &comp.pins.names_to_id {
+            if let crate::core::component::mc_pins::McPinPort::Interface(iface) = port {
+                used_ifaces.insert(iface.name.to_string());
+            }
+        }
+        // Also check param type declarations
+        for d in comp.params.iter() {
+            if let Some(class_name) = d.get_class_name() {
+                used_ifaces.insert(class_name);
+            }
+        }
+    }
+
+    for entry in ifaces.iter() {
+        let name = entry.key().ident.to_string();
+        let uri = entry.key().uri.to_string();
+        if super::is_test_file(&uri) {
+            continue;
+        }
+        if !used_ifaces.contains(&name) {
+            acc.push(CheckResult {
+                check_name: "hw",
+                severity: CheckSeverity::Info,
+                uri: Some(uri.clone()),
+                span: None,
+                message: format!(
+                    "Interface '{}' is defined but never bound by any component. \
+                     Consider using it in a component definition or removing it.",
+                    name
+                ),
+                code: 3311,
             });
         }
     }

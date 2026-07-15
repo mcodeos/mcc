@@ -142,6 +142,7 @@ impl ValidationCheck for ExtraCheck {
         check_default_value_range(acc); // B7
         check_body_literal_as_arg(acc); // S5
         check_module_func_unused_params(acc); // B1-ext for module funcs
+        check_duplicate_spec_keys(acc); // spec sub-key uniqueness
     }
 }
 
@@ -877,6 +878,53 @@ fn check_module_func_unused_params(acc: &mut CheckAccumulator) {
                     ),
                     code: 2617,
                 });
+            }
+        }
+    }
+}
+
+/// Check for duplicate sub-keys within `spec = [...]` attribute blocks.
+///
+/// A `spec` attribute with duplicate sub-keys (e.g., `spec = [voltage = 5V, voltage = 12V]`)
+/// will silently keep only the last value, which may not be intended.
+fn check_duplicate_spec_keys(acc: &mut CheckAccumulator) {
+    let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+    for entry in comps.iter() {
+        let uri = entry.key().uri.to_string();
+        if super::is_test_file(&uri) {
+            continue;
+        }
+        let comp = entry.value();
+
+        for attr in comp.attrs.iter() {
+            let key = attr.id.to_string();
+            if key != "spec" {
+                continue;
+            }
+
+            // Spec values are structured as McAttrVal::Attributes containing sub-attributes
+            for val in &attr.values {
+                if let crate::core::component::mc_attr::McAttrVal::Attributes(sub_attrs) = val {
+                    let mut seen_keys: HashSet<String> = HashSet::new();
+                    for sub in sub_attrs.iter() {
+                        let sub_key = sub.id.to_string();
+                        if !seen_keys.insert(sub_key.clone()) {
+                            acc.push(CheckResult {
+                                check_name: "extra",
+                                severity: CheckSeverity::Warning,
+                                uri: Some(uri.clone()),
+                                span: sub.key_span.clone(),
+                                message: format!(
+                                    "Component '{}': spec key '{}' appears multiple times. \
+                                     Only the last value takes effect; earlier values are overwritten.",
+                                    comp.name,
+                                    sub_key
+                                ),
+                                code: 2618,
+                            });
+                        }
+                    }
+                }
             }
         }
     }
