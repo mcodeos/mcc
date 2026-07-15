@@ -786,7 +786,9 @@ impl std::fmt::Display for McModule {
                 McInstance::Interface(_) => (inst.to_string(), "Interface".to_string(), 1),
                 McInstance::Bus(_) => (inst.to_string(), "Bus".to_string(), 3),
                 McInstance::BusRef { .. } => (inst.to_string(), "Ref".to_string(), 4),
-                McInstance::List(_) => (inst.to_string(), "List".to_string(), 4),
+                McInstance::List(_) | McInstance::Unresolved { .. } => {
+                    (inst.to_string(), "Unresolved".to_string(), 5)
+                }
             };
             rows.push(InstRow {
                 io: io_str,

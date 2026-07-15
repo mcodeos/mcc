@@ -778,6 +778,7 @@ impl McPhrase {
                         McInstance::Module(m) => format!("Module('{}')", m.name),
                         McInstance::Interface(i) => format!("Interface('{}')", i.name),
                         McInstance::List(l) => format!("List('{}', mem={:?})", l.name, l.member),
+                        McInstance::Unresolved { class_name } => format!("?{class_name}"),
                         McInstance::BusRef {
                             component: _,
                             bus: _,
@@ -932,6 +933,7 @@ impl McPhrase {
                         McInstance::Module(m) => format!("Module('{}')", m.name),
                         McInstance::Interface(i) => format!("Interface('{}')", i.name),
                         McInstance::List(l) => format!("List('{}', mem={:?})", l.name, l.member),
+                        McInstance::Unresolved { class_name } => format!("?{class_name}"),
                         McInstance::BusRef {
                             component: _,
                             bus: _,

@@ -116,6 +116,7 @@ fn extract_instances(uri: &McURI, top_name: &str, ident: &McIds, args: &ExtractA
                     ("busref", format!("{}.{}", component, bus))
                 }
                 McInstance::List(l) => ("list", l.name().to_string()),
+                McInstance::Unresolved { class_name } => ("unresolved", class_name.clone()),
             };
             json!({ "name": name.to_string(), "kind": kind, "class": class })
         })

@@ -122,7 +122,7 @@ pub trait ValidationCheck: Send + Sync {
     fn run_instant(&self, _ctx: &InstantContext) -> Vec<CheckResult> {
         vec![]
     }
-    fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {}
+    fn run_post_parse(&self, _ctx: &PostParseContext, _acc: &mut CheckAccumulator) {}
 }
 
 pub struct CheckRegistry {

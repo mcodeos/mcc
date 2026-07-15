@@ -63,7 +63,10 @@ fn validate_inst_member_ref(
             McInstance::Module(module) => {
                 return validate_module_port_ref(base_name, members, module, context, node);
             }
-            McInstance::Bus(_) | McInstance::Label(_) | McInstance::List(_) => {
+            McInstance::Bus(_)
+            | McInstance::Label(_)
+            | McInstance::List(_)
+            | McInstance::Unresolved { .. } => {
                 let phrases: Vec<McPhrase> = members
                     .iter()
                     .map(|m| {
@@ -500,6 +503,7 @@ pub fn validate_inst_reference(
         Some(crate::core::mc_inst::McInstance::Bus(_)) => "Bus",
         Some(crate::core::mc_inst::McInstance::Interface(_)) => "Interface",
         Some(crate::core::mc_inst::McInstance::List(_)) => "List",
+        Some(crate::core::mc_inst::McInstance::Unresolved { .. }) => "Unresolved",
         Some(_) => "Other",
         None => "NotFound",
     };

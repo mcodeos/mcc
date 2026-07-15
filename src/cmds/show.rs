@@ -1030,6 +1030,7 @@ fn inst_kind_class(inst: &mcc::McInstance) -> (&'static str, String) {
                 ("list", name)
             }
         }
+        mcc::McInstance::Unresolved { class_name } => ("unresolved", class_name.clone()),
     }
 }
 
