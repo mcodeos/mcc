@@ -1,0 +1,89 @@
+// Copyright (c) 2026 MCode
+//
+// Licensed under either of Apache License, Version 2.0 or MIT License at your option.
+
+//! Reference integrity checks: I1-I4.
+
+use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck};
+
+pub struct RefIntegrityCheck;
+
+impl ValidationCheck for RefIntegrityCheck {
+    fn name(&self) -> &'static str { "ref-integrity" }
+    fn phase(&self) -> CheckPhase { CheckPhase::PostParse }
+    fn default_severity(&self) -> CheckSeverity { CheckSeverity::Warning }
+
+    fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
+        check_bare_params(acc);    // I2
+        check_spec_refs(acc);     // I1
+    }
+}
+
+/// I2: flag component parameters declared without `::TYPE` annotation.
+fn check_bare_params(acc: &mut CheckAccumulator) {
+    let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+    for entry in comps.iter() {
+        let comp_name = entry.key().ident.to_string();
+        let uri = entry.key().uri.to_string();
+        if uri.contains("/unitest/") || uri.contains("/cases") { continue; }
+        let comp = entry.value();
+        for declare in comp.params.iter() {
+            if !declare.has_type_constraint() && declare.get_primary_name().is_some() {
+                if let Some(name) = declare.get_primary_name() {
+                    // Skip role params — they're intentionally untyped keywords
+                    if name == "role" { continue; }
+                    acc.push(CheckResult {
+                        check_name: "ref-integrity", severity: CheckSeverity::Warning,
+                        uri: Some(uri.clone()), span: None,
+                        message: format!(
+                            "Parameter '{}' in component '{}' has no type annotation. \
+                             Consider adding ::INT, ::STRING, ::UV.VOLT, etc.",
+                            name, comp_name
+                        ),
+                        code: 2302,
+                    });
+                }
+            }
+        }
+    }
+}
+
+/// I1: references in spec/attr blocks to undeclared variables.
+fn check_spec_refs(acc: &mut CheckAccumulator) {
+    let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+    for entry in comps.iter() {
+        let comp_name = entry.key().ident.to_string();
+        let uri = entry.key().uri.to_string();
+        if uri.contains("/unitest/") || uri.contains("/cases") { continue; }
+        let comp = entry.value();
+        let param_names: std::collections::HashSet<String> = comp.params.iter()
+            .filter_map(|d| d.get_primary_name())
+            .collect();
+        for attr in comp.attrs.iter() {
+            let key = attr.id.to_string();
+            if key.starts_with("spec.") {
+                for val in &attr.values {
+                    let vs = format!("{}", val);
+                    // Check if the value is a bare identifier matching a param name
+                    let word = vs.trim();
+                    if !word.is_empty()
+                        && !word.starts_with('"')
+                        && !word.starts_with('\'')
+                        && !word.chars().any(|c| c.is_ascii_digit() || c == '(')
+                        && !param_names.contains(word)
+                    {
+                        acc.push(CheckResult {
+                            check_name: "ref-integrity", severity: CheckSeverity::Error,
+                            uri: Some(uri.clone()), span: attr.key_span.clone(),
+                            message: format!(
+                                "Spec key '{}' in component '{}' references '{}' which is not a declared parameter.",
+                                key, comp_name, word
+                            ),
+                            code: 2301,
+                        });
+                    }
+                }
+            }
+        }
+    }
+}

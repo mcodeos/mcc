@@ -337,6 +337,30 @@ pub fn mcb_parse_all_modules() {
             workspace::WORKSPACE.mcodes.borrow().insert(uri, mcfile);
         }
     }
+
+    // ★ Validation: run PostParse checks after all modules parsed (once)
+    {
+        use crate::core::validation::{CheckRegistry, PostParseContext};
+        use std::sync::LazyLock;
+        static POST_PARSE_RUN: LazyLock<std::sync::Mutex<bool>> =
+            LazyLock::new(|| std::sync::Mutex::new(false));
+        let mut flag = POST_PARSE_RUN.lock().unwrap_or_else(|e| e.into_inner());
+        if !*flag {
+            *flag = true;
+            let ctx = PostParseContext::new();
+            let registry = CheckRegistry::with_defaults();
+            for r in registry.run_post_parse(&ctx) {
+                mcc::mcc_record_param_diag(&mcc::ParamDiagnostic {
+                    kind: mcc::ParamDiagKind::Unused,
+                    param_name: r.check_name.to_string(),
+                    definition: String::new(),
+                    message: r.message,
+                    pos: 0,
+                    len: 0,
+                });
+            }
+        }
+    }
 }
 
 /// Normalize project file URI
