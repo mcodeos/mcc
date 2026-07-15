@@ -211,7 +211,7 @@ fn check_voltage_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>) 
     }
 }
 
-fn has_shared_point(table: &InstTable, n1: &NetEntry, n2: &NetEntry) -> bool {
+fn has_shared_point(_table: &InstTable, n1: &NetEntry, n2: &NetEntry) -> bool {
     let p1: HashSet<u32> = n1.points.iter().cloned().collect();
     n2.points.iter().any(|id| p1.contains(id))
 }
@@ -276,13 +276,13 @@ fn check_backfeed(table: &InstTable, results: &mut Vec<NetCheckResult>) {
 fn check_port_io_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>) {
     for net in table.get_nets() {
         let mut has_in = false;
-        let mut has_out = false;
+        let mut _has_out = false;
         let mut has_ps = false;
         let mut out_count = 0u32;
         for id in &net.points {
             if let Some(e) = table.get_entry(*id) {
                 has_in |= matches!(e.io_type, IOType::In);
-                has_out |= matches!(e.io_type, IOType::Out);
+                _has_out |= matches!(e.io_type, IOType::Out);
                 has_ps |= matches!(e.io_type, IOType::Power);
                 if matches!(e.io_type, IOType::Out) {
                     out_count += 1;

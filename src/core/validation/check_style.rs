@@ -7,7 +7,7 @@
 use super::{
     CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
 };
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 pub struct StyleCheck;
 

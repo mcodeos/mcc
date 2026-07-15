@@ -256,7 +256,7 @@ fn field_value<'a>(
     kind: Option<&'a str>,
     name: Option<&'a str>,
     class: Option<&'a str>,
-    uri: Option<&'a str>,
+    _uri: Option<&'a str>,
     attrs: &'a [(String, String)],
 ) -> Option<&'a str> {
     match field {

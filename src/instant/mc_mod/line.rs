@@ -1136,6 +1136,7 @@ impl McModuleInst {
                     McInstance::Module(m) => format!("Module('{}')", m.name),
                     McInstance::Interface(i) => format!("Interface('{}')", i.name),
                     McInstance::List(l) => format!("List('{}')", l.name),
+                    McInstance::Unresolved { class_name } => format!("?{class_name}"),
                     McInstance::BusRef { component, bus } => {
                         format!("BusRef(c={component},b={bus})")
                     }

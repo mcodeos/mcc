@@ -3,7 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::ast::{ast_node::AstNode, c_macros::*};
-use crate::builder::diagnostic::dlog_error;
+use crate::builder::diagnostic::{dlog_error, dlog_warning};
 use crate::builder::mcb_get_cmie;
 use crate::builder::mcb_register_declare_class;
 use crate::builder::mcb_register_instance_decl;
@@ -121,10 +121,19 @@ pub enum McInstance {
     Label(String),
     List(McList),
     Bus(McBus),
-    BusRef { component: String, bus: String },
+    BusRef {
+        component: String,
+        bus: String,
+    },
     Interface(Arc<Mc2Interface>),
     Component(Arc<Mc2Component>),
     Module(Arc<Mc2Module>),
+    /// Unresolved component/module reference — class definition not found in
+    /// loaded scope (e.g. library not loaded). Stored as a named instance so
+    /// net connections still resolve, but flagged for diagnostics.
+    Unresolved {
+        class_name: String,
+    },
 }
 
 impl McInstance {
@@ -139,6 +148,7 @@ impl McInstance {
             Interface(i) => i.name.to_string(),
             Component(c) => c.name.to_string(),
             Module(m) => m.name.to_string(),
+            Unresolved { class_name } => class_name.clone(),
         }
     }
 
@@ -180,6 +190,7 @@ impl McInstance {
             McInstance::Interface(i) => McBus::new(&i.name.to_string()),
             McInstance::Component(c) => McBus::new(&c.name.to_string()),
             McInstance::Module(m) => McBus::new(&m.name.to_string()),
+            McInstance::Unresolved { class_name } => McBus::new(class_name),
         }
     }
 
@@ -205,7 +216,8 @@ impl McInstance {
             McInstance::Label(_)
             | McInstance::Bus(_)
             | McInstance::BusRef { .. }
-            | McInstance::List(_) => true,
+            | McInstance::List(_)
+            | McInstance::Unresolved { .. } => true,
             _ => false,
         }
     }
@@ -220,6 +232,7 @@ impl McInstance {
             McInstance::Interface(_) => "Interface",
             McInstance::Component(_) => "Component",
             McInstance::Module(_) => "Module",
+            McInstance::Unresolved { .. } => "Unresolved",
         }
     }
 }
@@ -1301,8 +1314,20 @@ impl McInstances {
                         }
                     }
                     _ => {
-                        // Fallback: treat as a label
-                        (McInstance::Label(inst_name.clone()), inst_name)
+                        // Class definition not found in loaded scope (e.g. library not loaded).
+                        // Keep as a named instance rather than downgrading to a plain label.
+                        let class_name = class_ids.to_string();
+                        dlog_warning(
+                            1401,
+                            &class_node,
+                            &format!("unresolved class '{class_name}' — library not loaded?"),
+                        );
+                        (
+                            McInstance::Unresolved {
+                                class_name: class_name.clone(),
+                            },
+                            inst_name,
+                        )
                     }
                 };
                 self.insts.insert(insert_key, (iotype.clone(), mc_inst));
@@ -1676,6 +1701,7 @@ impl std::fmt::Display for McInstance {
                 write!(f, "{}[{}]", list.name, members)
             }
             McInstance::Interface(i) => write!(f, "{i:?}"),
+            McInstance::Unresolved { class_name } => write!(f, "?{class_name}"),
         }
     }
 }

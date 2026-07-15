@@ -1618,7 +1618,7 @@ impl McCode {
                             continue;
                         }
                         for func in m.funcs.iter() {
-                            let fscope = func.name.to_string();
+                            let _fscope = func.name.to_string();
                             for (span, port_name, scope) in func.params.iter_port_refs() {
                                 let scoped_key = (scope.clone(), port_name.clone());
                                 if let Some(decl_id) =

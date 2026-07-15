@@ -271,6 +271,7 @@ fn inst_kind_class(inst: &McInstance) -> (String, String) {
             ("busref".into(), format!("{}.{}", component, bus))
         }
         McInstance::List(l) => ("list".into(), l.name().to_string()),
+        McInstance::Unresolved { class_name } => ("unresolved".into(), class_name.clone()),
     }
 }
 

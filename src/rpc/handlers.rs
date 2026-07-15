@@ -1731,6 +1731,9 @@ fn extract_from_uri(entry: &Path, top: Option<&str>, target: &str) -> RpcResult 
                                         ("list", name)
                                     }
                                 }
+                                crate::McInstance::Unresolved { class_name } => {
+                                    ("unresolved", class_name.clone())
+                                }
                             };
                             json!({ "name": name.to_string(), "kind": kind, "class": class })
                         })
@@ -2473,6 +2476,9 @@ pub fn handle_show_module(params: Option<Value>) -> RpcResult {
                                 ("list", name)
                             }
                         }
+                        crate::McInstance::Unresolved { class_name } => {
+                            ("unresolved", class_name.clone())
+                        }
                     };
                     json!({ "name": n.to_string(), "kind": kind, "class": class })
                 })
@@ -2692,6 +2698,7 @@ fn inst_kind_class(inst: &crate::McInstance) -> (&'static str, String) {
                 ("list", name)
             }
         }
+        crate::McInstance::Unresolved { class_name } => ("unresolved", class_name.clone()),
     }
 }
 
@@ -3312,9 +3319,7 @@ pub fn handle_show_dump_all(params: Option<Value>) -> RpcResult {
     };
 
     // Sort by source position
-    all.sort_by_key(|e| {
-        e["span"]["start"].as_u64().unwrap_or(u64::MAX)
-    });
+    all.sort_by_key(|e| e["span"]["start"].as_u64().unwrap_or(u64::MAX));
 
     Ok(json!({
         "type": "dump_all",
