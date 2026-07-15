@@ -4,18 +4,26 @@
 
 //! Reference integrity checks: I1-I4.
 
-use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck};
+use super::{
+    CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
+};
 
 pub struct RefIntegrityCheck;
 
 impl ValidationCheck for RefIntegrityCheck {
-    fn name(&self) -> &'static str { "ref-integrity" }
-    fn phase(&self) -> CheckPhase { CheckPhase::PostParse }
-    fn default_severity(&self) -> CheckSeverity { CheckSeverity::Warning }
+    fn name(&self) -> &'static str {
+        "ref-integrity"
+    }
+    fn phase(&self) -> CheckPhase {
+        CheckPhase::PostParse
+    }
+    fn default_severity(&self) -> CheckSeverity {
+        CheckSeverity::Warning
+    }
 
     fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
-        check_bare_params(acc);              // I2
-        check_spec_refs(acc);               // I1
+        check_bare_params(acc); // I2
+        check_spec_refs(acc); // I1
         check_comp_func_unused_params(acc); // B1 for component funcs
     }
 }
@@ -25,15 +33,19 @@ fn check_comp_func_unused_params(acc: &mut CheckAccumulator) {
     let comps = crate::builder::workspace::WORKSPACE.components.borrow();
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
-        if uri.contains("/unitest/") || uri.contains("/cases") { continue; }
+        if uri.contains("/unitest/") || uri.contains("/cases") {
+            continue;
+        }
         let comp = entry.value();
         let comp_name = entry.key().ident.to_string();
         for func in comp.funcs.iter() {
             if !func.params.is_empty() && func.lines.is_empty() && func.insts.is_empty() {
                 let param_names = func.params.names().join(", ");
                 acc.push(CheckResult {
-                    check_name: "ref-integrity", severity: CheckSeverity::Warning,
-                    uri: Some(uri.clone()), span: None,
+                    check_name: "ref-integrity",
+                    severity: CheckSeverity::Warning,
+                    uri: Some(uri.clone()),
+                    span: None,
                     message: format!(
                         "Function '{}' in component '{}' has unused params: [{}].",
                         func.name, comp_name, param_names
@@ -51,16 +63,22 @@ fn check_bare_params(acc: &mut CheckAccumulator) {
     for entry in comps.iter() {
         let comp_name = entry.key().ident.to_string();
         let uri = entry.key().uri.to_string();
-        if uri.contains("/unitest/") || uri.contains("/cases") { continue; }
+        if uri.contains("/unitest/") || uri.contains("/cases") {
+            continue;
+        }
         let comp = entry.value();
         for declare in comp.params.iter() {
             if !declare.has_type_constraint() && declare.get_primary_name().is_some() {
                 if let Some(name) = declare.get_primary_name() {
                     // Skip role params — they're intentionally untyped keywords
-                    if name == "role" { continue; }
+                    if name == "role" {
+                        continue;
+                    }
                     acc.push(CheckResult {
-                        check_name: "ref-integrity", severity: CheckSeverity::Warning,
-                        uri: Some(uri.clone()), span: None,
+                        check_name: "ref-integrity",
+                        severity: CheckSeverity::Warning,
+                        uri: Some(uri.clone()),
+                        span: None,
                         message: format!(
                             "Parameter '{}' in component '{}' has no type annotation. \
                              Consider adding ::INT, ::STRING, ::UV.VOLT, etc.",
@@ -80,9 +98,13 @@ fn check_spec_refs(acc: &mut CheckAccumulator) {
     for entry in comps.iter() {
         let comp_name = entry.key().ident.to_string();
         let uri = entry.key().uri.to_string();
-        if uri.contains("/unitest/") || uri.contains("/cases") { continue; }
+        if uri.contains("/unitest/") || uri.contains("/cases") {
+            continue;
+        }
         let comp = entry.value();
-        let param_names: std::collections::HashSet<String> = comp.params.iter()
+        let param_names: std::collections::HashSet<String> = comp
+            .params
+            .iter()
             .filter_map(|d| d.get_primary_name())
             .collect();
         for attr in comp.attrs.iter() {

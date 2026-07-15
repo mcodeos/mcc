@@ -13,8 +13,8 @@
 //!   registry.run_instant(&ctx);   // called from McComponent::new(), etc.
 //!   registry.run_post_parse(&ctx); // called from mcb_parse_all_modules()
 
-use std::ops::Range;
 use crate::McURI;
+use std::ops::Range;
 
 // ============================================================================
 // Check Phase
@@ -81,7 +81,9 @@ pub struct InstantContext<'a> {
 pub struct PostParseContext;
 
 impl PostParseContext {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 /// Accumulator for collecting check results during a post-parse pass.
@@ -90,8 +92,14 @@ pub struct CheckAccumulator {
 }
 
 impl CheckAccumulator {
-    pub fn new() -> Self { Self { results: Vec::new() } }
-    pub fn push(&mut self, r: CheckResult) { self.results.push(r); }
+    pub fn new() -> Self {
+        Self {
+            results: Vec::new(),
+        }
+    }
+    pub fn push(&mut self, r: CheckResult) {
+        self.results.push(r);
+    }
 }
 
 // ============================================================================
@@ -102,8 +110,10 @@ pub trait ValidationCheck: Send + Sync {
     fn name(&self) -> &'static str;
     fn phase(&self) -> CheckPhase;
     fn default_severity(&self) -> CheckSeverity;
-    fn run_instant(&self, _ctx: &InstantContext) -> Vec<CheckResult> { vec![] }
-    fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) { }
+    fn run_instant(&self, _ctx: &InstantContext) -> Vec<CheckResult> {
+        vec![]
+    }
+    fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {}
 }
 
 pub struct CheckRegistry {
@@ -111,7 +121,9 @@ pub struct CheckRegistry {
 }
 
 impl CheckRegistry {
-    pub fn new() -> Self { Self { checks: Vec::new() } }
+    pub fn new() -> Self {
+        Self { checks: Vec::new() }
+    }
 
     pub fn with_defaults() -> Self {
         let mut r = Self::new();

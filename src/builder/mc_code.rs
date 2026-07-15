@@ -1105,9 +1105,10 @@ impl McCode {
 
     /// Extract (key_name, span) for spec-like attribute keys.
     fn extract_spec_key_spans(comp: &McComponent) -> Vec<(String, std::ops::Range<usize>)> {
-        comp.attrs.iter().filter_map(|a| {
-            a.key_span.clone().map(|s| (a.id.to_string(), s))
-        }).collect()
+        comp.attrs
+            .iter()
+            .filter_map(|a| a.key_span.clone().map(|s| (a.id.to_string(), s)))
+            .collect()
     }
 
     pub fn parse_pass1_modules(&mut self) {
@@ -1680,12 +1681,17 @@ impl McCode {
                         // ★ G8: Spec key definitions from component attrs
                         for (key_name, key_span) in Self::extract_spec_key_spans(comp) {
                             let sdecl_id = sem.local_table.add_declare_with_name(
-                                key_span.clone(), Some(key_name.clone()), Some(&comp_ident));
+                                key_span.clone(),
+                                Some(key_name.clone()),
+                                Some(&comp_ident),
+                            );
                             symbol_lapper.insert(Interval {
-                                start: key_span.start, stop: key_span.end,
+                                start: key_span.start,
+                                stop: key_span.end,
                                 val: SymbolType::PinNameDefinition(sdecl_id),
                             });
-                            sem.symbol_scope.insert((key_span.start, key_span.end), comp_ident.clone());
+                            sem.symbol_scope
+                                .insert((key_span.start, key_span.end), comp_ident.clone());
                         }
                         // Component param references from body expressions
                         // (e.g. `spec.value = rs` where rs is a param)

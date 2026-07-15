@@ -4,23 +4,35 @@
 
 //! Style/naming checks: J1-J5, F1-F3.
 
-use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck};
+use super::{
+    CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
+};
 use std::collections::{HashMap, HashSet};
 
 pub struct StyleCheck;
 
 impl ValidationCheck for StyleCheck {
-    fn name(&self) -> &'static str { "style" }
-    fn phase(&self) -> CheckPhase { CheckPhase::PostParse }
-    fn default_severity(&self) -> CheckSeverity { CheckSeverity::Info }
+    fn name(&self) -> &'static str {
+        "style"
+    }
+    fn phase(&self) -> CheckPhase {
+        CheckPhase::PostParse
+    }
+    fn default_severity(&self) -> CheckSeverity {
+        CheckSeverity::Info
+    }
 
     fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
         let mut lib_names: HashSet<String> = HashSet::new();
         {
             let comps = crate::builder::workspace::WORKSPACE.components.borrow();
-            for e in comps.iter() { lib_names.insert(e.key().ident.to_string()); }
+            for e in comps.iter() {
+                lib_names.insert(e.key().ident.to_string());
+            }
             let ifaces = crate::builder::workspace::WORKSPACE.interfaces.borrow();
-            for e in ifaces.iter() { lib_names.insert(e.key().ident.to_string()); }
+            for e in ifaces.iter() {
+                lib_names.insert(e.key().ident.to_string());
+            }
         }
 
         // J1: Lowercase component names
@@ -48,9 +60,14 @@ fn check_lowercase_components(acc: &mut CheckAccumulator, _lib_names: &HashSet<S
         if let Some(first) = name.chars().next() {
             if first.is_lowercase() && !name.contains('.') {
                 acc.push(CheckResult {
-                    check_name: "style", severity: CheckSeverity::Info,
-                    uri: Some(uri), span: None,
-                    message: format!("Component '{}' starts with lowercase (convention: UPPER_SNAKE).", name),
+                    check_name: "style",
+                    severity: CheckSeverity::Info,
+                    uri: Some(uri),
+                    span: None,
+                    message: format!(
+                        "Component '{}' starts with lowercase (convention: UPPER_SNAKE).",
+                        name
+                    ),
                     code: 2201,
                 });
             }
@@ -64,13 +81,20 @@ fn check_empty_parens(acc: &mut CheckAccumulator) {
     for entry in comps.iter() {
         let name = entry.key().ident.to_string();
         let uri = entry.key().uri.to_string();
-        if uri.contains("/unitest/") || uri.contains("/cases") { continue; }
+        if uri.contains("/unitest/") || uri.contains("/cases") {
+            continue;
+        }
         let comp = entry.value();
         if comp.params.is_empty() {
             acc.push(CheckResult {
-                check_name: "style", severity: CheckSeverity::Info,
-                uri: Some(uri), span: None,
-                message: format!("Component '{}' has no parameters. Consider removing empty ().", name),
+                check_name: "style",
+                severity: CheckSeverity::Info,
+                uri: Some(uri),
+                span: None,
+                message: format!(
+                    "Component '{}' has no parameters. Consider removing empty ().",
+                    name
+                ),
                 code: 2204,
             });
         }

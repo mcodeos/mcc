@@ -5,7 +5,10 @@
 use crate::{
     builder::mc_code::McCode,
     builder::util::MultiThreadRefCell,
-    core::{component::McComponent, mc_define::McDefineDef, mc_enum::McEnumDef, mc_ifs::McInterface, module::McModule},
+    core::{
+        component::McComponent, mc_define::McDefineDef, mc_enum::McEnumDef, mc_ifs::McInterface,
+        module::McModule,
+    },
     McSpaceName,
 };
 use dashmap::DashMap;

@@ -257,7 +257,10 @@ impl McPins {
         // N6: pins+= without prior pins=
         if node_type == MCAST_ATTRIBUTE_PINADD && !self.has_base_pins {
             crate::builder::diagnostic::dlog_error(
-                2106, node, "pins += used without prior pins = definition");
+                2106,
+                node,
+                "pins += used without prior pins = definition",
+            );
         }
         if node_type == MCAST_ATTRIBUTE_PIN {
             self.has_base_pins = true;
@@ -272,7 +275,8 @@ impl McPins {
 
         for pnode in plinenodes.iter().filter(|n| n.get_type() == MCAST_PIN_LINE) {
             // H3: record pin range
-            self.pin_ranges.push((pin_span.clone(), format!("{:?}", pnode.get_type())));
+            self.pin_ranges
+                .push((pin_span.clone(), format!("{:?}", pnode.get_type())));
             // MCAST_PIN_LINE
             // |-MCAST_IOTYPE (option) - MCAST_PIN_ID - MCAST_PIN_NAMES - MCAST_ATT_VALUES (option)
             let subnodes = pnode.get_sub_node().expect(MISSING_SUBNODE);
