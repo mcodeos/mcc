@@ -319,6 +319,8 @@ pub enum ParamDiagKind {
     Unused,
     /// Parameter is untyped and could not be inferred
     Untyped,
+    /// Validation check result (from the validation module)
+    Validation,
 }
 
 impl std::ops::Deref for McParamDeclares {

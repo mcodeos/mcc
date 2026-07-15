@@ -54,7 +54,7 @@ fn check_lowercase_components(acc: &mut CheckAccumulator, _lib_names: &HashSet<S
     for entry in comps.iter() {
         let name = entry.key().ident.to_string();
         let uri = entry.key().uri.to_string();
-        if uri.contains("/unitest/") || uri.contains("/cases") || uri.contains("/lab/") {
+        if super::is_test_file(&uri) || uri.contains("/lab/") {
             continue;
         }
         if let Some(first) = name.chars().next() {
@@ -81,7 +81,7 @@ fn check_empty_parens(acc: &mut CheckAccumulator) {
     for entry in comps.iter() {
         let name = entry.key().ident.to_string();
         let uri = entry.key().uri.to_string();
-        if uri.contains("/unitest/") || uri.contains("/cases") {
+        if super::is_test_file(&uri) {
             continue;
         }
         let comp = entry.value();

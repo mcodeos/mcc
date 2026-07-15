@@ -3065,6 +3065,7 @@ pub fn handle_params_diag(_params: Option<Value>) -> RpcResult {
             let severity = match d.kind {
                 mcc::ParamDiagKind::Unused => "unused",
                 mcc::ParamDiagKind::Untyped => "untyped",
+                mcc::ParamDiagKind::Validation => "validation",
             };
             json!({
                 "severity": severity,

@@ -71,10 +71,8 @@ impl ValidationCheck for DuplicateCmieCheck {
         for (name, uris) in &name_uris {
             if uris.len() > 1 {
                 // Filter out test files (unitest/ and cases*/)
-                let non_test_uris: Vec<_> = uris
-                    .iter()
-                    .filter(|u| !u.contains("/unitest/") && !u.contains("/cases"))
-                    .collect();
+                let non_test_uris: Vec<_> =
+                    uris.iter().filter(|u| !super::is_test_file(u)).collect();
                 if non_test_uris.len() > 1 {
                     let first = &non_test_uris[0];
                     for other in &non_test_uris[1..] {

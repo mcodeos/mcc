@@ -41,7 +41,7 @@ impl ValidationCheck for ExtraCheck {
             let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
             for entry in modules.iter() {
                 let uri = entry.key().uri.to_string();
-                if uri.contains("/unitest/") || uri.contains("/cases") {
+                if super::is_test_file(&uri) {
                     continue;
                 }
                 let m = entry.value();
@@ -65,7 +65,7 @@ impl ValidationCheck for ExtraCheck {
             let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
             for entry in modules.iter() {
                 let uri = entry.key().uri.to_string();
-                if uri.contains("/unitest/") || uri.contains("/cases") {
+                if super::is_test_file(&uri) {
                     continue;
                 }
                 let m = entry.value();
@@ -138,6 +138,8 @@ impl ValidationCheck for ExtraCheck {
         check_naming_convention(acc);
         check_func_name_conflict(acc); // R5
         check_reserved_names(acc, &lib_names); // F1
+        check_port_direction_mismatch(acc); // C3
+        check_default_value_range(acc); // B7
     }
 }
 
@@ -147,7 +149,7 @@ fn check_empty_functions(acc: &mut CheckAccumulator) {
     let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
-        if uri.contains("/unitest/") || uri.contains("/cases") {
+        if super::is_test_file(&uri) {
             continue;
         }
         for func in entry.value().funcs.iter() {
@@ -167,7 +169,7 @@ fn check_empty_functions(acc: &mut CheckAccumulator) {
     let comps = crate::builder::workspace::WORKSPACE.components.borrow();
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
-        if uri.contains("/unitest/") || uri.contains("/cases") {
+        if super::is_test_file(&uri) {
             continue;
         }
         for func in entry.value().funcs.iter() {
@@ -194,7 +196,7 @@ fn check_interface_pin_counts(acc: &mut CheckAccumulator) {
     let comps = crate::builder::workspace::WORKSPACE.components.borrow();
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
-        if uri.contains("/unitest/") || uri.contains("/cases") {
+        if super::is_test_file(&uri) {
             continue;
         }
         let comp = entry.value();
@@ -228,7 +230,7 @@ fn check_overlapping_pins(acc: &mut CheckAccumulator) {
     let comps = crate::builder::workspace::WORKSPACE.components.borrow();
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
-        if uri.contains("/unitest/") || uri.contains("/cases") {
+        if super::is_test_file(&uri) {
             continue;
         }
         let comp = entry.value();
@@ -255,7 +257,7 @@ fn check_component_structure(acc: &mut CheckAccumulator) {
     let comps = crate::builder::workspace::WORKSPACE.components.borrow();
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
-        if uri.contains("/unitest/") || uri.contains("/cases") {
+        if super::is_test_file(&uri) {
             continue;
         }
         let comp = entry.value();
@@ -297,7 +299,7 @@ fn check_interface_structure(acc: &mut CheckAccumulator) {
     let ifaces = crate::builder::workspace::WORKSPACE.interfaces.borrow();
     for entry in ifaces.iter() {
         let uri = entry.key().uri.to_string();
-        if uri.contains("/unitest/") || uri.contains("/cases") {
+        if super::is_test_file(&uri) {
             continue;
         }
         let iface = entry.value();
@@ -391,7 +393,7 @@ fn check_empty_defines(acc: &mut CheckAccumulator) {
     let defines = crate::builder::workspace::WORKSPACE.defines.borrow();
     for entry in defines.iter() {
         let uri = entry.key().uri.to_string();
-        if uri.contains("/unitest/") || uri.contains("/cases") {
+        if super::is_test_file(&uri) {
             continue;
         }
         let def = entry.value();
@@ -442,7 +444,7 @@ fn check_instance_class_found(acc: &mut CheckAccumulator) {
     let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
-        if uri.contains("/unitest/") || uri.contains("/cases") {
+        if super::is_test_file(&uri) {
             continue;
         }
         let m = entry.value();
@@ -477,7 +479,7 @@ fn check_bus_member_collision(acc: &mut CheckAccumulator) {
     let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
-        if uri.contains("/unitest/") || uri.contains("/cases") {
+        if super::is_test_file(&uri) {
             continue;
         }
         let m = entry.value();
@@ -520,7 +522,7 @@ fn check_dry_functions(acc: &mut CheckAccumulator) {
     let comps = crate::builder::workspace::WORKSPACE.components.borrow();
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
-        if uri.contains("/unitest/") || uri.contains("/cases") {
+        if super::is_test_file(&uri) {
             continue;
         }
         let comp = entry.value();
@@ -564,7 +566,7 @@ fn check_naming_convention(acc: &mut CheckAccumulator) {
     for entry in comps.iter() {
         let name = entry.key().ident.to_string();
         let uri = entry.key().uri.to_string();
-        if uri.contains("/unitest/") || uri.contains("/cases") || uri.contains("/lab/") {
+        if super::is_test_file(&uri) || uri.contains("/lab/") {
             continue;
         }
         // Skip dot-notation names like "Amplifier.BUFFER" (check each segment)
@@ -602,7 +604,7 @@ fn check_reserved_names(acc: &mut CheckAccumulator, _lib_names: &HashSet<String>
     let comps = crate::builder::workspace::WORKSPACE.components.borrow();
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
-        if uri.contains("/unitest/") || uri.contains("/cases") {
+        if super::is_test_file(&uri) {
             continue;
         }
         let comp = entry.value();
@@ -628,7 +630,7 @@ fn check_func_name_conflict(acc: &mut CheckAccumulator) {
     let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
-        if uri.contains("/unitest/") || uri.contains("/cases") {
+        if super::is_test_file(&uri) {
             continue;
         }
         let m = entry.value();
@@ -652,6 +654,111 @@ fn check_func_name_conflict(acc: &mut CheckAccumulator) {
                     ),
                     code: 2614,
                 });
+            }
+        }
+    }
+}
+
+/// C3: Port direction mismatch — check if a net connects two output-like ports.
+///
+/// Scans module net phrases to detect cases where both endpoints of a net
+/// are outputs (Out or Power), which could cause driver conflicts.
+fn check_port_direction_mismatch(acc: &mut CheckAccumulator) {
+    let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
+    for entry in modules.iter() {
+        let uri = entry.key().uri.to_string();
+        if super::is_test_file(&uri) {
+            continue;
+        }
+        let m = entry.value();
+        for phrase in &m.lines {
+            let text = format!("{}", phrase);
+            let parts: Vec<&str> = text.split("->").collect();
+            if parts.len() < 2 {
+                continue;
+            }
+            let left_names: Vec<&str> = parts[0].split(',').map(|s| s.trim()).collect();
+            let right_names: Vec<&str> = parts[1].split(',').map(|s| s.trim()).collect();
+            for left in &left_names {
+                if let Some(io_left) = m.insts.get_iotype(left) {
+                    if matches!(io_left, crate::IOType::Out | crate::IOType::Power) {
+                        for right in &right_names {
+                            if let Some(io_right) = m.insts.get_iotype(right) {
+                                if matches!(io_right, crate::IOType::Out | crate::IOType::Power) {
+                                    acc.push(CheckResult {
+                                        check_name: "extra",
+                                        severity: CheckSeverity::Warning,
+                                        uri: Some(uri.clone()),
+                                        span: None,
+                                        message: format!(
+                                            "Net '{}' connects '{}' ({:?}) to '{}' ({:?}). Both are outputs.",
+                                            text.trim(), left, io_left, right, io_right
+                                        ),
+                                        code: 2615,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// B7: Default value out of range for typed parameters.
+///
+/// Heuristic: if a param is BasicInt and its default is negative, flag it
+/// as potentially out of range (most integer params expect non-negative).
+fn check_default_value_range(acc: &mut CheckAccumulator) {
+    use crate::core::basic::mc_param_type::McParamTypeKind;
+    let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+    for entry in comps.iter() {
+        let uri = entry.key().uri.to_string();
+        if super::is_test_file(&uri) {
+            continue;
+        }
+        let comp = entry.value();
+        for d in comp.params.iter() {
+            if let Some(def) = d.param_type.default_value() {
+                let pname = d.get_primary_name().unwrap_or_default();
+                match &d.param_type.kind {
+                    McParamTypeKind::BasicInt { .. } | McParamTypeKind::BasicHex { .. } => {
+                        if def.starts_with('-') {
+                            acc.push(CheckResult {
+                                check_name: "extra",
+                                severity: CheckSeverity::Warning,
+                                uri: Some(uri.clone()),
+                                span: None,
+                                message: format!(
+                                    "Param '{}' in '{}' has negative default '{}'. Most integer params expect non-negative values.",
+                                    pname, entry.key().ident, def
+                                ),
+                                code: 2513,
+                            });
+                        }
+                    }
+                    McParamTypeKind::BasicFloat { .. } => {
+                        if let Ok(val) = def.parse::<f64>() {
+                            if val.is_infinite() || val.is_nan() {
+                                acc.push(CheckResult {
+                                    check_name: "extra",
+                                    severity: CheckSeverity::Error,
+                                    uri: Some(uri.clone()),
+                                    span: None,
+                                    message: format!(
+                                        "Param '{}' in '{}' has invalid float default '{}'.",
+                                        pname,
+                                        entry.key().ident,
+                                        def
+                                    ),
+                                    code: 2513,
+                                });
+                            }
+                        }
+                    }
+                    _ => {}
+                }
             }
         }
     }
