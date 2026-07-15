@@ -508,6 +508,17 @@ fn remove_defines(uri: &McURI) {
         workspace::WORKSPACE.enums.borrow().remove(&space_name);
     }
 
+    let to_remove: Vec<McSpaceName> = workspace::WORKSPACE
+        .defines
+        .borrow()
+        .iter()
+        .filter(|entry| entry.key().uri == *uri)
+        .map(|entry| entry.key().clone())
+        .collect();
+    for space_name in to_remove {
+        workspace::WORKSPACE.defines.borrow().remove(&space_name);
+    }
+
     // global tables (system lib registrations)
     let to_remove: Vec<McSpaceName> = global::mcc_components
         .borrow()

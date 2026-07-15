@@ -1013,6 +1013,32 @@ impl McCode {
                         }
                     }
                 }
+                MCAST_DEFINE => {
+                    if let Some(def) = crate::core::mc_define::McDefineDef::new(&node, &self.uri) {
+                        let space_name = McSpaceName {
+                            ident: def.name.clone(),
+                            uri: self.uri.clone(),
+                        };
+                        if self.mcbase {
+                            global::mcc_defines
+                                .borrow()
+                                .entry(space_name)
+                                .and_modify(|_| {
+                                    dlog_error(1505, &node, "Duplicate define");
+                                })
+                                .or_insert(Arc::new(def));
+                        } else {
+                            workspace::WORKSPACE
+                                .defines
+                                .borrow()
+                                .entry(space_name)
+                                .and_modify(|_| {
+                                    dlog_error(1505, &node, "Duplicate define");
+                                })
+                                .or_insert(Arc::new(def));
+                        }
+                    }
+                }
                 _ => {} // MCAST_MODULE handled in the second phase
             }
         }

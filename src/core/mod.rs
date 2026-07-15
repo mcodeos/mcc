@@ -5,6 +5,7 @@
 pub(crate) mod basic;
 pub(crate) mod common;
 pub(crate) mod component;
+pub(crate) mod mc_define;
 pub(crate) mod mc_enum;
 pub(crate) mod mc_func;
 pub(crate) mod mc_ifs;

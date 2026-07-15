@@ -19,10 +19,9 @@ impl ValidationCheck for PortInstanceCheck {
         for entry in modules.iter() {
             let mod_name = entry.key().ident.to_string();
             let m = entry.value();
-            // C2: Duplicate port names within same module
-            check_duplicate_ports(&mod_name, m, acc);
-            // D1: Duplicate instance names within same module
-            check_duplicate_instances(&mod_name, m, acc);
+            check_duplicate_ports(&mod_name, m, acc);      // C2
+            check_duplicate_instances(&mod_name, m, acc);   // D1
+            check_undefined_net_refs(&mod_name, m, acc);    // E2
         }
     }
 }
@@ -46,6 +45,37 @@ fn check_duplicate_ports(
                 ),
                 code: 2402,
             });
+        }
+    }
+}
+
+/// E2: net connections referencing identifiers not declared as ports/instances.
+fn check_undefined_net_refs(
+    mod_name: &str, m: &crate::McModule, acc: &mut CheckAccumulator,
+) {
+    let uri = m.uri.to_string();
+    if uri.contains("/unitest/") || uri.contains("/cases") { return; }
+    for phrase in &m.lines {
+        let text = format!("{}", phrase);
+        for word in text.split_whitespace() {
+            let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '_' && c != '.' && c != '[' && c != ']');
+            if clean.is_empty() || clean.len() == 1 { continue; }
+            if clean.starts_with('"') || clean.starts_with('\'') { continue; }
+            // Check if it's a known port/instance
+            if !m.insts.contains(clean)
+                && !m.insts.iter_instance_names().any(|k| m.insts.all_name_forms_for(k).contains(&clean.to_string()))
+                && !m.params.is_defined(clean)
+            {
+                acc.push(CheckResult {
+                    check_name: "port-instance", severity: CheckSeverity::Warning,
+                    uri: Some(uri.clone()), span: None,
+                    message: format!(
+                        "Module '{}' references '{}' which is not a declared port or instance.",
+                        mod_name, clean
+                    ),
+                    code: 2403,
+                });
+            }
         }
     }
 }

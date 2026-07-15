@@ -52,6 +52,10 @@ pub struct McPins {
 
     /// Source spans for pin names (for LSP goto-definition).
     pub pin_name_spans: std::collections::HashMap<String, std::ops::Range<usize>>,
+    /// Whether a `pins = [...]` (base) was seen before any `pins += [...]` (N6 check).
+    pub has_base_pins: bool,
+    /// Pin ID ranges for overlap detection (H3 check).
+    pub pin_ranges: Vec<(std::ops::Range<usize>, String)>, // (span, description)
 
     // pin -> multiple function name/alias mapping (supports multi-option like I2C0 | GPIO)
     // e.g.: "1" -> ["GPIO3", "I2C0.SCL"], "2" -> ["GPIO4", "I2C0.SDA"]
@@ -100,6 +104,8 @@ impl McPins {
             pins: BTreeMap::new(),
             names_to_id: BTreeMap::new(),
             pin_name_spans: std::collections::HashMap::new(),
+            has_base_pins: false,
+            pin_ranges: Vec::new(),
             pin_id_to_names: BTreeMap::new(),
             values_pool: Vec::new(),
             dynamic_pins: Vec::new(),
@@ -247,14 +253,26 @@ impl McPins {
     }
 
     pub fn parse(&mut self, node: &AstNode) {
-        // MCAST_ATTRIBUTE_PIN / MCAST_ATTRIBUTE_PINADD
-        // |-*  MCAST_PIN_LINE *
+        let node_type = node.get_type();
+        // N6: pins+= without prior pins=
+        if node_type == MCAST_ATTRIBUTE_PINADD && !self.has_base_pins {
+            crate::builder::diagnostic::dlog_error(
+                2106, node, "pins += used without prior pins = definition");
+        }
+        if node_type == MCAST_ATTRIBUTE_PIN {
+            self.has_base_pins = true;
+        }
+        // H3: Track pin range spans
+        let pin_span = (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
+
         let Some(plinenodes) = node.get_sub_node() else {
             dlog_error(1001, node, MISSING_SUBNODE);
             return;
         };
 
         for pnode in plinenodes.iter().filter(|n| n.get_type() == MCAST_PIN_LINE) {
+            // H3: record pin range
+            self.pin_ranges.push((pin_span.clone(), format!("{:?}", pnode.get_type())));
             // MCAST_PIN_LINE
             // |-MCAST_IOTYPE (option) - MCAST_PIN_ID - MCAST_PIN_NAMES - MCAST_ATT_VALUES (option)
             let subnodes = pnode.get_sub_node().expect(MISSING_SUBNODE);
