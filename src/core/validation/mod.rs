@@ -153,6 +153,7 @@ impl CheckRegistry {
         r.register(Box::new(check_insts::InstsCheck));
         r.register(Box::new(check_body::BodyCheck));
         r.register(Box::new(check_hw::HwCheck));
+        r.register(Box::new(check_types::TypesCheck));
         r
     }
 
@@ -202,3 +203,4 @@ pub mod check_naming;
 pub mod check_ports;
 pub mod check_refs;
 pub mod check_style;
+pub mod check_types;
