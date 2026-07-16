@@ -340,6 +340,7 @@ pub fn mcb_parse_all_modules() {
 
     // ★ Validation: run PostParse checks after all modules parsed (once)
     {
+        use crate::builder::diagnostic::{diagnostic_log, DiagnosticLevel};
         use crate::core::validation::{CheckRegistry, PostParseContext};
         use std::sync::LazyLock;
         static POST_PARSE_RUN: LazyLock<std::sync::Mutex<bool>> =
@@ -349,22 +350,29 @@ pub fn mcb_parse_all_modules() {
             *flag = true;
             let ctx = PostParseContext::new();
             let registry = CheckRegistry::with_defaults();
+            let saved_uri = crate::current_uri::try_get();
             for r in registry.run_post_parse(&ctx) {
-                let sev = r.severity.as_str();
-                let msg = format!("[{}:{}:{}] {}", sev, r.check_name, r.code, r.message);
+                // Switch current_uri to the file this diagnostic belongs to
+                if let Some(ref uri) = r.uri {
+                    crate::current_uri::set(&McURI::from(uri.as_str()));
+                }
+                let level = match r.severity {
+                    crate::core::validation::CheckSeverity::Error => DiagnosticLevel::Error,
+                    crate::core::validation::CheckSeverity::Warning => DiagnosticLevel::Warning,
+                    crate::core::validation::CheckSeverity::Info => DiagnosticLevel::Info,
+                    crate::core::validation::CheckSeverity::Hint => DiagnosticLevel::Hint,
+                };
                 let (pos, len) = r
                     .span
                     .as_ref()
-                    .map(|s| (s.start, s.end - s.start))
+                    .map(|s| (s.start as u32, (s.end - s.start) as u32))
                     .unwrap_or((0, 0));
-                mcc::mcc_record_param_diag(&mcc::ParamDiagnostic {
-                    kind: mcc::ParamDiagKind::Validation,
-                    param_name: r.check_name.to_string(),
-                    definition: format!("{}", r.code),
-                    message: msg,
-                    pos,
-                    len,
-                });
+                diagnostic_log(r.code, level, pos, len, &r.message, &[]);
+            }
+            // Restore previous current_uri (or reset)
+            match saved_uri {
+                Some(ref uri) => crate::current_uri::set(uri),
+                None => crate::current_uri::reset(),
             }
         }
     }
@@ -651,15 +659,23 @@ pub fn mcb_pass2_flat(
     let table = crate::instant::inst_table::InstTable::from_module_inst(&inst, start_id);
     // ★ Electrical checks after pass2
     let net_results = crate::core::check::nets::run_net_checks(&table);
+    let saved_uri = crate::current_uri::try_get();
     for r in &net_results {
-        crate::mcc_record_param_diag(&crate::ParamDiagnostic {
-            kind: crate::ParamDiagKind::Unused,
-            param_name: r.check.to_string(),
-            definition: r.net_name.clone(),
-            message: format!("[{}] {}", r.severity, r.message),
-            pos: 0,
-            len: 0,
-        });
+        // Switch to the file this diagnostic belongs to
+        if !r.uri.is_empty() {
+            crate::current_uri::set(&crate::McURI::from(r.uri.as_str()));
+        }
+        let level = match r.severity {
+            "error" => crate::builder::diagnostic::DiagnosticLevel::Error,
+            "info" => crate::builder::diagnostic::DiagnosticLevel::Info,
+            _ => crate::builder::diagnostic::DiagnosticLevel::Warning,
+        };
+        crate::builder::diagnostic::diagnostic_log(r.code, level, r.pos, 0, &r.message, &[]);
+    }
+    // Restore previous current_uri
+    match saved_uri {
+        Some(ref uri) => crate::current_uri::set(uri),
+        None => crate::current_uri::reset(),
     }
     Ok((inst, table))
 }

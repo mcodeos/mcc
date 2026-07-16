@@ -355,7 +355,7 @@ impl McFunction {
             );
             let diags = self.params.finalize(Some(body), &func_name);
             for d in &diags {
-                mcc::mcc_record_param_diag(d);
+                mcc::mcc_log_global_diag(d);
             }
         }
     }
