@@ -155,6 +155,13 @@ impl McModule {
                             );
                             match McPhrase::new(&subnode, self) {
                                 Some(net) => {
+                                    // Store definition spans + LSP lapper entries for inline ports
+                                    Self::collect_port_def_spans_in_net(
+                                        &subnode,
+                                        &mut self.insts,
+                                        &self.uri,
+                                        &self.name.to_string(),
+                                    );
                                     self.lines.push(net);
                                 }
                                 None => {
@@ -385,7 +392,14 @@ impl HasFindInst for McModule {
         self.insts.get_mut(id)
     }
 
-    fn add_label(&mut self, name: String) -> Option<McPhrase> {
+    fn add_label_at(
+        &mut self,
+        name: String,
+        span: Option<std::ops::Range<usize>>,
+    ) -> Option<McPhrase> {
+        if let Some(s) = span {
+            self.insts.store_port_span(&name, s);
+        }
         Some(self.add_label(name))
     }
 
@@ -590,6 +604,52 @@ impl HasFindInst for McModule {
 impl McModule {
     /// Recursively scan AST nodes in a net expression for identifiers that match
     /// known port names (both from body insts and params), and record their spans for LSP goto-definition.
+    /// Walk AST nodes in a net phrase and store definition spans + LSP lapper
+    /// entries for any identifier that becomes an inline port instance.
+    fn collect_port_def_spans_in_net(
+        node: &AstNode,
+        insts: &mut McInstances,
+        uri: &McURI,
+        scope: &str,
+    ) {
+        match node.get_type() {
+            MCAST_ID | MCAST_IDA | MCAST_IDS | MCAST_SQUARE_VEC | MCAST_OPD_SQUARE_VEC
+            | MCAST_OPD_CURLY => {
+                if let Some(text) = node.to_string() {
+                    let span =
+                        (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
+                    let key = insts
+                        .iter_instance_names()
+                        .find(|k| *k == &text || insts.all_name_forms_for(k).contains(&text))
+                        .cloned()
+                        .unwrap_or(text);
+                    if insts.get(&key).is_some() && insts.port_spans().get(&key).is_none() {
+                        insts.store_port_span(&key, span.clone());
+                        // Register LSP lapper entry so goto-def can find this inline port
+                        // within the correct scope
+                        crate::builder::mcb_register_instance_decl(
+                            uri,
+                            span,
+                            Some(key),
+                            Some(scope),
+                        );
+                    }
+                }
+            }
+            _ => {}
+        }
+        if let Some(sub) = node.get_sub_node() {
+            let mut cur = sub;
+            loop {
+                Self::collect_port_def_spans_in_net(&cur, insts, uri, scope);
+                match cur.get_next() {
+                    Some(next) => cur = next,
+                    None => break,
+                }
+            }
+        }
+    }
+
     fn collect_port_refs_in_node(
         node: &AstNode,
         insts: &mut McInstances,

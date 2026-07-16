@@ -1446,6 +1446,7 @@ impl McCode {
                         val: SymbolType::DeclareInstance(*dcl_id),
                     });
                 }
+                // First pass: register known refs
                 let ref_count = sem.local_table.inst_id_to_span.len();
                 for (inst_id, span) in sem.local_table.inst_id_to_span.iter() {
                     symbol_lapper.insert(Interval {
@@ -1477,9 +1478,8 @@ impl McCode {
                     count
                 };
 
-                // ★ LSP: Add interface definitions from both workspace and global interfaces tables
+                // ★ LSP: Add interface definitions + param port_definitions
                 {
-                    // Check workspace interfaces
                     let interfaces = crate::builder::workspace::WORKSPACE.interfaces.borrow();
                     for entry in interfaces.iter() {
                         let iface = entry.value();
@@ -1487,13 +1487,38 @@ impl McCode {
                             symbol_lapper.insert(Interval {
                                 start: iface.span.start,
                                 stop: iface.span.end,
-                                val: SymbolType::InterfaceDefinition(DeclareId::new(0)), // dummy id
+                                val: SymbolType::InterfaceDefinition(DeclareId::new(0)),
                             });
+                            // Collect param decl_ids for attr reference linking
+                            let mut param_decl_ids: std::collections::HashMap<String, DeclareId> =
+                                std::collections::HashMap::new();
+                            for (name, span) in iface.params.iter_defs_with_span() {
+                                let decl_id = sem.local_table.add_declare_with_name(
+                                    span.clone(),
+                                    Some(name.to_string()),
+                                    Some(&iface.name.to_string()),
+                                );
+                                param_decl_ids.insert(name.to_string(), decl_id);
+                                symbol_lapper.insert(Interval {
+                                    start: span.start,
+                                    stop: span.end,
+                                    val: SymbolType::PortDefinition(decl_id),
+                                });
+                            }
+                            // Register attribute variable references linked to param decls
+                            for attr in iface.attrs.iter() {
+                                for val in &attr.values {
+                                    if let crate::core::component::mc_attr::McAttrVal::AttrVariable(opd, Some(span)) = val {
+                                        let var_name = opd.to_string();
+                                        let decl_id = param_decl_ids.get(&var_name).copied().unwrap_or(DeclareId::new(0));
+                                        sem.local_table.add_inst(span.clone(), decl_id);
+                                    }
+                                }
+                            }
                         }
                     }
                     drop(interfaces);
 
-                    // Check global system interfaces
                     let global_interfaces = crate::builder::global::mcc_interfaces.borrow();
                     for entry in global_interfaces.iter() {
                         let iface = entry.value();
@@ -1501,8 +1526,32 @@ impl McCode {
                             symbol_lapper.insert(Interval {
                                 start: iface.span.start,
                                 stop: iface.span.end,
-                                val: SymbolType::InterfaceDefinition(DeclareId::new(0)), // dummy id
+                                val: SymbolType::InterfaceDefinition(DeclareId::new(0)),
                             });
+                            let mut param_decl_ids: std::collections::HashMap<String, DeclareId> =
+                                std::collections::HashMap::new();
+                            for (name, span) in iface.params.iter_defs_with_span() {
+                                let decl_id = sem.local_table.add_declare_with_name(
+                                    span.clone(),
+                                    Some(name.to_string()),
+                                    Some(&iface.name.to_string()),
+                                );
+                                param_decl_ids.insert(name.to_string(), decl_id);
+                                symbol_lapper.insert(Interval {
+                                    start: span.start,
+                                    stop: span.end,
+                                    val: SymbolType::PortDefinition(decl_id),
+                                });
+                            }
+                            for attr in iface.attrs.iter() {
+                                for val in &attr.values {
+                                    if let crate::core::component::mc_attr::McAttrVal::AttrVariable(opd, Some(span)) = val {
+                                        let var_name = opd.to_string();
+                                        let decl_id = param_decl_ids.get(&var_name).copied().unwrap_or(DeclareId::new(0));
+                                        sem.local_table.add_inst(span.clone(), decl_id);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -2077,6 +2126,16 @@ impl McCode {
                             }
                         }
                     }
+                }
+
+                // Second pass: pick up refs registered after the first pass
+                // (e.g. interface attr variable references)
+                for (inst_id, span) in sem.local_table.inst_id_to_span.iter() {
+                    symbol_lapper.insert(Interval {
+                        start: span.start,
+                        stop: span.end,
+                        val: SymbolType::InstanceReference(*inst_id),
+                    });
                 }
 
                 sem.symbol_lapper = symbol_lapper;

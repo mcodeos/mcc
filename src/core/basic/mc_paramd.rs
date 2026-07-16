@@ -58,9 +58,21 @@ impl McParamDeclares {
                         if let Some(ids) = McIds::new(&inner) {
                             let span = (inner.get_pos() as usize)
                                 ..((inner.get_pos() + inner.get_len()) as usize);
-                            // Use to_string() as the canonical key — matches get_primary_name()
-                            // used by find_unused_params and record_port_ref.
                             self.store_def_span(&ids.to_string(), span);
+                        }
+                    }
+                    MCAST_DECLARE_UV => {
+                        // volt::UV.VOLT = 5V — the name precedes the DECLARE_UV
+                        // node by name.len() + 2 bytes (for the "::" separator).
+                        if let Some(paramd) = McParamDeclare::new(&inner) {
+                            if let Some(name) = paramd.get_primary_name() {
+                                let inner_pos = inner.get_pos() as usize;
+                                let prefix_len = name.len() + 2; // "name::"
+                                let start = if inner_pos > prefix_len { inner_pos - prefix_len } else { inner_pos };
+                                let name_span = start..(start + name.len());
+                                self.store_def_span(&name, name_span);
+                            }
+                            self.declares.push(paramd);
                         }
                     }
                     MCAST_SQUARE_VEC => {
@@ -296,9 +308,17 @@ impl McParamDeclares {
             let unused =
                 crate::core::basic::mc_param_infer::find_unused_params(&self.declares, body_node);
             for name in &unused {
+                // Try exact match first, then substring match (def_spans may
+                // store the full form "rs485{A,B}" while display_name returns "rs485").
                 let (pos, len) = self
                     .def_spans
                     .get(name)
+                    .or_else(|| {
+                        self.def_spans
+                            .iter()
+                            .find(|(k, _)| k.contains(name.as_str()) || name.contains(k.as_str()))
+                            .map(|(_, v)| v)
+                    })
                     .and_then(|spans| spans.first())
                     .map(|s| (s.start, s.end - s.start))
                     .unwrap_or((0, 0));

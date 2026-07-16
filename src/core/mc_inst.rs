@@ -331,10 +331,10 @@ impl McInstances {
         if let Some((_, inst)) = self.insts.get(key) {
             match inst {
                 McInstance::Bus(bus) => {
+                    // Dot-member forms only; bare member names are NOT valid
+                    // references (per IDX expansion strategy).
                     for m in &bus.member {
                         forms.push(format!("{}.{}", bus.name, m));
-                        // Also bare member name (e.g. "A" from rs485{A,B})
-                        forms.push(m.clone());
                     }
                 }
                 McInstance::List(list) => {

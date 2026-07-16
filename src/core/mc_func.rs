@@ -62,7 +62,16 @@ impl McFuncReturn {
 pub trait HasFindInst {
     fn find_inst(&self, id: &str) -> Option<McInstance>;
     fn find_inst_mut(&mut self, id: &str) -> Option<&mut crate::McInstance>;
-    fn add_label(&mut self, name: String) -> Option<McPhrase>;
+    /// Add a label, optionally recording its source span for LSP goto-def.
+    fn add_label(&mut self, name: String) -> Option<McPhrase> {
+        self.add_label_at(name, None)
+    }
+    /// Add a label with a known source span.
+    fn add_label_at(
+        &mut self,
+        name: String,
+        span: Option<std::ops::Range<usize>>,
+    ) -> Option<McPhrase>;
     fn add_component(
         &mut self,
         name: String,
@@ -460,6 +469,17 @@ impl HasFindInst for McFunction {
 
     fn find_inst_mut(&mut self, id: &str) -> Option<&mut McInstance> {
         self.insts.get_mut(id)
+    }
+
+    fn add_label_at(
+        &mut self,
+        name: String,
+        span: Option<std::ops::Range<usize>>,
+    ) -> Option<McPhrase> {
+        if let Some(s) = span {
+            self.insts.store_port_span(&name, s);
+        }
+        self.add_label(name)
     }
 
     fn add_label(&mut self, name: String) -> Option<McPhrase> {

@@ -342,7 +342,11 @@ impl HasFindInst for McComponent {
         None
     }
 
-    fn add_label(&mut self, name: String) -> Option<McPhrase> {
+    fn add_label_at(
+        &mut self,
+        name: String,
+        _span: Option<std::ops::Range<usize>>,
+    ) -> Option<McPhrase> {
         Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
             McInstance::Label(name),
         ))))
