@@ -74,6 +74,8 @@ pub fn render_entity(e: &Value) -> String {
         "module" => {
             params(&mut out, e);
             instances(&mut out, e);
+            defs(&mut out, e);
+            refs(&mut out, e);
             lines(&mut out, e);
             funcs(&mut out, e);
         }
@@ -176,11 +178,22 @@ pub fn instances(out: &mut String, e: &Value) {
                 let iname = inst["name"].as_str().unwrap_or("?");
                 let kind = inst["kind"].as_str().unwrap_or("?");
                 let class = inst["class"].as_str().unwrap_or("");
-                if class.is_empty() || class == iname {
-                    out.push_str(&format!("    {}: {}\n", iname, kind));
+                let span = inst
+                    .get("span")
+                    .map(|s| {
+                        format!(
+                            "@{}:{}",
+                            s["start"].as_u64().unwrap_or(0),
+                            s["end"].as_u64().unwrap_or(0)
+                        )
+                    })
+                    .unwrap_or_default();
+                let class_str = if class.is_empty() || class == iname {
+                    String::new()
                 } else {
-                    out.push_str(&format!("    {}: {} ({})\n", iname, kind, class));
-                }
+                    format!(" ({})", class)
+                };
+                out.push_str(&format!("    {}{}: {}{}\n", iname, span, kind, class_str));
             }
         }
     }
@@ -222,6 +235,53 @@ pub fn roles(out: &mut String, e: &Value) {
             }
         }
     }
+}
+
+/// Render `defs` array (LSP definition spans for goto-definition).
+pub fn defs(out: &mut String, e: &Value) {
+    if let Some(arr) = e["defs"].as_array() {
+        if !arr.is_empty() {
+            out.push_str(&format!("  defs ({}):\n", arr.len()));
+            for d in arr {
+                let name = d["name"].as_str().unwrap_or("?");
+                let span = span_str(d);
+                out.push_str(&format!("    {}{}\n", name, span));
+            }
+        }
+    }
+}
+
+/// Render `refs` array (LSP reference spans in net lines).
+pub fn refs(out: &mut String, e: &Value) {
+    if let Some(arr) = e["refs"].as_array() {
+        if !arr.is_empty() {
+            out.push_str(&format!("  refs ({}):\n", arr.len()));
+            for r in arr {
+                let name = r["name"].as_str().unwrap_or("?");
+                let scope = r["scope"].as_str().unwrap_or("");
+                let span = span_str(r);
+                let scope_str = if scope.is_empty() {
+                    String::new()
+                } else {
+                    format!(" in {}", scope)
+                };
+                out.push_str(&format!("    {}{}{}\n", name, span, scope_str));
+            }
+        }
+    }
+}
+
+/// Format span from a JSON object with `span` field.
+fn span_str(v: &Value) -> String {
+    v.get("span")
+        .map(|s| {
+            format!(
+                " @{}:{}",
+                s["start"].as_u64().unwrap_or(0),
+                s["end"].as_u64().unwrap_or(0)
+            )
+        })
+        .unwrap_or_default()
 }
 
 /// Render `values` array (enum variants).

@@ -3490,6 +3490,7 @@ fn dump_enum_json(name: &str, en: &crate::McEnumDef, uri: &str) -> Value {
 
 // Helper: serialize instances (mirrors instances_json in show.rs)
 fn instances_json(insts: &crate::McInstances, type_filter: Option<&str>) -> Vec<Value> {
+    let port_spans = insts.port_spans();
     insts
         .iter()
         .filter_map(|(n, inst)| {
@@ -3507,7 +3508,15 @@ fn instances_json(insts: &crate::McInstances, type_filter: Option<&str>) -> Vec<
                     return None;
                 }
             }
-            Some(json!({"name": n.to_string(), "kind": kind, "class": class}))
+            let span = port_spans
+                .get(n)
+                .and_then(|v| v.first())
+                .map(|r| json!({"start": r.start, "end": r.end}));
+            let mut entry = json!({"name": n.to_string(), "kind": kind, "class": class});
+            if let Some(s) = span {
+                entry["span"] = s;
+            }
+            Some(entry)
         })
         .collect()
 }
