@@ -868,6 +868,19 @@ fn dump_module(name: &str, module: &mcc::McModule) -> Value {
         })
         .collect();
 
+    // LSP goto-def data: param/port definition positions
+    let defs: Vec<Value> = module
+        .params
+        .iter_defs_with_span()
+        .map(|(name, span)| json!({"name": name, "span": {"start": span.start, "end": span.end}}))
+        .collect();
+    // LSP goto-def data: port reference positions in net lines
+    let refs: Vec<Value> = module
+        .params
+        .iter_port_refs()
+        .map(|(span, name, scope)| json!({"name": name, "scope": scope, "span": {"start": span.start, "end": span.end}}))
+        .collect();
+
     json!({
         "name": name,
         "kind": "module",
@@ -879,6 +892,8 @@ fn dump_module(name: &str, module: &mcc::McModule) -> Value {
         "lines_count": module.lines.len(),
         "lines": lines,
         "funcs": funcs,
+        "defs": defs,
+        "refs": refs,
     })
 }
 
@@ -1035,11 +1050,11 @@ fn inst_kind_class(inst: &mcc::McInstance) -> (&'static str, String) {
 }
 
 fn instances_json(insts: &mcc::McInstances, type_filter: Option<&str>) -> Vec<Value> {
+    let port_spans = insts.port_spans();
     insts
         .iter()
         .filter_map(|(n, inst)| {
             let (kind, class) = inst_kind_class(inst);
-            // Distinguish inline labels from explicit ones
             let kind = if kind == "label" {
                 match insts.get_label_kind(n) {
                     mcc::LabelKind::Inline => "ilabel",
@@ -1053,7 +1068,15 @@ fn instances_json(insts: &mcc::McInstances, type_filter: Option<&str>) -> Vec<Va
                     return None;
                 }
             }
-            Some(json!({ "name": n.to_string(), "kind": kind, "class": class }))
+            let span = port_spans
+                .get(n)
+                .and_then(|v| v.first())
+                .map(|r| json!({"start": r.start, "end": r.end}));
+            let mut entry = json!({ "name": n.to_string(), "kind": kind, "class": class });
+            if let Some(s) = span {
+                entry["span"] = s;
+            }
+            Some(entry)
         })
         .collect()
 }
