@@ -47,10 +47,10 @@ impl McModule {
                 .and_then(|n| n.get_sub_node())
                 .and_then(|n| McIds::new(&n));
 
-            let body = subnodes
-                .iter()
-                .find(|x| x.is_type(MCAST_BODY))
-                .expect(MISSING_SUBNODE);
+            let Some(body) = subnodes.iter().find(|x| x.is_type(MCAST_BODY)) else {
+                dlog_error(804, node, MISSING_SUBNODE);
+                return None;
+            };
 
             let module_name = module_name?;
 
