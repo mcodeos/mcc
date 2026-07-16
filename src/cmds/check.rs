@@ -14,9 +14,7 @@ use crate::output::{
     self,
     builder::ResultBuilder,
     diagnostic::{self, count_severity},
-    envelope::{
-        DiagLocation, Diagnostic as EnvDiagnostic, Envelope, Pass0Report, Phase, RpcError, Severity,
-    },
+    envelope::{Envelope, Pass0Report, Phase, RpcError},
     OutputFormatExt,
 };
 use anyhow::Result;
@@ -117,8 +115,10 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
             ident: mcc::McIds::from("main"),
             uri: _uri.clone(),
         };
+        let mut errors = 0usize;
         if let Ok((_tree, table)) = mcc::mcb_pass2_flat(&entry, 1) {
             let net_results = mcc::check::nets::run_net_checks(&table);
+            errors = net_results.iter().filter(|r| r.severity == "error").count();
             if !net_results.is_empty() {
                 eprintln!(
                     "=== Electrical Net Checks ({} issues) ===",
@@ -129,11 +129,6 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
                 }
             }
         }
-        let diags = mcc::mcc_flush_param_diags();
-        let errors = diags
-            .iter()
-            .filter(|d| d.message.starts_with("[error]"))
-            .count();
         return Ok(CheckOutcome {
             exit_code: if errors > 0 { 1 } else { 0 },
         });
@@ -143,44 +138,10 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
     // `check` is a diagnostic overview; there's no pass1/pass2 distinction,
     // so everything is attributed to Pass0.
     let raw = mcc::mcc_diagnose_all();
-    let mut all_diags: Vec<_> = raw
+    let all_diags: Vec<_> = raw
         .iter()
         .map(|d| diagnostic::from_mcc(d, Phase::Pass0))
         .collect();
-
-    // ── Smart Param diagnostics (unused params, untyped params) ──
-    // Read file content for byte→line conversion
-    let file_content = std::fs::read_to_string(_uri.as_str()).unwrap_or_default();
-    let param_diags: Vec<_> = mcc::mcc_flush_param_diags()
-        .into_iter()
-        .filter(|pd| pd.pos > 0) // skip library diags with no valid span
-        .map(|pd| {
-            let (line, col) = pos_to_line_col(&file_content, pd.pos);
-            let severity = match pd.kind {
-                mcc::ParamDiagKind::Unused
-                | mcc::ParamDiagKind::Untyped
-                | mcc::ParamDiagKind::Validation => Severity::Warning,
-            };
-            EnvDiagnostic {
-                phase: Phase::Pass1,
-                severity,
-                code: 1402,
-                message: pd.message,
-                location: Some(DiagLocation {
-                    file: _uri.to_string(),
-                    line: line as u32,
-                    column: col as u32,
-                    end_line: None,
-                    end_column: None,
-                    pos: pd.pos as u32,
-                    len: pd.len as u32,
-                }),
-                suggestions: vec![],
-                related: vec![],
-            }
-        })
-        .collect();
-    all_diags.extend(param_diags);
 
     // --errors-only filter
     let filtered: Vec<_> = if args.errors_only {
@@ -220,16 +181,4 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
         0
     };
     Ok(CheckOutcome { exit_code })
-}
-
-/// Convert byte offset to 1-indexed (line, column).
-fn pos_to_line_col(content: &str, pos: usize) -> (usize, usize) {
-    if pos == 0 || content.is_empty() {
-        return (1, 1);
-    }
-    let pos = pos.min(content.len());
-    let line = content[..pos].matches('\n').count() + 1;
-    let last_nl = content[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0);
-    let col = pos - last_nl + 1;
-    (line, col)
 }

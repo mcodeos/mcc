@@ -204,7 +204,7 @@ impl McModule {
             let warned: std::collections::HashSet<String> =
                 diags.iter().map(|d| d.param_name.clone()).collect();
             for d in diags {
-                mcc::mcc_record_param_diag(&d);
+                mcc::mcc_log_global_diag(&d);
             }
             for port_name in self.insts.iter_instance_names() {
                 if warned.contains(port_name) {
@@ -249,17 +249,17 @@ impl McModule {
                     })
                     .sum();
                 if real_count == 0 {
-                    mcc::mcc_record_param_diag(&crate::core::basic::mc_paramd::ParamDiagnostic {
-                        kind: crate::core::basic::mc_paramd::ParamDiagKind::Unused,
-                        param_name: port_name.clone(),
-                        definition: mod_name.clone(),
-                        message: format!(
+                    crate::builder::diagnostic::diagnostic_log(
+                        1402,
+                        crate::builder::diagnostic::DiagnosticLevel::Warning,
+                        span.start as u32,
+                        (span.end - span.start) as u32,
+                        &format!(
                             "Port '{}' in '{}' is declared but never used in any net connection.",
                             port_name, mod_name
                         ),
-                        pos: span.start,
-                        len: span.end - span.start,
-                    });
+                        &[],
+                    );
                 }
             }
         }

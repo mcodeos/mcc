@@ -58,7 +58,7 @@ pub use ast::error::*;
 pub use builder::{mcb_pass2_flat, mcb_print, MccProjectTree};
 pub use core::basic::mc_param::{McParamBindings, McParamDeclare, McParamDeclares, McParamValue};
 pub use core::basic::mc_param_type::{McIoTy, McParamArity, McParamType, McParamTypeKind};
-pub use core::basic::mc_paramd::{ParamDiagKind, ParamDiagnostic};
+pub use core::basic::mc_paramd::{GlobalDiag, GlobalDiagKind};
 pub use instant::inst_table::InstKind;
 pub use instant::inst_table::InstTable;
 pub use instant::mc_comp::McComponentInst;
@@ -114,34 +114,34 @@ pub type McSemTokensArcCell = Arc<Mutex<McSemTokens>>;
 pub type McSemSymbolsArcCell = Arc<Mutex<McSemSymbols>>;
 
 // ============================================================================
-// Smart Parameter Diagnostics (M6)
+// Global Diagnostics (internal helper)
 // ============================================================================
 
-use std::sync::LazyLock;
-
-/// Global store for smart parameter diagnostics produced during compilation.
-static PARAM_DIAGNOSTICS: LazyLock<Mutex<Vec<ParamDiagnostic>>> =
-    LazyLock::new(|| Mutex::new(Vec::new()));
-
-/// Record a parameter diagnostic (called by finalize() in mc_paramd).
-pub fn mcc_record_param_diag(diag: &ParamDiagnostic) {
-    if let Ok(mut diags) = PARAM_DIAGNOSTICS.lock() {
-        diags.push(diag.clone());
-    }
-}
-
-/// Retrieve and clear all parameter diagnostics.
-pub fn mcc_flush_param_diags() -> Vec<ParamDiagnostic> {
-    let mut diags = PARAM_DIAGNOSTICS.lock().unwrap_or_else(|e| e.into_inner());
-    std::mem::take(&mut *diags)
-}
-
-/// Retrieve parameter diagnostics without clearing.
-pub fn mcc_get_param_diags() -> Vec<ParamDiagnostic> {
-    PARAM_DIAGNOSTICS
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
+/// Convert a [`GlobalDiag`] (returned by `finalize()`) into a regular diagnostic
+/// logged to [`DiagnosticManager`](crate::builder::diagnostic::DiagnosticManager).
+///
+/// This replaces the old `GLOBAL_DIAGS` global-list + `global.diag` RPC pattern.
+/// Diagnostics now go directly into the per-file `DiagnosticManager`, so they
+/// are automatically filtered by URI and need no special LSP handling.
+pub fn mcc_log_global_diag(d: &GlobalDiag) {
+    let level = match d.kind {
+        GlobalDiagKind::Unused | GlobalDiagKind::Untyped => {
+            crate::builder::diagnostic::DiagnosticLevel::Warning
+        }
+    };
+    // code 1402: unused param/port; 1403: untyped param
+    let code: u32 = match d.kind {
+        GlobalDiagKind::Unused => 1402,
+        GlobalDiagKind::Untyped => 1403,
+    };
+    crate::builder::diagnostic::diagnostic_log(
+        code,
+        level,
+        d.pos as u32,
+        d.len as u32,
+        &d.message,
+        &[],
+    );
 }
 
 /// Set system root path (parent directory of mcode library)

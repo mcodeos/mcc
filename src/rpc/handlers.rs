@@ -288,7 +288,6 @@ pub fn handle_methods(_params: Option<Value>) -> RpcResult {
         "show.attrs",
         "show.funcs",
         "show.params",
-        "params.diag",
         "show.roles",
         "show.values",
         "show.dump",
@@ -3160,29 +3159,6 @@ fn param_declare_to_json(d: &mcc::core::basic::mc_paramd::McParamDeclare) -> Val
     })
 }
 
-/// Handler for `params.diag` — returns smart parameter diagnostics
-/// (unused params, untyped params) collected during compilation.
-pub fn handle_params_diag(_params: Option<Value>) -> RpcResult {
-    let diags = mcc::mcc_flush_param_diags();
-    let count = diags.len();
-    Ok(json!({
-        "count": count,
-        "diagnostics": diags.iter().map(|d| {
-            let severity = match d.kind {
-                mcc::ParamDiagKind::Unused => "unused",
-                mcc::ParamDiagKind::Untyped => "untyped",
-                mcc::ParamDiagKind::Validation => "validation",
-            };
-            json!({
-                "severity": severity,
-                "message": d.message,
-                "pos": d.pos,
-                "len": d.len,
-            })
-        }).collect::<Vec<Value>>(),
-    }))
-}
-
 pub fn handle_show_roles(params: Option<Value>) -> RpcResult {
     let p: ShowParams = parse_strict(params)?;
     let name = p
@@ -4049,7 +4025,6 @@ pub fn handle_caps(_params: Option<Value>) -> RpcResult {
             "show.pins", "show.ports", "show.ports.list",
             "show.labels", "show.instances", "show.nets",
             "show.attrs", "show.funcs", "show.params",
-            "params.diag",
             "show.roles", "show.values",
             "show.dump", "show.dump.all",
             "lib.list", "lib.info", "lib.load", "lib.unload",

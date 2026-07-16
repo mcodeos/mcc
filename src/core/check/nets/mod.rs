@@ -32,10 +32,40 @@ pub fn run_net_checks(table: &InstTable) -> Vec<NetCheckResult> {
 #[derive(Debug, Clone)]
 pub struct NetCheckResult {
     pub check: &'static str,
-    pub severity: &'static str, // "error" | "warning"
+    pub severity: &'static str, // "error" | "warning" | "info"
     pub message: String,
     pub net_name: String,
     pub code: u32,
+    /// Source byte offset of the relevant point (0 if not available)
+    pub pos: u32,
+    /// Source file URI (empty if not available)
+    pub uri: String,
+}
+
+/// Extract the best available source position from an InstEntry.
+fn entry_pos(entry: &InstEntry) -> (u32, String) {
+    let pos = entry.src_pos.unwrap_or(0) as u32;
+    (pos, entry.def_uri.clone())
+}
+
+/// Find the first InstEntry that has a source position among a set of point IDs.
+fn best_pos(table: &InstTable, ids: &[u32]) -> (u32, String) {
+    for id in ids {
+        if let Some(entry) = table.get_entry(*id) {
+            if entry.src_pos.is_some() && !entry.def_uri.is_empty() {
+                return (entry.src_pos.unwrap() as u32, entry.def_uri.clone());
+            }
+        }
+    }
+    // Fallback: any entry
+    for id in ids {
+        if let Some(entry) = table.get_entry(*id) {
+            if !entry.def_uri.is_empty() {
+                return (0, entry.def_uri.clone());
+            }
+        }
+    }
+    (0, String::new())
 }
 
 // ── P1: Multiple outputs driving the same net ──
@@ -49,6 +79,7 @@ fn check_driver_conflict(table: &InstTable, results: &mut Vec<NetCheckResult>) {
             .collect();
         if outputs.len() > 1 {
             let names: Vec<_> = outputs.iter().map(|e| e.path.as_str()).collect();
+            let (pos, uri) = entry_pos(outputs[0]);
             results.push(NetCheckResult {
                 check: "driver-conflict",
                 severity: "error",
@@ -60,6 +91,8 @@ fn check_driver_conflict(table: &InstTable, results: &mut Vec<NetCheckResult>) {
                 ),
                 net_name: net.name.clone(),
                 code: 3101,
+                pos,
+                uri,
             });
         }
     }
@@ -80,12 +113,15 @@ fn check_undriven_nets(table: &InstTable, results: &mut Vec<NetCheckResult>) {
             .iter()
             .any(|e| matches!(e.io_type, IOType::In | IOType::InOut));
         if !has_driver && has_input && !points.is_empty() {
+            let (pos, uri) = best_pos(table, &net.points);
             results.push(NetCheckResult {
                 check: "undriven-net",
                 severity: "warning",
                 message: format!("Net '{}' has inputs but no output/power driver.", net.name),
                 net_name: net.name.clone(),
                 code: 3102,
+                pos,
+                uri,
             });
         }
     }
@@ -100,12 +136,15 @@ fn check_floating_inputs(table: &InstTable, results: &mut Vec<NetCheckResult>) {
         .collect();
     for (_, entry) in table.iter() {
         if matches!(entry.io_type, IOType::In) && !connected.contains(&entry.id) {
+            let (pos, uri) = entry_pos(entry);
             results.push(NetCheckResult {
                 check: "floating-input",
                 severity: "warning",
                 message: format!("Input '{}' is not connected to any net.", entry.path),
                 net_name: entry.path.clone(),
                 code: 3105,
+                pos,
+                uri,
             });
         }
     }
@@ -117,6 +156,7 @@ fn check_nc_connected(table: &InstTable, results: &mut Vec<NetCheckResult>) {
         for id in &net.points {
             if let Some(entry) = table.get_entry(*id) {
                 if matches!(entry.io_type, IOType::NonCon) {
+                    let (pos, uri) = entry_pos(entry);
                     results.push(NetCheckResult {
                         check: "nc-connected",
                         severity: "warning",
@@ -126,6 +166,8 @@ fn check_nc_connected(table: &InstTable, results: &mut Vec<NetCheckResult>) {
                         ),
                         net_name: net.name.clone(),
                         code: 3106,
+                        pos,
+                        uri,
                     });
                 }
             }
@@ -142,12 +184,15 @@ fn check_unconnected_outputs(table: &InstTable, results: &mut Vec<NetCheckResult
         .collect();
     for (_, entry) in table.iter() {
         if matches!(entry.io_type, IOType::Out) && !connected.contains(&entry.id) {
+            let (pos, uri) = entry_pos(entry);
             results.push(NetCheckResult {
                 check: "unconnected-output",
                 severity: "warning",
                 message: format!("Output '{}' drives nothing.", entry.path),
                 net_name: entry.path.clone(),
                 code: 3107,
+                pos,
+                uri,
             });
         }
     }
@@ -196,6 +241,7 @@ fn check_voltage_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>) 
             let (n1, v1) = net_voltages[i];
             let (n2, v2) = net_voltages[j];
             if (v1 - v2).abs() > 0.5 && has_shared_point(table, n1, n2) {
+                let (pos, uri) = best_pos(table, &n1.points);
                 results.push(NetCheckResult {
                     check: "voltage-mismatch",
                     severity: "error",
@@ -205,6 +251,8 @@ fn check_voltage_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>) 
                     ),
                     net_name: format!("{}+{}", n1.name, n2.name),
                     code: 3103,
+                    pos,
+                    uri,
                 });
             }
         }
@@ -229,6 +277,7 @@ fn check_unwired_instances(table: &InstTable, results: &mut Vec<NetCheckResult>)
         {
             let pins = table.get_pins_of(entry.id);
             if !pins.is_empty() && pins.iter().all(|p| !connected.contains(&p.id)) {
+                let (pos, uri) = entry_pos(entry);
                 results.push(NetCheckResult {
                     check: "unwired-instance",
                     severity: "warning",
@@ -238,6 +287,8 @@ fn check_unwired_instances(table: &InstTable, results: &mut Vec<NetCheckResult>)
                     ),
                     net_name: entry.path.clone(),
                     code: 3109,
+                    pos,
+                    uri,
                 });
             }
         }
@@ -258,6 +309,7 @@ fn check_backfeed(table: &InstTable, results: &mut Vec<NetCheckResult>) {
                 .map_or(false, |e| matches!(e.io_type, IOType::Power))
         });
         if has_out && has_ps {
+            let (pos, uri) = best_pos(table, &net.points);
             results.push(NetCheckResult {
                 check: "backfeed-risk",
                 severity: "warning",
@@ -267,6 +319,8 @@ fn check_backfeed(table: &InstTable, results: &mut Vec<NetCheckResult>) {
                 ),
                 net_name: net.name.clone(),
                 code: 3108,
+                pos,
+                uri,
             });
         }
     }
@@ -290,6 +344,7 @@ fn check_port_io_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>) 
             }
         }
         if out_count > 1 && !has_in && has_ps {
+            let (pos, uri) = best_pos(table, &net.points);
             results.push(NetCheckResult {
                 check: "port-io-mismatch",
                 severity: "warning",
@@ -299,6 +354,8 @@ fn check_port_io_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>) 
                 ),
                 net_name: net.name.clone(),
                 code: 3110,
+                pos,
+                uri,
             });
         }
     }
@@ -324,6 +381,8 @@ fn check_power_nets(table: &InstTable, results: &mut Vec<NetCheckResult>) {
             message: format!("Design has {} power nets. Review for consolidation.", count),
             net_name: String::new(),
             code: 3199,
+            pos: 0,
+            uri: String::new(),
         });
     }
 }
@@ -352,6 +411,7 @@ fn check_unused_module_ports(table: &InstTable, results: &mut Vec<NetCheckResult
         ) && !connected.contains(&entry.id)
             && !entry.class_name.is_empty()
         {
+            let (pos, uri) = entry_pos(entry);
             results.push(NetCheckResult {
                 check: "unused-module-port",
                 severity: "warning",
@@ -361,6 +421,8 @@ fn check_unused_module_ports(table: &InstTable, results: &mut Vec<NetCheckResult
                 ),
                 net_name: entry.path.clone(),
                 code: 3111,
+                pos,
+                uri,
             });
         }
     }
@@ -371,6 +433,7 @@ fn check_single_point_nets(table: &InstTable, results: &mut Vec<NetCheckResult>)
     for net in table.get_nets() {
         if net.points.len() == 1 {
             if let Some(entry) = table.get_entry(net.points[0]) {
+                let (pos, uri) = entry_pos(entry);
                 results.push(NetCheckResult {
                     check: "single-point-net",
                     severity: "warning",
@@ -380,6 +443,8 @@ fn check_single_point_nets(table: &InstTable, results: &mut Vec<NetCheckResult>)
                     ),
                     net_name: net.name.clone(),
                     code: 3112,
+                    pos,
+                    uri,
                 });
             }
         }
@@ -411,6 +476,7 @@ fn check_pin_count_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>
             let pins = table.get_pins_of(entry.id);
             let connected_pins = pins.iter().filter(|p| connected.contains(&p.id)).count();
             if connected_pins < def_pin_count {
+                let (pos, uri) = entry_pos(entry);
                 results.push(NetCheckResult {
                     check: "pin-count-mismatch",
                     severity: "warning",
@@ -420,6 +486,8 @@ fn check_pin_count_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>
                     ),
                     net_name: entry.path.clone(),
                     code: 3113,
+                    pos,
+                    uri,
                 });
             }
         }
@@ -435,6 +503,7 @@ fn check_floating_outputs(table: &InstTable, results: &mut Vec<NetCheckResult>) 
         .collect();
     for (_, entry) in table.iter() {
         if matches!(entry.io_type, IOType::InOut) && !connected.contains(&entry.id) {
+            let (pos, uri) = entry_pos(entry);
             results.push(NetCheckResult {
                 check: "floating-bidirectional",
                 severity: "warning",
@@ -444,6 +513,8 @@ fn check_floating_outputs(table: &InstTable, results: &mut Vec<NetCheckResult>) 
                 ),
                 net_name: entry.path.clone(),
                 code: 3114,
+                pos,
+                uri,
             });
         }
     }

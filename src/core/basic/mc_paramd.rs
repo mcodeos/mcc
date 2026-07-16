@@ -304,7 +304,7 @@ impl McParamDeclares {
     /// check for unused parameters, filter port spans.
     ///
     /// Returns a list of diagnostic messages for unused/untyped parameters.
-    pub fn finalize(&mut self, body: Option<&AstNode>, def_name: &str) -> Vec<ParamDiagnostic> {
+    pub fn finalize(&mut self, body: Option<&AstNode>, def_name: &str) -> Vec<GlobalDiag> {
         let mut diagnostics = Vec::new();
 
         // Step 1: Run usage-based inference for Unknown params
@@ -326,8 +326,8 @@ impl McParamDeclares {
                     .and_then(|spans| spans.first())
                     .map(|s| (s.start, s.end - s.start))
                     .unwrap_or((0, 0));
-                diagnostics.push(ParamDiagnostic {
-                    kind: ParamDiagKind::Unused,
+                diagnostics.push(GlobalDiag {
+                    kind: GlobalDiagKind::Unused,
                     param_name: name.clone(),
                     definition: def_name.to_string(),
                     message: format!(
@@ -366,27 +366,32 @@ impl McParamDeclares {
     }
 }
 
-/// Diagnostic from parameter analysis.
+/// Lightweight diagnostic returned by `finalize()` during parsing.
+///
+/// Callers convert these to regular diagnostics via [`mcc_log_global_diag`]
+/// which routes them into the per-file [`DiagnosticManager`](crate::builder::diagnostic::DiagnosticManager).
+///
+/// Variants:
+/// - `Unused`  — declared but unreferenced parameters / ports
+/// - `Untyped` — parameters that could not be type-inferred
 #[derive(Debug, Clone)]
-pub struct ParamDiagnostic {
-    pub kind: ParamDiagKind,
+pub struct GlobalDiag {
+    pub kind: GlobalDiagKind,
     pub param_name: String,
     pub definition: String,
     pub message: String,
-    /// Byte offset of the parameter declaration in the source file.
+    /// Byte offset of the diagnostic in the source file.
     pub pos: usize,
-    /// Byte length of the parameter declaration.
+    /// Byte length of the diagnostic span.
     pub len: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ParamDiagKind {
-    /// Parameter has no usages in the body
+pub enum GlobalDiagKind {
+    /// Parameter / port has no usages in the body
     Unused,
     /// Parameter is untyped and could not be inferred
     Untyped,
-    /// Validation check result (from the validation module)
-    Validation,
 }
 
 impl std::ops::Deref for McParamDeclares {

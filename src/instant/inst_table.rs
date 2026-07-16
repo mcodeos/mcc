@@ -90,6 +90,10 @@ pub struct InstEntry {
     pub class_name: String,
     /// IO type (only meaningful for Port/Pin, otherwise IOType::None)
     pub io_type: IOType,
+    /// Source byte offset in the definition file (from NetPoint / AST)
+    pub src_pos: Option<i32>,
+    /// URI of the file where this instance was defined
+    pub def_uri: String,
 }
 
 // ============================================================================
@@ -187,6 +191,8 @@ impl InstTable {
         parent_id: Option<u32>,
         class_name: String,
         io_type: IOType,
+        src_pos: Option<i32>,
+        def_uri: String,
     ) -> u32 {
         // Prevent duplicate registration
         if let Some(&existing_id) = self.path_index.get(&path) {
@@ -206,6 +212,12 @@ impl InstTable {
                             entry.parent_id = parent_id;
                             entry.class_name = class_name;
                             entry.io_type = io_type;
+                            if src_pos.is_some() {
+                                entry.src_pos = src_pos;
+                            }
+                            if !def_uri.is_empty() {
+                                entry.def_uri = def_uri;
+                            }
                         }
                     } else {
                         // Old kind priority >= new kind —— keep the old entry.
@@ -232,6 +244,13 @@ impl InstTable {
                                 entry.parent_id = parent_id;
                             }
                         }
+                        // Always update src_pos/def_uri if the new ones are more specific
+                        if src_pos.is_some() && entry.src_pos.is_none() {
+                            entry.src_pos = src_pos;
+                        }
+                        if !def_uri.is_empty() && entry.def_uri.is_empty() {
+                            entry.def_uri = def_uri;
+                        }
                     }
                 }
             }
@@ -248,11 +267,34 @@ impl InstTable {
             parent_id,
             class_name,
             io_type,
+            src_pos,
+            def_uri,
         };
 
         self.entries.insert(id, entry);
         self.path_index.insert(path, id);
         id
+    }
+
+    /// Convenience wrapper for tests — calls `register` with empty source info.
+    #[cfg(test)]
+    pub fn register_simple(
+        &mut self,
+        path: String,
+        kind: InstKind,
+        parent_id: Option<u32>,
+        class_name: String,
+        io_type: IOType,
+    ) -> u32 {
+        self.register(
+            path,
+            kind,
+            parent_id,
+            class_name,
+            io_type,
+            None,
+            String::new(),
+        )
     }
 
     // ====================================================================
@@ -376,6 +418,8 @@ impl InstTable {
             parent_id,
             inst.def.name.to_string(),
             IOType::None,
+            None,
+            inst.def_uri.to_string(),
         );
 
         // 2. Register ports
@@ -387,6 +431,8 @@ impl InstTable {
                 Some(my_id),
                 String::new(),
                 port.iotype.clone(),
+                None,
+                inst.def_uri.to_string(),
             );
 
             // ── Phase-D support: register a bracketed path for ports with bus_members ──
@@ -403,6 +449,8 @@ impl InstTable {
                     Some(my_id),
                     String::new(),
                     port.iotype.clone(),
+                    None,
+                    inst.def_uri.to_string(),
                 );
             }
         }
@@ -416,6 +464,8 @@ impl InstTable {
                 Some(my_id),
                 comp.def.name.to_string(),
                 IOType::None,
+                None,
+                inst.def_uri.to_string(),
             );
 
             // ★ M11.3: record bridge passive full paths
@@ -458,6 +508,8 @@ impl InstTable {
                         Some(comp_id),
                         pin_func_name,
                         net_point.iotype.clone(),
+                        net_point.src_pos,
+                        inst.def_uri.to_string(),
                     );
                 }
             }
@@ -505,6 +557,8 @@ impl InstTable {
                 Some(my_id),
                 String::new(),
                 bus_io.clone(),
+                None,
+                inst.def_uri.to_string(),
             );
 
             // Expand bus members with the inherited IO type
@@ -516,6 +570,8 @@ impl InstTable {
                     Some(bus_id),
                     String::new(),
                     bus_io.clone(),
+                    None,
+                    inst.def_uri.to_string(),
                 );
             }
         }
@@ -534,6 +590,8 @@ impl InstTable {
                     Some(my_id),
                     String::new(),
                     net_point.iotype.clone(),
+                    net_point.src_pos,
+                    inst.def_uri.to_string(),
                 );
             }
         }
@@ -823,7 +881,7 @@ mod tests {
     #[test]
     fn test_register_and_lookup() {
         let mut table = InstTable::new(1000);
-        let id = table.register(
+        let id = table.register_simple(
             "main".into(),
             InstKind::Module,
             None,
@@ -838,14 +896,14 @@ mod tests {
     #[test]
     fn test_no_duplicate_registration() {
         let mut table = InstTable::new(1000);
-        let id1 = table.register(
+        let id1 = table.register_simple(
             "main".into(),
             InstKind::Module,
             None,
             "main".into(),
             IOType::None,
         );
-        let id2 = table.register(
+        let id2 = table.register_simple(
             "main".into(),
             InstKind::Module,
             None,
@@ -859,28 +917,28 @@ mod tests {
     #[test]
     fn test_children_of() {
         let mut table = InstTable::new(1000);
-        let parent = table.register(
+        let parent = table.register_simple(
             "main".into(),
             InstKind::Module,
             None,
             "main".into(),
             IOType::None,
         );
-        table.register(
+        table.register_simple(
             "main.VCC".into(),
             InstKind::Port,
             Some(parent),
             String::new(),
             IOType::In,
         );
-        table.register(
+        table.register_simple(
             "main.GND".into(),
             InstKind::Port,
             Some(parent),
             String::new(),
             IOType::In,
         );
-        table.register(
+        table.register_simple(
             "main.R1".into(),
             InstKind::Component,
             Some(parent),
@@ -895,9 +953,9 @@ mod tests {
     #[test]
     fn test_id_uniqueness() {
         let mut table = InstTable::new(1000);
-        table.register("a".into(), InstKind::Module, None, "A".into(), IOType::None);
-        table.register("b".into(), InstKind::Module, None, "B".into(), IOType::None);
-        table.register("c".into(), InstKind::Module, None, "C".into(), IOType::None);
+        table.register_simple("a".into(), InstKind::Module, None, "A".into(), IOType::None);
+        table.register_simple("b".into(), InstKind::Module, None, "B".into(), IOType::None);
+        table.register_simple("c".into(), InstKind::Module, None, "C".into(), IOType::None);
 
         let ids: Vec<u32> = table.iter().map(|(id, _)| *id).collect();
         let unique: std::collections::HashSet<u32> = ids.iter().cloned().collect();
@@ -917,21 +975,21 @@ mod tests {
     #[test]
     fn test_resolve_bus_member_path_fallback() {
         let mut table = InstTable::new(1000);
-        let m = table.register(
+        let m = table.register_simple(
             "main".into(),
             InstKind::Module,
             None,
             String::new(),
             IOType::None,
         );
-        let bus = table.register(
+        let bus = table.register_simple(
             "main.power".into(),
             InstKind::Bus,
             Some(m),
             String::new(),
             IOType::None,
         );
-        let vcc = table.register(
+        let vcc = table.register_simple(
             "main.power/VCC".into(),
             InstKind::Label,
             Some(bus),
@@ -952,21 +1010,21 @@ mod tests {
     #[test]
     fn test_resolve_plain_dot_path_still_works() {
         let mut table = InstTable::new(1000);
-        let m = table.register(
+        let m = table.register_simple(
             "main".into(),
             InstKind::Module,
             None,
             String::new(),
             IOType::None,
         );
-        let comp = table.register(
+        let comp = table.register_simple(
             "main.R1".into(),
             InstKind::Component,
             Some(m),
             String::new(),
             IOType::None,
         );
-        let pin = table.register(
+        let pin = table.register_simple(
             "main.R1.1".into(),
             InstKind::Pin,
             Some(comp),
@@ -982,14 +1040,14 @@ mod tests {
     #[test]
     fn test_resolve_top_level_port_no_prefix() {
         let mut table = InstTable::new(1000);
-        let m = table.register(
+        let m = table.register_simple(
             "main".into(),
             InstKind::Module,
             None,
             String::new(),
             IOType::None,
         );
-        let vcc = table.register(
+        let vcc = table.register_simple(
             "main.VCC".into(),
             InstKind::Port,
             Some(m),
@@ -1005,28 +1063,28 @@ mod tests {
     #[test]
     fn test_resolve_bracket_list_expands() {
         let mut table = InstTable::new(1000);
-        let m = table.register(
+        let m = table.register_simple(
             "main".into(),
             InstKind::Module,
             None,
             String::new(),
             IOType::None,
         );
-        let sub = table.register(
+        let sub = table.register_simple(
             "main.moddcdc".into(),
             InstKind::Module,
             Some(m),
             String::new(),
             IOType::None,
         );
-        let a = table.register(
+        let a = table.register_simple(
             "main.moddcdc.VDD_3V3".into(),
             InstKind::Port,
             Some(sub),
             String::new(),
             IOType::None,
         );
-        let b = table.register(
+        let b = table.register_simple(
             "main.moddcdc.GND".into(),
             InstKind::Port,
             Some(sub),
@@ -1043,21 +1101,21 @@ mod tests {
     #[test]
     fn test_resolve_bracket_partial_miss() {
         let mut table = InstTable::new(1000);
-        let m = table.register(
+        let m = table.register_simple(
             "main".into(),
             InstKind::Module,
             None,
             String::new(),
             IOType::None,
         );
-        let sub = table.register(
+        let sub = table.register_simple(
             "main.moddcdc".into(),
             InstKind::Module,
             Some(m),
             String::new(),
             IOType::None,
         );
-        let a = table.register(
+        let a = table.register_simple(
             "main.moddcdc.VDD_3V3".into(),
             InstKind::Port,
             Some(sub),
@@ -1074,7 +1132,7 @@ mod tests {
     #[test]
     fn test_resolve_missing_path_returns_empty() {
         let mut table = InstTable::new(1000);
-        table.register(
+        table.register_simple(
             "main".into(),
             InstKind::Module,
             None,
