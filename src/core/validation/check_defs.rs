@@ -50,17 +50,22 @@ fn check_name_collision(acc: &mut CheckAccumulator) {
 
     // Component ↔ Interface collisions
     for name in comp_names.intersection(&iface_names) {
-        let comp_uris: Vec<_> = comps
+        let comp_spans: Vec<_> = comps
             .iter()
             .filter(|e| e.key().ident.to_string() == *name && !super::is_test_file(&e.key().uri))
-            .map(|e| e.key().uri.clone())
+            .map(|e| {
+                (
+                    e.key().uri.clone(),
+                    e.value().span.start..e.value().span.end,
+                )
+            })
             .collect();
-        for uri in &comp_uris {
+        for (uri, span) in &comp_spans {
             acc.push(CheckResult {
                 check_name: "defs",
                 severity: CheckSeverity::Warning,
                 uri: Some(uri.clone()),
-                span: None,
+                span: Some(span.clone()),
                 message: format!(
                     "'{}' is defined as both a component and an interface. \
                      This creates ambiguity for name resolution.",
@@ -73,17 +78,22 @@ fn check_name_collision(acc: &mut CheckAccumulator) {
 
     // Interface ↔ Enum collisions
     for name in iface_names.intersection(&enum_names) {
-        let iface_uris: Vec<_> = ifaces
+        let iface_spans: Vec<_> = ifaces
             .iter()
             .filter(|e| e.key().ident.to_string() == *name && !super::is_test_file(&e.key().uri))
-            .map(|e| e.key().uri.clone())
+            .map(|e| {
+                (
+                    e.key().uri.clone(),
+                    e.value().span.start..e.value().span.end,
+                )
+            })
             .collect();
-        for uri in &iface_uris {
+        for (uri, span) in &iface_spans {
             acc.push(CheckResult {
                 check_name: "defs",
                 severity: CheckSeverity::Warning,
                 uri: Some(uri.clone()),
-                span: None,
+                span: Some(span.clone()),
                 message: format!(
                     "'{}' is defined as both an interface and an enum. \
                      This creates ambiguity for name resolution.",
@@ -96,17 +106,22 @@ fn check_name_collision(acc: &mut CheckAccumulator) {
 
     // Component ↔ Module collisions
     for name in comp_names.intersection(&mod_names) {
-        let comp_uris: Vec<_> = comps
+        let comp_spans: Vec<_> = comps
             .iter()
             .filter(|e| e.key().ident.to_string() == *name && !super::is_test_file(&e.key().uri))
-            .map(|e| e.key().uri.clone())
+            .map(|e| {
+                (
+                    e.key().uri.clone(),
+                    e.value().span.start..e.value().span.end,
+                )
+            })
             .collect();
-        for uri in &comp_uris {
+        for (uri, span) in &comp_spans {
             acc.push(CheckResult {
                 check_name: "defs",
                 severity: CheckSeverity::Info,
                 uri: Some(uri.clone()),
-                span: None,
+                span: Some(span.clone()),
                 message: format!(
                     "'{}' is defined as both a component and a module. \
                      This creates ambiguity for name resolution.",
@@ -163,7 +178,7 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
                             check_name: "defs",
                             severity: CheckSeverity::Warning,
                             uri: Some(uri.clone()),
-                            span: None,
+                            span: Some(comp.span.start..comp.span.end),
                             message: format!(
                                 "Component '{}' binds to interface '{}' which is not loaded.",
                                 entry.key().ident,
@@ -193,7 +208,7 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
                             check_name: "defs",
                             severity: CheckSeverity::Warning,
                             uri: Some(uri.clone()),
-                            span: None,
+                            span: Some(comp.span.start..comp.span.end),
                             message: format!(
                                 "Component '{}' param references class '{}' which is not loaded.",
                                 entry.key().ident,
@@ -220,11 +235,12 @@ fn check_int_suffix(acc: &mut CheckAccumulator) {
             }
             let name = entry.key().ident.to_string();
             if name.ends_with(".int") {
+                let c = entry.value();
                 acc.push(CheckResult {
                     check_name: "defs",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: Some(c.span.start..c.span.end),
                     message: format!(
                         "Component '{}' has '.int' suffix. '.int' is conventionally \
                          reserved for interface names.",
@@ -250,7 +266,7 @@ fn check_int_suffix(acc: &mut CheckAccumulator) {
                     check_name: "defs",
                     severity: CheckSeverity::Info,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: Some(entry.value().span[0] as usize..entry.value().span[1] as usize),
                     message: format!(
                         "Enum '{}' has '.int' suffix, which is unconventional for enums.",
                         name
@@ -270,11 +286,12 @@ fn check_int_suffix(acc: &mut CheckAccumulator) {
             }
             let name = entry.key().ident.to_string();
             if name.ends_with(".int") {
+                let iface = entry.value();
                 acc.push(CheckResult {
                     check_name: "defs",
                     severity: CheckSeverity::Info,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: Some(iface.span.start..iface.span.end),
                     message: format!(
                         "Interface '{}' has '.int' suffix, which is unconventional \
                          for interfaces.",

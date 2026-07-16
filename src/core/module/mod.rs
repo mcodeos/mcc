@@ -206,7 +206,7 @@ impl McModule {
             for d in diags {
                 mcc::mcc_log_global_diag(&d);
             }
-            for port_name in self.insts.iter_instance_names() {
+            for port_name in self.insts.iter_port_names() {
                 if warned.contains(port_name) {
                     continue;
                 }
@@ -221,7 +221,7 @@ impl McModule {
                 if span.start == 0 && span.end == 1 {
                     // Try sibling labels with same base (GPIO2 → find GPIO1's span)
                     if let Some(base) = McInstances::strip_trailing_digits(port_name) {
-                        for other in self.insts.iter_instance_names() {
+                        for other in self.insts.iter_port_names() {
                             if other == port_name {
                                 continue;
                             }
@@ -575,6 +575,16 @@ impl HasFindInst for McModule {
         Some(self.add_module(name, module))
     }
 
+    /// Generate an anonymous instance name: `@{classname}{counter}` (e.g. `@RES1`, `@CAP2`).
+    ///
+    /// # Design rule
+    /// Anonymous instances are created inline in connection statements
+    /// (e.g. `-> RES(10kΩ) ->`). Their declaration position **is** their usage
+    /// position — they exist solely as part of a connection chain and do not
+    /// need to be referenced from elsewhere.
+    ///
+    /// Diagnostics that check for "unused" ports/instances must skip names
+    /// produced by this function. See [`McInstances::iter_port_names`].
     fn gen_anon_name(&mut self, classname: &str) -> String {
         let name = format!("@{}{}", classname, self.anon_counter);
         self.anon_counter += 1;
