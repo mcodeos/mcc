@@ -581,7 +581,7 @@ fn check_naming_convention(acc: &mut CheckAccumulator) {
         if super::is_test_file(&uri) || uri.contains("/lab/") {
             continue;
         }
-        // Skip dot-notation names like "Amplifier.BUFFER" (check each segment)
+        // Skip dot-notation names like "AMP.BUFFER" (check each segment)
         for seg in name.split('.') {
             if let Some(first) = seg.chars().next() {
                 if first.is_lowercase() && seg.chars().any(|c| c.is_uppercase()) {

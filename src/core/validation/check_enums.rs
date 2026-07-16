@@ -115,7 +115,7 @@ fn check_invalid_enum_member_names(acc: &mut CheckAccumulator) {
             let name = val.name.to_string();
             let span = val.span[0] as usize..val.span[1] as usize;
 
-            // U3a: dotted names like `UV.CAP` or `Amplifier.BUFFER`
+            // U3a: dotted names like `UV.CAP` or `AMP.BUFFER`
             if name.contains('.') {
                 acc.push(CheckResult {
                     check_name: "enums",

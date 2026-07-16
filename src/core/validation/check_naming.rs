@@ -67,7 +67,7 @@ fn check_lowercase_components(acc: &mut CheckAccumulator) {
         // Component names should start with uppercase or digit (like 74HC)
         if let Some(first) = name.chars().next() {
             if first.is_lowercase() && !name.contains('.') {
-                // Names with dots like "Amplifier.BUFFER" are fine
+                // Names with dots like "AMP.BUFFER" are fine
                 acc.push(CheckResult {
                     check_name: "naming",
                     severity: CheckSeverity::Info,
