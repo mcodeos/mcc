@@ -307,7 +307,7 @@ impl McComponent {
 
     fn collect_param_refs_in_node(node: &AstNode, params: &mut McParamDeclares, scope: &str) {
         match node.get_type() {
-            MCAST_ID | MCAST_IDA => {
+            MCAST_ID | MCAST_IDA | MCAST_IDS => {
                 if let Some(text) = node.to_string() {
                     let matched = params.is_defined(&text)
                         || params.iter().any(|d| d.all_name_forms().contains(&text));
@@ -315,6 +315,24 @@ impl McComponent {
                         let span =
                             (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
                         params.record_port_ref(span, &text, scope);
+                    }
+                }
+            }
+            // MCAST_OPD wraps an operand — extract the inner identifier and
+            // check it directly, then continue recursing for compound expressions.
+            MCAST_OPD => {
+                if let Some(sub) = node.get_sub_node() {
+                    let inner_type = sub.get_type();
+                    if matches!(inner_type, MCAST_ID | MCAST_IDA | MCAST_IDS) {
+                        if let Some(text) = sub.to_string() {
+                            let matched = params.is_defined(&text)
+                                || params.iter().any(|d| d.all_name_forms().contains(&text));
+                            if matched {
+                                let span = (sub.get_pos() as usize)
+                                    ..((sub.get_pos() + sub.get_len()) as usize);
+                                params.record_port_ref(span, &text, scope);
+                            }
+                        }
                     }
                 }
             }

@@ -68,7 +68,11 @@ impl McParamDeclares {
                             if let Some(name) = paramd.get_primary_name() {
                                 let inner_pos = inner.get_pos() as usize;
                                 let prefix_len = name.len() + 2; // "name::"
-                                let start = if inner_pos > prefix_len { inner_pos - prefix_len } else { inner_pos };
+                                let start = if inner_pos > prefix_len {
+                                    inner_pos - prefix_len
+                                } else {
+                                    inner_pos
+                                };
                                 let name_span = start..(start + name.len());
                                 self.store_def_span(&name, name_span);
                             }

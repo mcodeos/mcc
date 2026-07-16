@@ -1481,8 +1481,19 @@ impl McCode {
                 // ★ LSP: Add interface definitions + param port_definitions
                 {
                     let interfaces = crate::builder::workspace::WORKSPACE.interfaces.borrow();
+                    eprintln!(
+                        "F12_DBG_IFACE workspace interface_count={} self_uri={}",
+                        interfaces.len(),
+                        uri_str
+                    );
                     for entry in interfaces.iter() {
                         let iface = entry.value();
+                        eprintln!(
+                            "F12_DBG_IFACE workspace iface name={} uri={} match={}",
+                            entry.key().ident,
+                            iface.uri.as_str(),
+                            iface.uri.as_str() == uri_str
+                        );
                         if iface.uri.as_str() == uri_str {
                             symbol_lapper.insert(Interval {
                                 start: iface.span.start,
@@ -1492,11 +1503,12 @@ impl McCode {
                             // Collect param decl_ids for attr reference linking
                             let mut param_decl_ids: std::collections::HashMap<String, DeclareId> =
                                 std::collections::HashMap::new();
+                            let iface_ident = iface.name.to_string();
                             for (name, span) in iface.params.iter_defs_with_span() {
                                 let decl_id = sem.local_table.add_declare_with_name(
                                     span.clone(),
                                     Some(name.to_string()),
-                                    Some(&iface.name.to_string()),
+                                    Some(&iface_ident),
                                 );
                                 param_decl_ids.insert(name.to_string(), decl_id);
                                 symbol_lapper.insert(Interval {
@@ -1504,6 +1516,8 @@ impl McCode {
                                     stop: span.end,
                                     val: SymbolType::PortDefinition(decl_id),
                                 });
+                                sem.symbol_scope
+                                    .insert((span.start, span.end), iface_ident.clone());
                             }
                             // Register attribute variable references linked to param decls
                             for attr in iface.attrs.iter() {
@@ -1515,26 +1529,54 @@ impl McCode {
                                     }
                                 }
                             }
+                            // ★ Register interface param refs from body expressions
+                            // (e.g. `spec.voltage = volt` where volt is a param)
+                            for (span, port_name, scope) in iface.params.iter_port_refs() {
+                                let scoped_key = (scope.clone(), port_name.clone());
+                                if let Some(decl_id) =
+                                    sem.local_table.name_to_declare_id.get(&scoped_key).copied()
+                                {
+                                    symbol_lapper.insert(Interval {
+                                        start: span.start,
+                                        stop: span.end,
+                                        val: SymbolType::InstanceRef(decl_id),
+                                    });
+                                    sem.symbol_scope
+                                        .insert((span.start, span.end), scope.clone());
+                                }
+                            }
                         }
                     }
                     drop(interfaces);
 
                     let global_interfaces = crate::builder::global::mcc_interfaces.borrow();
+                    eprintln!(
+                        "F12_DBG_IFACE global interface_count={} self_uri={}",
+                        global_interfaces.len(),
+                        uri_str
+                    );
                     for entry in global_interfaces.iter() {
                         let iface = entry.value();
+                        eprintln!(
+                            "F12_DBG_IFACE global iface name={} uri={} match={}",
+                            entry.key().ident,
+                            iface.uri.as_str(),
+                            iface.uri.as_str() == uri_str
+                        );
                         if iface.uri.as_str() == uri_str {
                             symbol_lapper.insert(Interval {
                                 start: iface.span.start,
                                 stop: iface.span.end,
                                 val: SymbolType::InterfaceDefinition(DeclareId::new(0)),
                             });
+                            let iface_name_g = iface.name.to_string();
                             let mut param_decl_ids: std::collections::HashMap<String, DeclareId> =
                                 std::collections::HashMap::new();
                             for (name, span) in iface.params.iter_defs_with_span() {
                                 let decl_id = sem.local_table.add_declare_with_name(
                                     span.clone(),
                                     Some(name.to_string()),
-                                    Some(&iface.name.to_string()),
+                                    Some(&iface_name_g),
                                 );
                                 param_decl_ids.insert(name.to_string(), decl_id);
                                 symbol_lapper.insert(Interval {
@@ -1542,6 +1584,8 @@ impl McCode {
                                     stop: span.end,
                                     val: SymbolType::PortDefinition(decl_id),
                                 });
+                                sem.symbol_scope
+                                    .insert((span.start, span.end), iface_name_g.clone());
                             }
                             for attr in iface.attrs.iter() {
                                 for val in &attr.values {
@@ -1550,6 +1594,21 @@ impl McCode {
                                         let decl_id = param_decl_ids.get(&var_name).copied().unwrap_or(DeclareId::new(0));
                                         sem.local_table.add_inst(span.clone(), decl_id);
                                     }
+                                }
+                            }
+                            // ★ Register interface param refs from body expressions
+                            for (span, port_name, scope) in iface.params.iter_port_refs() {
+                                let scoped_key = (scope.clone(), port_name.clone());
+                                if let Some(decl_id) =
+                                    sem.local_table.name_to_declare_id.get(&scoped_key).copied()
+                                {
+                                    symbol_lapper.insert(Interval {
+                                        start: span.start,
+                                        stop: span.end,
+                                        val: SymbolType::InstanceRef(decl_id),
+                                    });
+                                    sem.symbol_scope
+                                        .insert((span.start, span.end), scope.clone());
                                 }
                             }
                         }
