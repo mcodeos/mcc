@@ -697,20 +697,113 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     }
     let _guard = CmieGuard(guard_key);
 
-    // ========== 1. Search system library spacenames ==========
-    // Old implementation only checked the hard-coded key mcc_blibs["mcode"]. S3 fix: iterate all blibs
-    // entries (user --lib mc/mcode will use "mc/mcode" as key).
+    // ═══════════════════════════════════════════════════════════════
+    // Tier 1–3: Local scope lookup (current file → use chain → project)
+    // Must run BEFORE library lookup so local definitions take priority.
+    // ═══════════════════════════════════════════════════════════════
+
+    let project_root = mcb_get_project_root();
+    let project_root_str = project_root.to_string_lossy().to_string();
+
+    // Helper: check if a candidate URI is "local" (under project root or = current URI).
+    let is_local_uri = |u: &McURI| -> bool {
+        let s = u.as_str();
+        s == uri.as_str() || s.starts_with(&project_root_str)
+    };
+
+    // Track whether the name exists in local scope (for library-shadow warning).
+    let mut name_found_in_local = false;
+
+    // ── Tier 1: Current file's own definitions ─────────────────────
+    if let Some(mcfile) = workspace::WORKSPACE.mcodes.borrow().get(uri) {
+        if let Some(space_name) = mcfile.value().spacenames.get(class_name) {
+            if let Some(cmie) = find_in_project_tables(space_name) {
+                name_found_in_local = true;
+                return Some(cmie);
+            }
+        }
+    }
+
+    // ── Tier 2: $use chain (project-local imports) ─────────────────
+    {
+        let use_uris: Vec<String> =
+            if let Some(mcfile) = workspace::WORKSPACE.mcodes.borrow().get(uri) {
+                mcfile
+                    .value()
+                    .uselist
+                    .iter()
+                    .map(|u| canonicalize_project_uri(&u.uri))
+                    .collect()
+            } else {
+                Vec::new()
+            };
+
+        for use_uri in &use_uris {
+            if let Some(use_file) = workspace::WORKSPACE.mcodes.borrow().get(use_uri) {
+                if let Some(space_name) = use_file.value().spacenames.get(class_name) {
+                    if let Some(cmie) = find_in_project_tables(space_name) {
+                        if is_local_uri(&space_name.uri) {
+                            name_found_in_local = true;
+                            return Some(cmie);
+                        }
+                    }
+                }
+                // Name-exact match in use-file spacenames
+                for (key, value) in use_file.value().spacenames.iter() {
+                    if key.to_string() == name_str {
+                        if let Some(cmie) = find_in_project_tables(value) {
+                            if is_local_uri(&value.uri) {
+                                name_found_in_local = true;
+                                return Some(cmie);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ── Tier 3: All loaded project files (same name, local URI) ────
+    {
+        let space_name = McSpaceName::new(class_name, uri.clone());
+        if let Some(cmie) = find_in_project_tables(&space_name) {
+            name_found_in_local = true;
+            return Some(cmie);
+        }
+        for entry in workspace::WORKSPACE.mcodes.borrow().iter() {
+            if let Some(space_name) = entry.value().spacenames.get(class_name) {
+                if is_local_uri(&space_name.uri) {
+                    if let Some(cmie) = find_in_project_tables(space_name) {
+                        name_found_in_local = true;
+                        return Some(cmie);
+                    }
+                }
+            }
+        }
+        // Global tables by name (local URI only)
+        if let Some(cmie) = find_by_name_in_project_tables(class_name) {
+            // Check whether the found cmie comes from a local URI
+            let is_local = match &cmie {
+                McCMIE::Component(c) => is_local_uri(&c.uri),
+                McCMIE::Module(m) => is_local_uri(&m.uri),
+                McCMIE::Interface(i) => is_local_uri(&i.uri),
+                McCMIE::Enum(e) => is_local_uri(&e.uri),
+            };
+            if is_local {
+                name_found_in_local = true;
+                return Some(cmie);
+            }
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // Tier 4: Library lookup (mcode + system dependencies)
+    // Before returning, warn if the same name exists in local scope.
+    // ═══════════════════════════════════════════════════════════════
+
     let mut found_in_blib: Option<(crate::builder::mc_code::McCode, McSpaceName)> = None;
-    let blib_names: Vec<String> = global::mcc_blibs
-        .borrow()
-        .iter()
-        .map(|e| e.key().clone())
-        .collect();
-    trace!(target: "mcc::mcb_get_cmie", name = %name_str, blibs = ?blib_names, "checking blibs");
     for entry in global::mcc_blibs.borrow().iter() {
-        trace!(target: "mcc::mcb_get_cmie", blib = %entry.key(), spacenames_count = entry.value().spacenames.len());
         if entry.value().spacenames.get(class_name).is_some() {
-            trace!(target: "mcc::mcb_get_cmie", name = %name_str, blib = %entry.key(), "found in blib!");
             found_in_blib = Some((
                 entry.value().clone(),
                 entry.value().spacenames.get(class_name).unwrap().clone(),
@@ -719,12 +812,14 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
         }
     }
     if let Some((mcode, space_name)) = found_in_blib.as_ref() {
-        // First search in project table (mcb_init_system_lib stores system library to prj_* table via mcb_add_recursive)
+        // Backtrack: check whether local scope already has this name
+        if name_found_in_local {
+            warn!(target: "mcc::resolve",
+                "library definition '{}' from {} shadows local definition", name_str, space_name.uri);
+        }
         if let Some(cmie) = find_in_project_tables(space_name) {
             return Some(cmie);
         }
-
-        // Then search in global table
         if let Some(found_comp) = global::mcc_components.borrow().get(space_name) {
             return Some(McCMIE::Component(found_comp.clone()));
         }
@@ -737,10 +832,6 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
         if let Some(found_enum) = global::mcc_enums.borrow().get(space_name) {
             return Some(McCMIE::Enum(found_enum.clone()));
         }
-
-        // Lazy load system library CMIE (using quiet mode, no trace output).
-        // If the file was already loaded by mcb_add_recursive, use the workspace
-        // entry instead of reloading from disk.
         {
             let mcodes = workspace::WORKSPACE.mcodes.borrow();
             let existing = mcodes.get(&space_name.uri).map(|e| e.value().clone());
@@ -749,7 +840,6 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
                 return existing.parse_cmie_single(&space_name.ident);
             }
         }
-
         if let Some(mut mcfile) = McCode::new(&space_name.uri, true) {
             mcfile.parse_ast_quiet();
             let result = mcfile.parse_cmie_single(&space_name.ident);
@@ -759,20 +849,22 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
                 .insert(space_name.uri.clone(), mcfile);
             return result;
         }
-        let _ = mcode; // keep the binding alive across the lazy block
+        let _ = mcode;
     }
 
-    // ========== 1.5. Fallback: when prj_mcodes is empty, try to search from mcc_blibs's spacenames ==========
-    // When system library is loading, prj_mcodes may be empty, need to search from mcc_blibs
+    // Fallback library lookup (when prj_mcodes is empty)
     let mcode_key = "mcode".to_string();
     if let Some(mcode) = global::mcc_blibs.borrow().get(&mcode_key) {
         for (_, space_name) in mcode.spacenames.iter() {
             if space_name.ident.to_string() == class_name.to_string() {
+                if name_found_in_local {
+                    warn!(target: "mcc::resolve",
+                        "library definition '{}' shadows local definition", name_str);
+                }
                 let def_uri = &space_name.uri;
                 if let Some(mut mcfile) = McCode::new(def_uri, true) {
                     mcfile.parse_ast_quiet();
                     mcfile.parse_nsp();
-
                     let result = mcfile.parse_cmie_single(&space_name.ident);
                     workspace::WORKSPACE
                         .mcodes

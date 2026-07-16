@@ -239,7 +239,7 @@ impl McComponentInst {
     ) -> crate::core::component::mc_attr::McAttrVal {
         use crate::core::component::mc_attr::McAttrVal;
         match val {
-            McAttrVal::AttrVariable(opd) => {
+            McAttrVal::AttrVariable(opd, _) => {
                 // Look up the variable name in parameter bindings and return its bound value
                 // as a string literal, e.g. polarity -> "center_positive"
                 let names = opd.expand();

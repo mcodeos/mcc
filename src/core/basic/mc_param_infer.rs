@@ -383,9 +383,6 @@ pub fn infer_param(param_name: &str, body: &AstNode) -> InferenceResult {
 pub fn find_unused_params(declares: &[McParamDeclare], body: &AstNode) -> Vec<String> {
     let mut unused = Vec::new();
     for declare in declares {
-        if declare.has_type_constraint() {
-            continue;
-        }
         let name_forms = declare.all_name_forms();
         if name_forms.is_empty() {
             continue;
@@ -394,8 +391,9 @@ pub fn find_unused_params(declares: &[McParamDeclare], body: &AstNode) -> Vec<St
             .iter()
             .any(|name| !collect_usages(name, body).is_empty());
         if !has_usage {
-            if let Some(primary) = declare.get_primary_name() {
-                unused.push(primary);
+            let name = declare.display_name();
+            if !name.is_empty() {
+                unused.push(name);
             }
         }
     }

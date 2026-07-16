@@ -114,7 +114,8 @@ impl<'a> IntoIterator for &'a mut McAttributes {
 #[derive(Debug, Clone)]
 pub enum McAttrVal {
     AttrLiteral(McLiteral),
-    AttrVariable(McOpd),
+    /// Variable reference (e.g. `spec = volt`). Optional span for LSP goto-def.
+    AttrVariable(McOpd, Option<std::ops::Range<usize>>),
     AttrExpr(McExpression),
     Attributes(Vec<McAttribute>),
     KVS(McKVS),
@@ -124,7 +125,7 @@ impl std::fmt::Display for McAttrVal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             McAttrVal::AttrLiteral(lit) => write!(f, "{lit}"),
-            McAttrVal::AttrVariable(opd) => write!(f, "{opd}"),
+            McAttrVal::AttrVariable(opd, _) => write!(f, "{opd}"),
             McAttrVal::AttrExpr(expr) => write!(f, "{expr}"),
             McAttrVal::Attributes(attrs) => {
                 let inner: Vec<String> = attrs.iter().map(|a| format!("{a}")).collect();
@@ -290,7 +291,9 @@ impl McAttribute {
 
                 MCAST_OPD => {
                     if let Some(opd) = McOpd::new(&each) {
-                        values.push(McAttrVal::AttrVariable(opd));
+                        let span =
+                            (each.get_pos() as usize)..((each.get_pos() + each.get_len()) as usize);
+                        values.push(McAttrVal::AttrVariable(opd, Some(span)));
                     }
                 }
 
