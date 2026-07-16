@@ -58,6 +58,7 @@ impl ValidationCheck for NamingCheck {
 fn check_lowercase_components(acc: &mut CheckAccumulator) {
     let comps = crate::builder::workspace::WORKSPACE.components.borrow();
     for entry in comps.iter() {
+        let comp = entry.value();
         let name = entry.key().ident.to_string();
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) || uri.contains("/lab/") {
@@ -71,7 +72,7 @@ fn check_lowercase_components(acc: &mut CheckAccumulator) {
                     check_name: "naming",
                     severity: CheckSeverity::Info,
                     uri: Some(uri),
-                    span: None,
+                    span: Some(comp.span.start..comp.span.end),
                     message: format!(
                         "Component '{}' starts with lowercase. Convention is UPPER_SNAKE.",
                         name
@@ -158,7 +159,7 @@ fn check_mixed_pin_naming(acc: &mut CheckAccumulator) {
                 check_name: "naming",
                 severity: CheckSeverity::Info,
                 uri: Some(uri.clone()),
-                span: None,
+                span: Some(comp.span.start..comp.span.end),
                 message: format!(
                     "Component '{}' has mixed pin naming conventions: {}. \
                      Consider using a single consistent style (e.g., UPPER_SNAKE).",
@@ -199,7 +200,7 @@ fn check_short_instance_names(acc: &mut CheckAccumulator) {
                     check_name: "naming",
                     severity: CheckSeverity::Info,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: Some(m.span.start..m.span.end),
                     message: format!(
                         "Module '{}': instance '{}' is a single character. \
                          Use descriptive names like 'r1', 'led1', 'usb_socket'.",
@@ -247,7 +248,7 @@ fn check_numeric_pin_names(acc: &mut CheckAccumulator) {
                 check_name: "naming",
                 severity: CheckSeverity::Info,
                 uri: Some(uri.clone()),
-                span: None,
+                span: Some(comp.span.start..comp.span.end),
                 message: format!(
                     "Component '{}': {}/{} pin names are purely numeric. \
                      Consider adding functional names for clarity.",
@@ -280,7 +281,7 @@ fn check_lib_name_shadow(acc: &mut CheckAccumulator, lib_names: &HashSet<String>
                     check_name: "naming",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: Some(m.span.start..m.span.end),
                     message: format!(
                         "Module '{}': port/instance '{}' shadows a library CMIE name. \
                          This may cause confusion when resolving type references.",
@@ -300,7 +301,7 @@ fn check_lib_name_shadow(acc: &mut CheckAccumulator, lib_names: &HashSet<String>
                         check_name: "naming",
                         severity: CheckSeverity::Info,
                         uri: Some(uri.clone()),
-                        span: None,
+                        span: Some(m.span.start..m.span.end),
                         message: format!(
                             "Module '{}': param '{}' shares a name with a library CMIE. \
                              Consider a different name to avoid ambiguity.",

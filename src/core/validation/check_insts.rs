@@ -68,7 +68,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                             check_name: "insts",
                             severity: CheckSeverity::Warning,
                             uri: Some(uri.clone()),
-                            span: None,
+                            span: Some(m.span.start..m.span.end),
                             message: format!(
                                 "Instance '{}' of component '{}' passes {} args, but '{}' declares {} param(s).",
                                 inst_name, class_name, call_arg_count, class_name, def_param_count
@@ -88,7 +88,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                                 check_name: "insts",
                                 severity: CheckSeverity::Warning,
                                 uri: Some(uri.clone()),
-                                span: None,
+                                span: Some(m.span.start..m.span.end),
                                 message: format!(
                                     "Instance '{}' of component '{}' passes {} args, but '{}' requires at least {} ({} total, {} optional).",
                                     inst_name, class_name, call_arg_count, class_name, required,
@@ -109,7 +109,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                             check_name: "insts",
                             severity: CheckSeverity::Warning,
                             uri: Some(uri.clone()),
-                            span: None,
+                            span: Some(m.span.start..m.span.end),
                             message: format!(
                                 "Instance '{}' of module '{}' passes {} args, but '{}' declares {} param(s).",
                                 inst_name, class_name, call_arg_count, class_name, def_param_count
@@ -128,7 +128,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                                 check_name: "insts",
                                 severity: CheckSeverity::Warning,
                                 uri: Some(uri.clone()),
-                                span: None,
+                                span: Some(m.span.start..m.span.end),
                                 message: format!(
                                     "Instance '{}' of module '{}' passes {} args, but '{}' requires at least {} ({} total, {} optional).",
                                     inst_name, class_name, call_arg_count, class_name, required,
@@ -149,7 +149,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                             check_name: "insts",
                             severity: CheckSeverity::Warning,
                             uri: Some(uri.clone()),
-                            span: None,
+                            span: Some(m.span.start..m.span.end),
                             message: format!(
                                 "Instance '{}' of interface '{}' passes {} args, but '{}' declares {} param(s).",
                                 inst_name, class_name, call_arg_count, class_name, def_param_count
@@ -168,7 +168,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                                 check_name: "insts",
                                 severity: CheckSeverity::Warning,
                                 uri: Some(uri.clone()),
-                                span: None,
+                                span: Some(m.span.start..m.span.end),
                                 message: format!(
                                     "Instance '{}' of interface '{}' passes {} args, but '{}' requires at least {} ({} total, {} optional).",
                                     inst_name, class_name, call_arg_count, class_name, required,
@@ -212,7 +212,7 @@ fn check_role_empty_body(acc: &mut CheckAccumulator) {
                     check_name: "insts",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: Some(iface.span.start..iface.span.end),
                     message: format!(
                         "Role '{}' in interface '{}' has an empty body (no pins, attrs, or clauses).",
                         role.name, iface.name
@@ -256,7 +256,7 @@ fn check_role_name_conflict(acc: &mut CheckAccumulator) {
                     check_name: "insts",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: Some(iface.span.start..iface.span.end),
                     message: format!(
                         "Role '{}' in interface '{}' shares a name with a pin/port.",
                         role_name, iface.name
@@ -269,7 +269,7 @@ fn check_role_name_conflict(acc: &mut CheckAccumulator) {
                     check_name: "insts",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: Some(iface.span.start..iface.span.end),
                     message: format!(
                         "Role '{}' in interface '{}' shares a name with a parameter.",
                         role_name, iface.name
@@ -305,7 +305,7 @@ fn check_func_param_iotype(acc: &mut CheckAccumulator) {
                                 check_name: "insts",
                                 severity: CheckSeverity::Warning,
                                 uri: Some(uri.clone()),
-                                span: None,
+                                span: Some(comp.span.start..comp.span.end),
                                 message: format!(
                                     "Function '{}' in component '{}': param '{}' has IO direction ({:?}), \
                                      which is only valid for ports.",
@@ -338,7 +338,7 @@ fn check_func_param_iotype(acc: &mut CheckAccumulator) {
                                 check_name: "insts",
                                 severity: CheckSeverity::Warning,
                                 uri: Some(uri.clone()),
-                                span: None,
+                                span: Some(m.span.start..m.span.end),
                                 message: format!(
                                     "Function '{}' in module '{}': param '{}' has IO direction ({:?}), \
                                      which is only valid for ports.",
@@ -380,7 +380,7 @@ fn check_role_param_outside_interface(acc: &mut CheckAccumulator) {
                             check_name: "insts",
                             severity: CheckSeverity::Error,
                             uri: Some(uri.clone()),
-                            span: None,
+                            span: Some(comp.span.start..comp.span.end),
                             message: format!(
                                 "Component '{}' uses 'role' keyword for param '{}'. \
                                  'role' is only valid in interface definitions.",
@@ -411,7 +411,7 @@ fn check_role_param_outside_interface(acc: &mut CheckAccumulator) {
                             check_name: "insts",
                             severity: CheckSeverity::Error,
                             uri: Some(uri.clone()),
-                            span: None,
+                            span: Some(m.span.start..m.span.end),
                             message: format!(
                                 "Module '{}' uses 'role' keyword for param '{}'. \
                                  'role' is only valid in interface definitions.",
@@ -476,7 +476,7 @@ fn check_non_constant_default(acc: &mut CheckAccumulator) {
                         check_name: "insts",
                         severity: CheckSeverity::Warning,
                         uri: Some(uri.clone()),
-                        span: None,
+                        span: Some(comp.span.start..comp.span.end),
                         message: format!(
                             "Param '{}' in component '{}' has a non-constant default value '{}'. \
                              Use a simple literal or unit-value.",

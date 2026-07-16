@@ -106,7 +106,7 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
                 check_name: "hw",
                 severity: CheckSeverity::Warning,
                 uri: Some(uri.clone()),
-                span: None,
+                span: Some(comp.span.start..comp.span.end),
                 message: format!(
                     "Component '{}' has power-related pins ({}) but no voltage attribute \
                      or voltage-typed parameter. Consider adding e.g. `voltage = \"5V\"` \
@@ -185,7 +185,7 @@ fn check_pin_id_gaps(acc: &mut CheckAccumulator) {
                 check_name: "hw",
                 severity: CheckSeverity::Info,
                 uri: Some(uri.clone()),
-                span: None,
+                span: Some(comp.span.start..comp.span.end),
                 message: format!(
                     "Component '{}' has {} pin ID gap(s) ({} of {} pins): {}{}. \
                      These may be intentional NC pins or could indicate missing definitions.",
@@ -226,7 +226,7 @@ fn check_pin_count_extremes(acc: &mut CheckAccumulator) {
                 check_name: "hw",
                 severity: CheckSeverity::Info,
                 uri: Some(uri.clone()),
-                span: None,
+                span: Some(comp.span.start..comp.span.end),
                 message: format!(
                     "Component '{}' has {} pins. Verify this is correct — \
                      high pin counts may indicate a data entry error.",
@@ -246,7 +246,7 @@ fn check_pin_count_extremes(acc: &mut CheckAccumulator) {
                 check_name: "hw",
                 severity: CheckSeverity::Warning,
                 uri: Some(uri.clone()),
-                span: None,
+                span: Some(comp.span.start..comp.span.end),
                 message: format!(
                     "Component '{}' has 0 pins but has params and attributes. \
                      Is this an abstract component? Consider adding a pin definition \
@@ -304,7 +304,7 @@ fn check_consecutive_nc_pins(acc: &mut CheckAccumulator) {
                             check_name: "hw",
                             severity: CheckSeverity::Info,
                             uri: Some(uri.clone()),
-                            span: None,
+                            span: Some(comp.span.start..comp.span.end),
                             message: format!(
                                 "Component '{}' has {} consecutive NC pins starting at pin {}. \
                                  Verify these are intentional (e.g., reserved/test points).",
@@ -325,7 +325,7 @@ fn check_consecutive_nc_pins(acc: &mut CheckAccumulator) {
                     check_name: "hw",
                     severity: CheckSeverity::Info,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: Some(comp.span.start..comp.span.end),
                     message: format!(
                         "Component '{}' has {} consecutive NC pins starting at pin {}. \
                          Verify these are intentional.",
@@ -462,7 +462,7 @@ fn check_single_ioc_type_component(acc: &mut CheckAccumulator) {
                 check_name: "hw",
                 severity: CheckSeverity::Info,
                 uri: Some(uri.clone()),
-                span: None,
+                span: Some(comp.span.start..comp.span.end),
                 message: format!(
                     "Component '{}': all {} pins are type '{}'. \
                      Most components have mixed IO types (input, output, power). \
@@ -502,7 +502,7 @@ fn check_component_metadata(acc: &mut CheckAccumulator) {
                 check_name: "hw",
                 severity: CheckSeverity::Info,
                 uri: Some(uri.clone()),
-                span: None,
+                span: Some(comp.span.start..comp.span.end),
                 message: format!(
                     "Component '{}' has no 'name' attribute. \
                      Consider adding `name = \"Human Readable Name\"` for BOM/documentation.",
@@ -517,7 +517,7 @@ fn check_component_metadata(acc: &mut CheckAccumulator) {
                 check_name: "hw",
                 severity: CheckSeverity::Hint,
                 uri: Some(uri.clone()),
-                span: None,
+                span: Some(comp.span.start..comp.span.end),
                 message: format!(
                     "Component '{}' has a name but no 'description' attribute. \
                      Adding a description helps library maintainability.",
@@ -560,7 +560,7 @@ fn check_func_param_pin_shadow(acc: &mut CheckAccumulator) {
                             check_name: "hw",
                             severity: CheckSeverity::Warning,
                             uri: Some(uri.clone()),
-                            span: None,
+                            span: Some(comp.span.start..comp.span.end),
                             message: format!(
                                 "Component '{}': function '{}' param '{}' shadows a pin name. \
                                  This may cause ambiguity in net expressions within the function body.",
@@ -606,6 +606,7 @@ fn check_unused_interface(acc: &mut CheckAccumulator) {
     }
 
     for entry in ifaces.iter() {
+        let iface = entry.value();
         let name = entry.key().ident.to_string();
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -616,7 +617,7 @@ fn check_unused_interface(acc: &mut CheckAccumulator) {
                 check_name: "hw",
                 severity: CheckSeverity::Info,
                 uri: Some(uri.clone()),
-                span: None,
+                span: Some(iface.span.start..iface.span.end),
                 message: format!(
                     "Interface '{}' is defined but never bound by any component. \
                      Consider using it in a component definition or removing it.",

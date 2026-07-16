@@ -48,6 +48,7 @@ fn check_closure_free_vars(acc: &mut CheckAccumulator) {
             continue;
         }
         let m = entry.value();
+        let mod_span = Some(m.span.start..m.span.end);
 
         // Collect known module-level names (instances, params)
         let known_names: HashSet<String> = {
@@ -67,6 +68,7 @@ fn check_closure_free_vars(acc: &mut CheckAccumulator) {
                 &uri,
                 &entry.key().ident.to_string(),
                 &known_names,
+                &mod_span,
                 acc,
             );
         }
@@ -86,6 +88,7 @@ fn check_closure_free_vars(acc: &mut CheckAccumulator) {
                     &uri,
                     &format!("{}::{}", entry.key().ident, func.name),
                     &func_known,
+                    &mod_span,
                     acc,
                 );
             }
@@ -99,6 +102,7 @@ fn check_closure_in_text(
     uri: &str,
     context: &str,
     known_names: &HashSet<String>,
+    module_span: &Option<std::ops::Range<usize>>,
     acc: &mut CheckAccumulator,
 ) {
     // Find closure patterns: |param1, param2| { ... } or |param1, param2| -> ...
@@ -165,7 +169,7 @@ fn check_closure_in_text(
                         check_name: "types",
                         severity: CheckSeverity::Warning,
                         uri: Some(uri.to_string()),
-                        span: None,
+                        span: module_span.clone(),
                         message: format!(
                             "In {}: closure |{}| uses undeclared free variable(s): {}. \
                              These names are not closure params or known module identifiers.",
@@ -259,7 +263,7 @@ fn check_param_type_mismatch(acc: &mut CheckAccumulator) {
                                 check_name: "types",
                                 severity: CheckSeverity::Warning,
                                 uri: Some(uri.clone()),
-                                span: None,
+                                span: Some(m.span.start..m.span.end),
                                 message: format!(
                                     "Module '{}': instance of '{}' passes '{}' for param #{} \
                                      (expected {}). {}",
