@@ -45,13 +45,14 @@ impl ValidationCheck for ExtraCheck {
                     continue;
                 }
                 let m = entry.value();
+                let mod_span_j3 = Some(m.span.start..m.span.end);
                 for port_name in m.insts.iter_instance_names() {
                     if lib_names.contains(port_name) {
                         acc.push(CheckResult {
                             check_name: "extra",
                             severity: CheckSeverity::Warning,
                             uri: Some(uri.clone()),
-                            span: None,
+                            span: mod_span_j3.clone(),
                             message: format!("Port '{}' shadows a library CMIE name.", port_name),
                             code: 2203,
                         });
@@ -69,6 +70,7 @@ impl ValidationCheck for ExtraCheck {
                     continue;
                 }
                 let m = entry.value();
+                let mod_span_j2 = Some(m.span.start..m.span.end);
                 for name in m.insts.iter_instance_names() {
                     if name.len() <= 2 {
                         continue;
@@ -82,7 +84,7 @@ impl ValidationCheck for ExtraCheck {
                                 check_name: "extra",
                                 severity: CheckSeverity::Info,
                                 uri: Some(uri.clone()),
-                                span: None,
+                                span: mod_span_j2.clone(),
                                 message: format!(
                                     "Instance '{}' is all-uppercase (convention: lower_snake).",
                                     name
@@ -105,7 +107,7 @@ impl ValidationCheck for ExtraCheck {
                         check_name: "extra",
                         severity: CheckSeverity::Info,
                         uri: Some(entry.key().uri.to_string()),
-                        span: None,
+                        span: Some(e.span[0] as usize..e.span[1] as usize),
                         message: format!("Enum '{}' has only one value.", e.name),
                         code: 2501,
                     });
@@ -155,13 +157,15 @@ fn check_empty_functions(acc: &mut CheckAccumulator) {
         if super::is_test_file(&uri) {
             continue;
         }
+        let m = entry.value();
+        let mod_span = Some(m.span.start..m.span.end);
         for func in entry.value().funcs.iter() {
             if func.lines.is_empty() && func.insts.is_empty() {
                 acc.push(CheckResult {
                     check_name: "extra",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: mod_span.clone(),
                     message: format!("Function '{}' has an empty body.", func.name),
                     code: 2602,
                 });
@@ -175,13 +179,15 @@ fn check_empty_functions(acc: &mut CheckAccumulator) {
         if super::is_test_file(&uri) {
             continue;
         }
+        let comp = entry.value();
+        let comp_span = Some(comp.span.start..comp.span.end);
         for func in entry.value().funcs.iter() {
             if func.lines.is_empty() && func.insts.is_empty() {
                 acc.push(CheckResult {
                     check_name: "extra",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: comp_span.clone(),
                     message: format!(
                         "Function '{}' in component '{}' has an empty body.",
                         func.name,
@@ -215,7 +221,7 @@ fn check_interface_pin_counts(acc: &mut CheckAccumulator) {
                 if bound_count < iface_pin_count {
                     acc.push(CheckResult {
                         check_name: "extra", severity: CheckSeverity::Warning,
-                        uri: Some(uri.clone()), span: None,
+                        uri: Some(uri.clone()), span: Some(comp.span.start..comp.span.end),
                         message: format!(
                             "Interface '{}' expects {} pins but only {} physical pins bound as '{}'.",
                             iface_name, iface_pin_count, bound_count, pin_name
@@ -242,7 +248,7 @@ fn check_overlapping_pins(acc: &mut CheckAccumulator) {
                 check_name: "extra",
                 severity: CheckSeverity::Info,
                 uri: Some(uri),
-                span: None,
+                span: Some(comp.span.start..comp.span.end),
                 message: format!(
                     "Component '{}' has {} pin range definitions. Check for overlaps.",
                     entry.key().ident,
@@ -275,7 +281,7 @@ fn check_component_structure(acc: &mut CheckAccumulator) {
                 check_name: "extra",
                 severity: CheckSeverity::Warning,
                 uri: Some(uri.clone()),
-                span: None,
+                span: Some(comp.span.start..comp.span.end),
                 message: format!(
                     "Component '{}' has no params, pins, attributes, or functions.",
                     name
@@ -289,7 +295,7 @@ fn check_component_structure(acc: &mut CheckAccumulator) {
                 check_name: "extra",
                 severity: CheckSeverity::Warning,
                 uri: Some(uri),
-                span: None,
+                span: Some(comp.span.start..comp.span.end),
                 message: format!("Component '{}' has no pin definitions.", name),
                 code: 2604,
             });
@@ -311,7 +317,7 @@ fn check_interface_structure(acc: &mut CheckAccumulator) {
                 check_name: "extra",
                 severity: CheckSeverity::Warning,
                 uri: Some(uri),
-                span: None,
+                span: Some(iface.span.start..iface.span.end),
                 message: format!("Interface '{}' has no pins or roles.", entry.key().ident),
                 code: 2605,
             });
@@ -337,7 +343,7 @@ fn check_default_type_mismatch(acc: &mut CheckAccumulator) {
                                 check_name: "extra",
                                 severity: CheckSeverity::Error,
                                 uri: Some(uri.clone()),
-                                span: None,
+                                span: Some(comp.span.start..comp.span.end),
                                 message: format!(
                                     "Param '{}' is ::INT/HEX but default '{}' is a string.",
                                     pname, def
@@ -356,7 +362,7 @@ fn check_default_type_mismatch(acc: &mut CheckAccumulator) {
                                 check_name: "extra",
                                 severity: CheckSeverity::Warning,
                                 uri: Some(uri.clone()),
-                                span: None,
+                                span: Some(comp.span.start..comp.span.end),
                                 message: format!(
                                     "Param '{}' is ::STRING but default '{}' looks numeric.",
                                     pname, def
@@ -375,7 +381,7 @@ fn check_default_type_mismatch(acc: &mut CheckAccumulator) {
                             let unit_name = format!("{:?}", unit);
                             acc.push(CheckResult {
                                 check_name: "extra", severity: CheckSeverity::Warning,
-                                uri: Some(uri.clone()), span: None,
+                                uri: Some(uri.clone()), span: Some(comp.span.start..comp.span.end),
                                 message: format!(
                                     "Param '{}' is ::UV.{} but default '{}' has no unit suffix. Add e.g. '5V'.",
                                     pname, unit_name, def
@@ -463,7 +469,7 @@ fn check_instance_class_found(acc: &mut CheckAccumulator) {
                         check_name: "extra",
                         severity: CheckSeverity::Warning,
                         uri: Some(uri.clone()),
-                        span: None,
+                        span: Some(m.span.start..m.span.end),
                         message: format!(
                             "Instance '{}' references class that is not loaded.",
                             name
@@ -486,6 +492,7 @@ fn check_bus_member_collision(acc: &mut CheckAccumulator) {
             continue;
         }
         let m = entry.value();
+        let mod_span_bus = Some(m.span.start..m.span.end);
         let mut bus_members: std::collections::HashMap<String, Vec<String>> =
             std::collections::HashMap::new();
         for inst_name in m.insts.iter_instance_names() {
@@ -499,7 +506,7 @@ fn check_bus_member_collision(acc: &mut CheckAccumulator) {
                                     check_name: "extra",
                                     severity: CheckSeverity::Warning,
                                     uri: Some(uri.clone()),
-                                    span: None,
+                                    span: mod_span_bus.clone(),
                                     message: format!(
                                         "Bus '{}' has duplicate member '{}' in module.",
                                         bus.name, m
@@ -550,7 +557,7 @@ fn check_dry_functions(acc: &mut CheckAccumulator) {
             if names.len() > 1 {
                 acc.push(CheckResult {
                     check_name: "extra", severity: CheckSeverity::Info,
-                    uri: Some(uri.clone()), span: None,
+                    uri: Some(uri.clone()), span: Some(comp.span.start..comp.span.end),
                     message: format!(
                         "Component '{}' has {} identical function bodies: {}. Consider refactoring.",
                         entry.key().ident, names.len(),
@@ -567,6 +574,7 @@ fn check_dry_functions(acc: &mut CheckAccumulator) {
 fn check_naming_convention(acc: &mut CheckAccumulator) {
     let comps = crate::builder::workspace::WORKSPACE.components.borrow();
     for entry in comps.iter() {
+        let comp = entry.value();
         let name = entry.key().ident.to_string();
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) || uri.contains("/lab/") {
@@ -581,7 +589,7 @@ fn check_naming_convention(acc: &mut CheckAccumulator) {
                         check_name: "extra",
                         severity: CheckSeverity::Info,
                         uri: Some(uri.clone()),
-                        span: None,
+                        span: Some(comp.span.start..comp.span.end),
                         message: format!(
                             "Component '{}' uses mixed case. Convention is UPPER_SNAKE.",
                             name
@@ -618,7 +626,7 @@ fn check_reserved_names(acc: &mut CheckAccumulator, _lib_names: &HashSet<String>
                         check_name: "extra",
                         severity: CheckSeverity::Warning,
                         uri: Some(uri.clone()),
-                        span: None,
+                        span: Some(comp.span.start..comp.span.end),
                         message: format!("Parameter '{}' uses reserved keyword.", name),
                         code: 2601,
                     });
@@ -650,7 +658,7 @@ fn check_func_name_conflict(acc: &mut CheckAccumulator) {
                     check_name: "extra",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: Some(m.span.start..m.span.end),
                     message: format!(
                         "Function '{}' shares name with a port/param in the same module.",
                         fname
@@ -692,7 +700,7 @@ fn check_port_direction_mismatch(acc: &mut CheckAccumulator) {
                                         check_name: "extra",
                                         severity: CheckSeverity::Warning,
                                         uri: Some(uri.clone()),
-                                        span: None,
+                                        span: Some(m.span.start..m.span.end),
                                         message: format!(
                                             "Net '{}' connects '{}' ({:?}) to '{}' ({:?}). Both are outputs.",
                                             text.trim(), left, io_left, right, io_right
@@ -732,7 +740,7 @@ fn check_default_value_range(acc: &mut CheckAccumulator) {
                                 check_name: "extra",
                                 severity: CheckSeverity::Warning,
                                 uri: Some(uri.clone()),
-                                span: None,
+                                span: Some(comp.span.start..comp.span.end),
                                 message: format!(
                                     "Param '{}' in '{}' has negative default '{}'. Most integer params expect non-negative values.",
                                     pname, entry.key().ident, def
@@ -748,7 +756,7 @@ fn check_default_value_range(acc: &mut CheckAccumulator) {
                                     check_name: "extra",
                                     severity: CheckSeverity::Error,
                                     uri: Some(uri.clone()),
-                                    span: None,
+                                    span: Some(comp.span.start..comp.span.end),
                                     message: format!(
                                         "Param '{}' in '{}' has invalid float default '{}'.",
                                         pname,
@@ -800,7 +808,7 @@ fn check_body_literal_as_arg(acc: &mut CheckAccumulator) {
                                 check_name: "extra",
                                 severity: CheckSeverity::Warning,
                                 uri: Some(uri.clone()),
-                                span: None,
+                                span: Some(m.span.start..m.span.end),
                                 message: format!(
                                     "Module '{}': inline body literal used as call argument \
                                      in '{}'. Body blocks are for definitions, not \
@@ -868,7 +876,7 @@ fn check_module_func_unused_params(acc: &mut CheckAccumulator) {
                     check_name: "extra",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: Some(m.span.start..m.span.end),
                     message: format!(
                         "Function '{}' in module '{}' declares but never uses params: [{}]. \
                          Consider removing unused parameters.",

@@ -32,6 +32,17 @@ impl ValidationCheck for ImportsCheck {
     fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
         let mcodes = crate::builder::workspace::WORKSPACE.mcodes.borrow();
 
+        // Build URI → module span map for source locations
+        let uri_spans: std::collections::HashMap<String, std::ops::Range<usize>> = {
+            let mut m = std::collections::HashMap::new();
+            let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
+            for e in modules.iter() {
+                let mod_span = e.value().span.clone();
+                m.insert(e.key().uri.to_string(), mod_span.start..mod_span.end);
+            }
+            m
+        };
+
         // Build the set of all loaded URIs for K3 version checks
         let all_uris: HashSet<String> = mcodes.iter().map(|e| e.key().clone()).collect();
 
@@ -53,7 +64,7 @@ impl ValidationCheck for ImportsCheck {
                         check_name: "imports",
                         severity: CheckSeverity::Warning,
                         uri: Some(self_uri.clone()),
-                        span: None,
+                        span: uri_spans.get(self_uri).cloned(),
                         message: format!("File imports itself via 'use {}'.", mcu.uri),
                         code: 2001,
                     });
@@ -68,7 +79,7 @@ impl ValidationCheck for ImportsCheck {
                             check_name: "imports",
                             severity: CheckSeverity::Error,
                             uri: Some(self_uri.clone()),
-                            span: None,
+                            span: uri_spans.get(self_uri).cloned(),
                             message: format!(
                                 "'use {} as {}' — alias '{}' collides with an existing name.",
                                 mcu.uri, alias, alias
@@ -84,7 +95,7 @@ impl ValidationCheck for ImportsCheck {
                         check_name: "imports",
                         severity: CheckSeverity::Error,
                         uri: Some(self_uri.clone()),
-                        span: None,
+                        span: uri_spans.get(self_uri).cloned(),
                         message: format!(
                             "'use {}' — versioned file not found. The target may not exist.",
                             mcu.uri
@@ -108,7 +119,7 @@ impl ValidationCheck for ImportsCheck {
                                     check_name: "imports",
                                     severity: CheckSeverity::Error,
                                     uri: Some(self_uri.clone()),
-                                    span: None,
+                                    span: uri_spans.get(self_uri).cloned(),
                                     message: format!(
                                         "'use {} import({})' — symbol '{}' not found in target file.",
                                         mcu.uri, id_str, id_str
@@ -125,7 +136,7 @@ impl ValidationCheck for ImportsCheck {
                                 check_name: "imports",
                                 severity: CheckSeverity::Error,
                                 uri: Some(self_uri.clone()),
-                                span: None,
+                                span: uri_spans.get(self_uri).cloned(),
                                 message: format!(
                                     "'use {} import({})' — target file not loaded; symbol '{}' unresolvable.",
                                     mcu.uri, id_str, id_str
@@ -149,7 +160,7 @@ impl ValidationCheck for ImportsCheck {
                                         check_name: "imports",
                                         severity: CheckSeverity::Error,
                                         uri: Some(self_uri.clone()),
-                                        span: None,
+                                        span: uri_spans.get(self_uri).cloned(),
                                         message: format!(
                                             "'pub use {} import({})' — symbol '{}' not found in target; cannot re-export.",
                                             mcu.uri, id_str, id_str
