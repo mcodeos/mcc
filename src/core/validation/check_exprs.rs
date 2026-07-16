@@ -202,6 +202,7 @@ fn check_constant_overflow(acc: &mut CheckAccumulator) {
             continue;
         }
         let comp = entry.value();
+        let comp_span = comp.span.start..comp.span.end;
         for attr in comp.attrs.iter() {
             for val in &attr.values {
                 check_val_for_overflow(
@@ -209,6 +210,7 @@ fn check_constant_overflow(acc: &mut CheckAccumulator) {
                     &uri,
                     entry.key().ident.to_string(),
                     &attr.id.to_string(),
+                    comp_span.clone(),
                     acc,
                 );
             }
@@ -221,11 +223,12 @@ fn check_val_for_overflow(
     uri: &str,
     comp_name: String,
     attr_id: &str,
+    comp_span: std::ops::Range<usize>,
     acc: &mut CheckAccumulator,
 ) {
     match val {
         crate::core::component::mc_attr::McAttrVal::AttrExpr(expr) => {
-            check_expr_overflow(expr, uri, &comp_name, attr_id, acc);
+            check_expr_overflow(expr, uri, &comp_name, attr_id, comp_span, acc);
         }
         crate::core::component::mc_attr::McAttrVal::Attributes(attrs) => {
             for child in attrs.iter() {
@@ -235,6 +238,7 @@ fn check_val_for_overflow(
                         uri,
                         comp_name.clone(),
                         &child.id.to_string(),
+                        comp_span.clone(),
                         acc,
                     );
                 }
@@ -249,6 +253,7 @@ fn check_expr_overflow(
     uri: &str,
     comp_name: &str,
     attr_id: &str,
+    comp_span: std::ops::Range<usize>,
     acc: &mut CheckAccumulator,
 ) {
     match expr {
@@ -259,7 +264,7 @@ fn check_expr_overflow(
                     check_name: "exprs",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.to_string()),
-                    span: None,
+                    span: Some(comp_span.clone()),
                     message: format!(
                         "Attribute '{}' in '{}' has large integer value {} which may indicate overflow or mistaken input.",
                         attr_id, comp_name, int_val.value
@@ -274,7 +279,7 @@ fn check_expr_overflow(
                     check_name: "exprs",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.to_string()),
-                    span: None,
+                    span: Some(comp_span.clone()),
                     message: format!(
                         "Attribute '{}' in '{}' has infinite float value.",
                         attr_id, comp_name
@@ -296,9 +301,10 @@ fn check_reversed_range(acc: &mut CheckAccumulator) {
             continue;
         }
         let comp = entry.value();
+        let comp_span = comp.span.start..comp.span.end;
         for attr in comp.attrs.iter() {
             for val in &attr.values {
-                check_val_for_reversed_range(val, &uri, entry.key().ident.to_string(), acc);
+                check_val_for_reversed_range(val, &uri, entry.key().ident.to_string(), comp_span.clone(), acc);
             }
         }
     }
@@ -308,16 +314,17 @@ fn check_val_for_reversed_range(
     val: &crate::core::component::mc_attr::McAttrVal,
     uri: &str,
     comp_name: String,
+    comp_span: std::ops::Range<usize>,
     acc: &mut CheckAccumulator,
 ) {
     match val {
         crate::core::component::mc_attr::McAttrVal::AttrExpr(expr) => {
-            check_expr_range(expr, uri, &comp_name, acc);
+            check_expr_range(expr, uri, &comp_name, comp_span, acc);
         }
         crate::core::component::mc_attr::McAttrVal::Attributes(attrs) => {
             for child in attrs.iter() {
                 for child_val in &child.values {
-                    check_val_for_reversed_range(child_val, uri, comp_name.clone(), acc);
+                    check_val_for_reversed_range(child_val, uri, comp_name.clone(), comp_span.clone(), acc);
                 }
             }
         }
@@ -329,6 +336,7 @@ fn check_expr_range(
     expr: &crate::core::basic::mc_expr::McExpression,
     uri: &str,
     comp_name: &str,
+    comp_span: std::ops::Range<usize>,
     acc: &mut CheckAccumulator,
 ) {
     if let crate::core::basic::mc_expr::McExpression::Slice(left, right) = expr {
@@ -342,7 +350,7 @@ fn check_expr_range(
                     check_name: "exprs",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.to_string()),
-                    span: None,
+                    span: Some(comp_span.clone()),
                     message: format!(
                         "Reversed range {{{}:{}}} in '{}'. Did you mean {{{}:{}}}?",
                         l.value, r.value, comp_name, r.value, l.value
@@ -355,7 +363,7 @@ fn check_expr_range(
                     check_name: "exprs",
                     severity: CheckSeverity::Info,
                     uri: Some(uri.to_string()),
-                    span: None,
+                    span: Some(comp_span.clone()),
                     message: format!(
                         "Single-element range {{{}:{}}} in '{}'. This expands to one element.",
                         l.value, r.value, comp_name
@@ -440,6 +448,8 @@ fn check_pins_ref_not_found(acc: &mut CheckAccumulator) {
                 continue;
             }
 
+            let comp_span = comp.span.start..comp.span.end;
+
             // Check function body lines
             for func in comp.funcs.iter() {
                 for phrase in &func.lines {
@@ -448,6 +458,7 @@ fn check_pins_ref_not_found(acc: &mut CheckAccumulator) {
                         &all_pin_names,
                         &uri,
                         &format!("component '{}' function '{}'", comp.name, func.name),
+                        comp_span.clone(),
                         acc,
                     );
                 }
@@ -497,6 +508,8 @@ fn check_pins_ref_not_found(acc: &mut CheckAccumulator) {
                 continue;
             }
 
+            let mod_span = m.span.start..m.span.end;
+
             // Check module body lines
             for phrase in &m.lines {
                 scan_pins_refs(
@@ -504,6 +517,7 @@ fn check_pins_ref_not_found(acc: &mut CheckAccumulator) {
                     &port_names,
                     &uri,
                     &format!("module '{}'", entry.key().ident),
+                    mod_span.clone(),
                     acc,
                 );
             }
@@ -516,6 +530,7 @@ fn check_pins_ref_not_found(acc: &mut CheckAccumulator) {
                         &port_names,
                         &uri,
                         &format!("module '{}' function '{}'", entry.key().ident, func.name),
+                        mod_span.clone(),
                         acc,
                     );
                 }
@@ -530,6 +545,7 @@ fn scan_pins_refs(
     valid_names: &std::collections::HashSet<String>,
     uri: &str,
     context: &str,
+    span: std::ops::Range<usize>,
     acc: &mut CheckAccumulator,
 ) {
     let mut search_from = 0usize;
@@ -555,7 +571,7 @@ fn scan_pins_refs(
                         check_name: "exprs",
                         severity: CheckSeverity::Warning,
                         uri: Some(uri.to_string()),
-                        span: None,
+                        span: Some(span.clone()),
                         message: format!(
                             "In {}: 'pins.{}' references '{}' which is not a defined pin/port. \
                              Known names: {}",
