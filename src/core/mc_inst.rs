@@ -113,6 +113,15 @@ pub struct McInst {
     pub params: Vec<McParamValue>,
 }
 
+/// Whether a label is explicitly declared or defined inline in a net phrase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LabelKind {
+    /// Explicitly declared in parameter list or port section.
+    Explicit,
+    /// Defined on-the-fly in a net connection (e.g. `res1 - A` where `A` is not a port).
+    Inline,
+}
+
 /// Identifier types within a module
 ///
 /// Used in symbol table to store various declared entities
@@ -249,6 +258,8 @@ pub struct McInstances {
     port_ref_spans: Vec<(Range<usize>, String, String)>, // (span, port_name, scope)
     /// ★ LSP: Enclosing scope name (module/component/function name)
     pub(crate) scope: Option<String>,
+    /// Label kind registry: tracks whether a label is Explicit (declared) or Inline (net phrase).
+    label_kinds: HashMap<String, LabelKind>,
 }
 
 impl McInstances {
@@ -258,7 +269,26 @@ impl McInstances {
             port_spans: HashMap::new(),
             port_ref_spans: Vec::new(),
             scope: None,
+            label_kinds: HashMap::new(),
         }
+    }
+
+    /// Record a label's kind. Idempotent: Explicit takes precedence over Inline.
+    pub fn set_label_kind(&mut self, name: &str, kind: LabelKind) {
+        match self.label_kinds.get(name) {
+            Some(LabelKind::Explicit) => {} // Explicit overrides Inline
+            _ => {
+                self.label_kinds.insert(name.to_string(), kind);
+            }
+        }
+    }
+
+    /// Get a label's kind. Defaults to Explicit if not recorded.
+    pub fn get_label_kind(&self, name: &str) -> LabelKind {
+        self.label_kinds
+            .get(name)
+            .copied()
+            .unwrap_or(LabelKind::Explicit)
     }
 
     pub fn contains(&self, name: &str) -> bool {

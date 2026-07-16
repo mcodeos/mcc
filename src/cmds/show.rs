@@ -1039,6 +1039,15 @@ fn instances_json(insts: &mcc::McInstances, type_filter: Option<&str>) -> Vec<Va
         .iter()
         .filter_map(|(n, inst)| {
             let (kind, class) = inst_kind_class(inst);
+            // Distinguish inline labels from explicit ones
+            let kind = if kind == "label" {
+                match insts.get_label_kind(n) {
+                    mcc::LabelKind::Inline => "ilabel",
+                    mcc::LabelKind::Explicit => "label",
+                }
+            } else {
+                kind
+            };
             if let Some(t) = type_filter {
                 if !kind.eq_ignore_ascii_case(t) {
                     return None;
