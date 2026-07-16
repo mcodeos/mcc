@@ -320,6 +320,19 @@ impl McInstances {
         self.insts.keys()
     }
 
+    /// Iterate only port-declaration names — skips auto-generated Component/Module
+    /// instances (e.g. `@RES1`, `@CAP1`) that are not user-declared ports.
+    pub fn iter_port_names(&self) -> impl Iterator<Item = &String> {
+        self.insts
+            .iter()
+            .filter_map(|(name, (_, inst))| match inst {
+                McInstance::Component(_)
+                | McInstance::Module(_)
+                | McInstance::Unresolved { .. } => None,
+                _ => Some(name),
+            })
+    }
+
     /// Access the raw insts table for diagnostics.
     pub fn insts(&self) -> &BTreeMap<String, (IOType, McInstance)> {
         &self.insts
