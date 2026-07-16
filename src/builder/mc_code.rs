@@ -1481,19 +1481,8 @@ impl McCode {
                 // ★ LSP: Add interface definitions + param port_definitions
                 {
                     let interfaces = crate::builder::workspace::WORKSPACE.interfaces.borrow();
-                    eprintln!(
-                        "F12_DBG_IFACE workspace interface_count={} self_uri={}",
-                        interfaces.len(),
-                        uri_str
-                    );
                     for entry in interfaces.iter() {
                         let iface = entry.value();
-                        eprintln!(
-                            "F12_DBG_IFACE workspace iface name={} uri={} match={}",
-                            entry.key().ident,
-                            iface.uri.as_str(),
-                            iface.uri.as_str() == uri_str
-                        );
                         if iface.uri.as_str() == uri_str {
                             symbol_lapper.insert(Interval {
                                 start: iface.span.start,
@@ -1550,19 +1539,8 @@ impl McCode {
                     drop(interfaces);
 
                     let global_interfaces = crate::builder::global::mcc_interfaces.borrow();
-                    eprintln!(
-                        "F12_DBG_IFACE global interface_count={} self_uri={}",
-                        global_interfaces.len(),
-                        uri_str
-                    );
                     for entry in global_interfaces.iter() {
                         let iface = entry.value();
-                        eprintln!(
-                            "F12_DBG_IFACE global iface name={} uri={} match={}",
-                            entry.key().ident,
-                            iface.uri.as_str(),
-                            iface.uri.as_str() == uri_str
-                        );
                         if iface.uri.as_str() == uri_str {
                             symbol_lapper.insert(Interval {
                                 start: iface.span.start,

@@ -89,18 +89,10 @@ impl McInterface {
 
         // ★ LSP: Scan body for references to interface parameters
         let ifs_name = ret.name.to_string();
-        eprintln!(
-            "F12_DBG_IFACE McInterface::new name={ifs_name} param_count={}",
-            ret.params.len()
-        );
         crate::core::component::McComponent::collect_param_refs_in_body(
             &body_node,
             &mut ret.params,
             &ifs_name,
-        );
-        eprintln!(
-            "F12_DBG_IFACE refs_collected={} for {ifs_name}",
-            ret.params.iter_port_refs().count()
         );
 
         // ★ Smart Param (M5): Finalize after body parsed
