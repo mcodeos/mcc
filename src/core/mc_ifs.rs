@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::core::basic::mc_conds::McConds;
 use crate::{
-    ast::{ast_node::AstNode, c_macros::*, error::message::*},
+    ast::{ast_node::AstNode, c_macros::*},
     core::{
         basic::mc_param::McParamDeclares, basic::mc_role::McRole, component::mc_attr::McAttributes,
         component::mc_pins::McPins,
@@ -30,23 +30,16 @@ impl McInterface {
     pub fn new(node: &AstNode, uri: &McURI) -> Option<Self> {
         // MCK_COMPONENT
         // |- MCAST_NAME - MCAST_PARAM (option) - MCAST_BODY
-        let subnodes = node.get_sub_node().expect(MISSING_SUBNODE);
-        let body_node = subnodes
-            .iter()
-            .find(|x| x.is_type(MCAST_BODY))
-            .expect(MISSING_SUBNODE);
-
-        let name_node = subnodes
-            .iter()
-            .find(|x| x.is_type(MCAST_NAME))
-            .expect(MISSING_SUBNODE);
+        let subnodes = node.get_sub_node()?;
+        let body_node = subnodes.iter().find(|x| x.is_type(MCAST_BODY))?;
+        let name_node = subnodes.iter().find(|x| x.is_type(MCAST_NAME))?;
         // ★ LSP: Use node's position and length for span
         let start = node.get_pos() as usize;
         let end = start + node.get_len() as usize;
         let span = crate::ast::ast_semantic::Span { start, end };
 
         let mut ret = Self {
-            name: McIds::new(&name_node.get_sub_node().expect(MISSING_SUBNODE))?,
+            name: McIds::new(&name_node.get_sub_node()?)?,
             params: McParamDeclares::new(),
             attrs: McAttributes::new(),
             pins: McPins::new(),

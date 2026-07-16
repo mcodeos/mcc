@@ -621,6 +621,13 @@ impl McPins {
                                 .collect();
                         }
 
+                        // ★ Dynamic pins: resolve parameter-based ranges like 1:count
+                        if iface_pins.is_empty() && declare.base.pins.has_dynamic_pins() {
+                            let bindings = Self::build_interface_param_bindings(declare);
+                            let resolved = declare.base.pins.resolve_dynamic_pins(&bindings);
+                            iface_pins = resolved.iter().map(|(_, name, _)| name.clone()).collect();
+                        }
+
                         // 1305: interface top-level has no pin definitions (all pins are in role, e.g. UART.X),
                         //      and no role specified or role has no pin definitions.
                         //      then mcc can't fit physical pins onto interface members — that line silently
@@ -1344,6 +1351,20 @@ impl McPins {
     pub fn get_pin_io(&self, pin_id: &str) -> Option<IOType> {
         self.pins.get(pin_id).map(|pin| pin.iotype.clone())
     }
+    /// Build (name, i64) bindings from an interface's constructor parameters
+    /// for resolving dynamic pin ranges like `1:count`.
+    fn build_interface_param_bindings(declare: &Mc2Interface) -> Vec<(String, i64)> {
+        let mut bindings = Vec::new();
+        let param_names = declare.base.params.names();
+        for (i, param_name) in param_names.iter().enumerate() {
+            if let Some(val) = declare.params.get(i) {
+                if let McParamValue::Int(int_val) = val {
+                    bindings.push((param_name.clone(), int_val.value));
+                }
+            }
+        }
+        bindings
+    }
 }
 
 // ============================================================================
@@ -1830,21 +1851,39 @@ impl McPinNames {
                                                 let mut param_current = cc.get_sub_node();
                                                 while let Some(param_node) = param_current {
                                                     if param_node.get_type() == MCAST_PARAM {
-                                                        // Try to parse as McIds first (for identifiers like "DCE")
-                                                        if let Some(ids) = McIds::new(&param_node) {
-                                                            if !ids.is_empty() {
-                                                                params.push(McParamValue::Ids(ids));
-                                                            }
-                                                        }
-
-                                                        // If not McIds, check if it's a UVALUE (like "12V")
-                                                        if let Some(sub) = param_node.get_sub_node()
-                                                        {
-                                                            if sub.get_type() == MCAST_UVALUE
-                                                                || sub.get_type() == MCAST_UVALUE_AT
+                                                        // Unwrap MCAST_PARAM → inner value, possibly through MCAST_OPD
+                                                        let inner = param_node.get_sub_node();
+                                                        let value_node = match &inner {
+                                                            Some(n)
+                                                                if n.get_type() == MCAST_OPD =>
                                                             {
-                                                                if let Some(uv) = crate::core::basic::mc_uval::McUnitValue::new(&sub) {
+                                                                n.get_sub_node()
+                                                                    .unwrap_or(n.clone())
+                                                            }
+                                                            Some(n) => n.clone(),
+                                                            None => {
+                                                                param_current =
+                                                                    param_node.get_next();
+                                                                continue;
+                                                            }
+                                                        };
+                                                        match value_node.get_type() {
+                                                            MCAST_INT => {
+                                                                if let Some(i) = McInt::new(&value_node) {
+                                                                    params.push(McParamValue::Int(i));
+                                                                }
+                                                            }
+                                                            MCAST_UVALUE | MCAST_UVALUE_AT => {
+                                                                if let Some(uv) = crate::core::basic::mc_uval::McUnitValue::new(&value_node) {
                                                                     params.push(McParamValue::UValue(uv));
+                                                                }
+                                                            }
+                                                            _ => {
+                                                                // Fallback: McIds (for identifiers like "Controller")
+                                                                if let Some(ids) = McIds::new(&param_node) {
+                                                                    if !ids.is_empty() {
+                                                                        params.push(McParamValue::Ids(ids));
+                                                                    }
                                                                 }
                                                             }
                                                         }

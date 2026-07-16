@@ -20,7 +20,6 @@ use super::{
 use crate::{
     ast::ast_node::AstNode,
     ast::c_macros::*,
-    ast::error::message::*,
     core::basic::mc_bus::{McBus, McList},
     core::basic::mc_ids::McIds,
     core::basic::mc_param::McParamValue,
@@ -69,16 +68,14 @@ impl McComponent {
     pub fn new(node: &AstNode, uri: &McURI) -> Option<Self> {
         // MCK_COMPONENT
         // |- MCAST_NAME - MCAST_PARAMS (option) - MCAST_BODY
-        let subnodes = node.get_sub_node().expect(MISSING_SUBNODE);
+        let subnodes = node.get_sub_node()?;
 
         //1. new with name
         let comp_name = McIds::new(
             &subnodes
                 .iter()
-                .find(|x| x.is_type(MCAST_NAME))
-                .expect(MISSING_SUBNODE)
-                .get_sub_node() // ids
-                .expect(MISSING_SUBNODE),
+                .find(|x| x.is_type(MCAST_NAME))?
+                .get_sub_node()?,
         )?;
 
         let start = node.get_pos() as usize;

@@ -15,10 +15,10 @@ impl<T> MultiThreadRefCell<T> {
         }
     }
     pub fn borrow(&self) -> MutexGuard<'_, T> {
-        self.inner.lock().unwrap()
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
     pub fn borrow_mut(&self) -> MutexGuard<'_, T> {
-        self.inner.lock().unwrap()
+        self.inner.lock().unwrap_or_else(|e| e.into_inner())
     }
     pub fn try_borrow(&self) -> Option<MutexGuard<'_, T>> {
         self.inner.try_lock().ok()

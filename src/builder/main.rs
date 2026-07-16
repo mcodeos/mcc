@@ -712,13 +712,13 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     };
 
     // Track whether the name exists in local scope (for library-shadow warning).
-    let mut name_found_in_local = false;
+    let name_found_in_local = false;
 
     // ── Tier 1: Current file's own definitions ─────────────────────
     if let Some(mcfile) = workspace::WORKSPACE.mcodes.borrow().get(uri) {
         if let Some(space_name) = mcfile.value().spacenames.get(class_name) {
             if let Some(cmie) = find_in_project_tables(space_name) {
-                name_found_in_local = true;
+                let _ = name_found_in_local; // reserved for future shadowing check
                 return Some(cmie);
             }
         }
@@ -743,7 +743,7 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
                 if let Some(space_name) = use_file.value().spacenames.get(class_name) {
                     if let Some(cmie) = find_in_project_tables(space_name) {
                         if is_local_uri(&space_name.uri) {
-                            name_found_in_local = true;
+                            let _ = name_found_in_local; // shadowing tracking reserved
                             return Some(cmie);
                         }
                     }
@@ -753,7 +753,7 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
                     if key.to_string() == name_str {
                         if let Some(cmie) = find_in_project_tables(value) {
                             if is_local_uri(&value.uri) {
-                                name_found_in_local = true;
+                                let _ = name_found_in_local; // shadowing tracking reserved
                                 return Some(cmie);
                             }
                         }
@@ -767,14 +767,14 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     {
         let space_name = McSpaceName::new(class_name, uri.clone());
         if let Some(cmie) = find_in_project_tables(&space_name) {
-            name_found_in_local = true;
+            let _ = name_found_in_local; // shadowing tracking reserved
             return Some(cmie);
         }
         for entry in workspace::WORKSPACE.mcodes.borrow().iter() {
             if let Some(space_name) = entry.value().spacenames.get(class_name) {
                 if is_local_uri(&space_name.uri) {
                     if let Some(cmie) = find_in_project_tables(space_name) {
-                        name_found_in_local = true;
+                        let _ = name_found_in_local; // shadowing tracking reserved
                         return Some(cmie);
                     }
                 }
@@ -790,7 +790,7 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
                 McCMIE::Enum(e) => is_local_uri(&e.uri),
             };
             if is_local {
-                name_found_in_local = true;
+                let _ = name_found_in_local; // shadowing tracking reserved
                 return Some(cmie);
             }
         }
