@@ -277,6 +277,8 @@ impl McModule {
         }
         self.insts
             .create_inst(&name, McInstance::Label(name.clone()));
+        self.insts
+            .set_label_kind(&name, crate::core::mc_inst::LabelKind::Inline);
         McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Label(
             name,
         ))))
