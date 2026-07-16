@@ -58,6 +58,8 @@ impl ValidationCheck for BodyCheck {
 /// extensions) count toward the "has dot" test.
 fn check_mixed_path_separators(acc: &mut CheckAccumulator) {
     let mut seen: HashSet<String> = HashSet::new();
+    let mut uri_spans: std::collections::HashMap<String, std::ops::Range<usize>> =
+        std::collections::HashMap::new();
 
     // Collect all unique URIs from all workspace tables
     {
@@ -75,7 +77,10 @@ fn check_mixed_path_separators(acc: &mut CheckAccumulator) {
         }
         let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
         for e in modules.iter() {
-            seen.insert(e.key().uri.to_string());
+            let uri = e.key().uri.to_string();
+            let span = e.value().span.clone();
+            uri_spans.insert(uri.clone(), span.start..span.end);
+            seen.insert(uri);
         }
         let mcodes = crate::builder::workspace::WORKSPACE.mcodes.borrow();
         for e in mcodes.iter() {
@@ -110,11 +115,12 @@ fn check_mixed_path_separators(acc: &mut CheckAccumulator) {
         };
 
         if has_slash && has_namespace_dot {
+            let span = uri_spans.get(uri).cloned();
             acc.push(CheckResult {
                 check_name: "body",
                 severity: CheckSeverity::Warning,
                 uri: Some(uri.clone()),
-                span: None,
+                span,
                 message: format!(
                     "URI '{}' mixes '.' (namespace) and '/' (path) separators. \
                      Use one style consistently.",
