@@ -45,7 +45,7 @@ fn check_comp_func_unused_params(acc: &mut CheckAccumulator) {
                     check_name: "ref-integrity",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: Some(comp.span.start..comp.span.end),
                     message: format!(
                         "Function '{}' in component '{}' has unused params: [{}].",
                         func.name, comp_name, param_names
@@ -78,7 +78,7 @@ fn check_bare_params(acc: &mut CheckAccumulator) {
                         check_name: "ref-integrity",
                         severity: CheckSeverity::Warning,
                         uri: Some(uri.clone()),
-                        span: None,
+                        span: Some(comp.span.start..comp.span.end),
                         message: format!(
                             "Parameter '{}' in component '{}' has no type annotation. \
                              Consider adding ::INT, ::STRING, ::UV.VOLT, etc.",

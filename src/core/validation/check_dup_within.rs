@@ -63,7 +63,7 @@ fn check_pin_name_duplicates(
                 check_name: "dup-within",
                 severity: CheckSeverity::Warning,
                 uri: None,
-                span: None,
+                span: Some(comp.span.start..comp.span.end),
                 message: format!(
                     "Pin name '{}' appears {} times in component '{}'. \
                      Duplicate pin labels make net references ambiguous.",
@@ -94,7 +94,7 @@ fn check_enum_value_duplicates(
                 check_name: "dup-within",
                 severity: CheckSeverity::Error,
                 uri: None,
-                span: None,
+                span: Some(edef.span[0] as usize..edef.span[1] as usize),
                 message: format!(
                     "Enum value '{}' appears {} times in enum '{}'.",
                     name, count, enum_name

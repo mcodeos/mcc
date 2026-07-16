@@ -226,7 +226,7 @@ fn check_pins_overlap(comp: &crate::McComponent, uri: &str, acc: &mut CheckAccum
             check_name: "attrs",
             severity: CheckSeverity::Warning,
             uri: Some(uri.to_string()),
-            span: None,
+            span: Some(comp.span.start..comp.span.end),
             message: format!(
                 "Component '{}' has both 'pins =' and 'pins.X =' attributes. \
                  These may conflict.",

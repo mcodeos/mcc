@@ -96,7 +96,7 @@ fn check_iface_pin_completeness(acc: &mut CheckAccumulator) {
                     check_name: "interface",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: Some(comp.span.start..comp.span.end),
                     message: format!(
                         "Component '{}': interface '{}' requires {} pin(s), but '{}' \
                          only binds {} of them. Missing: {}",
@@ -163,7 +163,7 @@ fn check_iface_role_exists(acc: &mut CheckAccumulator) {
                             check_name: "interface",
                             severity: CheckSeverity::Warning,
                             uri: Some(uri.clone()),
-                            span: None,
+                            span: Some(comp.span.start..comp.span.end),
                             message: format!(
                                 "Component '{}': param '{}' references role '{}' in interface \
                                  '{}', but that role is not defined in the interface. \
@@ -196,7 +196,7 @@ fn check_iface_role_exists(acc: &mut CheckAccumulator) {
                             check_name: "interface",
                             severity: CheckSeverity::Warning,
                             uri: Some(uri.clone()),
-                            span: None,
+                            span: Some(comp.span.start..comp.span.end),
                             message: format!(
                                 "Component '{}': param '{}' references interface '{}' \
                                  which is not loaded.",
@@ -261,7 +261,7 @@ fn check_deprecated_cmie_usage(acc: &mut CheckAccumulator) {
                             check_name: "interface",
                             severity: CheckSeverity::Info,
                             uri: Some(uri.clone()),
-                            span: None,
+                            span: Some(comp.span.start..comp.span.end),
                             message: format!(
                                 "Component '{}' uses interface '{}' which is deprecated.",
                                 comp.name, iface_name
@@ -283,7 +283,7 @@ fn check_deprecated_cmie_usage(acc: &mut CheckAccumulator) {
                                 check_name: "interface",
                                 severity: CheckSeverity::Info,
                                 uri: Some(uri.clone()),
-                                span: None,
+                                span: Some(comp.span.start..comp.span.end),
                                 message: format!(
                                     "Component '{}': param '{}' references '{}' which is deprecated.",
                                     comp.name, pname, class_name
@@ -320,7 +320,7 @@ fn check_deprecated_cmie_usage(acc: &mut CheckAccumulator) {
                         check_name: "interface",
                         severity: CheckSeverity::Info,
                         uri: Some(uri.clone()),
-                        span: None,
+                        span: Some(m.span.start..m.span.end),
                         message: format!(
                             "Module '{}' uses '{}' which is deprecated.",
                             entry.key().ident,
@@ -396,6 +396,7 @@ fn check_module_member_refs(acc: &mut CheckAccumulator) {
             continue;
         }
         let m = entry.value();
+        let mod_span = Some(m.span.start..m.span.end);
 
         // map: instance name → class name
         let inst_class: std::collections::HashMap<String, String> = {
@@ -428,6 +429,7 @@ fn check_module_member_refs(acc: &mut CheckAccumulator) {
                 &mod_ports,
                 &uri,
                 &entry.key().ident.to_string(),
+                &mod_span,
                 acc,
             );
         }
@@ -443,6 +445,7 @@ fn check_module_member_refs(acc: &mut CheckAccumulator) {
                     &mod_ports,
                     &uri,
                     &entry.key().ident.to_string(),
+                    &mod_span,
                     acc,
                 );
             }
@@ -459,6 +462,7 @@ fn check_phrase_member_refs(
     mod_ports: &std::collections::HashMap<String, HashSet<String>>,
     uri: &str,
     mod_name: &str,
+    module_span: &Option<std::ops::Range<usize>>,
     acc: &mut CheckAccumulator,
 ) {
     let text = format!("{}", phrase);
@@ -496,7 +500,7 @@ fn check_phrase_member_refs(
                             check_name: "interface",
                             severity: CheckSeverity::Warning,
                             uri: Some(uri.to_string()),
-                            span: None,
+                            span: module_span.clone(),
                             message: format!(
                                 "Module '{}': '{}.{}' — '{}' is not a defined port of \
                                  component '{}'. Available: {}",
@@ -520,7 +524,7 @@ fn check_phrase_member_refs(
                             check_name: "interface",
                             severity: CheckSeverity::Warning,
                             uri: Some(uri.to_string()),
-                            span: None,
+                            span: module_span.clone(),
                             message: format!(
                                 "Module '{}': '{}.{}' — '{}' is not a defined port of \
                                  interface '{}'.",
@@ -539,7 +543,7 @@ fn check_phrase_member_refs(
                             check_name: "interface",
                             severity: CheckSeverity::Warning,
                             uri: Some(uri.to_string()),
-                            span: None,
+                            span: module_span.clone(),
                             message: format!(
                                 "Module '{}': '{}.{}' — '{}' is not a defined port of \
                                  module '{}'.",

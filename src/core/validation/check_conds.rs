@@ -60,7 +60,7 @@ fn check_empty_cond_body(acc: &mut CheckAccumulator) {
                         check_name: "conds",
                         severity: CheckSeverity::Warning,
                         uri: Some(uri.clone()),
-                        span: None,
+                        span: Some(comp.span.start..comp.span.end),
                         message: format!(
                             "Component '{}': cond_pins[{}] if-block[{}] (cond={:?}) has an empty body. \
                              The condition selects no pins.",
@@ -76,7 +76,7 @@ fn check_empty_cond_body(acc: &mut CheckAccumulator) {
                         check_name: "conds",
                         severity: CheckSeverity::Warning,
                         uri: Some(uri.clone()),
-                        span: None,
+                        span: Some(comp.span.start..comp.span.end),
                         message: format!(
                             "Component '{}': cond_pins[{}] else-block has an empty body. \
                              No pins selected for the default case.",
@@ -96,7 +96,7 @@ fn check_empty_cond_body(acc: &mut CheckAccumulator) {
                         check_name: "conds",
                         severity: CheckSeverity::Warning,
                         uri: Some(uri.clone()),
-                        span: None,
+                        span: Some(comp.span.start..comp.span.end),
                         message: format!(
                             "Component '{}': cond_attrs[{}] if-block[{}] (cond={:?}) has an empty body. \
                              The condition selects no attributes.",
@@ -112,7 +112,7 @@ fn check_empty_cond_body(acc: &mut CheckAccumulator) {
                         check_name: "conds",
                         severity: CheckSeverity::Warning,
                         uri: Some(uri.clone()),
-                        span: None,
+                        span: Some(comp.span.start..comp.span.end),
                         message: format!(
                             "Component '{}': cond_attrs[{}] else-block has an empty body. \
                              No attributes selected for the default case.",
@@ -147,7 +147,7 @@ fn check_missing_else(acc: &mut CheckAccumulator) {
                     check_name: "conds",
                     severity: CheckSeverity::Info,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: Some(comp.span.start..comp.span.end),
                     message: format!(
                         "Component '{}': cond_pins[{}] has {} if-block(s) but no else block. \
                          Pins may be undefined for uncovered parameter values.",
@@ -166,7 +166,7 @@ fn check_missing_else(acc: &mut CheckAccumulator) {
                     check_name: "conds",
                     severity: CheckSeverity::Info,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: Some(comp.span.start..comp.span.end),
                     message: format!(
                         "Component '{}': cond_attrs[{}] has {} if-block(s) but no else block. \
                          Attributes may be undefined for uncovered parameter values.",
@@ -211,7 +211,7 @@ fn check_pin_io_context(acc: &mut CheckAccumulator) {
                         check_name: "conds",
                         severity: CheckSeverity::Info,
                         uri: Some(uri.clone()),
-                        span: None,
+                        span: Some(comp.span.start..comp.span.end),
                         message: format!(
                             "Component '{}': pin '{}' ({}) is declared NC (not-connected) at \
                              the component level. NC is typically used at instantiation.",
@@ -236,7 +236,7 @@ fn check_pin_io_context(acc: &mut CheckAccumulator) {
                             check_name: "conds",
                             severity: CheckSeverity::Info,
                             uri: Some(uri.clone()),
-                            span: None,
+                            span: Some(comp.span.start..comp.span.end),
                             message: format!(
                                 "Component '{}': power pin '{}' ({}) has no associated \
                                  voltage attribute. Consider adding e.g. `voltage = \"5V\"`.",
@@ -299,7 +299,7 @@ fn check_pin_alt_roles(acc: &mut CheckAccumulator) {
                     check_name: "conds",
                     severity: CheckSeverity::Info,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: Some(comp.span.start..comp.span.end),
                     message: format!(
                         "Component '{}': pin name '{}' maps to pins with both In and Out \
                          IO types. Consider using 'io' (InOut) for bidirectional pins.",
@@ -315,7 +315,7 @@ fn check_pin_alt_roles(acc: &mut CheckAccumulator) {
                     check_name: "conds",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: Some(comp.span.start..comp.span.end),
                     message: format!(
                         "Component '{}': pin name '{}' maps to pins with both Output and Power \
                          IO types. This may create backfeed risk on the connected net.",
@@ -331,7 +331,7 @@ fn check_pin_alt_roles(acc: &mut CheckAccumulator) {
                     check_name: "conds",
                     severity: CheckSeverity::Info,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: Some(comp.span.start..comp.span.end),
                     message: format!(
                         "Component '{}': pin name '{}' maps to pins with both Analog and Power \
                          IO types. Verify this is the intended behavior.",
@@ -370,7 +370,7 @@ fn check_param_pin_name_collision(acc: &mut CheckAccumulator) {
                         check_name: "conds",
                         severity: CheckSeverity::Warning,
                         uri: Some(uri.clone()),
-                        span: None,
+                        span: Some(comp.span.start..comp.span.end),
                         message: format!(
                             "Component '{}': param '{}' shares a name with a pin. \
                              This may cause confusion in net expressions.",
@@ -407,7 +407,7 @@ fn check_empty_module(acc: &mut CheckAccumulator) {
                 check_name: "conds",
                 severity: CheckSeverity::Warning,
                 uri: Some(uri.clone()),
-                span: None,
+                span: Some(m.span.start..m.span.end),
                 message: format!(
                     "Module '{}' has no params, instances, net lines, or functions. \
                      Is this a stub?",

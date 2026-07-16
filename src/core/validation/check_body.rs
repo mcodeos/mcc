@@ -151,7 +151,7 @@ fn check_return_outside_function(acc: &mut CheckAccumulator) {
                         check_name: "body",
                         severity: CheckSeverity::Error,
                         uri: Some(uri.clone()),
-                        span: None,
+                        span: Some(m.span.start..m.span.end),
                         message: format!(
                             "Module '{}': 'return' used outside function context: '{}'. \
                              'return' is only valid inside 'func' bodies.",
@@ -208,6 +208,7 @@ fn check_return_with_literal(acc: &mut CheckAccumulator) {
                 continue;
             }
             let m = entry.value();
+            let mod_span = Some(m.span.start..m.span.end);
             for func in m.funcs.iter() {
                 for phrase in &func.lines {
                     let text = format!("{}", phrase);
@@ -215,6 +216,7 @@ fn check_return_with_literal(acc: &mut CheckAccumulator) {
                         &text,
                         &uri,
                         &format!("module '{}' func '{}'", entry.key().ident, func.name),
+                        &mod_span,
                         acc,
                     );
                 }
@@ -231,6 +233,7 @@ fn check_return_with_literal(acc: &mut CheckAccumulator) {
                 continue;
             }
             let comp = entry.value();
+            let comp_span = Some(comp.span.start..comp.span.end);
             for func in comp.funcs.iter() {
                 for phrase in &func.lines {
                     let text = format!("{}", phrase);
@@ -238,6 +241,7 @@ fn check_return_with_literal(acc: &mut CheckAccumulator) {
                         &text,
                         &uri,
                         &format!("component '{}' func '{}'", comp.name, func.name),
+                        &comp_span,
                         acc,
                     );
                 }
@@ -248,7 +252,13 @@ fn check_return_with_literal(acc: &mut CheckAccumulator) {
 
 /// Scan text for `return <literal>` patterns where the return value is not
 /// a named endpoint.
-fn check_return_literal_in_text(text: &str, uri: &str, context: &str, acc: &mut CheckAccumulator) {
+fn check_return_literal_in_text(
+    text: &str,
+    uri: &str,
+    context: &str,
+    def_span: &Option<std::ops::Range<usize>>,
+    acc: &mut CheckAccumulator,
+) {
     let lower = text.to_lowercase();
     let return_positions: Vec<usize> = lower.match_indices("return").map(|(i, _)| i).collect();
 
@@ -287,7 +297,7 @@ fn check_return_literal_in_text(text: &str, uri: &str, context: &str, acc: &mut 
                 check_name: "body",
                 severity: CheckSeverity::Warning,
                 uri: Some(uri.to_string()),
-                span: None,
+                span: def_span.clone(),
                 message: format!(
                     "In {}: 'return {}' — 'return' should specify a net endpoint (port/instance), \
                      not a literal value.",
@@ -323,7 +333,7 @@ fn check_empty_bracket_list(acc: &mut CheckAccumulator) {
                     check_name: "body",
                     severity: CheckSeverity::Error,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: Some(m.span.start..m.span.end),
                     message: format!(
                         "Module '{}': empty bracket instance list '[] :: TYPE' in '{}'. \
                          An empty instance list creates no instances — remove it or \
@@ -364,7 +374,7 @@ fn check_this_lhs_declaration(acc: &mut CheckAccumulator) {
                     check_name: "body",
                     severity: CheckSeverity::Error,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: Some(m.span.start..m.span.end),
                     message: format!(
                         "Module '{}': 'this :: TYPE' in '{}'. \
                          'this' refers to the current instance and cannot be used \
@@ -418,7 +428,7 @@ fn check_role_as_call_arg(acc: &mut CheckAccumulator) {
                         check_name: "body",
                         severity: CheckSeverity::Error,
                         uri: Some(uri.clone()),
-                        span: None,
+                        span: Some(m.span.start..m.span.end),
                         message: format!(
                             "Module '{}': instance '{}' passes 'role' as a call argument. \
                              'role' is a keyword, not a value. Did you mean to select \
@@ -451,6 +461,7 @@ fn check_bitwise_in_condition(acc: &mut CheckAccumulator) {
             continue;
         }
         let comp = entry.value();
+        let comp_span = Some(comp.span.start..comp.span.end);
 
         // Inspect conditional pin conditions
         for (idx, cp) in comp.cond_pins.iter().enumerate() {
@@ -463,6 +474,7 @@ fn check_bitwise_in_condition(acc: &mut CheckAccumulator) {
                         "component '{}' cond_pins[{}] if-block[{}]",
                         comp.name, idx, bidx
                     ),
+                    &comp_span,
                     acc,
                 );
             }
@@ -479,6 +491,7 @@ fn check_bitwise_in_condition(acc: &mut CheckAccumulator) {
                         "component '{}' cond_attrs[{}] if-block[{}]",
                         comp.name, idx, bidx
                     ),
+                    &comp_span,
                     acc,
                 );
             }
@@ -498,6 +511,7 @@ fn check_condition_for_bitwise(
     cond_text: &str,
     uri: &str,
     context: &str,
+    comp_span: &Option<std::ops::Range<usize>>,
     acc: &mut CheckAccumulator,
 ) {
     // McCondition::In with a single binary value ("0" or "1") could indicate
@@ -512,7 +526,7 @@ fn check_condition_for_bitwise(
                     check_name: "body",
                     severity: CheckSeverity::Info,
                     uri: Some(uri.to_string()),
-                    span: None,
+                    span: comp_span.clone(),
                     message: format!(
                         "In {}: condition compares against a single binary value. \
                          If this is a bitwise operation result used as boolean, \
@@ -609,7 +623,7 @@ fn check_unconnected_module_ports(acc: &mut CheckAccumulator) {
                     check_name: "body",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: Some(m.span.start..m.span.end),
                     message: format!(
                         "Module '{}': port '{}' is declared but never connected in any net. \
                          Consider removing it or wiring it up.",

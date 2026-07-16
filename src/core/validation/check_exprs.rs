@@ -66,7 +66,7 @@ fn check_this_outside_instance(acc: &mut CheckAccumulator) {
                         check_name: "exprs",
                         severity: CheckSeverity::Error,
                         uri: Some(uri.clone()),
-                        span: None,
+                        span: Some(m.span.start..m.span.end),
                         message: format!(
                             "'this' used in top-level net line: '{}'. \
                              'this' is only valid inside instance/function contexts.",
@@ -117,7 +117,7 @@ fn check_uscore_sole_endpoint(acc: &mut CheckAccumulator) {
                     check_name: "exprs",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: Some(m.span.start..m.span.end),
                     message: format!(
                         "Net '{}' connects only to '_' (placeholder). \
                          This connection has no effect.",
@@ -390,7 +390,7 @@ fn check_idx_key_collision(acc: &mut CheckAccumulator) {
                     check_name: "exprs",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.clone()),
-                    span: None,
+                    span: Some(m.span.start..m.span.end),
                     message: format!(
                         "IDX key '{}' has multiple slice specs: {}. \
                          These share the same base key which may cause ambiguity.",
@@ -463,7 +463,7 @@ fn check_pins_ref_not_found(acc: &mut CheckAccumulator) {
                                     check_name: "exprs",
                                     severity: CheckSeverity::Warning,
                                     uri: Some(uri.clone()),
-                                    span: None,
+                                    span: Some(comp.span.start..comp.span.end),
                                     message: format!(
                                         "Component '{}': 'pins.{}' references pin '{}' which \
                                          is not a defined pin name.",
