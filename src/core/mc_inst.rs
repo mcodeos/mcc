@@ -1108,8 +1108,8 @@ impl McInstances {
 
         // ★ LSP: Register class reference for goto-definition
         let class_name = class_ids.to_string();
-        let class_span = (class_node.get_pos() as usize)
-            ..((class_node.get_pos() + class_node.get_len()) as usize);
+        let class_span = (class_id_node.get_pos() as usize)
+            ..((class_id_node.get_pos() + class_id_node.get_len()) as usize);
         mcb_register_declare_class(uri, &class_name, class_span);
 
         // Parse all instances

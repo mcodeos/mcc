@@ -1153,20 +1153,20 @@ fn run_full_build_from_memory(
 }
 
 fn collect_pass1(_uri: &str, include_system: bool) -> Value {
-    let all_modules = collect_definitions(crate::mcb_iter_modules());
-    let all_components = collect_definitions(crate::mcb_iter_components());
-    let all_interfaces = collect_definitions(crate::mcb_iter_interfaces());
-    let all_enums = collect_definitions(crate::mcb_iter_enums());
+    let all_modules = crate::mcb_iter_modules_with_span();
+    let all_components = crate::mcb_iter_components_with_span();
+    let all_interfaces = crate::mcb_iter_interfaces_with_span();
+    let all_enums = crate::mcb_iter_enums_with_span();
     let all_ports = crate::mcb_iter_ports();
 
     // Filter out system modules, components, interfaces, enums if not include_system
     let (modules, components, interfaces, enums) = if include_system {
         (all_modules, all_components, all_interfaces, all_enums)
     } else {
-        let filter = |items: Vec<(String, String)>| -> Vec<(String, String)> {
+        let filter = |items: Vec<(String, String, [usize; 2])>| -> Vec<(String, String, [usize; 2])> {
             items
                 .into_iter()
-                .filter(|(_, uri)| !is_system_uri(uri))
+                .filter(|(_, uri, _)| !is_system_uri(uri))
                 .collect()
         };
         (
@@ -1369,14 +1369,14 @@ fn is_system_uri(uri: &str) -> bool {
     uri.contains("/mcode/") || uri.contains("\\mcode\\")
 }
 
-fn collect_definitions(items: Vec<(String, String)>) -> Vec<(String, String)> {
+fn collect_definitions(items: Vec<(String, String, [usize; 2])>) -> Vec<(String, String, [usize; 2])> {
     items
 }
 
-fn refs_json(items: &[(String, String)]) -> Vec<Value> {
+fn refs_json(items: &[(String, String, [usize; 2])]) -> Vec<Value> {
     items
         .iter()
-        .map(|(n, u)| json!({"name": n, "uri": u}))
+        .map(|(n, u, s)| json!({"name": n, "uri": u, "span": s}))
         .collect()
 }
 
@@ -4125,18 +4125,18 @@ pub fn handle_diagnostics(params: Option<Value>) -> RpcResult {
 /// Handle project_symbols RPC - return project-wide symbols (components, interfaces, enums, modules, enum_values)
 pub fn handle_project_symbols(_params: Option<Value>) -> RpcResult {
     use crate::builder::main::{
-        mcb_iter_components, mcb_iter_enum_values, mcb_iter_enums_with_span, mcb_iter_interfaces,
-        mcb_iter_modules,
+        mcb_iter_components_with_span, mcb_iter_enum_values, mcb_iter_enums_with_span,
+        mcb_iter_interfaces_with_span, mcb_iter_modules_with_span,
     };
 
-    let components: Vec<serde_json::Value> = mcb_iter_components()
+    let components: Vec<serde_json::Value> = mcb_iter_components_with_span()
         .into_iter()
-        .map(|(name, uri)| serde_json::json!({ "name": name, "uri": uri }))
+        .map(|(name, uri, span)| serde_json::json!({ "name": name, "uri": uri, "span": span }))
         .collect();
 
-    let interfaces: Vec<serde_json::Value> = mcb_iter_interfaces()
+    let interfaces: Vec<serde_json::Value> = mcb_iter_interfaces_with_span()
         .into_iter()
-        .map(|(name, uri)| serde_json::json!({ "name": name, "uri": uri }))
+        .map(|(name, uri, span)| serde_json::json!({ "name": name, "uri": uri, "span": span }))
         .collect();
 
     let enums: Vec<serde_json::Value> = mcb_iter_enums_with_span()
@@ -4150,9 +4150,9 @@ pub fn handle_project_symbols(_params: Option<Value>) -> RpcResult {
         })
         .collect();
 
-    let modules: Vec<serde_json::Value> = mcb_iter_modules()
+    let modules: Vec<serde_json::Value> = mcb_iter_modules_with_span()
         .into_iter()
-        .map(|(name, uri)| serde_json::json!({ "name": name, "uri": uri }))
+        .map(|(name, uri, span)| serde_json::json!({ "name": name, "uri": uri, "span": span }))
         .collect();
 
     // Per-value rows so the extension can do (class, value) -> uri+span lookup
