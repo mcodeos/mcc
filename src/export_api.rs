@@ -409,6 +409,7 @@ fn spice_prefix_for_class(class: &str) -> String {
     } else if up.starts_with("DIO")
         || up.starts_with("MOSFET")
         || up.starts_with("MOS")
+        || up.starts_with("FET")
         || up == "D"
     {
         "D".into()
