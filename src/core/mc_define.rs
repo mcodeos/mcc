@@ -13,6 +13,7 @@ pub struct McDefineDef {
     pub attrs: McAttributes,
     pub body: AstNode,
     pub uri: McURI,
+    pub span: crate::ast::ast_semantic::Span,
 }
 
 impl McDefineDef {
@@ -35,6 +36,10 @@ impl McDefineDef {
                 .find(|x| x.is_type(MCAST_BODY))
                 .expect(MISSING_SUBNODE),
             uri: uri.clone(),
+            span: crate::ast::ast_semantic::Span {
+                start: node.get_pos() as usize,
+                end: (node.get_pos() + node.get_len()) as usize,
+            },
         };
 
         // 2. Parse attributes

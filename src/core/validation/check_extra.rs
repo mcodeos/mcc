@@ -406,13 +406,14 @@ fn check_empty_defines(acc: &mut CheckAccumulator) {
             continue;
         }
         let def = entry.value();
+        let def_span = Some(def.span.start..def.span.end);
         // U5: empty define (no attrs and empty body)
         if def.attrs.is_empty() {
             acc.push(CheckResult {
                 check_name: "extra",
                 severity: CheckSeverity::Warning,
                 uri: Some(uri.clone()),
-                span: None,
+                span: def_span.clone(),
                 message: format!("Define '{}' has no attributes.", def.name),
                 code: 2611,
             });
@@ -424,7 +425,7 @@ fn check_empty_defines(acc: &mut CheckAccumulator) {
                 if ct != crate::MCAST_ATTRIBUTE {
                     acc.push(CheckResult {
                         check_name: "extra", severity: CheckSeverity::Warning,
-                        uri: Some(uri), span: None,
+                        uri: Some(uri), span: def_span.clone(),
                         message: format!(
                             "Define '{}' contains non-attribute clause (type={}). Defines should only contain attributes.",
                             def.name, ct

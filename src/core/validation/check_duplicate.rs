@@ -29,6 +29,7 @@ impl ValidationCheck for DuplicateCmieCheck {
 
         // Collect all CMIE names with their URIs from project tables
         let mut name_uris: HashMap<String, Vec<String>> = HashMap::new();
+        let mut uri_spans: HashMap<String, std::ops::Range<usize>> = HashMap::new();
 
         // Check components
         {
@@ -36,6 +37,8 @@ impl ValidationCheck for DuplicateCmieCheck {
             for entry in comps.iter() {
                 let name = entry.key().ident.to_string();
                 let uri = entry.key().uri.to_string();
+                let span = entry.value().span.clone();
+                uri_spans.entry(uri.clone()).or_insert(span.start..span.end);
                 name_uris.entry(name).or_default().push(uri);
             }
         }
@@ -45,6 +48,8 @@ impl ValidationCheck for DuplicateCmieCheck {
             for entry in ifaces.iter() {
                 let name = entry.key().ident.to_string();
                 let uri = entry.key().uri.to_string();
+                let span = entry.value().span.clone();
+                uri_spans.entry(uri.clone()).or_insert(span.start..span.end);
                 name_uris.entry(name).or_default().push(uri);
             }
         }
@@ -54,6 +59,8 @@ impl ValidationCheck for DuplicateCmieCheck {
             for entry in enums.iter() {
                 let name = entry.key().ident.to_string();
                 let uri = entry.key().uri.to_string();
+                let span = entry.value().span;
+                uri_spans.entry(uri.clone()).or_insert(span[0] as usize..span[1] as usize);
                 name_uris.entry(name).or_default().push(uri);
             }
         }
@@ -63,6 +70,8 @@ impl ValidationCheck for DuplicateCmieCheck {
             for entry in modules.iter() {
                 let name = entry.key().ident.to_string();
                 let uri = entry.key().uri.to_string();
+                let span = entry.value().span.clone();
+                uri_spans.entry(uri.clone()).or_insert(span.start..span.end);
                 name_uris.entry(name).or_default().push(uri);
             }
         }
@@ -80,7 +89,7 @@ impl ValidationCheck for DuplicateCmieCheck {
                             check_name: self.name(),
                             severity: self.default_severity(),
                             uri: Some(name.clone()),
-                            span: None, // no specific source span available here
+                            span: uri_spans.get(first.as_str()).cloned(),
                             message: format!(
                                 "CMIE '{}' defined in both '{}' and '{}'. \
                                  The latter shadows the former.",
