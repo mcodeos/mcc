@@ -658,7 +658,7 @@ impl McModule {
     ) {
         // Check this node (only leaf identifier nodes for precise spans)
         match node.get_type() {
-            MCAST_ID | MCAST_IDA => {
+            MCAST_ID | MCAST_IDA | MCAST_IDS => {
                 if let Some(text) = node.to_string() {
                     let span =
                         (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
@@ -675,6 +675,32 @@ impl McModule {
                         insts.record_port_ref(span, key, scope);
                     } else if params.is_defined(&text) {
                         params.record_port_ref(span, &text, scope);
+                    }
+                }
+            }
+            // MCAST_OPD wraps an operand — extract the inner identifier directly.
+            MCAST_OPD => {
+                if let Some(sub) = node.get_sub_node() {
+                    let inner_type = sub.get_type();
+                    if matches!(inner_type, MCAST_ID | MCAST_IDA | MCAST_IDS) {
+                        if let Some(text) = sub.to_string() {
+                            let span = (sub.get_pos() as usize)
+                                ..((sub.get_pos() + sub.get_len()) as usize);
+                            let matched_key: Option<String> =
+                                if insts.port_spans().contains_key(&text) {
+                                    Some(text.clone())
+                                } else {
+                                    insts
+                                        .iter_instance_names()
+                                        .find(|k| insts.all_name_forms_for(k).contains(&text))
+                                        .cloned()
+                                };
+                            if let Some(ref key) = matched_key {
+                                insts.record_port_ref(span, key, scope);
+                            } else if params.is_defined(&text) {
+                                params.record_port_ref(span, &text, scope);
+                            }
+                        }
                     }
                 }
             }

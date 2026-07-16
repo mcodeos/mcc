@@ -133,6 +133,18 @@ fn collect_usages_recursive(param_name: &str, node: &AstNode, usages: &mut Vec<U
                         });
                     }
                 }
+                // Role keyword: `role Source { ... }` in body marks the `role`
+                // parameter as used.
+                MCAST_ROLE => {
+                    if param_name == "role" {
+                        usages.push(UsageSite {
+                            kind: UsageKind::AttrValue("role".to_string()),
+                            pos,
+                        });
+                    }
+                    // Also recurse into children (role name, attrs, pins, etc.)
+                    collect_usages_recursive(param_name, &n, usages);
+                }
                 _ => {
                     // Recurse into sub-nodes for other types
                     collect_usages_recursive(param_name, &n, usages);
