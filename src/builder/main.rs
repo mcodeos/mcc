@@ -1685,6 +1685,19 @@ pub fn mcb_iter_modules() -> Vec<(String, String)> {
         .collect()
 }
 
+/// Like `mcb_iter_modules` but includes source span for LSP goto-def.
+pub fn mcb_iter_modules_with_span() -> Vec<(String, String, [usize; 2])> {
+    workspace::WORKSPACE
+        .modules
+        .borrow()
+        .iter()
+        .map(|entry| {
+            let span = &entry.value().span;
+            (entry.key().ident.to_string(), entry.key().uri.clone(), [span.start, span.end])
+        })
+        .collect()
+}
+
 /// Iterate all registered component definitions (including project and system lib).
 pub fn mcb_iter_components() -> Vec<(String, String)> {
     let mut items: Vec<(String, String)> = workspace::WORKSPACE
@@ -1698,6 +1711,22 @@ pub fn mcb_iter_components() -> Vec<(String, String)> {
     items
 }
 
+/// Like `mcb_iter_components` but includes source span for LSP goto-def.
+pub fn mcb_iter_components_with_span() -> Vec<(String, String, [usize; 2])> {
+    let mut items: Vec<_> = workspace::WORKSPACE
+        .components
+        .borrow()
+        .iter()
+        .chain(global::mcc_components.borrow().iter())
+        .map(|entry| {
+            let span = &entry.value().span;
+            (entry.key().ident.to_string(), entry.key().uri.clone(), [span.start, span.end])
+        })
+        .collect();
+    items.sort_by(|a, b| a.0.cmp(&b.0));
+    items
+}
+
 /// Iterate all registered project interface definitions.
 pub fn mcb_iter_interfaces() -> Vec<(String, String)> {
     let mut items: Vec<(String, String)> = workspace::WORKSPACE
@@ -1706,6 +1735,22 @@ pub fn mcb_iter_interfaces() -> Vec<(String, String)> {
         .iter()
         .chain(global::mcc_interfaces.borrow().iter())
         .map(|entry| (entry.key().ident.to_string(), entry.key().uri.clone()))
+        .collect();
+    items.sort_by(|a, b| a.0.cmp(&b.0));
+    items
+}
+
+/// Like `mcb_iter_interfaces` but includes source span for LSP goto-def.
+pub fn mcb_iter_interfaces_with_span() -> Vec<(String, String, [usize; 2])> {
+    let mut items: Vec<_> = workspace::WORKSPACE
+        .interfaces
+        .borrow()
+        .iter()
+        .chain(global::mcc_interfaces.borrow().iter())
+        .map(|entry| {
+            let span = &entry.value().span;
+            (entry.key().ident.to_string(), entry.key().uri.clone(), [span.start, span.end])
+        })
         .collect();
     items.sort_by(|a, b| a.0.cmp(&b.0));
     items
@@ -1733,16 +1778,17 @@ pub fn mcb_iter_enums() -> Vec<(String, String)> {
 /// `[start, end)` of the `enum PKG { ... }` head — needed by LSP
 /// gotodef to know where to land when jumping to the class itself.
 /// Includes both workspace and system library enums.
-pub fn mcb_iter_enums_with_span() -> Vec<(String, String, [u32; 2])> {
-    let mut items: Vec<(String, String, [u32; 2])> = Vec::new();
+pub fn mcb_iter_enums_with_span() -> Vec<(String, String, [usize; 2])> {
+    let mut items: Vec<(String, String, [usize; 2])> = Vec::new();
 
     // Workspace enums (project files)
     let enums_guard = workspace::WORKSPACE.enums.borrow();
     for entry in enums_guard.iter() {
+        let s = entry.value().span;
         items.push((
             entry.key().ident.to_string(),
             entry.key().uri.clone(),
-            entry.value().span,
+            [s[0] as usize, s[1] as usize],
         ));
     }
     drop(enums_guard);
@@ -1750,10 +1796,11 @@ pub fn mcb_iter_enums_with_span() -> Vec<(String, String, [u32; 2])> {
     // System library enums (e.g. enum PKG in mcode/package.mc)
     let sys_enums_guard = global::mcc_enums.borrow();
     for entry in sys_enums_guard.iter() {
+        let s = entry.value().span;
         items.push((
             entry.key().ident.to_string(),
             entry.key().uri.clone(),
-            entry.value().span,
+            [s[0] as usize, s[1] as usize],
         ));
     }
     drop(sys_enums_guard);
@@ -2143,6 +2190,20 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
             .push((span, class_id, target_uri, target_span));
         tracing::info!(target: "mcc::lsp", "Registered declare_class: {} at {:?} -> class_id={:?}", class_name, span_clone, class_id);
     } else {
-        tracing::debug!(target: "mcc::lsp", "declare_class not found: {} in {:?}", class_name, uri);
+        // ★ LSP: Even without cross-file resolution, register the class-name
+        // span as a declare_class entry in the lapper.  This lets mcext's
+        // F12 handler pick it up and resolve via project index.
+        tracing::info!(target: "mcc::lsp", "register_declare_class: {} not resolved cross-file, registering local span {:?} for lapper", class_name, span);
+        let uri_str = uri.to_string();
+        // Use a synthetic sentinel: target_uri="" and target_span=[0,0].
+        // create_lapper will emit DeclareClass for this span; mcext's
+        // project-index fallback will resolve the actual definition.
+        let mut refs = workspace::WORKSPACE
+            .global_declare_class_refs
+            .lock()
+            .unwrap();
+        refs.entry(uri_str)
+            .or_default()
+            .push((span, DeclareId::default(), "".to_string(), 0..0));
     }
 }
