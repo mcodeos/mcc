@@ -37,7 +37,7 @@ impl McSemSymbols {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SymbolType {
-    ClassDefinition(DeclareId),     // component/module/interface/enum head
+    ClassDefinition(DeclareId), // component/module/interface/enum head
     DeclareClass(ReferenceId),
     DeclareInstance(DeclareId),
     InstanceRef(DeclareId),         // Reference to instance
@@ -53,8 +53,8 @@ pub enum SymbolType {
     DefineDefinition(DeclareId),   // `define name body`
     RoleDefinition(DeclareId),     // `role id { ... }`
     // ── Label support (scope design, step 7) ──
-    LabelDefinition(DeclareId),    // `label A` or inline label def
-    LabelRef(DeclareId),           // label reference in a net phrase
+    LabelDefinition(DeclareId), // `label A` or inline label def
+    LabelRef(DeclareId),        // label reference in a net phrase
 }
 pub type SymbolRangeLapper = Lapper<usize, SymbolType>;
 
@@ -195,7 +195,7 @@ pub struct GlobalSymbolTable {
 
     // ★ LSP: Global instance declaration table (shared across all files)
     pub global_inst_name_to_id: HashMap<(McURI, String, String), DeclareId>, // (uri, scope, name) -> decl_id
-    pub global_inst_id_to_span: HashMap<DeclareId, (McURI, Span)>,   // decl_id -> (uri, span)
+    pub global_inst_id_to_span: HashMap<DeclareId, (McURI, Span)>, // decl_id -> (uri, span)
 
     // ★ LSP: Declare class -> target definition span (cross-file)
     // Used when class_id is from a different file than the reference
@@ -405,7 +405,13 @@ impl GlobalSymbolTable {
         self.add_global_inst_scoped(uri, name, "", span)
     }
 
-    pub fn add_global_inst_scoped(&mut self, uri: &McURI, name: &str, scope: &str, span: Span) -> DeclareId {
+    pub fn add_global_inst_scoped(
+        &mut self,
+        uri: &McURI,
+        name: &str,
+        scope: &str,
+        span: Span,
+    ) -> DeclareId {
         let decl_id = self.global_inst_counter;
         self.global_inst_counter += 1;
         self.global_inst_name_to_id
@@ -423,7 +429,12 @@ impl GlobalSymbolTable {
             .map(|(_, &id)| id)
     }
 
-    pub fn get_global_inst_scoped(&self, uri: &McURI, scope: &str, name: &str) -> Option<DeclareId> {
+    pub fn get_global_inst_scoped(
+        &self,
+        uri: &McURI,
+        scope: &str,
+        name: &str,
+    ) -> Option<DeclareId> {
         self.global_inst_name_to_id
             .get(&(uri.clone(), scope.to_string(), name.to_string()))
             .copied()

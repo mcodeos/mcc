@@ -3,7 +3,9 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::ast::ast_node::McValueFFI;
-use crate::ast::ast_semantic::{DeclareId, McSemSymbols, ReferenceId, Span, SymbolRangeLapper, SymbolType};
+use crate::ast::ast_semantic::{
+    DeclareId, McSemSymbols, ReferenceId, Span, SymbolRangeLapper, SymbolType,
+};
 use crate::ast::ast_token::McSemTokens;
 use crate::ast::error::message::MISSING_SUBNODE;
 use crate::builder::diagnostic::dlog_error;
@@ -1457,7 +1459,10 @@ impl McCode {
                     }
                 }
                 for (inst_id, span) in sem.local_table.inst_id_to_span.iter() {
-                    let decl_id = inst_to_decl.get(inst_id).copied().unwrap_or(DeclareId::default());
+                    let decl_id = inst_to_decl
+                        .get(inst_id)
+                        .copied()
+                        .unwrap_or(DeclareId::default());
                     symbol_lapper.insert(Interval {
                         start: span.start,
                         stop: span.end,
@@ -1530,7 +1535,8 @@ impl McCode {
                             // ★ Register interface param refs from body expressions
                             // (e.g. `spec.voltage = volt` where volt is a param)
                             for (span, port_name, scope) in iface.params.iter_port_refs() {
-                                let scoped_key = (self.uri.clone(), scope.clone(), port_name.clone());
+                                let scoped_key =
+                                    (self.uri.clone(), scope.clone(), port_name.clone());
                                 if let Some(decl_id) =
                                     sem.local_table.name_to_declare_id.get(&scoped_key).copied()
                                 {
@@ -1585,7 +1591,8 @@ impl McCode {
                             }
                             // ★ Register interface param refs from body expressions
                             for (span, port_name, scope) in iface.params.iter_port_refs() {
-                                let scoped_key = (self.uri.clone(), scope.clone(), port_name.clone());
+                                let scoped_key =
+                                    (self.uri.clone(), scope.clone(), port_name.clone());
                                 if let Some(decl_id) =
                                     sem.local_table.name_to_declare_id.get(&scoped_key).copied()
                                 {
@@ -1715,8 +1722,9 @@ impl McCode {
                             sem.symbol_scope
                                 .insert((span.start, span.end), mod_ident_label.clone());
                             // ★ Register in global instance table for cross-file lookup
-                            if let Ok(mut ginst) =
-                                crate::builder::workspace::WORKSPACE.global_inst_table.lock()
+                            if let Ok(mut ginst) = crate::builder::workspace::WORKSPACE
+                                .global_inst_table
+                                .lock()
                             {
                                 ginst.add(
                                     self.uri.as_str(),
@@ -1743,7 +1751,8 @@ impl McCode {
                         for func in m.funcs.iter() {
                             let fscope = func.name.to_string();
                             for (span, port_name, scope) in func.params.iter_port_refs() {
-                                let scoped_key = (self.uri.clone(), scope.clone(), port_name.clone());
+                                let scoped_key =
+                                    (self.uri.clone(), scope.clone(), port_name.clone());
                                 if let Some(decl_id) =
                                     sem.local_table.name_to_declare_id.get(&scoped_key).copied()
                                 {
@@ -1757,7 +1766,8 @@ impl McCode {
                                 }
                             }
                             // ★ Label definitions within function body
-                            let func_scope = func.insts.scope.clone().unwrap_or_else(|| fscope.clone());
+                            let func_scope =
+                                func.insts.scope.clone().unwrap_or_else(|| fscope.clone());
                             for (name, _label_kind, span) in func.insts.iter_labels_with_span() {
                                 let decl_id = sem.local_table.add_declare_with_name(
                                     span.clone(),
@@ -1772,8 +1782,9 @@ impl McCode {
                                 sem.symbol_scope
                                     .insert((span.start, span.end), func_scope.clone());
                                 // ★ Register in global instance table for cross-file lookup
-                                if let Ok(mut ginst) =
-                                    crate::builder::workspace::WORKSPACE.global_inst_table.lock()
+                                if let Ok(mut ginst) = crate::builder::workspace::WORKSPACE
+                                    .global_inst_table
+                                    .lock()
                                 {
                                     ginst.add(
                                         self.uri.as_str(),
@@ -1875,8 +1886,9 @@ impl McCode {
                             sem.symbol_scope
                                 .insert((span.start, span.end), comp_ident_label.clone());
                             // ★ Register in global instance table for cross-file lookup
-                            if let Ok(mut ginst) =
-                                crate::builder::workspace::WORKSPACE.global_inst_table.lock()
+                            if let Ok(mut ginst) = crate::builder::workspace::WORKSPACE
+                                .global_inst_table
+                                .lock()
                             {
                                 ginst.add(
                                     self.uri.as_str(),
@@ -2136,7 +2148,7 @@ impl McCode {
                     // Collect enclosing module/component names for the current file.
                     // Module spans cover only the name, not the full body, so we
                     // just collect all containers in this file.
-                    let uri_str = self.uri.as_str();
+                    let _uri_str = self.uri.as_str();
                     // Collect enclosing module/component names for the current file.
                     let mut container_names: Vec<String> = Vec::new();
                     {
@@ -2305,7 +2317,13 @@ impl McCode {
                                     // ID so gotodef can resolve local same-file jumps.
                                     let resolved_id = func_name
                                         .as_ref()
-                                        .and_then(|n| sem.local_table.name_to_declare_id.get(&(McURI::new(), String::new(), n.clone())))
+                                        .and_then(|n| {
+                                            sem.local_table.name_to_declare_id.get(&(
+                                                McURI::new(),
+                                                String::new(),
+                                                n.clone(),
+                                            ))
+                                        })
                                         .copied()
                                         .unwrap_or_else(|| {
                                             sem.local_table.add_declare_with_name(
@@ -2347,7 +2365,10 @@ impl McCode {
                     }
                 }
                 for (inst_id, span) in sem.local_table.inst_id_to_span.iter() {
-                    let decl_id = inst_to_decl2.get(inst_id).copied().unwrap_or(DeclareId::default());
+                    let decl_id = inst_to_decl2
+                        .get(inst_id)
+                        .copied()
+                        .unwrap_or(DeclareId::default());
                     symbol_lapper.insert(Interval {
                         start: span.start,
                         stop: span.end,
@@ -2359,11 +2380,15 @@ impl McCode {
                 // function_definition so gotodef can resolve same-file jumps.
                 // Read source once, build function name→ID map, then patch.
                 if let Ok(source) = std::fs::read_to_string(self.uri.as_str()) {
-                    let mut func_name_to_id: std::collections::HashMap<String, DeclareId> = std::collections::HashMap::new();
+                    let mut func_name_to_id: std::collections::HashMap<String, DeclareId> =
+                        std::collections::HashMap::new();
                     for entry in symbol_lapper.iter() {
                         if let SymbolType::FunctionDefinition(did) = entry.val {
                             if let Some(sig) = source.get(entry.start..entry.stop) {
-                                if let Some(name) = sig.split(|c: char| c == '(' || c == '{' || c.is_whitespace()).next() {
+                                if let Some(name) = sig
+                                    .split(|c: char| c == '(' || c == '{' || c.is_whitespace())
+                                    .next()
+                                {
                                     func_name_to_id.entry(name.to_string()).or_insert(did);
                                 }
                             }
@@ -2373,7 +2398,8 @@ impl McCode {
                     for entry in symbol_lapper.iter() {
                         if let SymbolType::FunctionRef(_mid) = entry.val {
                             if let Some(ref_name) = source.get(entry.start..entry.stop) {
-                                let ref_name = ref_name.trim_end_matches(|c: char| c == '(' || c == '{');
+                                let ref_name =
+                                    ref_name.trim_end_matches(|c: char| c == '(' || c == '{');
                                 if let Some(&fd_id) = func_name_to_id.get(ref_name) {
                                     patches.push((entry.start, entry.stop, fd_id));
                                 }
@@ -2381,7 +2407,11 @@ impl McCode {
                         }
                     }
                     for (s, e, fd_id) in patches {
-                        symbol_lapper.insert(Interval { start: s, stop: e, val: SymbolType::FunctionRef(fd_id) });
+                        symbol_lapper.insert(Interval {
+                            start: s,
+                            stop: e,
+                            val: SymbolType::FunctionRef(fd_id),
+                        });
                     }
 
                     // Second pass C: generate declare_instance cross_file_targets.
@@ -2393,18 +2423,29 @@ impl McCode {
                     // `lookup_sub_def()` instead of direct cross_file_targets entries.
                     {
                         // Build name→def_span from declare_instance with empty scope (top-level defs)
-                        let mut def_map: std::collections::HashMap<(String, String), (usize, usize)> =
-                            std::collections::HashMap::new();
+                        let mut def_map: std::collections::HashMap<
+                            (String, String),
+                            (usize, usize),
+                        > = std::collections::HashMap::new();
                         for entry in symbol_lapper.iter() {
                             if let SymbolType::DeclareInstance(_) = entry.val {
-                                let scope = sem.symbol_scope.get(&(entry.start, entry.stop))
-                                    .cloned().unwrap_or_default();
+                                let scope = sem
+                                    .symbol_scope
+                                    .get(&(entry.start, entry.stop))
+                                    .cloned()
+                                    .unwrap_or_default();
                                 if scope.is_empty() {
                                     if let Some(name) = source.get(entry.start..entry.stop) {
-                                        let bare = name.trim_end_matches(|c:char| c=='('||c=='{'||c==')'||c=='}');
-                                        let name = bare.split(|c:char| c==','||c.is_whitespace()).next().unwrap_or("");
+                                        let bare = name.trim_end_matches(|c: char| {
+                                            c == '(' || c == '{' || c == ')' || c == '}'
+                                        });
+                                        let name = bare
+                                            .split(|c: char| c == ',' || c.is_whitespace())
+                                            .next()
+                                            .unwrap_or("");
                                         if !name.is_empty() {
-                                            def_map.entry(("".to_string(), name.to_string()))
+                                            def_map
+                                                .entry(("".to_string(), name.to_string()))
                                                 .or_insert((entry.start, entry.stop));
                                         }
                                     }
@@ -2415,17 +2456,27 @@ impl McCode {
                         if let Ok(mut gtable) = sem.global_table.lock() {
                             for entry in symbol_lapper.iter() {
                                 if let SymbolType::DeclareInstance(did) = entry.val {
-                                    let scope = sem.symbol_scope.get(&(entry.start, entry.stop))
-                                        .cloned().unwrap_or_default();
-                                    if scope.is_empty() { continue; }
+                                    let scope = sem
+                                        .symbol_scope
+                                        .get(&(entry.start, entry.stop))
+                                        .cloned()
+                                        .unwrap_or_default();
+                                    if scope.is_empty() {
+                                        continue;
+                                    }
                                     if let Some(name) = source.get(entry.start..entry.stop) {
-                                        let bare = name.trim_end_matches(|c:char| c=='('||c=='{'||c==')'||c=='}');
-                                        let name = bare.split(|c:char| c==','||c.is_whitespace()).next().unwrap_or("");
+                                        let bare = name.trim_end_matches(|c: char| {
+                                            c == '(' || c == '{' || c == ')' || c == '}'
+                                        });
+                                        let name = bare
+                                            .split(|c: char| c == ',' || c.is_whitespace())
+                                            .next()
+                                            .unwrap_or("");
                                         // Try unscoped match (container-level instances only)
                                         let empty_key = ("".to_string(), name.to_string());
-                                        if let Some(&(def_s, def_e)) = def_map.get(&empty_key)
-                                        {
-                                            gtable.declare_inst_to_target_span
+                                        if let Some(&(def_s, def_e)) = def_map.get(&empty_key) {
+                                            gtable
+                                                .declare_inst_to_target_span
                                                 .entry(did)
                                                 .or_insert((self.uri.clone(), def_s..def_e));
                                         }

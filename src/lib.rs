@@ -81,15 +81,14 @@ pub use builder::{
 pub use builder::diagnostic::{
     Diagnostic as McDiagnostic, DiagnosticLevel, Location as McLocation,
 };
+pub use builder::{
+    lookup_sub_def, mcb_iter_components, mcb_iter_components_with_span, mcb_iter_enums,
+    mcb_iter_enums_with_span, mcb_iter_interfaces, mcb_iter_interfaces_with_span, mcb_iter_modules,
+    mcb_iter_modules_with_span, mcb_iter_ports, unified_lookup, SubElementKind,
+};
 pub use builder::{mcb_component_count, mcb_interface_count};
 pub use builder::{
     mcb_debug_get_cmie, mcb_get_module_def_by_name, mcb_get_module_with_diagnostics,
-};
-pub use builder::{
-    mcb_iter_components, mcb_iter_components_with_span, mcb_iter_enums, mcb_iter_enums_with_span,
-    mcb_iter_interfaces, mcb_iter_interfaces_with_span, mcb_iter_modules,
-    mcb_iter_modules_with_span, mcb_iter_ports,
-    unified_lookup, lookup_sub_def, SubElementKind,
 };
 
 // 🆕 New exports

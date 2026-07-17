@@ -4050,7 +4050,9 @@ pub fn handle_caps(_params: Option<Value>) -> RpcResult {
 
 pub fn handle_lookup(params: Option<Value>) -> RpcResult {
     #[derive(Deserialize)]
-    struct LookupParams { name: String }
+    struct LookupParams {
+        name: String,
+    }
     let p: LookupParams = parse_strict(params)?;
     match crate::unified_lookup(&p.name, &McURI::new()) {
         Some((uri, span)) => Ok(json!({"uri": uri, "span": [span.start, span.end]})),
@@ -4073,7 +4075,11 @@ pub fn handle_lookup_sub(params: Option<Value>) -> RpcResult {
     let parent_uri = McURI::from(p.parent_uri.as_str());
     let kind = match crate::SubElementKind::from_str(&p.kind) {
         Some(k) => k,
-        None => return Ok(json!({"uri": null, "span": null, "error": format!("Unknown kind: {}", p.kind)})),
+        None => {
+            return Ok(
+                json!({"uri": null, "span": null, "error": format!("Unknown kind: {}", p.kind)}),
+            )
+        }
     };
     match crate::lookup_sub_def(&parent_uri, p.container_name.as_deref(), kind, &p.name) {
         Some(span) => Ok(json!({"uri": parent_uri, "span": [span.start, span.end]})),

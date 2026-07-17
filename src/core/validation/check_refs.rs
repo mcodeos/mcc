@@ -93,6 +93,58 @@ fn check_bare_params(acc: &mut CheckAccumulator) {
     }
 }
 
+/// I3: label references whose target definition cannot be found in any scope.
+///
+/// Iterates module net phrases and flags label/port names that appear in
+/// connection expressions but don't match any known instance or parameter.
+fn check_label_refs(acc: &mut CheckAccumulator) {
+    let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
+    for entry in modules.iter() {
+        let uri = entry.key().uri.to_string();
+        if super::is_test_file(&uri) {
+            continue;
+        }
+        let m = entry.value();
+        let mod_name = entry.key().ident.to_string();
+
+        // Collect all known names in this module's scope
+        let mut known: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for name in m.insts.iter_instance_names() {
+            known.insert(name.to_string());
+        }
+        for name in m.params.names() {
+            known.insert(name);
+        }
+
+        // Check port refs: each ref should point to a known name
+        for (_span, port_name, _scope) in m.insts.iter_port_refs() {
+            if port_name.starts_with('@') {
+                continue; // Anonymous instances are self-defining
+            }
+            let ids = crate::core::basic::mc_ids::McIds::from(port_name.as_str());
+            let candidates = ids.expand();
+            let found = if candidates.is_empty() {
+                known.contains(port_name)
+            } else {
+                candidates.iter().any(|c| known.contains(c))
+            };
+            if !found {
+                acc.push(CheckResult {
+                    check_name: "ref-integrity",
+                    severity: CheckSeverity::Warning,
+                    uri: Some(uri.clone()),
+                    span: Some(m.span.start..m.span.end),
+                    message: format!(
+                        "Reference '{}' in module '{}' may not be defined in any visible scope.",
+                        port_name, mod_name
+                    ),
+                    code: 2310,
+                });
+            }
+        }
+    }
+}
+
 /// I1: references in spec/attr blocks to undeclared variables.
 fn check_spec_refs(acc: &mut CheckAccumulator) {
     let comps = crate::builder::workspace::WORKSPACE.components.borrow();
