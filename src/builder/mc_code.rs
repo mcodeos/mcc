@@ -1300,7 +1300,7 @@ impl McCode {
                 symbols
                     .local_table
                     .name_to_declare_id
-                    .get(&(String::new(), name.to_string()))
+                    .get(&(McURI::new(), String::new(), name.to_string()))
                     .copied()
             }
             Err(e) => {
@@ -1530,7 +1530,7 @@ impl McCode {
                             // ★ Register interface param refs from body expressions
                             // (e.g. `spec.voltage = volt` where volt is a param)
                             for (span, port_name, scope) in iface.params.iter_port_refs() {
-                                let scoped_key = (scope.clone(), port_name.clone());
+                                let scoped_key = (self.uri.clone(), scope.clone(), port_name.clone());
                                 if let Some(decl_id) =
                                     sem.local_table.name_to_declare_id.get(&scoped_key).copied()
                                 {
@@ -1585,7 +1585,7 @@ impl McCode {
                             }
                             // ★ Register interface param refs from body expressions
                             for (span, port_name, scope) in iface.params.iter_port_refs() {
-                                let scoped_key = (scope.clone(), port_name.clone());
+                                let scoped_key = (self.uri.clone(), scope.clone(), port_name.clone());
                                 if let Some(decl_id) =
                                     sem.local_table.name_to_declare_id.get(&scoped_key).copied()
                                 {
@@ -1671,7 +1671,7 @@ impl McCode {
                         }
                         // Register port references from net lines (e.g. GPIO1 - A references port GPIO1)
                         for (span, port_name, scope) in m.insts.iter_port_refs() {
-                            let scoped_key = (scope.clone(), port_name.clone());
+                            let scoped_key = (self.uri.clone(), scope.clone(), port_name.clone());
                             if let Some(decl_id) =
                                 sem.local_table.name_to_declare_id.get(&scoped_key).copied()
                             {
@@ -1686,7 +1686,7 @@ impl McCode {
                         }
                         // Register param port references from net lines
                         for (span, port_name, scope) in m.params.iter_port_refs() {
-                            let scoped_key = (scope.clone(), port_name.clone());
+                            let scoped_key = (self.uri.clone(), scope.clone(), port_name.clone());
                             if let Some(decl_id) =
                                 sem.local_table.name_to_declare_id.get(&scoped_key).copied()
                             {
@@ -1716,7 +1716,7 @@ impl McCode {
                         for func in m.funcs.iter() {
                             let _fscope = func.name.to_string();
                             for (span, port_name, scope) in func.params.iter_port_refs() {
-                                let scoped_key = (scope.clone(), port_name.clone());
+                                let scoped_key = (self.uri.clone(), scope.clone(), port_name.clone());
                                 if let Some(decl_id) =
                                     sem.local_table.name_to_declare_id.get(&scoped_key).copied()
                                 {
@@ -1792,7 +1792,7 @@ impl McCode {
                         // Component param references from body expressions
                         // (e.g. `spec.value = rs` where rs is a param)
                         for (span, port_name, scope) in comp.params.iter_port_refs() {
-                            let scoped_key = (scope.clone(), port_name.clone());
+                            let scoped_key = (self.uri.clone(), scope.clone(), port_name.clone());
                             if let Some(decl_id) =
                                 sem.local_table.name_to_declare_id.get(&scoped_key).copied()
                             {
@@ -2052,6 +2052,59 @@ impl McCode {
                         }
                         acc
                     };
+                    // Collect enclosing module/component names for the current file.
+                    // Module spans cover only the name, not the full body, so we
+                    // just collect all containers in this file.
+                    let uri_str = self.uri.as_str();
+                    // Collect enclosing module/component names for the current file.
+                    let mut container_names: Vec<String> = Vec::new();
+                    {
+                        let uri_str = self.uri.as_str();
+                        let modules = workspace::WORKSPACE.modules.borrow();
+                        for entry in modules.iter() {
+                            let key_uri = entry.key().uri.as_str();
+                            if key_uri == uri_str
+                                || key_uri.ends_with(uri_str)
+                                || uri_str.ends_with(key_uri)
+                            {
+                                container_names.push(entry.key().ident.to_string());
+                            }
+                        }
+                        let comps = workspace::WORKSPACE.components.borrow();
+                        for entry in comps.iter() {
+                            let key_uri = entry.key().uri.as_str();
+                            if key_uri == uri_str
+                                || key_uri.ends_with(uri_str)
+                                || uri_str.ends_with(key_uri)
+                            {
+                                container_names.push(entry.key().ident.to_string());
+                            }
+                        }
+                        // Also check global tables
+                        for entry in global::mcc_modules.borrow().iter() {
+                            let key_uri = entry.key().uri.as_str();
+                            if key_uri == uri_str
+                                || key_uri.ends_with(uri_str)
+                                || uri_str.ends_with(key_uri)
+                            {
+                                container_names.push(entry.key().ident.to_string());
+                            }
+                        }
+                        for entry in global::mcc_components.borrow().iter() {
+                            let key_uri = entry.key().uri.as_str();
+                            if key_uri == uri_str
+                                || key_uri.ends_with(uri_str)
+                                || uri_str.ends_with(key_uri)
+                            {
+                                container_names.push(entry.key().ident.to_string());
+                            }
+                        }
+                        tracing::info!(target: "mcc::lsp",
+                            "create_lapper scope: uri={uri_str}, found {} containers: {:?}",
+                            container_names.len(), container_names);
+                    }
+                    let default_container = container_names.first().cloned();
+
                     for node in &all_nodes {
                         let ntype = node.get_type();
                         if ntype == MCAST_FUNCTION {
@@ -2060,11 +2113,17 @@ impl McCode {
                                     name_node.get_pos() as usize,
                                     (name_node.get_pos() + name_node.get_len()) as usize,
                                 );
+                                let enclosing = default_container.clone();
+                                let func_name = crate::core::basic::mc_ids::McIds::new(&name_node)
+                                    .map(|ids| ids.to_string());
+                                let scope = match (&enclosing, &func_name) {
+                                    (Some(m), Some(f)) => Some(format!("{m}.{f}")),
+                                    _ => func_name.clone(),
+                                };
                                 let decl_id = sem.local_table.add_declare_with_name(
                                     span.0..span.1,
-                                    crate::core::basic::mc_ids::McIds::new(&name_node)
-                                        .map(|ids| ids.to_string()),
-                                    None,
+                                    func_name,
+                                    scope.as_deref(),
                                 );
                                 symbol_lapper.insert(Interval {
                                     start: span.0,
@@ -2076,10 +2135,12 @@ impl McCode {
                                     .get_sub_node()
                                     .and_then(|s| s.iter().find(|n| n.is_type(MCAST_PARAMS)))
                                 {
-                                    let func_scope =
+                                    // Use the same scope as FunctionDefinition (enclosing.funcName)
+                                    let func_scope = scope.clone().unwrap_or_else(|| {
                                         crate::core::basic::mc_ids::McIds::new(&name_node)
                                             .map(|ids| ids.to_string())
-                                            .unwrap_or_default();
+                                            .unwrap_or_default()
+                                    });
                                     for (pname, pspan) in
                                         Self::extract_func_param_spans(&params_node)
                                     {
@@ -2104,10 +2165,11 @@ impl McCode {
                                     name_node.get_pos() as usize,
                                     (name_node.get_pos() + name_node.get_len()) as usize,
                                 );
+                                let enclosing = default_container.clone();
                                 let decl_id = sem.local_table.add_declare_with_name(
                                     span.0..span.1,
                                     None,
-                                    None,
+                                    enclosing.as_deref(),
                                 );
                                 symbol_lapper.insert(Interval {
                                     start: span.0,
@@ -2121,10 +2183,11 @@ impl McCode {
                                     name_node.get_pos() as usize,
                                     (name_node.get_pos() + name_node.get_len()) as usize,
                                 );
+                                let enclosing = default_container.clone();
                                 let decl_id = sem.local_table.add_declare_with_name(
                                     span.0..span.1,
                                     None,
-                                    None,
+                                    enclosing.as_deref(),
                                 );
                                 symbol_lapper.insert(Interval {
                                     start: span.0,
@@ -2161,7 +2224,7 @@ impl McCode {
                                     // ID so gotodef can resolve local same-file jumps.
                                     let resolved_id = func_name
                                         .as_ref()
-                                        .and_then(|n| sem.local_table.name_to_declare_id.get(&("".to_string(), n.clone())))
+                                        .and_then(|n| sem.local_table.name_to_declare_id.get(&(McURI::new(), String::new(), n.clone())))
                                         .copied()
                                         .unwrap_or_else(|| {
                                             sem.local_table.add_declare_with_name(

@@ -1152,6 +1152,20 @@ pub(crate) fn mcb_get_cmie_with_uri(class_name: &McIds, uri: &McURI) -> Option<(
     Some((cmie, source_uri))
 }
 
+/// Unified lookup for pass1/pass2 and F12 — returns (uri, span) for goto-def.
+/// Reuses Tier 1–4 resolution from mcb_get_cmie.
+pub fn unified_lookup(class_name: &str, from_uri: &McURI) -> Option<(McURI, Span)> {
+    let ids = McIds::from(class_name);
+    let (cmie, source_uri) = mcb_get_cmie_with_uri(&ids, from_uri)?;
+    let span = match &cmie {
+        McCMIE::Component(c) => c.span.clone(),
+        McCMIE::Module(m) => m.span.clone(),
+        McCMIE::Interface(i) => i.span.clone(),
+        McCMIE::Enum(e) => e.span[0] as usize..e.span[1] as usize,
+    };
+    Some((source_uri, span))
+}
+
 /// Find source URI of component definition
 fn find_component_uri(class_name: &McIds) -> Option<McURI> {
     let name_str = class_name.to_string();

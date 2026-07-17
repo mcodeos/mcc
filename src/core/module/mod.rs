@@ -686,6 +686,8 @@ impl McModule {
                     } else if params.is_defined(&text) {
                         params.record_port_ref(span, &text, scope);
                     }
+                    // Note: no else-branch diagnostic here — leaf nodes may be
+                    // class refs or instance refs resolved elsewhere.
                 }
             }
             // MCAST_OPD wraps an operand — extract the inner identifier directly.
