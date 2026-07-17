@@ -4035,12 +4035,27 @@ pub fn handle_caps(_params: Option<Value>) -> RpcResult {
             "lib.install", "lib.uninstall", "lib.search",
             "defs.search", "defs.query",
             "export", "explain", "def", "erc", "refs", "caps",
+            "lookup",
             "trace.set", "trace.get",
             "sem", "diagnostics",
             "project_symbols", "set_project_root", "set_system_root",
             "init", "load_project", "add_file", "remove_file"
         ]
     }))
+}
+
+// ============================================================================
+// Unified Lookup (F12/pass1-pass2)
+// ============================================================================
+
+pub fn handle_lookup(params: Option<Value>) -> RpcResult {
+    #[derive(Deserialize)]
+    struct LookupParams { name: String }
+    let p: LookupParams = parse_strict(params)?;
+    match crate::unified_lookup(&p.name, &McURI::new()) {
+        Some((uri, span)) => Ok(json!({"uri": uri, "span": [span.start, span.end]})),
+        None => Ok(json!({"uri": null, "span": null})),
+    }
 }
 
 // ============================================================================

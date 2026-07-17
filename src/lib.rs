@@ -89,6 +89,7 @@ pub use builder::{
     mcb_iter_components, mcb_iter_components_with_span, mcb_iter_enums, mcb_iter_enums_with_span,
     mcb_iter_interfaces, mcb_iter_interfaces_with_span, mcb_iter_modules,
     mcb_iter_modules_with_span, mcb_iter_ports,
+    unified_lookup,
 };
 
 // 🆕 New exports

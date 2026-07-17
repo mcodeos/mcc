@@ -428,7 +428,7 @@ impl AstNode {
                     None
                 }
             }
-            MCAST_IOTYPE_IN..MCAST_IOTYPE_NC | MCAST_IOTYPE_LABEL => {
+            MCAST_IOTYPE_IN..=MCAST_IOTYPE_NC | MCAST_IOTYPE_LABEL => {
                 self.data_as_cstr()?.to_str().ok().map(|s| s.to_string())
             }
 

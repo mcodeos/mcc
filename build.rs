@@ -6,6 +6,10 @@ use std::fs;
 use std::path::PathBuf;
 
 fn main() {
+    // Rerun when any C source / header under src/ast/c changes (cp.sh updates).
+    // NOTE: cargo only reads `cargo:` directives from stdout — must use println!.
+    println!("cargo:rerun-if-changed=src/ast/c");
+
     // add C source files
     let mut build = cc::Build::new();
     build
@@ -30,12 +34,12 @@ fn main() {
     // 3. check zcp.sh script exists and add warning message
     let zcp_path = PathBuf::from("mc/mcode/zcp.sh");
     if zcp_path.exists() {
-        eprintln!("cargo:warning=Please run 'bash mc/mcode/zcp.sh' manually to copy mcode files to your user directory.");
-        eprintln!(
+        println!("cargo:warning=Please run 'bash mc/mcode/zcp.sh' manually to copy mcode files to your user directory.");
+        println!(
             "cargo:warning=This step is required for the MCODE system to function correctly."
         );
     } else {
-        eprintln!(
+        println!(
             "cargo:warning=zcp.sh script not found. Please ensure it exists at mc/mcode/zcp.sh"
         );
     }
@@ -43,7 +47,7 @@ fn main() {
 
 fn generate_macros_from_header() {
     let header_path = "src/ast/c/astdef.h";
-    eprintln!("cargo:rerun-if-changed={}", header_path);
+    println!("cargo:rerun-if-changed={}", header_path);
 
     let header_content = match fs::read_to_string(header_path) {
         Ok(content) => content,
@@ -84,7 +88,7 @@ fn generate_macros_from_header() {
     if let Err(e) = fs::write(&out_path, rust_code) {
         eprintln!("Error writing c_macros.rs: {}", e);
     } else {
-        eprintln!(
+        println!(
             "cargo:warning=Generated {} - remember to commit this file!",
             out_path.display()
         );

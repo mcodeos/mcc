@@ -78,7 +78,7 @@ pub struct LocalSymbolTable {
     pub declare_inst_to_span: HashMap<DeclareId, Span>,
     pub span_to_declare_inst: HashMap<Span, DeclareId>,
     pub declare_inst_to_inst_ids: HashMap<DeclareId, Vec<ReferenceId>>,
-    pub name_to_declare_id: HashMap<(String, String), DeclareId>, // ★ LSP: (cmie_name, port_name) -> declare_id
+    pub name_to_declare_id: HashMap<(McURI, String, String), DeclareId>, // ★ LSP: (uri, scope, name) -> declare_id
 
     pub inst_id_to_span: HashMap<ReferenceId, Span>,
     pub span_to_inst_id: HashMap<Span, ReferenceId>,
@@ -127,9 +127,35 @@ impl LocalSymbolTable {
         if let Some(n) = name {
             let scope_key = scope.unwrap_or("");
             self.name_to_declare_id
-                .insert((scope_key.to_string(), n), declare_id);
+                .insert((McURI::new(), scope_key.to_string(), n), declare_id);
         }
         declare_id
+    }
+
+    /// Register with full (uri, scope, name) key for cross-file scope isolation.
+    pub fn add_declare_scoped(
+        &mut self,
+        uri: &McURI,
+        span: Span,
+        name: Option<String>,
+        scope: Option<&str>,
+    ) -> DeclareId {
+        let declare_id = self.assign_declare_id();
+        self.declare_inst_to_span.insert(declare_id, span.clone());
+        self.span_to_declare_inst.insert(span, declare_id);
+        if let Some(n) = name {
+            let scope_key = scope.unwrap_or("");
+            self.name_to_declare_id
+                .insert((uri.clone(), scope_key.to_string(), n), declare_id);
+        }
+        declare_id
+    }
+
+    /// Lookup with URI-aware scope.
+    pub fn lookup_scoped(&self, uri: &McURI, scope: &str, name: &str) -> Option<DeclareId> {
+        self.name_to_declare_id
+            .get(&(uri.clone(), scope.to_string(), name.to_string()))
+            .copied()
     }
 
     pub fn add_inst(&mut self, span: Span, declr_id: DeclareId) {
@@ -165,7 +191,7 @@ pub struct GlobalSymbolTable {
     pub declare_id_to_class_id: HashMap<ReferenceId, DeclareId>,       //
 
     // ★ LSP: Global instance declaration table (shared across all files)
-    pub global_inst_name_to_id: HashMap<(McURI, String), DeclareId>, // (uri, name) -> decl_id
+    pub global_inst_name_to_id: HashMap<(McURI, String, String), DeclareId>, // (uri, scope, name) -> decl_id
     pub global_inst_id_to_span: HashMap<DeclareId, (McURI, Span)>,   // decl_id -> (uri, span)
 
     // ★ LSP: Declare class -> target definition span (cross-file)
@@ -373,10 +399,14 @@ impl GlobalSymbolTable {
 
     // ★ LSP: Add global instance declaration (shared across all files)
     pub fn add_global_inst(&mut self, uri: &McURI, name: &str, span: Span) -> DeclareId {
+        self.add_global_inst_scoped(uri, name, "", span)
+    }
+
+    pub fn add_global_inst_scoped(&mut self, uri: &McURI, name: &str, scope: &str, span: Span) -> DeclareId {
         let decl_id = self.global_inst_counter;
         self.global_inst_counter += 1;
         self.global_inst_name_to_id
-            .insert((uri.clone(), name.to_string()), decl_id);
+            .insert((uri.clone(), scope.to_string(), name.to_string()), decl_id);
         self.global_inst_id_to_span
             .insert(decl_id, (uri.clone(), span));
         decl_id
@@ -385,7 +415,14 @@ impl GlobalSymbolTable {
     // ★ LSP: Look up global instance declaration by name
     pub fn get_global_inst(&self, uri: &McURI, name: &str) -> Option<DeclareId> {
         self.global_inst_name_to_id
-            .get(&(uri.clone(), name.to_string()))
+            .iter()
+            .find(|((u, _s, n), _)| u == uri && n == name)
+            .map(|(_, &id)| id)
+    }
+
+    pub fn get_global_inst_scoped(&self, uri: &McURI, scope: &str, name: &str) -> Option<DeclareId> {
+        self.global_inst_name_to_id
+            .get(&(uri.clone(), scope.to_string(), name.to_string()))
             .copied()
     }
 }
