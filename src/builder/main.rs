@@ -1875,6 +1875,7 @@ pub fn mcb_iter_ports() -> Vec<(String, String, String, String)> {
                 IOType::Out => "output".to_string(),
                 IOType::InOut => "inout".to_string(),
                 IOType::Analog => "analog".to_string(),
+                IOType::Label => "label".to_string(),
                 IOType::Return | IOType::NonCon | IOType::None => continue, // Skip non-port declarations
             };
             ports.push((name.to_string(), io_name, module_name.clone(), uri.clone()));
@@ -2202,6 +2203,15 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
             .push((span, class_id, target_uri, target_span));
         tracing::info!(target: "mcc::lsp", "Registered declare_class: {} at {:?} -> class_id={:?}", class_name, span_clone, class_id);
     } else {
+        // ★ Diagnostic: class definition not found — emit warning for IDE.
+        crate::builder::diagnostic::diagnostic_log(
+            1601,
+            crate::builder::diagnostic::DiagnosticLevel::Error,
+            span.start as u32,
+            (span.end - span.start) as u32,
+            &format!("class '{}' not found", class_name),
+            &[],
+        );
         // ★ LSP: Even without cross-file resolution, register the class-name
         // span as a declare_class entry in the lapper.  This lets mcext's
         // F12 handler pick it up and resolve via project index.

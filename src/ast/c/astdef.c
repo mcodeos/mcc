@@ -283,7 +283,6 @@ void mcc_clear_error_tokens()
     g_error_token_list = NULL;
     g_error_token_list_tail = NULL;
 }
-
 void mc_error_token_print()
 {
     mprintf(MCC_LOG_ERROR, "\n------------------------------------------------------------\n[error tokens]\n");

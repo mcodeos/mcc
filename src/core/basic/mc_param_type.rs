@@ -10,7 +10,7 @@
 //!   Category C: Basic Data Types (STRING, INT, HEX, FLOAT, ENUM)
 //!   Keyword: role (container expansion, independent of A/B/C)
 //!
-//! Direction (in/out/io/ps/anl/nc) is an orthogonal modifier stored as
+//! Direction (in/out/io/ps/anl/nc/label) is an orthogonal modifier stored as
 //! `direction: Option<McIoTy>`, not a separate variant.
 
 use super::mc_uval::McUnit;
@@ -109,6 +109,7 @@ pub enum McIoTy {
     PowerSupply,
     Analog,
     NotConnected,
+    Label,
 }
 
 impl McIoTy {
@@ -122,6 +123,7 @@ impl McIoTy {
             MCAST_IOTYPE_PS => Some(Self::PowerSupply),
             MCAST_IOTYPE_ANL => Some(Self::Analog),
             MCAST_IOTYPE_NC => Some(Self::NotConnected),
+            MCAST_IOTYPE_LABEL => Some(Self::Label),
             _ => None,
         }
     }
@@ -134,6 +136,7 @@ impl McIoTy {
             Self::PowerSupply => "ps",
             Self::Analog => "anl",
             Self::NotConnected => "nc",
+            Self::Label => "label",
         }
     }
 }

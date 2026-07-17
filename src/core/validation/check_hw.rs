@@ -435,7 +435,7 @@ fn check_single_ioc_type_component(acc: &mut CheckAccumulator) {
                 IOType::Analog => has_anl = true,
                 IOType::NonCon => has_nc = true,
                 IOType::InOut => has_io = true,
-                IOType::Return | IOType::None => {} // these don't indicate direction
+                IOType::Return | IOType::None | IOType::Label => {} // these don't indicate direction
             }
         }
 

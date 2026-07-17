@@ -58,6 +58,7 @@
 #define MCAST_IOTYPE_PS                43
 #define MCAST_IOTYPE_ANL               44
 #define MCAST_IOTYPE_NC                45
+#define MCAST_IOTYPE_LABEL             93 // 46+ already taken; 93 is the next free id in section 3
 
 //3.1 attr
 #define MCAST_ATT_ID                   46

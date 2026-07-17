@@ -80,6 +80,7 @@ impl fmt::Display for NetPoint {
             IOType::Analog => write!(f, "(anl)"),
             IOType::Return => write!(f, "(return)"),
             IOType::NonCon => write!(f, "(nc)"),
+            IOType::Label => write!(f, "(label)"),
             IOType::None => Ok(()),
         }
     }

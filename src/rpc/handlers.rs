@@ -1325,6 +1325,7 @@ fn iotype_str(io: &crate::IOType) -> &'static str {
         Analog => "analog",
         Return => "return",
         NonCon => "noncon",
+        Label => "label",
         None => "none",
     }
 }
