@@ -226,6 +226,24 @@ impl Layouter for FlowLayouter {
         // 旧路径照跑：模型命中时被 ladder_place 完全覆盖，模型 bail 时兜底
         super::two_lane_ladder::try_two_lane_ladder(graph);
 
+        // ── M11 Idiom-aware placement (pre-pin) ──
+        // 在 phase_placement 之后、pin_place_pipeline 之前移动 satellite 器件。
+        // 只移动 cap/resistor 等 satellite，不移动 IC/connector/module 等 anchor。
+        // 跳过 ladder-locked (geom_locked) 的盒子。
+        {
+            let protected: std::collections::HashSet<i64> = graph
+                .boxes
+                .iter()
+                .filter(|b| b.geom_locked)
+                .map(|b| b.id)
+                .collect();
+            let model = crate::viz::idiom::place::analyze_idiom_placement(graph, &protected);
+            let report = crate::viz::idiom::place::apply_idiom_placement_pre_pins(graph, &model);
+            if report.idioms_detected > 0 {
+                eprintln!("{}", report.report_line());
+            }
+        }
+
         // ── 相位 4 · PinPlacement：EntryPoint 唯一写者 + hub 几何唯一终定者 ──
         super::pin_place::pin_place_pipeline(graph, Some(root_id), true, self.hub_keep_semantic);
         probe_degenerate_boxes(graph, "after pin_place");

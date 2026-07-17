@@ -1163,12 +1163,13 @@ fn collect_pass1(_uri: &str, include_system: bool) -> Value {
     let (modules, components, interfaces, enums) = if include_system {
         (all_modules, all_components, all_interfaces, all_enums)
     } else {
-        let filter = |items: Vec<(String, String, [usize; 2])>| -> Vec<(String, String, [usize; 2])> {
-            items
-                .into_iter()
-                .filter(|(_, uri, _)| !is_system_uri(uri))
-                .collect()
-        };
+        let filter =
+            |items: Vec<(String, String, [usize; 2])>| -> Vec<(String, String, [usize; 2])> {
+                items
+                    .into_iter()
+                    .filter(|(_, uri, _)| !is_system_uri(uri))
+                    .collect()
+            };
         (
             filter(all_modules),
             filter(all_components),
@@ -1369,7 +1370,9 @@ fn is_system_uri(uri: &str) -> bool {
     uri.contains("/mcode/") || uri.contains("\\mcode\\")
 }
 
-fn collect_definitions(items: Vec<(String, String, [usize; 2])>) -> Vec<(String, String, [usize; 2])> {
+fn collect_definitions(
+    items: Vec<(String, String, [usize; 2])>,
+) -> Vec<(String, String, [usize; 2])> {
     items
 }
 

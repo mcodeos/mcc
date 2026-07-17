@@ -1693,7 +1693,11 @@ pub fn mcb_iter_modules_with_span() -> Vec<(String, String, [usize; 2])> {
         .iter()
         .map(|entry| {
             let span = &entry.value().span;
-            (entry.key().ident.to_string(), entry.key().uri.clone(), [span.start, span.end])
+            (
+                entry.key().ident.to_string(),
+                entry.key().uri.clone(),
+                [span.start, span.end],
+            )
         })
         .collect()
 }
@@ -1720,7 +1724,11 @@ pub fn mcb_iter_components_with_span() -> Vec<(String, String, [usize; 2])> {
         .chain(global::mcc_components.borrow().iter())
         .map(|entry| {
             let span = &entry.value().span;
-            (entry.key().ident.to_string(), entry.key().uri.clone(), [span.start, span.end])
+            (
+                entry.key().ident.to_string(),
+                entry.key().uri.clone(),
+                [span.start, span.end],
+            )
         })
         .collect();
     items.sort_by(|a, b| a.0.cmp(&b.0));
@@ -1749,7 +1757,11 @@ pub fn mcb_iter_interfaces_with_span() -> Vec<(String, String, [usize; 2])> {
         .chain(global::mcc_interfaces.borrow().iter())
         .map(|entry| {
             let span = &entry.value().span;
-            (entry.key().ident.to_string(), entry.key().uri.clone(), [span.start, span.end])
+            (
+                entry.key().ident.to_string(),
+                entry.key().uri.clone(),
+                [span.start, span.end],
+            )
         })
         .collect();
     items.sort_by(|a, b| a.0.cmp(&b.0));

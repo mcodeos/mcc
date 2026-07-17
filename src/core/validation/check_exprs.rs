@@ -304,7 +304,13 @@ fn check_reversed_range(acc: &mut CheckAccumulator) {
         let comp_span = comp.span.start..comp.span.end;
         for attr in comp.attrs.iter() {
             for val in &attr.values {
-                check_val_for_reversed_range(val, &uri, entry.key().ident.to_string(), comp_span.clone(), acc);
+                check_val_for_reversed_range(
+                    val,
+                    &uri,
+                    entry.key().ident.to_string(),
+                    comp_span.clone(),
+                    acc,
+                );
             }
         }
     }
@@ -324,7 +330,13 @@ fn check_val_for_reversed_range(
         crate::core::component::mc_attr::McAttrVal::Attributes(attrs) => {
             for child in attrs.iter() {
                 for child_val in &child.values {
-                    check_val_for_reversed_range(child_val, uri, comp_name.clone(), comp_span.clone(), acc);
+                    check_val_for_reversed_range(
+                        child_val,
+                        uri,
+                        comp_name.clone(),
+                        comp_span.clone(),
+                        acc,
+                    );
                 }
             }
         }
