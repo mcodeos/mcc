@@ -25,6 +25,7 @@ impl ValidationCheck for RefIntegrityCheck {
         check_bare_params(acc); // I2
         check_spec_refs(acc); // I1
         check_comp_func_unused_params(acc); // B1 for component funcs
+        check_label_refs(acc); // I3: label refs not found
     }
 }
 

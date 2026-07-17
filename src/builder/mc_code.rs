@@ -1699,6 +1699,33 @@ impl McCode {
                                     .insert((span.start, span.end), scope.clone());
                             }
                         }
+                        // ★ Label definitions (explicit + inline) for LSP goto-def
+                        let mod_ident_label = entry.key().ident.to_string();
+                        for (name, _label_kind, span) in m.insts.iter_labels_with_span() {
+                            let decl_id = sem.local_table.add_declare_with_name(
+                                span.clone(),
+                                Some(name.to_string()),
+                                Some(&mod_ident_label),
+                            );
+                            symbol_lapper.insert(Interval {
+                                start: span.start,
+                                stop: span.end,
+                                val: SymbolType::LabelDefinition(decl_id),
+                            });
+                            sem.symbol_scope
+                                .insert((span.start, span.end), mod_ident_label.clone());
+                            // ★ Register in global instance table for cross-file lookup
+                            if let Ok(mut ginst) =
+                                crate::builder::workspace::WORKSPACE.global_inst_table.lock()
+                            {
+                                ginst.add(
+                                    self.uri.as_str(),
+                                    Some(&mod_ident_label),
+                                    name,
+                                    span.clone(),
+                                );
+                            }
+                        }
                     }
                 }
 
@@ -1714,7 +1741,7 @@ impl McCode {
                             continue;
                         }
                         for func in m.funcs.iter() {
-                            let _fscope = func.name.to_string();
+                            let fscope = func.name.to_string();
                             for (span, port_name, scope) in func.params.iter_port_refs() {
                                 let scoped_key = (self.uri.clone(), scope.clone(), port_name.clone());
                                 if let Some(decl_id) =
@@ -1727,6 +1754,33 @@ impl McCode {
                                     });
                                     sem.symbol_scope
                                         .insert((span.start, span.end), scope.clone());
+                                }
+                            }
+                            // ★ Label definitions within function body
+                            let func_scope = func.insts.scope.clone().unwrap_or_else(|| fscope.clone());
+                            for (name, _label_kind, span) in func.insts.iter_labels_with_span() {
+                                let decl_id = sem.local_table.add_declare_with_name(
+                                    span.clone(),
+                                    Some(name.to_string()),
+                                    Some(&func_scope),
+                                );
+                                symbol_lapper.insert(Interval {
+                                    start: span.start,
+                                    stop: span.end,
+                                    val: SymbolType::LabelDefinition(decl_id),
+                                });
+                                sem.symbol_scope
+                                    .insert((span.start, span.end), func_scope.clone());
+                                // ★ Register in global instance table for cross-file lookup
+                                if let Ok(mut ginst) =
+                                    crate::builder::workspace::WORKSPACE.global_inst_table.lock()
+                                {
+                                    ginst.add(
+                                        self.uri.as_str(),
+                                        Some(&func_scope),
+                                        name,
+                                        span.clone(),
+                                    );
                                 }
                             }
                         }
@@ -1803,6 +1857,33 @@ impl McCode {
                                 });
                                 sem.symbol_scope
                                     .insert((span.start, span.end), scope.clone());
+                            }
+                        }
+                        // ★ Label definitions for components
+                        let comp_ident_label = entry.key().ident.to_string();
+                        for (name, _label_kind, span) in comp.insts.iter_labels_with_span() {
+                            let decl_id = sem.local_table.add_declare_with_name(
+                                span.clone(),
+                                Some(name.to_string()),
+                                Some(&comp_ident_label),
+                            );
+                            symbol_lapper.insert(Interval {
+                                start: span.start,
+                                stop: span.end,
+                                val: SymbolType::LabelDefinition(decl_id),
+                            });
+                            sem.symbol_scope
+                                .insert((span.start, span.end), comp_ident_label.clone());
+                            // ★ Register in global instance table for cross-file lookup
+                            if let Ok(mut ginst) =
+                                crate::builder::workspace::WORKSPACE.global_inst_table.lock()
+                            {
+                                ginst.add(
+                                    self.uri.as_str(),
+                                    Some(&comp_ident_label),
+                                    name,
+                                    span.clone(),
+                                );
                             }
                         }
                     }
@@ -2305,26 +2386,15 @@ impl McCode {
 
                     // Second pass C: generate declare_instance cross_file_targets.
                     // For each declare_instance with non-empty scope (usage-side),
-                    // find the matching definition (PortDefinition with same scope+name,
-                    // or declare_instance with empty scope+same name).
+                    // find the matching definition (declare_instance with empty scope+same name).
+                    //
+                    // NOTE: PortDefinition-based sub-element linking has been removed.
+                    // Sub-element (port/param/pin) lookup now goes through Phase 2
+                    // `lookup_sub_def()` instead of direct cross_file_targets entries.
                     {
-                        // Build name→def_span from PortDefinition entries (scoped definitions)
+                        // Build name→def_span from declare_instance with empty scope (top-level defs)
                         let mut def_map: std::collections::HashMap<(String, String), (usize, usize)> =
                             std::collections::HashMap::new();
-                        for entry in symbol_lapper.iter() {
-                            if let SymbolType::PortDefinition(_) = entry.val {
-                                if let Some(scope) = sem.symbol_scope.get(&(entry.start, entry.stop)) {
-                                    if !scope.is_empty() {
-                                        if let Some(name) = source.get(entry.start..entry.stop) {
-                                            let name = name.split(|c:char| c=='('||c=='{'||c.is_whitespace()).next().unwrap_or("");
-                                            def_map.entry((scope.clone(), name.to_string()))
-                                                .or_insert((entry.start, entry.stop));
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        // Also from declare_instance with empty scope (constructor param defs)
                         for entry in symbol_lapper.iter() {
                             if let SymbolType::DeclareInstance(_) = entry.val {
                                 let scope = sem.symbol_scope.get(&(entry.start, entry.stop))
@@ -2351,11 +2421,9 @@ impl McCode {
                                     if let Some(name) = source.get(entry.start..entry.stop) {
                                         let bare = name.trim_end_matches(|c:char| c=='('||c=='{'||c==')'||c=='}');
                                         let name = bare.split(|c:char| c==','||c.is_whitespace()).next().unwrap_or("");
-                                        // Try scoped match first, then unscoped
-                                        let key = (scope.clone(), name.to_string());
+                                        // Try unscoped match (container-level instances only)
                                         let empty_key = ("".to_string(), name.to_string());
-                                        if let Some(&(def_s, def_e)) = def_map.get(&key)
-                                            .or_else(|| def_map.get(&empty_key))
+                                        if let Some(&(def_s, def_e)) = def_map.get(&empty_key)
                                         {
                                             gtable.declare_inst_to_target_span
                                                 .entry(did)

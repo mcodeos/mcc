@@ -4035,7 +4035,7 @@ pub fn handle_caps(_params: Option<Value>) -> RpcResult {
             "lib.install", "lib.uninstall", "lib.search",
             "defs.search", "defs.query",
             "export", "explain", "def", "erc", "refs", "caps",
-            "lookup",
+            "lookup", "lookup_sub",
             "trace.set", "trace.get",
             "sem", "diagnostics",
             "project_symbols", "set_project_root", "set_system_root",
@@ -4054,6 +4054,29 @@ pub fn handle_lookup(params: Option<Value>) -> RpcResult {
     let p: LookupParams = parse_strict(params)?;
     match crate::unified_lookup(&p.name, &McURI::new()) {
         Some((uri, span)) => Ok(json!({"uri": uri, "span": [span.start, span.end]})),
+        None => Ok(json!({"uri": null, "span": null})),
+    }
+}
+
+/// Lookup a sub-element (pin, port, param, label) within a parent container.
+pub fn handle_lookup_sub(params: Option<Value>) -> RpcResult {
+    #[derive(Deserialize)]
+    struct LookupSubParams {
+        #[serde(rename = "parentUri")]
+        parent_uri: String,
+        #[serde(rename = "containerName")]
+        container_name: Option<String>,
+        kind: String,
+        name: String,
+    }
+    let p: LookupSubParams = parse_strict(params)?;
+    let parent_uri = McURI::from(p.parent_uri.as_str());
+    let kind = match crate::SubElementKind::from_str(&p.kind) {
+        Some(k) => k,
+        None => return Ok(json!({"uri": null, "span": null, "error": format!("Unknown kind: {}", p.kind)})),
+    };
+    match crate::lookup_sub_def(&parent_uri, p.container_name.as_deref(), kind, &p.name) {
+        Some(span) => Ok(json!({"uri": parent_uri, "span": [span.start, span.end]})),
         None => Ok(json!({"uri": null, "span": null})),
     }
 }

@@ -13,6 +13,7 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::error::Error;
 use std::fs;
+use std::ops::Range;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{debug, trace, warn};
@@ -1164,6 +1165,289 @@ pub fn unified_lookup(class_name: &str, from_uri: &McURI) -> Option<(McURI, Span
         McCMIE::Enum(e) => e.span[0] as usize..e.span[1] as usize,
     };
     Some((source_uri, span))
+}
+
+// ============================================================================
+// Phase 2: Sub-element lookup (container-internal)
+// ============================================================================
+
+/// Kinds of sub-elements that can be looked up within a parent container.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubElementKind {
+    /// Component pin (e.g. `PA1` within `MCU.US513_20_F`)
+    Pin,
+    /// Module/component port in instances (e.g. `io VDD` within module)
+    Port,
+    /// Parameter declared in params section
+    Param,
+    /// Enum value within an enum definition
+    EnumValue,
+    /// Function defined within a module/component
+    Func,
+    /// Label (explicit or inline) within a module/component/function
+    Label,
+}
+
+impl SubElementKind {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "pin" => Some(Self::Pin),
+            "port" => Some(Self::Port),
+            "param" => Some(Self::Param),
+            "enum_value" => Some(Self::EnumValue),
+            "func" => Some(Self::Func),
+            "label" => Some(Self::Label),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pin => "pin",
+            Self::Port => "port",
+            Self::Param => "param",
+            Self::EnumValue => "enum_value",
+            Self::Func => "func",
+            Self::Label => "label",
+        }
+    }
+}
+
+/// Phase 2 lookup: find a sub-element (pin, port, param, enum value, func, label)
+/// within a parent container identified by its definition URI and optional name.
+///
+/// Returns the byte range of the sub-element within the container's source file.
+pub fn lookup_sub_def(
+    parent_uri: &McURI,
+    container_name: Option<&str>,
+    kind: SubElementKind,
+    name: &str,
+) -> Option<Range<usize>> {
+    let uri_str = parent_uri.as_str();
+
+    // ── Components ──
+    for entry in workspace::WORKSPACE.components.borrow().iter() {
+        let key = entry.key();
+        if key.uri.as_str() != uri_str {
+            continue;
+        }
+        if let Some(cn) = container_name {
+            if key.ident.to_string() != cn {
+                continue;
+            }
+        }
+        if let Some(span) = lookup_in_component(entry.value(), kind, name) {
+            return Some(span);
+        }
+    }
+    for entry in global::mcc_components.borrow().iter() {
+        let key = entry.key();
+        if key.uri.as_str() != uri_str {
+            continue;
+        }
+        if let Some(cn) = container_name {
+            if key.ident.to_string() != cn {
+                continue;
+            }
+        }
+        if let Some(span) = lookup_in_component(entry.value(), kind, name) {
+            return Some(span);
+        }
+    }
+
+    // ── Modules ──
+    for entry in workspace::WORKSPACE.modules.borrow().iter() {
+        let key = entry.key();
+        if key.uri.as_str() != uri_str {
+            continue;
+        }
+        if let Some(cn) = container_name {
+            if key.ident.to_string() != cn {
+                continue;
+            }
+        }
+        if let Some(span) = lookup_in_module(entry.value(), kind, name) {
+            return Some(span);
+        }
+    }
+    for entry in global::mcc_modules.borrow().iter() {
+        let key = entry.key();
+        if key.uri.as_str() != uri_str {
+            continue;
+        }
+        if let Some(cn) = container_name {
+            if key.ident.to_string() != cn {
+                continue;
+            }
+        }
+        if let Some(span) = lookup_in_module(entry.value(), kind, name) {
+            return Some(span);
+        }
+    }
+
+    // ── Interfaces ──
+    for entry in workspace::WORKSPACE.interfaces.borrow().iter() {
+        let key = entry.key();
+        if key.uri.as_str() != uri_str {
+            continue;
+        }
+        if let Some(cn) = container_name {
+            if key.ident.to_string() != cn {
+                continue;
+            }
+        }
+        if let Some(span) = lookup_in_interface(entry.value(), kind, name) {
+            return Some(span);
+        }
+    }
+    for entry in global::mcc_interfaces.borrow().iter() {
+        let key = entry.key();
+        if key.uri.as_str() != uri_str {
+            continue;
+        }
+        if let Some(cn) = container_name {
+            if key.ident.to_string() != cn {
+                continue;
+            }
+        }
+        if let Some(span) = lookup_in_interface(entry.value(), kind, name) {
+            return Some(span);
+        }
+    }
+
+    // ── Enums ──
+    for entry in workspace::WORKSPACE.enums.borrow().iter() {
+        let key = entry.key();
+        if key.uri.as_str() != uri_str {
+            continue;
+        }
+        if let Some(cn) = container_name {
+            if key.ident.to_string() != cn {
+                continue;
+            }
+        }
+        if let Some(span) = lookup_in_enum(entry.value(), kind, name) {
+            return Some(span);
+        }
+    }
+    for entry in global::mcc_enums.borrow().iter() {
+        let key = entry.key();
+        if key.uri.as_str() != uri_str {
+            continue;
+        }
+        if let Some(cn) = container_name {
+            if key.ident.to_string() != cn {
+                continue;
+            }
+        }
+        if let Some(span) = lookup_in_enum(entry.value(), kind, name) {
+            return Some(span);
+        }
+    }
+
+    None
+}
+
+/// Helper: find a param def span by name using the public iterator.
+fn find_param_def_span(params: &crate::core::basic::mc_param::McParamDeclares, name: &str) -> Option<Range<usize>> {
+    for (n, span) in params.iter_defs_with_span() {
+        if n == name {
+            return Some(span);
+        }
+    }
+    None
+}
+
+/// Helper: find a param port span by name using the public iterator.
+fn find_param_port_span(params: &crate::core::basic::mc_param::McParamDeclares, name: &str) -> Option<Range<usize>> {
+    for (n, span) in params.iter_ports_with_span() {
+        if n == name {
+            return Some(span);
+        }
+    }
+    None
+}
+
+/// Look up a sub-element within a [`McComponent`].
+fn lookup_in_component(
+    comp: &crate::core::component::McComponent,
+    kind: SubElementKind,
+    name: &str,
+) -> Option<Range<usize>> {
+    match kind {
+        SubElementKind::Pin => comp.pins.pin_name_spans.get(name).cloned(),
+        SubElementKind::Port | SubElementKind::Label => {
+            // Component-level insts (labels, buses)
+            comp.insts.get_port_span(name)
+        }
+        SubElementKind::Param => find_param_def_span(&comp.params, name),
+        SubElementKind::Func => {
+            // Function span: we don't have a span on McFunction, so return None.
+            // Callers should use the lapper entry for function definitions.
+            None
+        }
+        SubElementKind::EnumValue => None,
+    }
+}
+
+/// Look up a sub-element within a [`McModule`].
+fn lookup_in_module(
+    module: &McModule,
+    kind: SubElementKind,
+    name: &str,
+) -> Option<Range<usize>> {
+    match kind {
+        SubElementKind::Pin => None,
+        SubElementKind::Port | SubElementKind::Label => {
+            // Module ports: try insts port_spans first, then params port_spans
+            if let Some(span) = module.insts.get_port_span(name) {
+                return Some(span);
+            }
+            find_param_port_span(&module.params, name)
+        }
+        SubElementKind::Param => find_param_def_span(&module.params, name),
+        SubElementKind::Func => {
+            // Function definition span — return None (use lapper)
+            None
+        }
+        SubElementKind::EnumValue => None,
+    }
+}
+
+/// Look up a sub-element within a [`McInterface`].
+fn lookup_in_interface(
+    iface: &crate::core::mc_ifs::McInterface,
+    kind: SubElementKind,
+    name: &str,
+) -> Option<Range<usize>> {
+    match kind {
+        SubElementKind::Pin => iface.pins.pin_name_spans.get(name).cloned(),
+        SubElementKind::Port | SubElementKind::Label => {
+            find_param_port_span(&iface.params, name)
+        }
+        SubElementKind::Param => find_param_def_span(&iface.params, name),
+        SubElementKind::Func => None,
+        SubElementKind::EnumValue => None,
+    }
+}
+
+/// Look up a sub-element within a [`McEnumDef`].
+fn lookup_in_enum(
+    enum_def: &crate::core::mc_enum::McEnumDef,
+    kind: SubElementKind,
+    name: &str,
+) -> Option<Range<usize>> {
+    match kind {
+        SubElementKind::EnumValue => {
+            for value in &enum_def.values {
+                if value.name.to_string() == name {
+                    return Some(value.span[0] as usize..value.span[1] as usize);
+                }
+            }
+            None
+        }
+        _ => None,
+    }
 }
 
 /// Find source URI of component definition

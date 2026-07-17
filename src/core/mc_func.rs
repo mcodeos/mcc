@@ -248,8 +248,14 @@ impl McFunction {
     pub fn parse_body(&mut self, context: &mut dyn HasFindInst, body: &AstNode) {
         let uri = context.uri().clone();
         self.uri = Some(uri.clone());
-        // ★ LSP: Set scope for instance registration
-        self.insts.scope = Some(self.name.to_string());
+        // ★ LSP: Set scope for instance registration with parent prefix
+        let parent_scope = context.scope_name().unwrap_or_default();
+        let full_scope = if parent_scope.is_empty() {
+            self.name.to_string()
+        } else {
+            format!("{}.{}", parent_scope, self.name.to_string())
+        };
+        self.insts.scope = Some(full_scope);
         if let Some(body_nodes) = body.get_sub_node() {
             let body_nodes: AstNode = body_nodes;
             // ── [BODY-RAW] read-only diagnostic ─────────────────────────────
