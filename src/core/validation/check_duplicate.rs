@@ -60,7 +60,9 @@ impl ValidationCheck for DuplicateCmieCheck {
                 let name = entry.key().ident.to_string();
                 let uri = entry.key().uri.to_string();
                 let span = entry.value().span;
-                uri_spans.entry(uri.clone()).or_insert(span[0] as usize..span[1] as usize);
+                uri_spans
+                    .entry(uri.clone())
+                    .or_insert(span[0] as usize..span[1] as usize);
                 name_uris.entry(name).or_default().push(uri);
             }
         }
