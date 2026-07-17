@@ -3,7 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::ast::ast_node::McValueFFI;
-use crate::ast::ast_semantic::{DeclareId, McSemSymbols, Span, SymbolRangeLapper, SymbolType};
+use crate::ast::ast_semantic::{DeclareId, McSemSymbols, ReferenceId, Span, SymbolRangeLapper, SymbolType};
 use crate::ast::ast_token::McSemTokens;
 use crate::ast::error::message::MISSING_SUBNODE;
 use crate::builder::diagnostic::dlog_error;
@@ -1390,7 +1390,7 @@ impl McCode {
                                 symbol_lapper.insert(Interval {
                                     start: span.start,
                                     stop: span.end,
-                                    val: SymbolType::EnumClassDefinition(*class_id),
+                                    val: SymbolType::ClassDefinition(*class_id),
                                 });
                             }
                         }
@@ -1446,13 +1446,22 @@ impl McCode {
                         val: SymbolType::DeclareInstance(*dcl_id),
                     });
                 }
-                // First pass: register known refs
-                let ref_count = sem.local_table.inst_id_to_span.len();
+                // First pass: register known refs as InstanceRef(DeclareId)
+                // instead of InstanceReference(ReferenceId), using the
+                // declare_inst_to_inst_ids reverse mapping.
+                let mut inst_to_decl: std::collections::HashMap<ReferenceId, DeclareId> =
+                    std::collections::HashMap::new();
+                for (decl_id, inst_ids) in sem.local_table.declare_inst_to_inst_ids.iter() {
+                    for iid in inst_ids {
+                        inst_to_decl.insert(*iid, *decl_id);
+                    }
+                }
                 for (inst_id, span) in sem.local_table.inst_id_to_span.iter() {
+                    let decl_id = inst_to_decl.get(inst_id).copied().unwrap_or(DeclareId::default());
                     symbol_lapper.insert(Interval {
                         start: span.start,
                         stop: span.end,
-                        val: SymbolType::InstanceReference(*inst_id),
+                        val: SymbolType::InstanceRef(decl_id),
                     });
                 }
 
@@ -1487,7 +1496,7 @@ impl McCode {
                             symbol_lapper.insert(Interval {
                                 start: iface.span.start,
                                 stop: iface.span.end,
-                                val: SymbolType::InterfaceDefinition(DeclareId::new(0)),
+                                val: SymbolType::ClassDefinition(DeclareId::new(0)),
                             });
                             // Collect param decl_ids for attr reference linking
                             let mut param_decl_ids: std::collections::HashMap<String, DeclareId> =
@@ -1545,7 +1554,7 @@ impl McCode {
                             symbol_lapper.insert(Interval {
                                 start: iface.span.start,
                                 stop: iface.span.end,
-                                val: SymbolType::InterfaceDefinition(DeclareId::new(0)),
+                                val: SymbolType::ClassDefinition(DeclareId::new(0)),
                             });
                             let iface_name_g = iface.name.to_string();
                             let mut param_decl_ids: std::collections::HashMap<String, DeclareId> =
@@ -1693,7 +1702,8 @@ impl McCode {
                     }
                 }
 
-                tracing::info!(target: "mcc::lsp", "create_lapper: {} decls, {} local_refs, {} global_refs, lapper len={}", decl_count, ref_count, global_ref_count, symbol_lapper.len());
+                let local_ref_count = sem.local_table.inst_id_to_span.len();
+                tracing::info!(target: "mcc::lsp", "create_lapper: {} decls, {} local_refs, {} global_refs, lapper len={}", decl_count, local_ref_count, global_ref_count, symbol_lapper.len());
 
                 // ★ G2: Register function parameter refs from module functions
                 {
@@ -2014,7 +2024,7 @@ impl McCode {
                             symbol_lapper.insert(Interval {
                                 start: base_start as usize,
                                 stop: base_end as usize,
-                                val: SymbolType::EnumClassRef(class_id),
+                                val: SymbolType::ClassRef(class_id),
                             });
                             symbol_lapper.insert(Interval {
                                 start: member_start as usize,
@@ -2133,27 +2143,44 @@ impl McCode {
                                 None
                             };
                             if let Some(nn) = name_node {
+                                // Use the tightest IDS sub-node for the span,
+                                // not the parent which may cover constructor args.
+                                let id_node = nn.get_sub_node().unwrap_or_else(|| nn.clone());
                                 let span = (
-                                    nn.get_pos() as usize,
-                                    (nn.get_pos() + nn.get_len()) as usize,
+                                    id_node.get_pos() as usize,
+                                    (id_node.get_pos() + id_node.get_len()) as usize,
                                 );
                                 let has_instance = sub
                                     .as_ref()
                                     .map(|s| s.get_type() == MCAST_INSTANCE)
                                     .unwrap_or(false);
-                                let decl_id = sem.local_table.add_declare_with_name(
-                                    span.0..span.1,
-                                    crate::core::basic::mc_ids::McIds::new(&nn)
-                                        .map(|ids| ids.to_string()),
-                                    None,
-                                );
+                                let func_name = crate::core::basic::mc_ids::McIds::new(&nn)
+                                    .map(|ids| ids.to_string());
                                 if has_instance {
+                                    // For method calls, try to reuse the FunctionDefinition's
+                                    // ID so gotodef can resolve local same-file jumps.
+                                    let resolved_id = func_name
+                                        .as_ref()
+                                        .and_then(|n| sem.local_table.name_to_declare_id.get(&("".to_string(), n.clone())))
+                                        .copied()
+                                        .unwrap_or_else(|| {
+                                            sem.local_table.add_declare_with_name(
+                                                span.0..span.1,
+                                                func_name.clone(),
+                                                None,
+                                            )
+                                        });
                                     symbol_lapper.insert(Interval {
                                         start: span.0,
                                         stop: span.1,
-                                        val: SymbolType::MethodRef(decl_id),
+                                        val: SymbolType::FunctionRef(resolved_id),
                                     });
                                 } else {
+                                    let decl_id = sem.local_table.add_declare_with_name(
+                                        span.0..span.1,
+                                        func_name,
+                                        None,
+                                    );
                                     symbol_lapper.insert(Interval {
                                         start: span.0,
                                         stop: span.1,
@@ -2165,14 +2192,117 @@ impl McCode {
                     }
                 }
 
-                // Second pass: pick up refs registered after the first pass
+                // Second pass A: pick up refs registered after the first pass
                 // (e.g. interface attr variable references)
+                // Also uses InstanceRef(DeclareId) via reverse mapping.
+                let mut inst_to_decl2: std::collections::HashMap<ReferenceId, DeclareId> =
+                    std::collections::HashMap::new();
+                for (decl_id, inst_ids) in sem.local_table.declare_inst_to_inst_ids.iter() {
+                    for iid in inst_ids {
+                        inst_to_decl2.insert(*iid, *decl_id);
+                    }
+                }
                 for (inst_id, span) in sem.local_table.inst_id_to_span.iter() {
+                    let decl_id = inst_to_decl2.get(inst_id).copied().unwrap_or(DeclareId::default());
                     symbol_lapper.insert(Interval {
                         start: span.start,
                         stop: span.end,
-                        val: SymbolType::InstanceReference(*inst_id),
+                        val: SymbolType::InstanceRef(decl_id),
                     });
+                }
+
+                // Second pass B: fix up method_ref IDs to match their
+                // function_definition so gotodef can resolve same-file jumps.
+                // Read source once, build function name→ID map, then patch.
+                if let Ok(source) = std::fs::read_to_string(self.uri.as_str()) {
+                    let mut func_name_to_id: std::collections::HashMap<String, DeclareId> = std::collections::HashMap::new();
+                    for entry in symbol_lapper.iter() {
+                        if let SymbolType::FunctionDefinition(did) = entry.val {
+                            if let Some(sig) = source.get(entry.start..entry.stop) {
+                                if let Some(name) = sig.split(|c: char| c == '(' || c == '{' || c.is_whitespace()).next() {
+                                    func_name_to_id.entry(name.to_string()).or_insert(did);
+                                }
+                            }
+                        }
+                    }
+                    let mut patches: Vec<(usize, usize, DeclareId)> = Vec::new();
+                    for entry in symbol_lapper.iter() {
+                        if let SymbolType::FunctionRef(_mid) = entry.val {
+                            if let Some(ref_name) = source.get(entry.start..entry.stop) {
+                                let ref_name = ref_name.trim_end_matches(|c: char| c == '(' || c == '{');
+                                if let Some(&fd_id) = func_name_to_id.get(ref_name) {
+                                    patches.push((entry.start, entry.stop, fd_id));
+                                }
+                            }
+                        }
+                    }
+                    for (s, e, fd_id) in patches {
+                        symbol_lapper.insert(Interval { start: s, stop: e, val: SymbolType::FunctionRef(fd_id) });
+                    }
+
+                    // Second pass C: generate declare_instance cross_file_targets.
+                    // For each declare_instance with non-empty scope (usage-side),
+                    // find the matching definition (PortDefinition with same scope+name,
+                    // or declare_instance with empty scope+same name).
+                    {
+                        // Build name→def_span from PortDefinition entries (scoped definitions)
+                        let mut def_map: std::collections::HashMap<(String, String), (usize, usize)> =
+                            std::collections::HashMap::new();
+                        for entry in symbol_lapper.iter() {
+                            if let SymbolType::PortDefinition(_) = entry.val {
+                                if let Some(scope) = sem.symbol_scope.get(&(entry.start, entry.stop)) {
+                                    if !scope.is_empty() {
+                                        if let Some(name) = source.get(entry.start..entry.stop) {
+                                            let name = name.split(|c:char| c=='('||c=='{'||c.is_whitespace()).next().unwrap_or("");
+                                            def_map.entry((scope.clone(), name.to_string()))
+                                                .or_insert((entry.start, entry.stop));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // Also from declare_instance with empty scope (constructor param defs)
+                        for entry in symbol_lapper.iter() {
+                            if let SymbolType::DeclareInstance(_) = entry.val {
+                                let scope = sem.symbol_scope.get(&(entry.start, entry.stop))
+                                    .cloned().unwrap_or_default();
+                                if scope.is_empty() {
+                                    if let Some(name) = source.get(entry.start..entry.stop) {
+                                        let bare = name.trim_end_matches(|c:char| c=='('||c=='{'||c==')'||c=='}');
+                                        let name = bare.split(|c:char| c==','||c.is_whitespace()).next().unwrap_or("");
+                                        if !name.is_empty() {
+                                            def_map.entry(("".to_string(), name.to_string()))
+                                                .or_insert((entry.start, entry.stop));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        // Link usage-side declare_instance to definitions via cross_file_targets
+                        if let Ok(mut gtable) = sem.global_table.lock() {
+                            for entry in symbol_lapper.iter() {
+                                if let SymbolType::DeclareInstance(did) = entry.val {
+                                    let scope = sem.symbol_scope.get(&(entry.start, entry.stop))
+                                        .cloned().unwrap_or_default();
+                                    if scope.is_empty() { continue; }
+                                    if let Some(name) = source.get(entry.start..entry.stop) {
+                                        let bare = name.trim_end_matches(|c:char| c=='('||c=='{'||c==')'||c=='}');
+                                        let name = bare.split(|c:char| c==','||c.is_whitespace()).next().unwrap_or("");
+                                        // Try scoped match first, then unscoped
+                                        let key = (scope.clone(), name.to_string());
+                                        let empty_key = ("".to_string(), name.to_string());
+                                        if let Some(&(def_s, def_e)) = def_map.get(&key)
+                                            .or_else(|| def_map.get(&empty_key))
+                                        {
+                                            gtable.declare_inst_to_target_span
+                                                .entry(did)
+                                                .or_insert((self.uri.clone(), def_s..def_e));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
 
                 sem.symbol_lapper = symbol_lapper;

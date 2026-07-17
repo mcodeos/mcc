@@ -37,26 +37,16 @@ impl McSemSymbols {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SymbolType {
-    ClassDefinition(DeclareId),
+    ClassDefinition(DeclareId),     // component/module/interface/enum head
     DeclareClass(ReferenceId),
     DeclareInstance(DeclareId),
-    InstanceReference(ReferenceId), // Reference to instance (old format)
-    InstanceRef(DeclareId),         // ★ New: Reference to instance (using DeclareId)
-    InterfaceDefinition(DeclareId), // ★ Interface definition
-    InterfaceRef(ReferenceId),      // ★ Reference to interface
+    InstanceRef(DeclareId),         // Reference to instance
     PortDefinition(DeclareId),      // ★ Module port definition (ps/io/in/out)
-    // ★ enum support: separate kind for each side, since enum value references
-    //   cannot reuse declare_class / instance_ref. The id carried in lapper
-    //   is the *target* DeclareId (not the reference id), so F12 lookup is
-    //   a direct id-equality match against def entries or the global map.
-    EnumClassDefinition(DeclareId), // `enum PKG {` — class head
     EnumValueDefinition(DeclareId), // `SOP8,` — body row; id packed as (class<<16 | idx)
-    EnumClassRef(DeclareId),        // `PKG` in `PKG.SOP8`
     EnumValueRef(DeclareId),        // `SOP8` in `PKG.SOP8`
     // ── M6 gaps: language constructs not previously tracked ──
     FunctionDefinition(DeclareId), // `func i2c()` — func name definition
-    FunctionRef(DeclareId),        // function call reference
-    MethodRef(DeclareId),          // `.method()` call on instance
+    FunctionRef(DeclareId),        // function/method call reference
     ClassRef(DeclareId),           // standalone class ref: `RES(10k)` (not in declare)
     PinNameDefinition(DeclareId),  // pin name in component body: `1 = _CS`
     PinNameRef(DeclareId),         // pin name reference: `Pullup(_CS, V3V3)`
@@ -182,6 +172,9 @@ pub struct GlobalSymbolTable {
     // Used when class_id is from a different file than the reference
     pub declare_id_to_target_span: HashMap<ReferenceId, (McURI, Span)>,
 
+    // ★ LSP: Instance usage → definition target (DeclareId → definition uri+span)
+    pub declare_inst_to_target_span: HashMap<DeclareId, (McURI, Span)>,
+
     // ★ LSP: enum global storage
     // (uri, class_name) -> class_id
     pub enum_class_name_to_id: HashMap<(McURI, String), DeclareId>,
@@ -209,6 +202,7 @@ impl GlobalSymbolTable {
             global_inst_name_to_id: HashMap::new(),
             global_inst_id_to_span: HashMap::new(),
             declare_id_to_target_span: HashMap::new(),
+            declare_inst_to_target_span: HashMap::new(),
 
             enum_class_name_to_id: HashMap::new(),
             enum_class_id_to_span: HashMap::new(),
@@ -369,6 +363,7 @@ impl GlobalSymbolTable {
             global_inst_name_to_id: HashMap::new(),
             global_inst_id_to_span: HashMap::new(),
             declare_id_to_target_span: HashMap::new(),
+            declare_inst_to_target_span: HashMap::new(),
 
             enum_class_name_to_id: HashMap::new(),
             enum_class_id_to_span: HashMap::new(),
@@ -433,26 +428,20 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
         .iter()
         .map(|interval| {
             let (kind, id) = match interval.val {
-                SymbolType::ClassDefinition(id) => ("class_definition", id._raw),
-                SymbolType::DeclareClass(id) => ("declare_class", id._raw),
-                SymbolType::DeclareInstance(id) => ("declare_instance", id._raw),
-                SymbolType::InstanceReference(id) => ("instance_reference", id._raw),
-                SymbolType::InstanceRef(id) => ("instance_ref", id._raw),
-                SymbolType::InterfaceDefinition(id) => ("interface_definition", id._raw),
-                SymbolType::InterfaceRef(id) => ("interface_ref", id._raw),
-                SymbolType::PortDefinition(id) => ("port_definition", id._raw),
-                SymbolType::EnumClassDefinition(id) => ("enum_class_def", id._raw),
-                SymbolType::EnumValueDefinition(id) => ("enum_value_def", id._raw),
-                SymbolType::EnumClassRef(id) => ("enum_class_ref", id._raw),
-                SymbolType::EnumValueRef(id) => ("enum_value_ref", id._raw),
-                SymbolType::FunctionDefinition(id) => ("function_definition", id._raw),
-                SymbolType::FunctionRef(id) => ("function_ref", id._raw),
-                SymbolType::MethodRef(id) => ("method_ref", id._raw),
+                SymbolType::ClassDefinition(id) => ("class_def", id._raw),
+                SymbolType::DeclareClass(id) => ("class_ref", id._raw),
                 SymbolType::ClassRef(id) => ("class_ref", id._raw),
-                SymbolType::PinNameDefinition(id) => ("pin_name_definition", id._raw),
+                SymbolType::DeclareInstance(id) => ("instance_def", id._raw),
+                SymbolType::InstanceRef(id) => ("instance_ref", id._raw),
+                SymbolType::EnumValueDefinition(id) => ("enum_value_def", id._raw),
+                SymbolType::EnumValueRef(id) => ("enum_value_ref", id._raw),
+                SymbolType::DefineDefinition(id) => ("define_def", id._raw),
+                SymbolType::FunctionDefinition(id) => ("function_def", id._raw),
+                SymbolType::FunctionRef(id) => ("function_ref", id._raw),
+                SymbolType::PortDefinition(id) => ("port_def", id._raw),
+                SymbolType::PinNameDefinition(id) => ("pin_name_def", id._raw),
                 SymbolType::PinNameRef(id) => ("pin_name_ref", id._raw),
-                SymbolType::DefineDefinition(id) => ("define_definition", id._raw),
-                SymbolType::RoleDefinition(id) => ("role_definition", id._raw),
+                SymbolType::RoleDefinition(id) => ("role_def", id._raw),
             };
             let scope = symbols
                 .symbol_scope
@@ -506,22 +495,41 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
         })
         .unwrap_or_default();
 
-    // ★ LSP: Cross-file goto: reference_id -> (target_uri, span)
-    let cross_file_targets: Vec<serde_json::Value> = gtable
-        .as_ref()
-        .map(|g| {
-            g.declare_id_to_target_span
-                .iter()
-                .map(|(ref_id, (target_uri, span))| {
-                    json!({
-                        "ref_id": ref_id._raw,
-                        "target_uri": target_uri,
-                        "span": [span.start, span.end],
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    // ★ LSP: Cross-file goto targets — unified by kind+id.
+    // Each entry has {kind, ref_id, target_uri, span}.
+    // kind matches the lapper interval kind (e.g. "declare_class", "instance_ref").
+    let mut all_targets: Vec<serde_json::Value> = Vec::new();
+
+    // declare_class targets (ReferenceId → target)
+    if let Some(g) = gtable.as_ref() {
+        for (ref_id, (target_uri, span)) in g.declare_id_to_target_span.iter() {
+            all_targets.push(json!({
+                "kind": "class_ref",
+                "ref_id": ref_id._raw,
+                "target_uri": target_uri,
+                "span": [span.start, span.end],
+            }));
+        }
+    }
+
+    // instance_ref + declare_instance targets (DeclareId → target)
+    // Both use the same DeclareId system, generated in create_lapper Pass C.
+    if let Some(g) = gtable.as_ref() {
+        for (decl_id, (target_uri, span)) in g.declare_inst_to_target_span.iter() {
+            all_targets.push(json!({
+                "kind": "instance_def",
+                "ref_id": decl_id._raw,
+                "target_uri": target_uri,
+                "span": [span.start, span.end],
+            }));
+            all_targets.push(json!({
+                "kind": "instance_ref",
+                "ref_id": decl_id._raw,
+                "target_uri": target_uri,
+                "span": [span.start, span.end],
+            }));
+        }
+    }
 
     json!({
         "local": {
@@ -532,7 +540,7 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
         "global": {
             "declares": global_declares,
             "references": global_references,
-            "cross_file_targets": cross_file_targets,
+            "cross_file_targets": all_targets,
         },
     })
 }

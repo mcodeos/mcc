@@ -363,6 +363,8 @@ pub enum ShowTarget {
     Enum,
     /// List/show net details (Pass2, uses --top)
     Net,
+    /// Dump LSP lapper intervals for a file (semantic tokens + symbols)
+    Lapper,
 
     // ── Entity internals drill-down (<name> = owning entity, required) ──────
     /// Pins of a component / interface

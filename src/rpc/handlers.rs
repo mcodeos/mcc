@@ -3787,7 +3787,7 @@ fn classify_token_by_symbol(
                 if matches!(&interval.val, SymbolType::DeclareInstance(_)) {
                     return 4; // FUNCTION
                 }
-                if matches!(&interval.val, SymbolType::InstanceReference(_)) {
+                if matches!(&interval.val, SymbolType::InstanceRef(_)) {
                     return 9; // VARIABLE
                 }
             }
