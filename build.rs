@@ -35,9 +35,7 @@ fn main() {
     let zcp_path = PathBuf::from("mc/mcode/zcp.sh");
     if zcp_path.exists() {
         println!("cargo:warning=Please run 'bash mc/mcode/zcp.sh' manually to copy mcode files to your user directory.");
-        println!(
-            "cargo:warning=This step is required for the MCODE system to function correctly."
-        );
+        println!("cargo:warning=This step is required for the MCODE system to function correctly.");
     } else {
         println!(
             "cargo:warning=zcp.sh script not found. Please ensure it exists at mc/mcode/zcp.sh"

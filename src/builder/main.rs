@@ -1349,7 +1349,10 @@ pub fn lookup_sub_def(
 }
 
 /// Helper: find a param def span by name using the public iterator.
-fn find_param_def_span(params: &crate::core::basic::mc_param::McParamDeclares, name: &str) -> Option<Range<usize>> {
+fn find_param_def_span(
+    params: &crate::core::basic::mc_param::McParamDeclares,
+    name: &str,
+) -> Option<Range<usize>> {
     for (n, span) in params.iter_defs_with_span() {
         if n == name {
             return Some(span);
@@ -1359,7 +1362,10 @@ fn find_param_def_span(params: &crate::core::basic::mc_param::McParamDeclares, n
 }
 
 /// Helper: find a param port span by name using the public iterator.
-fn find_param_port_span(params: &crate::core::basic::mc_param::McParamDeclares, name: &str) -> Option<Range<usize>> {
+fn find_param_port_span(
+    params: &crate::core::basic::mc_param::McParamDeclares,
+    name: &str,
+) -> Option<Range<usize>> {
     for (n, span) in params.iter_ports_with_span() {
         if n == name {
             return Some(span);
@@ -1391,11 +1397,7 @@ fn lookup_in_component(
 }
 
 /// Look up a sub-element within a [`McModule`].
-fn lookup_in_module(
-    module: &McModule,
-    kind: SubElementKind,
-    name: &str,
-) -> Option<Range<usize>> {
+fn lookup_in_module(module: &McModule, kind: SubElementKind, name: &str) -> Option<Range<usize>> {
     match kind {
         SubElementKind::Pin => None,
         SubElementKind::Port | SubElementKind::Label => {
@@ -1422,9 +1424,7 @@ fn lookup_in_interface(
 ) -> Option<Range<usize>> {
     match kind {
         SubElementKind::Pin => iface.pins.pin_name_spans.get(name).cloned(),
-        SubElementKind::Port | SubElementKind::Label => {
-            find_param_port_span(&iface.params, name)
-        }
+        SubElementKind::Port | SubElementKind::Label => find_param_port_span(&iface.params, name),
         SubElementKind::Param => find_param_def_span(&iface.params, name),
         SubElementKind::Func => None,
         SubElementKind::EnumValue => None,

@@ -80,7 +80,7 @@ fn check_empty_parens(acc: &mut CheckAccumulator) {
     // J4: components declared with () but no params
     let comps = crate::builder::workspace::WORKSPACE.components.borrow();
     for entry in comps.iter() {
-        let comp = entry.value();
+        let _comp = entry.value();
         let name = entry.key().ident.to_string();
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {

@@ -366,9 +366,10 @@ fn show_lapper(args: &ShowArgs) -> Result<()> {
     if !path.exists() {
         anyhow::bail!("file not found: {}", file_path);
     }
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", file_path))?;
-    let uri = path.canonicalize()
+    let content =
+        std::fs::read_to_string(path).with_context(|| format!("failed to read {}", file_path))?;
+    let uri = path
+        .canonicalize()
         .unwrap_or_else(|_| path.to_path_buf())
         .to_string_lossy()
         .to_string();
@@ -378,11 +379,14 @@ fn show_lapper(args: &ShowArgs) -> Result<()> {
     let lapper = &result["symbols"]["lapper"];
     let cross_file = &result["symbols"]["global"]["cross_file_targets"];
 
-    println!("{}", serde_json::to_string_pretty(&json!({
-        "file": uri,
-        "lapper": lapper,
-        "cross_file_targets": cross_file,
-    }))?);
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json!({
+            "file": uri,
+            "lapper": lapper,
+            "cross_file_targets": cross_file,
+        }))?
+    );
     Ok(())
 }
 

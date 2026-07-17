@@ -300,7 +300,10 @@ impl McInstances {
         self.insts
             .iter()
             .filter(|(_, (io_type, _))| {
-                !matches!(io_type, IOType::None | IOType::Return | IOType::NonCon | IOType::Label)
+                !matches!(
+                    io_type,
+                    IOType::None | IOType::Return | IOType::NonCon | IOType::Label
+                )
             })
             .map(|(name, (io_type, _))| (name.as_str(), io_type))
     }
@@ -394,7 +397,10 @@ impl McInstances {
         self.insts
             .iter()
             .filter(|(_, (io_type, _))| {
-                !matches!(io_type, IOType::None | IOType::Return | IOType::NonCon | IOType::Label)
+                !matches!(
+                    io_type,
+                    IOType::None | IOType::Return | IOType::NonCon | IOType::Label
+                )
             })
             .filter_map(|(name, (io_type, _))| {
                 self.port_spans
@@ -408,7 +414,9 @@ impl McInstances {
 
     /// Iterate all labels (explicit and inline) with their spans.
     /// Labels are instances with IOType::None that have stored port spans.
-    pub fn iter_labels_with_span(&self) -> impl Iterator<Item = (&str, LabelKind, Range<usize>)> + '_ {
+    pub fn iter_labels_with_span(
+        &self,
+    ) -> impl Iterator<Item = (&str, LabelKind, Range<usize>)> + '_ {
         self.port_spans
             .iter()
             .filter(|(name, _spans)| {
@@ -420,7 +428,9 @@ impl McInstances {
             })
             .flat_map(|(name, spans)| {
                 let kind = self.get_label_kind(name);
-                spans.iter().map(move |span| (name.as_str(), kind, span.clone()))
+                spans
+                    .iter()
+                    .map(move |span| (name.as_str(), kind, span.clone()))
             })
     }
 
