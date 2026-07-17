@@ -300,7 +300,7 @@ impl McInstances {
         self.insts
             .iter()
             .filter(|(_, (io_type, _))| {
-                !matches!(io_type, IOType::None | IOType::Return | IOType::NonCon)
+                !matches!(io_type, IOType::None | IOType::Return | IOType::NonCon | IOType::Label)
             })
             .map(|(name, (io_type, _))| (name.as_str(), io_type))
     }
@@ -325,6 +325,10 @@ impl McInstances {
     pub fn iter_port_names(&self) -> impl Iterator<Item = &String> {
         self.insts
             .iter()
+            .filter(|(_, (io_type, _))| {
+                // Labels are not ports — they have no IO direction
+                !matches!(io_type, IOType::Label)
+            })
             .filter_map(|(name, (_, inst))| match inst {
                 McInstance::Component(_)
                 | McInstance::Module(_)
@@ -390,7 +394,7 @@ impl McInstances {
         self.insts
             .iter()
             .filter(|(_, (io_type, _))| {
-                !matches!(io_type, IOType::None | IOType::Return | IOType::NonCon)
+                !matches!(io_type, IOType::None | IOType::Return | IOType::NonCon | IOType::Label)
             })
             .filter_map(|(name, (io_type, _))| {
                 self.port_spans
@@ -399,6 +403,24 @@ impl McInstances {
             })
             .flat_map(|(name, iotype, spans)| {
                 spans.iter().map(move |span| (name, iotype, span.clone()))
+            })
+    }
+
+    /// Iterate all labels (explicit and inline) with their spans.
+    /// Labels are instances with IOType::None that have stored port spans.
+    pub fn iter_labels_with_span(&self) -> impl Iterator<Item = (&str, LabelKind, Range<usize>)> + '_ {
+        self.port_spans
+            .iter()
+            .filter(|(name, _spans)| {
+                // Only include entries that are Label instances (not ports/buses/components)
+                matches!(
+                    self.insts.get(*name).map(|(_, inst)| inst),
+                    Some(McInstance::Label(_))
+                )
+            })
+            .flat_map(|(name, spans)| {
+                let kind = self.get_label_kind(name);
+                spans.iter().map(move |span| (name.as_str(), kind, span.clone()))
             })
     }
 
@@ -416,16 +438,17 @@ impl McInstances {
         // Handle MCAST_NET_PORTS specially - extract spans for port definitions
         if node.get_type() == MCAST_NET_PORTS {
             if let Some(subnode) = node.get_sub_node() {
-                // First child is IOTYPE (ps, io, in, out)
+                // First child is IOTYPE (ps, io, in, out, label)
                 if let Some(first) = subnode.iter().next() {
-                    if IOType::new(&first).is_some() {
+                    if let Some(iotype) = IOType::new(&first) {
+                        let iotype_ref = &iotype;
                         // Process remaining children as operands
                         for child in first.iter().skip(1) {
                             let ctype = child.get_type();
                             match ctype {
                                 MCAST_DECLARE => {
                                     let before: Vec<String> = self.insts.keys().cloned().collect();
-                                    self.parse_declare(&child, uri, &IOType::Power);
+                                    self.parse_declare(&child, uri, iotype_ref);
                                     let new_keys: Vec<String> = self
                                         .insts
                                         .keys()
@@ -437,6 +460,10 @@ impl McInstances {
                                         let inst_span = Self::find_instance_span(&child);
                                         for k in new_keys {
                                             self.store_port_span(&k, inst_span.clone());
+                                            // ★ Label: set explicit kind
+                                            if matches!(iotype_ref, IOType::Label) {
+                                                self.set_label_kind(&k, LabelKind::Explicit);
+                                            }
                                         }
                                     }
                                 }
@@ -455,13 +482,13 @@ impl McInstances {
                                     });
                                     if let Some(ref base) = dot_base {
                                         // DOT pattern: key always exists (or is created) in insts as `base`
-                                        self.parse_opd(&child, IOType::Power);
+                                        self.parse_opd(&child, iotype_ref.clone());
                                         self.store_port_span(base, span);
                                     } else {
                                         // Non-DOT: snapshot existing keys, then store spans for new ones
                                         let before_keys: std::collections::HashSet<String> =
                                             self.insts.keys().cloned().collect();
-                                        self.parse_opd(&child, IOType::Power);
+                                        self.parse_opd(&child, iotype_ref.clone());
                                         let new_keys: Vec<String> = self
                                             .insts
                                             .keys()
@@ -470,6 +497,10 @@ impl McInstances {
                                             .collect();
                                         for k in new_keys {
                                             self.store_port_span(&k, span.clone());
+                                            // ★ Label: set explicit kind
+                                            if matches!(iotype_ref, IOType::Label) {
+                                                self.set_label_kind(&k, LabelKind::Explicit);
+                                            }
                                         }
                                     }
                                 }
@@ -478,7 +509,7 @@ impl McInstances {
                                         ..((child.get_pos() + child.get_len()) as usize);
                                     // Store span before parse to capture the @N index used by parse_opd_square_vec
                                     let port_key = format!("@{}", self.insts.len());
-                                    self.parse_opd_square_vec(&child, IOType::Power);
+                                    self.parse_opd_square_vec(&child, iotype_ref.clone());
                                     self.store_port_span(&port_key, span);
                                 }
                                 _ => {}

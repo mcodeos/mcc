@@ -52,6 +52,9 @@ pub enum SymbolType {
     PinNameRef(DeclareId),         // pin name reference: `Pullup(_CS, V3V3)`
     DefineDefinition(DeclareId),   // `define name body`
     RoleDefinition(DeclareId),     // `role id { ... }`
+    // ── Label support (scope design, step 7) ──
+    LabelDefinition(DeclareId),    // `label A` or inline label def
+    LabelRef(DeclareId),           // label reference in a net phrase
 }
 pub type SymbolRangeLapper = Lapper<usize, SymbolType>;
 
@@ -479,6 +482,8 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
                 SymbolType::PinNameDefinition(id) => ("pin_name_def", id._raw),
                 SymbolType::PinNameRef(id) => ("pin_name_ref", id._raw),
                 SymbolType::RoleDefinition(id) => ("role_def", id._raw),
+                SymbolType::LabelDefinition(id) => ("label_def", id._raw),
+                SymbolType::LabelRef(id) => ("label_ref", id._raw),
             };
             let scope = symbols
                 .symbol_scope
