@@ -47,6 +47,7 @@ pub const MCAST_IOTYPE_RETURN: u16 = 42;
 pub const MCAST_IOTYPE_PS: u16 = 43;
 pub const MCAST_IOTYPE_ANL: u16 = 44;
 pub const MCAST_IOTYPE_NC: u16 = 45;
+pub const MCAST_IOTYPE_LABEL: u16 = 93;
 pub const MCAST_ATT_ID: u16 = 46;
 pub const MCAST_ATT_VALUES: u16 = 47;
 pub const MCAST_PIN_LINE: u16 = 48;

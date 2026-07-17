@@ -324,6 +324,7 @@ impl McModuleInst {
                         IOType::Analog => "(anl)",
                         IOType::Return => "(return)",
                         IOType::NonCon => "(nc)",
+                        IOType::Label => "(label)",
                         IOType::None => "",
                     };
                     format!("{canon}{io_tag}")
@@ -496,5 +497,6 @@ fn iotype_str(io: &IOType) -> &'static str {
         IOType::Analog => "Anl",
         IOType::Return => "Ret",
         IOType::NonCon => "NC",
+        IOType::Label => "Label",
     }
 }

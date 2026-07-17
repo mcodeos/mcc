@@ -775,6 +775,7 @@ impl InstTable {
                 IOType::Analog => "analog",
                 IOType::Return => "return",
                 IOType::NonCon => "nc",
+                IOType::Label => "label",
                 IOType::None => "-",
             };
             let class_display = if entry.class_name.is_empty() {

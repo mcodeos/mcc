@@ -8,8 +8,8 @@ use crate::core::mc_enum::McEnumDef;
 use crate::core::mc_ifs::McInterface;
 use crate::core::module::McModule;
 use crate::{
-    McIds, MCAST_IOTYPE, MCAST_IOTYPE_ANL, MCAST_IOTYPE_IN, MCAST_IOTYPE_IO, MCAST_IOTYPE_NC,
-    MCAST_IOTYPE_OUT, MCAST_IOTYPE_PS, MCAST_IOTYPE_RETURN,
+    McIds, MCAST_IOTYPE, MCAST_IOTYPE_ANL, MCAST_IOTYPE_IN, MCAST_IOTYPE_IO, MCAST_IOTYPE_LABEL,
+    MCAST_IOTYPE_NC, MCAST_IOTYPE_OUT, MCAST_IOTYPE_PS, MCAST_IOTYPE_RETURN,
 };
 use std::sync::Arc;
 
@@ -22,6 +22,7 @@ pub enum IOType {
     Analog,
     Return,
     NonCon,
+    Label,
     None,
 }
 
@@ -39,6 +40,7 @@ impl IOType {
                 MCAST_IOTYPE_ANL => return Some(IOType::Analog),
                 MCAST_IOTYPE_RETURN => return Some(IOType::Return),
                 MCAST_IOTYPE_NC => return Some(IOType::NonCon),
+                MCAST_IOTYPE_LABEL => return Some(IOType::Label),
                 _ => return Some(IOType::None),
             }
         }
