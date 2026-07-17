@@ -80,16 +80,18 @@ impl McParamDeclares {
                         }
                     }
                     MCAST_SQUARE_VEC => {
-                        // [VDD1, GND1] — iterate members and store each individually
-                        let span = (inner.get_pos() as usize)
-                            ..((inner.get_pos() + inner.get_len()) as usize);
+                        // [VDD1, GND1] — iterate members and store each
+                        // with its *individual* span so PortDefinition
+                        // entries match declare_instance entries.
                         let mut current = inner.get_sub_node();
                         while let Some(phrase_node) = current {
                             let ids_node = phrase_node
                                 .get_sub_node()
                                 .unwrap_or_else(|| phrase_node.clone());
                             if let Some(ids) = McIds::new(&ids_node) {
-                                self.store_def_span(&ids.to_string(), span.clone());
+                                let member_span = (ids_node.get_pos() as usize)
+                                    ..((ids_node.get_pos() + ids_node.get_len()) as usize);
+                                self.store_def_span(&ids.to_string(), member_span);
                             }
                             current = phrase_node.get_next();
                         }
@@ -156,6 +158,8 @@ impl McParamDeclares {
                                     let span = (current.get_pos() as usize)
                                         ..((current.get_pos() + current.get_len()) as usize);
                                     if let McParamDeclareKind::Multiple(members) = &paramd.kind {
+                                        // Multiple stores Vec<McIds> (name-only, no pos).
+                                        // Use parent span for all members.
                                         for m in members {
                                             if let Some(name) = m.get_primary_name() {
                                                 self.store_def_span(&name, span.clone());

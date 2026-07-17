@@ -13,7 +13,7 @@
 use crate::cli::{rpc_client::RpcClient, OutputFormat, ShowArgs, ShowTarget};
 use crate::cmds::filter;
 use crate::output::compact;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -52,6 +52,10 @@ fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
         ShowTarget::All => Some(("show.all", json!({}))),
         ShowTarget::File => Some(("show.file", json!({ "file": args.name }))),
         ShowTarget::Files => Some(("show.files", json!({}))),
+        ShowTarget::Lapper => {
+            // local-only: read file, call internal sem, dump lapper
+            return None;
+        }
 
         // ── container list/detail ──────────────────────────────────────────
         ShowTarget::Component | ShowTarget::Module | ShowTarget::Interface | ShowTarget::Enum => {
@@ -131,6 +135,7 @@ fn run_local(args: &ShowArgs) -> Result<()> {
         ShowTarget::All => show_all(args),
         ShowTarget::File => show_file(args),
         ShowTarget::Files => show_files(args),
+        ShowTarget::Lapper => show_lapper(args),
         ShowTarget::Component => match name {
             None => list_kind(Kind::Component, args),
             Some(n) => show_component(n, args),
@@ -353,6 +358,32 @@ fn show_all(args: &ShowArgs) -> Result<()> {
         "enum_list": enums,
     });
     output(&data, args)
+}
+
+fn show_lapper(args: &ShowArgs) -> Result<()> {
+    let file_path = require_name(args);
+    let path = Path::new(file_path);
+    if !path.exists() {
+        anyhow::bail!("file not found: {}", file_path);
+    }
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", file_path))?;
+    let uri = path.canonicalize()
+        .unwrap_or_else(|_| path.to_path_buf())
+        .to_string_lossy()
+        .to_string();
+
+    let c = RpcClient::probe().context("no mcc server running")?;
+    let result = c.call("sem", json!({"uri": uri, "content": content}))?;
+    let lapper = &result["symbols"]["lapper"];
+    let cross_file = &result["symbols"]["global"]["cross_file_targets"];
+
+    println!("{}", serde_json::to_string_pretty(&json!({
+        "file": uri,
+        "lapper": lapper,
+        "cross_file_targets": cross_file,
+    }))?);
+    Ok(())
 }
 
 fn show_file(args: &ShowArgs) -> Result<()> {
