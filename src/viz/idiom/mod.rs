@@ -152,6 +152,7 @@ pub fn generate_constraints(instances: &[IdiomInstance]) -> Vec<PlacementConstra
                 for &sat_id in &inst.satellite_box_ids {
                     constraints.push(PlacementConstraint {
                         kind: model::ConstraintKind::NearAnchor,
+                        source_kind: inst.kind,
                         target_box_id: sat_id,
                         anchor_box_id: inst.anchor_box_id,
                         preferred_side: Some(model::AnchorSide::Above),
@@ -166,6 +167,7 @@ pub fn generate_constraints(instances: &[IdiomInstance]) -> Vec<PlacementConstra
                 for &sat_id in &inst.satellite_box_ids {
                     constraints.push(PlacementConstraint {
                         kind: model::ConstraintKind::NearAnchor,
+                        source_kind: inst.kind,
                         target_box_id: sat_id,
                         anchor_box_id: inst.anchor_box_id,
                         preferred_side: Some(model::AnchorSide::Above),
@@ -180,6 +182,7 @@ pub fn generate_constraints(instances: &[IdiomInstance]) -> Vec<PlacementConstra
                 for &sat_id in &inst.satellite_box_ids {
                     constraints.push(PlacementConstraint {
                         kind: model::ConstraintKind::NearAnchor,
+                        source_kind: inst.kind,
                         target_box_id: sat_id,
                         anchor_box_id: inst.anchor_box_id,
                         preferred_side: Some(model::AnchorSide::Below),
@@ -196,6 +199,7 @@ pub fn generate_constraints(instances: &[IdiomInstance]) -> Vec<PlacementConstra
                 for &sat_id in &inst.satellite_box_ids {
                     constraints.push(PlacementConstraint {
                         kind: model::ConstraintKind::PinSideIntent,
+                        source_kind: inst.kind,
                         target_box_id: sat_id,
                         anchor_box_id: inst.anchor_box_id,
                         preferred_side: None,
@@ -824,6 +828,39 @@ mod tests {
         b.w = 100.0;
         b.h = 120.0;
         b
+    }
+
+    #[test]
+    fn generated_constraints_carry_source_kind_for_reporting() {
+        let instances = vec![
+            IdiomInstance {
+                kind: IdiomInstanceKind::Pullup,
+                anchor_box_id: 10,
+                satellite_box_ids: vec![20],
+                anchor_pin_id: Some(1),
+                signal_net_id: Some(100),
+                power_net_id: Some(200),
+                ground_net_id: None,
+                confidence: 0.85,
+                source: InstanceSource::NetSemantic,
+            },
+            IdiomInstance {
+                kind: IdiomInstanceKind::Pulldown,
+                anchor_box_id: 11,
+                satellite_box_ids: vec![21],
+                anchor_pin_id: Some(2),
+                signal_net_id: Some(101),
+                power_net_id: None,
+                ground_net_id: Some(201),
+                confidence: 0.85,
+                source: InstanceSource::NetSemantic,
+            },
+        ];
+
+        let constraints = generate_constraints(&instances);
+        assert_eq!(constraints.len(), 2);
+        assert_eq!(constraints[0].source_kind, IdiomInstanceKind::Pullup);
+        assert_eq!(constraints[1].source_kind, IdiomInstanceKind::Pulldown);
     }
 
     #[test]

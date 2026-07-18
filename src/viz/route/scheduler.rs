@@ -200,14 +200,12 @@ pub fn route_layer_with_channels(graph: &mut McVecGraph) {
     // 2. Sort: (priority asc, span desc, nid asc)
     let mut order = plans;
     order.sort_by(|a, b| {
-        a.priority
-            .cmp(&b.priority)
-            .then_with(|| {
-                b.span
-                    .partial_cmp(&a.span)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })
-            .then_with(|| a.net_id.cmp(&b.net_id))
+        a.priority.cmp(&b.priority).then_with(|| {
+            // M12: stable float tie-break — use total_cmp for deterministic ordering
+            b.span
+                .total_cmp(&a.span)
+                .then_with(|| a.net_id.cmp(&b.net_id))
+        })
     });
 
     crate::vlog!(
