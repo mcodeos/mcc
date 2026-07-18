@@ -11,7 +11,7 @@ use super::mc_phrase::McPhrase;
 use crate::ast::ast_node::AstNode;
 use crate::ast::c_macros::*;
 use crate::builder::diagnostic::dlog_error;
-use crate::builder::mcb_get_cmie;
+use crate::builder::{mcb_get_cmie, mcb_register_declare_class};
 use crate::core::common::McCMIE;
 use crate::core::component::Mc2Component;
 use crate::core::mc_func::{HasFindInst, McFuncReturn};
@@ -40,6 +40,42 @@ pub struct McFuncCall {
 impl McFuncCall {
     /// Parse function call from AST node
     pub fn parse(node: &AstNode, context: &mut dyn HasFindInst) -> Option<McPhrase> {
+        // ★ Fix: register class_ref for inline constructors like CAP(...)
+        // so F12 can jump to the class definition.
+        // Two AST forms:
+        //   1. CAP(...) standalone: first child is MCAST_INSTANCE containing MCAST_OPD
+        //   2. uC.i2c(...) method call: first child is MCAST_NAME
+        if let Some(subnodes) = node.get_sub_node() {
+            for child in subnodes.iter() {
+                if child.get_type() == MCAST_NAME {
+                    if let Some(ids_node) = child.get_sub_node() {
+                        if let Some(ids) = McIds::new(&ids_node) {
+                            let name_str = ids.to_string();
+                            let span = (ids_node.get_pos() as usize)
+                                ..((ids_node.get_pos() + ids_node.get_len()) as usize);
+                            mcb_register_declare_class(context.uri(), &name_str, span);
+                        }
+                    }
+                    break;
+                }
+                // Standalone constructor: MCAST_INSTANCE -> MCAST_OPD -> class name
+                if child.get_type() == MCAST_INSTANCE {
+                    if let Some(inner) = child.get_sub_node() {
+                        if inner.get_type() == MCAST_OPD {
+                            if let Some(opd_sub) = inner.get_sub_node() {
+                                if let Some(ids) = McIds::new(&opd_sub) {
+                                    let name_str = ids.to_string();
+                                    let span = (opd_sub.get_pos() as usize)
+                                        ..((opd_sub.get_pos() + opd_sub.get_len()) as usize);
+                                    mcb_register_declare_class(context.uri(), &name_str, span);
+                                }
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+        }
         Self::parse_internal(node, context, |n, ctx| McPhrase::new(n, ctx))
     }
 
