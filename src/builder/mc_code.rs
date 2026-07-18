@@ -969,7 +969,12 @@ impl McCode {
                         // letting create_lapper() find the component's span.
                         // Previously only inserted into workspace.components without filling class_id_to_span,
                         // causing LSP goto_definition's symbol_lapper to always be empty.
-                        self.add_global_class(&self_uri, &comp_name_str, comp_span, crate::ContainerKind::Component);
+                        self.add_global_class(
+                            &self_uri,
+                            &comp_name_str,
+                            comp_span,
+                            crate::ContainerKind::Component,
+                        );
                     }
                 }
                 MCAST_ENUM => {

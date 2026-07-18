@@ -313,7 +313,9 @@ pub struct ScopeFilter {
 }
 
 impl ScopeFilter {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn with_kind(mut self, kind: ContainerKind) -> Self {
         self.kind = Some(kind);
