@@ -1255,36 +1255,60 @@ fn collect_from_file(
     let uri_str = uri.as_str();
 
     // Scan modules
-    if filter.kind.map_or(true, |k| k == crate::ContainerKind::Module) {
+    if filter
+        .kind
+        .map_or(true, |k| k == crate::ContainerKind::Module)
+    {
         for entry in workspace::WORKSPACE.modules.borrow().iter() {
-            if entry.key().uri.as_str() != uri_str { continue; }
+            if entry.key().uri.as_str() != uri_str {
+                continue;
+            }
             let m = entry.value();
-            add_result(results, max, crate::LookupResult {
-                uri: uri.clone(),
-                span: m.span.start..m.span.end,
-                kind: crate::LookupSymbolKind::Module,
-                container: Some(crate::ContainerInfo::new(crate::ContainerKind::Module, &m.name.to_string())),
-                scope: m.name.to_string(),
-                name: m.name.to_string(),
-            });
+            add_result(
+                results,
+                max,
+                crate::LookupResult {
+                    uri: uri.clone(),
+                    span: m.span.start..m.span.end,
+                    kind: crate::LookupSymbolKind::Module,
+                    container: Some(crate::ContainerInfo::new(
+                        crate::ContainerKind::Module,
+                        &m.name.to_string(),
+                    )),
+                    scope: m.name.to_string(),
+                    name: m.name.to_string(),
+                },
+            );
             // Collect module ports and labels
             collect_module_symbols(m, scope_path, filter, results, max);
         }
     }
 
     // Scan components
-    if filter.kind.map_or(true, |k| k == crate::ContainerKind::Component) {
+    if filter
+        .kind
+        .map_or(true, |k| k == crate::ContainerKind::Component)
+    {
         for entry in workspace::WORKSPACE.components.borrow().iter() {
-            if entry.key().uri.as_str() != uri_str { continue; }
+            if entry.key().uri.as_str() != uri_str {
+                continue;
+            }
             let c = entry.value();
-            add_result(results, max, crate::LookupResult {
-                uri: uri.clone(),
-                span: c.span.start..c.span.end,
-                kind: crate::LookupSymbolKind::Component,
-                container: Some(crate::ContainerInfo::new(crate::ContainerKind::Component, &c.name.to_string())),
-                scope: c.name.to_string(),
-                name: c.name.to_string(),
-            });
+            add_result(
+                results,
+                max,
+                crate::LookupResult {
+                    uri: uri.clone(),
+                    span: c.span.start..c.span.end,
+                    kind: crate::LookupSymbolKind::Component,
+                    container: Some(crate::ContainerInfo::new(
+                        crate::ContainerKind::Component,
+                        &c.name.to_string(),
+                    )),
+                    scope: c.name.to_string(),
+                    name: c.name.to_string(),
+                },
+            );
             // Collect component params, pins, funcs
             collect_component_symbols(c, scope_path, filter, results, max);
         }
@@ -1306,26 +1330,34 @@ fn collect_module_symbols(
             } else {
                 crate::LookupSymbolKind::Port
             };
-            add_result(results, max, crate::LookupResult {
-                uri: scope_path.uri.clone(),
-                span: spans.clone(),
-                kind,
-                container: Some(scope_path.container.clone()),
-                scope: scope_path.scope_key(),
-                name: name.clone(),
-            });
+            add_result(
+                results,
+                max,
+                crate::LookupResult {
+                    uri: scope_path.uri.clone(),
+                    span: spans.clone(),
+                    kind,
+                    container: Some(scope_path.container.clone()),
+                    scope: scope_path.scope_key(),
+                    name: name.clone(),
+                },
+            );
         }
     }
     // Module funcs
     for func in m.funcs.iter() {
-        add_result(results, max, crate::LookupResult {
-            uri: scope_path.uri.clone(),
-            span: 0..0, // funcs don't have individual spans
-            kind: crate::LookupSymbolKind::Function,
-            container: Some(scope_path.container.clone()),
-            scope: format!("{}.{}", scope_path.container.name, func.name),
-            name: func.name.to_string(),
-        });
+        add_result(
+            results,
+            max,
+            crate::LookupResult {
+                uri: scope_path.uri.clone(),
+                span: 0..0, // funcs don't have individual spans
+                kind: crate::LookupSymbolKind::Function,
+                container: Some(scope_path.container.clone()),
+                scope: format!("{}.{}", scope_path.container.name, func.name),
+                name: func.name.to_string(),
+            },
+        );
     }
 }
 
@@ -1340,36 +1372,48 @@ fn collect_component_symbols(
     let scope = scope_path.scope_key();
     // Component params
     for (name, span) in c.params.iter_defs_with_span() {
-        add_result(results, max, crate::LookupResult {
-            uri: scope_path.uri.clone(),
-            span,
-            kind: crate::LookupSymbolKind::Param,
-            container: Some(scope_path.container.clone()),
-            scope: scope.clone(),
-            name: name.to_string(),
-        });
+        add_result(
+            results,
+            max,
+            crate::LookupResult {
+                uri: scope_path.uri.clone(),
+                span,
+                kind: crate::LookupSymbolKind::Param,
+                container: Some(scope_path.container.clone()),
+                scope: scope.clone(),
+                name: name.to_string(),
+            },
+        );
     }
     // Component pins
     for (name, span) in &c.pins.pin_name_spans {
-        add_result(results, max, crate::LookupResult {
-            uri: scope_path.uri.clone(),
-            span: span.clone(),
-            kind: crate::LookupSymbolKind::Pin,
-            container: Some(scope_path.container.clone()),
-            scope: scope.clone(),
-            name: name.clone(),
-        });
+        add_result(
+            results,
+            max,
+            crate::LookupResult {
+                uri: scope_path.uri.clone(),
+                span: span.clone(),
+                kind: crate::LookupSymbolKind::Pin,
+                container: Some(scope_path.container.clone()),
+                scope: scope.clone(),
+                name: name.clone(),
+            },
+        );
     }
     // Component funcs
     for func in c.funcs.iter() {
-        add_result(results, max, crate::LookupResult {
-            uri: scope_path.uri.clone(),
-            span: 0..0,
-            kind: crate::LookupSymbolKind::Function,
-            container: Some(scope_path.container.clone()),
-            scope: format!("{}.{}", scope, func.name),
-            name: func.name.to_string(),
-        });
+        add_result(
+            results,
+            max,
+            crate::LookupResult {
+                uri: scope_path.uri.clone(),
+                span: 0..0,
+                kind: crate::LookupSymbolKind::Function,
+                container: Some(scope_path.container.clone()),
+                scope: format!("{}.{}", scope, func.name),
+                name: func.name.to_string(),
+            },
+        );
     }
 }
 
@@ -1384,14 +1428,18 @@ fn collect_from_project(
         let name = entry.key().ident.to_string();
         let uri = entry.key().uri.clone();
         if !results.iter().any(|r: &crate::LookupResult| r.name == name) {
-            add_result(results, max, crate::LookupResult {
-                uri,
-                span: entry.value().span.start..entry.value().span.end,
-                kind: crate::LookupSymbolKind::Component,
-                container: None,
-                scope: String::new(),
-                name,
-            });
+            add_result(
+                results,
+                max,
+                crate::LookupResult {
+                    uri,
+                    span: entry.value().span.start..entry.value().span.end,
+                    kind: crate::LookupSymbolKind::Component,
+                    container: None,
+                    scope: String::new(),
+                    name,
+                },
+            );
         }
     }
     // Module classes
@@ -1399,49 +1447,59 @@ fn collect_from_project(
         let name = entry.key().ident.to_string();
         let uri = entry.key().uri.clone();
         if !results.iter().any(|r: &crate::LookupResult| r.name == name) {
-            add_result(results, max, crate::LookupResult {
-                uri,
-                span: entry.value().span.start..entry.value().span.end,
-                kind: crate::LookupSymbolKind::Module,
-                container: None,
-                scope: String::new(),
-                name,
-            });
+            add_result(
+                results,
+                max,
+                crate::LookupResult {
+                    uri,
+                    span: entry.value().span.start..entry.value().span.end,
+                    kind: crate::LookupSymbolKind::Module,
+                    container: None,
+                    scope: String::new(),
+                    name,
+                },
+            );
         }
     }
     // Interfaces
     for entry in workspace::WORKSPACE.interfaces.borrow().iter() {
         let name = entry.key().ident.to_string();
-        add_result(results, max, crate::LookupResult {
-            uri: entry.key().uri.clone(),
-            span: entry.value().span.start..entry.value().span.end,
-            kind: crate::LookupSymbolKind::Interface,
-            container: None,
-            scope: String::new(),
-            name,
-        });
+        add_result(
+            results,
+            max,
+            crate::LookupResult {
+                uri: entry.key().uri.clone(),
+                span: entry.value().span.start..entry.value().span.end,
+                kind: crate::LookupSymbolKind::Interface,
+                container: None,
+                scope: String::new(),
+                name,
+            },
+        );
     }
     // Enums
     for entry in workspace::WORKSPACE.enums.borrow().iter() {
         let name = entry.key().ident.to_string();
-        add_result(results, max, crate::LookupResult {
-            uri: entry.key().uri.clone(),
-            span: entry.value().span[0] as usize..entry.value().span[1] as usize,
-            kind: crate::LookupSymbolKind::Enum,
-            container: None,
-            scope: String::new(),
-            name,
-        });
+        add_result(
+            results,
+            max,
+            crate::LookupResult {
+                uri: entry.key().uri.clone(),
+                span: entry.value().span[0] as usize..entry.value().span[1] as usize,
+                kind: crate::LookupSymbolKind::Enum,
+                container: None,
+                scope: String::new(),
+                name,
+            },
+        );
     }
 }
 
 /// Add result if prefix matches and limit not reached.
-fn add_result(
-    results: &mut Vec<crate::LookupResult>,
-    max: usize,
-    result: crate::LookupResult,
-) {
-    if results.len() >= max { return; }
+fn add_result(results: &mut Vec<crate::LookupResult>, max: usize, result: crate::LookupResult) {
+    if results.len() >= max {
+        return;
+    }
     results.push(result);
 }
 
@@ -2698,28 +2756,27 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
         tracing::debug!(target: "mcc::lsp", "  register_declare_class: global_class_table size={}", class_table.len());
 
         // First try: exact URI match (same file as reference)
-        let same_uri_result =
-            class_table
-                .iter()
-                .find_map(|((target_uri, _kind, name), &(class_id, ref target_span))| {
-                    if name == class_name && target_uri == &uri_str {
-                        Some((class_id, target_uri.clone(), target_span.clone()))
-                    } else {
-                        None
-                    }
-                });
+        let same_uri_result = class_table.iter().find_map(
+            |((target_uri, _kind, name), &(class_id, ref target_span))| {
+                if name == class_name && target_uri == &uri_str {
+                    Some((class_id, target_uri.clone(), target_span.clone()))
+                } else {
+                    None
+                }
+            },
+        );
 
         // Second try: different URI (fallback for cross-file references)
         let other_uri_result = if same_uri_result.is_none() {
-            class_table
-                .iter()
-                .find_map(|((target_uri, _kind, name), &(class_id, ref target_span))| {
+            class_table.iter().find_map(
+                |((target_uri, _kind, name), &(class_id, ref target_span))| {
                     if name == class_name && target_uri != &uri_str {
                         Some((class_id, target_uri.clone(), target_span.clone()))
                     } else {
                         None
                     }
-                })
+                },
+            )
         } else {
             None
         };
