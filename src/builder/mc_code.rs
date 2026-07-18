@@ -2401,6 +2401,17 @@ impl McCode {
                                         });
                                         sem.symbol_scope
                                             .insert((pspan.start, pspan.end), func_scope.clone());
+                                        // ★ Fix: also register in GlobalInstTable so
+                                        // McPhrase::new can find func params and register
+                                        // instance_ref entries. Use parent scope (module name)
+                                        // so that LSP refs can be resolved by Level 3 name match.
+                                        let module_scope = enclosing.clone();
+                                        crate::builder::mcb_register_instance_decl(
+                                            &self.uri,
+                                            pspan.clone(),
+                                            Some(pname.clone()),
+                                            module_scope.as_deref(),
+                                        );
                                     }
                                 }
                             }
