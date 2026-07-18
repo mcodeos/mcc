@@ -120,6 +120,93 @@ pub trait HasFindInst {
     }
 }
 
+/// Composite context for func body parsing: first searches func params,
+/// then falls back to the parent (module/component) for module-level instances.
+struct FuncBodyContext<'a> {
+    param_names: &'a [String],
+    parent: &'a mut dyn HasFindInst,
+}
+
+impl<'a> FuncBodyContext<'a> {
+    fn find_param(&self, id: &str) -> Option<McInstance> {
+        if self.param_names.iter().any(|n| n == id) {
+            Some(McInstance::Label(id.to_string()))
+        } else {
+            None
+        }
+    }
+}
+
+impl<'a> HasFindInst for FuncBodyContext<'a> {
+    fn find_inst(&self, id: &str) -> Option<McInstance> {
+        self.find_param(id).or_else(|| self.parent.find_inst(id))
+    }
+
+    fn find_inst_mut(&mut self, id: &str) -> Option<&mut crate::McInstance> {
+        self.parent.find_inst_mut(id)
+    }
+
+    fn add_label_at(&mut self, name: String, span: Option<std::ops::Range<usize>>) -> Option<McPhrase> {
+        self.parent.add_label_at(name, span)
+    }
+
+    fn add_component(&mut self, name: String, comp: crate::core::component::Mc2Component) -> Option<McPhrase> {
+        self.parent.add_component(name, comp)
+    }
+
+    fn add_module(&mut self, name: String, module: crate::core::module::Mc2Module) -> Option<McPhrase> {
+        self.parent.add_module(name, module)
+    }
+
+    fn add_bus(&mut self, name: String, members: Vec<String>) -> Option<McPhrase> {
+        self.parent.add_bus(name, members)
+    }
+
+    fn add_list(&mut self, name: String, members: Vec<String>) -> Option<McPhrase> {
+        self.parent.add_list(name, members)
+    }
+
+    fn add_bus_member(&mut self, base: &str, member: String) -> Option<McPhrase> {
+        self.parent.add_bus_member(base, member)
+    }
+
+    fn add_interface_member(&mut self, component: &str, interface: &str, members: Vec<String>) -> Option<McPhrase> {
+        self.parent.add_interface_member(component, interface, members)
+    }
+
+    fn check_bus_member(&mut self, base: &str, member: &str) -> Option<(String, String)> {
+        self.parent.check_bus_member(base, member)
+    }
+
+    fn is_component_bus(&self, base: &str, member: &str) -> bool {
+        self.parent.is_component_bus(base, member)
+    }
+
+    fn upgrade_label_to_bus(&mut self, name: &str) -> bool {
+        self.parent.upgrade_label_to_bus(name)
+    }
+
+    fn uri(&self) -> &crate::McURI {
+        self.parent.uri()
+    }
+
+    fn parse_declare(&mut self, node: &AstNode) -> Vec<McInstance> {
+        self.parent.parse_declare(node)
+    }
+
+    fn gen_anon_name(&mut self, classname: &str) -> String {
+        self.parent.gen_anon_name(classname)
+    }
+
+    fn find_func_return(&self, name: &str) -> Option<McFuncReturn> {
+        self.parent.find_func_return(name)
+    }
+
+    fn scope_name(&self) -> Option<String> {
+        self.parent.scope_name()
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct McFunctions {
     functions: Vec<McFunction>,
@@ -256,6 +343,14 @@ impl McFunction {
             format!("{}.{}", parent_scope, self.name.to_string())
         };
         self.insts.scope = Some(full_scope);
+        // ★ Fix: wrap context so func params are searchable by McPhrase::new
+        let param_names: Vec<String> = self.params.iter()
+            .filter_map(|p| p.get_primary_name())
+            .collect();
+        let mut wrapper = FuncBodyContext {
+            param_names: &param_names,
+            parent: context,
+        };
         if let Some(body_nodes) = body.get_sub_node() {
             let body_nodes: AstNode = body_nodes;
             // ── [BODY-RAW] read-only diagnostic ─────────────────────────────
@@ -297,7 +392,7 @@ impl McFunction {
                             // the line into the return slot instead of pushing
                             // it onto `self.lines`.
                             if Self::find_return_marker(&subnode).is_some() {
-                                self.handle_return(context, &body_node, &subnode);
+                                self.handle_return(&mut wrapper, &body_node, &subnode);
                                 continue;
                             }
 
@@ -307,7 +402,7 @@ impl McFunction {
                                 continue;
                             }
 
-                            match McPhrase::new(&subnode, context) {
+                            match McPhrase::new(&subnode, &mut wrapper) {
                                 Some(net) => {
                                     self.lines.push(net);
                                 }
@@ -338,7 +433,7 @@ impl McFunction {
                     // ── return statement appearing as a top-level body node ──
                     // (defensive: some parser shapes may not wrap `return` in NET)
                     MCAST_IOTYPE_RETURN => {
-                        self.handle_return(context, &body_node, &body_node);
+                        self.handle_return(&mut wrapper, &body_node, &body_node);
                     }
 
                     MCAST_COND_IF => {
