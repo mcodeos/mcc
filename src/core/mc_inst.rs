@@ -444,6 +444,43 @@ impl McInstances {
         self.port_ref_spans.iter()
     }
 
+    /// Find a name within comma-separated text and return its byte span
+    /// relative to `base_offset`.
+    fn find_name_in_text(text: &str, name: &str, base_offset: usize) -> Range<usize> {
+        let text_start = text.as_ptr() as usize;
+        let bytes = text.as_bytes();
+        let mut pos: usize = 0;
+        let n = bytes.len();
+        while pos < n {
+            // Skip leading whitespace
+            while pos < n && bytes[pos].is_ascii_whitespace() {
+                pos += 1;
+            }
+            // Find end of this identifier (comma or end)
+            let start = pos;
+            while pos < n && bytes[pos] != b',' {
+                pos += 1;
+            }
+            let part = &text[start..pos];
+            let trimmed = part.trim();
+            // Extract base name (before { or [)
+            let base = trimmed
+                .split(|c: char| c == '{' || c == '[')
+                .next()
+                .unwrap_or(trimmed);
+            if base == name {
+                let base_start = base.as_ptr() as usize - text_start;
+                return (base_offset + base_start)..(base_offset + base_start + base.len());
+            }
+            // Skip past comma
+            if pos < n && bytes[pos] == b',' {
+                pos += 1;
+            }
+        }
+        // Fallback
+        base_offset..base_offset + text.len()
+    }
+
     pub fn parse(&mut self, node: &AstNode, uri: &McURI) {
         // Handle MCAST_NET_PORTS specially - extract spans for port definitions
         if node.get_type() == MCAST_NET_PORTS {
@@ -505,8 +542,12 @@ impl McInstances {
                                             .filter(|k| !before_keys.contains(*k))
                                             .cloned()
                                             .collect();
+                                        // Compute per-name spans for precise F12 jump
+                                        let opd_text = child.to_string().unwrap_or_default();
                                         for k in new_keys {
-                                            self.store_port_span(&k, span.clone());
+                                            let name_span =
+                                                Self::find_name_in_text(&opd_text, &k, span.start);
+                                            self.store_port_span(&k, name_span);
                                             // ★ Label: set explicit kind
                                             if matches!(iotype_ref, IOType::Label) {
                                                 self.set_label_kind(&k, LabelKind::Explicit);

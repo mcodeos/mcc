@@ -45,7 +45,7 @@ use crate::core::mc_define::McDefineDef;
 use crate::core::mc_enum::McEnumDef;
 use crate::core::mc_ifs::McInterface;
 use crate::core::module::McModule;
-use crate::{McSpaceName, McURI};
+use crate::{ContainerKind, McSpaceName, McURI};
 use dashmap::DashMap;
 use lazy_static::lazy_static;
 use std::collections::HashMap;
@@ -129,8 +129,8 @@ pub struct WorkspaceManager {
     pub(crate) global_inst_table: Mutex<GlobalInstTable>,
 
     // ★ LSP: Shared global class table (cross-file lookups)
-    // (uri_where_defined, class_name) -> (class_id, target_span)
-    pub(crate) global_class_table: Mutex<HashMap<(String, String), (DeclareId, Span)>>,
+    // (uri_where_defined, kind, class_name) -> (class_id, target_span)
+    pub(crate) global_class_table: Mutex<HashMap<(String, ContainerKind, String), (DeclareId, Span)>>,
 
     // ★ LSP: Declare class references (uri -> [(decl_span, class_id, target_uri, target_span)])
     // Used when file is being parsed and not yet in workspace mcodes
@@ -246,6 +246,29 @@ impl WorkspaceManager {
     // ================================================================
     // Query
     // ================================================================
+
+    /// Look up a class in the global class table by (uri, kind, name).
+    pub fn lookup_global_class(
+        &self,
+        uri: &str,
+        kind: ContainerKind,
+        name: &str,
+    ) -> Option<(DeclareId, Span)> {
+        let table = self.global_class_table.lock().ok()?;
+        table.get(&(uri.to_string(), kind, name.to_string())).cloned()
+    }
+
+    /// Look up a class in the global class table by name (any kind, any URI).
+    pub fn lookup_global_class_by_name(&self, name: &str) -> Option<(DeclareId, Span, String, ContainerKind)> {
+        let table = self.global_class_table.lock().ok()?;
+        table.iter().find_map(|((uri, kind, n), &(id, ref span))| {
+            if n == name {
+                Some((id, span.clone(), uri.clone(), *kind))
+            } else {
+                None
+            }
+        })
+    }
 
     pub fn active_id(&self) -> String {
         self.meta.borrow().id.clone()

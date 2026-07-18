@@ -30,7 +30,10 @@ pub mod viz;
 //3. mcc re-exports
 pub use crate::core::basic::mc_bus::McBus;
 pub use crate::core::basic::mc_opd::McOpd;
-pub use crate::core::common::{IOType, McCMIE, McSpaceName, McURI};
+pub use crate::core::common::{
+    ContainerInfo, ContainerKind, IOType, LookupResult, LookupSymbolKind, McCMIE, McSpaceName,
+    McURI, ScopeFilter, ScopePath,
+};
 pub use crate::core::{
     basic::{
         mc_endpoint::{McEndpoint, McInstanceRef},
@@ -82,9 +85,10 @@ pub use builder::diagnostic::{
     Diagnostic as McDiagnostic, DiagnosticLevel, Location as McLocation,
 };
 pub use builder::{
-    lookup_sub_def, mcb_iter_components, mcb_iter_components_with_span, mcb_iter_enums,
-    mcb_iter_enums_with_span, mcb_iter_interfaces, mcb_iter_interfaces_with_span, mcb_iter_modules,
-    mcb_iter_modules_with_span, mcb_iter_ports, unified_lookup, SubElementKind,
+    lookup_sub_def, lookup_with_sub, mcb_iter_components, mcb_iter_components_with_span,
+    mcb_iter_enums, mcb_iter_enums_with_span, mcb_iter_interfaces, mcb_iter_interfaces_with_span,
+    mcb_iter_modules, mcb_iter_modules_with_span, mcb_iter_ports, unified_lookup,
+    unified_lookup_all, unified_lookup_with_scope, SubElementKind,
 };
 pub use builder::{mcb_component_count, mcb_interface_count};
 pub use builder::{

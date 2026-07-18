@@ -4035,7 +4035,7 @@ pub fn handle_caps(_params: Option<Value>) -> RpcResult {
             "lib.install", "lib.uninstall", "lib.search",
             "defs.search", "defs.query",
             "export", "explain", "def", "erc", "refs", "caps",
-            "lookup", "lookup_sub",
+            "lookup", "lookup_sub", "lookup_with_sub", "lookup_all",
             "trace.set", "trace.get",
             "sem", "diagnostics",
             "project_symbols", "set_project_root", "set_system_root",
@@ -4085,6 +4085,72 @@ pub fn handle_lookup_sub(params: Option<Value>) -> RpcResult {
         Some(span) => Ok(json!({"uri": parent_uri, "span": [span.start, span.end]})),
         None => Ok(json!({"uri": null, "span": null})),
     }
+}
+
+/// Combined lookup: find class + optionally look up sub-element.
+/// Supports compound identifiers like `uC.PA1` — finds `uC` then `PA1` within it.
+pub fn handle_lookup_with_sub(params: Option<Value>) -> RpcResult {
+    #[derive(Deserialize)]
+    struct LwsParams {
+        #[serde(rename = "className")]
+        class_name: String,
+        #[serde(rename = "subName")]
+        sub_name: Option<String>,
+        #[serde(rename = "subKind")]
+        sub_kind: Option<String>,
+        #[serde(rename = "fromUri")]
+        from_uri: Option<String>,
+    }
+    let p: LwsParams = parse_strict(params)?;
+    let from = p.from_uri.as_deref().map(McURI::from).unwrap_or_default();
+    let sub_kind = p
+        .sub_kind
+        .as_deref()
+        .and_then(crate::SubElementKind::from_str);
+    match crate::lookup_with_sub(&p.class_name, p.sub_name.as_deref(), sub_kind, &from) {
+        Some((uri, span)) => Ok(json!({"uri": uri, "span": [span.start, span.end]})),
+        None => Ok(json!({"uri": null, "span": null})),
+    }
+}
+
+/// Enumerate all visible symbols at a given scope.
+pub fn handle_lookup_all(params: Option<Value>) -> RpcResult {
+    #[derive(Deserialize, Default)]
+    struct LookupAllParams {
+        uri: Option<String>,
+        scope: Option<String>,
+        prefix: Option<String>,
+        #[serde(default)]
+        limit: usize,
+    }
+    let p: LookupAllParams = parse_or_default(params)?;
+    let uri = p.uri.map(|s| McURI::from(s.as_str())).unwrap_or_default();
+    let scope_path = if let Some(ref s) = p.scope {
+        crate::builder::mc_code::McCode::scope_path_from_scope_str_public(&uri, s)
+    } else {
+        crate::ScopePath::file_level(&uri)
+    };
+    let mut filter = crate::ScopeFilter::new();
+    if let Some(pref) = &p.prefix {
+        filter = filter.with_prefix(pref);
+    }
+    let limit = if p.limit > 0 { p.limit } else { 100 };
+    filter = filter.with_limit(limit);
+
+    let results = crate::unified_lookup_all(&scope_path, &filter);
+    let items: Vec<serde_json::Value> = results
+        .iter()
+        .map(|r| {
+            json!({
+                "name": r.name,
+                "uri": r.uri,
+                "span": [r.span.start, r.span.end],
+                "kind": r.kind.as_str(),
+                "scope": r.scope,
+            })
+        })
+        .collect();
+    Ok(json!({ "items": items }))
 }
 
 // ============================================================================
