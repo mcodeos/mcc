@@ -148,6 +148,8 @@ pub struct SchematicQualityReport {
     pub visual: VisualQualityReport,
     pub semantic: Option<SemanticSummary>,
     pub special: Option<super::special::PowerGroundBusReport>,
+    pub determinism: Option<super::stability::report::DeterminismReport>,
+    pub stability: Option<super::stability::report::StabilityReport>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -505,6 +507,8 @@ impl MetricsAccumulator {
             visual,
             semantic,
             special,
+            determinism: None,
+            stability: None,
         }
     }
 
