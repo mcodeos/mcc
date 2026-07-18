@@ -4,6 +4,11 @@
 
 //! Two-lane bridged-passive ladder — deterministic placement (M11 `c07_pins`).
 //!
+//! **Status: fallback** — heuristic ladder placement; superseded by `ladder_model`
+//! + `ladder_place` when the net-based ladder model matches. Kept as fallback
+//! for graphs where the model bails. Further fixture validation needed to
+//! determine if long-term retention is required.
+//!
 //! For a directional two-lane bus the picture is trivial: two anchors (u1/u2)
 //! and two straight horizontal wires between them, with the series resistors
 //! sitting *on* the wires and the bridge caps crossing vertically. So we don't

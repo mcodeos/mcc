@@ -4,6 +4,8 @@
 
 //! ★ NEW —— Hierarchical layout (top-level simplest integration dedicated)
 //!
+//! **Status: experimental** — kept for comparison via `RenderOpts::sugiyama()`.
+//!
 //! User's words:
 //! > The outermost layer depicts the simplest connection, a highest-level integration,
 //! > it connects each module together.
