@@ -261,10 +261,10 @@ impl LabelPlacementModel {
             let best = candidates
                 .into_iter()
                 .min_by(|a, b| {
+                    // M12: use total_cmp for deterministic float ordering
                     a.penalty
                         .total
-                        .partial_cmp(&b.penalty.total)
-                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .total_cmp(&b.penalty.total)
                         .then_with(|| a.position.cmp(&b.position))
                         .then_with(|| a.key.cmp(&b.key))
                 })

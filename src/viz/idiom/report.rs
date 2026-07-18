@@ -8,7 +8,7 @@
 
 use std::collections::BTreeMap;
 
-use super::model::IdiomInstanceKind;
+use super::model::{IdiomInstanceKind, PlacementDecisionRecord};
 
 // ============================================================================
 // IdiomPlacementReport
@@ -38,8 +38,25 @@ pub struct IdiomPlacementReport {
     /// Applied but reverted because collision detected post-move.
     pub collision_reverted: usize,
 
+    /// M12: Total candidate positions evaluated.
+    pub candidate_count: usize,
+    /// M12: Selected candidates for determinism tracking.
+    pub selected_candidates: Vec<PlacementDecisionRecord>,
+    /// M12: Skip reasons by category.
+    pub skip_reasons: BTreeMap<IdiomPlacementSkipReason, usize>,
+
     /// Warnings generated during placement.
     pub warnings: Vec<String>,
+}
+
+/// Why an idiom placement was skipped.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum IdiomPlacementSkipReason {
+    Protected,
+    AllCandidatesCollide,
+    AnchorMissing,
+    TargetMissing,
+    NoConstraint,
 }
 
 impl IdiomPlacementReport {
@@ -58,6 +75,12 @@ impl IdiomPlacementReport {
         self.protected_skips += other.protected_skips;
         self.collision_skips += other.collision_skips;
         self.collision_reverted += other.collision_reverted;
+        self.candidate_count += other.candidate_count;
+        self.selected_candidates
+            .extend(other.selected_candidates.clone());
+        for (k, v) in &other.skip_reasons {
+            *self.skip_reasons.entry(*k).or_insert(0) += v;
+        }
         self.warnings.extend(other.warnings.clone());
     }
 
@@ -106,12 +129,14 @@ impl IdiomPlacementReport {
 
         format!(
             "[metrics] IDIOM-PLACE: detected={} applicable={} applied={} skipped={} \
+             candidates={} \
              decoupling={}/{} pullup={}/{} pulldown={}/{} diff_pair={}/{} \
              protected={} collision_skip={} reverted={} warnings={}",
             self.idioms_detected,
             self.idioms_applicable,
             self.idioms_applied,
             self.idioms_skipped,
+            self.candidate_count,
             decoupling_detected,
             decoupling_applied,
             pullup_detected,

@@ -49,6 +49,7 @@ pub mod render;
 pub mod route;
 pub mod semantic;
 pub mod special;
+pub mod stability;
 pub mod template;
 pub mod traits;
 

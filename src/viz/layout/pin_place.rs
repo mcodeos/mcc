@@ -521,8 +521,12 @@ fn order_within_side(graph: &mut McVecGraph) {
                 continue;
             }
 
-            // Sort by target position
-            indices.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            // Sort by target position with stable tie-break (index) for determinism
+            indices.sort_by(|a, b| {
+                a.1.partial_cmp(&b.1)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| a.0.cmp(&b.0))
+            });
 
             // Redistribute offsets evenly
             let n = indices.len();
