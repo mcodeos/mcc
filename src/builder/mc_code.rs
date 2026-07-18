@@ -1133,14 +1133,11 @@ impl McCode {
                         ident: module_name.clone(),
                         uri: self.uri.clone(),
                     };
+                    // Replace any previously registered shallow copy with fully-parsed module
                     workspace::WORKSPACE
                         .modules
                         .borrow()
-                        .entry(key)
-                        .and_modify(|_| {
-                            dlog_error(1503, &node, "Duplicate module");
-                        })
-                        .or_insert(Arc::new(module));
+                        .insert(key, Arc::new(module));
                 }
             }
         }
@@ -1521,7 +1518,6 @@ impl McCode {
                             stop: span.end,
                             val: SymbolType::DeclareInstance(decl_id),
                         });
-                        tracing::info!(target: "mcc::lsp", "  create_lapper: inst in inst_table: {:?}, span={:?}", decl_id, span);
                         // ★ Store scope for LSP goto-def
                         if !scope.is_empty() {
                             sem.symbol_scope.insert((span.start, span.end), scope);
@@ -1572,6 +1568,8 @@ impl McCode {
                         .unwrap();
                     let refs = inst_table.get_all_refs_for_uri(uri_str);
                     let count = refs.len();
+                    for (decl_id, _ref_scope, ref_span) in &refs {
+                    }
                     for (decl_id, scope, span) in refs {
                         symbol_lapper.insert(Interval {
                             start: span.start,
@@ -2346,13 +2344,22 @@ impl McCode {
                     for node in &all_nodes {
                         let ntype = node.get_type();
                         if ntype == MCAST_FUNCTION {
+                            // ★ Fix: use MCAST_IDS (the actual name) for span, not
+                            // MCAST_NAME which may cover the entire func body and
+                            // shadow instance_ref entries inside func bodies.
+                            let ids_node = node.get_sub_node()
+                                .and_then(|n| n.get_sub_node()); // MCAST_NAME -> MCAST_IDS
+                            let span = if let Some(ref ids) = ids_node {
+                                (ids.get_pos() as usize, (ids.get_pos() + ids.get_len()) as usize)
+                            } else if let Some(name_node) = node.get_sub_node() {
+                                (name_node.get_pos() as usize, (name_node.get_pos() + name_node.get_len()) as usize)
+                            } else {
+                                continue;
+                            };
                             if let Some(name_node) = node.get_sub_node() {
-                                let span = (
-                                    name_node.get_pos() as usize,
-                                    (name_node.get_pos() + name_node.get_len()) as usize,
-                                );
                                 let enclosing = default_container.clone();
-                                let func_name = crate::core::basic::mc_ids::McIds::new(&name_node)
+                                let func_name = ids_node
+                                    .and_then(|n| crate::core::basic::mc_ids::McIds::new(&n))
                                     .map(|ids| ids.to_string());
                                 let scope = match (&enclosing, &func_name) {
                                     (Some(m), Some(f)) => Some(format!("{m}.{f}")),
@@ -2579,20 +2586,21 @@ impl McCode {
                                     .get(&(entry.start, entry.stop))
                                     .cloned()
                                     .unwrap_or_default();
-                                if scope.is_empty() {
-                                    if let Some(name) = source.get(entry.start..entry.stop) {
-                                        let bare = name.trim_end_matches(|c: char| {
-                                            c == '(' || c == '{' || c == ')' || c == '}'
-                                        });
-                                        let name = bare
-                                            .split(|c: char| c == ',' || c.is_whitespace())
-                                            .next()
-                                            .unwrap_or("");
-                                        if !name.is_empty() {
-                                            def_map
-                                                .entry(("".to_string(), name.to_string()))
-                                                .or_insert((entry.start, entry.stop));
-                                        }
+                                // ★ Fix: also include non-empty-scope definitions so
+                                // module-level instances (scope="US513") can be found
+                                // by cross_file_targets for references inside func bodies.
+                                if let Some(name) = source.get(entry.start..entry.stop) {
+                                    let bare = name.trim_end_matches(|c: char| {
+                                        c == '(' || c == '{' || c == ')' || c == '}'
+                                    });
+                                    let name = bare
+                                        .split(|c: char| c == ',' || c.is_whitespace())
+                                        .next()
+                                        .unwrap_or("");
+                                    if !name.is_empty() {
+                                        def_map
+                                            .entry((scope.clone(), name.to_string()))
+                                            .or_insert((entry.start, entry.stop));
                                     }
                                 }
                             }
@@ -2606,9 +2614,8 @@ impl McCode {
                                         .get(&(entry.start, entry.stop))
                                         .cloned()
                                         .unwrap_or_default();
-                                    if scope.is_empty() {
-                                        continue;
-                                    }
+                                    // ★ Fix: don't skip empty-scope entries;
+                                    // module-level defs have non-empty scope.
                                     if let Some(name) = source.get(entry.start..entry.stop) {
                                         let bare = name.trim_end_matches(|c: char| {
                                             c == '(' || c == '{' || c == ')' || c == '}'
@@ -2617,9 +2624,12 @@ impl McCode {
                                             .split(|c: char| c == ',' || c.is_whitespace())
                                             .next()
                                             .unwrap_or("");
-                                        // Try unscoped match (container-level instances only)
+                                        // Try scoped match first, then unscoped fallback
+                                        let scoped_key = (scope.clone(), name.to_string());
                                         let empty_key = ("".to_string(), name.to_string());
-                                        if let Some(&(def_s, def_e)) = def_map.get(&empty_key) {
+                                        if let Some(&(def_s, def_e)) = def_map.get(&scoped_key)
+                                            .or_else(|| def_map.get(&empty_key))
+                                        {
                                             gtable
                                                 .declare_inst_to_target_span
                                                 .entry(did)

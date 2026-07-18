@@ -1250,9 +1250,29 @@ fn collect_pass2(top: &str, inst: &crate::MccProjectTree) -> Value {
     json!({
         "top": top,
         "instances": instance_to_json(inst),
+        "connections": extract_connections(inst),
         "nets":       extract_nets(inst),
         "diagnostics": []
     })
+}
+
+fn extract_connections(inst: &crate::MccProjectTree) -> Vec<Value> {
+    let mut out = Vec::new();
+    walk_connections(inst, &mut out);
+    out
+}
+
+fn walk_connections(inst: &crate::MccProjectTree, out: &mut Vec<Value>) {
+    for conn in &inst.connections {
+        out.push(json!({
+            "id": conn.id,
+            "net_name": conn.net_name,
+            "points": conn.points.iter().map(|p| p.path.clone()).collect::<Vec<_>>(),
+        }));
+    }
+    for sub in &inst.sub_modules {
+        walk_connections(sub, out);
+    }
 }
 
 fn instance_to_json(inst: &crate::MccProjectTree) -> Value {
@@ -1310,9 +1330,31 @@ fn instance_to_json(inst: &crate::MccProjectTree) -> Value {
     })
 }
 
-fn extract_nets(_inst: &crate::MccProjectTree) -> Vec<Value> {
-    // Placeholder: aggregate inst.connections / inst.nets
-    Vec::new()
+fn extract_nets(inst: &crate::MccProjectTree) -> Vec<Value> {
+    use std::collections::BTreeMap;
+    let mut by_name: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    walk_nets(inst, &mut by_name);
+    by_name
+        .into_iter()
+        .map(|(name, points)| json!({ "name": name, "points": points }))
+        .collect()
+}
+
+fn walk_nets(inst: &crate::MccProjectTree, by_name: &mut BTreeMap<String, Vec<String>>) {
+    for conn in &inst.connections {
+        let key = conn.net_name.clone().unwrap_or_default();
+        let entry = by_name
+            .entry(key)
+            .or_default();
+        for p in &conn.points {
+            if !entry.contains(&p.path) {
+                entry.push(p.path.clone());
+            }
+        }
+    }
+    for sub in &inst.sub_modules {
+        walk_nets(sub, by_name);
+    }
 }
 
 fn iotype_str(io: &crate::IOType) -> &'static str {
