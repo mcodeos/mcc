@@ -4,7 +4,10 @@
 
 //! Multi-strategy scheduler: per connected component pick chain / radial layout
 //!
-//! This is the original `GridPlacer::layout` behavior, now wrapped as a [`Layouter`] trait impl.
+//! **Status: experimental** — the original P2 default layouter, now superseded by
+//! FlowLayouter. Kept for comparison via `RenderOpts::all_radial()` /
+//! `RenderOpts::legacy_radial()`.
+//!
 //! It's the P2 "default Layouter", keeping the name `RadialLayouter` because for multi-component cases
 //! the main circuit usually goes radial.
 //!

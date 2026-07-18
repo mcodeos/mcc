@@ -95,6 +95,329 @@ impl ReadabilityScore {
 }
 
 // ============================================================================
+// Phase F — Engineer style soft metrics
+// ============================================================================
+
+/// Soft metrics that measure how "engineer-like" the schematic looks.
+/// These are informational only — they do NOT affect the hard gate.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct EngineerStyleMetrics {
+    /// Signal flow monotonicity: fraction of signal chains that are left-to-right.
+    pub signal_flow_monotonicity: f64,
+    /// Power rail alignment: fraction of power flags above their consumers.
+    pub rail_alignment_score: f64,
+    /// Ground alignment: fraction of ground flags below their consumers.
+    pub ground_alignment_score: f64,
+    /// Bus order: fraction of bus bits in correct order.
+    pub bus_order_score: f64,
+    /// Idiom proximity: fraction of idiom satellites within preferred distance.
+    pub idiom_proximity_score: f64,
+    /// Pin side intent honor rate: fraction of authored pin sides that are honored.
+    pub pin_side_intent_honor_rate: f64,
+    /// Functional block compactness: average ratio of block area to bounding box.
+    pub functional_block_compactness: f64,
+    /// Route channel clarity: fraction of routes using clear channels.
+    pub route_channel_clarity: f64,
+    /// Label readability: fraction of labels not overlapping anything.
+    pub label_readability_score: f64,
+}
+
+impl EngineerStyleMetrics {
+    /// Compute engineer style metrics from a laid-out graph.
+    pub fn compute(graph: &McVecGraph) -> Self {
+        let mut metrics = Self::default();
+
+        // Signal flow monotonicity: check if signal chain nodes are left-to-right
+        metrics.signal_flow_monotonicity = compute_signal_flow_monotonicity(graph);
+
+        // Rail alignment: power flags above their consumers
+        let (rail_score, ground_score) = compute_rail_alignment(graph);
+        metrics.rail_alignment_score = rail_score;
+        metrics.ground_alignment_score = ground_score;
+
+        // Bus order score
+        metrics.bus_order_score = compute_bus_order_score(graph);
+
+        // Idiom proximity score
+        metrics.idiom_proximity_score = compute_idiom_proximity_score(graph);
+
+        // Pin side intent honor rate
+        metrics.pin_side_intent_honor_rate = compute_pin_side_honor_rate(graph);
+
+        // Functional block compactness
+        metrics.functional_block_compactness = compute_block_compactness(graph);
+
+        // Route channel clarity
+        metrics.route_channel_clarity = compute_route_channel_clarity(graph);
+
+        // Label readability
+        metrics.label_readability_score = compute_label_readability(graph);
+
+        metrics
+    }
+
+    pub fn report_line(&self) -> String {
+        format!(
+            "[metrics] ENGINEER-STYLE: signal_flow={:.2} rail_align={:.2} ground_align={:.2} \
+             bus_order={:.2} idiom_prox={:.2} pin_side={:.2} block_compact={:.2} \
+             route_channel={:.2} label_readable={:.2}",
+            self.signal_flow_monotonicity,
+            self.rail_alignment_score,
+            self.ground_alignment_score,
+            self.bus_order_score,
+            self.idiom_proximity_score,
+            self.pin_side_intent_honor_rate,
+            self.functional_block_compactness,
+            self.route_channel_clarity,
+            self.label_readability_score,
+        )
+    }
+}
+
+// ── Engineer style metric helpers ──
+
+fn compute_signal_flow_monotonicity(graph: &McVecGraph) -> f64 {
+    // Check if signal chains flow left-to-right
+    let mut total_chains = 0usize;
+    let mut monotonic = 0usize;
+    for net in &graph.nets {
+        if net.endpoints.len() < 2 {
+            continue;
+        }
+        total_chains += 1;
+        let mut all_ltr = true;
+        let mut prev_x = f64::NEG_INFINITY;
+        for ep in &net.endpoints {
+            if let Some(b) = graph.boxes.iter().find(|bx| bx.id == ep.box_id) {
+                let cx = b.x + b.w / 2.0;
+                if cx < prev_x {
+                    all_ltr = false;
+                    break;
+                }
+                prev_x = cx;
+            }
+        }
+        if all_ltr {
+            monotonic += 1;
+        }
+    }
+    if total_chains == 0 {
+        1.0
+    } else {
+        monotonic as f64 / total_chains as f64
+    }
+}
+
+fn compute_rail_alignment(graph: &McVecGraph) -> (f64, f64) {
+    let mut power_total = 0usize;
+    let mut power_above = 0usize;
+    let mut ground_total = 0usize;
+    let mut ground_below = 0usize;
+
+    for net in &graph.nets {
+        let is_power = matches!(net.kind, NetKind::Power);
+        let is_ground = matches!(net.kind, NetKind::Ground);
+        if !is_power && !is_ground {
+            continue;
+        }
+        for ep in &net.endpoints {
+            if let Some(b) = graph.boxes.iter().find(|bx| bx.id == ep.box_id) {
+                let cy = b.y + b.h / 2.0;
+                // Find the consumer (non-flag endpoint)
+                for other_ep in &net.endpoints {
+                    if other_ep.box_id == ep.box_id {
+                        continue;
+                    }
+                    if let Some(other_b) = graph.boxes.iter().find(|bx| bx.id == other_ep.box_id) {
+                        let other_cy = other_b.y + other_b.h / 2.0;
+                        if is_power {
+                            power_total += 1;
+                            if cy < other_cy {
+                                power_above += 1;
+                            }
+                        }
+                        if is_ground {
+                            ground_total += 1;
+                            if cy > other_cy {
+                                ground_below += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let power_score = if power_total == 0 {
+        1.0
+    } else {
+        power_above as f64 / power_total as f64
+    };
+    let ground_score = if ground_total == 0 {
+        1.0
+    } else {
+        ground_below as f64 / ground_total as f64
+    };
+    (power_score, ground_score)
+}
+
+fn compute_bus_order_score(graph: &McVecGraph) -> f64 {
+    let mut total_buses = 0usize;
+    let mut ordered = 0usize;
+    for net in &graph.nets {
+        if !matches!(net.kind, NetKind::Bus(_)) {
+            continue;
+        }
+        total_buses += 1;
+        let mut all_ordered = true;
+        let mut prev_bit: Option<usize> = None;
+        let mut eps: Vec<_> = net.endpoints.iter().collect();
+        eps.sort_by_key(|ep| ep.pin_name.clone());
+        for ep in &eps {
+            if let Some(bit) = ep.pin_name.parse::<usize>().ok() {
+                if let Some(prev) = prev_bit {
+                    if bit != prev + 1 {
+                        all_ordered = false;
+                        break;
+                    }
+                }
+                prev_bit = Some(bit);
+            }
+        }
+        if all_ordered {
+            ordered += 1;
+        }
+    }
+    if total_buses == 0 {
+        1.0
+    } else {
+        ordered as f64 / total_buses as f64
+    }
+}
+
+fn compute_idiom_proximity_score(graph: &McVecGraph) -> f64 {
+    let idioms = crate::viz::idiom::analyze(graph);
+    if idioms.is_empty() {
+        return 1.0;
+    }
+    let total = idioms.len();
+    let violations = idioms.iter().filter(|i| i.idiom_violation).count();
+    (total - violations) as f64 / total as f64
+}
+
+fn compute_pin_side_honor_rate(graph: &McVecGraph) -> f64 {
+    let mut total = 0usize;
+    let mut honored = 0usize;
+    for b in &graph.boxes {
+        if let Some(lh) = &b.layout_hint {
+            let listed = lh.left.len() + lh.right.len() + lh.top.len() + lh.bottom.len();
+            total += listed;
+            let h = b
+                .entry_points
+                .iter()
+                .filter(|ep| {
+                    b.find_pin(ep.pin_id).is_some_and(|p| {
+                        lh.side_of(&p.pin_id) == Some(ep.side.clone())
+                            || lh.side_of(&p.description) == Some(ep.side.clone())
+                    })
+                })
+                .count();
+            honored += h;
+        }
+    }
+    if total == 0 {
+        1.0
+    } else {
+        honored as f64 / total as f64
+    }
+}
+
+fn compute_block_compactness(graph: &McVecGraph) -> f64 {
+    // Measure how compactly boxes are packed
+    if graph.boxes.len() < 2 {
+        return 1.0;
+    }
+    let total_box_area: f64 = graph.boxes.iter().map(|b| b.w * b.h).sum();
+    let mut min_x = f64::MAX;
+    let mut min_y = f64::MAX;
+    let mut max_x = f64::MIN;
+    let mut max_y = f64::MIN;
+    for b in &graph.boxes {
+        min_x = min_x.min(b.x);
+        min_y = min_y.min(b.y);
+        max_x = max_x.max(b.x + b.w);
+        max_y = max_y.max(b.y + b.h);
+    }
+    let bbox_area = (max_x - min_x) * (max_y - min_y);
+    if bbox_area <= 0.0 {
+        1.0
+    } else {
+        (total_box_area / bbox_area).min(1.0)
+    }
+}
+
+fn compute_route_channel_clarity(graph: &McVecGraph) -> f64 {
+    // Measure how many routes are orthogonal and clear
+    let mut total_routes = 0usize;
+    let mut clear_routes = 0usize;
+    for net in &graph.nets {
+        if let Some(route) = &net.route {
+            if route.segments.is_empty() {
+                continue;
+            }
+            total_routes += 1;
+            // Check if route is mostly orthogonal (few bends)
+            let bends = crate::viz::metrics::route_bends(route);
+            let segments = route.segments.len();
+            if bends <= segments / 2 + 1 {
+                clear_routes += 1;
+            }
+        }
+    }
+    if total_routes == 0 {
+        1.0
+    } else {
+        clear_routes as f64 / total_routes as f64
+    }
+}
+
+fn compute_label_readability(graph: &McVecGraph) -> f64 {
+    // Measure label overlap ratio
+    let labels: Vec<LabelBounds> = graph
+        .boxes
+        .iter()
+        .flat_map(|b| designator_value_label_bounds(b))
+        .collect();
+    if labels.is_empty() {
+        return 1.0;
+    }
+    let total = labels.len();
+    let mut overlaps = 0usize;
+    for i in 0..labels.len() {
+        for j in (i + 1)..labels.len() {
+            if rects_overlap_simple(
+                labels[i].x,
+                labels[i].y,
+                labels[i].w,
+                labels[i].h,
+                labels[j].x,
+                labels[j].y,
+                labels[j].w,
+                labels[j].h,
+            ) {
+                overlaps += 1;
+            }
+        }
+    }
+    // Simple heuristic: each label can overlap at most 1 other
+    let max_overlaps = total / 2;
+    if max_overlaps == 0 {
+        1.0
+    } else {
+        1.0 - (overlaps as f64 / max_overlaps as f64).min(1.0)
+    }
+}
+
+// ============================================================================
 // Unified schematic quality report — Milestone 1 acceptance report
 // ============================================================================
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -148,6 +471,11 @@ pub struct SchematicQualityReport {
     pub visual: VisualQualityReport,
     pub semantic: Option<SemanticSummary>,
     pub special: Option<super::special::PowerGroundBusReport>,
+    pub determinism: Option<super::stability::report::DeterminismReport>,
+    pub stability: Option<super::stability::report::StabilityReport>,
+    pub rendered_connectivity: Option<super::connectivity::report::RenderedConnectivityReport>,
+    /// Phase F — Engineer style soft metrics (informational, not hard gate)
+    pub engineer_style: EngineerStyleMetrics,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -372,6 +700,16 @@ impl SchematicQualityReport {
         if let Some(ref s) = self.special {
             lines.push(s.report_line());
         }
+        if let Some(ref d) = self.determinism {
+            lines.push(d.report_line());
+        }
+        if let Some(ref s) = self.stability {
+            lines.push(s.report_line());
+        }
+        if let Some(ref c) = self.rendered_connectivity {
+            lines.push(c.report_line());
+        }
+        lines.push(self.engineer_style.report_line());
         lines.push(format!(
             "[metrics] QUALITY: perfect={} weighted={:.1}",
             self.is_perfect(),
@@ -408,6 +746,9 @@ pub struct MetricsAccumulator {
     visual: VisualQualityReport,
     semantic: Option<SemanticSummary>,
     special: Option<super::special::PowerGroundBusReport>,
+    determinism: Option<super::stability::report::DeterminismReport>,
+    stability: Option<super::stability::report::StabilityReport>,
+    connectivity: Option<super::connectivity::report::RenderedConnectivityReport>,
 }
 
 impl MetricsAccumulator {
@@ -486,6 +827,38 @@ impl MetricsAccumulator {
         }
     }
 
+    /// Accumulate M12 determinism report across layers.
+    pub fn accumulate_determinism(&mut self, report: &super::stability::report::DeterminismReport) {
+        self.determinism = Some(report.clone());
+    }
+
+    /// Accumulate M12 stability report across layers.
+    pub fn accumulate_stability(&mut self, report: &super::stability::report::StabilityReport) {
+        match &mut self.stability {
+            Some(existing) => {
+                existing.unchanged_boxes_total += report.unchanged_boxes_total;
+                existing.unchanged_boxes_moved += report.unchanged_boxes_moved;
+                existing.max_unchanged_box_delta = existing
+                    .max_unchanged_box_delta
+                    .max(report.max_unchanged_box_delta);
+                existing.route_hashes_changed += report.route_hashes_changed;
+                existing.locality_warning = existing.locality_warning || report.locality_warning;
+            }
+            None => self.stability = Some(report.clone()),
+        }
+    }
+
+    /// Accumulate M13 rendered connectivity report across layers.
+    pub fn accumulate_connectivity(
+        &mut self,
+        report: &super::connectivity::report::RenderedConnectivityReport,
+    ) {
+        match &mut self.connectivity {
+            Some(existing) => existing.merge(report),
+            None => self.connectivity = Some(report.clone()),
+        }
+    }
+
     /// Merge build-phase dropped/partial, produce final two reports.
     pub fn finish(self, report: Option<&BuilderReport>) -> (FidelityReport, ReadabilityScore) {
         let (fidelity, readability, _, _, _, _, _, _) = self.finish_parts(report);
@@ -494,6 +867,9 @@ impl MetricsAccumulator {
 
     /// Merge build-phase diagnostics and produce the unified schematic quality report.
     pub fn finish_quality(self, report: Option<&BuilderReport>) -> SchematicQualityReport {
+        let determinism = self.determinism.clone();
+        let stability = self.stability.clone();
+        let connectivity = self.connectivity.clone();
         let (fidelity, readability, collisions, builder, truth, visual, semantic, special) =
             self.finish_parts(report);
         SchematicQualityReport {
@@ -505,6 +881,10 @@ impl MetricsAccumulator {
             visual,
             semantic,
             special,
+            determinism,
+            stability,
+            rendered_connectivity: connectivity,
+            engineer_style: EngineerStyleMetrics::default(),
         }
     }
 
@@ -1454,6 +1834,44 @@ pub struct ReadabilitySnapshot {
     pub weighted: f64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct DeterminismSnapshot {
+    pub box_order_hash: String,
+    pub net_order_hash: String,
+    pub pin_anchor_hash: String,
+    pub route_geometry_hash: String,
+    pub metrics_hash: String,
+    pub unstable_decisions: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct StabilitySnapshot {
+    pub unchanged_boxes_total: usize,
+    pub unchanged_boxes_moved: usize,
+    pub max_unchanged_box_delta: f64,
+    pub route_hashes_changed: usize,
+    pub locality_warning: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct ConnectivitySnapshot {
+    pub is_perfect: bool,
+    pub pins_total: usize,
+    pub pins_reachable: usize,
+    pub pins_unreachable: usize,
+    pub nets_total: usize,
+    pub nets_perfect: usize,
+    pub nets_with_render_mismatch: usize,
+    pub false_connections: usize,
+    pub missing_connections: usize,
+    pub false_junctions: usize,
+    pub missing_junctions: usize,
+    pub different_net_crossings: usize,
+    pub different_net_crossings_with_hop: usize,
+    pub different_net_crossings_without_hop: usize,
+    pub connectivity_hash: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MetricsThresholds {
     pub float_tolerance_abs: f64,
@@ -1500,6 +1918,9 @@ pub struct SchematicMetricsSnapshot {
     pub builder: BuilderSnapshot,
     pub semantic: SemanticSnapshot,
     pub readability: ReadabilitySnapshot,
+    pub determinism: DeterminismSnapshot,
+    pub stability: StabilitySnapshot,
+    pub connectivity: ConnectivitySnapshot,
     pub thresholds: MetricsThresholds,
 }
 
@@ -1604,6 +2025,50 @@ impl SchematicMetricsSnapshot {
             weighted: quality.readability.weighted(),
         };
 
+        let determinism = match &quality.determinism {
+            Some(d) => DeterminismSnapshot {
+                box_order_hash: d.box_order_hash.clone(),
+                net_order_hash: d.net_order_hash.clone(),
+                pin_anchor_hash: d.pin_anchor_hash.clone(),
+                route_geometry_hash: d.route_geometry_hash.clone(),
+                metrics_hash: d.metrics_hash.clone(),
+                unstable_decisions: d.unstable_decisions,
+            },
+            None => DeterminismSnapshot::default(),
+        };
+
+        let stability = match &quality.stability {
+            Some(s) => StabilitySnapshot {
+                unchanged_boxes_total: s.unchanged_boxes_total,
+                unchanged_boxes_moved: s.unchanged_boxes_moved,
+                max_unchanged_box_delta: s.max_unchanged_box_delta,
+                route_hashes_changed: s.route_hashes_changed,
+                locality_warning: s.locality_warning,
+            },
+            None => StabilitySnapshot::default(),
+        };
+
+        let connectivity = match &quality.rendered_connectivity {
+            Some(c) => ConnectivitySnapshot {
+                is_perfect: c.is_perfect,
+                pins_total: c.pins_total,
+                pins_reachable: c.pins_reachable,
+                pins_unreachable: c.pins_unreachable,
+                nets_total: c.nets_total,
+                nets_perfect: c.nets_perfect,
+                nets_with_render_mismatch: c.nets_with_render_mismatch,
+                false_connections: c.false_connections,
+                missing_connections: c.missing_connections,
+                false_junctions: c.false_junctions,
+                missing_junctions: c.missing_junctions,
+                different_net_crossings: c.different_net_crossings,
+                different_net_crossings_with_hop: c.different_net_crossings_with_hop,
+                different_net_crossings_without_hop: c.different_net_crossings_without_hop,
+                connectivity_hash: c.connectivity_hash.clone(),
+            },
+            None => ConnectivitySnapshot::default(),
+        };
+
         Self {
             schema_version: 1,
             project: project.into(),
@@ -1618,6 +2083,9 @@ impl SchematicMetricsSnapshot {
             builder,
             semantic,
             readability,
+            determinism,
+            stability,
+            connectivity,
             thresholds: MetricsThresholds::default(),
         }
     }

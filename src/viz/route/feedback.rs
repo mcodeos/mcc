@@ -686,6 +686,131 @@ fn bump_crossings(grid: &mut Grid, graph: &McVecGraph, amount: i64) {
 }
 
 // ============================================================================
+// Phase E — Route feedback loop (nudge → reroute → accept)
+// ============================================================================
+
+/// A simplified route feedback loop that works with the scheduler-based routing.
+///
+/// After the initial route, if wire_wire conflicts exist, this loop:
+/// 1. Finds boxes involved in conflicting nets
+/// 2. Nudges them slightly (small x/y shifts) to create routing space
+/// 3. Re-routes all nets
+/// 4. Accepts only if metrics don't regress
+///
+/// Max 3 iterations, stops early if no conflicts or no improvement.
+pub fn run_route_feedback_loop(graph: &mut McVecGraph) {
+    const MAX_ITERS: usize = 3;
+    const NUDGE_STEP: f64 = 20.0;
+
+    let initial = audit::audit_collisions(graph);
+    if initial.wire_wire == 0 && initial.wire_box == 0 {
+        return; // No conflicts, nothing to do
+    }
+
+    let mut best_wire_wire = initial.wire_wire;
+    let mut best_wire_box = initial.wire_box;
+
+    for iter in 0..MAX_ITERS {
+        let before = audit::audit_collisions(graph);
+        if before.wire_wire == 0 && before.wire_box == 0 {
+            break;
+        }
+
+        // Collect boxes involved in conflicting nets
+        let mut conflict_box_ids: std::collections::HashSet<i64> = std::collections::HashSet::new();
+        for (ni, net) in graph.nets.iter().enumerate() {
+            if audit::net_has_conflict(graph, ni) {
+                for ep in &net.endpoints {
+                    conflict_box_ids.insert(ep.box_id);
+                }
+            }
+        }
+
+        // Exclude geom_locked boxes
+        let locked: std::collections::HashSet<i64> = graph
+            .boxes
+            .iter()
+            .filter(|b| b.geom_locked)
+            .map(|b| b.id)
+            .collect();
+
+        if conflict_box_ids.is_empty() {
+            break;
+        }
+
+        // Nudge: shift conflicting boxes slightly
+        let shift_direction = (iter % 4) as usize; // 0=right, 1=down, 2=left, 3=up
+        for b in &mut graph.boxes {
+            if locked.contains(&b.id) || !conflict_box_ids.contains(&b.id) {
+                continue;
+            }
+            match shift_direction {
+                0 => b.x += NUDGE_STEP,
+                1 => b.y += NUDGE_STEP,
+                2 => b.x -= NUDGE_STEP,
+                3 => b.y -= NUDGE_STEP,
+                _ => {}
+            }
+        }
+
+        // Reroute all nets
+        crate::viz::route::scheduler::route_all_with_channels(graph);
+
+        // Audit and accept/reject
+        let after = audit::audit_collisions(graph);
+
+        // Accept if: wire_box doesn't increase, wire_wire doesn't increase
+        let improved = after.wire_box <= best_wire_box && after.wire_wire < best_wire_wire;
+        let no_regression = after.wire_box <= best_wire_box && after.wire_wire <= best_wire_wire;
+
+        if improved {
+            best_wire_wire = after.wire_wire;
+            best_wire_box = after.wire_box;
+            crate::vlog!(
+                "[route::feedback] iter={} ACCEPT: wire_wire {}→{} wire_box {}→{}",
+                iter,
+                before.wire_wire,
+                after.wire_wire,
+                before.wire_box,
+                after.wire_box,
+            );
+        } else if no_regression && after.wire_wire == before.wire_wire {
+            // No change, try different direction next iteration
+            crate::vlog!(
+                "[route::feedback] iter={} NO-CHANGE: wire_wire={} wire_box={}",
+                iter,
+                after.wire_wire,
+                after.wire_box,
+            );
+        } else {
+            // Regression: undo the nudge and reroute
+            for b in &mut graph.boxes {
+                if locked.contains(&b.id) || !conflict_box_ids.contains(&b.id) {
+                    continue;
+                }
+                match (iter % 4) as usize {
+                    0 => b.x -= NUDGE_STEP,
+                    1 => b.y -= NUDGE_STEP,
+                    2 => b.x += NUDGE_STEP,
+                    3 => b.y += NUDGE_STEP,
+                    _ => {}
+                }
+            }
+            crate::viz::route::scheduler::route_all_with_channels(graph);
+            crate::vlog!(
+                "[route::feedback] iter={} REJECT: wire_wire {}→{} wire_box {}→{} (regression)",
+                iter,
+                before.wire_wire,
+                after.wire_wire,
+                before.wire_box,
+                after.wire_box,
+            );
+            break; // Stop if regression
+        }
+    }
+}
+
+// ============================================================================
 // Tests
 // ============================================================================
 

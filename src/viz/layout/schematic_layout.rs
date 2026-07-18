@@ -4,6 +4,9 @@
 
 //! ★ Phase 2 — Signal-chain–driven sub-module layout engine
 //!
+//! **Status: fallback** — used as sub-module layouter via `SchematicSubLayouter`;
+//! `FlowLayouter::sub()` is the primary sub-layouter.
+//!
 //! ## What problem does this file solve
 //! Sub-module layouts (e.g. DC-DC converters, LDOs, sensor front-ends) contain a main IC
 //! surrounded by passive components (R, C, L) arranged along signal chains.  The existing

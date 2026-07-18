@@ -789,6 +789,66 @@ mod phase0_golden {
             .join()
             .unwrap();
     }
+
+    /// Determinism: two repeated builds of hbl1 must produce identical
+    /// determinism and connectivity hashes.
+    #[test]
+    fn hbl1_determinism_repeated_run() {
+        if std::env::var("MCC_HBL1_METRICS").is_err() {
+            eprintln!("skip hbl1 determinism; set MCC_HBL1_METRICS=1");
+            return;
+        }
+
+        std::thread::Builder::new()
+            .name("hbl1-determinism".into())
+            .stack_size(32 * 1024 * 1024)
+            .spawn(move || {
+                let run1 = build_hbl1_metrics_snapshot();
+                let run2 = build_hbl1_metrics_snapshot();
+
+                // Determinism hashes must be identical
+                assert_eq!(
+                    run1.determinism.box_order_hash, run2.determinism.box_order_hash,
+                    "box_order_hash mismatch"
+                );
+                assert_eq!(
+                    run1.determinism.net_order_hash, run2.determinism.net_order_hash,
+                    "net_order_hash mismatch"
+                );
+                assert_eq!(
+                    run1.determinism.pin_anchor_hash, run2.determinism.pin_anchor_hash,
+                    "pin_anchor_hash mismatch"
+                );
+                assert_eq!(
+                    run1.determinism.route_geometry_hash, run2.determinism.route_geometry_hash,
+                    "route_geometry_hash mismatch"
+                );
+                assert_eq!(
+                    run1.determinism.metrics_hash, run2.determinism.metrics_hash,
+                    "metrics_hash mismatch"
+                );
+                assert_eq!(
+                    run1.determinism.unstable_decisions, 0,
+                    "run1 should have no unstable decisions"
+                );
+                assert_eq!(
+                    run2.determinism.unstable_decisions, 0,
+                    "run2 should have no unstable decisions"
+                );
+
+                // Connectivity hashes must be identical
+                assert_eq!(
+                    run1.connectivity.connectivity_hash, run2.connectivity.connectivity_hash,
+                    "connectivity_hash mismatch"
+                );
+
+                // Gate must be identical
+                assert_eq!(run1.gate, run2.gate, "gate mismatch between repeated runs");
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
 }
 
 // ============================================================================

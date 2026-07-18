@@ -43,6 +43,8 @@
 //! `scheduler::route_all_with_channels` (priority + ChannelMap to coordinate multiple trunks).
 //! Visually multiple parallel trunks no longer stack on the same y.
 
+use std::collections::HashSet;
+
 use crate::vector::graph::{apply_promote_recursive, McVecGraph};
 
 use super::debug;
@@ -241,7 +243,23 @@ fn render_layer_recursive(
         (200.0, 100.0)
     } else {
         let layouter_name = candidates.first().map(|c| c.name()).unwrap_or("none");
-        graph = layout_best(graph, candidates, is_root);
+
+        // ── Phase D: build SchematicLayoutModel before layout for low-risk intent ──
+        // Semantic and special analysis are read-only and don't need positions.
+        let schematic_model = {
+            let semantic = SemanticModel::analyze(&graph);
+            let special = PowerGroundBusModel::analyze(&graph, Some(&semantic));
+            let idioms = crate::viz::idiom::detect_placement_instances(&graph, &HashSet::new());
+            let model = crate::viz::layout_model::SchematicLayoutModel::build(
+                &graph, &semantic, &special, &idioms,
+            );
+            for line in model.report_lines() {
+                crate::vlog!("{}", line);
+            }
+            model
+        };
+
+        graph = layout_best(graph, candidates, is_root, Some(schematic_model));
 
         // ── Phase 1.46b: Adjust Virtual Top Module Border position/size ──
         // After layout positions all boxes, adjust the dashed border boxes to surround internal components.
@@ -289,6 +307,15 @@ fn render_layer_recursive(
 
     metrics.accumulate_layer(&graph, &rep, canvas);
 
+    // ── M12: Determinism report (after route, before render) ──
+    let det_report = {
+        let mut r = crate::viz::stability::report::DeterminismReport::from_graph(&graph);
+        r.graph_input_hash = crate::viz::stability::hash::hash_box_geometry(&graph);
+        r.route_schedule_hash = crate::viz::stability::hash::canonical_hash(&graph.nets.len());
+        r
+    };
+    metrics.accumulate_determinism(&det_report);
+
     // ── Semantic analysis (read-only, soft signal) ──
     let semantic = SemanticModel::analyze(&graph);
     metrics.accumulate_semantic(&semantic.summary);
@@ -311,6 +338,16 @@ fn render_layer_recursive(
         svg.len(),
         renderer.name()
     );
+
+    // ── M13: Rendered connectivity extraction (after render, per-layer) ──
+    {
+        let conn = crate::viz::connectivity::model::RenderedConnectivity::extract(&graph);
+        let mut conn_report =
+            crate::viz::connectivity::report::RenderedConnectivityReport::from_connectivity(&conn);
+        conn_report.connectivity_hash =
+            crate::viz::stability::hash::canonical_hash(&conn_report.pins_reachable);
+        metrics.accumulate_connectivity(&conn_report);
+    }
 
     let mut layer = VizLayer::new(bid, name, parent);
     layer.canvas = canvas;
