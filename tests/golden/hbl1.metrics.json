@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "project": "hbl1",
+  "entry": "projects/hbl1/hbl.mc",
+  "command": "cargo run -- build projects/hbl1/hbl.mc --lib mcode --viz",
+  "gate": {
+    "quality_perfect": false,
+    "fidelity_perfect": false,
+    "truth_perfect": false
+  },
+  "fidelity": {
+    "nets_total": 78,
+    "nets_rendered": 74,
+    "nets_dropped": 4,
+    "nets_partial": 0,
+    "pins_total": 137,
+    "pins_rendered": 137,
+    "bus_bits_total": 0,
+    "bus_bits_paired_ok": 0,
+    "authored_sides_total": 0,
+    "authored_sides_honored": 0,
+    "box_box": 2,
+    "wire_box": 0
+  },
+  "truth": {
+    "layers_total": 7,
+    "nets_total": 74,
+    "drawable_nets_total": 74,
+    "routed_nets_total": 74,
+    "nets_missing_route": 0,
+    "nets_empty_route": 0,
+    "endpoints_total": 187,
+    "drawable_endpoints_total": 187,
+    "endpoints_box_missing": 0,
+    "endpoints_pin_missing": 95,
+    "endpoints_entry_missing": 0,
+    "endpoints_route_unreached": 0,
+    "boxes_total": 93,
+    "physical_pins_total": 137,
+    "physical_pins_with_entry": 137,
+    "physical_pins_missing_entry": 0
+  },
+  "collisions": {
+    "box_box": 2,
+    "wire_box": 0,
+    "wire_wire": 32,
+    "total": 34
+  },
+  "visual": {
+    "canvas_width": 2738.9364741738154,
+    "canvas_height": 1599.0146513547586,
+    "canvas_area": 14262333.795604972,
+    "boxes_total": 93,
+    "box_area_total": 1446336.5171862934,
+    "box_density": 0.10140952651325487,
+    "labels_total": 0,
+    "label_label_overlaps": 0,
+    "label_box_overlaps": 0,
+    "label_wire_overlaps": 0,
+    "labels_off_canvas": 0,
+    "symmetry_penalty": 0.0,
+    "idiom_violations": 2
+  },
+  "route_quality": {
+    "routed_nets": 74,
+    "route_segments_total": 567,
+    "route_bends_total": 407,
+    "route_length_total": 53990.72853029214,
+    "avg_segments_per_routed_net": 7.662162162162162,
+    "avg_bends_per_routed_net": 5.5,
+    "avg_route_length_per_routed_net": 729.6044395985424,
+    "wire_wire": 32
+  },
+  "builder": {
+    "resolutions_total": 439,
+    "resolution_success_rate": 0.9908883826879271,
+    "dropped_nets": 4,
+    "partial_nets": 0,
+    "unresolved_modules": 0,
+    "warnings": 4
+  },
+  "readability": {
+    "wire_wire": 32,
+    "total_wirelength": 53990.728530292145,
+    "total_bends": 407,
+    "off_grid_penalty": 442.98491847364517,
+    "symmetry_penalty": 0.0,
+    "idiom_violation": 2,
+    "weighted": 96745.65312266037
+  },
+  "thresholds": {
+    "float_tolerance_abs": 0.1,
+    "float_tolerance_ratio": 0.01,
+    "max_label_label_overlaps_delta": 0,
+    "max_label_box_overlaps_delta": 0,
+    "max_label_wire_overlaps_delta": 0,
+    "max_labels_off_canvas_delta": 0,
+    "max_wire_wire_delta": 0,
+    "max_avg_bends_ratio_increase": 0.05,
+    "max_canvas_area_ratio_increase": 0.05,
+    "max_weighted_readability_ratio_increase": 0.05,
+    "max_idiom_violations_delta": 0,
+    "max_symmetry_penalty_ratio_increase": 0.05,
+    "determinism_hash_match": true
+  },
+  "determinism": {
+    "graph_input_hash": "",
+    "box_order_hash": "",
+    "net_order_hash": "",
+    "idiom_instance_hash": "",
+    "placement_constraint_hash": "",
+    "placement_decision_hash": "",
+    "pin_anchor_hash": "",
+    "route_schedule_hash": "",
+    "route_geometry_hash": "",
+    "metrics_hash": "",
+    "unstable_decisions": 0,
+    "warnings": []
+  },
+  "stability": {
+    "unchanged_boxes_total": 0,
+    "unchanged_boxes_moved": 0,
+    "max_unchanged_box_delta": 0.0,
+    "route_hashes_changed": 0,
+    "locality_warning": false
+  }
+}

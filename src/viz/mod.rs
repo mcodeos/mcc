@@ -36,6 +36,7 @@
 //! - [`template`] —— HTML wrapper
 
 pub mod api;
+pub mod connectivity;
 pub mod debug;
 pub mod doc;
 pub mod idiom;
