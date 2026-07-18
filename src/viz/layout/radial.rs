@@ -4,6 +4,9 @@
 
 //! Radial hub-and-spoke layout (main chip + peripheral star circuit)
 //!
+//! **Status: experimental** — internal strategy used by `multi_strategy::RadialLayouter`;
+//! not a standalone layouter in the default pipeline.
+//!
 //! ## Algorithm
 //! 1. Pick a hub from box subset (highest frequency + main chip name bonus)
 //! 2. Hub direct neighbors distributed evenly on first ring

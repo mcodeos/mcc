@@ -33,6 +33,7 @@ use crate::viz::layout::passive_inline::{
     apply_net_labels, place_bridge_passives, place_passive_chains, place_series_passives,
     probe_box_collisions, probe_rail_passive_candidates, probe_scatter_census,
 };
+use crate::viz::layout_model::SchematicLayoutModel;
 use crate::viz::metrics::{off_grid, route_bends, route_length, FidelityReport, ReadabilityScore};
 use crate::viz::route::audit::audit_all;
 use crate::viz::route::scheduler::route_all_with_channels;
@@ -44,25 +45,42 @@ use crate::viz::traits::Layouter;
 /// (circuit_flow) at both top and sub level, so this always runs `candidates[0]`.
 /// The extra `candidates`/`is_root` parameters are retained so the public signature
 /// and every call site stay unchanged while the ranking machinery is removed.
+///
+/// Phase D: `schematic_model` is passed to the layouter for low-risk layout intent.
 pub fn layout_best(
     graph: McVecGraph,
     candidates: &[Box<dyn Layouter>],
     is_root: bool,
+    schematic_model: Option<SchematicLayoutModel>,
 ) -> McVecGraph {
     match candidates.first() {
-        Some(_) => run_single(graph, &*candidates[0], is_root),
+        Some(_) => run_single(graph, &*candidates[0], is_root, schematic_model),
         // No layouter configured: return the graph untouched (nothing to route/gate).
         None => graph,
     }
 }
 
 /// Run a single layouter through the full pipeline, then gate + report.
-fn run_single(mut graph: McVecGraph, candidate: &dyn Layouter, _is_root: bool) -> McVecGraph {
+fn run_single(
+    mut graph: McVecGraph,
+    candidate: &dyn Layouter,
+    _is_root: bool,
+    schematic_model: Option<SchematicLayoutModel>,
+) -> McVecGraph {
     let layer = graph.name.clone();
     let layouter = candidate.name();
 
     // ── Phase 1: layout ──
-    candidate.layout(&mut graph);
+    // Phase D: if schematic_model is present, create a FlowLayouter with the model
+    if let Some(model) = schematic_model {
+        let flow = crate::viz::layout::FlowLayouter {
+            schematic_model: Some(model),
+            ..crate::viz::layout::FlowLayouter::default()
+        };
+        flow.layout(&mut graph);
+    } else {
+        candidate.layout(&mut graph);
+    }
     probe_scatter_census(&graph);
 
     // ── Stage A / A3: non-destructive inline placement of series & chained passives ──
@@ -81,6 +99,9 @@ fn run_single(mut graph: McVecGraph, candidate: &dyn Layouter, _is_root: bool) -
 
     // ── Phase 2: route ──
     route_all_with_channels(&mut graph);
+
+    // ── Phase E: route feedback loop (audit → nudge → reroute → accept) ──
+    crate::viz::route::feedback::run_route_feedback_loop(&mut graph);
 
     // ── Gate + report ──
     let col = audit_all(&graph);
@@ -336,7 +357,7 @@ mod tests {
     fn single_pipeline_runs_first_candidate() {
         let graph = make_simple_graph();
         let candidates: Vec<Box<dyn Layouter>> = vec![Box::new(FlowLayouter::default())];
-        let result = layout_best(graph, &candidates, true);
+        let result = layout_best(graph, &candidates, true, None);
         assert!(!result.boxes.is_empty());
         assert!(result.boxes.iter().all(|b| b.w > 0.0 && b.h > 0.0));
         // circuit_flow should not overlap the two boxes.
@@ -352,8 +373,8 @@ mod tests {
     #[test]
     fn single_pipeline_deterministic() {
         let candidates: Vec<Box<dyn Layouter>> = vec![Box::new(FlowLayouter::default())];
-        let r1 = layout_best(make_simple_graph(), &candidates, true);
-        let r2 = layout_best(make_simple_graph(), &candidates, true);
+        let r1 = layout_best(make_simple_graph(), &candidates, true, None);
+        let r2 = layout_best(make_simple_graph(), &candidates, true, None);
         let s1 = compute_readability(&r1, &audit_all(&r1)).weighted();
         let s2 = compute_readability(&r2, &audit_all(&r2)).weighted();
         assert_eq!(
@@ -368,7 +389,7 @@ mod tests {
     fn empty_candidates_returns_original() {
         let graph = make_simple_graph();
         let candidates: Vec<Box<dyn Layouter>> = vec![];
-        let result = layout_best(graph, &candidates, true);
+        let result = layout_best(graph, &candidates, true, None);
         assert_eq!(result.boxes.len(), 2);
         assert!(result.nets.iter().all(|n| n.route.is_none()));
     }
@@ -379,7 +400,7 @@ mod tests {
     fn gate_does_not_drop_bad_layout() {
         let graph = make_simple_graph();
         let candidates: Vec<Box<dyn Layouter>> = vec![Box::new(BadLayouter)];
-        let result = layout_best(graph, &candidates, true);
+        let result = layout_best(graph, &candidates, true, None);
         assert!(!result.boxes.is_empty());
         // BadLayouter piles boxes on the same spot → the gate would log a VETO,
         // but the graph is returned unchanged for rendering.
@@ -460,7 +481,7 @@ mod tests {
         graph.nets.push(net);
 
         let candidates: Vec<Box<dyn Layouter>> = vec![Box::new(FlowLayouter::default())];
-        let result = layout_best(graph, &candidates, true);
+        let result = layout_best(graph, &candidates, true, None);
 
         assert!(result.boxes.len() >= 3);
         for b in &result.boxes {

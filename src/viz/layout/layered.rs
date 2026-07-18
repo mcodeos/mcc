@@ -4,6 +4,8 @@
 
 //! Milestone 6 — Layered Placement Prototype：语义驱动分层布局原型
 //!
+//! **Status: experimental** — kept for comparison via `RenderOpts::layered()`.
+//!
 //! A read-only semantic analysis + BFS-based rank/lane assignment that maps
 //! logical placement to geometric coordinates. This is an experimental path
 //! (not the default) that consumes `SemanticModel` to produce more controlled

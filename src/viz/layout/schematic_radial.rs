@@ -4,6 +4,8 @@
 
 //! ★ NEW (P07, S6) — Center-outward schematic Layouter
 //!
+//! **Status: experimental** — kept for comparison via `RenderOpts::schematic_radial()`.
+//!
 //! ## What problem does this file solve
 //! Top-level layout previously used `HierarchicalLayouter` (Sugiyama layering), producing "power on top,
 //! ground on bottom, signals flowing horizontally" in **block diagram style**, not the schematic convention of "main chip in center, peripherals radiating outward".
