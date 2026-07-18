@@ -146,15 +146,27 @@ impl<'a> HasFindInst for FuncBodyContext<'a> {
         self.parent.find_inst_mut(id)
     }
 
-    fn add_label_at(&mut self, name: String, span: Option<std::ops::Range<usize>>) -> Option<McPhrase> {
+    fn add_label_at(
+        &mut self,
+        name: String,
+        span: Option<std::ops::Range<usize>>,
+    ) -> Option<McPhrase> {
         self.parent.add_label_at(name, span)
     }
 
-    fn add_component(&mut self, name: String, comp: crate::core::component::Mc2Component) -> Option<McPhrase> {
+    fn add_component(
+        &mut self,
+        name: String,
+        comp: crate::core::component::Mc2Component,
+    ) -> Option<McPhrase> {
         self.parent.add_component(name, comp)
     }
 
-    fn add_module(&mut self, name: String, module: crate::core::module::Mc2Module) -> Option<McPhrase> {
+    fn add_module(
+        &mut self,
+        name: String,
+        module: crate::core::module::Mc2Module,
+    ) -> Option<McPhrase> {
         self.parent.add_module(name, module)
     }
 
@@ -170,8 +182,14 @@ impl<'a> HasFindInst for FuncBodyContext<'a> {
         self.parent.add_bus_member(base, member)
     }
 
-    fn add_interface_member(&mut self, component: &str, interface: &str, members: Vec<String>) -> Option<McPhrase> {
-        self.parent.add_interface_member(component, interface, members)
+    fn add_interface_member(
+        &mut self,
+        component: &str,
+        interface: &str,
+        members: Vec<String>,
+    ) -> Option<McPhrase> {
+        self.parent
+            .add_interface_member(component, interface, members)
     }
 
     fn check_bus_member(&mut self, base: &str, member: &str) -> Option<(String, String)> {
@@ -344,7 +362,9 @@ impl McFunction {
         };
         self.insts.scope = Some(full_scope);
         // ★ Fix: wrap context so func params are searchable by McPhrase::new
-        let param_names: Vec<String> = self.params.iter()
+        let param_names: Vec<String> = self
+            .params
+            .iter()
             .filter_map(|p| p.get_primary_name())
             .collect();
         let mut wrapper = FuncBodyContext {

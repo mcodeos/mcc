@@ -1446,7 +1446,6 @@ impl McCode {
                             tracing::info!(target: "mcc::lsp", "  create_lapper: global_declare_class_refs for '{}' = {} entries", self.uri, decl_refs.get(&self.uri).map(|v| v.len()).unwrap_or(0));
                             if let Some(refs) = decl_refs.remove(&self.uri) {
                                 for (decl_span, _class_id, target_uri, target_span) in refs {
-                                    tracing::info!(target: "mcc::lsp", "  create_lapper: register decl_span={:?} -> class_id={:?} target={}:{:?}", decl_span, _class_id, target_uri, target_span);
                                     let refid = gt.add_declare_class(
                                         &self.uri,
                                         decl_span.clone(),
@@ -1568,8 +1567,6 @@ impl McCode {
                         .unwrap();
                     let refs = inst_table.get_all_refs_for_uri(uri_str);
                     let count = refs.len();
-                    for (decl_id, _ref_scope, ref_span) in &refs {
-                    }
                     for (decl_id, scope, span) in refs {
                         symbol_lapper.insert(Interval {
                             start: span.start,
@@ -2347,12 +2344,17 @@ impl McCode {
                             // ★ Fix: use MCAST_IDS (the actual name) for span, not
                             // MCAST_NAME which may cover the entire func body and
                             // shadow instance_ref entries inside func bodies.
-                            let ids_node = node.get_sub_node()
-                                .and_then(|n| n.get_sub_node()); // MCAST_NAME -> MCAST_IDS
+                            let ids_node = node.get_sub_node().and_then(|n| n.get_sub_node()); // MCAST_NAME -> MCAST_IDS
                             let span = if let Some(ref ids) = ids_node {
-                                (ids.get_pos() as usize, (ids.get_pos() + ids.get_len()) as usize)
+                                (
+                                    ids.get_pos() as usize,
+                                    (ids.get_pos() + ids.get_len()) as usize,
+                                )
                             } else if let Some(name_node) = node.get_sub_node() {
-                                (name_node.get_pos() as usize, (name_node.get_pos() + name_node.get_len()) as usize)
+                                (
+                                    name_node.get_pos() as usize,
+                                    (name_node.get_pos() + name_node.get_len()) as usize,
+                                )
                             } else {
                                 continue;
                             };
@@ -2638,7 +2640,8 @@ impl McCode {
                                         // Try scoped match first, then unscoped fallback
                                         let scoped_key = (scope.clone(), name.to_string());
                                         let empty_key = ("".to_string(), name.to_string());
-                                        if let Some(&(def_s, def_e)) = def_map.get(&scoped_key)
+                                        if let Some(&(def_s, def_e)) = def_map
+                                            .get(&scoped_key)
                                             .or_else(|| def_map.get(&empty_key))
                                         {
                                             gtable

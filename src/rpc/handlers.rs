@@ -1343,9 +1343,7 @@ fn extract_nets(inst: &crate::MccProjectTree) -> Vec<Value> {
 fn walk_nets(inst: &crate::MccProjectTree, by_name: &mut BTreeMap<String, Vec<String>>) {
     for conn in &inst.connections {
         let key = conn.net_name.clone().unwrap_or_default();
-        let entry = by_name
-            .entry(key)
-            .or_default();
+        let entry = by_name.entry(key).or_default();
         for p in &conn.points {
             if !entry.contains(&p.path) {
                 entry.push(p.path.clone());

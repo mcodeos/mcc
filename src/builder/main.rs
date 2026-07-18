@@ -2822,6 +2822,63 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
         from_mcodes
     };
 
+    // Step 2.5: Search system library tables for mcode classes (CAP, RES, etc.)
+    let from_syslibs: Option<(DeclareId, String, Span)> = if class_info.is_none() {
+        let name_str = class_name.to_string();
+        let mut result = None;
+        for entry in global::mcc_components.borrow().iter() {
+            if entry.key().ident.to_string() == name_str {
+                result = Some((
+                    DeclareId::default(),
+                    entry.key().uri.clone(),
+                    entry.value().span.clone(),
+                ));
+                break;
+            }
+        }
+        if result.is_none() {
+            for entry in global::mcc_modules.borrow().iter() {
+                if entry.key().ident.to_string() == name_str {
+                    result = Some((
+                        DeclareId::default(),
+                        entry.key().uri.clone(),
+                        entry.value().span.clone(),
+                    ));
+                    break;
+                }
+            }
+        }
+        if result.is_none() {
+            for entry in global::mcc_interfaces.borrow().iter() {
+                if entry.key().ident.to_string() == name_str {
+                    result = Some((
+                        DeclareId::default(),
+                        entry.key().uri.clone(),
+                        entry.value().span.clone(),
+                    ));
+                    break;
+                }
+            }
+        }
+        if result.is_none() {
+            for entry in global::mcc_enums.borrow().iter() {
+                if entry.key().ident.to_string() == name_str {
+                    let s = entry.value().span;
+                    result = Some((
+                        DeclareId::default(),
+                        entry.key().uri.clone(),
+                        s[0] as usize..s[1] as usize,
+                    ));
+                    break;
+                }
+            }
+        }
+        result
+    } else {
+        None
+    };
+    let class_info = class_info.or(from_syslibs);
+
     // Step 3: Store in workspace-level table
     if let Some((class_id, target_uri, target_span)) = class_info {
         let span_clone = span.clone();
