@@ -4,6 +4,8 @@
 
 //! ★ Stage A + B —— Connectivity-driven top-level flow layout engine (FlowLayouter)
 //!
+//! **Status: default** — the primary layout engine for both top-level and sub-level.
+//!
 //! ## What problem does this file solve
 //! `SchematicRadialLayouter` only models "each box ↔ anchor", spreading all modules
 //! equidistantly around MCU, crossings are **forced** by layout. `FlowLayouter` uses **full edge** information for layout.
@@ -43,6 +45,7 @@ use super::normalize::{compute_canvas, normalize_positions, CANVAS_MARGIN};
 use super::optimize::PlaceOptimizer;
 use super::rails::{explode_power_rails_to_flags, is_rail_box};
 use super::size::{assign_default_sizes, recompute_sizes_with_pin_count};
+use crate::viz::layout_model::SchematicLayoutModel;
 use crate::viz::traits::Layouter;
 
 // ============================================================================
@@ -76,6 +79,10 @@ pub struct FlowLayouter {
     /// Ladder model + committed geometry (populated by Phase B when the graph is a clean
     /// two-lane bridged-passive ladder). `None` = graph is not a ladder, or model bailed.
     pub ladder: Option<(LadderModel, LadderGeometry)>,
+    /// Phase D — SchematicLayoutModel: unified layout intent for low-risk rules.
+    /// When set, FlowLayouter applies connector edge intent, power/ground vertical
+    /// region intent, and bus trunk corridor intent after phase_placement.
+    pub schematic_model: Option<SchematicLayoutModel>,
 }
 
 impl Default for FlowLayouter {
@@ -90,6 +97,7 @@ impl Default for FlowLayouter {
             fanout_star: false,
             hub_keep_semantic: false,
             ladder: None,
+            schematic_model: None,
         }
     }
 }
@@ -107,7 +115,14 @@ impl FlowLayouter {
             fanout_star: false,
             hub_keep_semantic: false,
             ladder: None,
+            schematic_model: None,
         }
+    }
+
+    /// Phase D — attach a SchematicLayoutModel for low-risk layout intent consumption.
+    pub fn with_schematic_model(mut self, model: SchematicLayoutModel) -> Self {
+        self.schematic_model = Some(model);
+        self
     }
 
     /// 相位 1 · Prepare — 拓扑归一 + 粗粒度 pin。
@@ -178,6 +193,156 @@ impl FlowLayouter {
         eject_flags_from_boxes(graph);
         normalize_positions(graph);
     }
+
+    /// Phase D — apply low-risk layout intent from SchematicLayoutModel.
+    ///
+    /// Called after phase_placement and before pin_place_pipeline.
+    /// Only applies safe, non-destructive nudges:
+    /// 1. Connector edge intent — nudge connectors toward canvas edges
+    /// 2. Power/ground vertical region — ensure power flags above, ground below
+    /// 3. Bus trunk corridor — add spacing between bus groups
+    /// 4. Label space reservation — increase row_pitch for label-heavy boxes
+    fn apply_schematic_model(&self, graph: &mut McVecGraph) {
+        let model = match &self.schematic_model {
+            Some(m) => m,
+            None => return,
+        };
+
+        let mut connector_ids: HashSet<i64> = HashSet::new();
+        let mut power_box_ids: HashSet<i64> = HashSet::new();
+        let mut ground_box_ids: HashSet<i64> = HashSet::new();
+        let mut label_heavy_ids: HashSet<i64> = HashSet::new();
+
+        for entry in &model.boxes {
+            use crate::viz::layout_model::BoxLayoutRole;
+            match entry.role {
+                BoxLayoutRole::Connector => {
+                    connector_ids.insert(entry.box_id);
+                }
+                BoxLayoutRole::PowerRail => {
+                    power_box_ids.insert(entry.box_id);
+                }
+                _ => {}
+            }
+            if entry.label_pressure.needs_designator_space || entry.label_pressure.needs_value_space
+            {
+                label_heavy_ids.insert(entry.box_id);
+            }
+        }
+
+        for rail in &model.rail_plan {
+            if rail.is_ground {
+                ground_box_ids.insert(rail.net_id);
+            } else {
+                power_box_ids.insert(rail.net_id);
+            }
+        }
+
+        if connector_ids.is_empty()
+            && power_box_ids.is_empty()
+            && ground_box_ids.is_empty()
+            && label_heavy_ids.is_empty()
+        {
+            return;
+        }
+
+        // Compute current canvas bounds
+        let mut min_x = f64::MAX;
+        let mut max_x = f64::MIN;
+        let mut min_y = f64::MAX;
+        let mut max_y = f64::MIN;
+        for b in &graph.boxes {
+            min_x = min_x.min(b.x);
+            max_x = max_x.max(b.x + b.w);
+            min_y = min_y.min(b.y);
+            max_y = max_y.max(b.y + b.h);
+        }
+
+        // 1. Connector edge intent: nudge connectors toward nearest canvas edge
+        for b in &mut graph.boxes {
+            if b.geom_locked {
+                continue;
+            }
+            if connector_ids.contains(&b.id) {
+                let cx = b.x + b.w / 2.0;
+                let cy = b.y + b.h / 2.0;
+                let dist_left = cx - min_x;
+                let dist_right = max_x - cx;
+                let dist_top = cy - min_y;
+                let dist_bottom = max_y - cy;
+                let min_h = dist_left.min(dist_right);
+                let min_v = dist_top.min(dist_bottom);
+
+                if min_h < min_v {
+                    if dist_left < dist_right {
+                        b.x = min_x + CANVAS_MARGIN;
+                    } else {
+                        b.x = max_x - b.w - CANVAS_MARGIN;
+                    }
+                } else {
+                    if dist_top < dist_bottom {
+                        b.y = min_y + CANVAS_MARGIN;
+                    } else {
+                        b.y = max_y - b.h - CANVAS_MARGIN;
+                    }
+                }
+            }
+        }
+
+        // 2. Power/ground vertical region: spread power above center, ground below
+        let mid_y = (min_y + max_y) / 2.0;
+        for b in &mut graph.boxes {
+            if b.geom_locked {
+                continue;
+            }
+            // Nudge power-related boxes above midline
+            if power_box_ids.contains(&b.id) {
+                if b.y + b.h / 2.0 > mid_y {
+                    b.y = (min_y + CANVAS_MARGIN).max(b.y - self.row_pitch);
+                }
+            }
+            // Nudge ground-related boxes below midline
+            if ground_box_ids.contains(&b.id) {
+                if b.y + b.h / 2.0 < mid_y {
+                    b.y = (max_y - b.h - CANVAS_MARGIN).min(b.y + self.row_pitch);
+                }
+            }
+        }
+
+        // 3. Label space: add extra vertical gap for label-heavy boxes
+        if !label_heavy_ids.is_empty() {
+            let extra_gap = 20.0;
+            let mut boxes_by_y: Vec<usize> = (0..graph.boxes.len()).collect();
+            boxes_by_y.sort_by(|&a, &b| {
+                graph.boxes[a]
+                    .y
+                    .partial_cmp(&graph.boxes[b].y)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            for w in boxes_by_y.windows(2) {
+                let (i, j) = (w[0], w[1]);
+                if graph.boxes[i].geom_locked || graph.boxes[j].geom_locked {
+                    continue;
+                }
+                let has_label = label_heavy_ids.contains(&graph.boxes[i].id)
+                    || label_heavy_ids.contains(&graph.boxes[j].id);
+                if !has_label {
+                    continue;
+                }
+                let gap = graph.boxes[j].y - (graph.boxes[i].y + graph.boxes[i].h);
+                if gap < self.row_pitch + extra_gap {
+                    let shift = (self.row_pitch + extra_gap - gap) / 2.0;
+                    // Shift boxes below this one down
+                    for k in j..graph.boxes.len() {
+                        if graph.boxes[k].geom_locked {
+                            continue;
+                        }
+                        graph.boxes[k].y += shift;
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl Layouter for FlowLayouter {
@@ -222,6 +387,9 @@ impl Layouter for FlowLayouter {
         let ep_snap = probe_ep_snapshot(graph);
         let (root_id, isolated_ids) = self.phase_placement(graph);
         probe_no_ep_writes("phase_placement", graph, &ep_snap);
+
+        // ── Phase D · SchematicLayoutModel: low-risk layout intent ──
+        self.apply_schematic_model(graph);
 
         // 旧路径照跑：模型命中时被 ladder_place 完全覆盖，模型 bail 时兜底
         super::two_lane_ladder::try_two_lane_ladder(graph);

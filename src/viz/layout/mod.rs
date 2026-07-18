@@ -17,13 +17,9 @@
 //! - [`radial`]     —— hub-and-spoke radial (inside subset)
 //!
 //! ### Whole-graph Layouter (impl trait)
-//! - [`multi_strategy::RadialLayouter`] —— multi-strategy scheduler (default, replaces old GridPlacer)
-//! - [`hierarchical::HierarchicalLayouter`] —— ★ top-level simplest integration dedicated hierarchical layout
+//! - [`multi_strategy::RadialLayouter`] —— multi-strategy scheduler (deprecated, use FlowLayouter)
+//! - [`hierarchical::HierarchicalLayouter`] —— hierarchical layout (experimental)
 //! - [`grid::GridLayouter`] —— simple grid (debug / alternative)
-//!
-//! ### legacy.rs deleted
-//! P3 extracted all functionality from legacy.rs, **legacy.rs file can be deleted entirely**.
-//! Old call `crate::viz::layout::GridPlacer` should use [`multi_strategy::RadialLayouter`].
 
 pub mod chain;
 pub mod components;
@@ -75,19 +71,3 @@ pub use radial::{
 pub use grid::GridLayouter;
 pub use hierarchical::HierarchicalLayouter;
 pub use multi_strategy::RadialLayouter;
-
-// ============================================================================
-// Compatibility: old `GridPlacer` callers (kept for 1 release cycle)
-// ============================================================================
-
-/// Compatibility for old `viz::layout::GridPlacer::layout(&mut graph)` calls
-///
-/// **deprecated**: new code should construct `RadialLayouter` and call `Layouter::layout(&mut graph)` directly
-pub struct GridPlacer;
-
-impl GridPlacer {
-    pub fn layout(graph: &mut crate::vector::graph::McVecGraph) -> (f64, f64) {
-        use crate::viz::traits::Layouter;
-        RadialLayouter.layout(graph)
-    }
-}

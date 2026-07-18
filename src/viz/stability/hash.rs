@@ -113,6 +113,16 @@ pub fn hash_route_geometry(graph: &McVecGraph) -> String {
             ep.box_id.hash(&mut hasher);
             ep.pin_id.hash(&mut hasher);
         }
+        // Hash route segments (quantized)
+        if let Some(route) = &net.route {
+            route.segments.len().hash(&mut hasher);
+            for seg in &route.segments {
+                hash_f64(&mut hasher, seg.from.x);
+                hash_f64(&mut hasher, seg.from.y);
+                hash_f64(&mut hasher, seg.to.x);
+                hash_f64(&mut hasher, seg.to.y);
+            }
+        }
     }
     format!("{:016x}", hasher.finish())
 }

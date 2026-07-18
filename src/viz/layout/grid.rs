@@ -4,6 +4,8 @@
 
 //! Simple grid layout (alternative / debugging)
 //!
+//! **Status: deprecated** — debug-only; not used in any production pipeline.
+//!
 //! Doesn't look at graph structure, simply arranges by rows and columns at equal intervals.
 //! Use case: quick verification / small internal sub-module circuits / quickly see "which boxes exist" while debugging.
 

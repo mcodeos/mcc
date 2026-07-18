@@ -43,6 +43,7 @@ pub mod idiom;
 pub mod labels;
 pub mod layer;
 pub mod layout;
+pub mod layout_model;
 pub mod log;
 pub mod metrics;
 pub mod pins;
