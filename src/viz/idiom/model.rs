@@ -86,6 +86,8 @@ pub enum InstanceSource {
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlacementConstraint {
     pub kind: ConstraintKind,
+    /// Idiom instance kind that produced this constraint.
+    pub source_kind: IdiomInstanceKind,
     /// Box to move.
     pub target_box_id: i64,
     /// Reference box (anchor).
@@ -142,4 +144,19 @@ pub enum ConstraintKind {
     PinSideIntent,
     /// Place symmetrically (diff pair).
     SymmetricPlacement,
+}
+
+// ============================================================================
+// PlacementDecisionRecord — for determinism tracking
+// ============================================================================
+
+/// Records which candidate was selected for a placement decision.
+/// Used for deterministic repeatability verification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlacementDecisionRecord {
+    pub source_kind: IdiomInstanceKind,
+    pub target_box_id: i64,
+    pub anchor_box_id: i64,
+    pub candidate_index: usize,
+    pub score_hash: String,
 }
