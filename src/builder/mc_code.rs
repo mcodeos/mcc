@@ -969,7 +969,7 @@ impl McCode {
                         // letting create_lapper() find the component's span.
                         // Previously only inserted into workspace.components without filling class_id_to_span,
                         // causing LSP goto_definition's symbol_lapper to always be empty.
-                        self.add_global_class(&self_uri, &comp_name_str, comp_span);
+                        self.add_global_class(&self_uri, &comp_name_str, comp_span, crate::ContainerKind::Component);
                     }
                 }
                 MCAST_ENUM => {
@@ -1163,6 +1163,7 @@ impl McCode {
         uri: &McURI,
         class_name: &String,
         span: Span,
+        kind: crate::ContainerKind,
     ) -> Option<DeclareId> {
         let result = match self.symbols.lock() {
             Ok(sem) => match sem.global_table.lock() {
@@ -1182,9 +1183,12 @@ impl McCode {
         };
         // ★ LSP: Also register in workspace global_class_table for cross-context lookup
         if let Some(class_id) = result {
-            tracing::info!(target: "mcc::lsp", "  add_global_class: registered '{}' in '{}' -> class_id={:?} span={:?}", class_name, uri, class_id, span);
+            tracing::info!(target: "mcc::lsp", "  add_global_class: registered '{}' ({}) in '{}' -> class_id={:?}", class_name, kind.as_str(), uri, class_id);
             let mut table = workspace::WORKSPACE.global_class_table.lock().unwrap();
-            table.insert((uri.to_string(), class_name.clone()), (class_id, span));
+            table.insert(
+                (uri.to_string(), kind, class_name.clone()),
+                (class_id, span),
+            );
         }
         result
     }
@@ -1316,6 +1320,91 @@ impl McCode {
         if let Ok(mut symbols) = self.symbols.lock() {
             symbols.local_table.add_inst(span, declr_id);
         }
+    }
+
+    /// Look up a DeclareId in the workspace global instance table.
+    fn lookup_global_inst(
+        uri: &str,
+        name: &str,
+        scope: Option<&str>,
+    ) -> Option<crate::ast::ast_semantic::DeclareId> {
+        crate::builder::workspace::WORKSPACE
+            .global_inst_table
+            .lock()
+            .ok()
+            .and_then(|t| t.get(uri, scope, name))
+    }
+
+    /// Public wrapper for RPC handlers.
+    pub fn scope_path_from_scope_str_public(uri: &McURI, scope: &str) -> crate::ScopePath {
+        Self::scope_path_from_scope_str(uri, scope)
+    }
+
+    /// Build a ScopePath from a scope string and file URI.
+    /// "US513" → module,  "US513.i2c" → func-in-module,  "" → file-level.
+    fn scope_path_from_scope_str(uri: &McURI, scope: &str) -> crate::ScopePath {
+        if scope.is_empty() {
+            crate::ScopePath::file_level(uri)
+        } else if let Some(dot_pos) = scope.rfind('.') {
+            let container = &scope[..dot_pos];
+            let func = &scope[dot_pos + 1..];
+            crate::ScopePath::func_in_module(uri, container, func)
+        } else {
+            crate::ScopePath::module(uri, scope)
+        }
+    }
+
+    /// Priority-based declare lookup.
+    ///
+    /// Search order (from innermost to outermost):
+    ///   1. Exact scope match:  name_to_declare_id with ref's scope_path
+    ///   2. Same container:     name_to_declare_id with container scope
+    ///   3. File-level:         local_inst_map (DeclareInstances in this file)
+    ///   4. Global inst table:  scoped then unscoped
+    fn lookup_declare_id(
+        local: &crate::ast::ast_semantic::LocalSymbolTable,
+        uri: &str,
+        name: &str,
+        scope_path: &crate::ScopePath,
+        local_inst_map: &std::collections::HashMap<String, crate::ast::ast_semantic::DeclareId>,
+    ) -> Option<crate::ast::ast_semantic::DeclareId> {
+        let ref_scope = scope_path.scope_key();
+
+        // P1: exact scope match (e.g. "US513.i2c" for func body ref)
+        let exact_key = (McURI::new(), ref_scope.clone(), name.to_string());
+        if let Some(id) = local.name_to_declare_id.get(&exact_key).copied() {
+            return Some(id);
+        }
+
+        // P2: container-level match (e.g. "US513" for module-level ref)
+        if scope_path.func.is_some() {
+            // If inside a func, also try the parent container scope
+            let container_key = (
+                McURI::new(),
+                scope_path.container.name.clone(),
+                name.to_string(),
+            );
+            if let Some(id) = local.name_to_declare_id.get(&container_key).copied() {
+                return Some(id);
+            }
+        }
+
+        // P3: file-level: check local_inst_map (DeclareInstances in same file)
+        if let Some(id) = local_inst_map.get(name).copied() {
+            return Some(id);
+        }
+
+        // P4: global inst table (cross-file)
+        if let Some(id) = Self::lookup_global_inst(uri, name, Some(&ref_scope)) {
+            return Some(id);
+        }
+        if let Some(id) = Self::lookup_global_inst(uri, name, None) {
+            return Some(id);
+        }
+
+        // P5: unscoped fallback in local table
+        let unscoped_key = (McURI::new(), String::new(), name.to_string());
+        local.name_to_declare_id.get(&unscoped_key).copied()
     }
 
     pub fn create_lapper(&mut self) {
@@ -1492,6 +1581,30 @@ impl McCode {
                     count
                 };
 
+                // ★ Build name→DeclareId map from DeclareInstance entries in the lapper.
+                // Local instances (e.g. `MCU.US513_20_F uC`) are NOT in name_to_declare_id
+                // or global_inst_table — they only exist as lapper entries.
+                let mut local_inst_map: std::collections::HashMap<String, DeclareId> =
+                    std::collections::HashMap::new();
+                if let Ok(src) = std::fs::read_to_string(self.uri.as_str()) {
+                    for entry in symbol_lapper.iter() {
+                        if let SymbolType::DeclareInstance(did) = entry.val {
+                            if let Some(n) = src.get(entry.start..entry.stop) {
+                                let bare = n
+                                    .trim_end_matches(|c: char| {
+                                        c == '(' || c == '{' || c == ')' || c == '}'
+                                    })
+                                    .split(|c: char| c == ',' || c.is_whitespace())
+                                    .next()
+                                    .unwrap_or("");
+                                if !bare.is_empty() {
+                                    local_inst_map.entry(bare.to_string()).or_insert(did);
+                                }
+                            }
+                        }
+                    }
+                }
+
                 // ★ LSP: Add interface definitions + param port_definitions
                 {
                     let interfaces = crate::builder::workspace::WORKSPACE.interfaces.borrow();
@@ -1535,11 +1648,15 @@ impl McCode {
                             // ★ Register interface param refs from body expressions
                             // (e.g. `spec.voltage = volt` where volt is a param)
                             for (span, port_name, scope) in iface.params.iter_port_refs() {
-                                let scoped_key =
-                                    (self.uri.clone(), scope.clone(), port_name.clone());
-                                if let Some(decl_id) =
-                                    sem.local_table.name_to_declare_id.get(&scoped_key).copied()
-                                {
+                                let sp = Self::scope_path_from_scope_str(&self.uri, scope);
+                                let decl_id = Self::lookup_declare_id(
+                                    &sem.local_table,
+                                    self.uri.as_str(),
+                                    port_name,
+                                    &sp,
+                                    &local_inst_map,
+                                );
+                                if let Some(decl_id) = decl_id {
                                     symbol_lapper.insert(Interval {
                                         start: span.start,
                                         stop: span.end,
@@ -1591,11 +1708,15 @@ impl McCode {
                             }
                             // ★ Register interface param refs from body expressions
                             for (span, port_name, scope) in iface.params.iter_port_refs() {
-                                let scoped_key =
-                                    (self.uri.clone(), scope.clone(), port_name.clone());
-                                if let Some(decl_id) =
-                                    sem.local_table.name_to_declare_id.get(&scoped_key).copied()
-                                {
+                                let sp = Self::scope_path_from_scope_str(&self.uri, scope);
+                                let decl_id = Self::lookup_declare_id(
+                                    &sem.local_table,
+                                    self.uri.as_str(),
+                                    port_name,
+                                    &sp,
+                                    &local_inst_map,
+                                );
+                                if let Some(decl_id) = decl_id {
                                     symbol_lapper.insert(Interval {
                                         start: span.start,
                                         stop: span.end,
@@ -1678,10 +1799,15 @@ impl McCode {
                         }
                         // Register port references from net lines (e.g. GPIO1 - A references port GPIO1)
                         for (span, port_name, scope) in m.insts.iter_port_refs() {
-                            let scoped_key = (self.uri.clone(), scope.clone(), port_name.clone());
-                            if let Some(decl_id) =
-                                sem.local_table.name_to_declare_id.get(&scoped_key).copied()
-                            {
+                            let sp = Self::scope_path_from_scope_str(&self.uri, scope);
+                            let decl_id = Self::lookup_declare_id(
+                                &sem.local_table,
+                                self.uri.as_str(),
+                                port_name,
+                                &sp,
+                                &local_inst_map,
+                            );
+                            if let Some(decl_id) = decl_id {
                                 symbol_lapper.insert(Interval {
                                     start: span.start,
                                     stop: span.end,
@@ -1693,10 +1819,15 @@ impl McCode {
                         }
                         // Register param port references from net lines
                         for (span, port_name, scope) in m.params.iter_port_refs() {
-                            let scoped_key = (self.uri.clone(), scope.clone(), port_name.clone());
-                            if let Some(decl_id) =
-                                sem.local_table.name_to_declare_id.get(&scoped_key).copied()
-                            {
+                            let sp = Self::scope_path_from_scope_str(&self.uri, scope);
+                            let decl_id = Self::lookup_declare_id(
+                                &sem.local_table,
+                                self.uri.as_str(),
+                                port_name,
+                                &sp,
+                                &local_inst_map,
+                            );
+                            if let Some(decl_id) = decl_id {
                                 symbol_lapper.insert(Interval {
                                     start: span.start,
                                     stop: span.end,
@@ -1751,11 +1882,15 @@ impl McCode {
                         for func in m.funcs.iter() {
                             let fscope = func.name.to_string();
                             for (span, port_name, scope) in func.params.iter_port_refs() {
-                                let scoped_key =
-                                    (self.uri.clone(), scope.clone(), port_name.clone());
-                                if let Some(decl_id) =
-                                    sem.local_table.name_to_declare_id.get(&scoped_key).copied()
-                                {
+                                let sp = Self::scope_path_from_scope_str(&self.uri, scope);
+                                let decl_id = Self::lookup_declare_id(
+                                    &sem.local_table,
+                                    self.uri.as_str(),
+                                    port_name,
+                                    &sp,
+                                    &local_inst_map,
+                                );
+                                if let Some(decl_id) = decl_id {
                                     symbol_lapper.insert(Interval {
                                         start: span.start,
                                         stop: span.end,
@@ -1857,10 +1992,15 @@ impl McCode {
                         // Component param references from body expressions
                         // (e.g. `spec.value = rs` where rs is a param)
                         for (span, port_name, scope) in comp.params.iter_port_refs() {
-                            let scoped_key = (self.uri.clone(), scope.clone(), port_name.clone());
-                            if let Some(decl_id) =
-                                sem.local_table.name_to_declare_id.get(&scoped_key).copied()
-                            {
+                            let sp = Self::scope_path_from_scope_str(&self.uri, scope);
+                            let decl_id = Self::lookup_declare_id(
+                                &sem.local_table,
+                                self.uri.as_str(),
+                                port_name,
+                                &sp,
+                                &local_inst_map,
+                            );
+                            if let Some(decl_id) = decl_id {
                                 symbol_lapper.insert(Interval {
                                     start: span.start,
                                     stop: span.end,

@@ -307,6 +307,8 @@ pub fn register_all(builder: RpcServerBuilder) -> RpcServerBuilder {
         .register_method("refs", handlers::handle_refs)
         .register_method("lookup", handlers::handle_lookup)
         .register_method("lookup_sub", handlers::handle_lookup_sub)
+        .register_method("lookup_with_sub", handlers::handle_lookup_with_sub)
+        .register_method("lookup_all", handlers::handle_lookup_all)
         .register_method("convert", handlers::handle_convert)
         .register_method("report", handlers::handle_report)
         .register_method("caps", handlers::handle_caps)

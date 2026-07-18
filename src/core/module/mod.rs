@@ -668,13 +668,21 @@ impl McModule {
     ) {
         // Check this node (only leaf identifier nodes for precise spans)
         match node.get_type() {
-            MCAST_ID | MCAST_IDA | MCAST_IDS => {
+            MCAST_ID | MCAST_IDA | MCAST_IDS
+            // Curly-brace / square-vec expansions (MIC{P,N}, GPIO[1:2]):
+            // extract the base name and record as port ref.
+            | MCAST_OPD_CURLY | MCAST_OPD_CURLY_MN | MCAST_SQUARE_VEC | MCAST_OPD_SQUARE_VEC => {
                 if let Some(text) = node.to_string() {
                     let span =
                         (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
+                    // Extract base name before { or [
+                    let base = text
+                        .split(|c: char| c == '{' || c == '[')
+                        .next()
+                        .unwrap_or(&text);
                     // Exact match first (DC2.VDD), then IDX-aware match (GPIO[1] → GPIO)
-                    let matched_key: Option<String> = if insts.port_spans().contains_key(&text) {
-                        Some(text.clone())
+                    let matched_key: Option<String> = if insts.port_spans().contains_key(base) {
+                        Some(base.to_string())
                     } else {
                         insts
                             .iter_instance_names()
@@ -683,14 +691,14 @@ impl McModule {
                     };
                     if let Some(ref key) = matched_key {
                         insts.record_port_ref(span, key, scope);
-                    } else if params.is_defined(&text) {
-                        params.record_port_ref(span, &text, scope);
+                    } else if params.is_defined(base) {
+                        params.record_port_ref(span, base, scope);
                     }
                     // Note: no else-branch diagnostic here — leaf nodes may be
                     // class refs or instance refs resolved elsewhere.
                 }
             }
-            // MCAST_OPD wraps an operand — extract the inner identifier directly.
+            // MCAST_OPD wraps a simple operand — extract the inner identifier directly.
             MCAST_OPD => {
                 if let Some(sub) = node.get_sub_node() {
                     let inner_type = sub.get_type();
