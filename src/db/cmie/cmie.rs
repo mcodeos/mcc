@@ -69,13 +69,13 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     };
 
     // Track whether the name exists in local scope (for library-shadow warning).
-    let name_found_in_local = false;
+    let mut name_found_in_local = false;
 
     // ── Tier 1: Current file's own definitions ─────────────────────
-    if let Some(mcfile) = workspace::WORKSPACE.mcodes.borrow().get(uri) {
+    if let Some(mcfile) = workspace::WORKSPACE.mcodes.get(uri) {
         if let Some(space_name) = mcfile.value().spacenames.get(class_name) {
             if let Some(cmie) = find_in_project_tables(space_name) {
-                let _ = name_found_in_local; // reserved for future shadowing check
+                name_found_in_local = true; // shadowing tracking
                 return Some(cmie);
             }
         }
@@ -83,24 +83,23 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
 
     // ── Tier 2: $use chain (project-local imports) ─────────────────
     {
-        let use_uris: Vec<String> =
-            if let Some(mcfile) = workspace::WORKSPACE.mcodes.borrow().get(uri) {
-                mcfile
-                    .value()
-                    .uselist
-                    .iter()
-                    .map(|u| canonicalize_project_uri(&u.uri))
-                    .collect()
-            } else {
-                Vec::new()
-            };
+        let use_uris: Vec<String> = if let Some(mcfile) = workspace::WORKSPACE.mcodes.get(uri) {
+            mcfile
+                .value()
+                .uselist
+                .iter()
+                .map(|u| canonicalize_project_uri(&u.uri))
+                .collect()
+        } else {
+            Vec::new()
+        };
 
         for use_uri in &use_uris {
-            if let Some(use_file) = workspace::WORKSPACE.mcodes.borrow().get(use_uri) {
+            if let Some(use_file) = workspace::WORKSPACE.mcodes.get(use_uri) {
                 if let Some(space_name) = use_file.value().spacenames.get(class_name) {
                     if let Some(cmie) = find_in_project_tables(space_name) {
                         if is_local_uri(&space_name.uri) {
-                            let _ = name_found_in_local; // shadowing tracking reserved
+                            name_found_in_local = true; // shadowing tracking
                             return Some(cmie);
                         }
                     }
@@ -110,7 +109,7 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
                     if key.to_string() == name_str {
                         if let Some(cmie) = find_in_project_tables(value) {
                             if is_local_uri(&value.uri) {
-                                let _ = name_found_in_local; // shadowing tracking reserved
+                                name_found_in_local = true; // shadowing tracking
                                 return Some(cmie);
                             }
                         }
@@ -124,14 +123,14 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     {
         let space_name = McSpaceName::new(class_name, uri.clone());
         if let Some(cmie) = find_in_project_tables(&space_name) {
-            let _ = name_found_in_local; // shadowing tracking reserved
+            name_found_in_local = true; // shadowing tracking
             return Some(cmie);
         }
-        for entry in workspace::WORKSPACE.mcodes.borrow().iter() {
+        for entry in workspace::WORKSPACE.mcodes.iter() {
             if let Some(space_name) = entry.value().spacenames.get(class_name) {
                 if is_local_uri(&space_name.uri) {
                     if let Some(cmie) = find_in_project_tables(space_name) {
-                        let _ = name_found_in_local; // shadowing tracking reserved
+                        name_found_in_local = true; // shadowing tracking
                         return Some(cmie);
                     }
                 }
@@ -147,7 +146,7 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
                 McCMIE::Enum(e) => is_local_uri(&e.uri),
             };
             if is_local {
-                let _ = name_found_in_local; // shadowing tracking reserved
+                name_found_in_local = true; // shadowing tracking
                 return Some(cmie);
             }
         }
@@ -159,7 +158,7 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     // ═══════════════════════════════════════════════════════════════
 
     let mut found_in_blib: Option<(crate::db::infra::mc_code::McCode, McSpaceName)> = None;
-    for entry in crate::db::infra::lib_mgr::mcc_blibs.borrow().iter() {
+    for entry in crate::db::infra::lib_mgr::mcc_blibs.iter() {
         if entry.value().spacenames.get(class_name).is_some() {
             found_in_blib = Some((
                 entry.value().clone(),
@@ -177,20 +176,20 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
         if let Some(cmie) = find_in_project_tables(space_name) {
             return Some(cmie);
         }
-        if let Some(found_comp) = global::mcc_components.borrow().get(space_name) {
+        if let Some(found_comp) = global::mcc_components.get(space_name) {
             return Some(McCMIE::Component(found_comp.clone()));
         }
-        if let Some(found_mod) = global::mcc_modules.borrow().get(space_name) {
+        if let Some(found_mod) = global::mcc_modules.get(space_name) {
             return Some(McCMIE::Module(found_mod.clone()));
         }
-        if let Some(found_ifs) = global::mcc_interfaces.borrow().get(space_name) {
+        if let Some(found_ifs) = global::mcc_interfaces.get(space_name) {
             return Some(McCMIE::Interface(found_ifs.clone()));
         }
-        if let Some(found_enum) = global::mcc_enums.borrow().get(space_name) {
+        if let Some(found_enum) = global::mcc_enums.get(space_name) {
             return Some(McCMIE::Enum(found_enum.clone()));
         }
         {
-            let mcodes = workspace::WORKSPACE.mcodes.borrow();
+            let mcodes = &workspace::WORKSPACE.mcodes;
             let existing = mcodes.get(&space_name.uri).map(|e| e.value().clone());
             drop(mcodes);
             if let Some(mut existing) = existing {
@@ -202,7 +201,6 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
             let result = mcfile.parse_cmie_single(&space_name.ident);
             workspace::WORKSPACE
                 .mcodes
-                .borrow()
                 .insert(space_name.uri.clone(), mcfile);
             return result;
         }
@@ -211,10 +209,7 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
 
     // Fallback library lookup (when prj_mcodes is empty)
     let mcode_key = "mcode".to_string();
-    if let Some(mcode) = crate::db::infra::lib_mgr::mcc_blibs
-        .borrow()
-        .get(&mcode_key)
-    {
+    if let Some(mcode) = crate::db::infra::lib_mgr::mcc_blibs.get(&mcode_key) {
         for (_, space_name) in mcode.spacenames.iter() {
             if space_name.ident.to_string() == class_name.to_string() {
                 if name_found_in_local {
@@ -228,7 +223,6 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
                     let result = mcfile.parse_cmie_single(&space_name.ident);
                     workspace::WORKSPACE
                         .mcodes
-                        .borrow()
                         .insert(space_name.uri.clone(), mcfile);
                     return result;
                 }
@@ -239,7 +233,7 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     // ========== 2. Search current file's spacenames (exact match only) ==========
     let mut use_uris_for_step2c: Vec<String> = Vec::new();
 
-    if let Some(mcfile) = workspace::WORKSPACE.mcodes.borrow().get(uri) {
+    if let Some(mcfile) = workspace::WORKSPACE.mcodes.get(uri) {
         // 2a. Exact match
         if let Some(space_name) = mcfile.value().spacenames.get(class_name) {
             if let Some(cmie) = find_in_project_tables(space_name) {
@@ -257,7 +251,7 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
 
     // 2c: Search through use-chain imported files' spacenames
     for use_uri in &use_uris_for_step2c {
-        if let Some(use_file) = workspace::WORKSPACE.mcodes.borrow().get(use_uri) {
+        if let Some(use_file) = workspace::WORKSPACE.mcodes.get(use_uri) {
             // 2c-i. Exact match in use-imported file's spacenames
             if let Some(space_name) = use_file.value().spacenames.get(class_name) {
                 if let Some(cmie) = find_in_project_tables(space_name) {
@@ -291,7 +285,7 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     }
 
     // ========== 4. Iterate through all loaded files' spacenames (exact match) ==========
-    for entry in workspace::WORKSPACE.mcodes.borrow().iter() {
+    for entry in workspace::WORKSPACE.mcodes.iter() {
         // 4a. Exact match
         if let Some(space_name) = entry.value().spacenames.get(class_name) {
             if let Some(cmie) = find_in_project_tables(space_name) {
@@ -321,7 +315,7 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
         let mut target_uri: Option<String> = None;
 
         // 6a. Check current file's spacenames
-        if let Some(mcfile) = workspace::WORKSPACE.mcodes.borrow().get(uri) {
+        if let Some(mcfile) = workspace::WORKSPACE.mcodes.get(uri) {
             if let Some(space_name) = mcfile.value().spacenames.get(class_name) {
                 trace!(
                     target: "mcc::mcb_get_cmie",
@@ -337,7 +331,7 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
             let def_uri_canonical = canonicalize_project_uri(def_uri);
 
             let mcfile_clone = {
-                let prj_mcodes = workspace::WORKSPACE.mcodes.borrow();
+                let prj_mcodes = &workspace::WORKSPACE.mcodes;
                 prj_mcodes
                     .get(&def_uri_canonical)
                     .or_else(|| prj_mcodes.get(def_uri))
@@ -345,18 +339,13 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
             };
 
             if let Some(mut mcfile) = mcfile_clone {
-                let has_defs = workspace::WORKSPACE.modules.borrow().iter().any(|entry| {
+                let has_defs = workspace::WORKSPACE.modules.iter().any(|entry| {
                     entry.key().uri == def_uri_canonical || entry.key().uri == *def_uri
-                }) || workspace::WORKSPACE
-                    .interfaces
-                    .borrow()
-                    .iter()
-                    .any(|entry| {
-                        entry.key().uri == def_uri_canonical || entry.key().uri == *def_uri
-                    })
-                    || global::mcc_interfaces.borrow().iter().any(|entry| {
-                        entry.key().uri == def_uri_canonical || entry.key().uri == *def_uri
-                    });
+                }) || workspace::WORKSPACE.interfaces.iter().any(|entry| {
+                    entry.key().uri == def_uri_canonical || entry.key().uri == *def_uri
+                }) || global::mcc_interfaces.iter().any(|entry| {
+                    entry.key().uri == def_uri_canonical || entry.key().uri == *def_uri
+                });
 
                 if !has_defs {
                     if global::mcc_parsing_modules
@@ -374,7 +363,6 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
                         crate::current_uri::set(&prev_uri);
                         workspace::WORKSPACE
                             .mcodes
-                            .borrow()
                             .insert(def_uri_canonical.clone(), mcfile);
                         global::mcc_parsing_modules.remove(&def_uri_canonical);
                     } else {
@@ -389,17 +377,15 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
                 if let Some(cmie) = find_by_name_in_project_tables(class_name) {
                     return Some(cmie);
                 }
-            } else if workspace::WORKSPACE.mcodes.borrow().get(def_uri).is_none()
+            } else if workspace::WORKSPACE.mcodes.get(def_uri).is_none()
                 && workspace::WORKSPACE
                     .mcodes
-                    .borrow()
                     .get(&def_uri_canonical)
                     .is_none()
             {
-            } else if workspace::WORKSPACE.mcodes.borrow().get(def_uri).is_none()
+            } else if workspace::WORKSPACE.mcodes.get(def_uri).is_none()
                 && workspace::WORKSPACE
                     .mcodes
-                    .borrow()
                     .get(&def_uri_canonical)
                     .is_none()
             {
@@ -419,7 +405,6 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
                     crate::current_uri::set(&prev_uri);
                     workspace::WORKSPACE
                         .mcodes
-                        .borrow()
                         .insert(def_uri_canonical.clone(), mcfile);
 
                     // Retry lookup after on-demand parse
@@ -439,25 +424,21 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     {
         let _mod_keys: Vec<String> = workspace::WORKSPACE
             .modules
-            .borrow()
             .iter()
             .map(|e| format!("{}@{}", e.key().ident, e.key().uri))
             .collect();
         let _comp_keys: Vec<String> = workspace::WORKSPACE
             .components
-            .borrow()
             .iter()
             .map(|e| format!("{}@{}", e.key().ident, e.key().uri))
             .collect();
         let _ifs_keys: Vec<String> = workspace::WORKSPACE
             .interfaces
-            .borrow()
             .iter()
             .map(|e| format!("{}@{}", e.key().ident, e.key().uri))
             .collect();
         let _mcode_keys: Vec<String> = workspace::WORKSPACE
             .mcodes
-            .borrow()
             .iter()
             .map(|e| e.key().clone())
             .collect();

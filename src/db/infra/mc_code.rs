@@ -238,7 +238,8 @@ impl McCode {
                     );
                     workspace::WORKSPACE
                         .diagnostics
-                        .borrow_mut()
+                        .lock()
+                        .unwrap()
                         .add_diagnostic(diagnostic);
                     err_ptr = err.next;
                 }
@@ -314,7 +315,8 @@ impl McCode {
                     );
                     workspace::WORKSPACE
                         .diagnostics
-                        .borrow_mut()
+                        .lock()
+                        .unwrap()
                         .add_diagnostic(diagnostic);
                     err_ptr = err.next;
                 }
@@ -521,7 +523,8 @@ impl McCode {
                     );
                     workspace::WORKSPACE
                         .diagnostics
-                        .borrow_mut()
+                        .lock()
+                        .unwrap()
                         .add_diagnostic(diagnostic);
                     err_ptr = err.next;
                 }
@@ -555,7 +558,7 @@ impl McCode {
         };
 
         // Check whether prj_mcodes already has the file and spacenames are built
-        if let Some(existing) = workspace::WORKSPACE.mcodes.borrow().get(&canonical_uri) {
+        if let Some(existing) = workspace::WORKSPACE.mcodes.get(&canonical_uri) {
             if !existing.spacenames.is_empty() {
                 // Reuse existing spacenames and uselist
                 self.spacenames.clone_from(&existing.spacenames);
@@ -603,8 +606,7 @@ impl McCode {
             let existing_spacenames: BTreeMap<McIds, McSpaceName>;
             let existing_uselist: Vec<McUse>;
             {
-                if let Some(existing) = workspace::WORKSPACE.mcodes.borrow().get(&canonical_use_uri)
-                {
+                if let Some(existing) = workspace::WORKSPACE.mcodes.get(&canonical_use_uri) {
                     existing_spacenames = existing.spacenames.clone();
                     existing_uselist = existing.uselist.clone();
                 } else {
@@ -709,15 +711,12 @@ impl McCode {
             // cause duplicate module registrations when mcb_parse_all_modules runs.
             let should_insert = workspace::WORKSPACE
                 .mcodes
-                .borrow()
                 .get(&canonical_use_uri)
                 .map(|e| !e.modules_parsed)
                 .unwrap_or(true);
             if should_insert {
-                if let dashmap::Entry::Occupied(mut entry) = workspace::WORKSPACE
-                    .mcodes
-                    .borrow()
-                    .entry(canonical_use_uri.clone())
+                if let dashmap::Entry::Occupied(mut entry) =
+                    workspace::WORKSPACE.mcodes.entry(canonical_use_uri.clone())
                 {
                     entry.insert(mcfile);
                 }
@@ -781,7 +780,7 @@ impl McCode {
                         match node.get_type() {
                             MCAST_COMPONENT => {
                                 if let Some(comp) = McComponent::new(&node, &self.uri) {
-                                    let components_guard = global::mcc_components.borrow_mut();
+                                    let components_guard = &global::mcc_components;
                                     let result = components_guard
                                         .entry(McSpaceName {
                                             ident: comp.name.clone(),
@@ -798,7 +797,7 @@ impl McCode {
                             MCAST_MODULE => {
                                 // Phase 3: pre-parse function bodies before Arc wrapping
                                 if let Some(mdl) = McModule::new(&node, &self.uri) {
-                                    let modules_guard = global::mcc_modules.borrow();
+                                    let modules_guard = &global::mcc_modules;
                                     let result = modules_guard
                                         .entry(McSpaceName {
                                             ident: mdl.name.clone(),
@@ -813,7 +812,7 @@ impl McCode {
                             }
                             MCAST_INTERFACE => {
                                 if let Some(ifs) = McInterface::new(&node, &self.uri) {
-                                    let ifs_guard = global::mcc_interfaces.borrow_mut();
+                                    let ifs_guard = &global::mcc_interfaces;
                                     let result = ifs_guard
                                         .entry(McSpaceName {
                                             ident: ifs.name.clone(),
@@ -862,7 +861,7 @@ impl McCode {
                                     };
                                     let arc_enum = Arc::new(enum_def);
                                     if self.mcbase {
-                                        let enums_guard = global::mcc_enums.borrow_mut();
+                                        let enums_guard = &global::mcc_enums;
                                         enums_guard
                                             .entry(space_name.clone())
                                             .and_modify(|_| {
@@ -870,7 +869,7 @@ impl McCode {
                                             })
                                             .or_insert(arc_enum.clone());
                                     } else {
-                                        let enums_guard = workspace::WORKSPACE.enums.borrow_mut();
+                                        let enums_guard = &workspace::WORKSPACE.enums;
                                         enums_guard
                                             .entry(space_name.clone())
                                             .and_modify(|_| {
@@ -905,7 +904,6 @@ impl McCode {
                         };
                         if self.mcbase {
                             global::mcc_interfaces
-                                .borrow_mut()
                                 .entry(space_name)
                                 .and_modify(|_| {
                                     dlog_error(1001, &node, "Duplicate interface");
@@ -914,7 +912,6 @@ impl McCode {
                         } else {
                             workspace::WORKSPACE
                                 .interfaces
-                                .borrow_mut()
                                 .entry(space_name)
                                 .and_modify(|_| {
                                     dlog_error(1001, &node, "Duplicate interface");
@@ -956,7 +953,6 @@ impl McCode {
                         {
                             if self.mcbase {
                                 global::mcc_components
-                                    .borrow_mut()
                                     .entry(space_name)
                                     .and_modify(|_| {
                                         dlog_error(1002, &node, "Duplicate component");
@@ -965,7 +961,6 @@ impl McCode {
                             } else {
                                 workspace::WORKSPACE
                                     .components
-                                    .borrow()
                                     .entry(space_name)
                                     .and_modify(|_| {
                                         dlog_error(1002, &node, "Duplicate component");
@@ -1011,7 +1006,6 @@ impl McCode {
                         };
                         if self.mcbase {
                             global::mcc_enums
-                                .borrow()
                                 .entry(space_name)
                                 .and_modify(|_| {
                                     dlog_error(1004, &node, "Duplicate enum");
@@ -1020,7 +1014,6 @@ impl McCode {
                         } else {
                             workspace::WORKSPACE
                                 .enums
-                                .borrow()
                                 .entry(space_name)
                                 .and_modify(|_| {
                                     dlog_error(1004, &node, "Duplicate enum");
@@ -1039,7 +1032,6 @@ impl McCode {
                         };
                         if self.mcbase {
                             global::mcc_defines
-                                .borrow()
                                 .entry(space_name)
                                 .and_modify(|_| {
                                     dlog_error(1505, &node, "Duplicate define");
@@ -1048,7 +1040,6 @@ impl McCode {
                         } else {
                             workspace::WORKSPACE
                                 .defines
-                                .borrow()
                                 .entry(space_name)
                                 .and_modify(|_| {
                                     dlog_error(1505, &node, "Duplicate define");
@@ -1145,10 +1136,7 @@ impl McCode {
                         uri: self.uri.clone(),
                     };
                     // Replace any previously registered shallow copy with fully-parsed module
-                    workspace::WORKSPACE
-                        .modules
-                        .borrow()
-                        .insert(key, Arc::new(module));
+                    workspace::WORKSPACE.modules.insert(key, Arc::new(module));
                 }
             }
         }
@@ -1622,7 +1610,7 @@ impl McCode {
 
                 // ★ LSP: Add interface definitions + param port_definitions
                 {
-                    let interfaces = crate::db::cmie::tables::WORKSPACE.interfaces.borrow();
+                    let interfaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
                     for entry in interfaces.iter() {
                         let iface = entry.value();
                         if iface.uri.as_str() == uri_str {
@@ -1683,9 +1671,7 @@ impl McCode {
                             }
                         }
                     }
-                    drop(interfaces);
-
-                    let global_interfaces = crate::db::infra::global::mcc_interfaces.borrow();
+                    let global_interfaces = &crate::db::infra::global::mcc_interfaces;
                     for entry in global_interfaces.iter() {
                         let iface = entry.value();
                         if iface.uri.as_str() == uri_str {
@@ -1747,7 +1733,7 @@ impl McCode {
 
                 // ★ LSP: Add module port definitions to symbol_lapper and local_table
                 {
-                    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+                    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
                     for entry in modules.iter() {
                         let m = entry.value();
                         // Only process modules that belong to the current file
@@ -1887,7 +1873,7 @@ impl McCode {
 
                 // ★ G2: Register function parameter refs from module functions
                 {
-                    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+                    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
                     for entry in modules.iter() {
                         let m = entry.value();
                         if entry.key().uri.as_str() != self.uri.as_str() {
@@ -1949,7 +1935,7 @@ impl McCode {
                 // ★ LSP: Add component parameter definitions to symbol_lapper
                 //   (e.g. `component RESA(rs, volt)` -> rs, volt are PortDefinition)
                 {
-                    let components = crate::db::cmie::tables::WORKSPACE.components.borrow();
+                    let components = &crate::db::cmie::tables::WORKSPACE.components;
                     for entry in components.iter() {
                         let comp = entry.value();
                         if entry.key().uri.as_str() != self.uri.as_str() {
@@ -2225,8 +2211,7 @@ impl McCode {
                                 // system-library enum store.
                                 let mut idx = None;
                                 {
-                                    let enums_guard =
-                                        crate::db::cmie::tables::WORKSPACE.enums.borrow();
+                                    let enums_guard = &crate::db::cmie::tables::WORKSPACE.enums;
                                     for entry in enums_guard.iter() {
                                         if entry.key().ident.to_string() != base_name {
                                             continue;
@@ -2241,8 +2226,7 @@ impl McCode {
                                     }
                                 }
                                 if idx.is_none() {
-                                    let sys_enums_guard =
-                                        crate::db::infra::global::mcc_enums.borrow();
+                                    let sys_enums_guard = &crate::db::infra::global::mcc_enums;
                                     for entry in sys_enums_guard.iter() {
                                         if entry.key().ident.to_string() != base_name {
                                             continue;
@@ -2306,7 +2290,7 @@ impl McCode {
                     let mut container_names: Vec<String> = Vec::new();
                     {
                         let uri_str = self.uri.as_str();
-                        let modules = workspace::WORKSPACE.modules.borrow();
+                        let modules = &workspace::WORKSPACE.modules;
                         for entry in modules.iter() {
                             let key_uri = entry.key().uri.as_str();
                             if key_uri == uri_str
@@ -2316,7 +2300,7 @@ impl McCode {
                                 container_names.push(entry.key().ident.to_string());
                             }
                         }
-                        let comps = workspace::WORKSPACE.components.borrow();
+                        let comps = &workspace::WORKSPACE.components;
                         for entry in comps.iter() {
                             let key_uri = entry.key().uri.as_str();
                             if key_uri == uri_str
@@ -2327,7 +2311,7 @@ impl McCode {
                             }
                         }
                         // Also check global tables
-                        for entry in global::mcc_modules.borrow().iter() {
+                        for entry in global::mcc_modules.iter() {
                             let key_uri = entry.key().uri.as_str();
                             if key_uri == uri_str
                                 || key_uri.ends_with(uri_str)
@@ -2336,7 +2320,7 @@ impl McCode {
                                 container_names.push(entry.key().ident.to_string());
                             }
                         }
-                        for entry in global::mcc_components.borrow().iter() {
+                        for entry in global::mcc_components.iter() {
                             let key_uri = entry.key().uri.as_str();
                             if key_uri == uri_str
                                 || key_uri.ends_with(uri_str)

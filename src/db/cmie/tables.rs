@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Workspace abstraction layer — PR-3D core.
+//! Workspace abstraction layer -- PR-3D core.
 //!
 //! ## Design rationale
 //!
@@ -17,29 +17,10 @@
 //! current data, then restore target workspace's snapshot (or create empty tables). After
 //! PR-4 daemonization, each workspace holds independent tables, routed via RPC to the
 //! corresponding workspace.
-//!
-//! ## Migration guide
-//!
-//! All `global::prj_X.borrow()` calls become `workspace::WORKSPACE.X.borrow()`:
-//!
-//! ```text
-//! global::prj_mcodes.borrow()     →  workspace::WORKSPACE.mcodes.borrow()
-//! global::prj_modules.borrow()    →  workspace::WORKSPACE.modules.borrow()
-//! global::prj_components.borrow() →  workspace::WORKSPACE.components.borrow()
-//! global::prj_interfaces.borrow() →  workspace::WORKSPACE.interfaces.borrow()
-//! global::prj_enums.borrow()      →  workspace::WORKSPACE.enums.borrow()
-//! ```
-//!
-//! `diagnostic_manager` also migrated, path:
-//! ```text
-//! diagnostic::diagnostic_manager.borrow()     →  workspace::WORKSPACE.diagnostics.borrow()
-//! diagnostic::diagnostic_manager.borrow_mut() →  workspace::WORKSPACE.diagnostics.borrow_mut()
-//! ```
 
 use crate::ast::ast_semantic::{DeclareId, Span};
 use crate::db::diagnostic::diagnostic::DiagnosticManager;
 use crate::db::infra::mc_code::McCode;
-use crate::db::infra::util::MultiThreadRefCell;
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_define::McDefineDef;
 use crate::semantic::mc_enum::McEnumDef;
@@ -69,7 +50,7 @@ impl Default for WorkspaceKind {
 }
 
 // ============================================================================
-// WorkspaceMeta — per-workspace metadata
+// WorkspaceMeta -- per-workspace metadata
 // ============================================================================
 
 #[derive(Debug, Clone)]
@@ -94,7 +75,7 @@ impl Default for WorkspaceMeta {
 }
 
 // ============================================================================
-// WorkspaceSnapshot — for save/restore when switching workspaces
+// WorkspaceSnapshot -- for save/restore when switching workspaces
 // ============================================================================
 
 struct WorkspaceSnapshot {
@@ -113,34 +94,34 @@ struct WorkspaceSnapshot {
 // ============================================================================
 
 pub struct WorkspaceManager {
-    pub(crate) mcodes: MultiThreadRefCell<DashMap<McURI, McCode>>,
-    pub(crate) modules: MultiThreadRefCell<DashMap<McSpaceName, Arc<McModule>>>,
-    pub(crate) components: MultiThreadRefCell<DashMap<McSpaceName, Arc<McComponent>>>,
-    pub(crate) interfaces: MultiThreadRefCell<DashMap<McSpaceName, Arc<McInterface>>>,
-    pub(crate) enums: MultiThreadRefCell<DashMap<McSpaceName, Arc<McEnumDef>>>,
-    pub(crate) defines: MultiThreadRefCell<DashMap<McSpaceName, Arc<McDefineDef>>>,
-    pub(crate) diagnostics: MultiThreadRefCell<DiagnosticManager>,
+    pub(crate) mcodes: DashMap<McURI, McCode>,
+    pub(crate) modules: DashMap<McSpaceName, Arc<McModule>>,
+    pub(crate) components: DashMap<McSpaceName, Arc<McComponent>>,
+    pub(crate) interfaces: DashMap<McSpaceName, Arc<McInterface>>,
+    pub(crate) enums: DashMap<McSpaceName, Arc<McEnumDef>>,
+    pub(crate) defines: DashMap<McSpaceName, Arc<McDefineDef>>,
+    pub(crate) diagnostics: Mutex<DiagnosticManager>,
 
-    meta: MultiThreadRefCell<WorkspaceMeta>,
+    meta: Mutex<WorkspaceMeta>,
 
-    saved: MultiThreadRefCell<HashMap<String, WorkspaceSnapshot>>,
+    saved: Mutex<HashMap<String, WorkspaceSnapshot>>,
 
-    // ★ LSP tables — extracted to db/symbol/workspace.rs
+    // LSP tables -- extracted to db/symbol/workspace.rs
     pub(crate) lsp: crate::db::symbol::workspace::LspTables,
 }
 
 impl WorkspaceManager {
     fn new() -> Self {
         Self {
-            mcodes: MultiThreadRefCell::new(DashMap::new()),
-            modules: MultiThreadRefCell::new(DashMap::new()),
-            components: MultiThreadRefCell::new(DashMap::new()),
-            interfaces: MultiThreadRefCell::new(DashMap::new()),
-            enums: MultiThreadRefCell::new(DashMap::new()),
-            defines: MultiThreadRefCell::new(DashMap::new()),
-            diagnostics: MultiThreadRefCell::new(DiagnosticManager::new()),
-            meta: MultiThreadRefCell::new(WorkspaceMeta::default()),
-            saved: MultiThreadRefCell::new(HashMap::new()),
+            mcodes: DashMap::new(),
+            modules: DashMap::new(),
+            components: DashMap::new(),
+            interfaces: DashMap::new(),
+            enums: DashMap::new(),
+            defines: DashMap::new(),
+            diagnostics: Mutex::new(DiagnosticManager::new()),
+            meta: Mutex::new(WorkspaceMeta::default()),
+            saved: Mutex::new(HashMap::new()),
             lsp: crate::db::symbol::workspace::LspTables::new(),
         }
     }
@@ -178,32 +159,32 @@ impl WorkspaceManager {
     }
 
     pub fn active_id(&self) -> String {
-        self.meta.borrow().id.clone()
+        self.meta.lock().unwrap().id.clone()
     }
 
     pub fn active_kind(&self) -> WorkspaceKind {
-        self.meta.borrow().kind.clone()
+        self.meta.lock().unwrap().kind.clone()
     }
 
     pub fn active_root(&self) -> PathBuf {
-        self.meta.borrow().root.clone()
+        self.meta.lock().unwrap().root.clone()
     }
 
     pub fn active_meta(&self) -> WorkspaceMeta {
-        self.meta.borrow().clone()
+        self.meta.lock().unwrap().clone()
     }
 
     /// Look up a component by its class name (ident string).
     /// Checks workspace project tables first, then falls back to global system tables.
     /// Returns `None` if no component with that class name is registered.
     pub fn component_by_class(&self, class_name: &str) -> Option<Arc<McComponent>> {
-        for entry in self.components.borrow().iter() {
+        for entry in self.components.iter() {
             if entry.key().ident.to_string() == class_name {
                 return Some(entry.value().clone());
             }
         }
         // Fallback: check global system component table
-        for entry in crate::db::infra::global::mcc_components.borrow().iter() {
+        for entry in crate::db::infra::global::mcc_components.iter() {
             if entry.key().ident.to_string() == class_name {
                 return Some(entry.value().clone());
             }
@@ -214,10 +195,10 @@ impl WorkspaceManager {
     pub fn list(&self) -> Vec<(String, WorkspaceKind)> {
         let mut result = Vec::new();
         {
-            let m = self.meta.borrow();
+            let m = self.meta.lock().unwrap();
             result.push((m.id.clone(), m.kind.clone()));
         }
-        for entry in self.saved.borrow().iter() {
+        for entry in self.saved.lock().unwrap().iter() {
             result.push((entry.0.clone(), entry.1.meta.kind.clone()));
         }
         result
@@ -228,12 +209,12 @@ impl WorkspaceManager {
     // ================================================================
 
     pub fn clear_active(&self) {
-        self.mcodes.borrow().clear();
-        self.modules.borrow().clear();
-        self.components.borrow().clear();
-        self.interfaces.borrow().clear();
-        self.enums.borrow().clear();
-        self.diagnostics.borrow_mut().clear();
+        self.mcodes.clear();
+        self.modules.clear();
+        self.components.clear();
+        self.interfaces.clear();
+        self.enums.clear();
+        self.diagnostics.lock().unwrap().clear();
     }
 
     // ================================================================
@@ -241,17 +222,17 @@ impl WorkspaceManager {
     // ================================================================
 
     pub fn create_and_switch(&self, id: String, kind: WorkspaceKind, root: PathBuf) -> bool {
-        if self.meta.borrow().id == id {
+        if self.meta.lock().unwrap().id == id {
             return false;
         }
-        if self.saved.borrow().contains_key(&id) {
+        if self.saved.lock().unwrap().contains_key(&id) {
             return false;
         }
 
         self.snapshot_active();
 
         self.clear_active();
-        *self.meta.borrow_mut() = WorkspaceMeta {
+        *self.meta.lock().unwrap() = WorkspaceMeta {
             id: id.clone(),
             kind,
             root,
@@ -268,11 +249,11 @@ impl WorkspaceManager {
     // ================================================================
     // Auto-set project path when switching projects
     pub fn switch_to(&self, id: &str) -> bool {
-        if self.meta.borrow().id == id {
+        if self.meta.lock().unwrap().id == id {
             return false;
         }
 
-        let snapshot = match self.saved.borrow_mut().remove(id) {
+        let snapshot = match self.saved.lock().unwrap().remove(id) {
             Some(s) => s,
             None => return false,
         };
@@ -280,10 +261,6 @@ impl WorkspaceManager {
         self.snapshot_active();
 
         self.restore_snapshot(snapshot);
-
-        // Note: mcb_set_project_root may cause tokio runtime deadlock, temporarily disabled
-        // let root = self.meta.borrow().root.clone();
-        // crate::db::infra::init::mcb_set_project_root(&root);
 
         info!(target: "mcc::workspace", id = %id, "switched to workspace");
         true
@@ -294,10 +271,10 @@ impl WorkspaceManager {
     // ================================================================
 
     pub fn remove(&self, id: &str) -> bool {
-        if self.meta.borrow().id == id {
+        if self.meta.lock().unwrap().id == id {
             return false;
         }
-        self.saved.borrow_mut().remove(id).is_some()
+        self.saved.lock().unwrap().remove(id).is_some()
     }
 
     // ================================================================
@@ -305,18 +282,16 @@ impl WorkspaceManager {
     // ================================================================
 
     fn snapshot_active(&self) {
-        let meta = self.meta.borrow().clone();
+        let meta = self.meta.lock().unwrap().clone();
         let id = meta.id.clone();
 
-        // Optimization: clone data under read lock, then quickly clear
-        // This reduces write lock hold time
         let mcodes = clone_and_clear(&self.mcodes);
         let modules = clone_and_clear(&self.modules);
         let components = clone_and_clear(&self.components);
         let interfaces = clone_and_clear(&self.interfaces);
         let enums = clone_and_clear(&self.enums);
         let defines = clone_and_clear(&self.defines);
-        let diagnostics = self.diagnostics.borrow_mut().take();
+        let diagnostics = self.diagnostics.lock().unwrap().take();
 
         let snap = WorkspaceSnapshot {
             meta,
@@ -330,15 +305,14 @@ impl WorkspaceManager {
         };
 
         debug!(target: "mcc::workspace", id = %id, "snapshot saved");
-        self.saved.borrow_mut().insert(id, snap);
+        self.saved.lock().unwrap().insert(id, snap);
     }
 
     fn restore_snapshot(&self, snap: WorkspaceSnapshot) {
         self.clear_active();
 
-        *self.meta.borrow_mut() = snap.meta;
+        *self.meta.lock().unwrap() = snap.meta;
 
-        // Optimization: use write lock to fill data
         fill_dashmap(&self.mcodes, snap.mcodes);
         fill_dashmap(&self.modules, snap.modules);
         fill_dashmap(&self.components, snap.components);
@@ -346,7 +320,7 @@ impl WorkspaceManager {
         fill_dashmap(&self.enums, snap.enums);
         fill_dashmap(&self.defines, snap.defines);
 
-        *self.diagnostics.borrow_mut() = snap.diagnostics;
+        *self.diagnostics.lock().unwrap() = snap.diagnostics;
     }
 }
 
@@ -372,33 +346,26 @@ impl DiagnosticManager {
 // DashMap helpers: clone_and_clear / fill
 // ============================================================================
 
-/// Optimized version: clone data under read lock, then clear
-/// This reduces write lock hold time
-fn clone_and_clear<K, V>(cell: &MultiThreadRefCell<DashMap<K, V>>) -> DashMap<K, V>
+fn clone_and_clear<K, V>(map: &DashMap<K, V>) -> DashMap<K, V>
 where
     K: Eq + std::hash::Hash + Clone,
     V: Clone,
 {
-    let guard = cell.borrow();
-    let new_map = DashMap::with_capacity(guard.len());
-    for entry in guard.iter() {
+    let new_map = DashMap::with_capacity(map.len());
+    for entry in map.iter() {
         new_map.insert(entry.key().clone(), entry.value().clone());
     }
-    // Release read lock then quickly clear
-    drop(guard);
-    // Clear under write lock (fast operation)
-    cell.borrow().clear();
+    map.clear();
     new_map
 }
 
-fn fill_dashmap<K, V>(cell: &MultiThreadRefCell<DashMap<K, V>>, source: DashMap<K, V>)
+fn fill_dashmap<K, V>(map: &DashMap<K, V>, source: DashMap<K, V>)
 where
     K: Eq + std::hash::Hash + Clone,
     V: Clone,
 {
-    let guard = cell.borrow();
     for entry in source.iter() {
-        guard.insert(entry.key().clone(), entry.value().clone());
+        map.insert(entry.key().clone(), entry.value().clone());
     }
 }
 
@@ -438,15 +405,14 @@ mod tests {
         let mgr = WorkspaceManager::new();
 
         mgr.mcodes
-            .borrow()
             .insert("test.mc".to_string(), McCode::new_empty());
-        assert_eq!(mgr.mcodes.borrow().len(), 1);
+        assert_eq!(mgr.mcodes.len(), 1);
 
         mgr.create_and_switch("proj1".into(), WorkspaceKind::Project, PathBuf::from("."));
-        assert_eq!(mgr.mcodes.borrow().len(), 0);
+        assert_eq!(mgr.mcodes.len(), 0);
 
         assert!(mgr.switch_to("default"));
-        assert_eq!(mgr.mcodes.borrow().len(), 1);
+        assert_eq!(mgr.mcodes.len(), 1);
     }
 
     #[test]

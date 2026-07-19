@@ -8,11 +8,8 @@
 pub(crate) use crate::db::cmie::tables as workspace;
 pub(crate) use crate::db::diagnostic::diagnostic;
 pub(crate) use crate::db::infra::context as current_uri;
-pub(crate) use crate::db::infra::global;
 pub(crate) use crate::db::infra::lib_mgr;
 pub(crate) use crate::db::infra::mc_code;
-pub(crate) use crate::db::infra::util;
-pub(crate) use crate::semantic::inst_ref as inst_ref_validator;
 
 // Re-export functions from their new split homes
 pub use crate::build::loader::*;

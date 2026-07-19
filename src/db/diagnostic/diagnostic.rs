@@ -22,8 +22,10 @@ pub struct Location {
     pub uri: McURI,
     pub pos: Position,
     pub len: u32,
-    pub row: u32, // 1-based line number
-    pub col: u32, // 1-based column number
+    pub row: u32,     // 1-based start line number
+    pub col: u32,     // 1-based start column number
+    pub end_row: u32, // 1-based end line number (computed from pos + len)
+    pub end_col: u32, // 1-based end column number (computed from pos + len)
 }
 
 #[derive(Debug, Clone)]
@@ -83,10 +85,20 @@ impl Location {
         // Try to get line and column from the file's line index
         let (line, column) = workspace::WORKSPACE
             .mcodes
-            .borrow()
             .get(&file)
             .map(|mcfile| mcfile.pos_to_line_col(pos))
             .unwrap_or((1, 1));
+
+        // Compute end position (pos + len) for proper span highlighting
+        let (end_line, end_column) = if len > 0 {
+            workspace::WORKSPACE
+                .mcodes
+                .get(&file)
+                .map(|mcfile| mcfile.pos_to_line_col(pos + len))
+                .unwrap_or((line, column + len))
+        } else {
+            (line, column)
+        };
 
         Self {
             uri: file,
@@ -94,6 +106,8 @@ impl Location {
             len,
             row: line,
             col: column,
+            end_row: end_line,
+            end_col: end_column,
         }
     }
 }
@@ -200,12 +214,10 @@ impl DiagnosticManager {
 
     pub fn add_diagnostic(&mut self, diagnostic: Diagnostic) {
         let index = self.diagnostics.len();
-        self.diagnostics.push(diagnostic.clone());
+        let uri = diagnostic.loc.uri.clone();
+        self.diagnostics.push(diagnostic);
 
-        self.file_to_diagnostics
-            .entry(diagnostic.loc.uri.clone())
-            .or_default()
-            .push(index);
+        self.file_to_diagnostics.entry(uri).or_default().push(index);
     }
 
     pub fn get_diagnostics(&self) -> &[Diagnostic] {
@@ -311,7 +323,8 @@ pub fn diagnostic_log(
 
     workspace::WORKSPACE
         .diagnostics
-        .borrow_mut()
+        .lock()
+        .unwrap()
         .add_diagnostic(new_diagnostic);
 }
 
@@ -331,30 +344,29 @@ pub fn dlog_error(code: u32, node: &AstNode, msg: &str) {
 }
 pub fn dlog_warning(code: u32, node: &AstNode, msg: &str) {
     let full_msg = format!("node={} {}", node.get_type(), msg);
-    // Print to stderr so LSP server can capture it
-    eprintln!(
-        "[dlog_warning] code={} node_type={} node_pos={} node_len={} msg={}",
-        code,
-        node.get_type(),
-        node.get_pos(),
-        node.get_len(),
-        full_msg
+    // Log sub-node chain via tracing for debugging (gated by log level)
+    tracing::debug!(
+        target: "mcc::diagnostic",
+        code = code,
+        node_type = node.get_type(),
+        node_pos = node.get_pos(),
+        node_len = node.get_len(),
+        "{full_msg}"
     );
-    // Print chain of sub-nodes for debugging
     let mut cur = node.get_sub_node();
     let mut depth = 0;
     while let Some(n) = cur {
-        eprintln!(
-            "  [dlog_warning] sub[{}] type={} pos={} len={}",
-            depth,
-            n.get_type(),
-            n.get_pos(),
-            n.get_len()
+        tracing::trace!(
+            target: "mcc::diagnostic",
+            depth = depth,
+            node_type = n.get_type(),
+            node_pos = n.get_pos(),
+            node_len = n.get_len(),
+            "sub-node"
         );
         cur = n.get_next();
         depth += 1;
         if depth > 10 {
-            eprintln!("  [dlog_warning] ... (truncated)");
             break;
         }
     }
@@ -393,6 +405,7 @@ pub fn dlog_hint(code: u32, node: &AstNode, msg: &str) {
 pub fn dlog_clear_file(uri: &McURI) {
     workspace::WORKSPACE
         .diagnostics
-        .borrow_mut()
+        .lock()
+        .unwrap()
         .clear_file(uri);
 }

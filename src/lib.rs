@@ -285,7 +285,8 @@ pub fn mcc_build_flat(
 pub fn mcc_diagnose(uri: &McURI) -> Vec<Diagnostic> {
     crate::db::cmie::tables::WORKSPACE
         .diagnostics
-        .borrow()
+        .lock()
+        .unwrap()
         .get_diagnostics_for_file(uri)
         .into_iter()
         .cloned()
@@ -295,7 +296,8 @@ pub fn mcc_diagnose(uri: &McURI) -> Vec<Diagnostic> {
 pub fn mcc_diagnose_all() -> Vec<Diagnostic> {
     crate::db::cmie::tables::WORKSPACE
         .diagnostics
-        .borrow()
+        .lock()
+        .unwrap()
         .get_diagnostics()
         .to_vec()
 }

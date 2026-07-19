@@ -116,7 +116,7 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
 
     // Step 2: Try workspace files' global tables if not found above
     let from_mcodes: Option<(DeclareId, String, Span)> = if found.is_none() {
-        let binding = workspace::WORKSPACE.mcodes.borrow();
+        let binding = &workspace::WORKSPACE.mcodes;
         let mut result = None;
         for entry in binding.iter() {
             if let Ok(sem) = entry.value().symbols.lock() {
@@ -150,7 +150,7 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
     let from_syslibs: Option<(DeclareId, String, Span)> = if class_info.is_none() {
         let name_str = class_name.to_string();
         let mut result = None;
-        for entry in global::mcc_components.borrow().iter() {
+        for entry in global::mcc_components.iter() {
             if entry.key().ident.to_string() == name_str {
                 result = Some((
                     DeclareId::default(),
@@ -161,7 +161,7 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
             }
         }
         if result.is_none() {
-            for entry in global::mcc_modules.borrow().iter() {
+            for entry in global::mcc_modules.iter() {
                 if entry.key().ident.to_string() == name_str {
                     result = Some((
                         DeclareId::default(),
@@ -173,7 +173,7 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
             }
         }
         if result.is_none() {
-            for entry in global::mcc_interfaces.borrow().iter() {
+            for entry in global::mcc_interfaces.iter() {
                 if entry.key().ident.to_string() == name_str {
                     result = Some((
                         DeclareId::default(),
@@ -185,7 +185,7 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
             }
         }
         if result.is_none() {
-            for entry in global::mcc_enums.borrow().iter() {
+            for entry in global::mcc_enums.iter() {
                 if entry.key().ident.to_string() == name_str {
                     let s = entry.value().span;
                     result = Some((

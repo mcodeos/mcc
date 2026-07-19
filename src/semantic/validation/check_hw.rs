@@ -70,7 +70,7 @@ const VOLTAGE_ATTR_KEYS: &[&str] = &[
 ];
 
 fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -134,7 +134,7 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
 /// may indicate accidentally skipped pins or copy-paste errors. This is common
 /// for NC (not-connected) pins but worth flagging for review.
 fn check_pin_id_gaps(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -210,7 +210,7 @@ fn check_pin_id_gaps(acc: &mut CheckAccumulator) {
 /// deserve a second look. Extremely high pin counts may indicate a data error;
 /// zero-pin components should probably be abstract or use an interface instead.
 fn check_pin_count_extremes(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -268,7 +268,7 @@ fn check_pin_count_extremes(acc: &mut CheckAccumulator) {
 /// NC pins are normal (e.g., thermal pads, reserved pins) but clusters
 /// deserve review.
 fn check_consecutive_nc_pins(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -346,7 +346,7 @@ fn check_consecutive_nc_pins(acc: &mut CheckAccumulator) {
 /// corresponding peer role defined in the same interface. A dangling peer
 /// reference indicates an incomplete interface definition.
 fn check_role_peer_dangling(acc: &mut CheckAccumulator) {
-    let ifaces = crate::db::cmie::tables::WORKSPACE.interfaces.borrow();
+    let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
     for entry in ifaces.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -406,7 +406,7 @@ fn check_role_peer_dangling(acc: &mut CheckAccumulator) {
 /// output, and power pins. A single-type component may indicate incomplete
 /// pin definitions or a misclassified component.
 fn check_single_ioc_type_component(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -483,7 +483,7 @@ fn check_single_ioc_type_component(acc: &mut CheckAccumulator) {
 /// `name` (human-readable name) and ideally `description`.
 /// Missing metadata makes library browsing and BOM generation harder.
 fn check_component_metadata(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -537,7 +537,7 @@ fn check_component_metadata(acc: &mut CheckAccumulator) {
 /// component pin, it creates ambiguity in net expressions. The function
 /// parameter may unintentionally shadow the pin reference.
 fn check_func_param_pin_shadow(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -585,8 +585,8 @@ fn check_func_param_pin_shadow(acc: &mut CheckAccumulator) {
 /// any component's pin bindings is dead code. It may indicate an incomplete
 /// component definition or an obsolete interface.
 fn check_unused_interface(acc: &mut CheckAccumulator) {
-    let ifaces = crate::db::cmie::tables::WORKSPACE.interfaces.borrow();
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
 
     // Collect all interface names that are bound by at least one component
     let mut used_ifaces: HashSet<String> = HashSet::new();

@@ -10,17 +10,13 @@ use crate::{McCMIE, McIds, McSpaceName, McURI};
 // === pub fn mcb_print() { ===
 pub fn mcb_print() {
     // Print system-level Interfaces (mcode directory)
-    global::mcc_interfaces
-        .borrow()
-        .iter()
-        .for_each(|interface| {
-            println!("{}", interface.value().as_ref());
-        });
+    global::mcc_interfaces.iter().for_each(|interface| {
+        println!("{}", interface.value().as_ref());
+    });
 
     // Print project-level Interfaces
     workspace::WORKSPACE
         .interfaces
-        .borrow()
         .iter()
         .for_each(|interface| {
             println!("{}", interface.value().as_ref());
@@ -28,37 +24,28 @@ pub fn mcb_print() {
 
     workspace::WORKSPACE
         .components
-        .borrow()
         .iter()
         .for_each(|component| {
             println!("{}", component.value().as_ref());
         });
 
-    workspace::WORKSPACE
-        .modules
-        .borrow()
-        .iter()
-        .for_each(|module| {
-            println!("{}", module.value().as_ref());
-        });
+    workspace::WORKSPACE.modules.iter().for_each(|module| {
+        println!("{}", module.value().as_ref());
+    });
 
-    // global::mcc_enums.borrow().iter().for_each(|enum_def| {
+    // global::mcc_enums.iter().for_each(|enum_def| {
     //     println!("{:#?}", enum_def.value().as_ref());
     // });
 
-    workspace::WORKSPACE
-        .enums
-        .borrow()
-        .iter()
-        .for_each(|enum_def| {
-            println!("{}", enum_def.value().as_ref());
-        });
+    workspace::WORKSPACE.enums.iter().for_each(|enum_def| {
+        println!("{}", enum_def.value().as_ref());
+    });
 }
 
 // === pub fn mcb_print_lines() { ===
 /// Print Lines information for all modules (used for drawing-side debugging)
 pub fn mcb_print_lines() {
-    let modules = workspace::WORKSPACE.modules.borrow();
+    let modules = &workspace::WORKSPACE.modules;
 
     if modules.is_empty() {
         println!("⚠️  prj_modules is empty, no module definitions found");
@@ -261,15 +248,11 @@ pub fn mcb_debug_get_cmie(class_name: &McIds, uri: &McURI) {
 
     // Step 1: system lib
     let mcode_found = crate::db::infra::lib_mgr::mcc_blibs
-        .borrow()
         .get(&"mcode".to_string())
         .is_some();
     eprintln!("â•' Step 1: mcode system lib exists = {mcode_found}");
     // [Diagnostic] Step 1: search in mcode base library
-    if let Some(mcode) = crate::db::infra::lib_mgr::mcc_blibs
-        .borrow()
-        .get(&"mcode".to_string())
-    {
+    if let Some(mcode) = crate::db::infra::lib_mgr::mcc_blibs.get(&"mcode".to_string()) {
         let has_entry = mcode.spacenames.get(class_name).is_some();
         eprintln!("â•'   spacenames.get({name_str}) = {has_entry}");
         if has_entry {
@@ -280,9 +263,9 @@ pub fn mcb_debug_get_cmie(class_name: &McIds, uri: &McURI) {
     }
 
     // Step 2: prj_mcodes
-    let mcodes_has_uri = workspace::WORKSPACE.mcodes.borrow().get(uri).is_some();
+    let mcodes_has_uri = workspace::WORKSPACE.mcodes.get(uri).is_some();
     eprintln!("â•' Step 2: prj_mcodes.get(uri) = {mcodes_has_uri}");
-    if let Some(mcfile) = workspace::WORKSPACE.mcodes.borrow().get(uri) {
+    if let Some(mcfile) = workspace::WORKSPACE.mcodes.get(uri) {
         let has_spacename = mcfile.value().spacenames.get(class_name).is_some();
         eprintln!("â•'   spacenames.get({name_str}) = {has_spacename}");
         if let Some(sn) = mcfile.value().spacenames.get(class_name) {
@@ -323,7 +306,7 @@ pub fn mcb_debug_get_cmie(class_name: &McIds, uri: &McURI) {
     }
 
     // Full prj_modules state
-    let modules = workspace::WORKSPACE.modules.borrow();
+    let modules = &workspace::WORKSPACE.modules;
     eprintln!("╠══════════════════════════════════════════════════════╣");
     eprintln!("║ prj_modules status: {} modules", modules.len());
     for entry in modules.iter() {

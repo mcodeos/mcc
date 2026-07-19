@@ -25,7 +25,7 @@ pub fn mcb_parse_all_modules() {
     // 1. Collect all URIs and their dependencies
     let mut uri_deps: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::new();
-    for entry in workspace::WORKSPACE.mcodes.borrow().iter() {
+    for entry in workspace::WORKSPACE.mcodes.iter() {
         let uri = entry.key().clone();
         // ★ Fix: Canonicalize dependency URIs so they match the map keys.
         // Without this, raw URIs like "./power.mc" won't match canonicalized
@@ -72,16 +72,12 @@ pub fn mcb_parse_all_modules() {
     // Clone creates a shallow AstNode copy (owned=false) that dangles when the
     // original (owned=true) is dropped during insert replacement.
     for uri in sorted_uris {
-        let mcfile_opt = workspace::WORKSPACE
-            .mcodes
-            .borrow()
-            .remove(&uri)
-            .map(|(_k, v)| v);
+        let mcfile_opt = workspace::WORKSPACE.mcodes.remove(&uri).map(|(_k, v)| v);
 
         if let Some(mut mcfile) = mcfile_opt {
             crate::current_uri::set(&uri);
             mcfile.parse_pass1_modules();
-            workspace::WORKSPACE.mcodes.borrow().insert(uri, mcfile);
+            workspace::WORKSPACE.mcodes.insert(uri, mcfile);
         }
     }
 
@@ -202,13 +198,8 @@ pub fn mcb_init_system_lib() {
 
     if !should_load_mcode(project_root_ref) {
         debug!(target: "mcc::sysinit", "mcode not in libs.load config, skipping");
-        if !crate::db::infra::lib_mgr::mcc_blibs
-            .borrow()
-            .contains_key("mcode")
-        {
-            crate::db::infra::lib_mgr::mcc_blibs
-                .borrow_mut()
-                .insert("mcode".to_string(), McCode::new_empty());
+        if !crate::db::infra::lib_mgr::mcc_blibs.contains_key("mcode") {
+            crate::db::infra::lib_mgr::mcc_blibs.insert("mcode".to_string(), McCode::new_empty());
         }
         debug!(target: "mcc::sysinit", "system lib init done (skipped)");
         return;
@@ -229,13 +220,8 @@ pub fn mcb_init_system_lib() {
         debug!(target: "mcc::sysinit", "system lib loaded");
     } else {
         debug!(target: "mcc::sysinit", "mcode directory not found, registering builtins only");
-        if !crate::db::infra::lib_mgr::mcc_blibs
-            .borrow()
-            .contains_key("mcode")
-        {
-            crate::db::infra::lib_mgr::mcc_blibs
-                .borrow_mut()
-                .insert("mcode".to_string(), McCode::new_empty());
+        if !crate::db::infra::lib_mgr::mcc_blibs.contains_key("mcode") {
+            crate::db::infra::lib_mgr::mcc_blibs.insert("mcode".to_string(), McCode::new_empty());
         }
     }
 

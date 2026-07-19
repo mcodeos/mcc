@@ -21,7 +21,7 @@ pub fn handle_sem(params: Option<Value>) -> RpcResult {
         let canonical_uri = crate::build::pass1::canonicalize_project_uri(&mc_uri);
         let result = try_lookup_sem(&[McURI::from(&canonical_uri)]);
         // ★ Fix: DON'T remove the entry - mcc_query needs it for goto_definition
-        // crate::db::cmie::tables::WORKSPACE.mcodes.borrow().remove(&McURI::from(&canonical_uri));
+        // crate::db::cmie::tables::WORKSPACE.mcodes.remove(&McURI::from(&canonical_uri));
         return result.ok_or_else(|| JsonRpcError::custom(32100, "parse from string failed"));
     }
 
@@ -50,7 +50,7 @@ pub fn handle_sem(params: Option<Value>) -> RpcResult {
     // If not found and workspace is empty, auto-create workspace and load project
     if result.is_none() {
         let workspace_empty = {
-            let binding = crate::db::cmie::tables::WORKSPACE.mcodes.borrow();
+            let binding = &crate::db::cmie::tables::WORKSPACE.mcodes;
             binding.is_empty()
         };
         if workspace_empty && raw_path.is_absolute() {
@@ -171,4 +171,33 @@ pub fn handle_remove_file(params: Option<Value>) -> RpcResult {
     let p: RemoveFileParams = parse_strict(params)?;
     crate::mcc_remove(&McURI::from(p.uri.as_str()));
     Ok(serde_json::json!({ "ok": true }))
+}
+
+// === handle_completion ===
+pub fn handle_completion(params: Option<Value>) -> RpcResult {
+    #[derive(Deserialize)]
+    struct CompletionParams {
+        uri: String,
+        #[serde(default)]
+        prefix: Option<String>,
+        #[serde(default)]
+        scope: Option<String>,
+    }
+
+    let p: CompletionParams = parse_strict(params)?;
+    let items = crate::lsp::completion::complete(&p.uri, p.prefix.as_deref(), p.scope.as_deref());
+    Ok(serde_json::json!({ "items": items }))
+}
+
+// === handle_hover ===
+pub fn handle_hover(params: Option<Value>) -> RpcResult {
+    #[derive(Deserialize)]
+    struct HoverParams {
+        name: String,
+        uri: String,
+    }
+
+    let p: HoverParams = parse_strict(params)?;
+    let result = crate::lsp::hover::hover(&p.name, &p.uri);
+    Ok(serde_json::json!({ "result": result }))
 }

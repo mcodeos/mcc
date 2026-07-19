@@ -33,7 +33,7 @@ impl ValidationCheck for DuplicateCmieCheck {
 
         // Check components
         {
-            let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+            let comps = &crate::db::cmie::tables::WORKSPACE.components;
             for entry in comps.iter() {
                 let name = entry.key().ident.to_string();
                 let uri = entry.key().uri.to_string();
@@ -44,7 +44,7 @@ impl ValidationCheck for DuplicateCmieCheck {
         }
         // Check interfaces
         {
-            let ifaces = crate::db::cmie::tables::WORKSPACE.interfaces.borrow();
+            let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
             for entry in ifaces.iter() {
                 let name = entry.key().ident.to_string();
                 let uri = entry.key().uri.to_string();
@@ -55,7 +55,7 @@ impl ValidationCheck for DuplicateCmieCheck {
         }
         // Check enums
         {
-            let enums = crate::db::cmie::tables::WORKSPACE.enums.borrow();
+            let enums = &crate::db::cmie::tables::WORKSPACE.enums;
             for entry in enums.iter() {
                 let name = entry.key().ident.to_string();
                 let uri = entry.key().uri.to_string();
@@ -68,7 +68,7 @@ impl ValidationCheck for DuplicateCmieCheck {
         }
         // Check modules
         {
-            let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+            let modules = &crate::db::cmie::tables::WORKSPACE.modules;
             for entry in modules.iter() {
                 let name = entry.key().ident.to_string();
                 let uri = entry.key().uri.to_string();

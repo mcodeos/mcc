@@ -23,7 +23,7 @@ impl ValidationCheck for PortInstanceCheck {
     }
 
     fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
-        let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+        let modules = &crate::db::cmie::tables::WORKSPACE.modules;
         for entry in modules.iter() {
             let mod_name = entry.key().ident.to_string();
             let m = entry.value();

@@ -124,7 +124,7 @@ pub(crate) fn collect_from_file(
         .kind
         .map_or(true, |k| k == crate::ContainerKind::Module)
     {
-        for entry in workspace::WORKSPACE.modules.borrow().iter() {
+        for entry in workspace::WORKSPACE.modules.iter() {
             if entry.key().uri.as_str() != uri_str {
                 continue;
             }
@@ -154,7 +154,7 @@ pub(crate) fn collect_from_file(
         .kind
         .map_or(true, |k| k == crate::ContainerKind::Component)
     {
-        for entry in workspace::WORKSPACE.components.borrow().iter() {
+        for entry in workspace::WORKSPACE.components.iter() {
             if entry.key().uri.as_str() != uri_str {
                 continue;
             }
@@ -292,7 +292,7 @@ pub(crate) fn collect_from_project(
     max: usize,
 ) {
     // Component classes
-    for entry in workspace::WORKSPACE.components.borrow().iter() {
+    for entry in workspace::WORKSPACE.components.iter() {
         let name = entry.key().ident.to_string();
         let uri = entry.key().uri.clone();
         if !results.iter().any(|r: &crate::LookupResult| r.name == name) {
@@ -311,7 +311,7 @@ pub(crate) fn collect_from_project(
         }
     }
     // Module classes
-    for entry in workspace::WORKSPACE.modules.borrow().iter() {
+    for entry in workspace::WORKSPACE.modules.iter() {
         let name = entry.key().ident.to_string();
         let uri = entry.key().uri.clone();
         if !results.iter().any(|r: &crate::LookupResult| r.name == name) {
@@ -330,7 +330,7 @@ pub(crate) fn collect_from_project(
         }
     }
     // Interfaces
-    for entry in workspace::WORKSPACE.interfaces.borrow().iter() {
+    for entry in workspace::WORKSPACE.interfaces.iter() {
         let name = entry.key().ident.to_string();
         add_result(
             results,
@@ -346,7 +346,7 @@ pub(crate) fn collect_from_project(
         );
     }
     // Enums
-    for entry in workspace::WORKSPACE.enums.borrow().iter() {
+    for entry in workspace::WORKSPACE.enums.iter() {
         let name = entry.key().ident.to_string();
         add_result(
             results,
@@ -433,7 +433,7 @@ pub fn lookup_sub_def(
     let uri_str = parent_uri.as_str();
 
     // ── Components ──
-    for entry in workspace::WORKSPACE.components.borrow().iter() {
+    for entry in workspace::WORKSPACE.components.iter() {
         let key = entry.key();
         if key.uri.as_str() != uri_str {
             continue;
@@ -447,7 +447,7 @@ pub fn lookup_sub_def(
             return Some(span);
         }
     }
-    for entry in global::mcc_components.borrow().iter() {
+    for entry in global::mcc_components.iter() {
         let key = entry.key();
         if key.uri.as_str() != uri_str {
             continue;
@@ -463,7 +463,7 @@ pub fn lookup_sub_def(
     }
 
     // ── Modules ──
-    for entry in workspace::WORKSPACE.modules.borrow().iter() {
+    for entry in workspace::WORKSPACE.modules.iter() {
         let key = entry.key();
         if key.uri.as_str() != uri_str {
             continue;
@@ -477,7 +477,7 @@ pub fn lookup_sub_def(
             return Some(span);
         }
     }
-    for entry in global::mcc_modules.borrow().iter() {
+    for entry in global::mcc_modules.iter() {
         let key = entry.key();
         if key.uri.as_str() != uri_str {
             continue;
@@ -493,7 +493,7 @@ pub fn lookup_sub_def(
     }
 
     // ── Interfaces ──
-    for entry in workspace::WORKSPACE.interfaces.borrow().iter() {
+    for entry in workspace::WORKSPACE.interfaces.iter() {
         let key = entry.key();
         if key.uri.as_str() != uri_str {
             continue;
@@ -507,7 +507,7 @@ pub fn lookup_sub_def(
             return Some(span);
         }
     }
-    for entry in global::mcc_interfaces.borrow().iter() {
+    for entry in global::mcc_interfaces.iter() {
         let key = entry.key();
         if key.uri.as_str() != uri_str {
             continue;
@@ -523,7 +523,7 @@ pub fn lookup_sub_def(
     }
 
     // ── Enums ──
-    for entry in workspace::WORKSPACE.enums.borrow().iter() {
+    for entry in workspace::WORKSPACE.enums.iter() {
         let key = entry.key();
         if key.uri.as_str() != uri_str {
             continue;
@@ -537,7 +537,7 @@ pub fn lookup_sub_def(
             return Some(span);
         }
     }
-    for entry in global::mcc_enums.borrow().iter() {
+    for entry in global::mcc_enums.iter() {
         let key = entry.key();
         if key.uri.as_str() != uri_str {
             continue;
@@ -671,7 +671,7 @@ pub(crate) fn lookup_in_enum(
 /// Find source URI of component definition
 pub(crate) fn find_component_uri(class_name: &McIds) -> Option<McURI> {
     let name_str = class_name.to_string();
-    for entry in workspace::WORKSPACE.components.borrow().iter() {
+    for entry in workspace::WORKSPACE.components.iter() {
         let ident_str = entry.key().ident.to_string();
         if ident_str == name_str {
             return Some(entry.key().uri.clone());
@@ -694,44 +694,28 @@ pub(crate) fn find_in_project_tables(space_name: &McSpaceName) -> Option<McCMIE>
     //     space_name.uri,
     //     canonical_space_name.uri
     // );
-    if let Some(comp) = workspace::WORKSPACE
-        .components
-        .borrow()
-        .get(&canonical_space_name)
-    {
+    if let Some(comp) = workspace::WORKSPACE.components.get(&canonical_space_name) {
         return Some(McCMIE::Component(comp.clone()));
     }
-    if let Some(comp) = global::mcc_components.borrow().get(&canonical_space_name) {
+    if let Some(comp) = global::mcc_components.get(&canonical_space_name) {
         return Some(McCMIE::Component(comp.clone()));
     }
-    if let Some(module) = workspace::WORKSPACE
-        .modules
-        .borrow()
-        .get(&canonical_space_name)
-    {
+    if let Some(module) = workspace::WORKSPACE.modules.get(&canonical_space_name) {
         return Some(McCMIE::Module(module.clone()));
     }
-    if let Some(module) = global::mcc_modules.borrow().get(&canonical_space_name) {
+    if let Some(module) = global::mcc_modules.get(&canonical_space_name) {
         return Some(McCMIE::Module(module.clone()));
     }
-    if let Some(ifs) = workspace::WORKSPACE
-        .interfaces
-        .borrow()
-        .get(&canonical_space_name)
-    {
+    if let Some(ifs) = workspace::WORKSPACE.interfaces.get(&canonical_space_name) {
         return Some(McCMIE::Interface(ifs.clone()));
     }
-    if let Some(ifs) = global::mcc_interfaces.borrow().get(&canonical_space_name) {
+    if let Some(ifs) = global::mcc_interfaces.get(&canonical_space_name) {
         return Some(McCMIE::Interface(ifs.clone()));
     }
-    if let Some(enum_def) = global::mcc_enums.borrow().get(&canonical_space_name) {
+    if let Some(enum_def) = global::mcc_enums.get(&canonical_space_name) {
         return Some(McCMIE::Enum(enum_def.clone()));
     }
-    if let Some(enum_def) = workspace::WORKSPACE
-        .enums
-        .borrow()
-        .get(&canonical_space_name)
-    {
+    if let Some(enum_def) = workspace::WORKSPACE.enums.get(&canonical_space_name) {
         return Some(McCMIE::Enum(enum_def.clone()));
     }
     None
@@ -747,13 +731,13 @@ pub(crate) fn find_by_name_in_project_tables(class_name: &McIds) -> Option<McCMI
     let name_str = class_name.to_string();
 
     // Check components (exact match)
-    for entry in workspace::WORKSPACE.components.borrow().iter() {
+    for entry in workspace::WORKSPACE.components.iter() {
         let ident_str = entry.key().ident.to_string();
         if ident_str == name_str {
             return Some(McCMIE::Component(entry.value().clone()));
         }
     }
-    for entry in global::mcc_components.borrow().iter() {
+    for entry in global::mcc_components.iter() {
         let ident_str = entry.key().ident.to_string();
         if ident_str == name_str {
             return Some(McCMIE::Component(entry.value().clone()));
@@ -761,13 +745,13 @@ pub(crate) fn find_by_name_in_project_tables(class_name: &McIds) -> Option<McCMI
     }
 
     // Check modules (exact match)
-    for entry in workspace::WORKSPACE.modules.borrow().iter() {
+    for entry in workspace::WORKSPACE.modules.iter() {
         let ident_str = entry.key().ident.to_string();
         if ident_str == name_str {
             return Some(McCMIE::Module(entry.value().clone()));
         }
     }
-    for entry in global::mcc_modules.borrow().iter() {
+    for entry in global::mcc_modules.iter() {
         let ident_str = entry.key().ident.to_string();
         if ident_str == name_str {
             return Some(McCMIE::Module(entry.value().clone()));
@@ -775,13 +759,13 @@ pub(crate) fn find_by_name_in_project_tables(class_name: &McIds) -> Option<McCMI
     }
 
     // Check interfaces
-    for entry in workspace::WORKSPACE.interfaces.borrow().iter() {
+    for entry in workspace::WORKSPACE.interfaces.iter() {
         let ident_str = entry.key().ident.to_string();
         if ident_str == name_str {
             return Some(McCMIE::Interface(entry.value().clone()));
         }
     }
-    for entry in global::mcc_interfaces.borrow().iter() {
+    for entry in global::mcc_interfaces.iter() {
         let ident_str = entry.key().ident.to_string();
         if ident_str == name_str {
             return Some(McCMIE::Interface(entry.value().clone()));
@@ -789,13 +773,13 @@ pub(crate) fn find_by_name_in_project_tables(class_name: &McIds) -> Option<McCMI
     }
 
     // Check enums
-    for entry in global::mcc_enums.borrow().iter() {
+    for entry in global::mcc_enums.iter() {
         let ident_str = entry.key().ident.to_string();
         if ident_str == name_str {
             return Some(McCMIE::Enum(entry.value().clone()));
         }
     }
-    for entry in workspace::WORKSPACE.enums.borrow().iter() {
+    for entry in workspace::WORKSPACE.enums.iter() {
         let ident_str = entry.key().ident.to_string();
         if ident_str == name_str {
             return Some(McCMIE::Enum(entry.value().clone()));
@@ -813,7 +797,7 @@ pub(crate) fn find_by_name_in_project_tables(class_name: &McIds) -> Option<McCMI
 /// must occur in the context of their defining file.
 pub(crate) fn mcb_find_module_uri(class_name: &McIds) -> Option<McURI> {
     let name_str = class_name.to_string();
-    for entry in workspace::WORKSPACE.modules.borrow().iter() {
+    for entry in workspace::WORKSPACE.modules.iter() {
         let ident_str = entry.key().ident.to_string();
         if ident_str == name_str {
             return Some(entry.key().uri.clone());
@@ -831,7 +815,7 @@ pub fn mcb_get_module_def_by_name(class_name: &McIds) -> Option<Arc<McModule>> {
     let name_str = class_name.to_string();
 
     // Exact match
-    for entry in workspace::WORKSPACE.modules.borrow().iter() {
+    for entry in workspace::WORKSPACE.modules.iter() {
         let ident_str = entry.key().ident.to_string();
         if ident_str == name_str {
             return Some(entry.value().clone());
@@ -886,7 +870,7 @@ pub fn mcb_get_module_with_diagnostics(
     diags.push(format!("❌ fallback also did not find module '{name_str}'"));
 
     // 3. List all known modules for reference
-    let modules = workspace::WORKSPACE.modules.borrow();
+    let modules = &workspace::WORKSPACE.modules;
     diags.push(format!("Registered modules ({}):", modules.len()));
     for entry in modules.iter() {
         diags.push(format!(
