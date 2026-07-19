@@ -115,3 +115,77 @@ pub trait SemanticContext: NameResolver + SymbolRegistry + DiagnosticSink {}
 
 // Blanket impl: any type implementing all three gets SemanticContext for free.
 impl<T: NameResolver + SymbolRegistry + DiagnosticSink> SemanticContext for T {}
+
+// ============================================================================
+// Tests — demonstrating trait injection for unit testing
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Verify that a mock resolver can be used without global state.
+    #[test]
+    fn mock_resolver_no_global_state() {
+        struct MockResolver;
+        impl NameResolver for MockResolver {
+            fn resolve(&self, _: &McIds, _: &McURI) -> Option<(McCMIE, McURI)> {
+                None
+            }
+            fn resolve_system(&self, _: &McIds) -> Option<McCMIE> {
+                None
+            }
+        }
+        let ids = McIds::from("RES");
+        assert!(MockResolver.resolve(&ids, &McURI::default()).is_none());
+        assert!(MockResolver.resolve_system(&ids).is_none());
+    }
+
+    /// Verify that the trait can be used via &dyn SemanticContext.
+    #[test]
+    fn trait_object_works() {
+        struct StubContext;
+        impl NameResolver for StubContext {
+            fn resolve(&self, _: &McIds, _: &McURI) -> Option<(McCMIE, McURI)> {
+                None
+            }
+            fn resolve_system(&self, _: &McIds) -> Option<McCMIE> {
+                None
+            }
+        }
+        impl SymbolRegistry for StubContext {
+            fn register_instance_decl(
+                &self,
+                _: &str,
+                _: Option<&str>,
+                _: &str,
+                _: u32,
+                _: u32,
+            ) -> u32 {
+                0
+            }
+            fn register_instance_ref(&self, _: &str, _: u32, _: Option<&str>, _: u32, _: u32) {}
+            fn lookup_instance_decl(&self, _: &str, _: &str, _: Option<&str>) -> Option<u32> {
+                None
+            }
+            fn register_declare_class(&self, _: &str, _: &str, _: u32, _: u32) {}
+            fn find_refs(&self, _: &str) -> Vec<(String, String, (u32, u32))> {
+                vec![]
+            }
+        }
+        impl DiagnosticSink for StubContext {
+            fn report(
+                &self,
+                _: u32,
+                _: DiagnosticSeverity,
+                _: &str,
+                _: u32,
+                _: u32,
+                _: &str,
+                _: &[String],
+            ) {
+            }
+        }
+        let _ctx: &dyn SemanticContext = &StubContext;
+    }
+}
