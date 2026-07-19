@@ -313,8 +313,10 @@ impl McParamDeclares {
 
         // Step 1: Run usage-based inference for Unknown params
         if let Some(body_node) = body {
-            let unused =
-                crate::semantic::basic::mc_param_infer::find_unused_params(&self.declares, body_node);
+            let unused = crate::semantic::basic::mc_param_infer::find_unused_params(
+                &self.declares,
+                body_node,
+            );
             for name in &unused {
                 // Try exact match first, then substring match (def_spans may
                 // store the full form "rs485{A,B}" while display_name returns "rs485").
@@ -350,8 +352,9 @@ impl McParamDeclares {
                 {
                     if let Some(name) = declare.get_primary_name() {
                         if !unused.contains(&name) {
-                            let result =
-                                crate::semantic::basic::mc_param_infer::infer_param(&name, body_node);
+                            let result = crate::semantic::basic::mc_param_infer::infer_param(
+                                &name, body_node,
+                            );
                             if result.confidence >= 0.7 {
                                 declare.set_param_type(result.param_type);
                             }

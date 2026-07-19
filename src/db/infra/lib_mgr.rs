@@ -18,8 +18,8 @@
 //! `mcb_init_system_lib()` preserved, internally changed to call `mcb_load_lib("mcode", mcode_dir)`.
 
 use crate::builder::global;
-use crate::db::infra::mc_code::McCode;
 use crate::builder::workspace;
+use crate::db::infra::mc_code::McCode;
 use crate::{McIds, McSpaceName};
 use std::collections::HashSet;
 use std::path::Path;
@@ -79,7 +79,10 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
     }
 
     // If already loaded, check if it has interfaces
-    if crate::db::infra::global::mcc_blibs.borrow().contains_key(name) {
+    if crate::db::infra::global::mcc_blibs
+        .borrow()
+        .contains_key(name)
+    {
         // Check if it has interfaces spacenames
         if let Some(blib) = crate::db::infra::global::mcc_blibs.borrow().get(name) {
             // Check if it has interfaces spacenames
@@ -169,7 +172,10 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
 /// 2. Remove definitions from `mcc_*` system tables with uri containing library path
 /// 3. Remove definitions from workspace tables with uri containing library path
 pub fn mcb_unload_lib(name: &str) -> bool {
-    let blib = match crate::db::infra::global::mcc_blibs.borrow_mut().remove(name) {
+    let blib = match crate::db::infra::global::mcc_blibs
+        .borrow_mut()
+        .remove(name)
+    {
         Some((_, blib)) => blib,
         None => return false,
     };

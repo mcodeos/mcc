@@ -81,10 +81,7 @@ fn collect_component_instances(inst: &McModuleInst) -> Vec<(String, String)> {
     out.into_iter().collect()
 }
 
-fn collect_components_in_inst(
-    inst: &McModuleInst,
-    out: &mut BTreeSet<(String, String)>,
-) {
+fn collect_components_in_inst(inst: &McModuleInst, out: &mut BTreeSet<(String, String)>) {
     for conn in &inst.connections {
         for np in &conn.points {
             if let Some((instance, _pin)) = np.path.rsplit_once('.') {

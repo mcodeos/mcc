@@ -4,7 +4,6 @@
 
 use super::*;
 
-
 // === handle_lib_load (lines 314-329 in original) ===
 
 pub fn handle_lib_load(params: Option<Value>) -> RpcResult {

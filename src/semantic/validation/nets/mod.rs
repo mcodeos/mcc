@@ -6,8 +6,8 @@
 //!
 //! Runs after `mcb_pass2()` when the full flattened netlist (`InstTable`) is available.
 
-use crate::semantic::common::IOType;
 use crate::instant::inst_table::{InstEntry, InstTable, NetEntry};
+use crate::semantic::common::IOType;
 use std::collections::HashSet;
 /// Run all electrical net checks and return diagnostics.
 pub fn run_net_checks(table: &InstTable) -> Vec<NetCheckResult> {

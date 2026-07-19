@@ -87,22 +87,14 @@ pub(crate) fn mcode_dir() -> PathBuf {
 // Existing methods (preserved, behavior unchanged)
 // ============================================================================
 
-
-
-
 #[derive(Deserialize)]
 pub(crate) struct LibraryShowParams {
     name: String,
 }
 
-
-
-
 // ============================================================================
 // Lib handlers
 // ============================================================================
-
-
 
 #[derive(Deserialize)]
 pub(crate) struct LibInstallParams {
@@ -112,7 +104,6 @@ pub(crate) struct LibInstallParams {
     version: Option<String>,
 }
 
-
 #[derive(Deserialize)]
 pub(crate) struct LibUninstallParams {
     name: String,
@@ -120,12 +111,10 @@ pub(crate) struct LibUninstallParams {
     force: bool,
 }
 
-
 #[derive(Deserialize)]
 pub(crate) struct LibSearchParams {
     pattern: String,
 }
-
 
 // ============================================================================
 // defs.search (M5) — text/regex/fuzzy search across loaded definitions
@@ -146,7 +135,6 @@ pub(crate) struct DefsSearchParams {
     limit: usize,
 }
 
-
 // ============================================================================
 // defs.query (M5 PR#2) — structured DSL query
 // ============================================================================
@@ -157,7 +145,6 @@ pub(crate) struct DefsQueryParams {
     #[serde(default)]
     limit: usize,
 }
-
 
 // ============================================================================
 // export (M5 PR#3) — text/JSON/CSV netlist, BOM, SPICE
@@ -180,7 +167,6 @@ pub(crate) struct ExportRpcParams {
     #[serde(default)]
     libs: Vec<String>,
 }
-
 
 /// Resolve an installed library directory under the system root.
 /// Flat layout: checks `<root>/<name>` (built-in) and `<root>/<name>@<version>` (3rd-party).
@@ -231,8 +217,6 @@ pub(crate) struct TraceSetParams {
     value: bool,
 }
 
-
-
 // ============================================================================
 // Common build.full handlers (based on active workspace)
 // ============================================================================
@@ -256,7 +240,6 @@ pub(crate) struct BuildFullParams {
 pub(crate) fn default_true() -> bool {
     true
 }
-
 
 // ============================================================================
 // Internal: Pass1 / Pass2 execution
@@ -911,16 +894,13 @@ pub(crate) struct CheckRpcParams {
 /// Overlay URI used when `content` is provided — virtual file, never touches disk.
 pub(crate) const CHECK_OVERLAY_URI: &str = "/mcc/check.mc";
 
-
 // ============================================================================
 // Refs (M6)
 // ============================================================================
 
-
 // ============================================================================
 // ERC — Electrical Rule Check (M6)
 // ============================================================================
-
 
 /// Run Pass2 ERC: single-point nets, unconnected ports, net stats.
 pub(crate) fn run_erc() -> RpcResult {
@@ -1056,7 +1036,6 @@ pub(crate) struct ExtractRpcParams {
     libs: Vec<String>,
 }
 
-
 pub(crate) fn extract_from_uri(entry: &Path, top: Option<&str>, target: &str) -> RpcResult {
     let uri = entry.to_string_lossy().to_string();
     let mc_uri = McURI::from(uri.as_str());
@@ -1179,7 +1158,9 @@ pub(crate) fn extract_from_uri(entry: &Path, top: Option<&str>, target: &str) ->
 // Auxiliary: parameter parsing / error handling
 // ============================================================================
 
-pub(crate) fn parse_strict<T: for<'de> Deserialize<'de>>(params: Option<Value>) -> Result<T, JsonRpcError> {
+pub(crate) fn parse_strict<T: for<'de> Deserialize<'de>>(
+    params: Option<Value>,
+) -> Result<T, JsonRpcError> {
     let v = params.ok_or_else(JsonRpcError::invalid_params)?;
     serde_json::from_value(v).map_err(|_| JsonRpcError::invalid_params())
 }
@@ -1193,7 +1174,10 @@ pub(crate) fn parse_or_default<T: for<'de> Deserialize<'de> + Default>(
     }
 }
 
-pub(crate) fn parse_string_param(params: Option<Value>, keys: &[&str]) -> Result<String, JsonRpcError> {
+pub(crate) fn parse_string_param(
+    params: Option<Value>,
+    keys: &[&str],
+) -> Result<String, JsonRpcError> {
     match params {
         Some(Value::String(s)) => Ok(s),
         Some(Value::Object(mut m)) => {
@@ -1280,7 +1264,11 @@ pub(crate) fn extract_archive(
     }
 }
 
-pub(crate) fn extract_tar_gz(data: &[u8], dest: &Path, strip: usize) -> Result<Vec<String>, JsonRpcError> {
+pub(crate) fn extract_tar_gz(
+    data: &[u8],
+    dest: &Path,
+    strip: usize,
+) -> Result<Vec<String>, JsonRpcError> {
     use flate2::read::GzDecoder;
     use tar::Archive;
     let gz = GzDecoder::new(data);
@@ -1288,7 +1276,11 @@ pub(crate) fn extract_tar_gz(data: &[u8], dest: &Path, strip: usize) -> Result<V
     extract_tar_entries(&mut archive, dest, strip)
 }
 
-pub(crate) fn extract_tar(data: &[u8], dest: &Path, strip: usize) -> Result<Vec<String>, JsonRpcError> {
+pub(crate) fn extract_tar(
+    data: &[u8],
+    dest: &Path,
+    strip: usize,
+) -> Result<Vec<String>, JsonRpcError> {
     use tar::Archive;
     let mut archive = Archive::new(data);
     extract_tar_entries(&mut archive, dest, strip)
@@ -1337,7 +1329,10 @@ pub(crate) fn extract_tar_entries<R: std::io::Read>(
     Ok(extracted)
 }
 
-pub(crate) fn resolve_project_entry(_name: &str, entry: Option<&str>) -> Result<PathBuf, JsonRpcError> {
+pub(crate) fn resolve_project_entry(
+    _name: &str,
+    entry: Option<&str>,
+) -> Result<PathBuf, JsonRpcError> {
     let (_, _, root_str) = crate::workspace_info();
     let root = PathBuf::from(&root_str);
     let src_root = root.join("src");
@@ -1537,7 +1532,6 @@ pub(crate) struct ParseParams {
     include_system: bool,
 }
 
-
 // ============================================================================
 // Show handlers
 // ============================================================================
@@ -1590,14 +1584,6 @@ pub(crate) fn filter_items_by_file<T: Clone>(items: &[(T, String)], file: &str) 
         .map(|(n, _)| n.clone())
         .collect()
 }
-
-
-
-
-
-
-
-
 
 // ============================================================================
 // Show helpers (shared across drill-down handlers)
@@ -1720,23 +1706,9 @@ pub(crate) fn attrval_json(v: &crate::McAttrVal) -> Value {
 // Show — missing container handlers
 // ============================================================================
 
-
-
-
-
-
 // ============================================================================
 // Show — drill-down handlers
 // ============================================================================
-
-
-
-
-
-
-
-
-
 
 /// Convert a McParamDeclare to a JSON object with smart parameter metadata.
 pub(crate) fn param_declare_to_json(d: &mcc::semantic::basic::mc_paramd::McParamDeclare) -> Value {
@@ -1754,10 +1726,6 @@ pub(crate) fn param_declare_to_json(d: &mcc::semantic::basic::mc_paramd::McParam
         "class": class_name,
     })
 }
-
-
-
-
 
 // JSON builders for each entity kind (used by handle_show_dump and handle_show_dump_all)
 pub(crate) fn dump_component_json(name: &str, comp: &crate::McComponent, uri: &str) -> Value {
@@ -1962,7 +1930,6 @@ pub(crate) struct SemParams {
     content: Option<String>,
 }
 
-
 /// Detect project root from a file path and load the project
 pub(crate) fn auto_load_from_file_path(file_path: &Path) {
     // Walk up from the file to find the project root (directory containing project.toml or .mc files)
@@ -2163,11 +2130,9 @@ pub(crate) fn extract_lib_dependencies(contents: &str) -> Option<Vec<String>> {
 // Report (M5b)
 // ============================================================================
 
-
 // ============================================================================
 // Convert (M5b)
 // ============================================================================
-
 
 // ============================================================================
 // Def (M6)
@@ -2184,7 +2149,6 @@ pub(crate) fn extract_lib_dependencies(contents: &str) -> Option<Vec<String>> {
 // ============================================================================
 // Unified Lookup (F12/pass1-pass2)
 // ============================================================================
-
 
 /// Lookup a sub-element (pin, port, param, label) within a parent container.
 
@@ -2214,8 +2178,6 @@ pub(crate) fn extract_lib_dependencies(contents: &str) -> Option<Vec<String>> {
 /// Handle add_file RPC - add a single file to project
 
 /// Handle remove_file RPC - remove a file from project
-
-
 // ── Sub-module declarations ──
 mod admin;
 mod ai_contract;

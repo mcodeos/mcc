@@ -9,12 +9,12 @@
 
 use super::funccall::FuncCallInst;
 use super::McModuleInst;
+use crate::instant::mc_net::InstError;
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::mc_inst::McInstance;
-use crate::instant::mc_net::InstError;
 use crate::McIds;
 
 impl McModuleInst {

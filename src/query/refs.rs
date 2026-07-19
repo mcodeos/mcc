@@ -2,13 +2,11 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-
-use crate::builder::*;
 use crate::ast::ast_semantic::{DeclareId, Span};
+use crate::builder::*;
 use crate::db::cmie::tables as workspace;
 use crate::McURI;
 
-use crate::query::iterators::*;
 // === pub fn mcb_register_instance_decl( ===
 /// 🆕 Register an instance declaration (definition) in the global symbol table
 ///

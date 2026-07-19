@@ -15,13 +15,13 @@
 
 use super::McModuleInst;
 use crate::builder::mcb_get_cmie;
+use crate::instant::mc_comp::McComponentInst;
+use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint, PortInst};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{IOType, McCMIE};
 use crate::semantic::mc_func::McFunction;
-use crate::instant::mc_comp::McComponentInst;
-use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint, PortInst};
 use crate::{current_uri, McIds};
 
 // ============================================================================
@@ -234,7 +234,8 @@ impl McModuleInst {
                 };
                 match standard_alias.or(bare_alias) {
                     Some(canonical) => {
-                        let canon_ids = crate::semantic::basic::mc_ids::McIds::from(canonical.as_str());
+                        let canon_ids =
+                            crate::semantic::basic::mc_ids::McIds::from(canonical.as_str());
                         mcb_get_cmie(&canon_ids, &current_uri::get())
                     }
                     None => None,

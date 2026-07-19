@@ -11,7 +11,6 @@ pub(crate) use crate::db::infra::context as current_uri;
 pub(crate) use crate::db::infra::global;
 pub(crate) use crate::db::infra::lib_mgr;
 pub(crate) use crate::db::infra::mc_code;
-pub(crate) use crate::db::infra::mc_use;
 pub(crate) use crate::db::infra::util;
 pub(crate) use crate::semantic::inst_ref as inst_ref_validator;
 
@@ -19,7 +18,7 @@ pub(crate) use crate::semantic::inst_ref as inst_ref_validator;
 pub use crate::build::loader::*;
 pub use crate::build::pass1::*;
 pub use crate::build::pass2::*;
-pub use crate::db::cmie::cmie::*;
+pub(crate) use crate::db::cmie::cmie::*;
 pub use crate::db::infra::init::*;
 pub use crate::db::infra::lib_mgr::*;
 pub use crate::query::debug::*;

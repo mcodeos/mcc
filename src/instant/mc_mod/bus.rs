@@ -11,10 +11,10 @@
 //! - `process_curly_mn_as_bus`  —— generate base_name-type NetPoint list
 
 use super::McModuleInst;
-use crate::semantic::basic::mc_bus::McBus;
-use crate::semantic::common::IOType;
 use crate::instant::mc_bus::McBusInst;
 use crate::instant::mc_net::{InstError, NetPoint};
+use crate::semantic::basic::mc_bus::McBus;
+use crate::semantic::common::IOType;
 
 impl McModuleInst {
     /// register or merge bus members incrementally

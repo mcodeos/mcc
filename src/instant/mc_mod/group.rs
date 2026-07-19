@@ -12,9 +12,9 @@
 use super::McModuleInst;
 use crate::ast::ast_node::AstNode;
 use crate::builder::diagnostic::dlog_error;
+use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_phrase::McPhrase;
-use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
 
 /// D5 BUS_ORDER_MISMATCH: process-level count of mismatched bus bits.
 /// When all pairs in a bus connection have mismatched member names, D5 fires and

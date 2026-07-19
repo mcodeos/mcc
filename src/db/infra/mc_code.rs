@@ -8,10 +8,10 @@ use crate::ast::ast_semantic::{
 };
 use crate::ast::ast_token::McSemTokens;
 use crate::ast::error::message::MISSING_SUBNODE;
-use crate::db::diagnostic::diagnostic::dlog_error;
 use crate::builder::global;
-use crate::db::infra::mc_use::McUse;
 use crate::builder::workspace;
+use crate::db::diagnostic::diagnostic::dlog_error;
+use crate::db::infra::mc_use::McUse;
 use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -1021,7 +1021,9 @@ impl McCode {
                     }
                 }
                 MCAST_DEFINE => {
-                    if let Some(def) = crate::semantic::mc_define::McDefineDef::new(&node, &self.uri) {
+                    if let Some(def) =
+                        crate::semantic::mc_define::McDefineDef::new(&node, &self.uri)
+                    {
                         let space_name = McSpaceName {
                             ident: def.name.clone(),
                             uri: self.uri.clone(),
@@ -1853,9 +1855,8 @@ impl McCode {
                             sem.symbol_scope
                                 .insert((span.start, span.end), mod_ident_label.clone());
                             // ★ Register in global instance table for cross-file lookup
-                            if let Ok(mut ginst) = crate::db::cmie::tables::WORKSPACE
-                                .global_inst_table
-                                .lock()
+                            if let Ok(mut ginst) =
+                                crate::db::cmie::tables::WORKSPACE.global_inst_table.lock()
                             {
                                 ginst.add(
                                     self.uri.as_str(),
@@ -1917,9 +1918,8 @@ impl McCode {
                                 sem.symbol_scope
                                     .insert((span.start, span.end), func_scope.clone());
                                 // ★ Register in global instance table for cross-file lookup
-                                if let Ok(mut ginst) = crate::db::cmie::tables::WORKSPACE
-                                    .global_inst_table
-                                    .lock()
+                                if let Ok(mut ginst) =
+                                    crate::db::cmie::tables::WORKSPACE.global_inst_table.lock()
                                 {
                                     ginst.add(
                                         self.uri.as_str(),
@@ -2026,9 +2026,8 @@ impl McCode {
                             sem.symbol_scope
                                 .insert((span.start, span.end), comp_ident_label.clone());
                             // ★ Register in global instance table for cross-file lookup
-                            if let Ok(mut ginst) = crate::db::cmie::tables::WORKSPACE
-                                .global_inst_table
-                                .lock()
+                            if let Ok(mut ginst) =
+                                crate::db::cmie::tables::WORKSPACE.global_inst_table.lock()
                             {
                                 ginst.add(
                                     self.uri.as_str(),
@@ -2055,7 +2054,8 @@ impl McCode {
                     fn attr_key_name(attr_node: &AstNode) -> Option<String> {
                         let sub = attr_node.get_sub_node()?;
                         let ids_node = sub.get_sub_node()?;
-                        crate::semantic::basic::mc_ids::McIds::new(&ids_node).map(|ids| ids.to_string())
+                        crate::semantic::basic::mc_ids::McIds::new(&ids_node)
+                            .map(|ids| ids.to_string())
                     }
 
                     fn extract_dot_pair(
