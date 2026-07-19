@@ -40,39 +40,59 @@ pub struct McFuncCall {
 impl McFuncCall {
     /// Parse function call from AST node
     pub fn parse(node: &AstNode, context: &mut dyn HasFindInst) -> Option<McPhrase> {
-        // ★ Fix: register class_ref for inline constructors like CAP(...)
-        // so F12 can jump to the class definition.
-        // Two AST forms:
-        //   1. CAP(...) standalone: first child is MCAST_INSTANCE containing MCAST_OPD
-        //   2. uC.i2c(...) method call: first child is MCAST_NAME
+        // ★ Register class_ref for F12 goto-def on inline constructors.
+        // opd_fcall AST forms:
+        //   CAP(10uF)          → { name: "CAP" }                              — class, no instance
+        //   CAP.CER(10uF)      → { instance: "CAP", name: "CER" }             — dotted class
+        //   uC.i2c(0x36)       → { instance: "uC", name: "i2c" }              — method call
+        //   RES(10kΩ).Pullup() → { instance: opd_fcall, name: "Pullup" }      — chained method call
+        // Distinction: if `instance` segment is a known instance (find_inst),
+        // it's a method call → skip. Otherwise it's a class → register.
         if let Some(subnodes) = node.get_sub_node() {
+            let mut has_instance = false;
+            let mut inst_name: Option<String> = None;
+            let mut class_name: Option<(String, std::ops::Range<usize>)> = None;
             for child in subnodes.iter() {
-                if child.get_type() == MCAST_NAME {
-                    if let Some(ids_node) = child.get_sub_node() {
-                        if let Some(ids) = McIds::new(&ids_node) {
-                            let name_str = ids.to_string();
-                            let span = (ids_node.get_pos() as usize)
-                                ..((ids_node.get_pos() + ids_node.get_len()) as usize);
-                            mcb_register_declare_class(context.uri(), &name_str, span);
-                        }
-                    }
-                    break;
-                }
-                // Standalone constructor: MCAST_INSTANCE -> MCAST_OPD -> class name
-                if child.get_type() == MCAST_INSTANCE {
-                    if let Some(inner) = child.get_sub_node() {
-                        if inner.get_type() == MCAST_OPD {
-                            if let Some(opd_sub) = inner.get_sub_node() {
-                                if let Some(ids) = McIds::new(&opd_sub) {
-                                    let name_str = ids.to_string();
-                                    let span = (opd_sub.get_pos() as usize)
-                                        ..((opd_sub.get_pos() + opd_sub.get_len()) as usize);
-                                    mcb_register_declare_class(context.uri(), &name_str, span);
+                match child.get_type() {
+                    MCAST_INSTANCE => {
+                        has_instance = true;
+                        if let Some(inner) = child.get_sub_node() {
+                            if inner.get_type() == MCAST_OPD {
+                                if let Some(opd_sub) = inner.get_sub_node() {
+                                    if let Some(ids) = McIds::new(&opd_sub) {
+                                        inst_name = Some(ids.to_string());
+                                    }
                                 }
                             }
                         }
                     }
-                    break;
+                    MCAST_NAME => {
+                        if let Some(ids_node) = child.get_sub_node() {
+                            if let Some(ids) = McIds::new(&ids_node) {
+                                let name_str = ids.to_string();
+                                let span = (ids_node.get_pos() as usize)
+                                    ..((ids_node.get_pos() + ids_node.get_len()) as usize);
+                                class_name = Some((name_str, span));
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            // Method call: has instance AND either (a) instance is a known name
+            // in scope, or (b) instance is a nested expression (e.g. RES(10kΩ).Pullup)
+            let is_method_call = has_instance
+                && (inst_name
+                    .as_ref()
+                    .is_some_and(|n| context.find_inst(n).is_some())
+                    || inst_name.is_none());
+            if !is_method_call {
+                if let Some((name, span)) = class_name {
+                    let full_name = match inst_name {
+                        Some(inst) => format!("{inst}.{name}"),
+                        None => name,
+                    };
+                    mcb_register_declare_class(context.uri(), &full_name, span);
                 }
             }
         }
