@@ -3,8 +3,8 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::ast::ast_semantic::{DeclareId, Span};
-use crate::builder::*;
 use crate::db::cmie::tables as workspace;
+use crate::db::infra::global;
 use crate::McURI;
 
 // === pub fn mcb_register_instance_decl( ===
@@ -21,7 +21,7 @@ pub fn mcb_register_instance_decl(
     let uri_str = uri.as_str();
     let span_clone = span.clone();
     if let Some(n) = name {
-        let mut table = workspace::WORKSPACE.global_inst_table.lock().unwrap();
+        let mut table = workspace::WORKSPACE.lsp.inst_table.lock().unwrap();
         let id = table.add(uri_str, scope, &n, span_clone);
         tracing::debug!(target: "mcc::lsp", "Registered inst decl: {} scope={:?} at {:?} -> id={:?}", n, scope, span, id);
         Some(id)
@@ -36,7 +36,7 @@ pub fn mcb_register_instance_decl(
 /// Returns the DeclareId for a given instance name, if registered.
 pub fn mcb_lookup_instance_decl(uri: &McURI, name: &str, scope: Option<&str>) -> Option<DeclareId> {
     let uri_str = uri.as_str();
-    let table = workspace::WORKSPACE.global_inst_table.lock().unwrap();
+    let table = workspace::WORKSPACE.lsp.inst_table.lock().unwrap();
     table.get(uri_str, scope, name)
 }
 
@@ -48,7 +48,7 @@ pub fn mcb_lookup_instance_decl(uri: &McURI, name: &str, scope: Option<&str>) ->
 pub fn mcb_register_instance_ref(uri: &McURI, span: Span, decl_id: DeclareId, scope: Option<&str>) {
     let uri_str = uri.as_str();
     let span_clone = span.clone();
-    let mut table = workspace::WORKSPACE.global_inst_table.lock().unwrap();
+    let mut table = workspace::WORKSPACE.lsp.inst_table.lock().unwrap();
     table.add_ref(decl_id, uri_str, scope, span);
     tracing::info!(target: "mcc::lsp", "Registered inst ref: decl_id={:?} scope={:?} at {:?}", decl_id, scope, span_clone);
 }
@@ -57,7 +57,7 @@ pub fn mcb_register_instance_ref(uri: &McURI, span: Span, decl_id: DeclareId, sc
 /// M6: Get all references for a named declaration.
 /// Returns Vec<(uri, scope, span)>.
 pub fn mcb_get_refs(name: &str) -> Vec<(String, String, Span)> {
-    let table = workspace::WORKSPACE.global_inst_table.lock().unwrap();
+    let table = workspace::WORKSPACE.lsp.inst_table.lock().unwrap();
     let decl_ids = table.find_decls_by_name(name);
     let mut results = Vec::new();
     for decl_id in &decl_ids {
@@ -72,12 +72,12 @@ pub fn mcb_get_refs(name: &str) -> Vec<(String, String, Span)> {
 /// Called when a class name is used in a declare statement (e.g., `MCU.US513_20_F uC`).
 /// Registers the class reference so LSP can jump from the reference to the class definition.
 pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
-    // Step 1: Find (class_id, target_uri, target_span) — try global_class_table first
+    // Step 1: Find (class_id, target_uri, target_span) — try lsp.class_table first
     // Priority: same URI as reference > other URIs (for duplicate class definitions)
     let uri_str = uri.to_string();
     let found = {
-        let class_table = workspace::WORKSPACE.global_class_table.lock().unwrap();
-        tracing::debug!(target: "mcc::lsp", "  register_declare_class: global_class_table size={}", class_table.len());
+        let class_table = workspace::WORKSPACE.lsp.class_table.lock().unwrap();
+        tracing::debug!(target: "mcc::lsp", "  register_declare_class: lsp.class_table size={}", class_table.len());
 
         // First try: exact URI match (same file as reference)
         let same_uri_result = class_table.iter().find_map(
@@ -107,9 +107,9 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
 
         let result = same_uri_result.or(other_uri_result);
         if result.is_none() {
-            tracing::debug!(target: "mcc::lsp", "  register_declare_class: global_class_table miss for '{}'", class_name);
+            tracing::debug!(target: "mcc::lsp", "  register_declare_class: lsp.class_table miss for '{}'", class_name);
         } else {
-            tracing::info!(target: "mcc::lsp", "  register_declare_class: global_class_table hit for '{}'", class_name);
+            tracing::info!(target: "mcc::lsp", "  register_declare_class: lsp.class_table hit for '{}'", class_name);
         }
         result
     };
@@ -208,10 +208,7 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
         let span_clone = span.clone();
         let uri_str = uri.to_string();
         tracing::info!(target: "mcc::lsp", "  register_declare_class: storing ref decl_span={:?} -> class_id={:?} target={}", span_clone, class_id, target_uri);
-        let mut refs = workspace::WORKSPACE
-            .global_declare_class_refs
-            .lock()
-            .unwrap();
+        let mut refs = workspace::WORKSPACE.lsp.declare_class_refs.lock().unwrap();
         refs.entry(uri_str)
             .or_default()
             .push((span, class_id, target_uri, target_span));
@@ -234,10 +231,7 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
         // Use a synthetic sentinel: target_uri="" and target_span=[0,0].
         // create_lapper will emit DeclareClass for this span; mcext's
         // project-index fallback will resolve the actual definition.
-        let mut refs = workspace::WORKSPACE
-            .global_declare_class_refs
-            .lock()
-            .unwrap();
+        let mut refs = workspace::WORKSPACE.lsp.declare_class_refs.lock().unwrap();
         refs.entry(uri_str)
             .or_default()
             .push((span, DeclareId::default(), "".to_string(), 0..0));

@@ -1194,10 +1194,10 @@ impl McCode {
                 None
             }
         };
-        // ★ LSP: Also register in workspace global_class_table for cross-context lookup
+        // ★ LSP: Also register in workspace lsp.class_table for cross-context lookup
         if let Some(class_id) = result {
             tracing::info!(target: "mcc::lsp", "  add_global_class: registered '{}' ({}) in '{}' -> class_id={:?}", class_name, kind.as_str(), uri, class_id);
-            let mut table = workspace::WORKSPACE.global_class_table.lock().unwrap();
+            let mut table = workspace::WORKSPACE.lsp.class_table.lock().unwrap();
             table.insert(
                 (uri.to_string(), kind, class_name.clone()),
                 (class_id, span),
@@ -1342,7 +1342,8 @@ impl McCode {
         scope: Option<&str>,
     ) -> Option<crate::ast::ast_semantic::DeclareId> {
         crate::db::cmie::tables::WORKSPACE
-            .global_inst_table
+            .lsp
+            .inst_table
             .lock()
             .ok()
             .and_then(|t| t.get(uri, scope, name))
@@ -1451,10 +1452,11 @@ impl McCode {
                         // THEN iterate span_to_declare_class_id to insert into symbol_lapper.
                         {
                             let mut decl_refs = crate::db::cmie::tables::WORKSPACE
-                                .global_declare_class_refs
+                                .lsp
+                                .declare_class_refs
                                 .lock()
                                 .unwrap();
-                            tracing::info!(target: "mcc::lsp", "  create_lapper: global_declare_class_refs for '{}' = {} entries", self.uri, decl_refs.get(&self.uri).map(|v| v.len()).unwrap_or(0));
+                            tracing::info!(target: "mcc::lsp", "  create_lapper: lsp.declare_class_refs for '{}' = {} entries", self.uri, decl_refs.get(&self.uri).map(|v| v.len()).unwrap_or(0));
                             if let Some(refs) = decl_refs.remove(&self.uri) {
                                 for (decl_span, _class_id, target_uri, target_span) in refs {
                                     let refid = gt.add_declare_class(
@@ -1470,7 +1472,7 @@ impl McCode {
                         }
 
                         // Now iterate span_to_declare_class_id (which now includes entries
-                        // from global_declare_class_refs above) and insert into symbol_lapper
+                        // from lsp.declare_class_refs above) and insert into symbol_lapper
                         for ((uri, span), refid) in gt.span_to_declare_class_id.iter() {
                             if uri == &self.uri {
                                 symbol_lapper.insert(Interval {
@@ -1516,7 +1518,8 @@ impl McCode {
                 // and also add to local_table so LSP handler can find them
                 {
                     let inst_table = crate::db::cmie::tables::WORKSPACE
-                        .global_inst_table
+                        .lsp
+                        .inst_table
                         .lock()
                         .unwrap();
 
@@ -1573,7 +1576,8 @@ impl McCode {
                 // ★ LSP: Also add global instance references
                 let global_ref_count = {
                     let inst_table = crate::db::cmie::tables::WORKSPACE
-                        .global_inst_table
+                        .lsp
+                        .inst_table
                         .lock()
                         .unwrap();
                     let refs = inst_table.get_all_refs_for_uri(uri_str);
@@ -1594,7 +1598,7 @@ impl McCode {
 
                 // ★ Build name→DeclareId map from DeclareInstance entries in the lapper.
                 // Local instances (e.g. `MCU.US513_20_F uC`) are NOT in name_to_declare_id
-                // or global_inst_table — they only exist as lapper entries.
+                // or lsp.inst_table — they only exist as lapper entries.
                 let mut local_inst_map: std::collections::HashMap<String, DeclareId> =
                     std::collections::HashMap::new();
                 if let Ok(src) = std::fs::read_to_string(self.uri.as_str()) {
@@ -1865,7 +1869,7 @@ impl McCode {
                                 .insert((span.start, span.end), mod_ident_label.clone());
                             // ★ Register in global instance table for cross-file lookup
                             if let Ok(mut ginst) =
-                                crate::db::cmie::tables::WORKSPACE.global_inst_table.lock()
+                                crate::db::cmie::tables::WORKSPACE.lsp.inst_table.lock()
                             {
                                 ginst.add(
                                     self.uri.as_str(),
@@ -1928,7 +1932,7 @@ impl McCode {
                                     .insert((span.start, span.end), func_scope.clone());
                                 // ★ Register in global instance table for cross-file lookup
                                 if let Ok(mut ginst) =
-                                    crate::db::cmie::tables::WORKSPACE.global_inst_table.lock()
+                                    crate::db::cmie::tables::WORKSPACE.lsp.inst_table.lock()
                                 {
                                     ginst.add(
                                         self.uri.as_str(),
@@ -2036,7 +2040,7 @@ impl McCode {
                                 .insert((span.start, span.end), comp_ident_label.clone());
                             // ★ Register in global instance table for cross-file lookup
                             if let Ok(mut ginst) =
-                                crate::db::cmie::tables::WORKSPACE.global_inst_table.lock()
+                                crate::db::cmie::tables::WORKSPACE.lsp.inst_table.lock()
                             {
                                 ginst.add(
                                     self.uri.as_str(),

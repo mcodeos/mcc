@@ -3,7 +3,6 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::ast::ast_semantic::Span;
-use crate::builder::*;
 use crate::db::cmie::cmie::mcb_get_cmie_with_uri;
 use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;

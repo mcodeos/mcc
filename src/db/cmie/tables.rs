@@ -125,105 +125,8 @@ pub struct WorkspaceManager {
 
     saved: MultiThreadRefCell<HashMap<String, WorkspaceSnapshot>>,
 
-    // ★ LSP: Shared global instance declaration table (cross-file)
-    pub(crate) global_inst_table: Mutex<GlobalInstTable>,
-
-    // ★ LSP: Shared global class table (cross-file lookups)
-    // (uri_where_defined, kind, class_name) -> (class_id, target_span)
-    pub(crate) global_class_table:
-        Mutex<HashMap<(String, ContainerKind, String), (DeclareId, Span)>>,
-
-    // ★ LSP: Declare class references (uri -> [(decl_span, class_id, target_uri, target_span)])
-    // Used when file is being parsed and not yet in workspace mcodes
-    pub(crate) global_declare_class_refs:
-        Mutex<HashMap<String, Vec<(Span, DeclareId, String, Span)>>>,
-}
-
-#[derive(Default)]
-pub struct GlobalInstTable {
-    counter: DeclareId,
-    name_to_id: HashMap<(String, String, String), DeclareId>, // (uri, scope, name) -> decl_id
-    id_to_span: HashMap<DeclareId, (String, String, Span)>,   // decl_id -> (uri, scope, span)
-    refs: HashMap<DeclareId, Vec<(String, String, Span)>>, // decl_id -> [(uri, scope, span), ...]
-}
-
-impl GlobalInstTable {
-    pub fn add(&mut self, uri: &str, scope: Option<&str>, name: &str, span: Span) -> DeclareId {
-        let scope_str = scope.unwrap_or("");
-        let key = (uri.to_string(), scope_str.to_string(), name.to_string());
-        if let Some(&id) = self.name_to_id.get(&key) {
-            return id; // Already registered, return existing id
-        }
-        let id = self.counter;
-        self.counter += 1;
-        self.name_to_id.insert(key, id);
-        self.id_to_span
-            .insert(id, (uri.to_string(), scope_str.to_string(), span));
-        id
-    }
-
-    pub fn get(&self, uri: &str, scope: Option<&str>, name: &str) -> Option<DeclareId> {
-        let scope_str = scope.unwrap_or("");
-        let key = (uri.to_string(), scope_str.to_string(), name.to_string());
-        self.name_to_id.get(&key).copied()
-    }
-
-    pub fn get_span(&self, id: DeclareId) -> Option<(String, String, Span)> {
-        self.id_to_span.get(&id).cloned()
-    }
-
-    // ★ LSP: Get all instance declarations for a given URI, with scope info
-    pub fn get_decls_for_uri(&self, uri: &str) -> Vec<(DeclareId, String, Span)> {
-        self.name_to_id
-            .iter()
-            .filter(|((u, _scope, _name), _id)| u == uri)
-            .filter_map(|((_, scope, _name), id)| {
-                self.id_to_span
-                    .get(id)
-                    .map(|(_, _, span)| (*id, scope.clone(), span.clone()))
-            })
-            .collect()
-    }
-
-    // ★ LSP: Store instance references (for finding all usages)
-    pub fn add_ref(&mut self, decl_id: DeclareId, uri: &str, scope: Option<&str>, span: Span) {
-        let scope_str = scope.unwrap_or("");
-        self.refs.entry(decl_id).or_insert_with(Vec::new).push((
-            uri.to_string(),
-            scope_str.to_string(),
-            span,
-        ));
-    }
-
-    pub fn get_refs(&self, decl_id: DeclareId) -> Vec<(String, String, Span)> {
-        self.refs.get(&decl_id).cloned().unwrap_or_default()
-    }
-
-    /// M6: Find all decl_ids with the given name.
-    pub fn find_decls_by_name(&self, name: &str) -> Vec<DeclareId> {
-        self.name_to_id
-            .iter()
-            .filter(|((_, _, n), _)| n == name)
-            .map(|(_, id)| *id)
-            .collect()
-    }
-
-    // ★ LSP: Get all refs for all decls in a specific file
-    pub fn get_all_refs_for_uri(&self, uri: &str) -> Vec<(DeclareId, String, Span)> {
-        let mut result = Vec::new();
-        for (decl_id, spans) in &self.refs {
-            for (ref_uri, scope, span) in spans {
-                if ref_uri == uri {
-                    result.push((*decl_id, scope.clone(), span.clone()));
-                }
-            }
-        }
-        result
-    }
-
-    pub fn len(&self) -> u32 {
-        self.counter.raw()
-    }
+    // ★ LSP tables — extracted to db/symbol/workspace.rs
+    pub(crate) lsp: crate::db::symbol::workspace::LspTables,
 }
 
 impl WorkspaceManager {
@@ -238,9 +141,7 @@ impl WorkspaceManager {
             diagnostics: MultiThreadRefCell::new(DiagnosticManager::new()),
             meta: MultiThreadRefCell::new(WorkspaceMeta::default()),
             saved: MultiThreadRefCell::new(HashMap::new()),
-            global_inst_table: Mutex::new(GlobalInstTable::default()),
-            global_class_table: Mutex::new(HashMap::new()),
-            global_declare_class_refs: Mutex::new(HashMap::new()),
+            lsp: crate::db::symbol::workspace::LspTables::new(),
         }
     }
 
@@ -255,7 +156,7 @@ impl WorkspaceManager {
         kind: ContainerKind,
         name: &str,
     ) -> Option<(DeclareId, Span)> {
-        let table = self.global_class_table.lock().ok()?;
+        let table = self.lsp.class_table.lock().ok()?;
         table
             .get(&(uri.to_string(), kind, name.to_string()))
             .cloned()
@@ -266,7 +167,7 @@ impl WorkspaceManager {
         &self,
         name: &str,
     ) -> Option<(DeclareId, Span, String, ContainerKind)> {
-        let table = self.global_class_table.lock().ok()?;
+        let table = self.lsp.class_table.lock().ok()?;
         table.iter().find_map(|((uri, kind, n), &(id, ref span))| {
             if n == name {
                 Some((id, span.clone(), uri.clone(), *kind))
