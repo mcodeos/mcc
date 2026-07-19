@@ -40,8 +40,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
 use super::super::model::McVecBlock;
-use super::graph_def::McVecGraph;
-use super::net_def::VizNet;
+use super::graphdef::McVecGraph;
+use super::netdef::VizNet;
 
 // ============================================================================
 // enablement check
@@ -233,7 +233,7 @@ fn flatten_graph(
 }
 
 fn topology_key(net: &VizNet) -> &'static str {
-    use super::net_def::NetTopology::*;
+    use super::netdef::NetTopology::*;
     match net.topology() {
         Isolated => "isolated",
         TwoPoint => "2pt",

@@ -655,7 +655,7 @@ fn extract_bit_index(name: &str) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::net_def::{IoDirection, Route};
+    use crate::vector::graph::netdef::{IoDirection, Route};
     use crate::vector::graph::{
         BoxKind, EndpointRef, EntryPoint, EntrySide, IoSummary, McVecBox, NetKind, Point, Segment,
         Symbol, VizNet,

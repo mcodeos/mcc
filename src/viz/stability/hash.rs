@@ -190,7 +190,7 @@ pub fn hash_metrics(graph: &McVecGraph) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::box_def::IoSummary;
+    use crate::vector::graph::boxdef::IoSummary;
     use crate::vector::graph::{
         BoxKind, EndpointRef, McVecBox, McVecGraph, NetKind, Symbol, VizNet,
     };

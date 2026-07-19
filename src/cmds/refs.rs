@@ -7,7 +7,7 @@
 //! Requires the engine to have collected reference data during Pass1/Pass2.
 
 use anyhow::Result;
-use mcc::cli::{rpc_client::RpcClient, RefsArgs};
+use mcc::cli::{rpcclient::RpcClient, RefsArgs};
 use serde_json::json;
 
 pub fn run(args: &RefsArgs) -> Result<()> {

@@ -30,7 +30,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 
-use crate::vector::graph::net_def::IoDirection;
+use crate::vector::graph::netdef::IoDirection;
 use crate::vector::graph::McVecGraph;
 use crate::viz::layout::components::build_adjacency;
 use crate::viz::layout::entry_points::{
@@ -794,8 +794,8 @@ fn place_single_row(graph: &mut McVecGraph) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::box_def::{BoxPin, IoSummary};
-    use crate::vector::graph::net_def::{EndpointRef, IoDirection};
+    use crate::vector::graph::boxdef::{BoxPin, IoSummary};
+    use crate::vector::graph::netdef::{EndpointRef, IoDirection};
     use crate::vector::graph::{BoxKind, McVecBox, McVecGraph, NetKind, Symbol, VizNet};
 
     fn mk_box(

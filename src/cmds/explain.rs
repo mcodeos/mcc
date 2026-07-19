@@ -10,8 +10,8 @@
 //! ```
 
 use anyhow::Result;
-use mcc::cli::{rpc_client::RpcClient, ExplainArgs};
-use mcc::error_codes;
+use mcc::cli::{rpcclient::RpcClient, ExplainArgs};
+use mcc::errcodes;
 use serde_json::{json, Value};
 
 pub fn run(args: &ExplainArgs) -> Result<()> {
@@ -31,7 +31,7 @@ pub fn run(args: &ExplainArgs) -> Result<()> {
 
 fn run_local(args: &ExplainArgs) -> Result<()> {
     match args.code {
-        Some(code) => match error_codes::describe(code) {
+        Some(code) => match errcodes::describe(code) {
             Some(info) => {
                 println!("Error {}: {}", info.code, info.name);
                 println!("  {}", info.description);
@@ -43,7 +43,7 @@ fn run_local(args: &ExplainArgs) -> Result<()> {
             }
         },
         None => {
-            let all = error_codes::all_codes();
+            let all = errcodes::all_codes();
             let items: Vec<Value> = all
                 .iter()
                 .map(|e| {

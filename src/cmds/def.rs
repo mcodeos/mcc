@@ -10,7 +10,7 @@
 //! ```
 
 use anyhow::Result;
-use mcc::cli::{rpc_client::RpcClient, DefArgs};
+use mcc::cli::{rpcclient::RpcClient, DefArgs};
 use mcc::{get_def, McCMIE, McIds, McURI};
 use serde_json::json;
 

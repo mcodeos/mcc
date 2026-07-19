@@ -123,7 +123,7 @@ pub fn handle_def(params: Option<Value>) -> RpcResult {
     }
 
     let p: DefParams = parse_strict(params)?;
-    match crate::lsp::goto_def::resolve(&p.name) {
+    match crate::lsp::gotodef::resolve(&p.name) {
         Some(result) => Ok(result),
         None => Err(JsonRpcError::custom(
             -32003,

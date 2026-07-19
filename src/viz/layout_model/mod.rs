@@ -352,7 +352,7 @@ fn classify_box_role(b: &crate::vector::graph::McVecBox) -> BoxLayoutRole {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::box_def::IoSummary;
+    use crate::vector::graph::boxdef::IoSummary;
     use crate::vector::graph::{BoxKind, McVecBox, McVecGraph, Symbol};
 
     fn make_graph() -> McVecGraph {

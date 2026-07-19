@@ -203,7 +203,7 @@ fn escape_xml(s: &str) -> String {
 
 /// Render labels from M8 placed label hints.
 fn render_placed_labels(b: &McVecBox) -> String {
-    use crate::vector::graph::box_def::LabelPlacementKind;
+    use crate::vector::graph::boxdef::LabelPlacementKind;
     let mut out = String::new();
     for hint in &b.label_placements {
         let class = match hint.kind {

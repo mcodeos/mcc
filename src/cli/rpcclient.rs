@@ -83,7 +83,7 @@ impl RpcClient {
 
 fn pid_file_path() -> PathBuf {
     // Single source of truth: fixed at ~/.mcode/logs/mcc.pid, decoupled from MCC_SYSTEM_ROOT.
-    crate::cli::data_dir::pid_file()
+    crate::cli::datadir::pid_file()
 }
 
 fn read_pid_file() -> Result<(u32, String, u16)> {

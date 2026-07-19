@@ -108,7 +108,7 @@ fn main() -> ExitCode {
     }
 
     // ── 3.5. Ensure data directory exists ─────────────────────────────────────
-    if let Err(e) = mcc::cli::data_dir::ensure_dirs() {
+    if let Err(e) = mcc::cli::datadir::ensure_dirs() {
         eprintln!("warning: Failed to create data directory: {}", e);
     }
 

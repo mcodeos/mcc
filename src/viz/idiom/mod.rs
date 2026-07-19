@@ -237,8 +237,8 @@ fn find_box(graph: &McVecGraph, id: i64) -> Option<&McVecBox> {
 }
 
 /// Get the entry_points for a box (sorted for deterministic output).
-fn sorted_entry_points(b: &McVecBox) -> Vec<&crate::vector::graph::box_def::EntryPoint> {
-    let mut eps: Vec<&crate::vector::graph::box_def::EntryPoint> = b.entry_points.iter().collect();
+fn sorted_entry_points(b: &McVecBox) -> Vec<&crate::vector::graph::boxdef::EntryPoint> {
+    let mut eps: Vec<&crate::vector::graph::boxdef::EntryPoint> = b.entry_points.iter().collect();
     eps.sort_by_key(|e| (e.pin_id, e.pin_name.clone()));
     eps
 }
@@ -789,7 +789,7 @@ fn detect_pulldown_instances(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::box_def::IoSummary;
+    use crate::vector::graph::boxdef::IoSummary;
     use crate::vector::graph::{BoxKind, EndpointRef, McVecBox, Symbol, VizNet};
 
     fn make_box(id: i64, name: &str, symbol: Symbol, x: f64, y: f64, w: f64, h: f64) -> McVecBox {
@@ -1285,7 +1285,7 @@ mod tests {
         let mut graph = McVecGraph::new(1, "test".into());
 
         let mut cap = make_box(2, "C1", Symbol::Capacitor, 50.0, 200.0, 40.0, 30.0);
-        cap.layout_hint = Some(crate::vector::graph::box_def::PinLayout {
+        cap.layout_hint = Some(crate::vector::graph::boxdef::PinLayout {
             left: vec!["1".into()],
             right: vec!["2".into()],
             top: vec![],

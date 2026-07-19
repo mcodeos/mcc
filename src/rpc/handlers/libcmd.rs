@@ -45,7 +45,7 @@ pub fn handle_lib_install(params: Option<Value>) -> RpcResult {
     let ver = p.version.as_deref().unwrap_or("0.0.0");
     let name_ver = format!("{}@{}", p.name, ver);
     // Flat layout: install into <root>/<name>@<ver>
-    let target = crate::cli::data_dir::data_root().join(&name_ver);
+    let target = crate::cli::datadir::data_root().join(&name_ver);
     if target.exists() {
         return Err(JsonRpcError::custom(
             32101,
@@ -54,7 +54,7 @@ pub fn handle_lib_install(params: Option<Value>) -> RpcResult {
     }
     copy_dir_recursive(&src, &target).map_err(io_err)?;
     // Refresh index.json so lib.list sees the new install.
-    let _ = crate::cli::data_dir::rebuild_index();
+    let _ = crate::cli::datadir::rebuild_index();
     Ok(json!({
         "installed": name_ver,
         "path": target.to_string_lossy(),
@@ -89,7 +89,7 @@ pub fn handle_lib_uninstall(params: Option<Value>) -> RpcResult {
     })?;
     fs::remove_dir_all(&lib_dir).map_err(io_err)?;
     // Refresh index.json so lib.list no longer shows the deleted install.
-    let _ = crate::cli::data_dir::rebuild_index();
+    let _ = crate::cli::datadir::rebuild_index();
     Ok(json!({
         "uninstalled": p.name,
         "path": lib_dir.to_string_lossy(),

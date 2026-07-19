@@ -656,8 +656,8 @@ fn box_net_index(graph: &McVecGraph) -> HashMap<i64, Vec<usize>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::box_def::IoSummary;
-    use crate::vector::graph::net_def::{EndpointRef, VizNet};
+    use crate::vector::graph::boxdef::IoSummary;
+    use crate::vector::graph::netdef::{EndpointRef, VizNet};
     use crate::vector::graph::{BoxKind, McVecBox, NetKind, Symbol};
 
     // ---- builders ---------------------------------------------------------

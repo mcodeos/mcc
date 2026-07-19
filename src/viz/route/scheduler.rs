@@ -569,7 +569,7 @@ fn merge_same_name_power_ground_nets(graph: &mut crate::vector::graph::McVecGrap
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::net_def::IoDirection;
+    use crate::vector::graph::netdef::IoDirection;
     use crate::vector::graph::{BoxKind, EndpointRef, IoSummary, McVecBox};
 
     fn mk_box(id: i64, x: f64, y: f64, w: f64, h: f64) -> McVecBox {

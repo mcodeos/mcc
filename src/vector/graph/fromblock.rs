@@ -16,18 +16,18 @@
 
 use std::collections::HashMap;
 
-use crate::instant::inst_table::{InstEntry, InstKind, InstTable};
+use crate::instant::insttab::{InstEntry, InstKind, InstTable};
 
 use super::super::model::{ConnectionType, McVecBlock};
-use super::box_def::{BoxPin, CustomSymbol, IoSummary, McVecBox, PinLayout, VisualRole};
+use super::boxdef::{BoxPin, CustomSymbol, IoSummary, McVecBox, PinLayout, VisualRole};
 use super::detect::{
     compute_io, detect_kind, detect_symbol, extract_designator, extract_last_segment,
     parse_pin_number, translate_io_type, warn_if_pin_mismatch, DetectedKind,
 };
-use super::graph_def::McVecGraph;
+use super::graphdef::McVecGraph;
 use super::kinds::{BoxKind, NetKind};
 use super::naming;
-use super::net_def::{EndpointRef, IoDirection, VizNet};
+use super::netdef::{EndpointRef, IoDirection, VizNet};
 use super::symbol::Symbol;
 
 // ============================================================================
@@ -244,7 +244,7 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
 /// thin air at every layer.
 pub fn build_mc_vec_graph(block: &McVecBlock, table: &InstTable) -> McVecGraph {
     let graph = build_mc_vec_graph_inner(block, table, /*is_top_level=*/ true);
-    super::net_probe::probe_block_to_graph(block, &graph); // ★ NEW
+    super::netprobe::probe_block_to_graph(block, &graph); // ★ NEW
     graph
 }
 

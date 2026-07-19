@@ -2,18 +2,18 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! `mcc export <KIND> <FILE>` — thin CLI wrapper around `mcc::export_api`.
+//! `mcc export <KIND> <FILE>` — thin CLI wrapper around `mcc::export`.
 //!
 //! The actual build pipeline (netlist/BOM/SPICE) lives in
-//! `src/export_api.rs` (lib root) so the JSON-RPC handler in
+//! `src/export/mod.rs` (lib root) so the JSON-RPC handler in
 //! `rpc/handlers.rs` can share the exact same code without reaching into
 //! the binary's private `cmds` module.
 
 use crate::output::envelope::ExportData;
 use crate::output::{self, builder::ResultBuilder, envelope::Envelope};
 use anyhow::Result;
-use mcc::cli::{rpc_client::RpcClient, ExportArgs, ExportKind, OutputFormat};
-use mcc::export_api;
+use mcc::cli::{rpcclient::RpcClient, ExportArgs, ExportKind, OutputFormat};
+use mcc::export;
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -74,7 +74,7 @@ fn run_local(args: &ExportArgs) -> Result<()> {
         args.format
     };
 
-    let (tree, table) = match export_api::build_tree(&args.file, args.top.as_deref(), &args.lib) {
+    let (tree, table) = match export::build_tree(&args.file, args.top.as_deref(), &args.lib) {
         Ok(t) => t,
         Err(e) => {
             eprintln!("{}", e);
@@ -107,7 +107,7 @@ fn run_local(args: &ExportArgs) -> Result<()> {
         OutputFormat::Csv => 4u8,
     };
     let (raw_text, items, count) =
-        export_api::build_payload(&tree, &table, &top, kind_tag, format_tag);
+        export::build_payload(&tree, &table, &top, kind_tag, format_tag);
 
     if format == OutputFormat::Json {
         let data = ExportData {

@@ -4,7 +4,7 @@
 
 //! Hover information — provide type/definition info for a symbol.
 //!
-//! Delegates to `lsp::goto_def::resolve` for definition lookup and
+//! Delegates to `lsp::gotodef::resolve` for definition lookup and
 //! `lsp::sem::try_lookup_sem` for token-level information.
 
 use serde_json::Value;
@@ -13,7 +13,7 @@ use serde_json::Value;
 /// Returns definition info if found, plus token-level details if available.
 pub fn hover(name: &str, uri: &str) -> Option<Value> {
     // First try: resolve as a definition (module, component, interface, enum)
-    if let Some(def) = super::goto_def::resolve(name) {
+    if let Some(def) = super::gotodef::resolve(name) {
         return Some(def);
     }
 

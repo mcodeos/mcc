@@ -6,7 +6,7 @@
 
 use crate::cmds::manifest;
 use anyhow::Result;
-use mcc::cli::{rpc_client::RpcClient, ReportArgs};
+use mcc::cli::{rpcclient::RpcClient, ReportArgs};
 use mcc::McURI;
 use serde_json::json;
 use std::path::Path;

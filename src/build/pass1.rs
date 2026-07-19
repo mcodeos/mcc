@@ -3,7 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::db::cmie::tables as workspace;
-use crate::db::infra::lib_mgr;
+use crate::db::infra::libmgr;
 use crate::db::infra::mc_code::McCode;
 use crate::McURI;
 use std::fs;
@@ -198,8 +198,8 @@ pub fn mcb_init_system_lib() {
 
     if !should_load_mcode(project_root_ref) {
         debug!(target: "mcc::sysinit", "mcode not in libs.load config, skipping");
-        if !crate::db::infra::lib_mgr::mcc_blibs.contains_key("mcode") {
-            crate::db::infra::lib_mgr::mcc_blibs.insert("mcode".to_string(), McCode::new_empty());
+        if !crate::db::infra::libmgr::mcc_blibs.contains_key("mcode") {
+            crate::db::infra::libmgr::mcc_blibs.insert("mcode".to_string(), McCode::new_empty());
         }
         debug!(target: "mcc::sysinit", "system lib init done (skipped)");
         return;
@@ -216,12 +216,12 @@ pub fn mcb_init_system_lib() {
     trace!(target: "mcc::sysinit", root = ?mcode_root, "got mcode root");
 
     if mcode_root.exists() {
-        lib_mgr::mcb_load_lib("mcode", &mcode_root);
+        libmgr::mcb_load_lib("mcode", &mcode_root);
         debug!(target: "mcc::sysinit", "system lib loaded");
     } else {
         debug!(target: "mcc::sysinit", "mcode directory not found, registering builtins only");
-        if !crate::db::infra::lib_mgr::mcc_blibs.contains_key("mcode") {
-            crate::db::infra::lib_mgr::mcc_blibs.insert("mcode".to_string(), McCode::new_empty());
+        if !crate::db::infra::libmgr::mcc_blibs.contains_key("mcode") {
+            crate::db::infra::libmgr::mcc_blibs.insert("mcode".to_string(), McCode::new_empty());
         }
     }
 

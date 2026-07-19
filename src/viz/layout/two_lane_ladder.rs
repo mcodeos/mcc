@@ -28,7 +28,7 @@
 //! Invoked from `FlowLayouter::layout` after `phase_size`, after `phase_placement`,
 //! before `pin_place`.
 
-use crate::vector::graph::box_def::PinLayout;
+use crate::vector::graph::boxdef::PinLayout;
 use crate::vector::graph::{BoxKind, EntryPoint, EntrySide, McVecGraph, VisualRole};
 use std::collections::{HashMap, HashSet};
 

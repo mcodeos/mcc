@@ -20,8 +20,8 @@
 
 use std::collections::BTreeMap;
 
-use crate::vector::graph::box_def::LabelPlacementKind;
-use crate::vector::graph::net_def::Segment;
+use crate::vector::graph::boxdef::LabelPlacementKind;
+use crate::vector::graph::netdef::Segment;
 use crate::vector::graph::{BoxLabelPlacement, McVecBox, McVecGraph, Symbol};
 
 // ============================================================================
@@ -698,7 +698,7 @@ pub fn label_placement_pipeline(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::net_def::Route;
+    use crate::vector::graph::netdef::Route;
     use crate::vector::graph::{BoxKind, IoSummary, NetKind, Point, VizNet};
 
     fn mk_box(

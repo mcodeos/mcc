@@ -85,7 +85,7 @@
 //! Not handled in this module —— smart_route_all recurses into `graph.sub_graphs`
 //! after dispatching the top layer.
 
-use crate::vector::graph::net_def::{IoDirection, NetTopology};
+use crate::vector::graph::netdef::{IoDirection, NetTopology};
 use crate::vector::graph::{McVecGraph, NetKind, VizNet};
 
 use super::bus_bundle::BusBundleRouter;

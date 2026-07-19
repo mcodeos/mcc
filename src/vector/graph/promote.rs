@@ -14,7 +14,7 @@
 //! only "cross-sub-module" nets at the top layer and folds internal nets into the expanded layer.
 //!
 //! ## Algorithm
-//! Given one layer [`McVecGraph`](super::graph_def::McVecGraph) and its boxes, classify each
+//! Given one layer [`McVecGraph`](super::graphdef::McVecGraph) and its boxes, classify each
 //! [`VizNet`] as follows:
 //!
 //! - **inter-box**: endpoints span >= 2 boxes of this layer -> **keep**, and `kind` is merged via
@@ -44,9 +44,9 @@
 
 use std::collections::HashSet;
 
-use super::graph_def::McVecGraph;
+use super::graphdef::McVecGraph;
 use super::kinds::NetKind;
-use super::net_def::{EndpointRef, VizNet};
+use super::netdef::{EndpointRef, VizNet};
 
 // ============================================================================
 // Promotion result
@@ -108,7 +108,7 @@ pub fn apply_promote_in_place(graph: &mut McVecGraph) -> Vec<VizNet> {
     let result = classify_nets_by_box_coverage(&graph.nets, &box_ids);
 
     // ★ NEW: hand the to-be-dropped dropped/orphan nets to the probe (only prints when MC_NET_PROBE is enabled)
-    super::net_probe::probe_promote(&graph.name, &result.kept, &result.dropped, &result.orphan);
+    super::netprobe::probe_promote(&graph.name, &result.kept, &result.dropped, &result.orphan);
 
     // ★ P08: use merge_net_kinds to merge, instead of hard-overwriting to SubModuleIO
     let mut kept = result.kept;
@@ -282,7 +282,7 @@ pub fn lift_endpoints_to_layer_boxes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::box_def::{IoSummary, McVecBox};
+    use crate::vector::graph::boxdef::{IoSummary, McVecBox};
     use crate::vector::graph::kinds::{BoxKind, NetKind};
 
     fn mk_box(id: i64, kind: BoxKind) -> McVecBox {

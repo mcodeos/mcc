@@ -1,7 +1,7 @@
 // Copyright (c) 2026 MCode
 //! SPICE netlist export
 
-use crate::instant::inst_table::InstTable;
+use crate::instant::insttab::InstTable;
 use crate::McComponentInst;
 use crate::McModuleInst;
 use serde_json::Value;

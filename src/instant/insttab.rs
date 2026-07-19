@@ -482,7 +482,7 @@ impl InstTable {
                     let pin_path = format!("{comp_path}.{pin_name}");
                     // ★ Pin function name (right side of mc `=`: Base/TX/RXD/1...)
                     //   is carried to the drawing side via the class_name field
-                    //   (from_block::build_box_pins → BoxPin.description → render_pin
+                    //   (fromblock::build_box_pins → BoxPin.description → render_pin
                     //   drawn inside the box). The Pin entry's class_name is only
                     //   read as a "description" by build_box_pins, not used for class
                     //   recognition, so reuse is safe.

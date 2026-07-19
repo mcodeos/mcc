@@ -225,7 +225,7 @@ pub fn sort_endpoints_stable(net_id: i64, eps: &mut [EndpointRef]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::box_def::IoSummary;
+    use crate::vector::graph::boxdef::IoSummary;
     use crate::vector::graph::{BoxKind, EndpointRef, McVecBox, NetKind, Symbol, VizNet};
 
     fn make_box(id: i64, name: &str, symbol: Symbol) -> McVecBox {

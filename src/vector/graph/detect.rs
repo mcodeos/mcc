@@ -16,7 +16,7 @@
 //! In the long term the registration dedup logic should be fixed in `instant/inst_table`, making
 //! InstKind labels trustworthy. Once fixed, this file can shrink by 80%.
 
-use crate::instant::inst_table::{InstEntry, InstKind, InstTable};
+use crate::instant::insttab::{InstEntry, InstKind, InstTable};
 use crate::semantic::common::IOType;
 
 // ============================================================================
@@ -240,8 +240,8 @@ pub fn is_signal_like(name: &str) -> bool {
 }
 
 /// Compute IO distribution from a list of InstEntries
-pub fn compute_io(entries: &[&InstEntry]) -> super::box_def::IoSummary {
-    let mut s = super::box_def::IoSummary::new();
+pub fn compute_io(entries: &[&InstEntry]) -> super::boxdef::IoSummary {
+    let mut s = super::boxdef::IoSummary::new();
     for e in entries {
         match &e.io_type {
             IOType::In => s.inputs += 1,
@@ -258,7 +258,7 @@ pub fn compute_io(entries: &[&InstEntry]) -> super::box_def::IoSummary {
 // ============================================================================
 
 use super::kinds::BoxKind;
-use super::net_def::IoDirection;
+use super::netdef::IoDirection;
 use super::symbol::Symbol;
 
 /// Infer the `Symbol` (fine classification) of a box
@@ -347,7 +347,7 @@ pub fn translate_io_type(t: &IOType) -> IoDirection {
 /// Consistency check: check whether `box.pin_count` matches `symbol.expected_pins()`
 ///
 /// Does not block the pipeline, just prints stderr warnings. Can be disabled in production.
-pub fn warn_if_pin_mismatch(b: &super::box_def::McVecBox) {
+pub fn warn_if_pin_mismatch(b: &super::boxdef::McVecBox) {
     if let Some(expected) = b.symbol.expected_pins() {
         if b.pin_count != expected && b.pin_count != 0 {
             crate::velog!(

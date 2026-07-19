@@ -27,7 +27,7 @@ use crate::{
     semantic::{
         basic::{mc_opd::McOpd, mc_param::McParamValue},
         context::resolve_cmie,
-        inst_ref::validate_inst_reference,
+        instref::validate_inst_reference,
     },
     McIds,
 };

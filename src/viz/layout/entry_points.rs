@@ -67,8 +67,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::vector::graph::box_def::BoxPin;
-use crate::vector::graph::net_def::IoDirection;
+use crate::vector::graph::boxdef::BoxPin;
+use crate::vector::graph::netdef::IoDirection;
 use crate::vector::graph::{BoxKind, EntryPoint, EntrySide, McVecBox, McVecGraph};
 
 // ============================================================================
@@ -1026,7 +1026,7 @@ fn compute_entry_points(
 fn ep_from_layout(
     b: &McVecBox,
     pins: &[(i64, String)],
-    layout: &crate::vector::graph::box_def::PinLayout,
+    layout: &crate::vector::graph::boxdef::PinLayout,
 ) -> Vec<EntryPoint> {
     use std::collections::BTreeMap;
 
@@ -1438,7 +1438,7 @@ mod tests {
     // ★ P06 (S5) refinement round tests
     // ========================================================================
 
-    use crate::vector::graph::net_def::IoDirection;
+    use crate::vector::graph::netdef::IoDirection;
     use crate::vector::graph::{EndpointRef, NetKind, VizNet};
 
     /// Tool: create a box with coordinates and fill in an entry_point
@@ -1473,7 +1473,7 @@ mod tests {
 
     #[test]
     fn layout_hint_assigns_sides() {
-        use crate::vector::graph::box_def::{BoxPin, PinLayout};
+        use crate::vector::graph::boxdef::{BoxPin, PinLayout};
         let mut b = McVecBox::new(
             1,
             "u8".into(),
@@ -1538,7 +1538,7 @@ mod tests {
     #[test]
     fn empty_layout_hint_falls_back() {
         // empty layout set still results in None → use heuristic, behavior unchanged.
-        use crate::vector::graph::box_def::PinLayout;
+        use crate::vector::graph::boxdef::PinLayout;
         let mut b = McVecBox::new(
             1,
             "u".into(),

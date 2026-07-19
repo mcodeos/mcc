@@ -6,7 +6,7 @@
 //!
 //! ## Purpose
 //! When the caller doesn't have a `McVecBlock` available (rare, mainly for testing), they can
-//! feed InstTable directly. The main flow is still [`super::from_block::build_mc_vec_graph`].
+//! feed InstTable directly. The main flow is still [`super::fromblock::build_mc_vec_graph`].
 //!
 //! ## Limitations
 //! Here the edge types can only be simply divided into `Single` / `Bus(n)`, because there's no
@@ -14,13 +14,13 @@
 
 use std::collections::HashMap;
 
-use crate::instant::inst_table::{InstKind, InstTable};
+use crate::instant::insttab::{InstKind, InstTable};
 
-use super::box_def::{IoSummary, McVecBox, Wire};
+use super::boxdef::{IoSummary, McVecBox, Wire};
 use super::detect::{compute_io, detect_kind, extract_last_segment, is_power_label, DetectedKind};
-use super::graph_def::McVecGraph;
+use super::graphdef::McVecGraph;
 use super::kinds::{BoxKind, EdgeType};
-use super::net_def::McVecEdge;
+use super::netdef::McVecEdge;
 
 /// Build `McVecGraph` directly from `InstTable` (duck typing solution)
 pub fn build_graph_from_table(table: &InstTable, root_id: u32) -> McVecGraph {

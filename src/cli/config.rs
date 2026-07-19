@@ -212,7 +212,7 @@ impl LibsConfig {
 }
 
 fn default_config_path() -> PathBuf {
-    crate::cli::data_dir::config_dir().join("mcc.yaml")
+    crate::cli::datadir::config_dir().join("mcc.yaml")
 }
 
 pub fn global_config_path() -> PathBuf {

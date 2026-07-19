@@ -11,7 +11,7 @@
 
 use crate::output::{self, OutputFormatExt};
 use anyhow::{Context, Result};
-use mcc::cli::{data_dir, server_config, OutputFormat, StartArgs, StatusArgs, StopArgs};
+use mcc::cli::{datadir, servercfg, OutputFormat, StartArgs, StatusArgs, StopArgs};
 use mcc::rpc::{handlers, RpcServerBuilder};
 use serde::Serialize;
 use std::fmt;
@@ -85,7 +85,7 @@ impl ServerStatus {
 // ============================================================================
 
 pub fn run_start(args: &StartArgs) -> Result<()> {
-    let config = server_config::load_config().ok();
+    let config = servercfg::load_config().ok();
     let config_host = config.as_ref().and_then(|c| {
         let h = &c.server.host;
         if h.is_empty() {
@@ -158,7 +158,7 @@ pub fn run_start(args: &StartArgs) -> Result<()> {
     let log_file = args
         .log_file
         .clone()
-        .unwrap_or_else(|| data_dir::log_file().to_string_lossy().to_string());
+        .unwrap_or_else(|| datadir::log_file().to_string_lossy().to_string());
     cmd.arg("--log-file");
     cmd.arg(&log_file);
     cmd.env("MCC_LOG_FILE", &log_file);
@@ -204,12 +204,12 @@ pub fn run_start(args: &StartArgs) -> Result<()> {
 // Internal startup function (invoked by child process)
 pub fn run_server_internal(host: &str, port: u16, libs: &[String]) -> Result<()> {
     // Skip is_server_running check (since this is internal startup)
-    mcc::mcc_set_system_root(data_dir::data_root().as_path());
+    mcc::mcc_set_system_root(datadir::data_root().as_path());
     // Ensure canonical dirs exist + run one-shot migration. Idempotent.
     // (The CLI's main.rs calls ensure_dirs once at startup; doing it again
     // here is cheap and protects the server from any startup paths that
     // bypass main.)
-    let _ = data_dir::ensure_dirs();
+    let _ = datadir::ensure_dirs();
     // Load system libraries (e.g. mcode) according to config (libs.load).
     // Previously this used mcc_init_no_lib(), which skipped mcode loading and
     // caused enum PKG (and other system symbols) to be missing for LSP gotodef.
@@ -260,7 +260,7 @@ pub fn register_all(builder: RpcServerBuilder) -> RpcServerBuilder {
 fn pid_file_path() -> PathBuf {
     // Single source of truth: fixed at ~/.mcode/logs/mcc.pid, decoupled from MCC_SYSTEM_ROOT,
     // so start/stop/status locate the same daemon regardless of env var differences.
-    data_dir::pid_file()
+    datadir::pid_file()
 }
 
 fn write_pid_file(host: &str, port: u16) -> Result<()> {

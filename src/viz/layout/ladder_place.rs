@@ -38,7 +38,7 @@
 
 use std::collections::HashMap;
 
-use crate::vector::graph::box_def::PinLayout;
+use crate::vector::graph::boxdef::PinLayout;
 use crate::vector::graph::{EntryPoint, EntrySide, McVecGraph};
 
 use super::ladder_model::LadderModel;

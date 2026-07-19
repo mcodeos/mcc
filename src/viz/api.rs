@@ -263,7 +263,7 @@ fn render_layer_recursive(
 
         // ── Phase 1.46b: Adjust Virtual Top Module Border position/size ──
         // After layout positions all boxes, adjust the dashed border boxes to surround internal components.
-        crate::vector::graph::from_block::layout_post_adjust_borders(&mut graph);
+        crate::vector::graph::fromblock::layout_post_adjust_borders(&mut graph);
 
         // Compute canvas from laid-out boxes
         let cv = super::layout::normalize::compute_canvas(&graph);
@@ -285,7 +285,7 @@ fn render_layer_recursive(
         canvas = cv;
     }
 
-    crate::vector::graph::net_probe::probe_route(&graph); // ★ NEW
+    crate::vector::graph::netprobe::probe_route(&graph); // ★ NEW
 
     let rep = super::route::audit::audit_all(&graph);
     crate::vlog!(

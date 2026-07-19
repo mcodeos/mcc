@@ -41,38 +41,38 @@
 //! ```
 
 // ── Type definition layer ──
-pub mod box_def;
-pub mod graph_def;
+pub mod boxdef;
+pub mod graphdef;
 pub mod json;
 pub mod kinds;
 pub mod naming;
-pub mod net_def;
+pub mod netdef;
 pub mod symbol;
 // ── Algorithm layer ──
 pub mod detect;
-pub mod from_block;
-pub mod from_table;
-pub mod net_probe;
+pub mod fromblock;
+pub mod fromtable;
+pub mod netprobe;
 pub mod promote;
 // ============================================================================
 // Top-level re-exports
 // ============================================================================
 
-pub use box_def::{
+pub use boxdef::{
     BoxLabelPlacement, EntryPoint, EntrySide, IoSummary, LabelPlacementKind, McVecBox, VisualRole,
     Wire,
 };
-pub use graph_def::McVecGraph;
+pub use graphdef::McVecGraph;
 pub use json::json_escape;
 pub use kinds::{BoxKind, EdgeType, NetKind};
-pub use net_def::{EndpointRef, McVecEdge, Point, Route, Segment, VizNet};
+pub use netdef::{EndpointRef, McVecEdge, Point, Route, Segment, VizNet};
 pub use symbol::Symbol;
 
 pub use detect::{
     compute_io, detect_kind, extract_last_segment, is_power_label, is_signal_like, DetectedKind,
 };
-pub use from_block::{build_graph_smart, build_mc_vec_graph};
-pub use from_table::build_graph_from_table;
+pub use fromblock::{build_graph_smart, build_mc_vec_graph};
+pub use fromtable::build_graph_from_table;
 pub use promote::{
     apply_promote_in_place, apply_promote_recursive, lift_endpoints_to_layer_boxes,
     promote_to_inter_box_only, PromoteResult,

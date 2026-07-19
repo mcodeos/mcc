@@ -136,24 +136,24 @@ impl CheckRegistry {
 
     pub fn with_defaults() -> Self {
         let mut r = Self::new();
-        r.register(Box::new(check_duplicate::DuplicateCmieCheck));
-        r.register(Box::new(check_dup_within::DupWithinCheck));
-        r.register(Box::new(check_enums::EnumsCheck));
-        r.register(Box::new(check_attrs::AttrsCheck));
-        r.register(Box::new(check_conds::CondsCheck));
-        r.register(Box::new(check_defs::DefsCheck));
-        r.register(Box::new(check_imports::ImportsCheck));
-        r.register(Box::new(check_interface::InterfaceCheck));
-        r.register(Box::new(check_naming::NamingCheck));
-        r.register(Box::new(check_ports::PortInstanceCheck));
-        r.register(Box::new(check_refs::RefIntegrityCheck));
-        r.register(Box::new(check_style::StyleCheck));
-        r.register(Box::new(check_exprs::ExprsCheck));
-        r.register(Box::new(check_extra::ExtraCheck));
-        r.register(Box::new(check_insts::InstsCheck));
-        r.register(Box::new(check_body::BodyCheck));
-        r.register(Box::new(check_hw::HwCheck));
-        r.register(Box::new(check_types::TypesCheck));
+        r.register(Box::new(duplicate::DuplicateCmieCheck));
+        r.register(Box::new(dupwithin::DupWithinCheck));
+        r.register(Box::new(enums::EnumsCheck));
+        r.register(Box::new(attrs::AttrsCheck));
+        r.register(Box::new(conds::CondsCheck));
+        r.register(Box::new(defs::DefsCheck));
+        r.register(Box::new(imports::ImportsCheck));
+        r.register(Box::new(interface::InterfaceCheck));
+        r.register(Box::new(naming::NamingCheck));
+        r.register(Box::new(ports::PortInstanceCheck));
+        r.register(Box::new(refs::RefIntegrityCheck));
+        r.register(Box::new(style::StyleCheck));
+        r.register(Box::new(exprs::ExprsCheck));
+        r.register(Box::new(extra::ExtraCheck));
+        r.register(Box::new(insts::InstsCheck));
+        r.register(Box::new(body::BodyCheck));
+        r.register(Box::new(hw::HwCheck));
+        r.register(Box::new(types::TypesCheck));
         r
     }
 
@@ -186,22 +186,22 @@ impl CheckRegistry {
 // Sub-modules
 // ============================================================================
 
-pub mod check_attrs;
-pub mod check_body;
-pub mod check_conds;
-pub mod check_defs;
-pub mod check_dup_within;
-pub mod check_duplicate;
-pub mod check_enums;
-pub mod check_exprs;
-pub mod check_extra;
-pub mod check_hw;
-pub mod check_imports;
-pub mod check_insts;
-pub mod check_interface;
-pub mod check_naming;
-pub mod check_ports;
-pub mod check_refs;
-pub mod check_style;
-pub mod check_types;
+pub mod attrs;
+pub mod body;
+pub mod conds;
+pub mod defs;
+pub mod dupwithin;
+pub mod duplicate;
+pub mod enums;
+pub mod exprs;
+pub mod extra;
+pub mod hw;
+pub mod imports;
+pub mod insts;
+pub mod interface;
+pub mod naming;
+pub mod ports;
+pub mod refs;
+pub mod style;
+pub mod types;
 pub mod nets;

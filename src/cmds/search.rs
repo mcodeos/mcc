@@ -16,7 +16,7 @@ use crate::output::{
     OutputFormatExt,
 };
 use anyhow::Result;
-use mcc::cli::{rpc_client::RpcClient, SearchArgs, SearchKind as CliSearchKind};
+use mcc::cli::{rpcclient::RpcClient, SearchArgs, SearchKind as CliSearchKind};
 use serde_json::{json, Value};
 
 pub fn run(args: &SearchArgs) -> Result<()> {

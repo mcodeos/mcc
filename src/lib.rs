@@ -51,8 +51,8 @@ pub use crate::semantic::{
     mc_inst::{LabelKind, McInstance, McInstances},
     module::{Mc2Module, McModule},
 };
-pub use db::diagnostic::error_codes;
-pub mod export_api;
+pub use db::diagnostic::errcodes;
+pub mod export;
 pub use ast::ast_semantic::{McSemSymbols, Span, SymbolType};
 pub use ast::ast_token::{McSemToken, McSemTokens};
 pub use ast::c_macros::*;
@@ -61,7 +61,7 @@ pub use ast::error::*;
 pub use builder::diagnostic::{
     Diagnostic as McDiagnostic, DiagnosticLevel, Location as McLocation,
 };
-pub use builder::lib_mgr::LibInfo;
+pub use builder::libmgr::LibInfo;
 pub use builder::{
     lookup_sub_def, lookup_with_sub, mcb_add_recursive, mcb_component_count, mcb_debug_get_cmie,
     mcb_get_first_module_name, mcb_get_module_def_by_name, mcb_get_module_name_by_uri,
@@ -75,7 +75,7 @@ pub use builder::{
 };
 
 // ── Instant / Net ──
-pub use instant::inst_table::{InstKind, InstTable};
+pub use instant::insttab::{InstKind, InstTable};
 pub use instant::mc_comp::McComponentInst;
 pub use instant::mc_mod::McModuleInst;
 pub use instant::mc_net::NetPoint;
@@ -161,7 +161,7 @@ pub fn mcc_log_global_diag(d: &GlobalDiag) {
 /// 2. `{path}/mc/` directory
 /// 3. `~/.mcode/` directory
 pub fn mcc_set_system_root(path: &Path) {
-    use crate::cli::data_dir;
+    use crate::cli::datadir;
 
     let current = builder::mcb_get_system_root();
     if !current.as_os_str().is_empty() {
@@ -178,7 +178,7 @@ pub fn mcc_set_system_root(path: &Path) {
     let candidate_mc = base.join("mc");
     let candidate_mcode = base.join("mcode");
 
-    let system_root = if let Ok(val) = env::var(data_dir::MCC_SYSTEM_ENV) {
+    let system_root = if let Ok(val) = env::var(datadir::MCC_SYSTEM_ENV) {
         let p = PathBuf::from(&val);
         debug!(target: "mcc::sysinit", path = %val, "using MCC_SYSTEM_ROOT");
         if p.is_absolute() {
@@ -193,7 +193,7 @@ pub fn mcc_set_system_root(path: &Path) {
         debug!(target: "mcc::sysinit", path = ?base, "using project root (mc/ or mcode/ subdir found)");
         base
     } else {
-        let default_path = data_dir::data_root();
+        let default_path = datadir::data_root();
         debug!(target: "mcc::sysinit", path = ?default_path, "using default");
         default_path
     };

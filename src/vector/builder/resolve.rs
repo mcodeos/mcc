@@ -9,7 +9,7 @@
 //!   Silently swallows errors, only writes warnings to a process-level atomic counter. **deprecated**, kept for compatibility
 //! - **★ NEW P02 API** (`resolve_netpoint_v2`): Returns [`ResolveOutcome`],
 //!   each resolution's status (direct / owner-fallback / bare-label / failed) as structured records,
-//!   for `McVecBuilder` to accumulate into [`super::builder_report::BuilderReport`]
+//!   for `McVecBuilder` to accumulate into [`super::report::BuilderReport`]
 //!
 //! ## Resolution levels (in attempt order)
 //! 1. **Bracket list**: `sub.[A, B, C]` → split into independent paths
@@ -19,10 +19,10 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::instant::inst_table::InstTable;
+use crate::instant::insttab::InstTable;
 use crate::instant::mc_net::NetPoint;
 
-use super::builder_report::{ResolutionOutcome, ResolutionRecord};
+use super::report::{ResolutionOutcome, ResolutionRecord};
 
 // ============================================================================
 // NP_WARN_COUNT: process-level atomic counter (compat for old callers)
@@ -238,7 +238,7 @@ pub fn resolve_netpoint_v2(
 ///     → `Some(["VDD_3V3", "GND"])`
 ///   - `parse_bracket_port_members("main.mcu513.SPI", "main.mcu513")` → `None`
 ///
-/// Rules follow `inst_table::expand_bracket_list`:
+/// Rules follow `insttab::expand_bracket_list`:
 ///   - Must start with `<module_path>.[` prefix
 ///   - Must end with `]
 ///   - body split by `,` + trim, filters empty members

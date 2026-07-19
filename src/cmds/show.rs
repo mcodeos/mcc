@@ -13,7 +13,7 @@
 use crate::cmds::filter;
 use crate::output::compact;
 use anyhow::{Context, Result};
-use mcc::cli::{rpc_client::RpcClient, OutputFormat, ShowArgs, ShowTarget};
+use mcc::cli::{rpcclient::RpcClient, OutputFormat, ShowArgs, ShowTarget};
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::path::Path;

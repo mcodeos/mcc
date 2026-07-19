@@ -12,7 +12,7 @@
 
 use crate::output;
 use anyhow::{Context, Result};
-use mcc::cli::{data_dir, LibAction, OutputFormat};
+use mcc::cli::{datadir, LibAction, OutputFormat};
 use serde::Serialize;
 use std::fmt;
 use std::path::PathBuf;
@@ -88,7 +88,7 @@ impl fmt::Display for LibInfoReport {
 // ============================================================================
 
 pub fn run(action: &LibAction, format: OutputFormat) -> Result<()> {
-    let client = mcc::cli::rpc_client::RpcClient::probe();
+    let client = mcc::cli::rpcclient::RpcClient::probe();
 
     match action {
         LibAction::List => match &client {
@@ -206,7 +206,7 @@ pub fn do_install(name: &str, from: &str, version: Option<&str>) -> Result<(Stri
     let ver = version.unwrap_or("0.0.0");
     let lib_name_ver = format!("{}@{}", name, ver);
     // Flat layout: install into <root>/<name>@<ver>
-    let target = data_dir::data_root().join(&lib_name_ver);
+    let target = datadir::data_root().join(&lib_name_ver);
 
     if target.exists() {
         anyhow::bail!(
@@ -226,7 +226,7 @@ pub fn do_install(name: &str, from: &str, version: Option<&str>) -> Result<(Stri
     })?;
 
     // Refresh index.json so `lib list` sees the new install.
-    let _ = data_dir::rebuild_index();
+    let _ = datadir::rebuild_index();
 
     Ok((lib_name_ver, target))
 }
@@ -329,8 +329,8 @@ fn resolve_lib_root(name: &str) -> Result<PathBuf> {
         if local_mc.exists() {
             return Ok(local_mc);
         }
-        // Fallback: data_dir::mcode_dir()
-        let p = data_dir::mcode_dir();
+        // Fallback: datadir::mcode_dir()
+        let p = datadir::mcode_dir();
         if p.exists() {
             return Ok(p);
         }
@@ -338,7 +338,7 @@ fn resolve_lib_root(name: &str) -> Result<PathBuf> {
     }
 
     // Public: look under data_root for <name>@<any_version>
-    let tp = data_dir::data_root();
+    let tp = datadir::data_root();
     if tp.exists() {
         if let Ok(entries) = std::fs::read_dir(&tp) {
             let prefix = format!("{}@", name);
@@ -366,15 +366,15 @@ fn resolve_lib_root(name: &str) -> Result<PathBuf> {
 
 /// Scan third-party libraries installed on disk.
 fn scan_installed_libs() -> Vec<InstalledLib> {
-    let tp = data_dir::data_root();
+    let tp = datadir::data_root();
     let mut result = Vec::new();
 
     // mcode (always present if system dir exists)
-    if data_dir::mcode_dir().exists() {
+    if datadir::mcode_dir().exists() {
         result.push(InstalledLib {
             name: "mcode".into(),
             version: "*".into(),
-            path: data_dir::mcode_dir().to_string_lossy().to_string(),
+            path: datadir::mcode_dir().to_string_lossy().to_string(),
         });
     }
 
@@ -515,14 +515,14 @@ pub fn do_uninstall(name: &str, force: bool) -> Result<PathBuf> {
         .with_context(|| format!("lib uninstall: failed to delete {}", lib_dir.display()))?;
 
     // Refresh index.json so `lib list` no longer shows the deleted install.
-    let _ = data_dir::rebuild_index();
+    let _ = datadir::rebuild_index();
 
     Ok(lib_dir)
 }
 
 fn resolve_lib_uninstall_dir(name: &str) -> Result<PathBuf> {
     // Flat layout: scan data_root for <name>@<ver> entries.
-    let root = data_dir::data_root();
+    let root = datadir::data_root();
     if let Ok(entries) = std::fs::read_dir(&root) {
         let prefix = format!("{}@", name);
         for entry in entries.flatten() {
@@ -541,7 +541,7 @@ fn resolve_lib_uninstall_dir(name: &str) -> Result<PathBuf> {
 
     // Check the special mcode directory
     if name == "mcode" {
-        let mcode_dir = data_dir::mcode_dir();
+        let mcode_dir = datadir::mcode_dir();
         if mcode_dir.exists() {
             return Ok(mcode_dir);
         }

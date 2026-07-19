@@ -14,7 +14,7 @@ use crate::output::{
     OutputFormatExt,
 };
 use anyhow::{Context, Result};
-use mcc::cli::{rpc_client::RpcClient, ExtractArgs, ExtractTarget};
+use mcc::cli::{rpcclient::RpcClient, ExtractArgs, ExtractTarget};
 use mcc::{McCMIE, McIds, McInstance, McURI};
 use serde_json::{json, Value};
 use std::path::Path;

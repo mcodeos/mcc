@@ -817,7 +817,7 @@ pub fn run_route_feedback_loop(graph: &mut McVecGraph) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::net_def::{EndpointRef, IoDirection, Route};
+    use crate::vector::graph::netdef::{EndpointRef, IoDirection, Route};
     use crate::vector::graph::{
         BoxKind, EntryPoint, EntrySide, IoSummary, NetKind, Point, Segment, Symbol, VizNet,
     };

@@ -6,7 +6,7 @@
 //!
 //! Runs after `mcb_pass2()` when the full flattened netlist (`InstTable`) is available.
 
-use crate::instant::inst_table::{InstEntry, InstTable, NetEntry};
+use crate::instant::insttab::{InstEntry, InstTable, NetEntry};
 use crate::semantic::common::IOType;
 use std::collections::HashSet;
 /// Run all electrical net checks and return diagnostics.
@@ -272,7 +272,7 @@ fn check_unwired_instances(table: &InstTable, results: &mut Vec<NetCheckResult>)
         .flat_map(|n| n.points.iter().cloned())
         .collect();
     for (_, entry) in table.iter() {
-        if matches!(entry.kind, crate::instant::inst_table::InstKind::Component)
+        if matches!(entry.kind, crate::instant::insttab::InstKind::Component)
             && !entry.class_name.is_empty()
         {
             let pins = table.get_pins_of(entry.id);
@@ -397,7 +397,7 @@ fn check_unused_module_ports(table: &InstTable, results: &mut Vec<NetCheckResult
     let top_id = table
         .iter()
         .find(|(_, e)| {
-            matches!(e.kind, crate::instant::inst_table::InstKind::Module) && e.parent_id.is_none()
+            matches!(e.kind, crate::instant::insttab::InstKind::Module) && e.parent_id.is_none()
         })
         .map(|(id, _)| *id);
     for (_, entry) in table.iter() {
@@ -460,7 +460,7 @@ fn check_pin_count_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>
         .collect();
     let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for (_, entry) in table.iter() {
-        if !matches!(entry.kind, crate::instant::inst_table::InstKind::Component)
+        if !matches!(entry.kind, crate::instant::insttab::InstKind::Component)
             || entry.class_name.is_empty()
         {
             continue;

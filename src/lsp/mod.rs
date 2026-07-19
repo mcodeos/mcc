@@ -9,7 +9,7 @@
 
 pub mod completion;
 pub mod diagnostics;
-pub mod goto_def;
+pub mod gotodef;
 pub mod hover;
 pub mod references;
 pub mod sem;
