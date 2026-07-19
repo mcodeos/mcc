@@ -4278,7 +4278,7 @@ pub fn handle_diagnostics(params: Option<Value>) -> RpcResult {
 
 /// Handle project_symbols RPC - return project-wide symbols (components, interfaces, enums, modules, enum_values)
 pub fn handle_project_symbols(_params: Option<Value>) -> RpcResult {
-    use crate::builder::main::{
+    use crate::builder::{
         mcb_iter_components_with_span, mcb_iter_enum_values, mcb_iter_enums_with_span,
         mcb_iter_interfaces_with_span, mcb_iter_modules_with_span,
     };
