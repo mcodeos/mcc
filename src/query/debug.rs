@@ -2,7 +2,6 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use crate::builder::*;
 use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
 use crate::query::lookup::{find_by_name_in_project_tables, find_in_project_tables};

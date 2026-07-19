@@ -3,7 +3,6 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::build::pass1::canonicalize_project_uri;
-use crate::builder::*;
 use crate::db::cmie::tables as workspace;
 use crate::instant::mc_mod::McModuleInst;
 use crate::ParserResult;
