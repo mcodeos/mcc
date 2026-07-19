@@ -10,12 +10,12 @@ use super::{
     mc_inst::{McInst, McInstance, McInstances},
 };
 use crate::db::context::DB;
+use crate::db::diagnostic::diagnostic::dlog_error;
 use crate::semantic::component::Mc2Component;
 use crate::semantic::context::resolve_cmie;
 use crate::semantic::mc_func::McFuncReturn;
 use crate::{
     ast::{ast_node::AstNode, c_macros::*, error::message::*},
-    builder::diagnostic::dlog_error,
     semantic::basic::mc_param::McParamDeclares,
     IOType, McCMIE, McIds, McParamValue, McURI,
 };

@@ -2,8 +2,8 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+use crate::db::infra::util::MultiThreadRefCell;
 use crate::{
-    builder::util::MultiThreadRefCell,
     semantic::{
         component::McComponent, mc_define::McDefineDef, mc_enum::McEnumDef, mc_ifs::McInterface,
         module::McModule,
