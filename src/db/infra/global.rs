@@ -10,16 +10,22 @@ use crate::{
     McSpaceName,
 };
 use dashmap::DashMap;
-use lazy_static::lazy_static;
+use std::sync::LazyLock;
 use std::{path::PathBuf, sync::Arc, sync::Mutex};
 
-lazy_static! {
-    pub(crate) static ref mcc_system_root: Mutex<PathBuf> = Mutex::new(PathBuf::new());
-    pub(crate) static ref mcc_project_root: Mutex<PathBuf> = Mutex::new(PathBuf::new());
-    pub static ref mcc_components: DashMap<McSpaceName, Arc<McComponent>> = DashMap::new();
-    pub static ref mcc_modules: DashMap<McSpaceName, Arc<McModule>> = DashMap::new();
-    pub static ref mcc_interfaces: DashMap<McSpaceName, Arc<McInterface>> = DashMap::new();
-    pub static ref mcc_enums: DashMap<McSpaceName, Arc<McEnumDef>> = DashMap::new();
-    pub static ref mcc_defines: DashMap<McSpaceName, Arc<McDefineDef>> = DashMap::new();
-    pub(crate) static ref mcc_parsing_modules: DashMap<String, ()> = DashMap::new();
-}
+pub(crate) static mcc_system_root: LazyLock<Mutex<PathBuf>> =
+    LazyLock::new(|| Mutex::new(PathBuf::new()));
+pub(crate) static mcc_project_root: LazyLock<Mutex<PathBuf>> =
+    LazyLock::new(|| Mutex::new(PathBuf::new()));
+pub static mcc_components: LazyLock<DashMap<McSpaceName, Arc<McComponent>>> =
+    LazyLock::new(DashMap::new);
+pub static mcc_modules: LazyLock<DashMap<McSpaceName, Arc<McModule>>> =
+    LazyLock::new(DashMap::new);
+pub static mcc_interfaces: LazyLock<DashMap<McSpaceName, Arc<McInterface>>> =
+    LazyLock::new(DashMap::new);
+pub static mcc_enums: LazyLock<DashMap<McSpaceName, Arc<McEnumDef>>> =
+    LazyLock::new(DashMap::new);
+pub static mcc_defines: LazyLock<DashMap<McSpaceName, Arc<McDefineDef>>> =
+    LazyLock::new(DashMap::new);
+pub(crate) static mcc_parsing_modules: LazyLock<DashMap<String, ()>> =
+    LazyLock::new(DashMap::new);

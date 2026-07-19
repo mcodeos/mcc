@@ -129,7 +129,7 @@ pub fn handle_library_show(params: Option<Value>) -> RpcResult {
 
     // Get library info
     let info = crate::mcb_lib_info(name).ok_or_else(|| {
-        JsonRpcError::custom(-32602, format!("Library '{}' not loaded", p.name).as_str())
+        JsonRpcError::custom(32107, format!("Library '{}' not loaded", p.name).as_str())
     })?;
 
     Ok(json!({

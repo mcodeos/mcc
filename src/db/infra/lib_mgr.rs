@@ -22,16 +22,14 @@ use crate::db::infra::global;
 use crate::db::infra::mc_code::McCode;
 use crate::{McIds, McSpaceName};
 use dashmap::DashMap;
-use lazy_static::lazy_static;
 use std::collections::HashSet;
+use std::sync::LazyLock;
 use std::path::Path;
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
 // ── System library source cache ──
-lazy_static! {
-    pub(crate) static ref mcc_blibs: DashMap<String, McCode> = DashMap::new();
-}
+pub(crate) static mcc_blibs: LazyLock<DashMap<String, McCode>> = LazyLock::new(DashMap::new);
 
 /// System library basic info (snapshot from mcc_blibs).
 #[derive(Debug, Clone)]
