@@ -43,6 +43,8 @@ use std::path::{Path, PathBuf};
 use tracing::info;
 
 // LSP semantic token/symbol assembly (extracted to lsp/sem.rs)
+pub(crate) use params::*;
+pub(crate) mod params;
 pub use crate::lsp::sem::{classify_token_by_symbol, try_lookup_sem};
 
 // C bindings for controlling log output
@@ -87,86 +89,21 @@ pub(crate) fn mcode_dir() -> PathBuf {
 // Existing methods (preserved, behavior unchanged)
 // ============================================================================
 
-#[derive(Deserialize)]
-pub(crate) struct LibraryShowParams {
-    name: String,
-}
-
 // ============================================================================
 // Lib handlers
 // ============================================================================
-
-#[derive(Deserialize)]
-pub(crate) struct LibInstallParams {
-    name: String,
-    from: String,
-    #[serde(default)]
-    version: Option<String>,
-}
-
-#[derive(Deserialize)]
-pub(crate) struct LibUninstallParams {
-    name: String,
-    #[serde(default)]
-    force: bool,
-}
-
-#[derive(Deserialize)]
-pub(crate) struct LibSearchParams {
-    pattern: String,
-}
 
 // ============================================================================
 // defs.search (M5) — text/regex/fuzzy search across loaded definitions
 // ============================================================================
 
-#[derive(Deserialize, Default)]
-pub(crate) struct DefsSearchParams {
-    pattern: String,
-    #[serde(default)]
-    kind: Option<String>,
-    #[serde(default)]
-    regex: bool,
-    #[serde(default)]
-    fuzzy: bool,
-    #[serde(default)]
-    top: Option<String>,
-    #[serde(default)]
-    limit: usize,
-}
-
 // ============================================================================
 // defs.query (M5 PR#2) — structured DSL query
 // ============================================================================
 
-#[derive(Deserialize, Default)]
-pub(crate) struct DefsQueryParams {
-    expr: String,
-    #[serde(default)]
-    limit: usize,
-}
-
 // ============================================================================
 // export (M5 PR#3) — text/JSON/CSV netlist, BOM, SPICE
 // ============================================================================
-
-#[derive(Deserialize, Default)]
-pub(crate) struct ExportRpcParams {
-    /// "netlist" | "bom" | "spice"
-    #[serde(default)]
-    kind: String,
-    /// Source .mc file path
-    entry: String,
-    /// Top module name (optional; defaults to first module)
-    #[serde(default)]
-    top: Option<String>,
-    /// "text" | "json" | "csv" — defaults to "text"
-    #[serde(default)]
-    format: Option<String>,
-    /// Library names to load
-    #[serde(default)]
-    libs: Vec<String>,
-}
 
 /// Resolve an installed library directory under the system root.
 /// Flat layout: checks `<root>/<name>` (built-in) and `<root>/<name>@<version>` (3rd-party).
@@ -211,35 +148,9 @@ pub(crate) fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> 
 // Trace handlers
 // ============================================================================
 
-#[derive(Deserialize)]
-pub(crate) struct TraceSetParams {
-    name: String,
-    value: bool,
-}
-
 // ============================================================================
 // Common build.full handlers (based on active workspace)
 // ============================================================================
-
-#[derive(Default, Deserialize)]
-pub(crate) struct BuildFullParams {
-    #[serde(default)]
-    entry: Option<String>,
-    #[serde(default)]
-    top: Option<String>,
-    /// Whether to include system library definitions, default true
-    #[serde(default = "default_true")]
-    include_system: bool,
-    /// Whether to output AST visit, default false
-    #[serde(default)]
-    include_ast: bool,
-    #[serde(default)]
-    libs: Vec<String>,
-}
-
-pub(crate) fn default_true() -> bool {
-    true
-}
 
 // ============================================================================
 // Internal: Pass1 / Pass2 execution
@@ -809,15 +720,6 @@ pub(crate) fn iotype_str(io: &crate::IOType) -> &'static str {
 // File entry grouping
 // ============================================================================
 
-pub(crate) struct FileEntry {
-    uri: String,
-    is_system: bool,
-    modules: Vec<String>,
-    components: Vec<String>,
-    interfaces: Vec<String>,
-    enums: Vec<String>,
-}
-
 impl FileEntry {
     fn new(uri: &str) -> Self {
         Self {
@@ -874,21 +776,6 @@ pub(crate) fn load_libs_rpc(libs: &[String]) {
             crate::mcb_load_lib(name, &root);
         }
     }
-}
-
-#[derive(Deserialize, Default)]
-pub(crate) struct CheckRpcParams {
-    #[serde(default)]
-    entry: Option<String>,
-    /// Inline source content (M6). When set, loaded from memory — no disk I/O.
-    #[serde(default)]
-    content: Option<String>,
-    #[serde(default)]
-    libs: Vec<String>,
-    #[serde(default)]
-    strict: bool,
-    #[serde(default)]
-    errors_only: bool,
 }
 
 /// Overlay URI used when `content` is provided — virtual file, never touches disk.
@@ -1041,18 +928,6 @@ pub(crate) fn run_erc() -> RpcResult {
         },
         "diagnostics": diags,
     }))
-}
-
-#[derive(Deserialize, Default)]
-pub(crate) struct ExtractRpcParams {
-    #[serde(default)]
-    entry: Option<String>,
-    #[serde(default)]
-    target: String,
-    #[serde(default)]
-    top: Option<String>,
-    #[serde(default)]
-    libs: Vec<String>,
 }
 
 pub(crate) fn extract_from_uri(entry: &Path, top: Option<&str>, target: &str) -> RpcResult {
@@ -1218,12 +1093,6 @@ pub(crate) fn io_err(e: std::io::Error) -> JsonRpcError {
 // ============================================================================
 // Auxiliary: file / path handling
 // ============================================================================
-
-#[derive(Deserialize)]
-pub(crate) struct UploadFile {
-    path: String,
-    content: String,
-}
 
 pub(crate) fn write_files(root: &Path, files: &[UploadFile]) -> (Vec<String>, Vec<String>) {
     let mut uploaded = Vec::new();
@@ -1537,32 +1406,9 @@ pub(crate) fn resolve_lib_root(name: &str) -> Result<PathBuf, JsonRpcError> {
 // Parse handlers
 // ============================================================================
 
-#[derive(Default, Deserialize)]
-pub(crate) struct ParseParams {
-    #[serde(default)]
-    entry: Option<String>,
-    #[serde(default)]
-    top: Option<String>,
-    /// System libraries to load (e.g. like ["mc/mcode"]);
-    #[serde(default)]
-    libs: Vec<String>,
-    /// Whether to include system library definitions, default: true
-    #[serde(default = "default_true")]
-    include_system: bool,
-}
-
 // ============================================================================
 // Show handlers
 // ============================================================================
-
-#[derive(Deserialize, Default)]
-pub(crate) struct ShowParams {
-    name: Option<String>,
-    file: Option<String>,
-    #[serde(rename = "type")]
-    type_filter: Option<String>,
-    top: Option<String>,
-}
 
 /// Resolve a file path to an absolute URI string for filtering.
 pub(crate) fn resolve_to_abs_uri(file: &str) -> String {
@@ -1942,12 +1788,6 @@ pub(crate) fn instances_json(insts: &crate::McInstances, type_filter: Option<&st
 // ============================================================================
 // Semantic data (sem tokens + symbols) for LSP
 // ============================================================================
-
-#[derive(Deserialize)]
-pub(crate) struct SemParams {
-    uri: String,
-    content: Option<String>,
-}
 
 /// Detect project root from a file path and load the project
 pub(crate) fn auto_load_from_file_path(file_path: &Path) {

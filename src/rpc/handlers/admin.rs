@@ -165,73 +165,11 @@ pub fn handle_server_info(_params: Option<Value>) -> RpcResult {
     }))
 }
 
-// === handle_methods (lines 243-308 in original) ===
+// === handle_methods (Phase 8.3: auto-generated from METHOD registry) ===
 
 pub fn handle_methods(_params: Option<Value>) -> RpcResult {
-    let methods = [
-        // discovery
-        "server.info",
-        "server.methods",
-        // lib
-        "lib.list",
-        "lib.info",
-        "lib.load",
-        "lib.unload",
-        "lib.install",
-        "lib.uninstall",
-        "lib.search",
-        // trace
-        "trace.set",
-        "trace.get",
-        // build
-        "build.full",
-        // parse
-        "parse",
-        // check / extract
-        "check",
-        "extract",
-        // show
-        "show.component",
-        "show.component.list",
-        "show.module",
-        "show.module.list",
-        "show.interface",
-        "show.interface.list",
-        "show.net",
-        "show.net.list",
-        // show — missing containers (M5 drill-down)
-        "show.all",
-        "show.file",
-        "show.files",
-        "show.enum",
-        "show.enum.list",
-        // show — drill-down (M5)
-        "show.pins",
-        "show.ports",
-        "show.ports.list",
-        "show.labels",
-        "show.instances",
-        "show.nets",
-        "show.attrs",
-        "show.funcs",
-        "show.params",
-        "show.roles",
-        "show.values",
-        "show.dump",
-        "show.dump.all",
-        // search (M5)
-        "defs.search",
-        "defs.query",
-        // export (M5)
-        "export",
-        // explain (M6)
-        "explain",
-        "caps",
-    ];
-    Ok(json!(methods
-        .iter()
-        .map(|s| Value::String(s.to_string()))
-        .collect::<Vec<_>>()))
+    let caps = super::caps_json();
+    Ok(caps["methods"].clone())
 }
 
 // === handle_set_project_root (lines 4336-4345 in original) ===
