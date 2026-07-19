@@ -158,7 +158,7 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     // ═══════════════════════════════════════════════════════════════
 
     let mut found_in_blib: Option<(crate::db::infra::mc_code::McCode, McSpaceName)> = None;
-    for entry in global::mcc_blibs.borrow().iter() {
+    for entry in crate::builder::mcc_blibs.borrow().iter() {
         if entry.value().spacenames.get(class_name).is_some() {
             found_in_blib = Some((
                 entry.value().clone(),
@@ -210,7 +210,7 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
 
     // Fallback library lookup (when prj_mcodes is empty)
     let mcode_key = "mcode".to_string();
-    if let Some(mcode) = global::mcc_blibs.borrow().get(&mcode_key) {
+    if let Some(mcode) = crate::builder::mcc_blibs.borrow().get(&mcode_key) {
         for (_, space_name) in mcode.spacenames.iter() {
             if space_name.ident.to_string() == class_name.to_string() {
                 if name_found_in_local {

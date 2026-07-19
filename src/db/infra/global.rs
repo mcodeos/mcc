@@ -20,8 +20,6 @@ lazy_static! {
         MultiThreadRefCell::new(PathBuf::new());
     pub(crate) static ref mcc_project_root: MultiThreadRefCell<PathBuf> =
         MultiThreadRefCell::new(PathBuf::new());
-    pub(crate) static ref mcc_blibs: MultiThreadRefCell<DashMap<String, McCode>> =
-        MultiThreadRefCell::new(DashMap::new());
     pub static ref mcc_components: MultiThreadRefCell<DashMap<McSpaceName, Arc<McComponent>>> =
         MultiThreadRefCell::new(DashMap::new());
     pub static ref mcc_modules: MultiThreadRefCell<DashMap<McSpaceName, Arc<McModule>>> =
