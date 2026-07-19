@@ -6,7 +6,7 @@
 
 use crate::cmds::manifest;
 use anyhow::Result;
-use mcc::cli::{rpc_client::RpcClient, ConvertArgs};
+use mcc::cli::{rpcclient::RpcClient, ConvertArgs};
 use mcc::McURI;
 use serde_json::Value;
 use std::path::Path;

@@ -16,7 +16,7 @@ fn strip_global_prefix(name: &str) -> &str {
 }
 
 pub fn run(action: &mcc::cli::ConfigAction) -> Result<()> {
-    let client = mcc::cli::rpc_client::RpcClient::probe();
+    let client = mcc::cli::rpcclient::RpcClient::probe();
 
     match action {
         mcc::cli::ConfigAction::Get { name } => {

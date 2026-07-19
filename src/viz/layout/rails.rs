@@ -31,7 +31,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::vector::graph::naming;
-use crate::vector::graph::net_def::IoDirection;
+use crate::vector::graph::netdef::IoDirection;
 use crate::vector::graph::{
     BoxKind, EndpointRef, EntryPoint, EntrySide, IoSummary, McVecBox, McVecGraph, NetKind, Symbol,
     VizNet,

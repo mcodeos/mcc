@@ -55,10 +55,10 @@ extern "C" {
 pub(crate) const MCC_SYSTEM_ENV: &str = "MCC_SYSTEM_ROOT";
 
 pub(crate) fn mcc_system_root() -> PathBuf {
-    // Single source of truth: delegate to data_dir::data_root() (which honors
+    // Single source of truth: delegate to datadir::data_root() (which honors
     // $MCC_SYSTEM_ROOT). The cwd/mc/ probe and the `~/.mcode` fallback live
     // there now.
-    crate::cli::data_dir::data_root()
+    crate::cli::datadir::data_root()
 }
 
 pub(crate) fn projects_dir() -> PathBuf {
@@ -1409,7 +1409,7 @@ pub(crate) fn filter_items_by_file<T: Clone>(items: &[(T, String)], file: &str) 
 
 /// Find a definition by name across all four kinds.
 pub(crate) fn find_def_by_name(name: &str) -> Option<(crate::McCMIE, String)> {
-    crate::lsp::goto_def::find_def_by_name_raw(name)
+    crate::lsp::gotodef::find_def_by_name_raw(name)
 }
 
 /// Build a pin JSON object (mirrors pins_json in show.rs).
@@ -1821,7 +1821,7 @@ pub(crate) fn find_project_root(file_path: &Path) -> PathBuf {
 /// This is called when parsing files with content from LSP to ensure
 /// the library context is available for type lookups.
 pub(crate) fn ensure_library_loaded(file_uri: &McURI) {
-    let libs = crate::db::infra::lib_mgr::mcb_loaded_libs();
+    let libs = crate::db::infra::libmgr::mcb_loaded_libs();
     tracing::debug!(
         target: "mcc::lib",
         uri = %file_uri,
@@ -1846,7 +1846,7 @@ pub(crate) fn ensure_library_loaded(file_uri: &McURI) {
                     match resolve_lib_root(&lib_name) {
                         Ok(root) => {
                             tracing::info!(target: "mcc::lib", name = %lib_name, root = %root.display(), "auto-loading lib");
-                            crate::db::infra::lib_mgr::mcb_load_lib(&lib_name, &root);
+                            crate::db::infra::libmgr::mcb_load_lib(&lib_name, &root);
                         }
                         Err(e) => {
                             tracing::warn!(target: "mcc::lib", name = %lib_name, error = ?e, "resolve_lib_root failed");
@@ -1960,20 +1960,20 @@ pub(crate) fn extract_lib_dependencies(contents: &str) -> Option<Vec<String>> {
 /// Handle remove_file RPC - remove a file from project
 // ── Sub-module declarations ──
 mod admin;
-mod ai_contract;
-mod build_cmd;
+mod aicontract;
+mod buildcmd;
 mod defs;
-mod export_cmd;
-mod lib_cmd;
+mod exportcmd;
+mod libcmd;
 mod lsp;
 mod show;
 
 pub use admin::*;
-pub use ai_contract::*;
-pub use build_cmd::*;
+pub use aicontract::*;
+pub use buildcmd::*;
 pub use defs::*;
-pub use export_cmd::*;
-pub use lib_cmd::*;
+pub use exportcmd::*;
+pub use libcmd::*;
 pub use lsp::*;
 pub use show::*;
 

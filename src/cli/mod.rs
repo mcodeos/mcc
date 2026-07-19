@@ -8,9 +8,9 @@
 //! Business logic is in `crate::cmds::*` modules.
 
 pub mod config;
-pub mod data_dir;
-pub mod rpc_client;
-pub mod server_config;
+pub mod datadir;
+pub mod rpcclient;
+pub mod servercfg;
 use clap::{Parser, Subcommand, ValueEnum};
 
 /// MCC — MCode Compiler command line tool

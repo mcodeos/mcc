@@ -28,7 +28,7 @@
 //! };
 //! ```
 
-use super::box_def::Wire;
+use super::boxdef::Wire;
 use super::kinds::{EdgeType, NetKind};
 
 // ============================================================================
@@ -61,7 +61,7 @@ pub enum NetTopology {
 /// Simplified IOType (only keeping semantics relevant for drawing)
 ///
 /// Currently (P03) EndpointRef doesn't require this field, default value `Unknown` is fine.
-/// P01 will let `from_block::generate_viznets_from_block` translate
+/// P01 will let `fromblock::generate_viznets_from_block` translate
 /// `InstTable.IOType` into this.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum IoDirection {
@@ -192,7 +192,7 @@ impl VizNet {
 /// **P01 (S2)**: added `pin_number` field (physical pin number), used for IC marking.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EndpointRef {
-    /// ID of the box this endpoint belongs to (corresponds to [`super::box_def::McVecBox::id`])
+    /// ID of the box this endpoint belongs to (corresponds to [`super::boxdef::McVecBox::id`])
     pub box_id: i64,
     /// ID of the endpoint itself (global ID of the pin / port in `InstTable`)
     ///

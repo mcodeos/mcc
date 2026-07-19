@@ -9,7 +9,7 @@
 
 use crate::cmds::manifest;
 use anyhow::Result;
-use mcc::cli::{rpc_client::RpcClient, ErcArgs};
+use mcc::cli::{rpcclient::RpcClient, ErcArgs};
 use mcc::McURI;
 use serde_json::json;
 use std::path::{Path, PathBuf};

@@ -1599,9 +1599,9 @@ pub fn check_bridge_passive_nets(boxes: &[McVecBox], nets: &[VizNet]) -> Vec<Str
 #[cfg(test)]
 mod m11_diagnostic_tests {
     use super::*;
-    use crate::vector::graph::box_def::{EntryPoint, EntrySide, IoSummary, McVecBox};
+    use crate::vector::graph::boxdef::{EntryPoint, EntrySide, IoSummary, McVecBox};
     use crate::vector::graph::kinds::NetKind;
-    use crate::vector::graph::net_def::{EndpointRef, IoDirection, VizNet};
+    use crate::vector::graph::netdef::{EndpointRef, IoDirection, VizNet};
 
     fn make_box(id: i64, name: &str, w: f64, h: f64, x: f64, y: f64) -> McVecBox {
         let mut b = McVecBox::new(

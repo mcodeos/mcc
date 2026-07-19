@@ -22,9 +22,9 @@
 
 mod bus;
 mod condition;
-mod debug_dump;
+mod dump;
 mod funccall;
-mod funccall_inst;
+mod fcallinst;
 pub(crate) mod group;
 mod iterated;
 mod line;
@@ -201,7 +201,7 @@ impl McModuleInst {
         }
 
         // ── DEBUG: pass1 input snapshot (optional) ────────────────────────────
-        if debug_dump::dump_enabled() {
+        if dump::dump_enabled() {
             self.dump_pass1_input();
         }
 
@@ -220,7 +220,7 @@ impl McModuleInst {
         self.build_net_table();
 
         // ── DEBUG: pass2 output + pass1↔pass2 diff (optional) ─────────────
-        if debug_dump::dump_enabled() {
+        if dump::dump_enabled() {
             self.dump_pass2_output();
             self.dump_pass_diff();
         }

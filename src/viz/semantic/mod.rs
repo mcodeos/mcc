@@ -27,7 +27,7 @@
 use std::collections::{BTreeMap, HashSet};
 
 use crate::vector::graph::naming;
-use crate::vector::graph::net_def::{IoDirection, NetTopology};
+use crate::vector::graph::netdef::{IoDirection, NetTopology};
 use crate::vector::graph::{BoxKind, EntrySide, McVecBox, McVecGraph, NetKind, Symbol};
 use crate::viz::idiom::{self, IdiomMatch};
 use crate::viz::layout::chain::{self, ChainDir};
@@ -862,7 +862,7 @@ impl SemanticModel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::box_def::{BoxPin, EntryPoint, IoSummary};
+    use crate::vector::graph::boxdef::{BoxPin, EntryPoint, IoSummary};
     use crate::vector::graph::{EndpointRef, Symbol, VizNet};
     use crate::viz::idiom::IdiomKind;
 

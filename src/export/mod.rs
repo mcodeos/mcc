@@ -10,7 +10,7 @@ pub mod kicad;
 pub mod netlist;
 pub mod spice;
 
-use crate::instant::inst_table::InstTable;
+use crate::instant::insttab::InstTable;
 use crate::{McIds, McModuleInst, McURI};
 use serde_json::Value;
 use std::panic;

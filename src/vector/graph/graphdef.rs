@@ -23,8 +23,8 @@
 
 use std::fmt;
 
-use super::box_def::McVecBox;
-use super::net_def::{McVecEdge, VizNet};
+use super::boxdef::McVecBox;
+use super::netdef::{McVecEdge, VizNet};
 
 // ============================================================================
 // McVecGraph

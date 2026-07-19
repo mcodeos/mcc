@@ -24,7 +24,7 @@ use crate::output::{
     self, builder::ResultBuilder, diagnostic::PhaseTracker, envelope::*, renderer, OutputFormatExt,
 };
 use anyhow::{Context, Result};
-use mcc::cli::{rpc_client::RpcClient, BuildArgs, OutputFormat};
+use mcc::cli::{rpcclient::RpcClient, BuildArgs, OutputFormat};
 use mcc::viz::{
     layout::{
         FlowLayouter, HierarchicalLayouter, LayeredLayouter, RadialLayouter,

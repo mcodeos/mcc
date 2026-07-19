@@ -104,7 +104,7 @@ fn default_log_level() -> String {
 }
 
 pub fn config_path() -> PathBuf {
-    crate::cli::data_dir::config_dir().join("server.yaml")
+    crate::cli::datadir::config_dir().join("server.yaml")
 }
 
 pub fn load_config() -> Result<ServerConfig> {

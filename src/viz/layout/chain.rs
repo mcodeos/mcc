@@ -245,7 +245,7 @@ fn build_box_net_index(graph: &McVecGraph) -> HashMap<i64, Vec<usize>> {
 /// Is this net a power/ground rail?
 ///
 /// Rails are recognised primarily by their [`NetKind`] (the synthesized rail
-/// hyperedges from `from_block::synthesize_rail_nets` carry `Power`/`Ground`),
+/// hyperedges from `fromblock::synthesize_rail_nets` carry `Power`/`Ground`),
 /// with a name-based fallback for nets whose kind was left as `Signal`.
 fn net_is_rail(net: &VizNet) -> bool {
     matches!(net.kind, NetKind::Power | NetKind::Ground) || naming::is_power_rail(&net.name)

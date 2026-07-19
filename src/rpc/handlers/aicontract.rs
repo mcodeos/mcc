@@ -70,7 +70,7 @@ pub fn handle_explain(params: Option<Value>) -> RpcResult {
     let p: ExplainParams = parse_or_default(params)?;
 
     match p.code {
-        Some(code) => match crate::error_codes::describe(code) {
+        Some(code) => match crate::errcodes::describe(code) {
             Some(info) => Ok(json!({
                 "code": info.code,
                 "name": info.name,
@@ -82,7 +82,7 @@ pub fn handle_explain(params: Option<Value>) -> RpcResult {
             )),
         },
         None => {
-            let all = crate::error_codes::all_codes();
+            let all = crate::errcodes::all_codes();
             let items: Vec<Value> = all
                 .iter()
                 .map(|e| {

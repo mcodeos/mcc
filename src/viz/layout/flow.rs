@@ -32,7 +32,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::vector::graph::naming;
-use crate::vector::graph::net_def::IoDirection;
+use crate::vector::graph::netdef::IoDirection;
 use crate::vector::graph::{EntrySide, McVecBox, McVecGraph, NetKind, Symbol};
 
 use super::components::{build_adjacency, find_connected_components};

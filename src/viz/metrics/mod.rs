@@ -6,9 +6,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::vector::builder::builder_report::BuilderReport;
-use crate::vector::graph::box_def::{EntryPoint, EntrySide, McVecBox};
-use crate::vector::graph::net_def::{Point, Route, Segment};
+use crate::vector::builder::report::BuilderReport;
+use crate::vector::graph::boxdef::{EntryPoint, EntrySide, McVecBox};
+use crate::vector::graph::netdef::{Point, Route, Segment};
 use crate::vector::graph::{McVecGraph, NetKind};
 use crate::viz::render::label_render::{designator_value_label_bounds, LabelBounds};
 use crate::viz::route::audit::CollisionReport;
@@ -1176,7 +1176,7 @@ fn between(v: f64, a: f64, b: f64, eps: f64) -> bool {
 // ============================================================================
 // Geometry helpers
 // ============================================================================
-pub(crate) fn route_length(route: &crate::vector::graph::net_def::Route) -> f64 {
+pub(crate) fn route_length(route: &crate::vector::graph::netdef::Route) -> f64 {
     route
         .segments
         .iter()
@@ -1185,14 +1185,14 @@ pub(crate) fn route_length(route: &crate::vector::graph::net_def::Route) -> f64 
 }
 
 /// Bend count ≈ number of axis changes between adjacent segments (orthogonal routing: each H↔V switch = one bend).
-pub(crate) fn route_bends(route: &crate::vector::graph::net_def::Route) -> usize {
+pub(crate) fn route_bends(route: &crate::vector::graph::netdef::Route) -> usize {
     #[derive(PartialEq)]
     enum Axis {
         H,
         V,
         Z,
     }
-    let axis = |s: &crate::vector::graph::net_def::Segment| -> Axis {
+    let axis = |s: &crate::vector::graph::netdef::Segment| -> Axis {
         let dx = (s.to.x - s.from.x).abs();
         let dy = (s.to.y - s.from.y).abs();
         if dx > 0.0 && dy == 0.0 {
@@ -1227,11 +1227,11 @@ pub(crate) fn off_grid(v: f64) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::builder::builder_report::{
+    use crate::vector::builder::report::{
         BuilderReport, DroppedNet, PartialNet, ResolutionOutcome, ResolutionRecord,
     };
-    use crate::vector::graph::box_def::{BoxPin, IoSummary};
-    use crate::vector::graph::net_def::{Point, Route, Segment};
+    use crate::vector::graph::boxdef::{BoxPin, IoSummary};
+    use crate::vector::graph::netdef::{Point, Route, Segment};
     use crate::vector::graph::{BoxKind, EndpointRef, McVecBox, Symbol, VizNet};
 
     fn mk_box(id: i64, x: f64, y: f64) -> McVecBox {
@@ -1289,7 +1289,7 @@ mod tests {
             id: pin_id,
             pin_id: format!("P{pin_id}"),
             description: format!("P{pin_id}"),
-            io: crate::vector::graph::net_def::IoDirection::Unknown,
+            io: crate::vector::graph::netdef::IoDirection::Unknown,
         });
     }
 

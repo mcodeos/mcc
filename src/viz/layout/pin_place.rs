@@ -17,8 +17,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::vector::graph::box_def::{EntryPoint, EntrySide};
-use crate::vector::graph::net_def::IoDirection;
+use crate::vector::graph::boxdef::{EntryPoint, EntrySide};
+use crate::vector::graph::netdef::IoDirection;
 use crate::vector::graph::McVecGraph;
 
 use super::entry_points::{
@@ -545,9 +545,9 @@ fn order_within_side(graph: &mut McVecGraph) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::box_def::IoSummary;
-    use crate::vector::graph::box_def::PinLayout;
-    use crate::vector::graph::net_def::{EndpointRef, VizNet};
+    use crate::vector::graph::boxdef::IoSummary;
+    use crate::vector::graph::boxdef::PinLayout;
+    use crate::vector::graph::netdef::{EndpointRef, VizNet};
     use crate::vector::graph::{BoxKind, NetKind, Symbol};
 
     fn make_box(

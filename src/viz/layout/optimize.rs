@@ -439,8 +439,8 @@ impl GraphPos for McVecGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::box_def::{IoSummary, PinLayout};
-    use crate::vector::graph::net_def::{EndpointRef, VizNet};
+    use crate::vector::graph::boxdef::{IoSummary, PinLayout};
+    use crate::vector::graph::netdef::{EndpointRef, VizNet};
     use crate::vector::graph::{BoxKind, NetKind, Symbol};
 
     fn make_box(

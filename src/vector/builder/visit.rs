@@ -29,11 +29,11 @@
 
 use std::collections::HashMap;
 
-use crate::instant::inst_table::{InstKind, InstTable};
+use crate::instant::insttab::{InstKind, InstTable};
 use crate::instant::mc_mod::McModuleInst;
 
 use super::super::model::McVecBlock;
-use super::builder_report::{
+use super::report::{
     BuildMode, BuilderError, BuilderReport, DroppedNet, PartialNet, ResolutionOutcome,
 };
 use crate::db::diagnostic::diagnostic::{diagnostic_log, DiagnosticLevel};

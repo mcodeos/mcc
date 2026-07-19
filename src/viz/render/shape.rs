@@ -90,7 +90,7 @@ pub fn render_box(b: &McVecBox) -> String {
 /// the overall translate to (b.x, b.y). The pin marker (stub + number + function name + IO
 /// arrow) is still drawn by `pin_render` based on entry_points, consistent with system
 /// symbols — the custom symbol only changes the "part body" appearance, not the pins.
-fn render_custom_symbol(b: &McVecBox, cs: &crate::vector::graph::box_def::CustomSymbol) -> String {
+fn render_custom_symbol(b: &McVecBox, cs: &crate::vector::graph::boxdef::CustomSymbol) -> String {
     use super::pin_render::{render_pin, PinRenderOpts};
     let pins: String = b
         .entry_points
@@ -158,7 +158,7 @@ fn render_box_legacy(b: &McVecBox) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::box_def::CustomSymbol;
+    use crate::vector::graph::boxdef::CustomSymbol;
     use crate::vector::graph::IoSummary;
 
     fn mk(symbol: Symbol, kind: BoxKind) -> McVecBox {

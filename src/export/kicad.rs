@@ -1,7 +1,7 @@
 // Copyright (c) 2026 MCode
 //! KiCad s-expression netlist export (M8)
 
-use crate::instant::inst_table::InstTable;
+use crate::instant::insttab::InstTable;
 use crate::McModuleInst;
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet, HashMap};

@@ -22,7 +22,7 @@
 //! ### Legacy path
 //! After P1, legacy.rs is **no longer needed** and can be removed entirely.
 
-pub mod builder_report; // ★ P02 (S1)
+pub mod report; // ★ P02 (S1)
 pub mod connection;
 pub mod debug;
 pub mod resolve;
@@ -36,7 +36,7 @@ pub mod visit;
 pub use visit::{build_mc_vec, build_mc_vec_strict, build_mc_vec_with_report, McVecBuilder};
 
 // ★ P02 additions
-pub use builder_report::{
+pub use report::{
     BuildMode, BuilderError, BuilderReport, DroppedNet, PartialNet, ResolutionOutcome,
     ResolutionRecord,
 };

@@ -16,7 +16,7 @@
 //! Self-implemented to avoid introducing `serde` dependency (keeping consistent with the original
 //! `legacy::write_json` style).
 
-use super::graph_def::McVecGraph;
+use super::graphdef::McVecGraph;
 
 impl McVecGraph {
     /// Output compact JSON

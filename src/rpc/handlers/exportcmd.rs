@@ -28,10 +28,10 @@ pub fn handle_export(params: Option<Value>) -> RpcResult {
         json: p.format.as_deref() == Some("json"),
         output: None,
     };
-    let (tree, table) = crate::export_api::build_tree(&args.file, args.top.as_deref(), &args.lib)
+    let (tree, table) = crate::export::build_tree(&args.file, args.top.as_deref(), &args.lib)
         .map_err(|e| JsonRpcError::custom(-32603, &format!("export: {}", e)))?;
     let top = args.top.clone().unwrap_or_else(|| "?".to_string());
-    // Convert local cli enums → u8 tags for export_api.
+    // Convert local cli enums → u8 tags for export.
     let kind_tag = match args.kind {
         crate::cli::ExportKind::Netlist => 0u8,
         crate::cli::ExportKind::Bom => 1u8,
@@ -46,7 +46,7 @@ pub fn handle_export(params: Option<Value>) -> RpcResult {
         crate::cli::OutputFormat::Csv => 4u8,
     };
     let (raw_text, items, count) =
-        crate::export_api::build_payload(&tree, &table, &top, kind_tag, format_tag);
+        crate::export::build_payload(&tree, &table, &top, kind_tag, format_tag);
     let kind_str = match kind_tag {
         1 => "bom",
         2 => "spice",

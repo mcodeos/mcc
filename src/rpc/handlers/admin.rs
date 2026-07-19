@@ -64,7 +64,7 @@ pub fn handle_library_list(_params: Option<Value>) -> RpcResult {
     // Disk-installed libraries: prefer reading the v1 layout's index.json.
     // Falls back to filesystem scan if index is missing or stale.
     let mut installed = Vec::new();
-    if let Some(index) = crate::cli::data_dir::read_index_if_present() {
+    if let Some(index) = crate::cli::datadir::read_index_if_present() {
         // v1 index path: enumerate system + 3rdparty from JSON.
         for entry in index.system {
             let name = entry

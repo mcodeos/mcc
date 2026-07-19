@@ -31,7 +31,7 @@
 //! detects whether the geometric centroid is inside any obstacle, and if so,
 //! scans radially outward looking for a clear position.
 
-use crate::vector::graph::net_def::IoDirection;
+use crate::vector::graph::netdef::IoDirection;
 use crate::vector::graph::{BoxKind, McVecGraph, Point, Route, Segment, VizNet};
 
 use super::obstacles::{best_orthogonal_path, ObstacleMap};

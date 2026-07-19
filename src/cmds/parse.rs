@@ -32,7 +32,7 @@ use crate::output::{
     renderer, OutputFormatExt,
 };
 use anyhow::{Context, Result};
-use mcc::cli::rpc_client::RpcClient;
+use mcc::cli::rpcclient::RpcClient;
 use mcc::cli::ParseArgs;
 use mcc::{IOType, McCMIE, McEndpoint, McIds, McInstance, McInstanceRef, McPhrase, McURI};
 use serde_json::json;

@@ -16,7 +16,7 @@ use crate::output::{
     OutputFormatExt,
 };
 use anyhow::Result;
-use mcc::cli::{rpc_client::RpcClient, QueryArgs};
+use mcc::cli::{rpcclient::RpcClient, QueryArgs};
 use serde_json::{json, Value};
 use std::path::Path;
 

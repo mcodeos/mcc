@@ -292,7 +292,7 @@ fn compute_fidelity(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::box_def::IoSummary;
+    use crate::vector::graph::boxdef::IoSummary;
     use crate::vector::graph::{BoxKind, EndpointRef, McVecBox, NetKind, Symbol, VizNet};
     use crate::viz::layout::FlowLayouter;
     use crate::viz::traits::Layouter;

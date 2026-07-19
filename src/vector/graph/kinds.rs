@@ -8,7 +8,7 @@
 //! - [`EdgeType`]  -- edge topology type (compatible with the existing `McVecEdge` model)
 //! - [`NetKind`]   -- ★ NEW: net semantic type (power / ground / signal / bus / module IO)
 //!
-//! `NetKind` is used with [`super::net_def::VizNet`] so the router can automatically choose
+//! `NetKind` is used with [`super::netdef::VizNet`] so the router can automatically choose
 //! different routing strategies based on "this is power / signal / bus".
 
 use std::fmt;
@@ -51,7 +51,7 @@ impl fmt::Display for BoxKind {
 /// Edge topology type (binary edge model)
 ///
 /// **Note**: This is a legacy binary (src<->dst) model that cannot accurately express
-/// multi-endpoint nets. New code should prefer [`super::net_def::VizNet`] (hyperedge) + [`NetKind`].
+/// multi-endpoint nets. New code should prefer [`super::netdef::VizNet`] (hyperedge) + [`NetKind`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EdgeType {
     /// Single wire

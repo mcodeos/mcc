@@ -23,7 +23,7 @@
 //! - `pin_name` is the function name (`VCC`/`RX`), placed **inside** the box, medium font
 //! - The position / text alignment of the two is computed by `label_positions` based on `EntrySide`
 
-use crate::vector::graph::net_def::IoDirection;
+use crate::vector::graph::netdef::IoDirection;
 use crate::vector::graph::{EntryPoint, EntrySide, McVecBox};
 
 // ============================================================================

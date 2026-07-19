@@ -19,7 +19,7 @@
 //! callers gradually migrate to `new_v2`.
 
 use super::kinds::BoxKind;
-use super::net_def::IoDirection;
+use super::netdef::IoDirection;
 use super::symbol::Symbol;
 
 // ============================================================================
@@ -59,7 +59,7 @@ impl Default for IoSummary {
 /// Single wire (unit stored in legacy `McVecEdge.wires`)
 ///
 /// **Note**: only used by the legacy binary `McVecEdge`. New code uses
-/// [`super::net_def::EndpointRef`].
+/// [`super::netdef::EndpointRef`].
 #[derive(Debug, Clone)]
 pub struct Wire {
     pub src_pin_id: i64,

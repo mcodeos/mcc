@@ -26,8 +26,8 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use crate::vector::graph::box_def::EntryPoint;
-use crate::vector::graph::net_def::IoDirection;
+use crate::vector::graph::boxdef::EntryPoint;
+use crate::vector::graph::netdef::IoDirection;
 use crate::vector::graph::{EntrySide, McVecGraph};
 
 use crate::viz::layout::entry_points::{
@@ -577,8 +577,8 @@ pub fn pin_anchor_pipeline(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::box_def::BoxPin;
-    use crate::vector::graph::net_def::EndpointRef;
+    use crate::vector::graph::boxdef::BoxPin;
+    use crate::vector::graph::netdef::EndpointRef;
     use crate::vector::graph::{BoxKind, McVecBox, McVecGraph, NetKind, Symbol, VizNet};
 
     fn mk_box(id: i64, name: &str, kind: BoxKind, symbol: Symbol, pin_count: usize) -> McVecBox {
@@ -591,7 +591,7 @@ mod tests {
             None,
             None,
             pin_count,
-            crate::vector::graph::box_def::IoSummary::new(),
+            crate::vector::graph::boxdef::IoSummary::new(),
         );
         b.x = 100.0 + id as f64 * 200.0;
         b.y = 100.0;

@@ -121,9 +121,9 @@ pub(crate) fn mcb_pass2(entry: &McSpaceName) -> Result<MccProjectTree, Box<dyn E
 pub fn mcb_pass2_flat(
     entry: &McSpaceName,
     start_id: u32,
-) -> Result<(MccProjectTree, crate::instant::inst_table::InstTable), Box<dyn Error>> {
+) -> Result<(MccProjectTree, crate::instant::insttab::InstTable), Box<dyn Error>> {
     let inst = mcb_pass2(entry)?;
-    let table = crate::instant::inst_table::InstTable::from_module_inst(&inst, start_id);
+    let table = crate::instant::insttab::InstTable::from_module_inst(&inst, start_id);
     // ★ Electrical checks after pass2
     let net_results = crate::semantic::validation::nets::run_net_checks(&table);
     let saved_uri = crate::current_uri::try_get();

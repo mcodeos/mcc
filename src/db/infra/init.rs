@@ -35,7 +35,7 @@ pub fn mcb_canonicalize_uri(uri: &McURI) -> String {
 
 // === pub fn mcb_init() { ===
 pub fn mcb_init() {
-    crate::db::infra::lib_mgr::mcc_blibs.clear();
+    crate::db::infra::libmgr::mcc_blibs.clear();
     global::mcc_components.clear();
     global::mcc_modules.clear();
     global::mcc_interfaces.clear();

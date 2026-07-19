@@ -2172,7 +2172,7 @@ impl McModuleInst {
                         // ── P2-2: check Endpoint return side channel ─────────────────
                         // instantiate_instance_method sets this when it detects
                         // McFuncReturn::Endpoint. Takes priority over P0-4 stub path.
-                        let return_ep = super::funccall_inst::LAST_RETURN_ENDPOINT
+                        let return_ep = super::fcallinst::LAST_RETURN_ENDPOINT
                             .with(|cell| cell.borrow_mut().take());
                         if let Some(encoded) = return_ep {
                             self.auto_inst_map.insert(key, encoded);
