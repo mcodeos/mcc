@@ -9,8 +9,8 @@
 //! mcc def main -F circuit.mc     # find module definition
 //! ```
 
-use crate::cli::{rpc_client::RpcClient, DefArgs};
 use anyhow::Result;
+use mcc::cli::{rpc_client::RpcClient, DefArgs};
 use mcc::{get_def, McCMIE, McIds, McURI};
 use serde_json::json;
 

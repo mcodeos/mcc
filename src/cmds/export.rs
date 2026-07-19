@@ -9,10 +9,10 @@
 //! `rpc/handlers.rs` can share the exact same code without reaching into
 //! the binary's private `cmds` module.
 
-use crate::cli::{rpc_client::RpcClient, ExportArgs, ExportKind, OutputFormat};
 use crate::output::envelope::ExportData;
 use crate::output::{self, builder::ResultBuilder, envelope::Envelope};
 use anyhow::Result;
+use mcc::cli::{rpc_client::RpcClient, ExportArgs, ExportKind, OutputFormat};
 use mcc::export_api;
 use serde_json::{json, Value};
 use std::path::Path;

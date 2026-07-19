@@ -176,20 +176,20 @@ impl RpcServer {
                         Ok(_) => {
                             if silent_probe {
                                 tracing::debug!(
-                                    target: "mcc::rpc",
+                                    target: "crate::rpc",
                                     "mcc {} ✓ ({}ms)",
                                     method, elapsed_ms
                                 );
                             } else {
                                 tracing::info!(
-                                    target: "mcc::rpc",
+                                    target: "crate::rpc",
                                     "mcc {} params={} ✓ ({}ms)",
                                     method, params_summary, elapsed_ms
                                 );
                             }
                         }
                         Err(e) => tracing::warn!(
-                            target: "mcc::rpc",
+                            target: "crate::rpc",
                             "mcc {} params={} ✗ ({}ms): {}",
                             method, params_summary, elapsed_ms, e.message
                         ),

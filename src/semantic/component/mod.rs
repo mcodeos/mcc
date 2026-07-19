@@ -168,7 +168,7 @@ impl McComponent {
                     .params
                     .finalize(Some(&body), &comp_name.to_string());
                 for d in &diags {
-                    mcc::mcc_log_global_diag(d);
+                    crate::mcc_log_global_diag(d);
                 }
             }
         }

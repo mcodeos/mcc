@@ -7,7 +7,6 @@
 //! PR-2 Step 6 refactor: go through the envelope path, using
 //! `output::diagnostic::from_mcc()` to replace `guess_severity()`.
 
-use crate::cli::{rpc_client::RpcClient, CheckArgs};
 use crate::cmds::manifest;
 use crate::cmds::proj::resolve_workspace_ref;
 use crate::output::{
@@ -18,6 +17,7 @@ use crate::output::{
     OutputFormatExt,
 };
 use anyhow::Result;
+use mcc::cli::{rpc_client::RpcClient, CheckArgs};
 use mcc::McURI;
 use serde_json::json;
 use std::path::{Path, PathBuf};

@@ -76,7 +76,7 @@ pub fn handle_diagnostics(params: Option<Value>) -> RpcResult {
     // (mcb_add_from_string and all diagnostic_log calls use canonical URIs)
     let mc_uri = McURI::from(crate::build::pass1::canonicalize_project_uri(&raw_uri));
 
-    tracing::info!(target: "mcc::rpc", "handle_diagnostics: raw={} canonical={}", raw_uri, mc_uri);
+    tracing::info!(target: "crate::rpc", "handle_diagnostics: raw={} canonical={}", raw_uri, mc_uri);
 
     let diags = crate::lsp::diagnostics::collect(&mc_uri);
     Ok(serde_json::json!({ "diagnostics": diags }))

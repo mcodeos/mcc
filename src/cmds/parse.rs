@@ -19,8 +19,6 @@
 //! 4. **When top-level module not found, return [`RpcError::invalid_params`]**, no longer anyhow::bail!,
 //!    ensures structured errors are available in JSON mode.
 
-use crate::cli::rpc_client::RpcClient;
-use crate::cli::ParseArgs;
 use crate::cmds::manifest;
 use crate::output::{
     self,
@@ -34,6 +32,8 @@ use crate::output::{
     renderer, OutputFormatExt,
 };
 use anyhow::{Context, Result};
+use mcc::cli::rpc_client::RpcClient;
+use mcc::cli::ParseArgs;
 use mcc::{IOType, McCMIE, McEndpoint, McIds, McInstance, McInstanceRef, McPhrase, McURI};
 use serde_json::json;
 use std::path::Path;
@@ -266,7 +266,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                             renderer.instances(&first_inst, 0);
                             renderer.connections(&first_inst, 0);
                             renderer.nets(&first_inst, 0);
-                            if args.format == crate::cli::OutputFormat::Text {
+                            if args.format == mcc::cli::OutputFormat::Text {
                                 builder.print_diagnostics_summary();
                             }
                             renderer.net_summary(&first_inst);
@@ -306,7 +306,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                     builder.set_pass2(pass2);
 
                     // Print diagnostics before Net Summary
-                    if args.format == crate::cli::OutputFormat::Text {
+                    if args.format == mcc::cli::OutputFormat::Text {
                         builder.print_diagnostics_summary();
                     }
                     renderer.net_summary(&inst);

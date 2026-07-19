@@ -205,7 +205,7 @@ impl McModule {
             let warned: std::collections::HashSet<String> =
                 diags.iter().map(|d| d.param_name.clone()).collect();
             for d in diags {
-                mcc::mcc_log_global_diag(&d);
+                crate::mcc_log_global_diag(&d);
             }
             for port_name in self.insts.iter_port_names() {
                 if warned.contains(port_name) {

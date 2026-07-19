@@ -18,13 +18,13 @@
 //! `run` returns `(Result<()>, usize)`: success/failure + error count.
 //! `dispatch` sets `exit_code` based on this (aligned with `check`).
 
-use crate::cli::{rpc_client::RpcClient, BuildArgs, OutputFormat};
 use crate::cmds::manifest;
 use crate::cmds::proj::resolve_workspace_ref;
 use crate::output::{
     self, builder::ResultBuilder, diagnostic::PhaseTracker, envelope::*, renderer, OutputFormatExt,
 };
 use anyhow::{Context, Result};
+use mcc::cli::{rpc_client::RpcClient, BuildArgs, OutputFormat};
 use mcc::viz::{
     layout::{
         FlowLayouter, HierarchicalLayouter, LayeredLayouter, RadialLayouter,

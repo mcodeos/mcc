@@ -1263,9 +1263,9 @@ impl McInstances {
                     scope,
                 );
                 if let Some(id) = decl_id {
-                    tracing::info!(target: "mcc::lsp", "Registered instance decl: {} at {:?} -> id={:?}", inst_name, inst_span, id);
+                    tracing::info!(target: "crate::lsp", "Registered instance decl: {} at {:?} -> id={:?}", inst_name, inst_span, id);
                 } else {
-                    tracing::warn!(target: "mcc::lsp", "Failed to register instance decl: {}", inst_name);
+                    tracing::warn!(target: "crate::lsp", "Failed to register instance decl: {}", inst_name);
                 }
 
                 // Check for NC parameter

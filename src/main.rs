@@ -32,19 +32,16 @@
 //!     export PATH=$PWD:$PATH
 //!     ```
 
-#![allow(dead_code)]
-
 use anyhow::Result;
 use clap::Parser;
 use std::env;
 use std::process::ExitCode;
 
-mod cli;
 mod cmds;
 mod logging;
 mod output;
 
-use cli::{Cli, Command, OutputFormat};
+use mcc::cli::{Cli, Command, OutputFormat};
 
 fn main() -> ExitCode {
     // ── 0. Internal startup command (called by start subprocess)
@@ -107,7 +104,7 @@ fn main() -> ExitCode {
     }
 
     // ── 3.5. Ensure data directory exists ─────────────────────────────────────
-    if let Err(e) = cli::data_dir::ensure_dirs() {
+    if let Err(e) = mcc::cli::data_dir::ensure_dirs() {
         eprintln!("warning: Failed to create data directory: {}", e);
     }
 

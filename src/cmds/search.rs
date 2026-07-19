@@ -8,7 +8,6 @@
 //! so the `defs.search` RPC handler (`rpc/handlers.rs`) can share the exact
 //! same code without reaching into the binary's private `cmds` module.
 
-use crate::cli::{rpc_client::RpcClient, SearchArgs, SearchKind as CliSearchKind};
 use crate::cmds::manifest;
 use crate::output::{
     self,
@@ -17,6 +16,7 @@ use crate::output::{
     OutputFormatExt,
 };
 use anyhow::Result;
+use mcc::cli::{rpc_client::RpcClient, SearchArgs, SearchKind as CliSearchKind};
 use serde_json::{json, Value};
 
 pub fn run(args: &SearchArgs) -> Result<()> {
@@ -125,7 +125,7 @@ fn run_local(args: &SearchArgs) -> Result<()> {
     };
 
     let format = if args.json {
-        crate::cli::OutputFormat::Json
+        mcc::cli::OutputFormat::Json
     } else {
         args.format
     };

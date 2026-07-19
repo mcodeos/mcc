@@ -16,17 +16,17 @@
 //! - This file (`src/search_api.rs`) is the **single source of truth** for
 //!   `walk_defs`, `SearchInputs`, `SearchKind`, `SearchHit`.
 //! - `cmds/search.rs` (binary-private) `use`'s the types from
-//!   `crate::search_api::*` via `mcc::search_api::*` (the binary crate's
+//!   `crate::search_api::*` via `crate::search_api::*` (the binary crate's
 //!   extern alias for the library).
 //! - `rpc/handlers.rs` (library) `use`'s them via `crate::search_api::*`.
 //!
 //! Re: the `extern crate self as mcc;` shim in `lib.rs` — that lets internal
-//! modules write `mcc::foo` instead of `crate::foo`. The binary does NOT
+//! modules write `crate::foo` instead of `crate::foo`. The binary does NOT
 //! need that shim.
 
 pub mod dsl;
 
-use mcc::{McCMIE, McIds, McInstance, McURI};
+use crate::{McCMIE, McIds, McInstance, McURI};
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
@@ -83,12 +83,12 @@ impl SearchInputs {
 /// matching hits. **Single source of truth** for both the CLI path and the
 /// `defs.search` / `defs.query` RPC handlers.
 ///
-/// `filter_expr` is an optional compiled query (from `mcc::query_api`) — when
+/// `filter_expr` is an optional compiled query (from `crate::query_api`) — when
 /// present, hits are retained only if they satisfy the query. Filter is
 /// applied BEFORE the limit so the limit counts matching results.
 pub fn walk_defs(
     inputs: &SearchInputs,
-    filter_expr: Option<&mcc::query_api::Query>,
+    filter_expr: Option<&crate::query_api::Query>,
 ) -> anyhow::Result<Vec<SearchHit>> {
     let matcher = build_matcher(&inputs.pattern, inputs.regex, inputs.fuzzy)?;
 
@@ -102,7 +102,7 @@ pub fn walk_defs(
 
     // Top-level defs
     if want(SearchKind::Component) {
-        for (name, uri) in mcc::mcb_iter_components() {
+        for (name, uri) in crate::mcb_iter_components() {
             if matcher(&name) {
                 hits.push(SearchHit {
                     kind: "component".into(),
@@ -114,7 +114,7 @@ pub fn walk_defs(
         }
     }
     if want(SearchKind::Module) {
-        for (name, uri) in mcc::mcb_iter_modules() {
+        for (name, uri) in crate::mcb_iter_modules() {
             if matcher(&name) {
                 hits.push(SearchHit {
                     kind: "module".into(),
@@ -126,7 +126,7 @@ pub fn walk_defs(
         }
     }
     if want(SearchKind::Interface) {
-        for (name, uri) in mcc::mcb_iter_interfaces() {
+        for (name, uri) in crate::mcb_iter_interfaces() {
             if matcher(&name) {
                 hits.push(SearchHit {
                     kind: "interface".into(),
@@ -138,7 +138,7 @@ pub fn walk_defs(
         }
     }
     if want(SearchKind::Enum) {
-        for (name, uri) in mcc::mcb_iter_enums() {
+        for (name, uri) in crate::mcb_iter_enums() {
             if matcher(&name) {
                 hits.push(SearchHit {
                     kind: "enum".into(),
@@ -159,7 +159,7 @@ pub fn walk_defs(
             hits.extend(walk_instances(top_name, &matcher)?);
         } else {
             tracing::warn!(
-                target: "mcc::search",
+                target: "crate::search",
                 "--kind instance requires --top <NAME>; skipping instance drill"
             );
         }
@@ -167,13 +167,13 @@ pub fn walk_defs(
 
     // Apply query filter before sort + limit.
     if let Some(q) = filter_expr {
-        let needs_attrs = mcc::query_api::needs_attrs(q);
+        let needs_attrs = crate::query_api::needs_attrs(q);
         hits.retain(|h| {
             if needs_attrs {
-                let attrs = mcc::query_api::attrs_for_def(&h.name, &h.uri, |n, u| {
-                    mcc::get_def(&mcc::McIds::from(n), &mcc::McURI::from(u))
+                let attrs = crate::query_api::attrs_for_def(&h.name, &h.uri, |n, u| {
+                    crate::get_def(&crate::McIds::from(n), &crate::McURI::from(u))
                 });
-                mcc::query_api::matches_definition_with_attrs(
+                crate::query_api::matches_definition_with_attrs(
                     q,
                     Some(&h.kind),
                     Some(&h.name),
@@ -182,7 +182,7 @@ pub fn walk_defs(
                     &attrs,
                 )
             } else {
-                mcc::query_api::matches_definition(
+                crate::query_api::matches_definition(
                     q,
                     Some(&h.kind),
                     Some(&h.name),
@@ -207,20 +207,20 @@ fn walk_instances(
     top_name: &str,
     matcher: &dyn Fn(&str) -> bool,
 ) -> anyhow::Result<Vec<SearchHit>> {
-    let Some((_, uri_str)) = mcc::mcb_iter_modules()
+    let Some((_, uri_str)) = crate::mcb_iter_modules()
         .into_iter()
         .find(|(n, _)| n == top_name)
     else {
-        tracing::warn!(target: "mcc::search", "top module '{}' not found", top_name);
+        tracing::warn!(target: "crate::search", "top module '{}' not found", top_name);
         return Ok(Vec::new());
     };
     let uri = McURI::from(uri_str.as_str());
     let ident = McIds::from(top_name);
 
-    let cmie = match mcc::get_def(&ident, &uri) {
+    let cmie = match crate::get_def(&ident, &uri) {
         Some(c) => c,
         None => {
-            tracing::warn!(target: "mcc::search", "def not found for '{}'", top_name);
+            tracing::warn!(target: "crate::search", "def not found for '{}'", top_name);
             return Ok(Vec::new());
         }
     };
@@ -228,7 +228,7 @@ fn walk_instances(
         McCMIE::Module(m) => m,
         _ => {
             tracing::warn!(
-                target: "mcc::search",
+                target: "crate::search",
                 "'{}' is not a Module (got {})",
                 top_name,
                 cmie_kind_name(&cmie)

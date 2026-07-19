@@ -2,8 +2,8 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use crate::cli::{OutputFormat, PinSortMode};
 use crate::output::OutputFormatExt;
+use mcc::cli::{OutputFormat, PinSortMode};
 use mcc::{McModule, MccProjectTree};
 use tracing::info;
 
