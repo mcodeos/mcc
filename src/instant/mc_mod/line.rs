@@ -324,7 +324,9 @@ impl McModuleInst {
             }
             // trailing bridges (after last series element) — attach to last gap
             if !pending_bridges.is_empty() && !bridges_at.is_empty() {
-                let last = bridges_at.last_mut().unwrap();
+                let last = bridges_at
+                    .last_mut()
+                    .ok_or_else(|| InstError::Other("bridges_at unexpectedly empty".into()))?;
                 last.extend(std::mem::take(&mut pending_bridges));
             }
 
@@ -2398,13 +2400,51 @@ impl McModuleInst {
         Ok(())
     }
 
-    /// Get the McPhrase's pointer address as a unique identifier
-    ///
-    /// Within the same `process_line` call scope, the address of the same
-    /// McPhrase reference is stable, so it can be safely used as a HashMap
-    /// key to associate process_member_internal with get_left/right_points.
-    pub(super) fn member_key(member: &McPhrase) -> usize {
-        member as *const McPhrase as usize
+    /// Assign stable IDs to all `McFuncCall` nodes in a phrase tree.
+    /// IDs survive cloning, replacing the fragile pointer-based auto_inst_map key.
+    pub(super) fn assign_phrase_ids(phrase: &mut McPhrase, next_id: &mut u64) {
+        match phrase {
+            McPhrase::FuncCall(ref mut f) => {
+                if f.id == 0 {
+                    *next_id += 1;
+                    f.id = *next_id;
+                }
+                if let Some(ref mut caller) = f.caller {
+                    Self::assign_phrase_ids(caller, next_id);
+                }
+            }
+            McPhrase::Series(elems) | McPhrase::Parallel(elems) | McPhrase::Multiple(elems) => {
+                for p in elems {
+                    Self::assign_phrase_ids(p, next_id);
+                }
+            }
+            McPhrase::Group(ref mut g) => {
+                for p in &mut g.opds {
+                    Self::assign_phrase_ids(p, next_id);
+                }
+            }
+            McPhrase::Transposed(ref mut inner) => {
+                Self::assign_phrase_ids(inner, next_id);
+            }
+            McPhrase::Closure(ref mut c) => {
+                for p in &mut c.body {
+                    Self::assign_phrase_ids(p, next_id);
+                }
+            }
+            McPhrase::Member(ref mut inner, _) => {
+                Self::assign_phrase_ids(inner, next_id);
+            }
+            McPhrase::Lead | McPhrase::Endpoint(_) => {}
+        }
+    }
+
+    /// Get the stable ID for a FuncCall phrase.
+    /// Returns 0 for non-FuncCall phrases (they never use auto_inst_map).
+    pub(super) fn member_key(member: &McPhrase) -> u64 {
+        match member {
+            McPhrase::FuncCall(f) => f.id,
+            _ => 0,
+        }
     }
 
     // ────────────────────────────────────────────────────────────────────────

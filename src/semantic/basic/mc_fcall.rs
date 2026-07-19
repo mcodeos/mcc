@@ -25,6 +25,9 @@ use std::sync::Arc;
 /// Function call
 #[derive(Debug, Clone)]
 pub struct McFuncCall {
+    /// Stable ID for auto_inst_map (replaces pointer-based key).
+    /// Assigned during instantiation; 0 = unassigned. Clone-safe since Copy.
+    pub id: u64,
     /// Caller operand
     pub caller: Option<Box<McPhrase>>,
     /// Function name
@@ -362,6 +365,7 @@ impl McFuncCall {
 
             // Create inner FuncCall: ClassName(instance_params)
             let inner_call = McFuncCall {
+                id: 0,
                 caller: None,
                 func_name: instance_name.unwrap(),
                 params: instance_params,
@@ -372,6 +376,7 @@ impl McFuncCall {
 
             // Create outer FuncCall: ClassName(params).MethodName(all_method_params)
             let outer_call = McFuncCall {
+                id: 0,
                 caller: Some(Box::new(McPhrase::FuncCall(inner_call))),
                 func_name: method_name_opt.unwrap(),
                 params: all_method_params,
@@ -761,6 +766,7 @@ impl McFuncCall {
                                                         );
                                                         return Some(McPhrase::FuncCall(
                                                             McFuncCall {
+                                                                id: 0,
                                                                 caller,
                                                                 func_name: name,
                                                                 params,
@@ -1025,6 +1031,7 @@ impl McFuncCall {
         Self::check_chain_validity(&caller, &func_name, node, context);
 
         Some(McPhrase::FuncCall(McFuncCall {
+            id: 0,
             caller,
             func_name,
             params,

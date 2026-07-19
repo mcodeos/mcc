@@ -91,10 +91,13 @@ pub struct McModuleInst {
     /// Auto-instantiation counter (component type name → used count), used to generate unique instance names
     pub(super) auto_inst_counter: HashMap<String, u32>,
 
-    /// Mapping from FuncCall member to auto-created component instance name
-    /// Key: McPhrase pointer address (stable within the same process_line call)
-    /// Value: auto-created component instance name
-    pub(super) auto_inst_map: HashMap<usize, String>,
+    /// Stable phrase ID counter for auto_inst_map (replaces pointer-based key).
+    pub(super) next_phrase_id: u64,
+
+    /// Mapping from FuncCall member to auto-created component instance name.
+    /// Key: stable u64 ID assigned via `assign_phrase_ids()` before processing.
+    /// Clone-safe: the ID is stored in McFuncCall.id and survives cloning.
+    pub(super) auto_inst_map: HashMap<u64, String>,
 
     /// Instantiation diagnostic collector (non-fatal errors/warnings)
     ///
@@ -136,6 +139,7 @@ impl McModuleInst {
             labels: HashMap::new(),
             buses: HashMap::new(),
             auto_inst_counter: HashMap::new(),
+            next_phrase_id: 0,
             auto_inst_map: HashMap::new(),
             diagnostics: Vec::new(),
             bridge_passive_names: HashSet::new(),
@@ -166,6 +170,7 @@ impl McModuleInst {
             labels: HashMap::new(),
             buses: HashMap::new(),
             auto_inst_counter: HashMap::new(),
+            next_phrase_id: 0,
             auto_inst_map: HashMap::new(),
             diagnostics: Vec::new(),
             bridge_passive_names: HashSet::new(),

@@ -666,6 +666,7 @@ impl McPhrase {
                                 let mut fcs: Vec<McPhrase> = Vec::with_capacity(names.len());
                                 for _ in &names {
                                     fcs.push(McPhrase::FuncCall(McFuncCall {
+                                        id: 0,
                                         caller: None,
                                         func_name: class_ids.clone(),
                                         params: params.clone(),

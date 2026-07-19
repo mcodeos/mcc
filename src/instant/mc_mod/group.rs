@@ -246,7 +246,10 @@ impl McModuleInst {
                 self.connections.push(conn);
             }
         } else if left_size == 1 {
-            let l = left_points.into_iter().next().unwrap();
+            let l = left_points
+                .into_iter()
+                .next()
+                .ok_or_else(|| InstError::Other("expected 1 left point".into()))?;
             // ── P2: scalar ↔ DC bus → role-aligned, no broadcast (prevent power-to-ground short) ──
             if Self::is_dc_power_bus(&right_points) && !is_ground_name(last_seg(&l.path)) {
                 self.connect_scalar_to_dc_bus(&l, &right_points);
@@ -263,7 +266,10 @@ impl McModuleInst {
                 }
             }
         } else if right_size == 1 {
-            let r = right_points.into_iter().next().unwrap();
+            let r = right_points
+                .into_iter()
+                .next()
+                .ok_or_else(|| InstError::Other("expected 1 right point".into()))?;
             if Self::is_dc_power_bus(&left_points) && !is_ground_name(last_seg(&r.path)) {
                 self.connect_scalar_to_dc_bus(&r, &left_points);
             } else if let Some(expanded) = self.try_member_passthrough_scalar(&r, &left_points) {

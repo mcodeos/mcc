@@ -239,8 +239,14 @@ impl McModuleInst {
                     if let Some(binding) = bindings.find(first_seg) {
                         if let Some(actual) = binding.get_value() {
                             let actual_str = actual.to_string();
-                            let new_str =
-                                format!("{}.{}", actual_str, ids_str.split_once(".").unwrap().1);
+                            let new_str = format!(
+                                "{}.{}",
+                                actual_str,
+                                ids_str
+                                    .split_once(".")
+                                    .map(|(_, s)| s)
+                                    .unwrap_or(ids_str.as_str())
+                            );
                             let new_opdc = McIds::from(new_str.as_str());
                             return McParamValue::Ids(new_opdc);
                         }
@@ -320,6 +326,7 @@ impl McModuleInst {
                 right_match: g.right_match,
             }),
             McPhrase::FuncCall(f) => McPhrase::FuncCall(McFuncCall {
+                id: 0,
                 caller: f
                     .caller
                     .as_ref()
