@@ -3,7 +3,6 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::{
-    builder::mc_code::McCode,
     builder::util::MultiThreadRefCell,
     semantic::{
         component::McComponent, mc_define::McDefineDef, mc_enum::McEnumDef, mc_ifs::McInterface,

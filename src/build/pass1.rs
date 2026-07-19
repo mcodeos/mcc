@@ -3,7 +3,6 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::db::cmie::tables as workspace;
-use crate::db::infra::global;
 use crate::db::infra::lib_mgr;
 use crate::db::infra::mc_code::McCode;
 use crate::McURI;

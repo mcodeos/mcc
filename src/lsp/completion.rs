@@ -4,16 +4,38 @@
 
 //! Code completion — provide completion candidates at a cursor position.
 //!
-//! To be extracted from `rpc/handlers/`.
+//! Uses `unified_lookup_all` to find visible symbols in the current scope.
 
-use serde_json::Value;
+use crate::{McURI, ScopeFilter, ScopePath};
+use serde_json::{json, Value};
 
-/// Get completion candidates at the given position in a file.
-pub fn complete(_uri: &str, _line: u32, _column: u32) -> Vec<Value> {
-    // TODO: Implement completion by:
-    // 1. Parse the file context around the cursor
-    // 2. Determine completion scope (instance body, param list, etc.)
-    // 3. Use unified_lookup_all to find visible symbols
-    // 4. Filter by prefix and rank by proximity
-    vec![]
+/// Get completion candidates for a prefix at a given file location.
+/// Filters visible symbols by the optional prefix string.
+pub fn complete(uri: &str, prefix: Option<&str>, scope: Option<&str>) -> Vec<Value> {
+    let mc_uri = McURI::from(uri);
+    let scope_path = if let Some(s) = scope {
+        crate::builder::mc_code::McCode::scope_path_from_scope_str_public(&mc_uri, s)
+    } else {
+        ScopePath::file_level(&mc_uri)
+    };
+
+    let mut filter = ScopeFilter::new();
+    if let Some(pref) = prefix {
+        filter = filter.with_prefix(pref);
+    }
+    filter = filter.with_limit(50);
+
+    let results = crate::unified_lookup_all(&scope_path, &filter);
+    results
+        .iter()
+        .map(|r| {
+            json!({
+                "label": r.name,
+                "kind": format!("{:?}", r.kind).to_lowercase(),
+                "detail": r.container.as_ref().map(|c| format!("{:?} {}", c.kind, c.name)),
+                "uri": r.uri,
+                "span": { "start": r.span.start, "end": r.span.end },
+            })
+        })
+        .collect()
 }

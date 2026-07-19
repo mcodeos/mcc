@@ -892,7 +892,26 @@ pub(crate) struct CheckRpcParams {
 }
 
 /// Overlay URI used when `content` is provided — virtual file, never touches disk.
+/// Phase 8.1: uses per-request unique URIs to prevent concurrent AI clients from
+/// stepping on each other's workspace data.
 pub(crate) const CHECK_OVERLAY_URI: &str = "/mcc/check.mc";
+
+use std::sync::atomic::{AtomicU64, Ordering};
+static OVERLAY_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+/// Generate a unique overlay URI for this request.
+/// Concurrent AI clients each get their own URI → no cross-contamination.
+pub(crate) fn make_overlay_uri() -> McURI {
+    let n = OVERLAY_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let s = format!("/mcc/check_{}.mc", n);
+    McURI::from(s.as_str())
+}
+
+/// Remove a previously loaded overlay from the workspace.
+/// Called after the AI check completes to prevent accumulation.
+pub(crate) fn remove_overlay(uri: &McURI) {
+    crate::builder::mcb_remove(uri);
+}
 
 // ============================================================================
 // Refs (M6)
@@ -2196,3 +2215,359 @@ pub use export_cmd::*;
 pub use lib_cmd::*;
 pub use lsp::*;
 pub use show::*;
+
+// ── Phase 8.3: Method registry (single source of truth for caps) ──
+
+/// Metadata for one RPC method.
+pub struct MethodMeta {
+    pub name: &'static str,
+    pub consumer: &'static str, // "lsp" | "ai" | "cli" | "admin"
+}
+
+/// Registry of all RPC methods. Single source of truth for caps + register_all.
+pub static METHODS: &[MethodMeta] = &[
+    MethodMeta {
+        name: "server.info",
+        consumer: "admin",
+    },
+    MethodMeta {
+        name: "server.methods",
+        consumer: "admin",
+    },
+    MethodMeta {
+        name: "lib.list",
+        consumer: "admin",
+    },
+    MethodMeta {
+        name: "lib.info",
+        consumer: "admin",
+    },
+    MethodMeta {
+        name: "lib.load",
+        consumer: "admin",
+    },
+    MethodMeta {
+        name: "lib.unload",
+        consumer: "admin",
+    },
+    MethodMeta {
+        name: "lib.install",
+        consumer: "admin",
+    },
+    MethodMeta {
+        name: "lib.uninstall",
+        consumer: "admin",
+    },
+    MethodMeta {
+        name: "lib.search",
+        consumer: "admin",
+    },
+    MethodMeta {
+        name: "trace.set",
+        consumer: "admin",
+    },
+    MethodMeta {
+        name: "trace.get",
+        consumer: "admin",
+    },
+    MethodMeta {
+        name: "build.full",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "parse",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.component",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.module",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.interface",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.net",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.all",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.file",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.files",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.enum",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.pins",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.ports",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.labels",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.instances",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.nets",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.attrs",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.funcs",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.params",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.roles",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.values",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.dump",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "check",
+        consumer: "ai",
+    },
+    MethodMeta {
+        name: "extract",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "defs.search",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "defs.query",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "export",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "sem",
+        consumer: "lsp",
+    },
+    MethodMeta {
+        name: "explain",
+        consumer: "ai",
+    },
+    MethodMeta {
+        name: "def",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "erc",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "refs",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "lookup",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "lookup_sub",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "lookup_with_sub",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "lookup_all",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "convert",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "report",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "caps",
+        consumer: "ai",
+    },
+    MethodMeta {
+        name: "diagnostics",
+        consumer: "lsp",
+    },
+    MethodMeta {
+        name: "project_symbols",
+        consumer: "lsp",
+    },
+    MethodMeta {
+        name: "set_project_root",
+        consumer: "admin",
+    },
+    MethodMeta {
+        name: "set_system_root",
+        consumer: "admin",
+    },
+    MethodMeta {
+        name: "init",
+        consumer: "lsp",
+    },
+    MethodMeta {
+        name: "load_project",
+        consumer: "admin",
+    },
+    MethodMeta {
+        name: "add_file",
+        consumer: "lsp",
+    },
+    MethodMeta {
+        name: "remove_file",
+        consumer: "lsp",
+    },
+];
+
+/// Generate caps JSON from the method registry.
+pub fn caps_json() -> serde_json::Value {
+    use serde_json::json;
+
+    let names: Vec<&str> = METHODS.iter().map(|m| m.name).collect();
+    let ai_methods: Vec<&str> = METHODS
+        .iter()
+        .filter(|m| m.consumer == "ai")
+        .map(|m| m.name)
+        .collect();
+
+    json!({
+        "server": "mcc",
+        "version": env!("CARGO_PKG_VERSION"),
+        "schema_version": 1,
+        "methods": names,
+        "features": {
+            "diagnostics": {
+                "byte_range": false,
+                "end_line": true,
+                "end_column": true,
+                "suggestions": true,
+                "related": true
+            },
+            "explain": true,
+            "search": true,
+            "query": true,
+            "export": ["netlist", "bom", "spice", "kicad"],
+            "ai": {
+                "methods": ai_methods,
+                "overlay_dry_run": true,
+            }
+        }
+    })
+}
+
+/// Register all handlers on a server builder (single source of truth).
+/// Called from `cmds/server.rs`.
+pub fn register_all(
+    mut builder: crate::rpc::server::RpcServerBuilder,
+) -> crate::rpc::server::RpcServerBuilder {
+    // Admin
+    builder = builder.register_method("server.info", handle_server_info);
+    builder = builder.register_method("server.methods", handle_methods);
+    // Lib
+    builder = builder.register_method("lib.list", handle_library_list);
+    builder = builder.register_method("lib.info", handle_library_show);
+    builder = builder.register_method("lib.load", handle_lib_load);
+    builder = builder.register_method("lib.unload", handle_lib_unload);
+    builder = builder.register_method("lib.install", handle_lib_install);
+    builder = builder.register_method("lib.uninstall", handle_lib_uninstall);
+    builder = builder.register_method("lib.search", handle_lib_search);
+    builder = builder.register_method("trace.set", handle_trace_set);
+    builder = builder.register_method("trace.get", handle_trace_get);
+    // Build
+    builder = builder.register_method("build.full", handle_build_full);
+    builder = builder.register_method("parse", handle_parse);
+    // Show — lists
+    builder = builder.register_method("show.component", handle_show_component);
+    builder = builder.register_method("show.component.list", handle_show_component_list);
+    builder = builder.register_method("show.module", handle_show_module);
+    builder = builder.register_method("show.module.list", handle_show_module_list);
+    builder = builder.register_method("show.interface", handle_show_interface);
+    builder = builder.register_method("show.interface.list", handle_show_interface_list);
+    builder = builder.register_method("show.net", handle_show_net);
+    builder = builder.register_method("show.net.list", handle_show_net_list);
+    builder = builder.register_method("show.all", handle_show_all);
+    builder = builder.register_method("show.file", handle_show_file);
+    builder = builder.register_method("show.files", handle_show_files);
+    builder = builder.register_method("show.enum", handle_show_enum);
+    builder = builder.register_method("show.enum.list", handle_show_enum_list);
+    // Show — drill-down
+    builder = builder.register_method("show.pins", handle_show_pins);
+    builder = builder.register_method("show.ports", handle_show_ports);
+    builder = builder.register_method("show.ports.list", handle_show_ports_list);
+    builder = builder.register_method("show.labels", handle_show_labels);
+    builder = builder.register_method("show.instances", handle_show_instances);
+    builder = builder.register_method("show.nets", handle_show_nets);
+    builder = builder.register_method("show.attrs", handle_show_attrs);
+    builder = builder.register_method("show.funcs", handle_show_funcs);
+    builder = builder.register_method("show.params", handle_show_params);
+    builder = builder.register_method("show.roles", handle_show_roles);
+    builder = builder.register_method("show.values", handle_show_values);
+    builder = builder.register_method("show.dump", handle_show_dump);
+    builder = builder.register_method("show.dump.all", handle_show_dump_all);
+    // AI
+    builder = builder.register_method("check", handle_check);
+    builder = builder.register_method("extract", handle_extract);
+    // Defs
+    builder = builder.register_method("defs.search", handle_defs_search);
+    builder = builder.register_method("defs.query", handle_defs_query);
+    builder = builder.register_method("export", handle_export);
+    // LSP
+    builder = builder.register_method("sem", handle_sem);
+    builder = builder.register_method("explain", handle_explain);
+    builder = builder.register_method("def", handle_def);
+    builder = builder.register_method("erc", handle_erc);
+    builder = builder.register_method("refs", handle_refs);
+    builder = builder.register_method("lookup", handle_lookup);
+    builder = builder.register_method("lookup_sub", handle_lookup_sub);
+    builder = builder.register_method("lookup_with_sub", handle_lookup_with_sub);
+    builder = builder.register_method("lookup_all", handle_lookup_all);
+    builder = builder.register_method("convert", handle_convert);
+    builder = builder.register_method("report", handle_report);
+    builder = builder.register_method("caps", handle_caps);
+    builder = builder.register_method("diagnostics", handle_diagnostics);
+    builder = builder.register_method("project_symbols", handle_project_symbols);
+    builder = builder.register_method("set_project_root", handle_set_project_root);
+    builder = builder.register_method("set_system_root", handle_set_system_root);
+    builder = builder.register_method("init", handle_init);
+    builder = builder.register_method("load_project", handle_load_project);
+    builder = builder.register_method("add_file", handle_add_file);
+    builder = builder.register_method("remove_file", handle_remove_file);
+    builder
+}
