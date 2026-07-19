@@ -874,6 +874,7 @@ impl McModuleInst {
                 right_match: g.right_match,
             }),
             McPhrase::FuncCall(f) => McPhrase::FuncCall(McFuncCall {
+                id: 0,
                 caller: f
                     .caller
                     .as_ref()

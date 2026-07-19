@@ -1133,7 +1133,15 @@ impl McModuleInst {
         if let Some(comp) = self.find_component(&element.name) {
             if comp.def.pins.names_to_id.len() == 1 {
                 // get unique pin name
-                let pin = comp.def.pins.names_to_id.keys().next().cloned().unwrap();
+                // SAFETY: guarded by `names_to_id.len() == 1` check above
+                let pin = comp
+                    .def
+                    .pins
+                    .names_to_id
+                    .keys()
+                    .next()
+                    .cloned()
+                    .expect("single-pin component has no pins");
                 let path = format!("{}.{}", element.name, pin);
                 return NetPoint::with_owner(&path, &element.name, IOType::None);
             }
