@@ -1,8 +1,8 @@
 // Copyright (c) 2026 MCode
 //! Netlist export
 
-use crate::NetPoint;
 use crate::McModuleInst;
+use crate::NetPoint;
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 

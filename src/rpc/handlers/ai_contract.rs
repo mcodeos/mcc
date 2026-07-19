@@ -4,7 +4,6 @@
 
 use super::*;
 
-
 // === handle_check (lines 1462-1528 in original) ===
 
 pub fn handle_check(params: Option<Value>) -> RpcResult {

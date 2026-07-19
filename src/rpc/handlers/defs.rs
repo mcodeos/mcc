@@ -4,7 +4,6 @@
 
 use super::*;
 
-
 // === handle_defs_search (lines 474-527 in original) ===
 
 pub fn handle_defs_search(params: Option<Value>) -> RpcResult {

@@ -2,28 +2,17 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-
-use crate::builder::*;
 use crate::ast::ast_semantic::Span;
-use crate::ast::ast_semantic::McSemSymbols;
-use crate::db::infra::global;
-use crate::db::infra::mc_code::McCode;
+use crate::builder::*;
 use crate::db::cmie::tables as workspace;
-use crate::semantic::basic::mc_param::McParamDeclares;
-use crate::semantic::component::McComponent;
-use crate::semantic::mc_enum::McEnumDef;
-use crate::semantic::mc_ifs::McInterface;
+use crate::db::infra::global;
 use crate::semantic::module::McModule;
-use crate::semantic::common::IOType;
-use crate::{McCMIE, McIds, McSpaceName, McURI, ScopeFilter};
+use crate::{McCMIE, McIds, McSpaceName, McURI};
 use std::ops::Range;
 use std::sync::Arc;
 
-use crate::db::infra::init::*;
 use crate::build::pass1::canonicalize_project_uri;
 use crate::db::cmie::cmie::mcb_get_cmie;
-use crate::query::iterators::*;
-use std::path::PathBuf;
 // === pub fn unified_lookup(class_name: &str, from_uri: &McURI) -> Option<(McURI, Span ===
 /// Unified lookup for pass1/pass2 and F12 — returns (uri, span) for goto-def.
 /// Reuses Tier 1–4 resolution from mcb_get_cmie.
@@ -196,7 +185,7 @@ pub(crate) fn collect_from_file(
 pub(crate) fn collect_module_symbols(
     m: &crate::McModule,
     scope_path: &crate::ScopePath,
-    filter: &crate::ScopeFilter,
+    _filter: &crate::ScopeFilter,
     results: &mut Vec<crate::LookupResult>,
     max: usize,
 ) {
@@ -243,7 +232,7 @@ pub(crate) fn collect_module_symbols(
 pub(crate) fn collect_component_symbols(
     c: &crate::McComponent,
     scope_path: &crate::ScopePath,
-    filter: &crate::ScopeFilter,
+    _filter: &crate::ScopeFilter,
     results: &mut Vec<crate::LookupResult>,
     max: usize,
 ) {
@@ -298,7 +287,7 @@ pub(crate) fn collect_component_symbols(
 // === fn collect_from_project( ===
 /// Collect symbols from the project index (cross-file).
 pub(crate) fn collect_from_project(
-    filter: &crate::ScopeFilter,
+    _filter: &crate::ScopeFilter,
     results: &mut Vec<crate::LookupResult>,
     max: usize,
 ) {
@@ -376,7 +365,11 @@ pub(crate) fn collect_from_project(
 
 // === fn add_result(results: &mut Vec<crate::LookupResult>, max: usize, result: crate: ===
 /// Add result if prefix matches and limit not reached.
-pub(crate) fn add_result(results: &mut Vec<crate::LookupResult>, max: usize, result: crate::LookupResult) {
+pub(crate) fn add_result(
+    results: &mut Vec<crate::LookupResult>,
+    max: usize,
+    result: crate::LookupResult,
+) {
     if results.len() >= max {
         return;
     }
@@ -615,7 +608,11 @@ pub(crate) fn lookup_in_component(
 
 // === fn lookup_in_module(module: &McModule, kind: SubElementKind, name: &str) -> Opti ===
 /// Look up a sub-element within a [`McModule`].
-pub(crate) fn lookup_in_module(module: &McModule, kind: SubElementKind, name: &str) -> Option<Range<usize>> {
+pub(crate) fn lookup_in_module(
+    module: &McModule,
+    kind: SubElementKind,
+    name: &str,
+) -> Option<Range<usize>> {
     match kind {
         SubElementKind::Pin => None,
         SubElementKind::Port | SubElementKind::Label => {

@@ -12,6 +12,8 @@
 
 use super::funccall::FuncCallInst;
 use super::McModuleInst;
+use crate::instant::mc_comp::McComponentInst;
+use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_closure::McClosure;
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
@@ -24,8 +26,6 @@ use crate::semantic::component::McComponent;
 use crate::semantic::mc_func::{McFuncReturn, McFunction};
 use crate::semantic::mc_inst::McInstance;
 use crate::semantic::module::McModule;
-use crate::instant::mc_comp::McComponentInst;
-use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
 use crate::McIds;
 use std::sync::Arc;
 

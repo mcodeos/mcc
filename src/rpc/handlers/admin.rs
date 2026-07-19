@@ -4,7 +4,6 @@
 
 use super::*;
 
-
 // === handle_project_list (lines 87-107 in original) ===
 
 pub fn handle_project_list(_params: Option<Value>) -> RpcResult {
@@ -234,7 +233,6 @@ pub fn handle_methods(_params: Option<Value>) -> RpcResult {
         .map(|s| Value::String(s.to_string()))
         .collect::<Vec<_>>()))
 }
-
 
 // === handle_set_project_root (lines 4336-4345 in original) ===
 pub fn handle_set_project_root(params: Option<Value>) -> RpcResult {

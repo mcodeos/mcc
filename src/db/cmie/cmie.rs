@@ -2,30 +2,22 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-
 use crate::builder::*;
+use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
 use crate::db::infra::mc_code::McCode;
-use crate::db::cmie::tables as workspace;
-use crate::semantic::component::McComponent;
-use crate::semantic::mc_define::McDefineDef;
-use crate::semantic::mc_enum::McEnumDef;
-use crate::semantic::mc_ifs::McInterface;
-use crate::semantic::module::McModule;
 use crate::{McCMIE, McIds, McSpaceName, McURI};
 use std::cell::RefCell;
 use std::collections::HashSet;
-use std::sync::Arc;
 use tracing::{debug, trace};
 
 thread_local! {
     static CMIE_RESOLVING: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
 }
 
-use crate::db::infra::init::*;
 use crate::build::pass1::canonicalize_project_uri;
-use crate::query::lookup::find_in_project_tables;
 use crate::query::lookup::find_by_name_in_project_tables;
+use crate::query::lookup::find_in_project_tables;
 use tracing::warn;
 // === pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> { ===
 /// Get cmie in current file uri

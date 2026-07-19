@@ -16,8 +16,8 @@
 //! In the long term the registration dedup logic should be fixed in `instant/inst_table`, making
 //! InstKind labels trustworthy. Once fixed, this file can shrink by 80%.
 
-use crate::semantic::common::IOType;
 use crate::instant::inst_table::{InstEntry, InstKind, InstTable};
+use crate::semantic::common::IOType;
 
 // ============================================================================
 // DetectedKind -- duck typing recognition result

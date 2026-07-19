@@ -4,7 +4,6 @@
 
 use super::*;
 
-
 // === handle_sem (lines 3554-3609 in original) ===
 
 pub fn handle_sem(params: Option<Value>) -> RpcResult {

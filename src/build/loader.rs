@@ -2,20 +2,17 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-
-use crate::builder::*;
+use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
 use crate::db::infra::mc_code::McCode;
-use crate::db::cmie::tables as workspace;
-use crate::db::infra::context;
 use crate::{McSpaceName, McURI};
+use dashmap;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use tracing::{debug, trace, warn};
-use dashmap;
+use tracing::{trace, warn};
 
-use crate::db::infra::init::*;
 use crate::build::pass1::canonicalize_project_uri;
+use crate::db::infra::init::*;
 // === pub fn mcb_add(uri: &McURI) { ===
 /// Load project file (single file, not recursive)
 pub fn mcb_add(uri: &McURI) {

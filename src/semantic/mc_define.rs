@@ -3,8 +3,8 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::{
-    ast::ast_node::AstNode, ast::c_macros::*, ast::error::message::*, semantic::basic::mc_ids::McIds,
-    semantic::component::mc_attr::McAttributes, McURI,
+    ast::ast_node::AstNode, ast::c_macros::*, ast::error::message::*,
+    semantic::basic::mc_ids::McIds, semantic::component::mc_attr::McAttributes, McURI,
 };
 
 #[derive(Debug)]

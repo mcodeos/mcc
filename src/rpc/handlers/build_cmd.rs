@@ -4,7 +4,6 @@
 
 use super::*;
 
-
 // === handle_build_full (lines 767-807 in original) ===
 
 pub fn handle_build_full(params: Option<Value>) -> RpcResult {

@@ -23,10 +23,10 @@ pub(crate) mod build;
 pub(crate) mod builder;
 pub(crate) mod cli;
 pub(crate) mod db;
-pub(crate) mod query;
-pub(crate) mod semantic;
 pub(crate) mod instant;
 pub(crate) mod lsp;
+pub(crate) mod query;
+pub(crate) mod semantic;
 pub(crate) use builder::current_uri;
 pub mod rpc;
 pub mod vector;
@@ -55,22 +55,24 @@ pub use crate::semantic::{
 };
 pub use db::diagnostic::error_codes;
 pub mod export_api;
-pub use semantic::validation as check;
-pub use query::search as search_api;
-pub use query::search::dsl as query_api;
 pub use ast::ast_semantic::{McSemSymbols, Span, SymbolType};
 pub use ast::ast_token::{McSemToken, McSemTokens};
 pub use ast::c_macros::*;
 pub use ast::error::*;
 pub use builder::{mcb_pass2_flat, mcb_print, MccProjectTree};
-pub use semantic::basic::mc_param::{McParamBindings, McParamDeclare, McParamDeclares, McParamValue};
-pub use semantic::basic::mc_param_type::{McIoTy, McParamArity, McParamType, McParamTypeKind};
-pub use semantic::basic::mc_paramd::{GlobalDiag, GlobalDiagKind};
 pub use instant::inst_table::InstKind;
 pub use instant::inst_table::InstTable;
 pub use instant::mc_comp::McComponentInst;
 pub use instant::mc_mod::McModuleInst;
 pub use instant::mc_net::NetPoint;
+pub use query::search as search_api;
+pub use query::search::dsl as query_api;
+pub use semantic::basic::mc_param::{
+    McParamBindings, McParamDeclare, McParamDeclares, McParamValue,
+};
+pub use semantic::basic::mc_param_type::{McIoTy, McParamArity, McParamType, McParamTypeKind};
+pub use semantic::basic::mc_paramd::{GlobalDiag, GlobalDiagKind};
+pub use semantic::validation as check;
 
 pub use builder::{
     mcb_get_first_module_name, mcb_get_module_name_by_uri, mcb_module_count, mcb_print_lines,

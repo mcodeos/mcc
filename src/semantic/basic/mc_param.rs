@@ -664,8 +664,9 @@ impl McParamBindings {
                 }
                 // E3: check UValue unit vs declared type
                 if let McParamValue::UValue(uval) = val {
-                    if let crate::semantic::basic::mc_paramd::McParamDeclareKind::UValue(ref decl_uv) =
-                        declare.kind
+                    if let crate::semantic::basic::mc_paramd::McParamDeclareKind::UValue(
+                        ref decl_uv,
+                    ) = declare.kind
                     {
                         if &decl_uv.unit != uval.unit() {
                             if let Some(name) = declare.get_primary_name() {

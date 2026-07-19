@@ -17,16 +17,21 @@ pub fn project_symbols() -> Vec<Value> {
     let mut symbols = Vec::new();
 
     for (name, uri, span) in mcb_iter_components_with_span() {
-        symbols.push(serde_json::json!({ "name": name, "kind": "component", "uri": uri, "span": span }));
+        symbols.push(
+            serde_json::json!({ "name": name, "kind": "component", "uri": uri, "span": span }),
+        );
     }
     for (name, uri, span) in mcb_iter_interfaces_with_span() {
-        symbols.push(serde_json::json!({ "name": name, "kind": "interface", "uri": uri, "span": span }));
+        symbols.push(
+            serde_json::json!({ "name": name, "kind": "interface", "uri": uri, "span": span }),
+        );
     }
     for (name, uri, span) in mcb_iter_enums_with_span() {
         symbols.push(serde_json::json!({ "name": name, "kind": "enum", "uri": uri, "span": span }));
     }
     for (name, uri, span) in mcb_iter_modules_with_span() {
-        symbols.push(serde_json::json!({ "name": name, "kind": "module", "uri": uri, "span": span }));
+        symbols
+            .push(serde_json::json!({ "name": name, "kind": "module", "uri": uri, "span": span }));
     }
     for (name, enum_name, uri, span) in mcb_iter_enum_values() {
         symbols.push(serde_json::json!({ "name": name, "kind": "enum_value", "enum": enum_name, "uri": uri, "span": span }));

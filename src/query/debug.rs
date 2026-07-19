@@ -2,21 +2,10 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-
 use crate::builder::*;
-use crate::db::infra::global;
-use crate::db::infra::mc_code::McCode;
 use crate::db::cmie::tables as workspace;
-use crate::semantic::basic::mc_endpoint::McEndpoint;
-use crate::semantic::basic::mc_phrase::McPhrase;
-use crate::semantic::common::IOType;
+use crate::db::infra::global;
 use crate::{McCMIE, McIds, McSpaceName, McURI};
-
-
-use crate::db::infra::init::*;
-use crate::db::cmie::cmie::*;
-use crate::query::lookup::*;
-use crate::query::iterators::*;
 
 // === pub fn mcb_print() { ===
 pub fn mcb_print() {
@@ -146,7 +135,10 @@ pub fn mcb_print_lines() {
 
 // === fn print_phrase_internal(phrase: &crate::semantic::basic::mc_phrase::McPhrase, p ===
 /// Print an McPhrase
-pub(crate) fn print_phrase_internal(phrase: &crate::semantic::basic::mc_phrase::McPhrase, prefix: &str) {
+pub(crate) fn print_phrase_internal(
+    phrase: &crate::semantic::basic::mc_phrase::McPhrase,
+    prefix: &str,
+) {
     use crate::semantic::basic::mc_endpoint::McEndpoint;
     use crate::semantic::basic::mc_phrase::McPhrase;
     match phrase {

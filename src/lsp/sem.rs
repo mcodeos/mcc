@@ -6,8 +6,6 @@
 //!
 //! Extracted from `rpc/handlers/mod.rs`.
 
-use crate::ast::ast_semantic::{SymbolRangeLapper, SymbolType};
-use crate::builder::workspace;
 use crate::McURI;
 use serde_json::{json, Value};
 
