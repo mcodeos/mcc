@@ -142,7 +142,7 @@ impl BoxPin {
 // ============================================================================
 
 /// Component pin-per-edge layout (drawing-side form, decoupled from core layer's
-/// `core::component::mc_layout::McLayout`).
+/// `semantic::component::mc_layout::McLayout`).
 ///
 /// Each Vec contains the pin identifiers on that edge -- `BoxPin.pin_id` (number, like "B"/"1"/"VCC")
 /// **or** `BoxPin.description` (function name, like "Base"), both can match. The order within Vec is

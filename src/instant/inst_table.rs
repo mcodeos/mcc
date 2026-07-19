@@ -15,7 +15,7 @@
 //! ```
 
 use super::mc_mod::McModuleInst;
-use crate::core::common::IOType;
+use crate::semantic::common::IOType;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 // ============================================================================

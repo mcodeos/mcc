@@ -121,7 +121,7 @@ fn check_label_refs(acc: &mut CheckAccumulator) {
             if port_name.starts_with('@') {
                 continue; // Anonymous instances are self-defining
             }
-            let ids = crate::core::basic::mc_ids::McIds::from(port_name.as_str());
+            let ids = crate::semantic::basic::mc_ids::McIds::from(port_name.as_str());
             let candidates = ids.expand();
             let found = if candidates.is_empty() {
                 known.contains(port_name)

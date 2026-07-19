@@ -20,12 +20,12 @@ use super::{
 use crate::{
     ast::ast_node::AstNode,
     ast::c_macros::*,
-    core::basic::mc_bus::{McBus, McList},
-    core::basic::mc_ids::McIds,
-    core::basic::mc_param::McParamValue,
-    core::mc_inst::McInst,
-    core::mc_inst::McInstance,
-    core::mc_inst::McInstances,
+    semantic::basic::mc_bus::{McBus, McList},
+    semantic::basic::mc_ids::McIds,
+    semantic::basic::mc_param::McParamValue,
+    semantic::mc_inst::McInst,
+    semantic::mc_inst::McInstance,
+    semantic::mc_inst::McInstances,
     McURI,
 };
 use std::sync::Arc;
@@ -418,7 +418,7 @@ impl HasFindInst for McComponent {
     fn add_module(
         &mut self,
         _name: String,
-        _module: crate::core::module::Mc2Module,
+        _module: crate::semantic::module::Mc2Module,
     ) -> Option<McPhrase> {
         None
     }

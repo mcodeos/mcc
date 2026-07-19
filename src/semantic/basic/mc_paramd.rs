@@ -2,8 +2,8 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use crate::core::basic::mc_param_type::McParamType;
-use crate::core::basic::mc_uval::McUnitValueDeclare;
+use crate::semantic::basic::mc_param_type::McParamType;
+use crate::semantic::basic::mc_uval::McUnitValueDeclare;
 use crate::McIds;
 use crate::{ast::ast_node::AstNode, ast::c_macros::*, builder::diagnostic::dlog_error};
 use std::collections::HashMap;
@@ -300,8 +300,8 @@ impl McParamDeclares {
     }
 
     /// Compute arity: total, required, and optional parameter counts.
-    pub fn arity(&self) -> crate::core::basic::mc_param_type::McParamArity {
-        crate::core::basic::mc_param_type::McParamArity::from_declares(&self.declares)
+    pub fn arity(&self) -> crate::semantic::basic::mc_param_type::McParamArity {
+        crate::semantic::basic::mc_param_type::McParamArity::from_declares(&self.declares)
     }
 
     /// Finalize parameters after body parsing: run usage inference on Unknown params,
@@ -314,7 +314,7 @@ impl McParamDeclares {
         // Step 1: Run usage-based inference for Unknown params
         if let Some(body_node) = body {
             let unused =
-                crate::core::basic::mc_param_infer::find_unused_params(&self.declares, body_node);
+                crate::semantic::basic::mc_param_infer::find_unused_params(&self.declares, body_node);
             for name in &unused {
                 // Try exact match first, then substring match (def_spans may
                 // store the full form "rs485{A,B}" while display_name returns "rs485").
@@ -346,12 +346,12 @@ impl McParamDeclares {
             // Step 2: Run inference on Unknown (bare identifier) params
             for declare in self.declares.iter_mut() {
                 if declare.param_type.kind
-                    == crate::core::basic::mc_param_type::McParamTypeKind::Unknown
+                    == crate::semantic::basic::mc_param_type::McParamTypeKind::Unknown
                 {
                     if let Some(name) = declare.get_primary_name() {
                         if !unused.contains(&name) {
                             let result =
-                                crate::core::basic::mc_param_infer::infer_param(&name, body_node);
+                                crate::semantic::basic::mc_param_infer::infer_param(&name, body_node);
                             if result.confidence >= 0.7 {
                                 declare.set_param_type(result.param_type);
                             }
@@ -612,12 +612,12 @@ impl McParamDeclare {
     /// Get the class/interface name if this is an interface-typed param (A3-A5).
     pub fn get_class_name(&self) -> Option<String> {
         match &self.param_type.kind {
-            crate::core::basic::mc_param_type::McParamTypeKind::Interface { class_name }
-            | crate::core::basic::mc_param_type::McParamTypeKind::InterfaceWithRole {
+            crate::semantic::basic::mc_param_type::McParamTypeKind::Interface { class_name }
+            | crate::semantic::basic::mc_param_type::McParamTypeKind::InterfaceWithRole {
                 class_name,
                 ..
             }
-            | crate::core::basic::mc_param_type::McParamTypeKind::ComponentInstance {
+            | crate::semantic::basic::mc_param_type::McParamTypeKind::ComponentInstance {
                 class_name,
             } => Some(class_name.clone()),
             _ => None,
@@ -717,14 +717,14 @@ mod tests {
         params.declares.push(McParamDeclare {
             kind: McParamDeclareKind::Single(McIds::from("rs")),
             param_type: McParamType {
-                kind: crate::core::basic::mc_param_type::McParamTypeKind::BareNumeric,
+                kind: crate::semantic::basic::mc_param_type::McParamTypeKind::BareNumeric,
                 direction: None,
             },
         });
         params.declares.push(McParamDeclare {
             kind: McParamDeclareKind::Single(McIds::from("dc24v")),
             param_type: McParamType {
-                kind: crate::core::basic::mc_param_type::McParamTypeKind::Label,
+                kind: crate::semantic::basic::mc_param_type::McParamTypeKind::Label,
                 direction: None,
             },
         });
@@ -755,7 +755,7 @@ mod tests {
         params.declares.push(McParamDeclare {
             kind: McParamDeclareKind::Single(McIds::from("rs")),
             param_type: McParamType {
-                kind: crate::core::basic::mc_param_type::McParamTypeKind::BareNumeric,
+                kind: crate::semantic::basic::mc_param_type::McParamTypeKind::BareNumeric,
                 direction: None,
             },
         });

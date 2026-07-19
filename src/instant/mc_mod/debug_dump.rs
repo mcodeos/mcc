@@ -31,8 +31,8 @@
 
 use super::super::mc_net::{canonicalize_path, NetPoint};
 use super::McModuleInst;
-use crate::core::common::IOType;
-use crate::core::mc_inst::McInstance;
+use crate::semantic::common::IOType;
+use crate::semantic::mc_inst::McInstance;
 use std::sync::OnceLock;
 
 // ============================================================================

@@ -9,11 +9,11 @@
 //! - Phase 4: Connection line processing entry
 
 use super::McModuleInst;
-use crate::core::basic::mc_bus::McBus;
-use crate::core::basic::mc_param::{McParamBindings, McParamValue};
-use crate::core::common::IOType;
-use crate::core::component::McComponent;
-use crate::core::mc_inst::McInstance;
+use crate::semantic::basic::mc_bus::McBus;
+use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
+use crate::semantic::common::IOType;
+use crate::semantic::component::McComponent;
+use crate::semantic::mc_inst::McInstance;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{canonicalize_path, ConnectionInst, InstError, NetPoint, PortInst};
 use std::collections::HashSet;

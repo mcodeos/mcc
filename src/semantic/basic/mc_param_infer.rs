@@ -11,9 +11,9 @@
 
 use crate::ast::ast_node::AstNode;
 use crate::ast::c_macros::*;
-use crate::core::basic::mc_param_type::{McParamType, McParamTypeKind};
-use crate::core::basic::mc_paramd::McParamDeclare;
-use crate::core::basic::mc_uval::McUnit;
+use crate::semantic::basic::mc_param_type::{McParamType, McParamTypeKind};
+use crate::semantic::basic::mc_paramd::McParamDeclare;
+use crate::semantic::basic::mc_uval::McUnit;
 
 // ============================================================================
 // Usage Site

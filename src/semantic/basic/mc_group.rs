@@ -5,10 +5,10 @@
 use super::mc_phrase::McPhrase;
 use crate::ast::ast_node::AstNode;
 use crate::builder::diagnostic::dlog_trace;
-use crate::core::basic::mc_bus::McBus;
-use crate::core::basic::mc_endpoint::{McEndpoint, McInstanceRef};
-use crate::core::mc_func::HasFindInst;
-use crate::core::mc_inst::McInstance;
+use crate::semantic::basic::mc_bus::McBus;
+use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
+use crate::semantic::mc_func::HasFindInst;
+use crate::semantic::mc_inst::McInstance;
 
 /// Group
 #[derive(Debug, Clone)]

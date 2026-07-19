@@ -4,7 +4,7 @@
 
 use crate::ast::ast_node::AstNode;
 use crate::ast::c_macros::*;
-use crate::core::basic::mc_uval::McUnitValue;
+use crate::semantic::basic::mc_uval::McUnitValue;
 use std::fmt;
 
 /// Basic data types

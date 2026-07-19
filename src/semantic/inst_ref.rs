@@ -5,7 +5,7 @@
 use crate::{
     ast::ast_node::AstNode,
     builder::diagnostic::dlog_error,
-    core::{
+    semantic::{
         basic::mc_bus::McBus,
         basic::mc_endpoint::{McEndpoint, McInstanceRef},
         basic::mc_ids::McIds,
@@ -101,7 +101,7 @@ fn validate_inst_member_ref(
 fn validate_component_pin_ref(
     base_name: &str,
     members: &[String],
-    comp: &crate::core::component::Mc2Component,
+    comp: &crate::semantic::component::Mc2Component,
     context: &mut dyn HasFindInst,
     node: &AstNode,
 ) -> Option<McPhrase> {
@@ -125,7 +125,7 @@ fn validate_component_pin_ref(
     // build { user alias → Interface entry key } map.
     // When a match is found, convert user alias to "Interface entry key.member" form,
     // so that connection generation can hit registered paths.
-    use crate::core::component::mc_pins::McPinPort;
+    use crate::semantic::component::mc_pins::McPinPort;
     let mut iface_alias_to_key: std::collections::HashMap<String, String> =
         std::collections::HashMap::new();
     for (key, port) in comp.base.pins.names_to_id.iter() {
@@ -325,7 +325,7 @@ fn validate_component_pin_ref(
 fn validate_module_port_ref(
     base_name: &str,
     members: &[String],
-    module: &crate::core::module::Mc2Module,
+    module: &crate::semantic::module::Mc2Module,
     _context: &mut dyn HasFindInst,
     node: &AstNode,
 ) -> Option<McPhrase> {
@@ -388,7 +388,7 @@ fn validate_module_port_ref(
 fn validate_interface_member_ref(
     base_name: &str,
     members: &[String],
-    iface: &crate::core::mc_ifs::Mc2Interface,
+    iface: &crate::semantic::mc_ifs::Mc2Interface,
     _context: &mut dyn HasFindInst,
     node: &AstNode,
 ) -> Option<McPhrase> {
@@ -497,13 +497,13 @@ pub fn validate_inst_reference(
     };
 
     let _kind = match context.find_inst(&base_name) {
-        Some(crate::core::mc_inst::McInstance::Module(_)) => "Module",
-        Some(crate::core::mc_inst::McInstance::Component(_)) => "Component",
-        Some(crate::core::mc_inst::McInstance::Label(_)) => "Label",
-        Some(crate::core::mc_inst::McInstance::Bus(_)) => "Bus",
-        Some(crate::core::mc_inst::McInstance::Interface(_)) => "Interface",
-        Some(crate::core::mc_inst::McInstance::List(_)) => "List",
-        Some(crate::core::mc_inst::McInstance::Unresolved { .. }) => "Unresolved",
+        Some(crate::semantic::mc_inst::McInstance::Module(_)) => "Module",
+        Some(crate::semantic::mc_inst::McInstance::Component(_)) => "Component",
+        Some(crate::semantic::mc_inst::McInstance::Label(_)) => "Label",
+        Some(crate::semantic::mc_inst::McInstance::Bus(_)) => "Bus",
+        Some(crate::semantic::mc_inst::McInstance::Interface(_)) => "Interface",
+        Some(crate::semantic::mc_inst::McInstance::List(_)) => "List",
+        Some(crate::semantic::mc_inst::McInstance::Unresolved { .. }) => "Unresolved",
         Some(_) => "Other",
         None => "NotFound",
     };

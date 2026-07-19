@@ -6,19 +6,19 @@ pub mod dynamic;
 
 use crate::builder::diagnostic::dlog_trace;
 use crate::builder::mcb_get_cmie;
-use crate::core::basic::mc_bus::McBus;
-use crate::core::basic::mc_ida::IdaSegment;
-use crate::core::basic::mc_ids::IdsSegment;
-use crate::core::component::mc_attr::{McAttrVal, McAttribute};
-use crate::core::mc_ifs::Mc2Interface;
+use crate::semantic::basic::mc_bus::McBus;
+use crate::semantic::basic::mc_ida::IdaSegment;
+use crate::semantic::basic::mc_ids::IdsSegment;
+use crate::semantic::component::mc_attr::{McAttrVal, McAttribute};
+use crate::semantic::mc_ifs::Mc2Interface;
 use crate::{
     ast::ast_node::AstNode,
     ast::c_macros::*,
     ast::error::message::*,
     builder::diagnostic::{dlog_error, dlog_warning},
-    core::basic::mc_expr::McExpression,
-    core::basic::mc_param::McParamValue,
-    core::common::IOType,
+    semantic::basic::mc_expr::McExpression,
+    semantic::basic::mc_param::McParamValue,
+    semantic::common::IOType,
 };
 use crate::{McCMIE, McIds, McInt};
 use std::collections::{BTreeMap, BTreeSet};
@@ -1874,7 +1874,7 @@ impl McPinNames {
                                                                 }
                                                             }
                                                             MCAST_UVALUE | MCAST_UVALUE_AT => {
-                                                                if let Some(uv) = crate::core::basic::mc_uval::McUnitValue::new(&value_node) {
+                                                                if let Some(uv) = crate::semantic::basic::mc_uval::McUnitValue::new(&value_node) {
                                                                     params.push(McParamValue::UValue(uv));
                                                                 }
                                                             }
@@ -2177,8 +2177,8 @@ pub(crate) fn derive_interface_subnames(inst_name: &McIds, iface_pins: &[String]
 #[cfg(test)]
 mod subname_tests {
     use super::*;
-    use crate::core::basic::mc_ida::{IdaSegment, McIda};
-    use crate::core::basic::mc_ids::IdsSegment;
+    use crate::semantic::basic::mc_ida::{IdaSegment, McIda};
+    use crate::semantic::basic::mc_ids::IdsSegment;
 
     /// Construct a plain Ida (like `DC1`)
     fn ida(name: &str) -> McIda {

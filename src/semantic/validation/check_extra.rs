@@ -210,7 +210,7 @@ fn check_interface_pin_counts(acc: &mut CheckAccumulator) {
         }
         let comp = entry.value();
         for (pin_name, port) in &comp.pins.names_to_id {
-            if let crate::core::component::mc_pins::McPinPort::Interface(iface) = port {
+            if let crate::semantic::component::mc_pins::McPinPort::Interface(iface) = port {
                 let iface_name = iface.name.to_string();
                 let iface_pin_count = iface.base.pins.names_to_id.len();
                 // Check each physical pin binding
@@ -327,7 +327,7 @@ fn check_interface_structure(acc: &mut CheckAccumulator) {
 
 /// N5 + R8: default value type mismatch for typed parameters.
 fn check_default_type_mismatch(acc: &mut CheckAccumulator) {
-    use crate::core::basic::mc_param_type::McParamTypeKind;
+    use crate::semantic::basic::mc_param_type::McParamTypeKind;
     let comps = crate::builder::workspace::WORKSPACE.components.borrow();
     for entry in comps.iter() {
         let comp = entry.value();
@@ -723,7 +723,7 @@ fn check_port_direction_mismatch(acc: &mut CheckAccumulator) {
 /// Heuristic: if a param is BasicInt and its default is negative, flag it
 /// as potentially out of range (most integer params expect non-negative).
 fn check_default_value_range(acc: &mut CheckAccumulator) {
-    use crate::core::basic::mc_param_type::McParamTypeKind;
+    use crate::semantic::basic::mc_param_type::McParamTypeKind;
     let comps = crate::builder::workspace::WORKSPACE.components.borrow();
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
@@ -913,7 +913,7 @@ fn check_duplicate_spec_keys(acc: &mut CheckAccumulator) {
 
             // Spec values are structured as McAttrVal::Attributes containing sub-attributes
             for val in &attr.values {
-                if let crate::core::component::mc_attr::McAttrVal::Attributes(sub_attrs) = val {
+                if let crate::semantic::component::mc_attr::McAttrVal::Attributes(sub_attrs) = val {
                     let mut seen_keys: HashSet<String> = HashSet::new();
                     for sub in sub_attrs.iter() {
                         let sub_key = sub.id.to_string();

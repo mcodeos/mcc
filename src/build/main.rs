@@ -342,7 +342,7 @@ pub fn mcb_parse_all_modules() {
     // ★ Validation: run PostParse checks after all modules parsed (once)
     {
         use crate::builder::diagnostic::{diagnostic_log, DiagnosticLevel};
-        use crate::core::validation::{CheckRegistry, PostParseContext};
+        use crate::semantic::validation::{CheckRegistry, PostParseContext};
         use std::sync::LazyLock;
         static POST_PARSE_RUN: LazyLock<std::sync::Mutex<bool>> =
             LazyLock::new(|| std::sync::Mutex::new(false));
@@ -358,10 +358,10 @@ pub fn mcb_parse_all_modules() {
                     crate::current_uri::set(&McURI::from(uri.as_str()));
                 }
                 let level = match r.severity {
-                    crate::core::validation::CheckSeverity::Error => DiagnosticLevel::Error,
-                    crate::core::validation::CheckSeverity::Warning => DiagnosticLevel::Warning,
-                    crate::core::validation::CheckSeverity::Info => DiagnosticLevel::Info,
-                    crate::core::validation::CheckSeverity::Hint => DiagnosticLevel::Hint,
+                    crate::semantic::validation::CheckSeverity::Error => DiagnosticLevel::Error,
+                    crate::semantic::validation::CheckSeverity::Warning => DiagnosticLevel::Warning,
+                    crate::semantic::validation::CheckSeverity::Info => DiagnosticLevel::Info,
+                    crate::semantic::validation::CheckSeverity::Hint => DiagnosticLevel::Hint,
                 };
                 let (pos, len) = r
                     .span
@@ -659,7 +659,7 @@ pub fn mcb_pass2_flat(
     let inst = mcb_pass2(entry)?;
     let table = crate::instant::inst_table::InstTable::from_module_inst(&inst, start_id);
     // ★ Electrical checks after pass2
-    let net_results = crate::core::check::nets::run_net_checks(&table);
+    let net_results = crate::semantic::validation::nets::run_net_checks(&table);
     let saved_uri = crate::current_uri::try_get();
     for r in &net_results {
         // Switch to the file this diagnostic belongs to
@@ -1686,7 +1686,7 @@ pub fn lookup_sub_def(
 
 /// Helper: find a param def span by name using the public iterator.
 fn find_param_def_span(
-    params: &crate::core::basic::mc_param::McParamDeclares,
+    params: &crate::semantic::basic::mc_param::McParamDeclares,
     name: &str,
 ) -> Option<Range<usize>> {
     for (n, span) in params.iter_defs_with_span() {
@@ -1699,7 +1699,7 @@ fn find_param_def_span(
 
 /// Helper: find a param port span by name using the public iterator.
 fn find_param_port_span(
-    params: &crate::core::basic::mc_param::McParamDeclares,
+    params: &crate::semantic::basic::mc_param::McParamDeclares,
     name: &str,
 ) -> Option<Range<usize>> {
     for (n, span) in params.iter_ports_with_span() {
@@ -1712,7 +1712,7 @@ fn find_param_port_span(
 
 /// Look up a sub-element within a [`McComponent`].
 fn lookup_in_component(
-    comp: &crate::core::component::McComponent,
+    comp: &crate::semantic::component::McComponent,
     kind: SubElementKind,
     name: &str,
 ) -> Option<Range<usize>> {
@@ -1754,7 +1754,7 @@ fn lookup_in_module(module: &McModule, kind: SubElementKind, name: &str) -> Opti
 
 /// Look up a sub-element within a [`McInterface`].
 fn lookup_in_interface(
-    iface: &crate::core::mc_ifs::McInterface,
+    iface: &crate::semantic::mc_ifs::McInterface,
     kind: SubElementKind,
     name: &str,
 ) -> Option<Range<usize>> {
@@ -1769,7 +1769,7 @@ fn lookup_in_interface(
 
 /// Look up a sub-element within a [`McEnumDef`].
 fn lookup_in_enum(
-    enum_def: &crate::core::mc_enum::McEnumDef,
+    enum_def: &crate::semantic::mc_enum::McEnumDef,
     kind: SubElementKind,
     name: &str,
 ) -> Option<Range<usize>> {
@@ -2066,9 +2066,9 @@ pub fn mcb_print_lines() {
 }
 
 /// Print an McPhrase
-fn print_phrase_internal(phrase: &crate::core::basic::mc_phrase::McPhrase, prefix: &str) {
-    use crate::core::basic::mc_endpoint::McEndpoint;
-    use crate::core::basic::mc_phrase::McPhrase;
+fn print_phrase_internal(phrase: &crate::semantic::basic::mc_phrase::McPhrase, prefix: &str) {
+    use crate::semantic::basic::mc_endpoint::McEndpoint;
+    use crate::semantic::basic::mc_phrase::McPhrase;
     match phrase {
         McPhrase::Series(phrases) => {
             if phrases.is_empty() {
@@ -2493,7 +2493,7 @@ pub fn mcb_iter_enum_values() -> Vec<(String, String, String, [u32; 2])> {
 /// Iterate all module port definitions (ps/io/in/out).
 /// Returns Vec of (port_name, iotype, module_name, uri).
 pub fn mcb_iter_ports() -> Vec<(String, String, String, String)> {
-    use crate::core::common::IOType;
+    use crate::semantic::common::IOType;
 
     let mut ports: Vec<(String, String, String, String)> = Vec::new();
 

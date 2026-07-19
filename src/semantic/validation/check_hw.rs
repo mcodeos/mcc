@@ -593,7 +593,7 @@ fn check_unused_interface(acc: &mut CheckAccumulator) {
     for entry in comps.iter() {
         let comp = entry.value();
         for (_pin_name, port) in &comp.pins.names_to_id {
-            if let crate::core::component::mc_pins::McPinPort::Interface(iface) = port {
+            if let crate::semantic::component::mc_pins::McPinPort::Interface(iface) = port {
                 used_ifaces.insert(iface.name.to_string());
             }
         }

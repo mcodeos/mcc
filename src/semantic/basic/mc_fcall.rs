@@ -12,12 +12,12 @@ use crate::ast::ast_node::AstNode;
 use crate::ast::c_macros::*;
 use crate::builder::diagnostic::dlog_error;
 use crate::builder::{mcb_get_cmie, mcb_register_declare_class};
-use crate::core::common::McCMIE;
-use crate::core::component::Mc2Component;
-use crate::core::mc_func::{HasFindInst, McFuncReturn};
-use crate::core::mc_ifs::Mc2Interface;
-use crate::core::mc_inst::McInstance;
-use crate::core::module::Mc2Module;
+use crate::semantic::common::McCMIE;
+use crate::semantic::component::Mc2Component;
+use crate::semantic::mc_func::{HasFindInst, McFuncReturn};
+use crate::semantic::mc_ifs::Mc2Interface;
+use crate::semantic::mc_inst::McInstance;
+use crate::semantic::module::Mc2Module;
 use std::sync::Arc;
 
 /// Function call

@@ -7,12 +7,12 @@
 //! McComponentInst
 
 use super::mc_net::{InstError, NetPoint};
-use crate::core::basic::mc_conds::McConds;
-use crate::core::basic::mc_expr::McExpression;
-use crate::core::basic::mc_param::{McParamBindings, McParamValue};
-use crate::core::basic::mc_paramd::McParamDeclareKind;
-use crate::core::common::IOType;
-use crate::core::component::McComponent;
+use crate::semantic::basic::mc_conds::McConds;
+use crate::semantic::basic::mc_expr::McExpression;
+use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
+use crate::semantic::basic::mc_paramd::McParamDeclareKind;
+use crate::semantic::common::IOType;
+use crate::semantic::component::McComponent;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -39,10 +39,10 @@ pub struct McComponentInst {
     pub cond_pin_names: HashMap<String, Vec<String>>,
 
     /// Attributes resolved from conditional attribute blocks
-    pub cond_attrs: Vec<crate::core::component::mc_attr::McAttribute>,
+    pub cond_attrs: Vec<crate::semantic::component::mc_attr::McAttribute>,
 
     /// Resolved attributes (attr values with parameter references substituted at instantiation time)
-    pub resolved_attrs: Vec<crate::core::component::mc_attr::McAttribute>,
+    pub resolved_attrs: Vec<crate::semantic::component::mc_attr::McAttribute>,
 
     /// NC (Not Connected) instance
     pub nc: bool,
@@ -235,9 +235,9 @@ impl McComponentInst {
     /// Resolve a single McAttrVal by substituting parameter references.
     fn resolve_attr_value(
         &self,
-        val: &crate::core::component::mc_attr::McAttrVal,
-    ) -> crate::core::component::mc_attr::McAttrVal {
-        use crate::core::component::mc_attr::McAttrVal;
+        val: &crate::semantic::component::mc_attr::McAttrVal,
+    ) -> crate::semantic::component::mc_attr::McAttrVal {
+        use crate::semantic::component::mc_attr::McAttrVal;
         match val {
             McAttrVal::AttrVariable(opd, _) => {
                 // Look up the variable name in parameter bindings and return its bound value
@@ -247,8 +247,8 @@ impl McComponentInst {
                     let name = &names[0];
                     if let Some(value_str) = self.lookup_param_value(name) {
                         return McAttrVal::AttrLiteral(
-                            crate::core::basic::mc_literal::McLiteral::String(
-                                crate::core::basic::mc_literal::McString { value: value_str },
+                            crate::semantic::basic::mc_literal::McLiteral::String(
+                                crate::semantic::basic::mc_literal::McString { value: value_str },
                             ),
                         );
                     }
@@ -262,8 +262,8 @@ impl McComponentInst {
                 // e.g. "Test: " + polarity + " expression" with polarity="center_positive"
                 //      -> "Test: center_positive expression"
                 if let Some(resolved) = self.resolve_expr_to_literal(expr) {
-                    McAttrVal::AttrLiteral(crate::core::basic::mc_literal::McLiteral::String(
-                        crate::core::basic::mc_literal::McString { value: resolved },
+                    McAttrVal::AttrLiteral(crate::semantic::basic::mc_literal::McLiteral::String(
+                        crate::semantic::basic::mc_literal::McString { value: resolved },
                     ))
                 } else {
                     val.clone()
@@ -306,15 +306,15 @@ impl McComponentInst {
         //    (used when no arguments were passed, e.g. TEST_EXPRESSION u1)
         for declare in self.def.params.iter() {
             match &declare.kind {
-                crate::core::basic::mc_paramd::McParamDeclareKind::UValue(uval) => {
+                crate::semantic::basic::mc_paramd::McParamDeclareKind::UValue(uval) => {
                     if uval.name.get_primary_name().as_deref() == Some(name) {
                         if let Some(ref default) = uval.default {
                             return Some(default.clone());
                         }
                     }
                 }
-                crate::core::basic::mc_paramd::McParamDeclareKind::Single(ids)
-                | crate::core::basic::mc_paramd::McParamDeclareKind::Role(ids) => {
+                crate::semantic::basic::mc_paramd::McParamDeclareKind::Single(ids)
+                | crate::semantic::basic::mc_paramd::McParamDeclareKind::Role(ids) => {
                     if ids.get_primary_name().as_deref() == Some(name) {
                         return Some(String::new());
                     }
@@ -467,7 +467,7 @@ impl McComponentInst {
             if let McParamDeclareKind::UValue(uval) = &binding.declare.kind {
                 let name = uval.name.get_primary_name().unwrap_or_default();
                 if let Some(value) = &binding.value {
-                    if let crate::core::basic::mc_param::McParamValue::Int(int_val) = value {
+                    if let crate::semantic::basic::mc_param::McParamValue::Int(int_val) = value {
                         bindings.push((name, int_val.value));
                     }
                 } else if let Some(ref default_str) = uval.default {
@@ -684,7 +684,7 @@ impl McComponentInst {
     pub fn find_bus_port_pin_ids(&self, port_name: &str) -> Option<Vec<String>> {
         // ── [P2-FBPPI] Temporary probe (commented)
         // if port_name.starts_with("UART") {
-        //     use crate::core::component::mc_pins::McPinPort;
+        //     use crate::semantic::component::mc_pins::McPinPort;
         //     let kind = self.def.pins.names_to_id.get(port_name).map(|p| match p {
         //         McPinPort::Single(id) => format!("Single({})", id),
         //         McPinPort::Bus(_) => "Bus".to_string(),
@@ -716,7 +716,7 @@ impl McComponentInst {
         //     eprintln!("[P2-FBPPI-RAW] {:?}", raw_pins);
         // }
 
-        use crate::core::component::mc_pins::McPinPort;
+        use crate::semantic::component::mc_pins::McPinPort;
 
         if self.def.name.to_string().contains("US513_20_F")
             || self.def.name.to_string().contains("GD25Q32E")

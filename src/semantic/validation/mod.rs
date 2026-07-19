@@ -70,8 +70,8 @@ pub struct CheckResult {
 pub struct InstantContext<'a> {
     pub def_name: &'a str,
     pub def_uri: &'a McURI,
-    pub params: &'a crate::core::basic::mc_param::McParamDeclares,
-    pub insts: Option<&'a crate::core::mc_inst::McInstances>,
+    pub params: &'a crate::semantic::basic::mc_param::McParamDeclares,
+    pub insts: Option<&'a crate::semantic::mc_inst::McInstances>,
 }
 
 // ============================================================================
@@ -204,3 +204,4 @@ pub mod check_ports;
 pub mod check_refs;
 pub mod check_style;
 pub mod check_types;
+pub mod nets;

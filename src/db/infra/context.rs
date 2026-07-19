@@ -2,9 +2,16 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use std::cell::RefCell;
+//! Infra context: current URI tracking.
+//!
+//! Originally `builder/current_uri.rs`. Roots and parsing state remain in `db/infra/global.rs`.
 
 use crate::McURI;
+use std::cell::RefCell;
+
+// ============================================================================
+// Current URI (thread-local)
+// ============================================================================
 
 thread_local! {
     static CURRENT_URI: RefCell<Option<McURI>> = const { RefCell::new(None) };

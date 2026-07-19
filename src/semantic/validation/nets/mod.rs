@@ -6,7 +6,7 @@
 //!
 //! Runs after `mcb_pass2()` when the full flattened netlist (`InstTable`) is available.
 
-use crate::core::common::IOType;
+use crate::semantic::common::IOType;
 use crate::instant::inst_table::{InstEntry, InstTable, NetEntry};
 use std::collections::HashSet;
 /// Run all electrical net checks and return diagnostics.

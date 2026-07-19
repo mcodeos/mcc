@@ -5,7 +5,7 @@
 use crate::{
     ast::{ast_node::AstNode, c_macros::*, error::message::*},
     builder::diagnostic::dlog_error,
-    core::{
+    semantic::{
         basic::mc_expr::McExpression, basic::mc_kvs::McKVS, basic::mc_literal::McLiteral,
         basic::mc_uval::McUnitValue,
     },

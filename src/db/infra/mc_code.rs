@@ -8,12 +8,12 @@ use crate::ast::ast_semantic::{
 };
 use crate::ast::ast_token::McSemTokens;
 use crate::ast::error::message::MISSING_SUBNODE;
-use crate::builder::diagnostic::dlog_error;
+use crate::db::diagnostic::diagnostic::dlog_error;
 use crate::builder::global;
-use crate::builder::mc_use::McUse;
+use crate::db::infra::mc_use::McUse;
 use crate::builder::workspace;
-use crate::core::mc_enum::McEnumDef;
-use crate::core::mc_ifs::McInterface;
+use crate::semantic::mc_enum::McEnumDef;
+use crate::semantic::mc_ifs::McInterface;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Global deduplication flag: each parse cycle outputs AST visit only once
@@ -23,7 +23,7 @@ pub static AST_VISIT_DONE: AtomicBool = AtomicBool::new(false);
 pub fn mcb_reset_ast_visit_flag() {
     AST_VISIT_DONE.store(false, Ordering::SeqCst);
 }
-use crate::{ast::ast_node::AstNode, ast::c_macros::*, core::common::McCMIE};
+use crate::{ast::ast_node::AstNode, ast::c_macros::*, semantic::common::McCMIE};
 use crate::{current_uri, McComponent, McIds, McModule, McSpaceName, McURI};
 use core::panic;
 use line_index::LineIndex;
@@ -1021,7 +1021,7 @@ impl McCode {
                     }
                 }
                 MCAST_DEFINE => {
-                    if let Some(def) = crate::core::mc_define::McDefineDef::new(&node, &self.uri) {
+                    if let Some(def) = crate::semantic::mc_define::McDefineDef::new(&node, &self.uri) {
                         let space_name = McSpaceName {
                             ident: def.name.clone(),
                             uri: self.uri.clone(),
@@ -1330,7 +1330,7 @@ impl McCode {
         name: &str,
         scope: Option<&str>,
     ) -> Option<crate::ast::ast_semantic::DeclareId> {
-        crate::builder::workspace::WORKSPACE
+        crate::db::cmie::tables::WORKSPACE
             .global_inst_table
             .lock()
             .ok()
@@ -1439,7 +1439,7 @@ impl McCode {
                         // then populate span_to_declare_class_id via add_declare_class(),
                         // THEN iterate span_to_declare_class_id to insert into symbol_lapper.
                         {
-                            let mut decl_refs = crate::builder::workspace::WORKSPACE
+                            let mut decl_refs = crate::db::cmie::tables::WORKSPACE
                                 .global_declare_class_refs
                                 .lock()
                                 .unwrap();
@@ -1504,7 +1504,7 @@ impl McCode {
                 // ★ LSP: Get instance declarations from workspace global table (cross-file)
                 // and also add to local_table so LSP handler can find them
                 {
-                    let inst_table = crate::builder::workspace::WORKSPACE
+                    let inst_table = crate::db::cmie::tables::WORKSPACE
                         .global_inst_table
                         .lock()
                         .unwrap();
@@ -1561,7 +1561,7 @@ impl McCode {
 
                 // ★ LSP: Also add global instance references
                 let global_ref_count = {
-                    let inst_table = crate::builder::workspace::WORKSPACE
+                    let inst_table = crate::db::cmie::tables::WORKSPACE
                         .global_inst_table
                         .lock()
                         .unwrap();
@@ -1607,7 +1607,7 @@ impl McCode {
 
                 // ★ LSP: Add interface definitions + param port_definitions
                 {
-                    let interfaces = crate::builder::workspace::WORKSPACE.interfaces.borrow();
+                    let interfaces = crate::db::cmie::tables::WORKSPACE.interfaces.borrow();
                     for entry in interfaces.iter() {
                         let iface = entry.value();
                         if iface.uri.as_str() == uri_str {
@@ -1638,7 +1638,7 @@ impl McCode {
                             // Register attribute variable references linked to param decls
                             for attr in iface.attrs.iter() {
                                 for val in &attr.values {
-                                    if let crate::core::component::mc_attr::McAttrVal::AttrVariable(opd, Some(span)) = val {
+                                    if let crate::semantic::component::mc_attr::McAttrVal::AttrVariable(opd, Some(span)) = val {
                                         let var_name = opd.to_string();
                                         let decl_id = param_decl_ids.get(&var_name).copied().unwrap_or(DeclareId::new(0));
                                         sem.local_table.add_inst(span.clone(), decl_id);
@@ -1670,7 +1670,7 @@ impl McCode {
                     }
                     drop(interfaces);
 
-                    let global_interfaces = crate::builder::global::mcc_interfaces.borrow();
+                    let global_interfaces = crate::db::infra::global::mcc_interfaces.borrow();
                     for entry in global_interfaces.iter() {
                         let iface = entry.value();
                         if iface.uri.as_str() == uri_str {
@@ -1699,7 +1699,7 @@ impl McCode {
                             }
                             for attr in iface.attrs.iter() {
                                 for val in &attr.values {
-                                    if let crate::core::component::mc_attr::McAttrVal::AttrVariable(opd, Some(span)) = val {
+                                    if let crate::semantic::component::mc_attr::McAttrVal::AttrVariable(opd, Some(span)) = val {
                                         let var_name = opd.to_string();
                                         let decl_id = param_decl_ids.get(&var_name).copied().unwrap_or(DeclareId::new(0));
                                         sem.local_table.add_inst(span.clone(), decl_id);
@@ -1732,7 +1732,7 @@ impl McCode {
 
                 // ★ LSP: Add module port definitions to symbol_lapper and local_table
                 {
-                    let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
+                    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
                     for entry in modules.iter() {
                         let m = entry.value();
                         // Only process modules that belong to the current file
@@ -1853,7 +1853,7 @@ impl McCode {
                             sem.symbol_scope
                                 .insert((span.start, span.end), mod_ident_label.clone());
                             // ★ Register in global instance table for cross-file lookup
-                            if let Ok(mut ginst) = crate::builder::workspace::WORKSPACE
+                            if let Ok(mut ginst) = crate::db::cmie::tables::WORKSPACE
                                 .global_inst_table
                                 .lock()
                             {
@@ -1873,7 +1873,7 @@ impl McCode {
 
                 // ★ G2: Register function parameter refs from module functions
                 {
-                    let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
+                    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
                     for entry in modules.iter() {
                         let m = entry.value();
                         if entry.key().uri.as_str() != self.uri.as_str() {
@@ -1917,7 +1917,7 @@ impl McCode {
                                 sem.symbol_scope
                                     .insert((span.start, span.end), func_scope.clone());
                                 // ★ Register in global instance table for cross-file lookup
-                                if let Ok(mut ginst) = crate::builder::workspace::WORKSPACE
+                                if let Ok(mut ginst) = crate::db::cmie::tables::WORKSPACE
                                     .global_inst_table
                                     .lock()
                                 {
@@ -1936,7 +1936,7 @@ impl McCode {
                 // ★ LSP: Add component parameter definitions to symbol_lapper
                 //   (e.g. `component RESA(rs, volt)` -> rs, volt are PortDefinition)
                 {
-                    let components = crate::builder::workspace::WORKSPACE.components.borrow();
+                    let components = crate::db::cmie::tables::WORKSPACE.components.borrow();
                     for entry in components.iter() {
                         let comp = entry.value();
                         if entry.key().uri.as_str() != self.uri.as_str() {
@@ -2026,7 +2026,7 @@ impl McCode {
                             sem.symbol_scope
                                 .insert((span.start, span.end), comp_ident_label.clone());
                             // ★ Register in global instance table for cross-file lookup
-                            if let Ok(mut ginst) = crate::builder::workspace::WORKSPACE
+                            if let Ok(mut ginst) = crate::db::cmie::tables::WORKSPACE
                                 .global_inst_table
                                 .lock()
                             {
@@ -2055,7 +2055,7 @@ impl McCode {
                     fn attr_key_name(attr_node: &AstNode) -> Option<String> {
                         let sub = attr_node.get_sub_node()?;
                         let ids_node = sub.get_sub_node()?;
-                        crate::core::basic::mc_ids::McIds::new(&ids_node).map(|ids| ids.to_string())
+                        crate::semantic::basic::mc_ids::McIds::new(&ids_node).map(|ids| ids.to_string())
                     }
 
                     fn extract_dot_pair(
@@ -2093,9 +2093,9 @@ impl McCode {
                         }
                         let member_node = dot_node.get_sub_node()?;
                         let (base_name, member_name) = {
-                            let base = crate::core::basic::mc_ids::McIds::new(&first_id)
+                            let base = crate::semantic::basic::mc_ids::McIds::new(&first_id)
                                 .map(|i| i.to_string())?;
-                            let mem = crate::core::basic::mc_ids::McIds::new(&member_node)
+                            let mem = crate::semantic::basic::mc_ids::McIds::new(&member_node)
                                 .map(|i| i.to_string())?;
                             (base, mem)
                         };
@@ -2119,7 +2119,7 @@ impl McCode {
                     }
 
                     fn single_id_text(node: &AstNode) -> Option<String> {
-                        crate::core::basic::mc_ids::McIds::new(node).map(|ids| ids.to_string())
+                        crate::semantic::basic::mc_ids::McIds::new(node).map(|ids| ids.to_string())
                     }
 
                     // `AstNode::iter()` only walks sibling nodes (via `.next`), it does
@@ -2213,7 +2213,7 @@ impl McCode {
                                 let mut idx = None;
                                 {
                                     let enums_guard =
-                                        crate::builder::workspace::WORKSPACE.enums.borrow();
+                                        crate::db::cmie::tables::WORKSPACE.enums.borrow();
                                     for entry in enums_guard.iter() {
                                         if entry.key().ident.to_string() != base_name {
                                             continue;
@@ -2229,7 +2229,7 @@ impl McCode {
                                 }
                                 if idx.is_none() {
                                     let sys_enums_guard =
-                                        crate::builder::global::mcc_enums.borrow();
+                                        crate::db::infra::global::mcc_enums.borrow();
                                     for entry in sys_enums_guard.iter() {
                                         if entry.key().ident.to_string() != base_name {
                                             continue;
@@ -2361,7 +2361,7 @@ impl McCode {
                             if let Some(name_node) = node.get_sub_node() {
                                 let enclosing = default_container.clone();
                                 let func_name = ids_node
-                                    .and_then(|n| crate::core::basic::mc_ids::McIds::new(&n))
+                                    .and_then(|n| crate::semantic::basic::mc_ids::McIds::new(&n))
                                     .map(|ids| ids.to_string());
                                 let scope = match (&enclosing, &func_name) {
                                     (Some(m), Some(f)) => Some(format!("{m}.{f}")),
@@ -2384,7 +2384,7 @@ impl McCode {
                                 {
                                     // Use the same scope as FunctionDefinition (enclosing.funcName)
                                     let func_scope = scope.clone().unwrap_or_else(|| {
-                                        crate::core::basic::mc_ids::McIds::new(&name_node)
+                                        crate::semantic::basic::mc_ids::McIds::new(&name_node)
                                             .map(|ids| ids.to_string())
                                             .unwrap_or_default()
                                     });
@@ -2475,7 +2475,7 @@ impl McCode {
                                     .as_ref()
                                     .map(|s| s.get_type() == MCAST_INSTANCE)
                                     .unwrap_or(false);
-                                let func_name = crate::core::basic::mc_ids::McIds::new(&nn)
+                                let func_name = crate::semantic::basic::mc_ids::McIds::new(&nn)
                                     .map(|ids| ids.to_string());
                                 if has_instance {
                                     // For method calls, try to reuse the FunctionDefinition's
