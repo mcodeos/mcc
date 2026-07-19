@@ -106,20 +106,7 @@ pub fn handle_refs(params: Option<Value>) -> RpcResult {
     }
 
     let p: RefsParams = parse_strict(params)?;
-    let refs = crate::mcb_get_refs(&p.name);
-
-    let items: Vec<Value> = refs
-        .iter()
-        .map(|(uri, scope, span)| {
-            json!({
-                "uri": uri,
-                "scope": scope,
-                "pos": span.start,
-                "end": span.end,
-            })
-        })
-        .collect();
-
+    let items = crate::lsp::references::find(&p.name);
     Ok(json!({ "name": p.name, "count": items.len(), "refs": items }))
 }
 
@@ -137,46 +124,13 @@ pub fn handle_def(params: Option<Value>) -> RpcResult {
     }
 
     let p: DefParams = parse_strict(params)?;
-    let name = &p.name;
-
-    let iterators: [(&str, Vec<(String, String)>); 4] = [
-        ("component", crate::mcb_iter_components()),
-        ("module", crate::mcb_iter_modules()),
-        ("interface", crate::mcb_iter_interfaces()),
-        ("enum", crate::mcb_iter_enums()),
-    ];
-
-    for (kind, items) in &iterators {
-        if let Some((matched, uri)) = items.iter().find(|(n, _)| n == name) {
-            let ident = crate::McIds::from(matched.as_str());
-            let uri_obj = crate::McURI::from(uri.as_str());
-
-            return match crate::get_def(&ident, &uri_obj) {
-                Some(crate::McCMIE::Component(c)) => Ok(json!({
-                    "kind": "component", "name": matched, "uri": uri,
-                    "pin_count": c.pins.pins.len(),
-                })),
-                Some(crate::McCMIE::Module(m)) => Ok(json!({
-                    "kind": "module", "name": matched, "uri": uri,
-                    "instance_count": m.insts.iter().count(),
-                })),
-                Some(crate::McCMIE::Interface(i)) => Ok(json!({
-                    "kind": "interface", "name": matched, "uri": uri,
-                    "pin_count": i.pins.pins.len(),
-                })),
-                Some(crate::McCMIE::Enum(e)) => Ok(json!({
-                    "kind": "enum", "name": matched, "uri": uri,
-                    "value_count": e.values.len(),
-                })),
-                None => Ok(json!({ "kind": kind, "name": matched, "uri": uri })),
-            };
-        }
+    match crate::lsp::goto_def::resolve(&p.name) {
+        Some(result) => Ok(result),
+        None => Err(JsonRpcError::custom(
+            -32003,
+            &format!("definition not found: {}", p.name),
+        )),
     }
-
-    Err(JsonRpcError::custom(
-        -32003,
-        &format!("definition not found: {name}"),
-    ))
 }
 
 // === handle_lookup (lines 4091-4101 in original) ===

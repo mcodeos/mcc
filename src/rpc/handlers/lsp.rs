@@ -79,29 +79,7 @@ pub fn handle_diagnostics(params: Option<Value>) -> RpcResult {
 
     tracing::info!(target: "mcc::rpc", "handle_diagnostics: raw={} canonical={}", raw_uri, mc_uri);
 
-    // Get all diagnostics for this file
-    let diagnostics = crate::mcc_diagnose(&mc_uri);
-
-    tracing::info!(target: "mcc::rpc", "handle_diagnostics: found {} diagnostics", diagnostics.len());
-
-    // Convert to JSON
-    let diags: Vec<serde_json::Value> = diagnostics
-        .iter()
-        .map(|d| {
-            serde_json::json!({
-                "code": d.code,
-                "level": format!("{:?}", d.level).to_lowercase(),
-                "message": d.msg,
-                "location": {
-                    "pos": d.loc.pos,
-                    "len": d.loc.len,
-                    "line": d.loc.row,
-                    "column": d.loc.col,
-                }
-            })
-        })
-        .collect();
-
+    let diags = crate::lsp::diagnostics::collect(&mc_uri);
     Ok(serde_json::json!({ "diagnostics": diags }))
 }
 
