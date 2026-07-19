@@ -368,9 +368,10 @@ pub fn handle_show_net(params: Option<Value>) -> RpcResult {
         let name = p.name.unwrap();
         match nets.get(&name) {
             Some(points) => Ok(json!({ "name": name, "points": points })),
-            None => Ok(
-                json!({ "name": name, "points": Vec::<String>::new(), "error": "net not found" }),
-            ),
+            None => {
+                let msg = format!("net not found: {name}");
+                Err(JsonRpcError::custom(32003, &msg))
+            }
         }
     }
 }

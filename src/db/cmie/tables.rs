@@ -28,10 +28,9 @@ use crate::semantic::mc_ifs::McInterface;
 use crate::semantic::module::McModule;
 use crate::{ContainerKind, McSpaceName, McURI};
 use dashmap::DashMap;
-use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use tracing::{debug, info};
 
 // ============================================================================
@@ -328,9 +327,8 @@ impl WorkspaceManager {
 // lazy_static singleton
 // ============================================================================
 
-lazy_static! {
-    pub(crate) static ref WORKSPACE: WorkspaceManager = WorkspaceManager::new();
-}
+pub(crate) static WORKSPACE: LazyLock<WorkspaceManager> =
+    LazyLock::new(WorkspaceManager::new);
 
 // ============================================================================
 // DiagnosticManager extension
