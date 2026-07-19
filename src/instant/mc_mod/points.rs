@@ -12,12 +12,12 @@
 //! - `is_port` / `find_component` / `find_submodule` / `ensure_label` —— lookup helpers
 
 use super::McModuleInst;
-use crate::core::basic::mc_bus::McBus;
-use crate::core::basic::mc_endpoint::{McEndpoint, McInstanceRef};
-use crate::core::basic::mc_ids::McIds;
-use crate::core::basic::mc_phrase::McPhrase;
-use crate::core::common::IOType;
-use crate::core::mc_inst::McInstance;
+use crate::semantic::basic::mc_bus::McBus;
+use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
+use crate::semantic::basic::mc_ids::McIds;
+use crate::semantic::basic::mc_phrase::McPhrase;
+use crate::semantic::common::IOType;
+use crate::semantic::mc_inst::McInstance;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{InstError, NetPoint};
 
@@ -85,7 +85,7 @@ fn expand_member_ida(member: &str) -> Vec<String> {
 /// and guaranteed to contain "VOUT.Vout"): find a pid whose "full name or last
 /// segment" equals that alias.
 fn resolve_bare_member_pid(
-    pins: &crate::core::component::mc_pins::McPins,
+    pins: &crate::semantic::component::mc_pins::McPins,
     rest: &str,
     last: &str,
 ) -> Option<String> {
@@ -1044,7 +1044,7 @@ impl McModuleInst {
                     .get(rest)
                     .or_else(|| comp.def.pins.names_to_id.get(last))
                     .and_then(|port| match port {
-                        crate::core::component::mc_pins::McPinPort::Single(id) => Some(id.clone()),
+                        crate::semantic::component::mc_pins::McPinPort::Single(id) => Some(id.clone()),
                         _ => None,
                     });
                 let resolved_pid: Option<String> = single_hit.or_else(|| {
@@ -1431,7 +1431,7 @@ impl McModuleInst {
     /// and the alias resolves to a unique pid; otherwise None (submodule ports / bus
     /// ports / labels / already-pid all return None, untouched).
     pub(super) fn normalize_one_inst_pin_path(&self, path: &str) -> Option<String> {
-        use crate::core::component::mc_pins::McPinPort;
+        use crate::semantic::component::mc_pins::McPinPort;
 
         let (inst, member) = path.split_once('.')?;
         let comp = self.find_component(inst)?;

@@ -12,7 +12,7 @@
 //! - `InstError`      - Instantiation Error
 //! - `NetTable`       - Network Table (union-find)
 
-use crate::core::common::IOType;
+use crate::semantic::common::IOType;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 

@@ -54,7 +54,7 @@ fn check_iface_pin_completeness(acc: &mut CheckAccumulator) {
         // For each interface binding in this component
         for (bind_name, port) in &comp.pins.names_to_id {
             let iface = match port {
-                crate::core::component::mc_pins::McPinPort::Interface(iface) => iface,
+                crate::semantic::component::mc_pins::McPinPort::Interface(iface) => iface,
                 _ => continue,
             };
 
@@ -131,7 +131,7 @@ fn check_iface_role_exists(acc: &mut CheckAccumulator) {
 
         // Check component params that reference interface roles
         for d in comp.params.iter() {
-            use crate::core::basic::mc_param_type::McParamTypeKind;
+            use crate::semantic::basic::mc_param_type::McParamTypeKind;
 
             if let McParamTypeKind::InterfaceWithRole {
                 ref class_name,
@@ -254,7 +254,7 @@ fn check_deprecated_cmie_usage(acc: &mut CheckAccumulator) {
             let comp = entry.value();
 
             for (_bind_name, port) in &comp.pins.names_to_id {
-                if let crate::core::component::mc_pins::McPinPort::Interface(iface) = port {
+                if let crate::semantic::component::mc_pins::McPinPort::Interface(iface) = port {
                     let iface_name = iface.name.to_string();
                     if deprecated_ifaces.contains(&iface_name) {
                         acc.push(CheckResult {
@@ -335,7 +335,7 @@ fn check_deprecated_cmie_usage(acc: &mut CheckAccumulator) {
 }
 
 /// Check if an attribute set contains a `deprecated` marker.
-fn has_deprecated_attr(attrs: &crate::core::component::mc_attr::McAttributes) -> bool {
+fn has_deprecated_attr(attrs: &crate::semantic::component::mc_attr::McAttributes) -> bool {
     attrs.iter().any(|a| {
         let key = a.id.to_string();
         key == "deprecated" || key == "obsolete" || key == "status"
@@ -455,7 +455,7 @@ fn check_module_member_refs(acc: &mut CheckAccumulator) {
 
 /// Check a single McPhrase for `instance.port` patterns and verify port exists.
 fn check_phrase_member_refs(
-    phrase: &crate::core::basic::mc_phrase::McPhrase,
+    phrase: &crate::semantic::basic::mc_phrase::McPhrase,
     inst_class: &std::collections::HashMap<String, String>,
     comp_ports: &std::collections::HashMap<String, HashSet<String>>,
     iface_ports: &std::collections::HashMap<String, HashSet<String>>,

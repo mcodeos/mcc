@@ -3,10 +3,10 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::ast::ast_node::AstNode;
-use crate::core::component::McComponent;
-use crate::core::mc_enum::McEnumDef;
-use crate::core::mc_ifs::McInterface;
-use crate::core::module::McModule;
+use crate::semantic::component::McComponent;
+use crate::semantic::mc_enum::McEnumDef;
+use crate::semantic::mc_ifs::McInterface;
+use crate::semantic::module::McModule;
 use crate::{
     McIds, MCAST_IOTYPE, MCAST_IOTYPE_ANL, MCAST_IOTYPE_IN, MCAST_IOTYPE_IO, MCAST_IOTYPE_LABEL,
     MCAST_IOTYPE_NC, MCAST_IOTYPE_OUT, MCAST_IOTYPE_PS, MCAST_IOTYPE_RETURN,

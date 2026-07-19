@@ -4,7 +4,7 @@
 
 use crate::{
     ast::{ast_node::AstNode, c_macros::*},
-    core::{component::mc_attr::McAttributes, component::mc_pins::McPins},
+    semantic::{component::mc_attr::McAttributes, component::mc_pins::McPins},
     McIds,
 };
 
@@ -61,7 +61,7 @@ impl McRole {
         Some(ret)
     }
 
-    pub fn get_attr(&self, id: &str) -> Option<&crate::core::component::mc_attr::McAttribute> {
+    pub fn get_attr(&self, id: &str) -> Option<&crate::semantic::component::mc_attr::McAttribute> {
         self.attrs.find(&McIds::from(id))
     }
 }

@@ -12,18 +12,18 @@
 
 use super::funccall::FuncCallInst;
 use super::McModuleInst;
-use crate::core::basic::mc_bus::McBus;
-use crate::core::basic::mc_closure::McClosure;
-use crate::core::basic::mc_endpoint::{McEndpoint, McInstanceRef};
-use crate::core::basic::mc_fcall::McFuncCall;
-use crate::core::basic::mc_group::McGroup;
-use crate::core::basic::mc_param::{McParamBindings, McParamValue};
-use crate::core::basic::mc_phrase::McPhrase;
-use crate::core::common::IOType;
-use crate::core::component::McComponent;
-use crate::core::mc_func::{McFuncReturn, McFunction};
-use crate::core::mc_inst::McInstance;
-use crate::core::module::McModule;
+use crate::semantic::basic::mc_bus::McBus;
+use crate::semantic::basic::mc_closure::McClosure;
+use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
+use crate::semantic::basic::mc_fcall::McFuncCall;
+use crate::semantic::basic::mc_group::McGroup;
+use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
+use crate::semantic::basic::mc_phrase::McPhrase;
+use crate::semantic::common::IOType;
+use crate::semantic::component::McComponent;
+use crate::semantic::mc_func::{McFuncReturn, McFunction};
+use crate::semantic::mc_inst::McInstance;
+use crate::semantic::module::McModule;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
 use crate::McIds;
@@ -1181,7 +1181,7 @@ impl McModuleInst {
         inst_name: &str,
         skip: &std::collections::HashSet<String>,
     ) -> McParamValue {
-        use crate::core::basic::mc_opd::McOpd;
+        use crate::semantic::basic::mc_opd::McOpd;
         // Prefix the bare name to inst_name.name; hit skip / contain '.' / empty → return None (keep as-is)
         let prefixed = |name: String| -> Option<McIds> {
             if name.is_empty() || name.contains('.') || skip.contains(&name) {

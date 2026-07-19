@@ -7,7 +7,7 @@ use super::mc_param::McParamDeclares;
 use super::mc_phrase::McPhrase;
 use crate::ast::ast_node::AstNode;
 use crate::ast::c_macros::*;
-use crate::core::mc_func::HasFindInst;
+use crate::semantic::mc_func::HasFindInst;
 
 /// Closure
 #[derive(Debug, Clone)]

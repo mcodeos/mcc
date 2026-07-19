@@ -3,17 +3,17 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::builder::diagnostic::{dlog_error, dlog_warning};
-use crate::core::basic::mc_bus::{McBus, McList};
-use crate::core::basic::mc_endpoint::{McEndpoint, McInstanceRef};
-use crate::core::basic::mc_phrase::McPhrase;
-use crate::core::component::Mc2Component;
-use crate::core::mc_inst::McInstance;
-use crate::core::module::Mc2Module;
+use crate::semantic::basic::mc_bus::{McBus, McList};
+use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
+use crate::semantic::basic::mc_phrase::McPhrase;
+use crate::semantic::component::Mc2Component;
+use crate::semantic::mc_inst::McInstance;
+use crate::semantic::module::Mc2Module;
 use crate::McIds;
 use crate::McInstances;
 use crate::{
     ast::ast_node::AstNode, ast::c_macros::*, ast::error::message::*,
-    core::basic::mc_param::McParamDeclares,
+    semantic::basic::mc_param::McParamDeclares,
 };
 
 // ============================================================================
@@ -75,12 +75,12 @@ pub trait HasFindInst {
     fn add_component(
         &mut self,
         name: String,
-        comp: crate::core::component::Mc2Component,
+        comp: crate::semantic::component::Mc2Component,
     ) -> Option<McPhrase>;
     fn add_module(
         &mut self,
         name: String,
-        module: crate::core::module::Mc2Module,
+        module: crate::semantic::module::Mc2Module,
     ) -> Option<McPhrase>;
     fn add_bus(&mut self, name: String, members: Vec<String>) -> Option<McPhrase>;
     fn add_list(&mut self, name: String, members: Vec<String>) -> Option<McPhrase>;
@@ -157,7 +157,7 @@ impl<'a> HasFindInst for FuncBodyContext<'a> {
     fn add_component(
         &mut self,
         name: String,
-        comp: crate::core::component::Mc2Component,
+        comp: crate::semantic::component::Mc2Component,
     ) -> Option<McPhrase> {
         self.parent.add_component(name, comp)
     }
@@ -165,7 +165,7 @@ impl<'a> HasFindInst for FuncBodyContext<'a> {
     fn add_module(
         &mut self,
         name: String,
-        module: crate::core::module::Mc2Module,
+        module: crate::semantic::module::Mc2Module,
     ) -> Option<McPhrase> {
         self.parent.add_module(name, module)
     }
@@ -469,7 +469,7 @@ impl McFunction {
             // ★ Smart Param (M5): Finalize after body parsed
             let func_name = self.name.to_string();
             // ★ Collect param references in function body for LSP goto-def
-            crate::core::component::McComponent::collect_param_refs_in_body(
+            crate::semantic::component::McComponent::collect_param_refs_in_body(
                 body,
                 &mut self.params,
                 &func_name,
@@ -758,7 +758,7 @@ impl HasFindInst for McFunction {
         // 2) Call McInstances::parse_declare to register the new instance
         //    iotype is None — inline instances in a chain are not port/power types
         self.insts
-            .parse_declare(node, &uri, &crate::core::common::IOType::None);
+            .parse_declare(node, &uri, &crate::semantic::common::IOType::None);
 
         // 3) Extract newly added instances (clone — McInstance itself is an enum,
         //    internal Component/Module is Arc-wrapped, so clone is cheap)

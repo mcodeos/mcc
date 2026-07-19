@@ -18,7 +18,7 @@
 //! `mcb_init_system_lib()` preserved, internally changed to call `mcb_load_lib("mcode", mcode_dir)`.
 
 use crate::builder::global;
-use crate::builder::mc_code::McCode;
+use crate::db::infra::mc_code::McCode;
 use crate::builder::workspace;
 use crate::{McIds, McSpaceName};
 use std::collections::HashSet;
@@ -79,9 +79,9 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
     }
 
     // If already loaded, check if it has interfaces
-    if global::mcc_blibs.borrow().contains_key(name) {
+    if crate::db::infra::global::mcc_blibs.borrow().contains_key(name) {
         // Check if it has interfaces spacenames
-        if let Some(blib) = global::mcc_blibs.borrow().get(name) {
+        if let Some(blib) = crate::db::infra::global::mcc_blibs.borrow().get(name) {
             // Check if it has interfaces spacenames
             let has_interfaces = blib.spacenames.keys().any(|ids| {
                 let name = format!("{}", ids);
@@ -102,7 +102,7 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
     }
 
     // Pre-insert empty blib entry (to avoid circular lookup issues)
-    global::mcc_blibs
+    crate::db::infra::global::mcc_blibs
         .borrow_mut()
         .insert(name.to_string(), McCode::new_empty());
 
@@ -115,7 +115,7 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
     // Recursively load all dependencies (is_system=true)
     let uri = entry_file.to_string_lossy().to_string();
     let mut loaded = HashSet::new();
-    super::mcb_add_recursive(&uri, &mut loaded, true);
+    crate::builder::mcb_add_recursive(&uri, &mut loaded, true);
 
     // Clear system lib loading flag
     crate::cli::config::set_system_lib_loading(false);
@@ -148,7 +148,7 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
     let symbol_count = lib_entry.spacenames.len();
 
     // Replace blib with new one
-    global::mcc_blibs
+    crate::db::infra::global::mcc_blibs
         .borrow_mut()
         .insert(name.to_string(), lib_entry);
 
@@ -169,7 +169,7 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
 /// 2. Remove definitions from `mcc_*` system tables with uri containing library path
 /// 3. Remove definitions from workspace tables with uri containing library path
 pub fn mcb_unload_lib(name: &str) -> bool {
-    let blib = match global::mcc_blibs.borrow_mut().remove(name) {
+    let blib = match crate::db::infra::global::mcc_blibs.borrow_mut().remove(name) {
         Some((_, blib)) => blib,
         None => return false,
     };
@@ -193,7 +193,7 @@ pub fn mcb_unload_lib(name: &str) -> bool {
 
 /// List all loaded system libraries in memory.
 pub fn mcb_loaded_libs() -> Vec<String> {
-    global::mcc_blibs
+    crate::db::infra::global::mcc_blibs
         .borrow()
         .iter()
         .map(|e| e.key().clone())
@@ -206,7 +206,7 @@ fn format_mc_ids(ids: &McIds) -> String {
 
 /// Get system library information by name.
 pub fn mcb_lib_info(name: &str) -> Option<LibInfo> {
-    let blibs = global::mcc_blibs.borrow();
+    let blibs = crate::db::infra::global::mcc_blibs.borrow();
     let blib = blibs.get(name)?;
     let sn = &blib.spacenames;
 
@@ -277,7 +277,7 @@ pub fn mcb_lib_info(name: &str) -> Option<LibInfo> {
 // Internal helper functions
 // ============================================================================
 
-use crate::builder::util::MultiThreadRefCell;
+use crate::db::infra::util::MultiThreadRefCell;
 use dashmap::DashMap;
 use std::sync::Arc;
 

@@ -4,11 +4,11 @@
 
 use super::mc_opd::McOpd;
 pub use super::mc_paramd::*;
-use crate::core::component::mc_attr::McAttribute;
-use crate::core::mc_func::HasFindInst;
+use crate::semantic::component::mc_attr::McAttribute;
+use crate::semantic::mc_func::HasFindInst;
 use crate::{
     ast::{ast_node::AstNode, c_macros::*},
-    core::{
+    semantic::{
         basic::mc_literal::{McConst, McHex, McString},
         basic::mc_phrase::McPhrase,
         basic::mc_uval::McUnitValue,
@@ -664,7 +664,7 @@ impl McParamBindings {
                 }
                 // E3: check UValue unit vs declared type
                 if let McParamValue::UValue(uval) = val {
-                    if let crate::core::basic::mc_paramd::McParamDeclareKind::UValue(ref decl_uv) =
+                    if let crate::semantic::basic::mc_paramd::McParamDeclareKind::UValue(ref decl_uv) =
                         declare.kind
                     {
                         if &decl_uv.unit != uval.unit() {

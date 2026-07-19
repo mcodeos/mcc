@@ -23,8 +23,8 @@
 //! - `is_matching_parens`           —— check whether outermost parentheses match
 
 use super::McModuleInst;
-use crate::core::basic::mc_literal::McConst;
-use crate::core::basic::mc_param::McParamValue;
+use crate::semantic::basic::mc_literal::McConst;
+use crate::semantic::basic::mc_param::McParamValue;
 
 impl McModuleInst {
     /// Attempt to statically evaluate a condition expression

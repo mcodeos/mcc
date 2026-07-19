@@ -80,7 +80,7 @@ fn check_pin_name_duplicates(
 /// H2: duplicate enum value names within an enum definition
 fn check_enum_value_duplicates(
     enum_name: String,
-    edef: &crate::core::mc_enum::McEnumDef,
+    edef: &crate::semantic::mc_enum::McEnumDef,
     acc: &mut CheckAccumulator,
 ) {
     let mut seen: HashMap<String, usize> = HashMap::new();

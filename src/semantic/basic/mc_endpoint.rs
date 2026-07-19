@@ -4,8 +4,8 @@
 
 use std::fmt;
 
-use crate::core::basic::mc_bus::McBus;
-use crate::core::mc_inst::McInstance;
+use crate::semantic::basic::mc_bus::McBus;
+use crate::semantic::mc_inst::McInstance;
 
 // ============================================================================
 // McMember - member item
@@ -156,8 +156,8 @@ impl McInstanceRef {
         }
     }
 
-    pub fn to_bus(&self) -> crate::core::basic::mc_bus::McBus {
-        use crate::core::basic::mc_bus::McBus;
+    pub fn to_bus(&self) -> crate::semantic::basic::mc_bus::McBus {
+        use crate::semantic::basic::mc_bus::McBus;
         if let McInstance::Bus(bus) = &self.base {
             return bus.clone();
         }
@@ -263,8 +263,8 @@ impl McEndpoint {
         self.series(other)
     }
 
-    pub fn get_left(&self) -> Vec<crate::core::basic::mc_bus::McBus> {
-        use crate::core::basic::mc_bus::McBus;
+    pub fn get_left(&self) -> Vec<crate::semantic::basic::mc_bus::McBus> {
+        use crate::semantic::basic::mc_bus::McBus;
         match self {
             McEndpoint::Single(ref_) => vec![ref_.to_bus()],
             McEndpoint::List(nodes) => {
@@ -284,8 +284,8 @@ impl McEndpoint {
         }
     }
 
-    pub fn get_right(&self) -> Vec<crate::core::basic::mc_bus::McBus> {
-        use crate::core::basic::mc_bus::McBus;
+    pub fn get_right(&self) -> Vec<crate::semantic::basic::mc_bus::McBus> {
+        use crate::semantic::basic::mc_bus::McBus;
         match self {
             McEndpoint::Single(ref_) => vec![ref_.to_bus()],
             McEndpoint::List(nodes) => {
@@ -330,17 +330,17 @@ impl fmt::Display for McEndpoint {
 #[macro_export]
 macro_rules! ep {
     ($name:expr) => {
-        $crate::core::basic::mc_endpoint::McEndpoint::from_label($name)
+        $crate::semantic::basic::mc_endpoint::McEndpoint::from_label($name)
     };
     ($($name:expr),+ $(,)?) => {
-        $crate::core::basic::mc_endpoint::McEndpoint::from_labels(vec![$($name),+])
+        $crate::semantic::basic::mc_endpoint::McEndpoint::from_labels(vec![$($name),+])
     };
 }
 
 #[macro_export]
 macro_rules! ep_node {
     ($input:expr => $output:expr) => {
-        $crate::core::basic::mc_endpoint::McEndpoint::node(vec![$input], vec![$output])
+        $crate::semantic::basic::mc_endpoint::McEndpoint::node(vec![$input], vec![$output])
     };
 }
 
@@ -378,8 +378,8 @@ impl From<McBus> for McEndpoint {
     }
 }
 
-impl From<crate::core::basic::mc_bus::McNode> for McEndpoint {
-    fn from(node: crate::core::basic::mc_bus::McNode) -> Self {
+impl From<crate::semantic::basic::mc_bus::McNode> for McEndpoint {
+    fn from(node: crate::semantic::basic::mc_bus::McNode) -> Self {
         let left_ep = McEndpoint::from(node.0);
         let right_ep = McEndpoint::from(node.1);
         McEndpoint::node(vec![left_ep], vec![right_ep])

@@ -162,9 +162,9 @@ fn check_nesting_depth(comp: &crate::McComponent, uri: &str, acc: &mut CheckAccu
 }
 
 /// Recursively compute the nesting depth of an McAttrVal.
-fn attr_val_depth(val: &crate::core::component::mc_attr::McAttrVal, current: u32) -> u32 {
+fn attr_val_depth(val: &crate::semantic::component::mc_attr::McAttrVal, current: u32) -> u32 {
     match val {
-        crate::core::component::mc_attr::McAttrVal::Attributes(attrs) => {
+        crate::semantic::component::mc_attr::McAttrVal::Attributes(attrs) => {
             let mut max_child = current + 1;
             for child in attrs.iter() {
                 for child_val in &child.values {

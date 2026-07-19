@@ -1631,10 +1631,10 @@ fn run_erc() -> RpcResult {
             .filter(|p| {
                 matches!(
                     p.iotype,
-                    crate::core::common::IOType::Out
-                        | crate::core::common::IOType::InOut
-                        | crate::core::common::IOType::Power
-                        | crate::core::common::IOType::Analog
+                    crate::semantic::common::IOType::Out
+                        | crate::semantic::common::IOType::InOut
+                        | crate::semantic::common::IOType::Power
+                        | crate::semantic::common::IOType::Analog
                 )
             })
             .collect();
@@ -3187,7 +3187,7 @@ pub fn handle_show_params(params: Option<Value>) -> RpcResult {
 }
 
 /// Convert a McParamDeclare to a JSON object with smart parameter metadata.
-fn param_declare_to_json(d: &mcc::core::basic::mc_paramd::McParamDeclare) -> Value {
+fn param_declare_to_json(d: &mcc::semantic::basic::mc_paramd::McParamDeclare) -> Value {
     let name = d.get_primary_name().unwrap_or_default();
     let is_port = d.is_port();
     let has_default = d.has_default_value();

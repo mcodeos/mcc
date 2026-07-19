@@ -362,7 +362,7 @@ fn check_func_param_iotype(acc: &mut CheckAccumulator) {
 /// The `role` keyword parameter is only valid inside interface definitions.
 /// Flag it when used in components or modules.
 fn check_role_param_outside_interface(acc: &mut CheckAccumulator) {
-    use crate::core::basic::mc_param_type::McParamTypeKind;
+    use crate::semantic::basic::mc_param_type::McParamTypeKind;
 
     // Check components
     {

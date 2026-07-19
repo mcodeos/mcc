@@ -270,8 +270,8 @@ fn check_pin_alt_roles(acc: &mut CheckAccumulator) {
         // For each named port, check if it maps to multiple pin IDs with conflicting IO types
         for (pin_name, port) in &comp.pins.names_to_id {
             let pin_ids: Vec<&String> = match port {
-                crate::core::component::mc_pins::McPinPort::Single(id) => vec![id],
-                crate::core::component::mc_pins::McPinPort::Multi(ids) => ids.iter().collect(),
+                crate::semantic::component::mc_pins::McPinPort::Single(id) => vec![id],
+                crate::semantic::component::mc_pins::McPinPort::Multi(ids) => ids.iter().collect(),
                 _ => continue,
             };
 

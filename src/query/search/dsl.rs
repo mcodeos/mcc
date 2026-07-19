@@ -407,7 +407,7 @@ where
     }
 }
 
-fn collect_attrs(attrs: &mcc::core::component::mc_attr::McAttributes) -> Vec<(String, String)> {
+fn collect_attrs(attrs: &mcc::semantic::component::mc_attr::McAttributes) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for a in attrs.iter() {
         let id = a.id.to_string();

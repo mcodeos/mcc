@@ -2,15 +2,21 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-pub(crate) mod current_uri;
-pub mod diagnostic;
-pub mod global;
-pub(crate) mod inst_ref_validator;
-pub mod lib_mgr;
-pub mod main;
-pub mod mc_code;
-pub mod mc_use;
-pub(crate) mod util;
-pub(crate) mod workspace;
-pub use lib_mgr::*;
-pub use main::*;
+//! Shim module — forwards to new `db/`, `build/`, and `semantic/` locations.
+//! Will be removed when `builder/` is fully deleted.
+
+// Re-export from new locations
+pub(crate) use crate::db::cmie::tables as workspace;
+pub(crate) use crate::db::diagnostic::diagnostic;
+pub(crate) use crate::db::infra::context as current_uri;
+pub(crate) use crate::db::infra::global;
+pub(crate) use crate::db::infra::lib_mgr;
+pub(crate) use crate::db::infra::mc_code;
+pub(crate) use crate::db::infra::mc_use;
+pub(crate) use crate::db::infra::util;
+pub(crate) use crate::semantic::inst_ref as inst_ref_validator;
+
+// Re-export main functions from their new home in build/
+pub use crate::build::main as main;
+pub use crate::build::main::*;
+pub use crate::db::infra::lib_mgr::*;

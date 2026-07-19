@@ -286,8 +286,8 @@ fn check_param_type_mismatch(acc: &mut CheckAccumulator) {
 
 /// Convert a McParamTypeKind to a human-readable unit type string.
 /// Returns empty string for untyped params.
-fn param_type_to_unit_str(kind: &crate::core::basic::mc_param_type::McParamTypeKind) -> String {
-    use crate::core::basic::mc_param_type::McParamTypeKind;
+fn param_type_to_unit_str(kind: &crate::semantic::basic::mc_param_type::McParamTypeKind) -> String {
+    use crate::semantic::basic::mc_param_type::McParamTypeKind;
     match kind {
         McParamTypeKind::UnitValue { unit } | McParamTypeKind::UnitValueDefault { unit, .. } => {
             format!("{:?}", unit)

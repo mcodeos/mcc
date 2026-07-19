@@ -171,7 +171,7 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
             }
             let comp = entry.value();
             for (_pin_name, port) in &comp.pins.names_to_id {
-                if let crate::core::component::mc_pins::McPinPort::Interface(iface) = port {
+                if let crate::semantic::component::mc_pins::McPinPort::Interface(iface) = port {
                     let iface_name = iface.name.to_string();
                     if !known.contains(&iface_name) {
                         acc.push(CheckResult {

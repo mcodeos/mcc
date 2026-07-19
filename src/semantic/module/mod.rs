@@ -10,12 +10,12 @@ use super::{
     mc_inst::{McInst, McInstance, McInstances},
 };
 use crate::builder::mcb_get_cmie;
-use crate::core::component::Mc2Component;
-use crate::core::mc_func::McFuncReturn;
+use crate::semantic::component::Mc2Component;
+use crate::semantic::mc_func::McFuncReturn;
 use crate::{
     ast::{ast_node::AstNode, c_macros::*, error::message::*},
     builder::diagnostic::dlog_error,
-    core::basic::mc_param::McParamDeclares,
+    semantic::basic::mc_param::McParamDeclares,
     IOType, McCMIE, McIds, McParamValue, McURI,
 };
 use std::sync::Arc;
@@ -242,7 +242,7 @@ impl McModule {
                 let real_count: usize = all_forms
                     .iter()
                     .map(|form| {
-                        crate::core::basic::mc_param_infer::collect_usages(form, body)
+                        crate::semantic::basic::mc_param_infer::collect_usages(form, body)
                             .iter()
                             .filter(|u| u.pos != span.start)
                             .count()
@@ -285,7 +285,7 @@ impl McModule {
         self.insts
             .create_inst(&name, McInstance::Label(name.clone()));
         self.insts
-            .set_label_kind(&name, crate::core::mc_inst::LabelKind::Inline);
+            .set_label_kind(&name, crate::semantic::mc_inst::LabelKind::Inline);
         McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Label(
             name,
         ))))
@@ -562,7 +562,7 @@ impl HasFindInst for McModule {
     fn add_component(
         &mut self,
         name: String,
-        comp: crate::core::component::Mc2Component,
+        comp: crate::semantic::component::Mc2Component,
     ) -> Option<McPhrase> {
         Some(self.add_component(name, comp))
     }
@@ -570,7 +570,7 @@ impl HasFindInst for McModule {
     fn add_module(
         &mut self,
         name: String,
-        module: crate::core::module::Mc2Module,
+        module: crate::semantic::module::Mc2Module,
     ) -> Option<McPhrase> {
         Some(self.add_module(name, module))
     }

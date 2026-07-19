@@ -37,14 +37,14 @@
 //! ```
 
 use crate::ast::ast_semantic::{DeclareId, Span};
-use crate::builder::diagnostic::DiagnosticManager;
-use crate::builder::mc_code::McCode;
-use crate::builder::util::MultiThreadRefCell;
-use crate::core::component::McComponent;
-use crate::core::mc_define::McDefineDef;
-use crate::core::mc_enum::McEnumDef;
-use crate::core::mc_ifs::McInterface;
-use crate::core::module::McModule;
+use crate::db::diagnostic::diagnostic::DiagnosticManager;
+use crate::db::infra::mc_code::McCode;
+use crate::db::infra::util::MultiThreadRefCell;
+use crate::semantic::component::McComponent;
+use crate::semantic::mc_define::McDefineDef;
+use crate::semantic::mc_enum::McEnumDef;
+use crate::semantic::mc_ifs::McInterface;
+use crate::semantic::module::McModule;
 use crate::{ContainerKind, McSpaceName, McURI};
 use dashmap::DashMap;
 use lazy_static::lazy_static;
@@ -302,7 +302,7 @@ impl WorkspaceManager {
             }
         }
         // Fallback: check global system component table
-        for entry in crate::builder::global::mcc_components.borrow().iter() {
+        for entry in crate::db::infra::global::mcc_components.borrow().iter() {
             if entry.key().ident.to_string() == class_name {
                 return Some(entry.value().clone());
             }

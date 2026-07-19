@@ -7,7 +7,7 @@ use super::mc_literal::McConst;
 use crate::{
     ast::{ast_node::AstNode, c_macros::*},
     builder::diagnostic::dlog_error,
-    core::component::mc_attr::{McAttrVal, McAttribute},
+    semantic::component::mc_attr::{McAttrVal, McAttribute},
     McIds,
 };
 

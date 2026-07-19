@@ -153,21 +153,21 @@ fn check_empty_conditional(acc: &mut CheckAccumulator) {
 
 /// Recursively check McAttrVal values for McConds with empty blocks.
 fn check_attr_val_for_empty_cond(
-    val: &crate::core::component::mc_attr::McAttrVal,
+    val: &crate::semantic::component::mc_attr::McAttrVal,
     uri: &str,
     comp_name: String,
     acc: &mut CheckAccumulator,
 ) {
     match val {
-        crate::core::component::mc_attr::McAttrVal::Attributes(attrs) => {
+        crate::semantic::component::mc_attr::McAttrVal::Attributes(attrs) => {
             for child in attrs.iter() {
                 for child_val in &child.values {
                     check_attr_val_for_empty_cond(child_val, uri, comp_name.clone(), acc);
                 }
             }
         }
-        crate::core::component::mc_attr::McAttrVal::AttrExpr(expr) => {
-            if let crate::core::basic::mc_expr::McExpression::Set(exprs) = expr {
+        crate::semantic::component::mc_attr::McAttrVal::AttrExpr(expr) => {
+            if let crate::semantic::basic::mc_expr::McExpression::Set(exprs) = expr {
                 for e in exprs.iter() {
                     check_expr_for_empty_cond(e, uri, &comp_name, acc);
                 }
@@ -179,7 +179,7 @@ fn check_attr_val_for_empty_cond(
 
 /// Check a single McExpression to see if it yields an empty conditional body.
 fn check_expr_for_empty_cond(
-    _expr: &crate::core::basic::mc_expr::McExpression,
+    _expr: &crate::semantic::basic::mc_expr::McExpression,
     _uri: &str,
     _comp_name: &str,
     _acc: &mut CheckAccumulator,
@@ -219,7 +219,7 @@ fn check_constant_overflow(acc: &mut CheckAccumulator) {
 }
 
 fn check_val_for_overflow(
-    val: &crate::core::component::mc_attr::McAttrVal,
+    val: &crate::semantic::component::mc_attr::McAttrVal,
     uri: &str,
     comp_name: String,
     attr_id: &str,
@@ -227,10 +227,10 @@ fn check_val_for_overflow(
     acc: &mut CheckAccumulator,
 ) {
     match val {
-        crate::core::component::mc_attr::McAttrVal::AttrExpr(expr) => {
+        crate::semantic::component::mc_attr::McAttrVal::AttrExpr(expr) => {
             check_expr_overflow(expr, uri, &comp_name, attr_id, comp_span, acc);
         }
-        crate::core::component::mc_attr::McAttrVal::Attributes(attrs) => {
+        crate::semantic::component::mc_attr::McAttrVal::Attributes(attrs) => {
             for child in attrs.iter() {
                 for child_val in &child.values {
                     check_val_for_overflow(
@@ -249,7 +249,7 @@ fn check_val_for_overflow(
 }
 
 fn check_expr_overflow(
-    expr: &crate::core::basic::mc_expr::McExpression,
+    expr: &crate::semantic::basic::mc_expr::McExpression,
     uri: &str,
     comp_name: &str,
     attr_id: &str,
@@ -257,7 +257,7 @@ fn check_expr_overflow(
     acc: &mut CheckAccumulator,
 ) {
     match expr {
-        crate::core::basic::mc_expr::McExpression::Int(int_val) => {
+        crate::semantic::basic::mc_expr::McExpression::Int(int_val) => {
             // Flag unusually large integer literals (>1 billion for hw params)
             if int_val.value > 1_000_000_000 || int_val.value < -1_000_000_000 {
                 acc.push(CheckResult {
@@ -273,7 +273,7 @@ fn check_expr_overflow(
                 });
             }
         }
-        crate::core::basic::mc_expr::McExpression::Float(float_val) => {
+        crate::semantic::basic::mc_expr::McExpression::Float(float_val) => {
             if float_val.value.is_infinite() {
                 acc.push(CheckResult {
                     check_name: "exprs",
@@ -317,17 +317,17 @@ fn check_reversed_range(acc: &mut CheckAccumulator) {
 }
 
 fn check_val_for_reversed_range(
-    val: &crate::core::component::mc_attr::McAttrVal,
+    val: &crate::semantic::component::mc_attr::McAttrVal,
     uri: &str,
     comp_name: String,
     comp_span: std::ops::Range<usize>,
     acc: &mut CheckAccumulator,
 ) {
     match val {
-        crate::core::component::mc_attr::McAttrVal::AttrExpr(expr) => {
+        crate::semantic::component::mc_attr::McAttrVal::AttrExpr(expr) => {
             check_expr_range(expr, uri, &comp_name, comp_span, acc);
         }
-        crate::core::component::mc_attr::McAttrVal::Attributes(attrs) => {
+        crate::semantic::component::mc_attr::McAttrVal::Attributes(attrs) => {
             for child in attrs.iter() {
                 for child_val in &child.values {
                     check_val_for_reversed_range(
@@ -345,16 +345,16 @@ fn check_val_for_reversed_range(
 }
 
 fn check_expr_range(
-    expr: &crate::core::basic::mc_expr::McExpression,
+    expr: &crate::semantic::basic::mc_expr::McExpression,
     uri: &str,
     comp_name: &str,
     comp_span: std::ops::Range<usize>,
     acc: &mut CheckAccumulator,
 ) {
-    if let crate::core::basic::mc_expr::McExpression::Slice(left, right) = expr {
+    if let crate::semantic::basic::mc_expr::McExpression::Slice(left, right) = expr {
         if let (
-            crate::core::basic::mc_expr::McExpression::Int(l),
-            crate::core::basic::mc_expr::McExpression::Int(r),
+            crate::semantic::basic::mc_expr::McExpression::Int(l),
+            crate::semantic::basic::mc_expr::McExpression::Int(r),
         ) = (left.as_ref(), right.as_ref())
         {
             if l.value > r.value {

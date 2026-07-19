@@ -24,6 +24,8 @@
 //! modules write `mcc::foo` instead of `crate::foo`. The binary does NOT
 //! need that shim.
 
+pub mod dsl;
+
 use mcc::{McCMIE, McIds, McInstance, McURI};
 use regex::Regex;
 use serde::{Deserialize, Serialize};

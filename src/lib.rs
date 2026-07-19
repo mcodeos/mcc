@@ -19,22 +19,26 @@ use tracing::debug;
 
 //2. crate wise
 pub(crate) mod ast;
+pub(crate) mod build;
 pub(crate) mod builder;
 pub(crate) mod cli;
-pub(crate) mod core;
+pub(crate) mod db;
+pub(crate) mod query;
+pub(crate) mod semantic;
 pub(crate) mod instant;
+pub(crate) mod lsp;
 pub(crate) use builder::current_uri;
 pub mod rpc;
 pub mod vector;
 pub mod viz;
 //3. mcc re-exports
-pub use crate::core::basic::mc_bus::McBus;
-pub use crate::core::basic::mc_opd::McOpd;
-pub use crate::core::common::{
+pub use crate::semantic::basic::mc_bus::McBus;
+pub use crate::semantic::basic::mc_opd::McOpd;
+pub use crate::semantic::common::{
     ContainerInfo, ContainerKind, IOType, LookupResult, LookupSymbolKind, McCMIE, McSpaceName,
     McURI, ScopeFilter, ScopePath,
 };
-pub use crate::core::{
+pub use crate::semantic::{
     basic::{
         mc_endpoint::{McEndpoint, McInstanceRef},
         mc_phrase::McPhrase,
@@ -49,19 +53,19 @@ pub use crate::core::{
     mc_inst::{LabelKind, McInstance, McInstances},
     module::{Mc2Module, McModule},
 };
-pub mod error_codes;
+pub use db::diagnostic::error_codes;
 pub mod export_api;
-pub use core::check;
-pub mod query_api;
-pub mod search_api;
+pub use semantic::validation as check;
+pub use query::search as search_api;
+pub use query::search::dsl as query_api;
 pub use ast::ast_semantic::{McSemSymbols, Span, SymbolType};
 pub use ast::ast_token::{McSemToken, McSemTokens};
 pub use ast::c_macros::*;
 pub use ast::error::*;
 pub use builder::{mcb_pass2_flat, mcb_print, MccProjectTree};
-pub use core::basic::mc_param::{McParamBindings, McParamDeclare, McParamDeclares, McParamValue};
-pub use core::basic::mc_param_type::{McIoTy, McParamArity, McParamType, McParamTypeKind};
-pub use core::basic::mc_paramd::{GlobalDiag, GlobalDiagKind};
+pub use semantic::basic::mc_param::{McParamBindings, McParamDeclare, McParamDeclares, McParamValue};
+pub use semantic::basic::mc_param_type::{McIoTy, McParamArity, McParamType, McParamTypeKind};
+pub use semantic::basic::mc_paramd::{GlobalDiag, GlobalDiagKind};
 pub use instant::inst_table::InstKind;
 pub use instant::inst_table::InstTable;
 pub use instant::mc_comp::McComponentInst;
@@ -96,11 +100,11 @@ pub use builder::{
 };
 
 // 🆕 New exports
-pub use core::basic::mc_ida::McIda;
-pub use core::basic::mc_ids::McIds;
-pub use core::basic::mc_literal::{McConst, McFloat, McInt, McLiteral, McString};
-pub use core::component::mc_attr::{McAttrVal, McAttribute};
-pub use core::mc_func::{McFunction, McFunctions};
+pub use semantic::basic::mc_ida::McIda;
+pub use semantic::basic::mc_ids::McIds;
+pub use semantic::basic::mc_literal::{McConst, McFloat, McInt, McLiteral, McString};
+pub use semantic::component::mc_attr::{McAttrVal, McAttribute};
+pub use semantic::mc_func::{McFunction, McFunctions};
 
 // 🆕 Step 8: McVec rendering side data structure exports
 pub use vector::builder::build_mc_vec;

@@ -4,10 +4,10 @@
 
 use std::sync::Arc;
 
-use crate::core::basic::mc_conds::McConds;
+use crate::semantic::basic::mc_conds::McConds;
 use crate::{
     ast::{ast_node::AstNode, c_macros::*},
-    core::{
+    semantic::{
         basic::mc_param::McParamDeclares, basic::mc_role::McRole, component::mc_attr::McAttributes,
         component::mc_pins::McPins,
     },
@@ -82,7 +82,7 @@ impl McInterface {
 
         // ★ LSP: Scan body for references to interface parameters
         let ifs_name = ret.name.to_string();
-        crate::core::component::McComponent::collect_param_refs_in_body(
+        crate::semantic::component::McComponent::collect_param_refs_in_body(
             &body_node,
             &mut ret.params,
             &ifs_name,
@@ -176,8 +176,8 @@ impl std::fmt::Display for McInterface {
 // Mc2Interface - Interface instance wrapper
 // ============================================================================
 
-use crate::core::basic::mc_param::McParamValue;
-use crate::core::mc_inst::McInst;
+use crate::semantic::basic::mc_param::McParamValue;
+use crate::semantic::mc_inst::McInst;
 
 #[derive(Clone)]
 pub struct Mc2Interface {
@@ -361,8 +361,8 @@ impl Mc2Interface {
                     .values()
                     .any(|existing_pin| match (existing_pin, pin) {
                         (
-                            crate::core::component::mc_pins::McPinPort::Single(e),
-                            crate::core::component::mc_pins::McPinPort::Single(p),
+                            crate::semantic::component::mc_pins::McPinPort::Single(e),
+                            crate::semantic::component::mc_pins::McPinPort::Single(p),
                         ) => e == p,
                         _ => false,
                     });
@@ -370,8 +370,8 @@ impl Mc2Interface {
             if !pin_exists {
                 // Create a unique name (based on pin value)
                 let new_name = match pin {
-                    crate::core::component::mc_pins::McPinPort::Single(pid) => pid.clone(),
-                    crate::core::component::mc_pins::McPinPort::Multi(pids) => pids.join(","),
+                    crate::semantic::component::mc_pins::McPinPort::Single(pid) => pid.clone(),
+                    crate::semantic::component::mc_pins::McPinPort::Multi(pids) => pids.join(","),
                     _ => name.clone(),
                 };
                 new_pins.names_to_id.insert(new_name, pin.clone());

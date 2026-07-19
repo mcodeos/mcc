@@ -15,15 +15,15 @@
 //! - `substitute_phrase` / `substitute_line` —— substitute throughout the McPhrase tree
 
 use super::McModuleInst;
-use crate::core::basic::mc_bus::McBus;
-use crate::core::basic::mc_closure::McClosure;
-use crate::core::basic::mc_endpoint::{McEndpoint, McInstanceRef};
-use crate::core::basic::mc_fcall::McFuncCall;
-use crate::core::basic::mc_group::McGroup;
-use crate::core::basic::mc_opd::McOpd;
-use crate::core::basic::mc_param::{McParamBindings, McParamValue};
-use crate::core::basic::mc_phrase::McPhrase;
-use crate::core::mc_inst::McInstance;
+use crate::semantic::basic::mc_bus::McBus;
+use crate::semantic::basic::mc_closure::McClosure;
+use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
+use crate::semantic::basic::mc_fcall::McFuncCall;
+use crate::semantic::basic::mc_group::McGroup;
+use crate::semantic::basic::mc_opd::McOpd;
+use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
+use crate::semantic::basic::mc_phrase::McPhrase;
+use crate::semantic::mc_inst::McInstance;
 use crate::McIds;
 
 impl McModuleInst {
@@ -267,7 +267,7 @@ impl McModuleInst {
                     .iter()
                     .map(|p| Self::substitute_param_value(p, bindings))
                     .collect();
-                McParamValue::FuncCall(Box::new(crate::core::basic::mc_param::McParamFuncCall {
+                McParamValue::FuncCall(Box::new(crate::semantic::basic::mc_param::McParamFuncCall {
                     caller: fc.caller.clone(),
                     name: fc.name.clone(),
                     params: new_params,

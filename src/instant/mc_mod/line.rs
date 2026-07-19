@@ -11,13 +11,13 @@
 
 use super::funccall::FuncCallInst;
 use super::McModuleInst;
-use crate::core::basic::mc_bus::McBus;
-use crate::core::basic::mc_endpoint::{McEndpoint, McInstanceRef};
-use crate::core::basic::mc_opd::McOpd;
-use crate::core::basic::mc_param::McParamValue;
-use crate::core::basic::mc_phrase::McPhrase;
-use crate::core::common::IOType;
-use crate::core::mc_inst::McInstance;
+use crate::semantic::basic::mc_bus::McBus;
+use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
+use crate::semantic::basic::mc_opd::McOpd;
+use crate::semantic::basic::mc_param::McParamValue;
+use crate::semantic::basic::mc_phrase::McPhrase;
+use crate::semantic::common::IOType;
+use crate::semantic::mc_inst::McInstance;
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
 
 // ── M11.4: lane item for position-aware bridge pin collection ──
@@ -2501,7 +2501,7 @@ impl McModuleInst {
         &self,
         phrase: &McPhrase,
     ) -> Option<Vec<String>> {
-        use crate::core::basic::mc_ids::McIds;
+        use crate::semantic::basic::mc_ids::McIds;
 
         // First try to extract name from Label/Bus
         let name_with_bracket = match phrase {

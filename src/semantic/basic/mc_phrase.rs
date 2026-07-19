@@ -24,7 +24,7 @@ use crate::{
         inst_ref_validator::validate_inst_reference,
         mcb_get_cmie, mcb_register_instance_ref,
     },
-    core::basic::{mc_opd::McOpd, mc_param::McParamValue},
+    semantic::basic::{mc_opd::McOpd, mc_param::McParamValue},
     McIds,
 };
 
@@ -645,7 +645,7 @@ impl McPhrase {
                                         if let Some(ps) = n.get_sub_node() {
                                             for p in ps.iter() {
                                                 if let Some(v) =
-                                                    crate::core::basic::mc_param::McParamValue::new(
+                                                    crate::semantic::basic::mc_param::McParamValue::new(
                                                         &p, context,
                                                     )
                                                 {

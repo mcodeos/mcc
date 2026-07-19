@@ -3,10 +3,10 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::ast::ast_node::AstNode;
-use crate::core::basic::mc_expr::McExpression;
-use crate::core::basic::mc_opd::McOpd;
-use crate::core::common::IOType;
-use crate::core::component::mc_attr::McAttrVal;
+use crate::semantic::basic::mc_expr::McExpression;
+use crate::semantic::basic::mc_opd::McOpd;
+use crate::semantic::common::IOType;
+use crate::semantic::component::mc_attr::McAttrVal;
 use std::sync::Arc;
 
 #[derive(Debug, Clone)]
@@ -44,7 +44,7 @@ impl DynamicPinExpr {
     /// Check if McOpd truly contains parameter references (e.g., `[1:rows]`).
     /// Pure identifiers (`I0::I2C`, `XTAL`) are not param refs, should take the normal interface binding path.
     fn variable_has_param_ref(opd: &McOpd) -> bool {
-        use crate::core::basic::mc_opd::McOpd;
+        use crate::semantic::basic::mc_opd::McOpd;
         match opd {
             McOpd::Id(id) => {
                 // Has square bracket param refs (e.g. [1:rows])
@@ -54,7 +54,7 @@ impl DynamicPinExpr {
                 // Single-segment plain identifiers (e.g. rows, cols) are likely param refs
                 // Multi-segment identifiers (e.g. I0::I2C) are interface bindings, not param refs
                 if id.segments.len() == 1 {
-                    if let crate::core::basic::mc_ids::IdsSegment::Ida(ida) = &id.segments[0] {
+                    if let crate::semantic::basic::mc_ids::IdsSegment::Ida(ida) = &id.segments[0] {
                         // Only one Ida segment with no square brackets → plain identifier → param ref
                         if !ida.has_square() && !ida.is_empty() {
                             return true;
@@ -121,7 +121,7 @@ impl DynamicPinExpr {
 
     fn resolve_binding(
         &self,
-        opd: &crate::core::basic::mc_opd::McOpd,
+        opd: &crate::semantic::basic::mc_opd::McOpd,
         bindings: &[(String, i64)],
     ) -> Option<i64> {
         let names = opd.expand();
@@ -156,7 +156,7 @@ impl DynamicPinExpr {
         match &self.expr {
             McExpression::Variable(opd) => {
                 // For variables, try to use McIds::expand_with_bindings
-                if let crate::core::basic::mc_opd::McOpd::Id(ids) = opd {
+                if let crate::semantic::basic::mc_opd::McOpd::Id(ids) = opd {
                     return ids.expand_with_bindings(bindings);
                 }
                 // If not Id type, fall back to default expand
