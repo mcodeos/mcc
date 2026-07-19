@@ -4,12 +4,13 @@
 
 pub mod dynamic;
 
-use crate::db::cmie::cmie::mcb_get_cmie;
+use crate::db::context::DB;
 use crate::db::diagnostic::diagnostic::dlog_trace;
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_ida::IdaSegment;
 use crate::semantic::basic::mc_ids::IdsSegment;
 use crate::semantic::component::mc_attr::{McAttrVal, McAttribute};
+use crate::semantic::context::resolve_cmie;
 use crate::semantic::mc_ifs::Mc2Interface;
 use crate::{
     ast::ast_node::AstNode,
@@ -1644,7 +1645,7 @@ impl McPinNames {
                                     };
                                     let lookup_uri =
                                         crate::current_uri::try_get().unwrap_or_default();
-                                    let lookup_result = mcb_get_cmie(&class_id, &lookup_uri);
+                                    let lookup_result = resolve_cmie(&DB, &class_id, &lookup_uri);
                                     if let Some(McCMIE::Interface(iface_def)) = lookup_result {
                                         let mc2_iface = Mc2Interface::new(inst_id, iface_def);
                                         myself.push_option(
@@ -1914,7 +1915,7 @@ impl McPinNames {
                             let inst_name = iname.clone();
 
                             let lookup_uri = crate::current_uri::try_get().unwrap_or_default();
-                            let lookup_result = mcb_get_cmie(&class_name, &lookup_uri);
+                            let lookup_result = resolve_cmie(&DB, &class_name, &lookup_uri);
                             if let Some(McCMIE::Interface(iface_def)) = lookup_result {
                                 // Pass params to Mc2Interface (e.g., role parameter "DCE")
                                 let mc2_iface =
@@ -2022,7 +2023,7 @@ impl McPinNames {
                             let inst_name = iname.clone();
 
                             let lookup_uri = crate::current_uri::try_get().unwrap_or_default();
-                            let mut lookup_result = mcb_get_cmie(&class_name, &lookup_uri);
+                            let mut lookup_result = resolve_cmie(&DB, &class_name, &lookup_uri);
                             let mut resolved_iface_name: Option<McIds> = None;
 
                             if lookup_result.is_none() {
@@ -2032,7 +2033,7 @@ impl McPinNames {
                                 combined
                                     .segments
                                     .extend(class_name.segments.iter().cloned());
-                                lookup_result = mcb_get_cmie(&combined, &lookup_uri);
+                                lookup_result = resolve_cmie(&DB, &combined, &lookup_uri);
                                 if lookup_result.is_some() {
                                     resolved_iface_name = Some(combined);
                                 }
@@ -2042,7 +2043,7 @@ impl McPinNames {
                                 // single-Ida output, e.g. [Ida(USB.MINIB)]).
                                 let combined =
                                     McIds::from(format!("{inst_name}.{class_name}").as_str());
-                                lookup_result = mcb_get_cmie(&combined, &lookup_uri);
+                                lookup_result = resolve_cmie(&DB, &combined, &lookup_uri);
                                 if lookup_result.is_some() {
                                     resolved_iface_name = Some(combined);
                                 }
