@@ -4,7 +4,7 @@
 
 use crate::ast::ast_node::AstNode;
 use crate::ast::c_macros::*;
-use crate::builder::diagnostic::dlog_error;
+use crate::db::diagnostic::diagnostic::dlog_error;
 use crate::McIds;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

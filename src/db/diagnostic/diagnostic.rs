@@ -3,7 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::ast::ast_node::AstNode;
-use crate::builder::workspace;
+use crate::db::cmie::tables as workspace;
 use crate::McURI;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};

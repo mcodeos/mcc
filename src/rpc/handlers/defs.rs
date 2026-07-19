@@ -211,7 +211,7 @@ pub fn handle_lookup_all(params: Option<Value>) -> RpcResult {
     let p: LookupAllParams = parse_or_default(params)?;
     let uri = p.uri.map(|s| McURI::from(s.as_str())).unwrap_or_default();
     let scope_path = if let Some(ref s) = p.scope {
-        crate::builder::mc_code::McCode::scope_path_from_scope_str_public(&uri, s)
+        crate::db::infra::mc_code::McCode::scope_path_from_scope_str_public(&uri, s)
     } else {
         crate::ScopePath::file_level(&uri)
     };

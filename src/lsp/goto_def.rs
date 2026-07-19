@@ -6,7 +6,9 @@
 //!
 //! Extracted from `rpc/handlers/defs.rs` (handle_def).
 
-use crate::builder::{mcb_iter_components, mcb_iter_enums, mcb_iter_interfaces, mcb_iter_modules};
+use crate::query::iterators::{
+    mcb_iter_components, mcb_iter_enums, mcb_iter_interfaces, mcb_iter_modules,
+};
 use crate::{McCMIE, McIds, McURI};
 use serde_json::{json, Value};
 

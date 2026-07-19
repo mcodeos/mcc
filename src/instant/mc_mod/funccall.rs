@@ -14,7 +14,7 @@
 //! is in `funccall_inst.rs`, and iterated call expansion is in `iterated.rs`.
 
 use super::McModuleInst;
-use crate::builder::mcb_get_cmie;
+use crate::db::cmie::cmie::mcb_get_cmie;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint, PortInst};
 use crate::semantic::basic::mc_bus::McBus;
@@ -86,7 +86,7 @@ impl McModuleInst {
         let _sub_mod_hit = self.sub_modules.iter().any(|m| m.name == func_name_str);
         let _comp_hit = self.components.iter().any(|c| c.name == func_name_str);
         let _cmie_hit =
-            crate::builder::mcb_get_cmie(func_name, &crate::current_uri::get()).is_some();
+            crate::db::cmie::cmie::mcb_get_cmie(func_name, &crate::current_uri::get()).is_some();
 
         let name_str = func_name.to_string();
 
@@ -489,9 +489,9 @@ impl McModuleInst {
             let t1_is_rail = is_rail(&targets[0]);
             let t2_is_rail = is_rail(&targets[1]);
             if !t1_is_rail && !t2_is_rail {
-                crate::builder::diagnostic::diagnostic_log(
+                crate::db::diagnostic::diagnostic::diagnostic_log(
                     2007,
-                    crate::builder::diagnostic::DiagnosticLevel::Warning,
+                    crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
                     0,
                     0,
                     &format!(

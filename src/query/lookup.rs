@@ -4,6 +4,7 @@
 
 use crate::ast::ast_semantic::Span;
 use crate::builder::*;
+use crate::db::cmie::cmie::mcb_get_cmie_with_uri;
 use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
 use crate::semantic::module::McModule;

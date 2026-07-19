@@ -37,7 +37,7 @@ use super::mc_comp::McComponentInst;
 use super::mc_net::{
     ConnectionInst, InstDiagLevel, InstDiagnostic, InstError, NetPoint, NetTable, PortInst,
 };
-use crate::builder::mcb_find_module_uri;
+use crate::query::lookup::mcb_find_module_uri;
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
 use crate::semantic::common::IOType;
 use crate::semantic::module::McModule;

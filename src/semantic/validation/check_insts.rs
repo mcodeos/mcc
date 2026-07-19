@@ -47,7 +47,7 @@ impl ValidationCheck for InstsCheck {
 /// For each module, check that Component/Module/Interface instance constructor
 /// args match the definition's parameter arity.
 fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
-    let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
+    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -191,7 +191,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
 
 /// Interface roles that have no pins, no attrs, and no body content.
 fn check_role_empty_body(acc: &mut CheckAccumulator) {
-    let ifaces = crate::builder::workspace::WORKSPACE.interfaces.borrow();
+    let ifaces = crate::db::cmie::tables::WORKSPACE.interfaces.borrow();
     for entry in ifaces.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -231,7 +231,7 @@ fn check_role_empty_body(acc: &mut CheckAccumulator) {
 /// Role name should not collide with a port name or parameter name
 /// in the same interface.
 fn check_role_name_conflict(acc: &mut CheckAccumulator) {
-    let ifaces = crate::builder::workspace::WORKSPACE.interfaces.borrow();
+    let ifaces = crate::db::cmie::tables::WORKSPACE.interfaces.borrow();
     for entry in ifaces.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -290,7 +290,7 @@ fn check_role_name_conflict(acc: &mut CheckAccumulator) {
 fn check_func_param_iotype(acc: &mut CheckAccumulator) {
     // Check component functions
     {
-        let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+        let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
         for entry in comps.iter() {
             let uri = entry.key().uri.to_string();
             if super::is_test_file(&uri) {
@@ -323,7 +323,7 @@ fn check_func_param_iotype(acc: &mut CheckAccumulator) {
 
     // Check module functions
     {
-        let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
+        let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
         for entry in modules.iter() {
             let uri = entry.key().uri.to_string();
             if super::is_test_file(&uri) {
@@ -366,7 +366,7 @@ fn check_role_param_outside_interface(acc: &mut CheckAccumulator) {
 
     // Check components
     {
-        let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+        let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
         for entry in comps.iter() {
             let uri = entry.key().uri.to_string();
             if super::is_test_file(&uri) {
@@ -397,7 +397,7 @@ fn check_role_param_outside_interface(acc: &mut CheckAccumulator) {
 
     // Check modules
     {
-        let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
+        let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
         for entry in modules.iter() {
             let uri = entry.key().uri.to_string();
             if super::is_test_file(&uri) {
@@ -434,7 +434,7 @@ fn check_role_param_outside_interface(acc: &mut CheckAccumulator) {
 /// Default values should be simple constants, not expressions with operators
 /// or variable references.
 fn check_non_constant_default(acc: &mut CheckAccumulator) {
-    let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {

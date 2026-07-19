@@ -10,7 +10,7 @@
 //! these functions. Handlers are **forbidden** from hand-assembling
 //! diagnostic JSON — that way the fields stay consistent across consumers.
 
-use crate::builder::diagnostic::{Diagnostic, DiagnosticLevel, Location};
+use crate::db::diagnostic::diagnostic::{Diagnostic, DiagnosticLevel, Location};
 use crate::McURI;
 use serde_json::{json, Value};
 

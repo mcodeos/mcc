@@ -36,7 +36,7 @@ use super::super::model::McVecBlock;
 use super::builder_report::{
     BuildMode, BuilderError, BuilderReport, DroppedNet, PartialNet, ResolutionOutcome,
 };
-use crate::builder::diagnostic::{diagnostic_log, DiagnosticLevel};
+use crate::db::diagnostic::diagnostic::{diagnostic_log, DiagnosticLevel};
 
 use super::connection::{merge_pairs_to_vecnet, ConnPair, NetGroupMap};
 use super::debug;

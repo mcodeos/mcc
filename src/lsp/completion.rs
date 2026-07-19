@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 pub fn complete(uri: &str, prefix: Option<&str>, scope: Option<&str>) -> Vec<Value> {
     let mc_uri = McURI::from(uri);
     let scope_path = if let Some(s) = scope {
-        crate::builder::mc_code::McCode::scope_path_from_scope_str_public(&mc_uri, s)
+        crate::db::infra::mc_code::McCode::scope_path_from_scope_str_public(&mc_uri, s)
     } else {
         ScopePath::file_level(&mc_uri)
     };

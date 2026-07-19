@@ -382,7 +382,7 @@ impl WorkspaceManager {
 
         // Note: mcb_set_project_root may cause tokio runtime deadlock, temporarily disabled
         // let root = self.meta.borrow().root.clone();
-        // crate::builder::mcb_set_project_root(&root);
+        // crate::db::infra::init::mcb_set_project_root(&root);
 
         info!(target: "mcc::workspace", id = %id, "switched to workspace");
         true

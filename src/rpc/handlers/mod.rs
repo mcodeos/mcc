@@ -31,8 +31,8 @@
 //!   - 32107  Pass1 / Pass2 failed
 
 use super::protocol::{JsonRpcError, RpcResult};
-use crate::builder::mc_code::McCode;
-use crate::builder::workspace;
+use crate::db::cmie::tables as workspace;
+use crate::db::infra::mc_code::McCode;
 use crate::search_api::{walk_defs, SearchInputs, SearchKind};
 use crate::McURI;
 use serde::Deserialize;
@@ -797,7 +797,7 @@ pub(crate) fn make_overlay_uri() -> McURI {
 /// Remove a previously loaded overlay from the workspace.
 /// Called after the AI check completes to prevent accumulation.
 pub(crate) fn remove_overlay(uri: &McURI) {
-    crate::builder::mcb_remove(uri);
+    crate::build::loader::mcb_remove(uri);
 }
 
 // ============================================================================
@@ -1886,7 +1886,7 @@ pub(crate) fn find_project_root(file_path: &Path) -> PathBuf {
 /// the library context is available for type lookups.
 pub(crate) fn ensure_library_loaded(file_uri: &McURI) {
     // Check if libraries are already loaded
-    let libs = crate::builder::mcb_loaded_libs();
+    let libs = crate::db::infra::lib_mgr::mcb_loaded_libs();
     eprintln!(
         "[ensure_library_loaded] uri={} libs_already_loaded={:?}",
         file_uri, libs
@@ -1923,7 +1923,7 @@ pub(crate) fn ensure_library_loaded(file_uri: &McURI) {
                     match resolve_lib_root(&lib_name) {
                         Ok(root) => {
                             eprintln!("[ensure_library_loaded] resolved root={}", root.display());
-                            crate::builder::mcb_load_lib(&lib_name, &root);
+                            crate::db::infra::lib_mgr::mcb_load_lib(&lib_name, &root);
                         }
                         Err(e) => {
                             eprintln!("[ensure_library_loaded] resolve_lib_root failed: {:?}", e);
