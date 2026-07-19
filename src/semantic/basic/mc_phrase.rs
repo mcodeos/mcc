@@ -16,18 +16,18 @@ use super::super::{
 };
 use crate::{
     ast::{ast_node::AstNode, c_macros::*, error::message::*},
-    builder::{
-        diagnostic::{
+    db::{
+        context::DB,
+        diagnostic::diagnostic::{
             dlog_error, dlog_trace, dlog_warning,
             message_templates::{CANNOT_TRANSPOSE, SHAPE_MISMATCH},
         },
-        inst_ref_validator::validate_inst_reference,
-        mcb_register_instance_ref,
     },
-    db::context::DB,
+    query::refs::mcb_register_instance_ref,
     semantic::{
         basic::{mc_opd::McOpd, mc_param::McParamValue},
         context::resolve_cmie,
+        inst_ref::validate_inst_reference,
     },
     McIds,
 };

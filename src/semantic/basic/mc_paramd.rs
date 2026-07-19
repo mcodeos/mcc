@@ -2,10 +2,11 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+use crate::db::diagnostic::diagnostic::dlog_error;
 use crate::semantic::basic::mc_param_type::McParamType;
 use crate::semantic::basic::mc_uval::McUnitValueDeclare;
 use crate::McIds;
-use crate::{ast::ast_node::AstNode, ast::c_macros::*, builder::diagnostic::dlog_error};
+use crate::{ast::ast_node::AstNode, ast::c_macros::*};
 use std::collections::HashMap;
 use std::ops::Range;
 

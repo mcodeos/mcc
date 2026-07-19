@@ -2,9 +2,9 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+use crate::db::diagnostic::diagnostic::dlog_error;
 use crate::{
     ast::{ast_node::AstNode, c_macros::*, error::message::*},
-    builder::diagnostic::dlog_error,
     semantic::{
         basic::mc_expr::McExpression, basic::mc_kvs::McKVS, basic::mc_literal::McLiteral,
         basic::mc_uval::McUnitValue,

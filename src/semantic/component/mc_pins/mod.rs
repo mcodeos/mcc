@@ -6,6 +6,7 @@ pub mod dynamic;
 
 use crate::db::context::DB;
 use crate::db::diagnostic::diagnostic::dlog_trace;
+use crate::db::diagnostic::diagnostic::{dlog_error, dlog_warning};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_ida::IdaSegment;
 use crate::semantic::basic::mc_ids::IdsSegment;
@@ -13,12 +14,8 @@ use crate::semantic::component::mc_attr::{McAttrVal, McAttribute};
 use crate::semantic::context::resolve_cmie;
 use crate::semantic::mc_ifs::Mc2Interface;
 use crate::{
-    ast::ast_node::AstNode,
-    ast::c_macros::*,
-    ast::error::message::*,
-    builder::diagnostic::{dlog_error, dlog_warning},
-    semantic::basic::mc_expr::McExpression,
-    semantic::basic::mc_param::McParamValue,
+    ast::ast_node::AstNode, ast::c_macros::*, ast::error::message::*,
+    semantic::basic::mc_expr::McExpression, semantic::basic::mc_param::McParamValue,
     semantic::common::IOType,
 };
 use crate::{McCMIE, McIds, McInt};

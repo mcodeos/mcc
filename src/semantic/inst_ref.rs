@@ -2,9 +2,9 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+use crate::db::diagnostic::diagnostic::dlog_error;
 use crate::{
     ast::ast_node::AstNode,
-    builder::diagnostic::dlog_error,
     semantic::{
         basic::mc_bus::McBus,
         basic::mc_endpoint::{McEndpoint, McInstanceRef},

@@ -6,14 +6,10 @@ use std::path::Path;
 
 use tracing::{debug, warn};
 
-use crate::{
-    ast::{ast_node::AstNode, c_macros::*, error::message::*},
-    builder::{
-        diagnostic::{dlog_error, dlog_warning},
-        mcb_get_project_root, mcb_get_system_root,
-    },
-    McIds, McURI,
-};
+use crate::ast::{ast_node::AstNode, c_macros::*, error::message::*};
+use crate::db::diagnostic::diagnostic::{dlog_error, dlog_warning};
+use crate::db::infra::init::{mcb_get_project_root, mcb_get_system_root};
+use crate::{McIds, McURI};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum McUsePrefix {
