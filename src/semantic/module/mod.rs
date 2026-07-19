@@ -9,8 +9,9 @@ use super::{
     mc_func::{HasFindInst, McFunctions},
     mc_inst::{McInst, McInstance, McInstances},
 };
-use crate::db::cmie::cmie::mcb_get_cmie;
+use crate::db::context::DB;
 use crate::semantic::component::Mc2Component;
+use crate::semantic::context::resolve_cmie;
 use crate::semantic::mc_func::McFuncReturn;
 use crate::{
     ast::{ast_node::AstNode, c_macros::*, error::message::*},
@@ -505,13 +506,15 @@ impl HasFindInst for McModule {
                 }
             }
         }
-        if let Some(McCMIE::Interface(_)) = mcb_get_cmie(&McIds::from("ADC.DIFF"), self.uri()) {
+        if let Some(McCMIE::Interface(_)) = resolve_cmie(&DB, &McIds::from("ADC.DIFF"), self.uri())
+        {
             let iface_ref = McBus::new_with_members(&full_name, members);
             return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
                 McInstance::Bus(iface_ref),
             ))));
         }
-        if let Some(McCMIE::Interface(_)) = mcb_get_cmie(
+        if let Some(McCMIE::Interface(_)) = resolve_cmie(
+            &DB,
             &McIds::from(&format!("{component}.{interface}") as &str),
             self.uri(),
         ) {

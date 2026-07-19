@@ -10,11 +10,12 @@ use super::mc_param::McParamValue;
 use super::mc_phrase::McPhrase;
 use crate::ast::ast_node::AstNode;
 use crate::ast::c_macros::*;
-use crate::db::cmie::cmie::mcb_get_cmie;
+use crate::db::context::DB;
 use crate::db::diagnostic::diagnostic::dlog_error;
 use crate::query::refs::mcb_register_declare_class;
 use crate::semantic::common::McCMIE;
 use crate::semantic::component::Mc2Component;
+use crate::semantic::context::resolve_cmie;
 use crate::semantic::mc_func::{HasFindInst, McFuncReturn};
 use crate::semantic::mc_ifs::Mc2Interface;
 use crate::semantic::mc_inst::McInstance;
@@ -500,7 +501,7 @@ impl McFuncCall {
                                                 .any(|p| matches!(p, McParamValue::NC(_)));
 
                                             if let Some(McCMIE::Component(comp_def)) =
-                                                mcb_get_cmie(&ids, context.uri())
+                                                resolve_cmie(&DB, &ids, context.uri())
                                             {
                                                 let component = Mc2Component::with_params(
                                                     &anon_name,
@@ -513,7 +514,7 @@ impl McFuncCall {
                                                     caller = Some(Box::new(phrase));
                                                 }
                                             } else if let Some(McCMIE::Module(mod_def)) =
-                                                mcb_get_cmie(&ids, context.uri())
+                                                resolve_cmie(&DB, &ids, context.uri())
                                             {
                                                 let module = Mc2Module::new(&anon_name, mod_def);
                                                 if let Some(phrase) =
@@ -522,7 +523,7 @@ impl McFuncCall {
                                                     caller = Some(Box::new(phrase));
                                                 }
                                             } else if let Some(McCMIE::Interface(iface_def)) =
-                                                mcb_get_cmie(&ids, context.uri())
+                                                resolve_cmie(&DB, &ids, context.uri())
                                             {
                                                 let iface = Mc2Interface::new_with_str(
                                                     &anon_name, iface_def,
@@ -591,7 +592,7 @@ impl McFuncCall {
                                         .any(|p| matches!(p, McParamValue::NC(_)));
 
                                     if let Some(McCMIE::Component(comp_def)) =
-                                        mcb_get_cmie(&ids, context.uri())
+                                        resolve_cmie(&DB, &ids, context.uri())
                                     {
                                         let component = Mc2Component::with_params(
                                             &anon_name,
@@ -604,7 +605,7 @@ impl McFuncCall {
                                             caller = Some(Box::new(phrase));
                                         }
                                     } else if let Some(McCMIE::Module(mod_def)) =
-                                        mcb_get_cmie(&ids, context.uri())
+                                        resolve_cmie(&DB, &ids, context.uri())
                                     {
                                         let module = Mc2Module::new(&anon_name, mod_def);
                                         if let Some(phrase) = context.add_module(anon_name, module)
@@ -612,7 +613,7 @@ impl McFuncCall {
                                             caller = Some(Box::new(phrase));
                                         }
                                     } else if let Some(McCMIE::Interface(iface_def)) =
-                                        mcb_get_cmie(&ids, context.uri())
+                                        resolve_cmie(&DB, &ids, context.uri())
                                     {
                                         let iface =
                                             Mc2Interface::new_with_str(&anon_name, iface_def);
@@ -661,7 +662,7 @@ impl McFuncCall {
                                             .any(|p| matches!(p, McParamValue::NC(_)));
 
                                         if let Some(McCMIE::Component(comp_def)) =
-                                            mcb_get_cmie(&ids, context.uri())
+                                            resolve_cmie(&DB, &ids, context.uri())
                                         {
                                             let component = if is_nc {
                                                 Mc2Component::with_nc(&anon_name, comp_def, true)
@@ -674,7 +675,7 @@ impl McFuncCall {
                                                 caller = Some(Box::new(phrase));
                                             }
                                         } else if let Some(McCMIE::Module(mod_def)) =
-                                            mcb_get_cmie(&ids, context.uri())
+                                            resolve_cmie(&DB, &ids, context.uri())
                                         {
                                             let module = Mc2Module::new(&anon_name, mod_def);
                                             if let Some(phrase) =
@@ -695,7 +696,7 @@ impl McFuncCall {
                                         .any(|p| matches!(p, McParamValue::NC(_)));
 
                                     if let Some(McCMIE::Component(comp_def)) =
-                                        mcb_get_cmie(&ids, context.uri())
+                                        resolve_cmie(&DB, &ids, context.uri())
                                     {
                                         let component = if is_nc {
                                             Mc2Component::with_nc(&anon_name, comp_def, true)
@@ -708,7 +709,7 @@ impl McFuncCall {
                                             caller = Some(Box::new(phrase));
                                         }
                                     } else if let Some(McCMIE::Module(mod_def)) =
-                                        mcb_get_cmie(&ids, context.uri())
+                                        resolve_cmie(&DB, &ids, context.uri())
                                     {
                                         let module = Mc2Module::new(&anon_name, mod_def);
                                         if let Some(phrase) = context.add_module(anon_name, module)
@@ -960,9 +961,9 @@ impl McFuncCall {
         // Check if func_name is a Component or Module definition (function call form instantiation)
         // e.g., CAP(10uF, ...).Cap(...) - creates anonymous instance of CAP
         if caller.is_none() {
-            let _cmie_result = mcb_get_cmie(&func_name, context.uri()).is_some();
+            let _cmie_result = resolve_cmie(&DB, &func_name, context.uri()).is_some();
             // eprintln!("[FC-PARSE-BARE] func_name='{}' cmie_found={}", func_name, cmie_result);
-            if let Some(cmie) = mcb_get_cmie(&func_name, context.uri()) {
+            if let Some(cmie) = resolve_cmie(&DB, &func_name, context.uri()) {
                 match cmie {
                     McCMIE::Component(comp_def) => {
                         let inst_name = context.gen_anon_name(&func_name.to_string());

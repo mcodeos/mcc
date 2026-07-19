@@ -3,7 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::ast::{ast_node::AstNode, c_macros::*};
-use crate::db::cmie::cmie::mcb_get_cmie;
+use crate::db::context::DB;
 use crate::db::diagnostic::diagnostic::{dlog_error, dlog_warning};
 use crate::message::MISSING_SUBNODE;
 use crate::query::refs::mcb_register_declare_class;
@@ -18,6 +18,7 @@ use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::basic::mc_uval::McUnitValue;
 use crate::semantic::common::IOType;
 use crate::semantic::component::Mc2Component;
+use crate::semantic::context::resolve_cmie;
 use crate::semantic::mc_ifs::Mc2Interface;
 use crate::semantic::module::Mc2Module;
 use crate::McCMIE;
@@ -709,9 +710,11 @@ impl McInstances {
                                             }
                                         }
                                         if let Some(iface_str) = interface_name {
-                                            if let Some(McCMIE::Interface(iface_def)) =
-                                                mcb_get_cmie(&McIds::from(iface_str.as_str()), uri)
-                                            {
+                                            if let Some(McCMIE::Interface(iface_def)) = resolve_cmie(
+                                                &DB,
+                                                &McIds::from(iface_str.as_str()),
+                                                uri,
+                                            ) {
                                                 let members_ids: Vec<IdsSegment> = members
                                                     .iter()
                                                     .map(|m| {
@@ -1186,7 +1189,7 @@ impl McInstances {
         };
 
         // Look up definition using mcb_get_cmie
-        let cmie = mcb_get_cmie(&class_ids, uri);
+        let cmie = resolve_cmie(&DB, &class_ids, uri);
 
         // ★ LSP: Register class reference for goto-definition
         let class_name = class_ids.to_string();

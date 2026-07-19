@@ -22,9 +22,13 @@ use crate::{
             message_templates::{CANNOT_TRANSPOSE, SHAPE_MISMATCH},
         },
         inst_ref_validator::validate_inst_reference,
-        mcb_get_cmie, mcb_register_instance_ref,
+        mcb_register_instance_ref,
     },
-    semantic::basic::{mc_opd::McOpd, mc_param::McParamValue},
+    db::context::DB,
+    semantic::{
+        basic::{mc_opd::McOpd, mc_param::McParamValue},
+        context::resolve_cmie,
+    },
     McIds,
 };
 
@@ -1100,7 +1104,7 @@ impl McPhrase {
                             }
                             // Try global lookup
                             let ids = McIds::from(name.as_str());
-                            if let Some(cmie) = mcb_get_cmie(&ids, context.uri()) {
+                            if let Some(cmie) = resolve_cmie(&DB, &ids, context.uri()) {
                                 match cmie {
                                     McCMIE::Component(comp_def) => {
                                         let mc2_comp = Mc2Component::new(name, comp_def);
@@ -1417,7 +1421,7 @@ impl McPhrase {
                             return Some(inst.into());
                         }
                         let ids = McIds::from(names[0].as_str());
-                        if mcb_get_cmie(&ids, context.uri()).is_some() {
+                        if resolve_cmie(&DB, &ids, context.uri()).is_some() {
                             return None;
                         }
                         return context.add_label(names[0].clone());
@@ -1431,7 +1435,7 @@ impl McPhrase {
                                     )))
                                 } else {
                                     let ids = McIds::from(name.as_str());
-                                    if mcb_get_cmie(&ids, context.uri()).is_some() {
+                                    if resolve_cmie(&DB, &ids, context.uri()).is_some() {
                                         return None;
                                     }
                                     context.add_label(name.clone())
@@ -1451,7 +1455,7 @@ impl McPhrase {
                         return Some(inst.into());
                     }
                     let ids = McIds::from(s.as_str());
-                    if mcb_get_cmie(&ids, context.uri()).is_some() {
+                    if resolve_cmie(&DB, &ids, context.uri()).is_some() {
                         return None;
                     }
                     return context.add_label(s);

@@ -64,7 +64,8 @@ impl SymbolRegistry for DbContext {
     ) -> u32 {
         let span = mk_span(pos, len);
         let id = crate::db::cmie::tables::WORKSPACE
-            .lsp.inst_table
+            .lsp
+            .inst_table
             .lock()
             .map(|mut t| t.add(uri, scope, name, span))
             .unwrap_or_default();
@@ -81,14 +82,16 @@ impl SymbolRegistry for DbContext {
     ) {
         let span = mk_span(pos, len);
         let _ = crate::db::cmie::tables::WORKSPACE
-            .lsp.inst_table
+            .lsp
+            .inst_table
             .lock()
             .map(|mut t| t.add_ref(DeclareId::from_raw(decl_id), uri, scope, span));
     }
 
     fn lookup_instance_decl(&self, uri: &str, name: &str, scope: Option<&str>) -> Option<u32> {
         crate::db::cmie::tables::WORKSPACE
-            .lsp.inst_table
+            .lsp
+            .inst_table
             .lock()
             .ok()
             .and_then(|t| t.get(uri, scope, name))
@@ -98,7 +101,8 @@ impl SymbolRegistry for DbContext {
     fn register_declare_class(&self, uri: &str, class_name: &str, pos: u32, len: u32) {
         let span = mk_span(pos, len);
         let _ = crate::db::cmie::tables::WORKSPACE
-            .lsp.class_table
+            .lsp
+            .class_table
             .lock()
             .map(|mut t| {
                 t.insert(
@@ -134,7 +138,9 @@ impl DiagnosticSink for DbContext {
         let level = match severity {
             DiagnosticSeverity::Hint => crate::db::diagnostic::diagnostic::DiagnosticLevel::Hint,
             DiagnosticSeverity::Info => crate::db::diagnostic::diagnostic::DiagnosticLevel::Info,
-            DiagnosticSeverity::Warning => crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
+            DiagnosticSeverity::Warning => {
+                crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning
+            }
             DiagnosticSeverity::Error => crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
         };
         crate::db::diagnostic::diagnostic::diagnostic_log(code, level, pos, len, message, &[]);

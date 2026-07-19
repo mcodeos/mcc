@@ -24,6 +24,30 @@
 use crate::{McCMIE, McIds, McURI};
 
 // ============================================================================
+// Free function — bridge from global mcb_get_cmie to trait injection
+// ============================================================================
+
+/// Resolve a CMIE definition using the provided resolver.
+/// Drop-in replacement for `mcb_get_cmie(&ids, &uri)`.
+///
+/// ## Migration example
+///
+/// ```ignore
+/// // Before (global state):
+/// let cmie = mcb_get_cmie(&ids, uri);
+///
+/// // After (trait injection):
+/// let cmie = resolve_cmie(ctx, &ids, uri);
+/// ```
+pub fn resolve_cmie(
+    ctx: &impl NameResolver,
+    class_name: &McIds,
+    from_uri: &McURI,
+) -> Option<McCMIE> {
+    ctx.resolve(class_name, from_uri).map(|(cmie, _)| cmie)
+}
+
+// ============================================================================
 // NameResolver — resolve class names to definitions
 // ============================================================================
 
