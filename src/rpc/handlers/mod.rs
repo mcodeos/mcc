@@ -47,36 +47,36 @@ extern "C" {
     fn mcc_reset(log_flags: libc::c_uchar);
 }
 
-const MCC_SYSTEM_ENV: &str = "MCC_SYSTEM_ROOT";
+pub(crate) const MCC_SYSTEM_ENV: &str = "MCC_SYSTEM_ROOT";
 
-fn mcc_system_root() -> PathBuf {
+pub(crate) fn mcc_system_root() -> PathBuf {
     // Single source of truth: delegate to data_dir::data_root() (which honors
     // $MCC_SYSTEM_ROOT). The cwd/mc/ probe and the `~/.mcode` fallback live
     // there now.
     crate::cli::data_dir::data_root()
 }
 
-fn projects_dir() -> PathBuf {
+pub(crate) fn projects_dir() -> PathBuf {
     dirs::data_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("mcc-projects")
 }
-fn project_dir(id: &str) -> PathBuf {
+pub(crate) fn project_dir(id: &str) -> PathBuf {
     projects_dir().join(id)
 }
-fn project_src_dir(id: &str) -> PathBuf {
+pub(crate) fn project_src_dir(id: &str) -> PathBuf {
     project_dir(id).join("src")
 }
-fn project_src_dir_from_root(root: &Path, _id: &str) -> PathBuf {
+pub(crate) fn project_src_dir_from_root(root: &Path, _id: &str) -> PathBuf {
     root.join("src")
 }
-fn project_manifest(id: &str) -> PathBuf {
+pub(crate) fn project_manifest(id: &str) -> PathBuf {
     project_dir(id).join("manifest.toml")
 }
-fn project_manifest_from_root(root: &Path, _id: &str) -> PathBuf {
+pub(crate) fn project_manifest_from_root(root: &Path, _id: &str) -> PathBuf {
     root.join("manifest.toml")
 }
-fn mcode_dir() -> PathBuf {
+pub(crate) fn mcode_dir() -> PathBuf {
     mcc_system_root().join("mcode")
 }
 
@@ -84,380 +84,52 @@ fn mcode_dir() -> PathBuf {
 // Existing methods (preserved, behavior unchanged)
 // ============================================================================
 
-pub fn handle_project_list(_params: Option<Value>) -> RpcResult {
-    let pdir = projects_dir();
-    if !pdir.exists() {
-        return Ok(json!([]));
-    }
-    let mut projects = Vec::new();
-    for entry in fs::read_dir(&pdir).map_err(io_err)? {
-        let entry = entry.map_err(io_err)?;
-        let path = entry.path();
-        if path.is_dir() {
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                projects.push(json!({
-                    "name": name,
-                    "path": path.to_string_lossy(),
-                    "has_manifest": project_manifest(name).exists(),
-                }));
-            }
-        }
-    }
-    Ok(Value::Array(projects))
-}
 
-pub fn handle_project_info(params: Option<Value>) -> RpcResult {
-    let name = parse_string_param(params, &["name", "project"])?;
-    let pdir = project_dir(&name);
-    if !pdir.exists() {
-        return Err(JsonRpcError::custom(32102, "project not found"));
-    }
-    let (active_id, _, _) = crate::workspace_info();
-    Ok(json!({
-        "name": name,
-        "path": pdir.to_string_lossy(),
-        "has_manifest": project_manifest(&name).exists(),
-        "active": name == active_id,
-    }))
-}
 
-pub fn handle_library_list(_params: Option<Value>) -> RpcResult {
-    let mut libs = Vec::new();
-    // Memory-loaded libraries
-    let loaded = crate::mcb_loaded_libs();
-    for name in &loaded {
-        let info = crate::mcb_lib_info(name);
-        libs.push(json!({
-            "name": name,
-            "loaded": true,
-            "symbols": info.as_ref().map(|i| i.total_symbols).unwrap_or(0),
-            "modules": info.as_ref().map(|i| i.module_count).unwrap_or(0),
-            "components": info.as_ref().map(|i| i.component_count).unwrap_or(0),
-        }));
-    }
-    // Disk-installed libraries: prefer reading the v1 layout's index.json.
-    // Falls back to filesystem scan if index is missing or stale.
-    let mut installed = Vec::new();
-    if let Some(index) = crate::cli::data_dir::read_index_if_present() {
-        // v1 index path: enumerate system + 3rdparty from JSON.
-        for entry in index.system {
-            let name = entry
-                .get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            if name == "mcode" && !loaded.contains(&"mcode".to_string()) {
-                installed.push(json!({"name":"mcode","version":entry.get("version").and_then(|v| v.as_str()).unwrap_or("0.0.0"),"loaded":false}));
-            }
-        }
-        for entry in index.thirdparty {
-            let name = entry
-                .get("name")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-            if name.is_empty() || loaded.contains(&name) {
-                continue;
-            }
-            installed.push(json!({
-                "name": name,
-                "version": entry.get("version").and_then(|v| v.as_str()).unwrap_or("0.0.0"),
-                "loaded": false,
-            }));
-        }
-    } else {
-        // Fallback: scan mcc_system_root(), system/, and 3rdparty/ (legacy).
-        if mcode_dir().exists() && !loaded.contains(&"mcode".to_string()) {
-            installed.push(json!({"name":"mcode","version":"*","loaded":false}));
-        }
-        let system_dirs = ["logs", "config", "mclibs", "projects", "unitest"];
-        if let Ok(entries) = fs::read_dir(mcc_system_root()) {
-            for entry in entries.flatten() {
-                let fname = entry.file_name().to_string_lossy().to_string();
-                if entry.path().is_dir() && !system_dirs.contains(&fname.as_str()) {
-                    let (name, version) = match fname.find('@') {
-                        Some(at) => (fname[..at].to_string(), fname[at + 1..].to_string()),
-                        None => (fname.clone(), "0.0.0".to_string()),
-                    };
-                    if name == "mcode" || loaded.contains(&name) {
-                        continue;
-                    }
-                    let lib_path = mcc_system_root().join(&fname);
-                    let entry_file = lib_path.join(format!("{name}.mc"));
-                    if !entry_file.exists() {
-                        continue;
-                    }
-                    installed.push(json!({"name":name,"version":version,"loaded":false}));
-                }
-            }
-        }
-    }
-    Ok(json!({"loaded": libs, "installed": installed}))
-}
 
 #[derive(Deserialize)]
-struct LibraryShowParams {
+pub(crate) struct LibraryShowParams {
     name: String,
 }
 
-pub fn handle_library_show(params: Option<Value>) -> RpcResult {
-    let p: LibraryShowParams = parse_strict(params)?;
-    let name = p.name.as_str();
 
-    // Get library info
-    let info = crate::mcb_lib_info(name).ok_or_else(|| {
-        JsonRpcError::custom(-32602, format!("Library '{}' not loaded", p.name).as_str())
-    })?;
 
-    Ok(json!({
-        "name": info.name,
-        "root": info.root,
-        "modules": info.modules,
-        "module_count": info.module_count,
-        "components": info.components,
-        "component_count": info.component_count,
-        "interfaces": info.interfaces,
-        "interface_count": info.interface_count,
-        "enums": info.enums,
-        "enum_count": info.enum_count,
-        "total_symbols": info.total_symbols,
-        "loaded": true,
-    }))
-}
-
-pub fn handle_server_info(_params: Option<Value>) -> RpcResult {
-    let (active_id, kind, root) = crate::workspace_info();
-    Ok(json!({
-        "version": env!("CARGO_PKG_VERSION"),
-        "status": "running",
-        "data_dir": mcc_system_root().to_string_lossy(),
-        "active_workspace": {
-            "id": active_id,
-            "kind": kind,
-            "root": root,
-        },
-        "loaded_libs": crate::mcb_loaded_libs(),
-    }))
-}
-
-pub fn handle_methods(_params: Option<Value>) -> RpcResult {
-    let methods = [
-        // discovery
-        "server.info",
-        "server.methods",
-        // lib
-        "lib.list",
-        "lib.info",
-        "lib.load",
-        "lib.unload",
-        "lib.install",
-        "lib.uninstall",
-        "lib.search",
-        // trace
-        "trace.set",
-        "trace.get",
-        // build
-        "build.full",
-        // parse
-        "parse",
-        // check / extract
-        "check",
-        "extract",
-        // show
-        "show.component",
-        "show.component.list",
-        "show.module",
-        "show.module.list",
-        "show.interface",
-        "show.interface.list",
-        "show.net",
-        "show.net.list",
-        // show — missing containers (M5 drill-down)
-        "show.all",
-        "show.file",
-        "show.files",
-        "show.enum",
-        "show.enum.list",
-        // show — drill-down (M5)
-        "show.pins",
-        "show.ports",
-        "show.ports.list",
-        "show.labels",
-        "show.instances",
-        "show.nets",
-        "show.attrs",
-        "show.funcs",
-        "show.params",
-        "show.roles",
-        "show.values",
-        "show.dump",
-        "show.dump.all",
-        // search (M5)
-        "defs.search",
-        "defs.query",
-        // export (M5)
-        "export",
-        // explain (M6)
-        "explain",
-        "caps",
-    ];
-    Ok(json!(methods
-        .iter()
-        .map(|s| Value::String(s.to_string()))
-        .collect::<Vec<_>>()))
-}
 
 // ============================================================================
 // Lib handlers
 // ============================================================================
 
-pub fn handle_lib_load(params: Option<Value>) -> RpcResult {
-    let name = parse_string_param(params, &["name", "lib"])?;
-    let root = resolve_lib_root(&name)?;
-    if !crate::mcb_load_lib(&name, &root) {
-        return Err(JsonRpcError::custom(32107, "lib load failed"));
-    }
-    let info = crate::mcb_lib_info(&name);
-    Ok(json!({
-        "name": name,
-        "loaded": true,
-        "root": root.to_string_lossy(),
-        "symbols": info.as_ref().map(|i| i.total_symbols).unwrap_or(0),
-        "modules": info.as_ref().map(|i| i.module_count).unwrap_or(0),
-        "components": info.as_ref().map(|i| i.component_count).unwrap_or(0),
-    }))
-}
 
-pub fn handle_lib_unload(params: Option<Value>) -> RpcResult {
-    let name = parse_string_param(params, &["name", "lib"])?;
-    let ok = crate::mcb_unload_lib(&name);
-    Ok(json!({"name": name, "unloaded": ok}))
-}
 
 #[derive(Deserialize)]
-struct LibInstallParams {
+pub(crate) struct LibInstallParams {
     name: String,
     from: String,
     #[serde(default)]
     version: Option<String>,
 }
 
-pub fn handle_lib_install(params: Option<Value>) -> RpcResult {
-    let p: LibInstallParams = parse_strict(params)?;
-    let src = PathBuf::from(&p.from);
-    if !src.exists() {
-        return Err(JsonRpcError::custom(
-            32100,
-            &format!("lib install: source path does not exist '{}'", p.from),
-        ));
-    }
-    let ver = p.version.as_deref().unwrap_or("0.0.0");
-    let name_ver = format!("{}@{}", p.name, ver);
-    // Flat layout: install into <root>/<name>@<ver>
-    let target = crate::cli::data_dir::data_root().join(&name_ver);
-    if target.exists() {
-        return Err(JsonRpcError::custom(
-            32101,
-            &format!("lib install: {} is already installed", name_ver),
-        ));
-    }
-    copy_dir_recursive(&src, &target).map_err(io_err)?;
-    // Refresh index.json so lib.list sees the new install.
-    let _ = crate::cli::data_dir::rebuild_index();
-    Ok(json!({
-        "installed": name_ver,
-        "path": target.to_string_lossy(),
-    }))
-}
 
 #[derive(Deserialize)]
-struct LibUninstallParams {
+pub(crate) struct LibUninstallParams {
     name: String,
     #[serde(default)]
     force: bool,
 }
 
-pub fn handle_lib_uninstall(params: Option<Value>) -> RpcResult {
-    let p: LibUninstallParams = parse_strict(params)?;
-    let is_loaded = crate::mcb_loaded_libs().contains(&p.name);
-    if is_loaded && !p.force {
-        return Err(JsonRpcError::custom(
-            32101,
-            &format!(
-                "lib uninstall: '{}' is loaded; unload first or pass force",
-                p.name
-            ),
-        ));
-    }
-    if is_loaded && !crate::mcb_unload_lib(&p.name) {
-        return Err(JsonRpcError::custom(
-            32107,
-            &format!("lib uninstall: failed to unload '{}'", p.name),
-        ));
-    }
-    let lib_dir = resolve_installed_lib_dir(&p.name).ok_or_else(|| {
-        JsonRpcError::custom(
-            32102,
-            &format!("lib uninstall: '{}' is not installed", p.name),
-        )
-    })?;
-    fs::remove_dir_all(&lib_dir).map_err(io_err)?;
-    // Refresh index.json so lib.list no longer shows the deleted install.
-    let _ = crate::cli::data_dir::rebuild_index();
-    Ok(json!({
-        "uninstalled": p.name,
-        "path": lib_dir.to_string_lossy(),
-    }))
-}
 
 #[derive(Deserialize)]
-struct LibSearchParams {
+pub(crate) struct LibSearchParams {
     pattern: String,
 }
 
-pub fn handle_lib_search(params: Option<Value>) -> RpcResult {
-    let p: LibSearchParams = parse_strict(params)?;
-    let pat = p.pattern.to_lowercase();
-    let mut results = Vec::new();
-    if mcode_dir().exists() && ("mcode".contains(&pat) || pat.is_empty()) {
-        results.push(json!({
-            "name": "mcode", "version": "*",
-            "path": mcode_dir().to_string_lossy(),
-        }));
-    }
-
-    // Scan flat root directory for installed libs.
-    let system_dirs = ["logs", "config", "mclibs", "projects", "unitest"];
-
-    if let Ok(entries) = fs::read_dir(mcc_system_root()) {
-        for entry in entries.flatten() {
-            let fname = entry.file_name().to_string_lossy().to_string();
-            if !entry.path().is_dir() || system_dirs.contains(&fname.as_str()) {
-                continue;
-            }
-            let (name, version) = match fname.find('@') {
-                Some(at) => (fname[..at].to_string(), fname[at + 1..].to_string()),
-                None => (fname.clone(), "0.0.0".to_string()),
-            };
-            let path = entry.path().to_string_lossy().to_string();
-            if name.to_lowercase().contains(&pat) || path.to_lowercase().contains(&pat) {
-                results.push(json!({"name": name, "version": version, "path": path}));
-            }
-        }
-    }
-    Ok(json!({
-        "pattern": p.pattern,
-        "total": results.len(),
-        "results": results,
-    }))
-}
 
 // ============================================================================
 // defs.search (M5) — text/regex/fuzzy search across loaded definitions
 // ============================================================================
 
 #[derive(Deserialize, Default)]
-struct DefsSearchParams {
+pub(crate) struct DefsSearchParams {
     pattern: String,
     #[serde(default)]
     kind: Option<String>,
@@ -471,111 +143,25 @@ struct DefsSearchParams {
     limit: usize,
 }
 
-pub fn handle_defs_search(params: Option<Value>) -> RpcResult {
-    let p: DefsSearchParams = parse_or_default(params)?;
-    let kind = match p.kind.as_deref() {
-        None => None,
-        Some("component") => Some(SearchKind::Component),
-        Some("module") => Some(SearchKind::Module),
-        Some("interface") => Some(SearchKind::Interface),
-        Some("enum") => Some(SearchKind::Enum),
-        Some("instance") => Some(SearchKind::Instance),
-        Some(other) => {
-            return Err(JsonRpcError::custom(
-                -32602,
-                &format!(
-                    "defs.search: unknown kind '{}', expected one of component|module|interface|enum|instance",
-                    other
-                ),
-            ));
-        }
-    };
-    let inputs = SearchInputs {
-        pattern: p.pattern,
-        kind,
-        regex: p.regex,
-        fuzzy: p.fuzzy,
-        top: p.top,
-        limit: p.limit,
-        libs: Vec::new(),
-    };
-    let hits = walk_defs(&inputs, None)
-        .map_err(|e| JsonRpcError::custom(-32603, &format!("defs.search: {}", e)))?;
-    let count = hits.len();
-    let results: Vec<Value> = hits
-        .into_iter()
-        .map(|h| {
-            let mut v = json!({
-                "kind": h.kind,
-                "name": h.name,
-                "uri": h.uri,
-            });
-            if let Some(c) = h.class {
-                v["class"] = json!(c);
-            }
-            v
-        })
-        .collect();
-    Ok(json!({
-        "pattern": inputs.pattern,
-        "kind": inputs.kind.map(|k| format!("{:?}", k).to_lowercase()),
-        "regex": inputs.regex,
-        "fuzzy": inputs.fuzzy,
-        "count": count,
-        "results": results,
-    }))
-}
 
 // ============================================================================
 // defs.query (M5 PR#2) — structured DSL query
 // ============================================================================
 
 #[derive(Deserialize, Default)]
-struct DefsQueryParams {
+pub(crate) struct DefsQueryParams {
     expr: String,
     #[serde(default)]
     limit: usize,
 }
 
-pub fn handle_defs_query(params: Option<Value>) -> RpcResult {
-    let p: DefsQueryParams = parse_or_default(params)?;
-    let query = crate::query_api::compile(&p.expr)
-        .map_err(|e| JsonRpcError::custom(-32602, &format!("defs.query: {}", e)))?;
-    let inputs = SearchInputs {
-        pattern: String::new(),
-        kind: None,
-        regex: false,
-        fuzzy: false,
-        top: None,
-        limit: p.limit,
-        libs: Vec::new(),
-    };
-    let hits = walk_defs(&inputs, Some(&query))
-        .map_err(|e| JsonRpcError::custom(-32603, &format!("defs.query: {}", e)))?;
-    let count = hits.len();
-    let results: Vec<Value> = hits
-        .into_iter()
-        .map(|h| {
-            let mut v = json!({"kind": h.kind, "name": h.name, "uri": h.uri});
-            if let Some(c) = h.class {
-                v["class"] = json!(c);
-            }
-            v
-        })
-        .collect();
-    Ok(json!({
-        "expr": p.expr,
-        "count": count,
-        "results": results,
-    }))
-}
 
 // ============================================================================
 // export (M5 PR#3) — text/JSON/CSV netlist, BOM, SPICE
 // ============================================================================
 
 #[derive(Deserialize, Default)]
-struct ExportRpcParams {
+pub(crate) struct ExportRpcParams {
     /// "netlist" | "bom" | "spice"
     #[serde(default)]
     kind: String,
@@ -592,64 +178,10 @@ struct ExportRpcParams {
     libs: Vec<String>,
 }
 
-pub fn handle_export(params: Option<Value>) -> RpcResult {
-    let p: ExportRpcParams = parse_or_default(params)?;
-    let args = crate::cli::ExportArgs {
-        kind: match p.kind.as_str() {
-            "bom" => crate::cli::ExportKind::Bom,
-            "spice" => crate::cli::ExportKind::Spice,
-            "kicad" | "kicad-netlist" => crate::cli::ExportKind::KiCad,
-            _ => crate::cli::ExportKind::Netlist,
-        },
-        file: p.entry,
-        top: p.top,
-        lib: p.libs,
-        format: match p.format.as_deref() {
-            Some("json") => crate::cli::OutputFormat::Json,
-            Some("json-pretty") => crate::cli::OutputFormat::JsonPretty,
-            Some("yaml") => crate::cli::OutputFormat::Yaml,
-            Some("csv") => crate::cli::OutputFormat::Csv,
-            _ => crate::cli::OutputFormat::Text,
-        },
-        json: p.format.as_deref() == Some("json"),
-        output: None,
-    };
-    let (tree, table) = crate::export_api::build_tree(&args.file, args.top.as_deref(), &args.lib)
-        .map_err(|e| JsonRpcError::custom(-32603, &format!("export: {}", e)))?;
-    let top = args.top.clone().unwrap_or_else(|| "?".to_string());
-    // Convert local cli enums → u8 tags for export_api.
-    let kind_tag = match args.kind {
-        crate::cli::ExportKind::Netlist => 0u8,
-        crate::cli::ExportKind::Bom => 1u8,
-        crate::cli::ExportKind::KiCad => 3u8,
-        crate::cli::ExportKind::Spice => 2u8,
-    };
-    let format_tag = match args.format {
-        crate::cli::OutputFormat::Text => 0u8,
-        crate::cli::OutputFormat::Json => 1u8,
-        crate::cli::OutputFormat::JsonPretty => 2u8,
-        crate::cli::OutputFormat::Yaml => 3u8,
-        crate::cli::OutputFormat::Csv => 4u8,
-    };
-    let (raw_text, items, count) =
-        crate::export_api::build_payload(&tree, &table, &top, kind_tag, format_tag);
-    let kind_str = match kind_tag {
-        1 => "bom",
-        2 => "spice",
-        _ => "netlist",
-    };
-    let _ = raw_text; // raw artifact; for RPC we return structured items
-    Ok(json!({
-        "kind": kind_str,
-        "format": p.format.unwrap_or_else(|| "text".into()),
-        "count": count,
-        "items": items,
-    }))
-}
 
 /// Resolve an installed library directory under the system root.
 /// Flat layout: checks `<root>/<name>` (built-in) and `<root>/<name>@<version>` (3rd-party).
-fn resolve_installed_lib_dir(name: &str) -> Option<PathBuf> {
+pub(crate) fn resolve_installed_lib_dir(name: &str) -> Option<PathBuf> {
     let root = mcc_system_root();
 
     // Built-in: <root>/<name> (e.g. mcode)
@@ -671,7 +203,7 @@ fn resolve_installed_lib_dir(name: &str) -> Option<PathBuf> {
     None
 }
 
-fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
+pub(crate) fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     fs::create_dir_all(dst)?;
     for entry in fs::read_dir(src)? {
         let entry = entry?;
@@ -691,61 +223,19 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
 // ============================================================================
 
 #[derive(Deserialize)]
-struct TraceSetParams {
+pub(crate) struct TraceSetParams {
     name: String,
     value: bool,
 }
 
-pub fn handle_trace_set(params: Option<Value>) -> RpcResult {
-    let p: TraceSetParams = parse_strict(params)?;
-    match p.name.as_str() {
-        // ── C parser trace flags (token/ast/sem/visit)──
-        "trace.enabled" | "enabled" => crate::cli::config::set_trace_enabled(p.value),
-        "trace.ast" | "ast" => crate::cli::config::set_trace_ast(p.value),
-        "trace.lexer" | "lexer" => crate::cli::config::set_trace_lexer(p.value),
-        "trace.parser" | "parser" => crate::cli::config::set_trace_parser(p.value),
-        "trace.visit" | "visit" => crate::cli::config::set_trace_visit(p.value),
-        // ── Rust log pass flags (real-time effect)──
-        "trace.pass1" | "pass1" => crate::cli::config::set_log_pass1(p.value),
-        "trace.pass2" | "pass2" => crate::cli::config::set_log_pass2(p.value),
-        "trace.server" | "server" => crate::cli::config::set_log_server(p.value),
-        _ => {
-            return Err(JsonRpcError::custom(
-                -32099,
-                &format!("unknown trace config: {}", p.name),
-            ));
-        }
-    }
-    Ok(json!({"name": p.name, "value": p.value}))
-}
 
-pub fn handle_trace_get(params: Option<Value>) -> RpcResult {
-    let name = parse_string_param(params, &["name"])?;
-    let value = match name.as_str() {
-        "trace.enabled" | "enabled" => crate::cli::config::get_trace_enabled(),
-        "trace.ast" | "ast" => crate::cli::config::get_trace_ast(),
-        "trace.lexer" | "lexer" => crate::cli::config::get_trace_lexer(),
-        "trace.parser" | "parser" => crate::cli::config::get_trace_parser(),
-        "trace.visit" | "visit" => crate::cli::config::get_trace_visit(),
-        "trace.pass1" | "pass1" => crate::cli::config::get_log_pass1(),
-        "trace.pass2" | "pass2" => crate::cli::config::get_log_pass2(),
-        "trace.server" | "server" => crate::cli::config::get_log_server(),
-        _ => {
-            return Err(JsonRpcError::custom(
-                -32099,
-                &format!("unknown trace config: {name}"),
-            ));
-        }
-    };
-    Ok(json!({"name": name, "value": value}))
-}
 
 // ============================================================================
 // Common build.full handlers (based on active workspace)
 // ============================================================================
 
 #[derive(Default, Deserialize)]
-struct BuildFullParams {
+pub(crate) struct BuildFullParams {
     #[serde(default)]
     entry: Option<String>,
     #[serde(default)]
@@ -760,57 +250,16 @@ struct BuildFullParams {
     libs: Vec<String>,
 }
 
-fn default_true() -> bool {
+pub(crate) fn default_true() -> bool {
     true
 }
 
-pub fn handle_build_full(params: Option<Value>) -> RpcResult {
-    let p: BuildFullParams = parse_or_default(params)?;
-    load_libs_rpc(&p.libs);
-
-    let (id, kind, root_str) = crate::workspace_info();
-    if kind == "Anonymous" {
-        let entry = p.entry.as_deref().ok_or_else(|| {
-            JsonRpcError::custom(-32602, "build.full: need <entry> or active workspace")
-        })?;
-        let cwd = std::env::current_dir().unwrap_or_default();
-        let entry_path = PathBuf::from(entry);
-        let abs_entry = if entry_path.is_absolute() {
-            entry_path
-        } else {
-            cwd.join(&entry_path)
-        };
-        return run_full_build(
-            &abs_entry,
-            p.top.as_deref(),
-            "build.full",
-            "file",
-            &id,
-            p.include_system,
-        );
-    }
-
-    let _root = PathBuf::from(&root_str);
-    let entry_path = match kind.as_str() {
-        "Project" => resolve_project_entry(&id, p.entry.as_deref())?,
-        _ => return Err(JsonRpcError::custom(32102, "unknown workspace kind")),
-    };
-    let top = p.top.or_else(read_project_top_from_workspace);
-    run_full_build(
-        &entry_path,
-        top.as_deref(),
-        "build.full",
-        "project",
-        &id,
-        p.include_system,
-    )
-}
 
 // ============================================================================
 // Internal: Pass1 / Pass2 execution
 // ============================================================================
 
-fn run_pass1(
+pub(crate) fn run_pass1(
     entry: &Path,
     command: &str,
     ws_kind: &str,
@@ -901,7 +350,7 @@ fn run_pass1(
 }
 
 /// Execute Pass1 + Pass2 from file
-fn run_full_build(
+pub(crate) fn run_full_build(
     entry: &Path,
     top: Option<&str>,
     command: &str,
@@ -983,7 +432,7 @@ fn run_full_build(
 // ============================================================================
 
 /// Parse entry filename from memory store
-fn resolve_virtual_entry(
+pub(crate) fn resolve_virtual_entry(
     store: &BTreeMap<String, String>,
     entry: Option<&str>,
 ) -> Result<String, JsonRpcError> {
@@ -1010,7 +459,7 @@ fn resolve_virtual_entry(
 }
 
 /// Load all files from memory and execute Pass1
-fn run_pass1_from_memory(
+pub(crate) fn run_pass1_from_memory(
     vdir: &str,
     entry_name: &str,
     store: &BTreeMap<String, String>,
@@ -1050,7 +499,7 @@ fn run_pass1_from_memory(
 }
 
 /// Execute Pass1 + Pass2 from memory
-fn run_full_build_from_memory(
+pub(crate) fn run_full_build_from_memory(
     vdir: &str,
     entry_name: &str,
     store: &BTreeMap<String, String>,
@@ -1152,7 +601,7 @@ fn run_full_build_from_memory(
     }))
 }
 
-fn collect_pass1(_uri: &str, include_system: bool) -> Value {
+pub(crate) fn collect_pass1(_uri: &str, include_system: bool) -> Value {
     let all_modules = crate::mcb_iter_modules_with_span();
     let all_components = crate::mcb_iter_components_with_span();
     let all_interfaces = crate::mcb_iter_interfaces_with_span();
@@ -1246,7 +695,7 @@ fn collect_pass1(_uri: &str, include_system: bool) -> Value {
     })
 }
 
-fn collect_pass2(top: &str, inst: &crate::MccProjectTree) -> Value {
+pub(crate) fn collect_pass2(top: &str, inst: &crate::MccProjectTree) -> Value {
     json!({
         "top": top,
         "instances": instance_to_json(inst),
@@ -1256,13 +705,13 @@ fn collect_pass2(top: &str, inst: &crate::MccProjectTree) -> Value {
     })
 }
 
-fn extract_connections(inst: &crate::MccProjectTree) -> Vec<Value> {
+pub(crate) fn extract_connections(inst: &crate::MccProjectTree) -> Vec<Value> {
     let mut out = Vec::new();
     walk_connections(inst, &mut out);
     out
 }
 
-fn walk_connections(inst: &crate::MccProjectTree, out: &mut Vec<Value>) {
+pub(crate) fn walk_connections(inst: &crate::MccProjectTree, out: &mut Vec<Value>) {
     for conn in &inst.connections {
         out.push(json!({
             "id": conn.id,
@@ -1275,7 +724,7 @@ fn walk_connections(inst: &crate::MccProjectTree, out: &mut Vec<Value>) {
     }
 }
 
-fn instance_to_json(inst: &crate::MccProjectTree) -> Value {
+pub(crate) fn instance_to_json(inst: &crate::MccProjectTree) -> Value {
     use crate::IOType;
     let ports: Vec<Value> = inst
         .ports
@@ -1330,7 +779,7 @@ fn instance_to_json(inst: &crate::MccProjectTree) -> Value {
     })
 }
 
-fn extract_nets(inst: &crate::MccProjectTree) -> Vec<Value> {
+pub(crate) fn extract_nets(inst: &crate::MccProjectTree) -> Vec<Value> {
     use std::collections::BTreeMap;
     let mut by_name: BTreeMap<String, Vec<String>> = BTreeMap::new();
     walk_nets(inst, &mut by_name);
@@ -1340,7 +789,7 @@ fn extract_nets(inst: &crate::MccProjectTree) -> Vec<Value> {
         .collect()
 }
 
-fn walk_nets(inst: &crate::MccProjectTree, by_name: &mut BTreeMap<String, Vec<String>>) {
+pub(crate) fn walk_nets(inst: &crate::MccProjectTree, by_name: &mut BTreeMap<String, Vec<String>>) {
     for conn in &inst.connections {
         let key = conn.net_name.clone().unwrap_or_default();
         let entry = by_name.entry(key).or_default();
@@ -1355,7 +804,7 @@ fn walk_nets(inst: &crate::MccProjectTree, by_name: &mut BTreeMap<String, Vec<St
     }
 }
 
-fn iotype_str(io: &crate::IOType) -> &'static str {
+pub(crate) fn iotype_str(io: &crate::IOType) -> &'static str {
     use crate::IOType::*;
     match io {
         In => "in",
@@ -1374,7 +823,7 @@ fn iotype_str(io: &crate::IOType) -> &'static str {
 // File entry grouping
 // ============================================================================
 
-struct FileEntry {
+pub(crate) struct FileEntry {
     uri: String,
     is_system: bool,
     modules: Vec<String>,
@@ -1407,24 +856,24 @@ impl FileEntry {
 }
 
 /// Check if URI is a system library
-fn is_system_uri(uri: &str) -> bool {
+pub(crate) fn is_system_uri(uri: &str) -> bool {
     uri.contains("/mcode/") || uri.contains("\\mcode\\")
 }
 
-fn collect_definitions(
+pub(crate) fn collect_definitions(
     items: Vec<(String, String, [usize; 2])>,
 ) -> Vec<(String, String, [usize; 2])> {
     items
 }
 
-fn refs_json(items: &[(String, String, [usize; 2])]) -> Vec<Value> {
+pub(crate) fn refs_json(items: &[(String, String, [usize; 2])]) -> Vec<Value> {
     items
         .iter()
         .map(|(n, u, s)| json!({"name": n, "uri": u, "span": s}))
         .collect()
 }
 
-fn load_libs_rpc(libs: &[String]) {
+pub(crate) fn load_libs_rpc(libs: &[String]) {
     if libs.is_empty() {
         return;
     }
@@ -1442,7 +891,7 @@ fn load_libs_rpc(libs: &[String]) {
 }
 
 #[derive(Deserialize, Default)]
-struct CheckRpcParams {
+pub(crate) struct CheckRpcParams {
     #[serde(default)]
     entry: Option<String>,
     /// Inline source content (M6). When set, loaded from memory — no disk I/O.
@@ -1457,114 +906,21 @@ struct CheckRpcParams {
 }
 
 /// Overlay URI used when `content` is provided — virtual file, never touches disk.
-const CHECK_OVERLAY_URI: &str = "/mcc/check.mc";
+pub(crate) const CHECK_OVERLAY_URI: &str = "/mcc/check.mc";
 
-pub fn handle_check(params: Option<Value>) -> RpcResult {
-    let p: CheckRpcParams = parse_or_default(params)?;
-    load_libs_rpc(&p.libs);
-
-    // ── Mode A: inline content (AI dry-run) (M6) ──
-    if let Some(content) = &p.content {
-        let uri = McURI::from(CHECK_OVERLAY_URI);
-        crate::mcc_load_from_string(&uri, content);
-
-        let raw = crate::mcc_diagnose_all();
-        let diags: Vec<Value> = raw
-            .iter()
-            .map(|d| {
-                let sev = match d.level {
-                    crate::DiagnosticLevel::Error => "error",
-                    crate::DiagnosticLevel::Warning => "warning",
-                    crate::DiagnosticLevel::Info => "info",
-                    crate::DiagnosticLevel::Hint => "hint",
-                };
-                json!({
-                    "code": d.code,
-                    "severity": sev,
-                    "message": d.msg,
-                    "location": {
-                        "file": d.loc.uri,
-                        "line": d.loc.row,
-                        "column": d.loc.col,
-                        "pos": d.loc.pos,
-                        "len": d.loc.len,
-                    }
-                })
-            })
-            .collect();
-
-        let errors = diags.iter().filter(|d| d["severity"] == "error").count();
-        let warnings = diags.iter().filter(|d| d["severity"] == "warning").count();
-
-        return Ok(json!({
-            "summary": { "errors": errors, "warnings": warnings },
-            "diagnostics": diags,
-        }));
-    }
-
-    // ── Mode B/C/D: disk file / project / workspace ──
-    let (id, kind, _) = crate::workspace_info();
-    if kind == "Anonymous" {
-        let entry = p
-            .entry
-            .as_deref()
-            .ok_or_else(|| JsonRpcError::custom(-32602, "check: need <entry> or <content>"))?;
-
-        let cwd = std::env::current_dir().unwrap_or_default();
-        let entry_path = PathBuf::from(entry);
-        let abs_entry = if entry_path.is_absolute() {
-            entry_path.clone()
-        } else {
-            cwd.join(&entry_path)
-        };
-
-        let _uri = McURI::from(abs_entry.to_string_lossy().as_ref() as &str);
-
-        return run_full_build(&abs_entry, None, "check", "file", &id, false);
-    }
-
-    let bp = json!({ "entry": p.entry, "include_system": false });
-    handle_build_full(Some(bp))
-}
 
 // ============================================================================
 // Refs (M6)
 // ============================================================================
 
-pub fn handle_refs(params: Option<Value>) -> RpcResult {
-    #[derive(Deserialize)]
-    struct RefsParams {
-        name: String,
-    }
-
-    let p: RefsParams = parse_strict(params)?;
-    let refs = crate::mcb_get_refs(&p.name);
-
-    let items: Vec<Value> = refs
-        .iter()
-        .map(|(uri, scope, span)| {
-            json!({
-                "uri": uri,
-                "scope": scope,
-                "pos": span.start,
-                "end": span.end,
-            })
-        })
-        .collect();
-
-    Ok(json!({ "name": p.name, "count": items.len(), "refs": items }))
-}
 
 // ============================================================================
 // ERC — Electrical Rule Check (M6)
 // ============================================================================
 
-pub fn handle_erc(_params: Option<Value>) -> RpcResult {
-    run_erc()
-}
 
 /// Run Pass2 ERC: single-point nets, unconnected ports, net stats.
-fn run_erc() -> RpcResult {
+pub(crate) fn run_erc() -> RpcResult {
     let top = crate::mcb_get_first_module_name()
         .ok_or_else(|| JsonRpcError::custom(-32003, "semantic: no modules found"))?;
 
@@ -1686,7 +1042,7 @@ fn run_erc() -> RpcResult {
 }
 
 #[derive(Deserialize, Default)]
-struct ExtractRpcParams {
+pub(crate) struct ExtractRpcParams {
     #[serde(default)]
     entry: Option<String>,
     #[serde(default)]
@@ -1697,42 +1053,8 @@ struct ExtractRpcParams {
     libs: Vec<String>,
 }
 
-pub fn handle_extract(params: Option<Value>) -> RpcResult {
-    let p: ExtractRpcParams = parse_or_default(params)?;
-    load_libs_rpc(&p.libs);
 
-    let (id, kind, root_str) = crate::workspace_info();
-    if kind == "Anonymous" {
-        let entry = p
-            .entry
-            .as_deref()
-            .ok_or_else(|| JsonRpcError::custom(-32602, "extract: need to specify <entry>"))?;
-        let cwd = std::env::current_dir().unwrap_or_default();
-        let entry_path = PathBuf::from(entry);
-        let abs_entry = if entry_path.is_absolute() {
-            entry_path.clone()
-        } else {
-            cwd.join(&entry_path)
-        };
-        let uri = McURI::from(abs_entry.to_string_lossy().as_ref() as &str);
-        crate::mcc_load_project(&uri);
-        return extract_from_uri(&abs_entry, p.top.as_deref(), &p.target);
-    }
-
-    let _root = PathBuf::from(&root_str);
-    let entry_path = match kind.as_str() {
-        "Project" => resolve_project_entry(&id, p.entry.as_deref())?,
-        _ => {
-            return Err(JsonRpcError::custom(
-                -32102,
-                "extract: only project workspace is supported",
-            ))
-        }
-    };
-    extract_from_uri(&entry_path, p.top.as_deref(), &p.target)
-}
-
-fn extract_from_uri(entry: &Path, top: Option<&str>, target: &str) -> RpcResult {
+pub(crate) fn extract_from_uri(entry: &Path, top: Option<&str>, target: &str) -> RpcResult {
     let uri = entry.to_string_lossy().to_string();
     let mc_uri = McURI::from(uri.as_str());
 
@@ -1854,12 +1176,12 @@ fn extract_from_uri(entry: &Path, top: Option<&str>, target: &str) -> RpcResult 
 // Auxiliary: parameter parsing / error handling
 // ============================================================================
 
-fn parse_strict<T: for<'de> Deserialize<'de>>(params: Option<Value>) -> Result<T, JsonRpcError> {
+pub(crate) fn parse_strict<T: for<'de> Deserialize<'de>>(params: Option<Value>) -> Result<T, JsonRpcError> {
     let v = params.ok_or_else(JsonRpcError::invalid_params)?;
     serde_json::from_value(v).map_err(|_| JsonRpcError::invalid_params())
 }
 
-fn parse_or_default<T: for<'de> Deserialize<'de> + Default>(
+pub(crate) fn parse_or_default<T: for<'de> Deserialize<'de> + Default>(
     params: Option<Value>,
 ) -> Result<T, JsonRpcError> {
     match params {
@@ -1868,7 +1190,7 @@ fn parse_or_default<T: for<'de> Deserialize<'de> + Default>(
     }
 }
 
-fn parse_string_param(params: Option<Value>, keys: &[&str]) -> Result<String, JsonRpcError> {
+pub(crate) fn parse_string_param(params: Option<Value>, keys: &[&str]) -> Result<String, JsonRpcError> {
     match params {
         Some(Value::String(s)) => Ok(s),
         Some(Value::Object(mut m)) => {
@@ -1883,7 +1205,7 @@ fn parse_string_param(params: Option<Value>, keys: &[&str]) -> Result<String, Js
     }
 }
 
-fn io_err(e: std::io::Error) -> JsonRpcError {
+pub(crate) fn io_err(e: std::io::Error) -> JsonRpcError {
     JsonRpcError::custom(32100, &format!("io error: {e}"))
 }
 
@@ -1892,12 +1214,12 @@ fn io_err(e: std::io::Error) -> JsonRpcError {
 // ============================================================================
 
 #[derive(Deserialize)]
-struct UploadFile {
+pub(crate) struct UploadFile {
     path: String,
     content: String,
 }
 
-fn write_files(root: &Path, files: &[UploadFile]) -> (Vec<String>, Vec<String>) {
+pub(crate) fn write_files(root: &Path, files: &[UploadFile]) -> (Vec<String>, Vec<String>) {
     let mut uploaded = Vec::new();
     let mut skipped = Vec::new();
     for f in files {
@@ -1920,7 +1242,7 @@ fn write_files(root: &Path, files: &[UploadFile]) -> (Vec<String>, Vec<String>) 
     (uploaded, skipped)
 }
 
-fn is_safe_relative(p: &str) -> bool {
+pub(crate) fn is_safe_relative(p: &str) -> bool {
     use std::path::Component;
     let path = Path::new(p);
     if path.is_absolute() {
@@ -1935,7 +1257,7 @@ fn is_safe_relative(p: &str) -> bool {
     true
 }
 
-fn extract_archive(
+pub(crate) fn extract_archive(
     format: &str,
     data_b64: &str,
     dest: &Path,
@@ -1955,7 +1277,7 @@ fn extract_archive(
     }
 }
 
-fn extract_tar_gz(data: &[u8], dest: &Path, strip: usize) -> Result<Vec<String>, JsonRpcError> {
+pub(crate) fn extract_tar_gz(data: &[u8], dest: &Path, strip: usize) -> Result<Vec<String>, JsonRpcError> {
     use flate2::read::GzDecoder;
     use tar::Archive;
     let gz = GzDecoder::new(data);
@@ -1963,13 +1285,13 @@ fn extract_tar_gz(data: &[u8], dest: &Path, strip: usize) -> Result<Vec<String>,
     extract_tar_entries(&mut archive, dest, strip)
 }
 
-fn extract_tar(data: &[u8], dest: &Path, strip: usize) -> Result<Vec<String>, JsonRpcError> {
+pub(crate) fn extract_tar(data: &[u8], dest: &Path, strip: usize) -> Result<Vec<String>, JsonRpcError> {
     use tar::Archive;
     let mut archive = Archive::new(data);
     extract_tar_entries(&mut archive, dest, strip)
 }
 
-fn extract_tar_entries<R: std::io::Read>(
+pub(crate) fn extract_tar_entries<R: std::io::Read>(
     archive: &mut tar::Archive<R>,
     dest: &Path,
     strip: usize,
@@ -2012,7 +1334,7 @@ fn extract_tar_entries<R: std::io::Read>(
     Ok(extracted)
 }
 
-fn resolve_project_entry(_name: &str, entry: Option<&str>) -> Result<PathBuf, JsonRpcError> {
+pub(crate) fn resolve_project_entry(_name: &str, entry: Option<&str>) -> Result<PathBuf, JsonRpcError> {
     let (_, _, root_str) = crate::workspace_info();
     let root = PathBuf::from(&root_str);
     let src_root = root.join("src");
@@ -2078,7 +1400,7 @@ fn resolve_project_entry(_name: &str, entry: Option<&str>) -> Result<PathBuf, Js
     Err(JsonRpcError::custom(32105, "no .mc entry found in src/"))
 }
 
-fn scan_mc_files_recursive(root: &Path, current: &Path, out: &mut Vec<String>) {
+pub(crate) fn scan_mc_files_recursive(root: &Path, current: &Path, out: &mut Vec<String>) {
     if let Ok(entries) = fs::read_dir(current) {
         for e in entries.flatten() {
             let p = e.path();
@@ -2093,31 +1415,31 @@ fn scan_mc_files_recursive(root: &Path, current: &Path, out: &mut Vec<String>) {
     }
 }
 
-fn read_manifest_entry(name: &str) -> Option<String> {
+pub(crate) fn read_manifest_entry(name: &str) -> Option<String> {
     let content = fs::read_to_string(project_manifest(name)).ok()?;
     parse_manifest_field(&content, "entry")
 }
 
-fn read_project_entry_from_workspace() -> Option<String> {
+pub(crate) fn read_project_entry_from_workspace() -> Option<String> {
     let (_, _, root_str) = crate::workspace_info();
     let project_toml = PathBuf::from(&root_str).join("project.toml");
     let content = fs::read_to_string(&project_toml).ok()?;
     parse_manifest_field(&content, "entry")
 }
 
-fn read_manifest_top(name: &str) -> Option<String> {
+pub(crate) fn read_manifest_top(name: &str) -> Option<String> {
     let content = fs::read_to_string(project_manifest(name)).ok()?;
     parse_manifest_field(&content, "top_module")
 }
 
-fn read_project_top_from_workspace() -> Option<String> {
+pub(crate) fn read_project_top_from_workspace() -> Option<String> {
     let (_, _, root_str) = crate::workspace_info();
     let project_toml = PathBuf::from(&root_str).join("project.toml");
     let content = fs::read_to_string(&project_toml).ok()?;
     parse_manifest_field(&content, "top_module")
 }
 
-fn parse_manifest_field(content: &str, key: &str) -> Option<String> {
+pub(crate) fn parse_manifest_field(content: &str, key: &str) -> Option<String> {
     // Simple TOML parser: support [project] section
     let mut in_project_section = false;
 
@@ -2143,7 +1465,7 @@ fn parse_manifest_field(content: &str, key: &str) -> Option<String> {
     None
 }
 
-fn activate_workspace(name: &str) -> Result<(), JsonRpcError> {
+pub(crate) fn activate_workspace(name: &str) -> Result<(), JsonRpcError> {
     let (active, _, _) = crate::workspace_info();
     if active == name {
         return Ok(());
@@ -2154,7 +1476,7 @@ fn activate_workspace(name: &str) -> Result<(), JsonRpcError> {
     Ok(())
 }
 
-fn resolve_lib_root(name: &str) -> Result<PathBuf, JsonRpcError> {
+pub(crate) fn resolve_lib_root(name: &str) -> Result<PathBuf, JsonRpcError> {
     if name == "mcode" {
         // Try default mcode_dir first
         let p = mcode_dir();
@@ -2199,7 +1521,7 @@ fn resolve_lib_root(name: &str) -> Result<PathBuf, JsonRpcError> {
 // ============================================================================
 
 #[derive(Default, Deserialize)]
-struct ParseParams {
+pub(crate) struct ParseParams {
     #[serde(default)]
     entry: Option<String>,
     #[serde(default)]
@@ -2212,74 +1534,13 @@ struct ParseParams {
     include_system: bool,
 }
 
-pub fn handle_parse(params: Option<Value>) -> RpcResult {
-    let p: ParseParams = parse_or_default(params)?;
-    let (id, kind, root) = crate::workspace_info();
-
-    // S3 fix: load the libs passed via CLI --lib into the mcode global table, otherwise mcb_get_cmie
-    // cannot find interfaces like SPI/I2C/DC, and the component pin's 'X::Interface(...)' syntax
-    // will fall back to a bare alias (e.g. pin registered as Single("VIN{Vin, GND}"))
-    load_libs_rpc(&p.libs);
-
-    // Without workspace, parse the file directly
-    if kind == "Anonymous" {
-        let entry = p
-            .entry
-            .as_deref()
-            .ok_or_else(|| JsonRpcError::custom(-32602, "parse: need to specify <target> file"))?;
-
-        let cwd = std::env::current_dir().unwrap_or_default();
-        let entry_path = PathBuf::from(entry);
-        let abs_entry = if entry_path.is_absolute() {
-            entry_path.clone()
-        } else {
-            cwd.join(&entry_path)
-        };
-
-        let _uri = McURI::from(abs_entry.to_string_lossy().as_ref() as &str);
-
-        return run_pass1(&abs_entry, "parse", "file", &id, p.include_system);
-    }
-
-    let cwd = std::env::current_dir().unwrap_or_default();
-    let root_path = cwd.join(&root);
-
-    let entry_str = p.entry.as_deref().map(|s| {
-        let entry_path = PathBuf::from(s);
-        let abs_entry = if entry_path.is_absolute() {
-            entry_path.clone()
-        } else {
-            cwd.join(&entry_path)
-        };
-        if abs_entry.starts_with(&root_path) {
-            abs_entry
-                .strip_prefix(&root_path)
-                .unwrap_or(&abs_entry)
-                .to_string_lossy()
-                .to_string()
-        } else {
-            s.to_string()
-        }
-    });
-
-    let entry_path = match kind.as_str() {
-        "Project" => resolve_project_entry(&id, entry_str.as_deref())?,
-        _ => {
-            return Err(JsonRpcError::custom(
-                -32102,
-                "parse: only project workspace is supported",
-            ))
-        }
-    };
-    run_pass1(&entry_path, "parse", "project", &id, p.include_system)
-}
 
 // ============================================================================
 // Show handlers
 // ============================================================================
 
 #[derive(Deserialize, Default)]
-struct ShowParams {
+pub(crate) struct ShowParams {
     name: Option<String>,
     file: Option<String>,
     #[serde(rename = "type")]
@@ -2288,7 +1549,7 @@ struct ShowParams {
 }
 
 /// Resolve a file path to an absolute URI string for filtering.
-fn resolve_to_abs_uri(file: &str) -> String {
+pub(crate) fn resolve_to_abs_uri(file: &str) -> String {
     let path = std::path::Path::new(file);
     if let Ok(canonical) = path.canonicalize() {
         canonical.to_string_lossy().to_string()
@@ -2304,7 +1565,7 @@ fn resolve_to_abs_uri(file: &str) -> String {
 /// Filter (name, uri) pairs to only those that belong to the same project as
 /// `file`. An item belongs if its URI equals the resolved file path, or is
 /// under the same directory as the file (transitive `$include` files).
-fn filter_items_by_file<T: Clone>(items: &[(T, String)], file: &str) -> Vec<T> {
+pub(crate) fn filter_items_by_file<T: Clone>(items: &[(T, String)], file: &str) -> Vec<T> {
     let target = resolve_to_abs_uri(file);
     let parent_dir = std::path::Path::new(&target)
         .parent()
@@ -2327,320 +1588,20 @@ fn filter_items_by_file<T: Clone>(items: &[(T, String)], file: &str) -> Vec<T> {
         .collect()
 }
 
-pub fn handle_show_component_list(params: Option<Value>) -> RpcResult {
-    let p: ShowParams = parse_or_default(params)?;
 
-    // If a file is specified, load it
-    if let Some(file) = &p.file {
-        let uri = McURI::from(file.as_str());
-        crate::mcc_load_project(&uri);
-    }
 
-    let comps: Vec<(String, String)> = crate::mcb_iter_components();
-    let names: Vec<String> = if let Some(ref file) = p.file {
-        filter_items_by_file(&comps, file)
-    } else {
-        comps.iter().map(|(n, _)| n.clone()).collect()
-    };
 
-    Ok(json!({
-        "type": "component",
-        "count": names.len(),
-        "list": names,
-    }))
-}
 
-pub fn handle_show_module_list(params: Option<Value>) -> RpcResult {
-    let p: ShowParams = parse_or_default(params)?;
 
-    // If a file is specified, load it
-    if let Some(file) = &p.file {
-        let uri = McURI::from(file.as_str());
-        crate::mcc_load_project(&uri);
-    }
 
-    let modules: Vec<(String, String)> = crate::mcb_iter_modules();
-    let names: Vec<String> = if let Some(ref file) = p.file {
-        filter_items_by_file(&modules, file)
-    } else {
-        modules.iter().map(|(n, _)| n.clone()).collect()
-    };
 
-    Ok(json!({
-        "type": "module",
-        "count": names.len(),
-        "list": names,
-    }))
-}
-
-pub fn handle_show_interface_list(params: Option<Value>) -> RpcResult {
-    let p: ShowParams = parse_or_default(params)?;
-
-    // If a file is specified, load it
-    if let Some(file) = &p.file {
-        let uri = McURI::from(file.as_str());
-        crate::mcc_load_project(&uri);
-    }
-
-    let ifaces: Vec<(String, String)> = crate::mcb_iter_interfaces();
-    let names: Vec<String> = if let Some(ref file) = p.file {
-        filter_items_by_file(&ifaces, file)
-    } else {
-        ifaces.iter().map(|(n, _)| n.clone()).collect()
-    };
-
-    Ok(json!({
-        "type": "interface",
-        "count": names.len(),
-        "list": names,
-    }))
-}
-
-pub fn handle_show_net_list(_params: Option<Value>) -> RpcResult {
-    Ok(json!({
-        "type": "net",
-        "count": 0,
-        "list": [],
-        "note": "Nets need to be retrieved when viewing modules via show.module",
-    }))
-}
-
-pub fn handle_show_component(params: Option<Value>) -> RpcResult {
-    let p: ShowParams = parse_strict(params)?;
-
-    // If a file is specified, load it
-    if let Some(file) = &p.file {
-        let uri = McURI::from(file.as_str());
-        crate::mcc_load_project(&uri);
-    }
-
-    let name = p
-        .name
-        .as_ref()
-        .ok_or_else(|| JsonRpcError::custom(-32602, "show.component: need to specify name"))?;
-    let comps = crate::mcb_iter_components();
-    let name_str = name.as_str();
-
-    let (matched_name, uri) = comps
-        .iter()
-        .find(|(n, _)| n == name_str)
-        .map(|(n, u)| (n.clone(), u.clone()))
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("component not found: {name}")))?;
-
-    let ident = crate::McIds::from(matched_name.as_str());
-    let uri_obj = crate::McURI::from(uri.as_str());
-
-    let cmie = crate::get_def(&ident, &uri_obj)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("component not found: {name}")))?;
-
-    match cmie {
-        crate::McCMIE::Component(comp) => {
-            // Build detailed pin information
-            let pins: Vec<serde_json::Value> = comp
-                .pins
-                .pins
-                .iter()
-                .map(|(pin_id, pin)| {
-                    // Try to extract description from values
-                    let mut desc = String::new();
-                    for val in pin.values.iter() {
-                        if let crate::McAttrVal::AttrLiteral(crate::McLiteral::String(s)) = val {
-                            if !desc.is_empty() {
-                                desc.push(' ');
-                            }
-                            desc.push_str(&s.value);
-                        }
-                    }
-
-                    let mut pin_json = json!({
-                        "id": pin_id,
-                        "iotype": format!("{:?}", pin.iotype),
-                        "names": pin.names,
-                    });
-                    if !desc.is_empty() {
-                        pin_json["description"] = json!(desc);
-                    }
-                    pin_json
-                })
-                .collect();
-
-            Ok(json!({
-                "name": matched_name,
-                "uri": uri,
-                "pins": pins,
-                "pin_count": comp.pins.pins.len(),
-            }))
-        }
-        _ => Err(JsonRpcError::custom(
-            -32002,
-            &format!("'{name}' is not a Component"),
-        )),
-    }
-}
-
-pub fn handle_show_module(params: Option<Value>) -> RpcResult {
-    let p: ShowParams = parse_strict(params)?;
-
-    let name = p
-        .name
-        .as_ref()
-        .ok_or_else(|| JsonRpcError::custom(-32602, "show.module: need to specify name"))?;
-
-    let first_module_name = crate::mcb_get_first_module_name()
-        .ok_or_else(|| JsonRpcError::custom(-32003, "no module found"))?;
-
-    let uri = crate::McURI::from(first_module_name.as_str());
-    let ident = crate::McIds::from(name.as_str());
-
-    let cmie = crate::get_def(&ident, &uri)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("module not found: {name}")))?;
-
-    match cmie {
-        crate::McCMIE::Module(module) => {
-            let insts: Vec<serde_json::Value> = module
-                .insts
-                .iter()
-                .map(|(n, inst)| {
-                    let (kind, class) = match inst {
-                        crate::McInstance::Component(c) => ("component", c.name.to_string()),
-                        crate::McInstance::Module(m) => ("module", m.name.to_string()),
-                        crate::McInstance::Label(l) => ("label", l.clone()),
-                        crate::McInstance::Interface(i) => ("interface", i.name.to_string()),
-                        crate::McInstance::Bus(b) => ("bus", b.to_string()),
-                        crate::McInstance::BusRef { component, bus } => {
-                            ("busref", format!("{component}.{bus}"))
-                        }
-                        crate::McInstance::List(l) => {
-                            let name = l.name().to_string();
-                            let class = format!("{:?}", l);
-                            if class != name {
-                                ("list", class)
-                            } else {
-                                ("list", name)
-                            }
-                        }
-                        crate::McInstance::Unresolved { class_name } => {
-                            ("unresolved", class_name.clone())
-                        }
-                    };
-                    json!({ "name": n.to_string(), "kind": kind, "class": class })
-                })
-                .collect();
-
-            Ok(json!({
-                "name": name,
-                "uri": uri,
-                "instances": insts,
-            }))
-        }
-        _ => Err(JsonRpcError::custom(
-            -32002,
-            &format!("'{name}' is not a Module"),
-        )),
-    }
-}
-
-pub fn handle_show_interface(params: Option<Value>) -> RpcResult {
-    let p: ShowParams = parse_strict(params)?;
-
-    let name = p
-        .name
-        .as_ref()
-        .ok_or_else(|| JsonRpcError::custom(-32602, "show.interface: need to specify name"))?;
-
-    let ifaces = crate::mcb_iter_interfaces();
-    let name_str = name.as_str();
-
-    let (matched_name, uri) = ifaces
-        .iter()
-        .find(|(n, _)| n == name_str)
-        .map(|(n, u)| (n.clone(), u.clone()))
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("interface not found: {name}")))?;
-
-    let ident = crate::McIds::from(matched_name.as_str());
-    let uri_obj = crate::McURI::from(uri.as_str());
-
-    let cmie = crate::get_def(&ident, &uri_obj)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("interface not found: {name}")))?;
-
-    match cmie {
-        crate::McCMIE::Interface(_) => Ok(json!({
-            "name": matched_name,
-            "uri": uri,
-        })),
-        _ => Err(JsonRpcError::custom(
-            -32002,
-            &format!("'{name}' is not an Interface"),
-        )),
-    }
-}
-
-pub fn handle_show_net(params: Option<Value>) -> RpcResult {
-    let p: ShowParams = parse_strict(params)?;
-
-    let top_name = crate::mcb_get_first_module_name()
-        .ok_or_else(|| JsonRpcError::custom(-32003, "no module found"))?;
-
-    let uri = crate::McURI::from(top_name.as_str());
-    let ident = crate::McIds::from(top_name.as_str());
-
-    let inst = crate::mcc_build(&ident, &uri)
-        .map_err(|e| JsonRpcError::custom(-32002, &format!("build failed: {e}")))?;
-
-    use std::collections::BTreeMap;
-    let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
-
-    for conn in &inst.connections {
-        let net = conn
-            .net_name
-            .clone()
-            .unwrap_or_else(|| format!("__net_{}", conn.id));
-        if net == "NC" {
-            continue;
-        }
-        let bucket = nets.entry(net).or_default();
-        for pt in &conn.points {
-            if pt.path == "NC" {
-                continue;
-            }
-            let label = if let Some(ref o) = pt.owner {
-                format!(
-                    "{}.{}",
-                    o,
-                    pt.path.split('.').next_back().unwrap_or(&pt.path)
-                )
-            } else {
-                pt.path.clone()
-            };
-            if !bucket.contains(&label) {
-                bucket.push(label);
-            }
-        }
-    }
-
-    if p.name.is_none() {
-        let items: Vec<serde_json::Value> = nets
-            .iter()
-            .map(|(n, points)| json!({ "name": n, "points": points }))
-            .collect();
-        Ok(json!({ "nets": items }))
-    } else {
-        let name = p.name.unwrap();
-        match nets.get(&name) {
-            Some(points) => Ok(json!({ "name": name, "points": points })),
-            None => Ok(
-                json!({ "name": name, "points": Vec::<String>::new(), "error": "net not found" }),
-            ),
-        }
-    }
-}
 
 // ============================================================================
 // Show helpers (shared across drill-down handlers)
 // ============================================================================
 
 /// Find a definition by name across all four kinds.
-fn find_def_by_name(name: &str) -> Option<(crate::McCMIE, String)> {
+pub(crate) fn find_def_by_name(name: &str) -> Option<(crate::McCMIE, String)> {
     let iterators: [(&str, Vec<(String, String)>); 4] = [
         ("component", crate::mcb_iter_components()),
         ("module", crate::mcb_iter_modules()),
@@ -2660,7 +1621,7 @@ fn find_def_by_name(name: &str) -> Option<(crate::McCMIE, String)> {
 }
 
 /// Build a pin JSON object (mirrors pins_json in show.rs).
-fn pins_json(pins: &crate::McPins) -> Value {
+pub(crate) fn pins_json(pins: &crate::McPins) -> Value {
     let pin_list: Vec<Value> = pins
         .pins
         .iter()
@@ -2703,7 +1664,7 @@ fn pins_json(pins: &crate::McPins) -> Value {
     })
 }
 
-fn pinport_json(v: &crate::McPinPort) -> Value {
+pub(crate) fn pinport_json(v: &crate::McPinPort) -> Value {
     match v {
         crate::McPinPort::Single(pid) => json!({ "kind": "Single", "pin": pid }),
         crate::McPinPort::Multi(pids) => json!({ "kind": "Multi", "pins": pids }),
@@ -2724,7 +1685,7 @@ fn pinport_json(v: &crate::McPinPort) -> Value {
     }
 }
 
-fn inst_kind_class(inst: &crate::McInstance) -> (&'static str, String) {
+pub(crate) fn inst_kind_class(inst: &crate::McInstance) -> (&'static str, String) {
     match inst {
         crate::McInstance::Component(c) => ("component", c.name.to_string()),
         crate::McInstance::Module(m) => ("module", m.name.to_string()),
@@ -2745,7 +1706,7 @@ fn inst_kind_class(inst: &crate::McInstance) -> (&'static str, String) {
     }
 }
 
-fn attrval_json(v: &crate::McAttrVal) -> Value {
+pub(crate) fn attrval_json(v: &crate::McAttrVal) -> Value {
     match v {
         crate::McAttrVal::AttrLiteral(crate::McLiteral::String(s)) => json!(s.value),
         other => json!(other.to_string()),
@@ -2756,438 +1717,26 @@ fn attrval_json(v: &crate::McAttrVal) -> Value {
 // Show — missing container handlers
 // ============================================================================
 
-pub fn handle_show_all(_params: Option<Value>) -> RpcResult {
-    let comps = crate::mcb_iter_components();
-    let mods = crate::mcb_iter_modules();
-    let ifaces = crate::mcb_iter_interfaces();
-    let enums = crate::mcb_iter_enums();
 
-    Ok(json!({
-        "type": "all",
-        "component_count": comps.len(),
-        "component_list": comps.iter().map(|(n,_)| n).collect::<Vec<_>>(),
-        "module_count": mods.len(),
-        "module_list": mods.iter().map(|(n,_)| n).collect::<Vec<_>>(),
-        "interface_count": ifaces.len(),
-        "interface_list": ifaces.iter().map(|(n,_)| n).collect::<Vec<_>>(),
-        "enum_count": enums.len(),
-        "enum_list": enums.iter().map(|(n,_)| n).collect::<Vec<_>>(),
-    }))
-}
 
-pub fn handle_show_file(params: Option<Value>) -> RpcResult {
-    let p: ShowParams = parse_or_default(params)?;
-    let file = p.file.unwrap_or_default();
 
-    // Load the file if provided
-    if !file.is_empty() {
-        let uri = McURI::from(file.as_str());
-        crate::mcc_load_project(&uri);
-    }
 
-    let comps: Vec<(String, String)> = crate::mcb_iter_components();
-    let mods: Vec<(String, String)> = crate::mcb_iter_modules();
-    let ifaces: Vec<(String, String)> = crate::mcb_iter_interfaces();
-    let enums: Vec<(String, String)> = crate::mcb_iter_enums();
-
-    // Filter by file when a file path is specified
-    let (component_list, module_list, interface_list, enum_list) = if file.is_empty() {
-        (
-            comps.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>(),
-            mods.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>(),
-            ifaces.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>(),
-            enums.iter().map(|(n, _)| n.clone()).collect::<Vec<_>>(),
-        )
-    } else {
-        (
-            filter_items_by_file(&comps, &file),
-            filter_items_by_file(&mods, &file),
-            filter_items_by_file(&ifaces, &file),
-            filter_items_by_file(&enums, &file),
-        )
-    };
-
-    Ok(json!({
-        "type": "file",
-        "file": file,
-        "component_count": component_list.len(),
-        "component_list": component_list,
-        "module_count": module_list.len(),
-        "module_list": module_list,
-        "interface_count": interface_list.len(),
-        "interface_list": interface_list,
-        "enum_count": enum_list.len(),
-        "enum_list": enum_list,
-    }))
-}
-
-pub fn handle_show_files(_params: Option<Value>) -> RpcResult {
-    use std::collections::BTreeMap;
-
-    #[derive(Default)]
-    struct FileInfo {
-        component_count: usize,
-        module_count: usize,
-        interface_count: usize,
-        enum_count: usize,
-    }
-
-    let mut files: BTreeMap<String, FileInfo> = BTreeMap::new();
-    for (_, uri) in crate::mcb_iter_components() {
-        files.entry(uri).or_default().component_count += 1;
-    }
-    for (_, uri) in crate::mcb_iter_modules() {
-        files.entry(uri).or_default().module_count += 1;
-    }
-    for (_, uri) in crate::mcb_iter_interfaces() {
-        files.entry(uri).or_default().interface_count += 1;
-    }
-    for (_, uri) in crate::mcb_iter_enums() {
-        files.entry(uri).or_default().enum_count += 1;
-    }
-
-    let items: Vec<Value> = files
-        .into_iter()
-        .map(|(uri, info)| {
-            json!({
-                "uri": uri,
-                "component_count": info.component_count,
-                "module_count": info.module_count,
-                "interface_count": info.interface_count,
-                "enum_count": info.enum_count,
-            })
-        })
-        .collect();
-
-    Ok(json!({ "type": "files", "count": items.len(), "files": items }))
-}
-
-pub fn handle_show_enum_list(params: Option<Value>) -> RpcResult {
-    let p: ShowParams = parse_or_default(params)?;
-    if let Some(file) = &p.file {
-        let uri = McURI::from(file.as_str());
-        crate::mcc_load_project(&uri);
-    }
-    let enums = crate::mcb_iter_enums();
-    let names: Vec<String> = if let Some(ref file) = p.file {
-        filter_items_by_file(&enums, file)
-    } else {
-        enums.iter().map(|(n, _)| n.clone()).collect()
-    };
-    Ok(json!({ "type": "enum", "count": names.len(), "list": names }))
-}
-
-pub fn handle_show_enum(params: Option<Value>) -> RpcResult {
-    let p: ShowParams = parse_strict(params)?;
-    let name = p
-        .name
-        .as_ref()
-        .ok_or_else(|| JsonRpcError::custom(-32602, "show.enum: need to specify name"))?;
-
-    let (cmie, uri) = find_def_by_name(name)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("enum not found: {name}")))?;
-
-    match cmie {
-        crate::McCMIE::Enum(en) => {
-            let values: Vec<String> = en.values.iter().map(|v| v.name.to_string()).collect();
-            Ok(json!({
-                "name": name,
-                "uri": uri,
-                "value_count": values.len(),
-                "values": values,
-            }))
-        }
-        _ => Err(JsonRpcError::custom(
-            -32002,
-            &format!("'{name}' is not an Enum"),
-        )),
-    }
-}
 
 // ============================================================================
 // Show — drill-down handlers
 // ============================================================================
 
-pub fn handle_show_pins(params: Option<Value>) -> RpcResult {
-    let p: ShowParams = parse_strict(params)?;
-    let name = p
-        .name
-        .as_ref()
-        .ok_or_else(|| JsonRpcError::custom(-32602, "show.pins: need to specify name"))?;
 
-    let (cmie, _) = find_def_by_name(name)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
 
-    let pins = match &cmie {
-        crate::McCMIE::Component(c) => &c.pins,
-        crate::McCMIE::Interface(i) => &i.pins,
-        _ => {
-            return Err(JsonRpcError::custom(
-                -32002,
-                &format!("'{name}' does not have pins (only components and interfaces do)"),
-            ))
-        }
-    };
-    let mut data = pins_json(pins);
-    data["name"] = json!(name);
-    Ok(data)
-}
 
-pub fn handle_show_ports(params: Option<Value>) -> RpcResult {
-    let p: ShowParams = parse_strict(params)?;
-    let name = p
-        .name
-        .as_ref()
-        .ok_or_else(|| JsonRpcError::custom(-32602, "show.ports: need to specify name"))?;
 
-    let (cmie, _) = find_def_by_name(name)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
 
-    let module = match &cmie {
-        crate::McCMIE::Module(m) => m,
-        _ => {
-            return Err(JsonRpcError::custom(
-                -32002,
-                &format!("'{name}' is not a Module"),
-            ))
-        }
-    };
-    let ports: Vec<Value> = module
-        .insts
-        .iter_ports()
-        .map(|(pname, io)| json!({ "name": pname, "iotype": format!("{:?}", io) }))
-        .collect();
-    Ok(json!({ "name": name, "port_count": ports.len(), "ports": ports }))
-}
 
-pub fn handle_show_ports_list(_params: Option<Value>) -> RpcResult {
-    let ports: Vec<Value> = crate::mcb_iter_ports()
-        .into_iter()
-        .map(|(name, iotype, module, uri)| {
-            json!({ "name": name, "iotype": iotype, "module": module, "uri": uri })
-        })
-        .collect();
-    Ok(json!({ "type": "port", "count": ports.len(), "ports": ports }))
-}
 
-pub fn handle_show_labels(params: Option<Value>) -> RpcResult {
-    let p: ShowParams = parse_strict(params)?;
-    let name = p
-        .name
-        .as_ref()
-        .ok_or_else(|| JsonRpcError::custom(-32602, "show.labels: need to specify name"))?;
 
-    let (cmie, _) = find_def_by_name(name)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
-
-    let module = match &cmie {
-        crate::McCMIE::Module(m) => m,
-        _ => {
-            return Err(JsonRpcError::custom(
-                -32002,
-                &format!("'{name}' is not a Module"),
-            ))
-        }
-    };
-    let labels: Vec<String> = module
-        .insts
-        .iter()
-        .filter(|(_, inst)| matches!(inst, crate::McInstance::Label(_)))
-        .map(|(n, _)| n.to_string())
-        .collect();
-    Ok(json!({ "name": name, "label_count": labels.len(), "labels": labels }))
-}
-
-pub fn handle_show_instances(params: Option<Value>) -> RpcResult {
-    let p: ShowParams = parse_strict(params)?;
-    let name = p
-        .name
-        .as_ref()
-        .ok_or_else(|| JsonRpcError::custom(-32602, "show.instances: need to specify name"))?;
-
-    let (cmie, _) = find_def_by_name(name)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
-
-    let insts = match &cmie {
-        crate::McCMIE::Component(c) => &c.insts,
-        crate::McCMIE::Module(m) => &m.insts,
-        _ => {
-            return Err(JsonRpcError::custom(
-                -32002,
-                &format!("'{name}' does not have instances (only components and modules do)"),
-            ))
-        }
-    };
-    let items: Vec<Value> = insts
-        .iter()
-        .filter_map(|(n, inst)| {
-            let (kind, class) = inst_kind_class(inst);
-            if let Some(ref t) = p.type_filter {
-                if !kind.eq_ignore_ascii_case(t) {
-                    return None;
-                }
-            }
-            Some(json!({ "name": n.to_string(), "kind": kind, "class": class }))
-        })
-        .collect();
-    Ok(json!({ "name": name, "count": items.len(), "instances": items }))
-}
-
-pub fn handle_show_nets(params: Option<Value>) -> RpcResult {
-    let p: ShowParams = parse_strict(params)?;
-    let name = p
-        .name
-        .as_ref()
-        .ok_or_else(|| JsonRpcError::custom(-32602, "show.nets: need to specify name"))?;
-
-    let top = p.top.as_ref().unwrap_or(name);
-    let top_uri = crate::mcb_iter_modules()
-        .iter()
-        .find(|(n, _)| n == top)
-        .map(|(_, u)| crate::McURI::from(u.as_str()))
-        .unwrap_or_else(|| crate::McURI::from(top));
-    let ident = crate::McIds::from(top.as_str());
-
-    let inst = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::mcc_build(&ident, &top_uri)
-    }))
-    .map_err(|_| JsonRpcError::custom(-32002, "build panicked (engine Pass2 bug)"))?
-    .map_err(|e| JsonRpcError::custom(-32002, &format!("build failed: {e}")))?;
-
-    let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for conn in &inst.connections {
-        let net = conn
-            .net_name
-            .clone()
-            .unwrap_or_else(|| format!("__net_{}", conn.id));
-        if net == "NC" {
-            continue;
-        }
-        let bucket = nets.entry(net).or_default();
-        for pt in &conn.points {
-            if pt.path == "NC" {
-                continue;
-            }
-            let label = if let Some(ref o) = pt.owner {
-                format!(
-                    "{}.{}",
-                    o,
-                    pt.path.split('.').next_back().unwrap_or(&pt.path)
-                )
-            } else {
-                pt.path.clone()
-            };
-            if !bucket.contains(&label) {
-                bucket.push(label);
-            }
-        }
-    }
-
-    let items: Vec<Value> = nets
-        .iter()
-        .map(|(n, points)| json!({ "name": n, "points": points }))
-        .collect();
-    Ok(json!({ "name": name, "count": items.len(), "nets": items }))
-}
-
-pub fn handle_show_attrs(params: Option<Value>) -> RpcResult {
-    let p: ShowParams = parse_strict(params)?;
-    let name = p
-        .name
-        .as_ref()
-        .ok_or_else(|| JsonRpcError::custom(-32602, "show.attrs: need to specify name"))?;
-
-    let (cmie, _) = find_def_by_name(name)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
-
-    let attrs = match &cmie {
-        crate::McCMIE::Component(c) => &c.attrs,
-        crate::McCMIE::Interface(i) => &i.attrs,
-        _ => {
-            return Err(JsonRpcError::custom(
-                -32002,
-                &format!("'{name}' does not have attributes (only components and interfaces do)"),
-            ))
-        }
-    };
-    let items: Vec<Value> = attrs
-        .iter()
-        .map(|a| {
-            let values: Vec<Value> = a.values.iter().map(attrval_json).collect();
-            json!({ "no": a.no, "name": a.id.to_string(), "values": values })
-        })
-        .collect();
-    Ok(json!({ "name": name, "count": items.len(), "attrs": items }))
-}
-
-pub fn handle_show_funcs(params: Option<Value>) -> RpcResult {
-    let p: ShowParams = parse_strict(params)?;
-    let name = p
-        .name
-        .as_ref()
-        .ok_or_else(|| JsonRpcError::custom(-32602, "show.funcs: need to specify name"))?;
-
-    let (cmie, _) = find_def_by_name(name)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
-
-    let funcs = match &cmie {
-        crate::McCMIE::Component(c) => &c.funcs,
-        crate::McCMIE::Module(m) => &m.funcs,
-        _ => {
-            return Err(JsonRpcError::custom(
-                -32002,
-                &format!("'{name}' does not have functions (only components and modules do)"),
-            ))
-        }
-    };
-    let items: Vec<Value> = funcs
-        .iter()
-        .map(|f| json!({ "name": f.name.to_string(), "params": f.params.names() }))
-        .collect();
-    Ok(json!({ "name": name, "count": items.len(), "funcs": items }))
-}
-
-pub fn handle_show_params(params: Option<Value>) -> RpcResult {
-    let p: ShowParams = parse_strict(params)?;
-    let name = p
-        .name
-        .as_ref()
-        .ok_or_else(|| JsonRpcError::custom(-32602, "show.params: need to specify name"))?;
-
-    let (cmie, _) = find_def_by_name(name)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
-
-    let (param_list, arity) = match &cmie {
-        crate::McCMIE::Component(c) => {
-            let list: Vec<Value> = c.params.iter().map(|d| param_declare_to_json(d)).collect();
-            (list, c.params.arity())
-        }
-        crate::McCMIE::Module(m) => {
-            let list: Vec<Value> = m.params.iter().map(|d| param_declare_to_json(d)).collect();
-            (list, m.params.arity())
-        }
-        crate::McCMIE::Interface(i) => {
-            let list: Vec<Value> = i.params.iter().map(|d| param_declare_to_json(d)).collect();
-            (list, i.params.arity())
-        }
-        _ => {
-            return Err(JsonRpcError::custom(
-                -32002,
-                &format!("'{name}' does not have params"),
-            ))
-        }
-    };
-    Ok(json!({
-        "name": name,
-        "count": param_list.len(),
-        "required": arity.required,
-        "optional": arity.optional,
-        "params": param_list
-    }))
-}
 
 /// Convert a McParamDeclare to a JSON object with smart parameter metadata.
-fn param_declare_to_json(d: &mcc::semantic::basic::mc_paramd::McParamDeclare) -> Value {
+pub(crate) fn param_declare_to_json(d: &mcc::semantic::basic::mc_paramd::McParamDeclare) -> Value {
     let name = d.get_primary_name().unwrap_or_default();
     let is_port = d.is_port();
     let has_default = d.has_default_value();
@@ -3203,153 +1752,12 @@ fn param_declare_to_json(d: &mcc::semantic::basic::mc_paramd::McParamDeclare) ->
     })
 }
 
-pub fn handle_show_roles(params: Option<Value>) -> RpcResult {
-    let p: ShowParams = parse_strict(params)?;
-    let name = p
-        .name
-        .as_ref()
-        .ok_or_else(|| JsonRpcError::custom(-32602, "show.roles: need to specify name"))?;
 
-    let (cmie, _) = find_def_by_name(name)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
 
-    let iface = match &cmie {
-        crate::McCMIE::Interface(i) => i,
-        _ => {
-            return Err(JsonRpcError::custom(
-                -32002,
-                &format!("'{name}' is not an Interface"),
-            ))
-        }
-    };
-    let items: Vec<Value> = iface
-        .roles
-        .iter()
-        .map(|r| {
-            json!({
-                "name": r.name.to_string(),
-                "pins": pins_json(&r.pins),
-            })
-        })
-        .collect();
-    Ok(json!({ "name": name, "count": items.len(), "roles": items }))
-}
 
-pub fn handle_show_values(params: Option<Value>) -> RpcResult {
-    let p: ShowParams = parse_strict(params)?;
-    let name = p
-        .name
-        .as_ref()
-        .ok_or_else(|| JsonRpcError::custom(-32602, "show.values: need to specify name"))?;
-
-    let (cmie, _) = find_def_by_name(name)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
-
-    let en = match &cmie {
-        crate::McCMIE::Enum(e) => e,
-        _ => {
-            return Err(JsonRpcError::custom(
-                -32002,
-                &format!("'{name}' is not an Enum"),
-            ))
-        }
-    };
-    let values: Vec<String> = en.values.iter().map(|v| v.name.to_string()).collect();
-    Ok(json!({ "name": name, "count": values.len(), "values": values }))
-}
-
-pub fn handle_show_dump(params: Option<Value>) -> RpcResult {
-    let p: ShowParams = parse_strict(params)?;
-    let name = p
-        .name
-        .as_ref()
-        .ok_or_else(|| JsonRpcError::custom(-32602, "show.dump: need to specify name"))?;
-
-    // If a file is specified, load it first
-    if let Some(file) = &p.file {
-        let uri = McURI::from(file.as_str());
-        crate::mcc_load_project(&uri);
-    }
-
-    let (cmie, uri) = find_def_by_name(name)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
-
-    let data = match &cmie {
-        crate::McCMIE::Component(comp) => dump_component_json(name, comp, &uri),
-        crate::McCMIE::Module(module) => dump_module_json(name, module, &uri),
-        crate::McCMIE::Interface(iface) => dump_interface_json(name, iface, &uri),
-        crate::McCMIE::Enum(en) => dump_enum_json(name, en, &uri),
-    };
-    Ok(data)
-}
-
-pub fn handle_show_dump_all(params: Option<Value>) -> RpcResult {
-    let p: ShowParams = parse_or_default(params)?;
-
-    // Load file if specified
-    if let Some(file) = &p.file {
-        let uri = McURI::from(file.as_str());
-        crate::mcc_load_project(&uri);
-    }
-
-    let mut all = Vec::new();
-    for (name, _) in crate::mcb_iter_components() {
-        if let Some((cmie, uri)) = find_def_by_name(&name) {
-            if let crate::McCMIE::Component(comp) = &cmie {
-                all.push(dump_component_json(&name, comp, &uri));
-            }
-        }
-    }
-    for (name, _) in crate::mcb_iter_modules() {
-        if let Some((cmie, uri)) = find_def_by_name(&name) {
-            if let crate::McCMIE::Module(module) = &cmie {
-                all.push(dump_module_json(&name, module, &uri));
-            }
-        }
-    }
-    for (name, _) in crate::mcb_iter_interfaces() {
-        if let Some((cmie, uri)) = find_def_by_name(&name) {
-            if let crate::McCMIE::Interface(iface) = &cmie {
-                all.push(dump_interface_json(&name, iface, &uri));
-            }
-        }
-    }
-    for (name, _) in crate::mcb_iter_enums() {
-        if let Some((cmie, uri)) = find_def_by_name(&name) {
-            if let crate::McCMIE::Enum(en) = &cmie {
-                all.push(dump_enum_json(&name, en, &uri));
-            }
-        }
-    }
-
-    // Apply file filter for consistency
-    let mut all = if let Some(ref file) = p.file {
-        let target = resolve_to_abs_uri(file);
-        let parent_dir = std::path::Path::new(&target)
-            .parent()
-            .map(|p| p.to_string_lossy().to_string());
-        all.into_iter()
-            .filter(|e| {
-                let uri = e["uri"].as_str().unwrap_or("");
-                uri == target || parent_dir.as_ref().map_or(false, |d| uri.starts_with(d))
-            })
-            .collect::<Vec<_>>()
-    } else {
-        all
-    };
-
-    // Sort by source position
-    all.sort_by_key(|e| e["span"]["start"].as_u64().unwrap_or(u64::MAX));
-
-    Ok(json!({
-        "type": "dump_all",
-        "total": all.len(),
-        "entities": all,
-    }))
-}
 
 // JSON builders for each entity kind (used by handle_show_dump and handle_show_dump_all)
-fn dump_component_json(name: &str, comp: &crate::McComponent, uri: &str) -> Value {
+pub(crate) fn dump_component_json(name: &str, comp: &crate::McComponent, uri: &str) -> Value {
     let params: Vec<Value> = comp.params.names_full().iter().map(|n| json!(n)).collect();
     let params_with_defaults: Vec<Value> = comp
         .params
@@ -3415,7 +1823,7 @@ fn dump_component_json(name: &str, comp: &crate::McComponent, uri: &str) -> Valu
     data
 }
 
-fn dump_module_json(name: &str, module: &crate::McModule, uri: &str) -> Value {
+pub(crate) fn dump_module_json(name: &str, module: &crate::McModule, uri: &str) -> Value {
     let params: Vec<Value> = module
         .params
         .names_full()
@@ -3458,7 +1866,7 @@ fn dump_module_json(name: &str, module: &crate::McModule, uri: &str) -> Value {
     })
 }
 
-fn dump_interface_json(name: &str, iface: &crate::McInterface, uri: &str) -> Value {
+pub(crate) fn dump_interface_json(name: &str, iface: &crate::McInterface, uri: &str) -> Value {
     let params: Vec<Value> = iface.params.names_full().iter().map(|n| json!(n)).collect();
     let params_with_defaults: Vec<Value> = iface
         .params
@@ -3492,7 +1900,7 @@ fn dump_interface_json(name: &str, iface: &crate::McInterface, uri: &str) -> Val
     data
 }
 
-fn dump_enum_json(name: &str, en: &crate::McEnumDef, uri: &str) -> Value {
+pub(crate) fn dump_enum_json(name: &str, en: &crate::McEnumDef, uri: &str) -> Value {
     let values: Vec<Value> = en
         .values
         .iter()
@@ -3509,7 +1917,7 @@ fn dump_enum_json(name: &str, en: &crate::McEnumDef, uri: &str) -> Value {
 }
 
 // Helper: serialize instances (mirrors instances_json in show.rs)
-fn instances_json(insts: &crate::McInstances, type_filter: Option<&str>) -> Vec<Value> {
+pub(crate) fn instances_json(insts: &crate::McInstances, type_filter: Option<&str>) -> Vec<Value> {
     let port_spans = insts.port_spans();
     insts
         .iter()
@@ -3546,70 +1954,14 @@ fn instances_json(insts: &crate::McInstances, type_filter: Option<&str>) -> Vec<
 // ============================================================================
 
 #[derive(Deserialize)]
-struct SemParams {
+pub(crate) struct SemParams {
     uri: String,
     content: Option<String>,
 }
 
-pub fn handle_sem(params: Option<Value>) -> RpcResult {
-    let p: SemParams = parse_strict(params)?;
-    let raw_uri = &p.uri;
-
-    // If content is provided, parse from memory (for unsaved editor content)
-    if let Some(ref content) = p.content {
-        // ★ Fix: Ensure library context is loaded before parsing
-        let mc_uri = McURI::from(raw_uri.as_str());
-        ensure_library_loaded(&mc_uri);
-        crate::builder::mcb_add_from_string(&mc_uri, content);
-        crate::builder::mcb_parse_all_modules();
-        // ★ Fix: Use canonicalized URI for lookup (same as what mcb_add_from_string uses)
-        let canonical_uri = crate::builder::canonicalize_project_uri(&mc_uri);
-        let result = try_lookup_sem(&[McURI::from(&canonical_uri)]);
-        // ★ Fix: DON'T remove the entry - mcc_query needs it for goto_definition
-        // crate::builder::workspace::WORKSPACE.mcodes.borrow().remove(&McURI::from(&canonical_uri));
-        return result.ok_or_else(|| JsonRpcError::custom(32100, "parse from string failed"));
-    }
-
-    // Build candidate URIs: exact match + relative path (strip project root from absolute)
-    let (_, _, root_str) = crate::workspace_info();
-    let cwd = std::env::current_dir().unwrap_or_default();
-    let root_path = if Path::new(&root_str).is_absolute() {
-        PathBuf::from(&root_str)
-    } else {
-        cwd.join(&root_str)
-    };
-
-    let raw_path = Path::new(raw_uri);
-    let mut candidates: Vec<McURI> = vec![McURI::from(raw_uri.as_str())];
-    if raw_path.is_absolute() && raw_path.starts_with(&root_path) {
-        let rel = raw_path.strip_prefix(&root_path).unwrap_or(raw_path);
-        let rel_str = rel.to_string_lossy().to_string();
-        if rel_str != *raw_uri {
-            candidates.push(McURI::from(rel_str));
-        }
-    }
-
-    // Try lookup
-    let result = try_lookup_sem(&candidates);
-
-    // If not found and workspace is empty, auto-create workspace and load project
-    if result.is_none() {
-        let workspace_empty = {
-            let binding = crate::builder::workspace::WORKSPACE.mcodes.borrow();
-            binding.is_empty()
-        };
-        if workspace_empty && raw_path.is_absolute() {
-            auto_load_from_file_path(raw_path);
-            return try_lookup_sem(&candidates)
-                .ok_or_else(|| JsonRpcError::custom(32100, "file not found in workspace"));
-        }
-    }
-
-    result.ok_or_else(|| JsonRpcError::custom(32100, "file not found in workspace"))
-}
 
 /// Detect project root from a file path and load the project
-fn auto_load_from_file_path(file_path: &Path) {
+pub(crate) fn auto_load_from_file_path(file_path: &Path) {
     // Walk up from the file to find the project root (directory containing project.toml or .mc files)
     let project_root = find_project_root(file_path);
     info!(target: "mcc::rpc", "auto_load: project_root={}", project_root.display());
@@ -3663,7 +2015,7 @@ fn auto_load_from_file_path(file_path: &Path) {
 
 /// Walk up from a file path to find the project root
 /// A project root is a directory containing project.toml or .mc files at top level
-fn find_project_root(file_path: &Path) -> PathBuf {
+pub(crate) fn find_project_root(file_path: &Path) -> PathBuf {
     let mut current = if file_path.is_dir() {
         file_path.to_path_buf()
     } else {
@@ -3703,7 +2055,7 @@ fn find_project_root(file_path: &Path) -> PathBuf {
 /// Ensure library dependencies are loaded for a file.
 /// This is called when parsing files with content from LSP to ensure
 /// the library context is available for type lookups.
-fn ensure_library_loaded(file_uri: &McURI) {
+pub(crate) fn ensure_library_loaded(file_uri: &McURI) {
     // Check if libraries are already loaded
     let libs = crate::builder::mcb_loaded_libs();
     eprintln!(
@@ -3757,7 +2109,7 @@ fn ensure_library_loaded(file_uri: &McURI) {
 }
 
 /// Extract library dependencies from project.toml contents
-fn extract_lib_dependencies(contents: &str) -> Option<Vec<String>> {
+pub(crate) fn extract_lib_dependencies(contents: &str) -> Option<Vec<String>> {
     for line in contents.lines() {
         let line = line.trim();
         if line.starts_with("dependencies") || line.starts_with("lib_deps") {
@@ -3801,7 +2153,7 @@ fn extract_lib_dependencies(contents: &str) -> Option<Vec<String>> {
 
 /// Classify a token using the symbol table.
 /// Overrides lexer type for identifiers that have semantic classification.
-fn classify_token_by_symbol(
+pub(crate) fn classify_token_by_symbol(
     lex_type: i16,
     position: usize,
     length: usize,
@@ -3845,7 +2197,7 @@ fn classify_token_by_symbol(
 }
 
 /// Try to find semantic data for any of the candidate URIs
-fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
+pub(crate) fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
     let binding = crate::builder::workspace::WORKSPACE.mcodes.borrow();
     for mc_uri in candidates {
         if let Some(mcfile) = binding.get(mc_uri) {
@@ -3921,485 +2273,74 @@ fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
 // Report (M5b)
 // ============================================================================
 
-pub fn handle_report(_params: Option<Value>) -> RpcResult {
-    let comps = crate::mcb_iter_components();
-    let mods = crate::mcb_iter_modules();
-    let ifaces = crate::mcb_iter_interfaces();
-    let enums = crate::mcb_iter_enums();
-
-    let mut by_prefix: std::collections::BTreeMap<String, usize> =
-        std::collections::BTreeMap::new();
-    for (name, _) in &comps {
-        let prefix = name
-            .chars()
-            .next()
-            .map(|c| c.to_string())
-            .unwrap_or_else(|| "?".into());
-        *by_prefix.entry(prefix).or_default() += 1;
-    }
-
-    Ok(json!({
-        "summary": {
-            "component_count": comps.len(),
-            "module_count": mods.len(),
-            "interface_count": ifaces.len(),
-            "enum_count": enums.len(),
-        },
-        "components_by_prefix": by_prefix,
-        "components": comps.iter().take(20).map(|(n, u)| json!({"name": n, "uri": u})).collect::<Vec<_>>(),
-        "modules": mods.iter().take(10).map(|(n, u)| json!({"name": n, "uri": u})).collect::<Vec<_>>(),
-        "interfaces": ifaces.iter().take(10).map(|(n, u)| json!({"name": n, "uri": u})).collect::<Vec<_>>(),
-        "enums": enums.iter().map(|(n, u)| json!({"name": n, "uri": u})).collect::<Vec<_>>(),
-    }))
-}
 
 // ============================================================================
 // Convert (M5b)
 // ============================================================================
 
-pub fn handle_convert(params: Option<Value>) -> RpcResult {
-    #[derive(Deserialize)]
-    struct ConvertParams {
-        entry: String,
-        #[serde(default)]
-        format: Option<String>,
-    }
-    let p: ConvertParams = parse_strict(params)?;
-    // Delegate to parse — convert is a thin wrapper
-    let bp = json!({ "entry": p.entry, "format": p.format.unwrap_or_else(|| "json".into()), "include_system": false });
-    handle_parse(Some(bp))
-}
 
 // ============================================================================
 // Def (M6)
 // ============================================================================
 
 /// Handle def RPC — go-to-definition for a symbol.
-pub fn handle_def(params: Option<Value>) -> RpcResult {
-    #[derive(Deserialize)]
-    struct DefParams {
-        name: String,
-    }
-
-    let p: DefParams = parse_strict(params)?;
-    let name = &p.name;
-
-    let iterators: [(&str, Vec<(String, String)>); 4] = [
-        ("component", crate::mcb_iter_components()),
-        ("module", crate::mcb_iter_modules()),
-        ("interface", crate::mcb_iter_interfaces()),
-        ("enum", crate::mcb_iter_enums()),
-    ];
-
-    for (kind, items) in &iterators {
-        if let Some((matched, uri)) = items.iter().find(|(n, _)| n == name) {
-            let ident = crate::McIds::from(matched.as_str());
-            let uri_obj = crate::McURI::from(uri.as_str());
-
-            return match crate::get_def(&ident, &uri_obj) {
-                Some(crate::McCMIE::Component(c)) => Ok(json!({
-                    "kind": "component", "name": matched, "uri": uri,
-                    "pin_count": c.pins.pins.len(),
-                })),
-                Some(crate::McCMIE::Module(m)) => Ok(json!({
-                    "kind": "module", "name": matched, "uri": uri,
-                    "instance_count": m.insts.iter().count(),
-                })),
-                Some(crate::McCMIE::Interface(i)) => Ok(json!({
-                    "kind": "interface", "name": matched, "uri": uri,
-                    "pin_count": i.pins.pins.len(),
-                })),
-                Some(crate::McCMIE::Enum(e)) => Ok(json!({
-                    "kind": "enum", "name": matched, "uri": uri,
-                    "value_count": e.values.len(),
-                })),
-                None => Ok(json!({ "kind": kind, "name": matched, "uri": uri })),
-            };
-        }
-    }
-
-    Err(JsonRpcError::custom(
-        -32003,
-        &format!("definition not found: {name}"),
-    ))
-}
 
 // ============================================================================
 // Capabilities (M6)
 // ============================================================================
 
 /// Handle capabilities RPC — self-describing API for AI discovery.
-pub fn handle_caps(_params: Option<Value>) -> RpcResult {
-    Ok(json!({
-        "server": "mcc",
-        "version": env!("CARGO_PKG_VERSION"),
-        "schema_version": 1,
-        "features": {
-            "diagnostics": {
-                "byte_range": false,
-                "end_line": true,
-                "end_column": true,
-                "suggestions": true,
-                "related": true
-            },
-            "explain": true,
-            "search": true,
-            "query": true,
-            "export": ["netlist", "bom", "spice", "kicad"],
-            "show_drilldown": true,
-            "show_global_ports": true,
-            "show_files": true,
-            "parse_code": true,
-            "parse_directory": true,
-            "overlay_dry_run": true,
-            "simulation": false,
-            "pcb_export": false,
-            "erc": true,
-            "semantic_lint": false
-        },
-        "rpc_methods": [
-            "server.info", "server.methods",
-            "parse", "check", "build.full", "extract",
-            "show.all", "show.file", "show.files",
-            "show.component", "show.component.list",
-            "show.module", "show.module.list",
-            "show.interface", "show.interface.list",
-            "show.enum", "show.enum.list",
-            "show.net", "show.net.list",
-            "show.pins", "show.ports", "show.ports.list",
-            "show.labels", "show.instances", "show.nets",
-            "show.attrs", "show.funcs", "show.params",
-            "show.roles", "show.values",
-            "show.dump", "show.dump.all",
-            "lib.list", "lib.info", "lib.load", "lib.unload",
-            "lib.install", "lib.uninstall", "lib.search",
-            "defs.search", "defs.query",
-            "export", "explain", "def", "erc", "refs", "caps",
-            "lookup", "lookup_sub", "lookup_with_sub", "lookup_all",
-            "trace.set", "trace.get",
-            "sem", "diagnostics",
-            "project_symbols", "set_project_root", "set_system_root",
-            "init", "load_project", "add_file", "remove_file"
-        ]
-    }))
-}
 
 // ============================================================================
 // Unified Lookup (F12/pass1-pass2)
 // ============================================================================
 
-pub fn handle_lookup(params: Option<Value>) -> RpcResult {
-    #[derive(Deserialize)]
-    struct LookupParams {
-        name: String,
-    }
-    let p: LookupParams = parse_strict(params)?;
-    match crate::unified_lookup(&p.name, &McURI::new()) {
-        Some((uri, span)) => Ok(json!({"uri": uri, "span": [span.start, span.end]})),
-        None => Ok(json!({"uri": null, "span": null})),
-    }
-}
 
 /// Lookup a sub-element (pin, port, param, label) within a parent container.
-pub fn handle_lookup_sub(params: Option<Value>) -> RpcResult {
-    #[derive(Deserialize)]
-    struct LookupSubParams {
-        #[serde(rename = "parentUri")]
-        parent_uri: String,
-        #[serde(rename = "containerName")]
-        container_name: Option<String>,
-        kind: String,
-        name: String,
-    }
-    let p: LookupSubParams = parse_strict(params)?;
-    let parent_uri = McURI::from(p.parent_uri.as_str());
-    let kind = match crate::SubElementKind::from_str(&p.kind) {
-        Some(k) => k,
-        None => {
-            return Ok(
-                json!({"uri": null, "span": null, "error": format!("Unknown kind: {}", p.kind)}),
-            )
-        }
-    };
-    match crate::lookup_sub_def(&parent_uri, p.container_name.as_deref(), kind, &p.name) {
-        Some(span) => Ok(json!({"uri": parent_uri, "span": [span.start, span.end]})),
-        None => Ok(json!({"uri": null, "span": null})),
-    }
-}
 
 /// Combined lookup: find class + optionally look up sub-element.
 /// Supports compound identifiers like `uC.PA1` — finds `uC` then `PA1` within it.
-pub fn handle_lookup_with_sub(params: Option<Value>) -> RpcResult {
-    #[derive(Deserialize)]
-    struct LwsParams {
-        #[serde(rename = "className")]
-        class_name: String,
-        #[serde(rename = "subName")]
-        sub_name: Option<String>,
-        #[serde(rename = "subKind")]
-        sub_kind: Option<String>,
-        #[serde(rename = "fromUri")]
-        from_uri: Option<String>,
-    }
-    let p: LwsParams = parse_strict(params)?;
-    let from = p.from_uri.as_deref().map(McURI::from).unwrap_or_default();
-    let sub_kind = p
-        .sub_kind
-        .as_deref()
-        .and_then(crate::SubElementKind::from_str);
-    match crate::lookup_with_sub(&p.class_name, p.sub_name.as_deref(), sub_kind, &from) {
-        Some((uri, span)) => Ok(json!({"uri": uri, "span": [span.start, span.end]})),
-        None => Ok(json!({"uri": null, "span": null})),
-    }
-}
 
 /// Enumerate all visible symbols at a given scope.
-pub fn handle_lookup_all(params: Option<Value>) -> RpcResult {
-    #[derive(Deserialize, Default)]
-    struct LookupAllParams {
-        uri: Option<String>,
-        scope: Option<String>,
-        prefix: Option<String>,
-        #[serde(default)]
-        limit: usize,
-    }
-    let p: LookupAllParams = parse_or_default(params)?;
-    let uri = p.uri.map(|s| McURI::from(s.as_str())).unwrap_or_default();
-    let scope_path = if let Some(ref s) = p.scope {
-        crate::builder::mc_code::McCode::scope_path_from_scope_str_public(&uri, s)
-    } else {
-        crate::ScopePath::file_level(&uri)
-    };
-    let mut filter = crate::ScopeFilter::new();
-    if let Some(pref) = &p.prefix {
-        filter = filter.with_prefix(pref);
-    }
-    let limit = if p.limit > 0 { p.limit } else { 100 };
-    filter = filter.with_limit(limit);
-
-    let results = crate::unified_lookup_all(&scope_path, &filter);
-    let items: Vec<serde_json::Value> = results
-        .iter()
-        .map(|r| {
-            json!({
-                "name": r.name,
-                "uri": r.uri,
-                "span": [r.span.start, r.span.end],
-                "kind": r.kind.as_str(),
-                "scope": r.scope,
-            })
-        })
-        .collect();
-    Ok(json!({ "items": items }))
-}
 
 // ============================================================================
 // Explain (M6)
 // ============================================================================
 
 /// Handle explain RPC — look up error code descriptions.
-pub fn handle_explain(params: Option<Value>) -> RpcResult {
-    #[derive(Deserialize, Default)]
-    struct ExplainParams {
-        code: Option<u32>,
-    }
-
-    let p: ExplainParams = parse_or_default(params)?;
-
-    match p.code {
-        Some(code) => match crate::error_codes::describe(code) {
-            Some(info) => Ok(json!({
-                "code": info.code,
-                "name": info.name,
-                "description": info.description,
-            })),
-            None => Err(JsonRpcError::custom(
-                -32003,
-                &format!("unknown error code: {code}"),
-            )),
-        },
-        None => {
-            let all = crate::error_codes::all_codes();
-            let items: Vec<Value> = all
-                .iter()
-                .map(|e| {
-                    json!({
-                        "code": e.code,
-                        "name": e.name,
-                        "description": e.description,
-                    })
-                })
-                .collect();
-            Ok(json!({ "codes": items }))
-        }
-    }
-}
 
 /// Handle diagnostics RPC - return parse/semantic diagnostics for a file
-pub fn handle_diagnostics(params: Option<Value>) -> RpcResult {
-    #[derive(Deserialize)]
-    struct DiagnosticsParams {
-        uri: String,
-    }
-
-    let p: DiagnosticsParams = parse_strict(params)?;
-    let raw_uri = McURI::from(p.uri.as_str());
-    // Canonicalize URI to match the keys used when storing diagnostics
-    // (mcb_add_from_string and all diagnostic_log calls use canonical URIs)
-    let mc_uri = McURI::from(crate::builder::canonicalize_project_uri(&raw_uri));
-
-    tracing::info!(target: "mcc::rpc", "handle_diagnostics: raw={} canonical={}", raw_uri, mc_uri);
-
-    // Get all diagnostics for this file
-    let diagnostics = crate::mcc_diagnose(&mc_uri);
-
-    tracing::info!(target: "mcc::rpc", "handle_diagnostics: found {} diagnostics", diagnostics.len());
-
-    // Convert to JSON
-    let diags: Vec<serde_json::Value> = diagnostics
-        .iter()
-        .map(|d| {
-            serde_json::json!({
-                "code": d.code,
-                "level": format!("{:?}", d.level).to_lowercase(),
-                "message": d.msg,
-                "location": {
-                    "pos": d.loc.pos,
-                    "len": d.loc.len,
-                    "line": d.loc.row,
-                    "column": d.loc.col,
-                }
-            })
-        })
-        .collect();
-
-    Ok(serde_json::json!({ "diagnostics": diags }))
-}
 
 /// Handle project_symbols RPC - return project-wide symbols (components, interfaces, enums, modules, enum_values)
-pub fn handle_project_symbols(_params: Option<Value>) -> RpcResult {
-    use crate::builder::{
-        mcb_iter_components_with_span, mcb_iter_enum_values, mcb_iter_enums_with_span,
-        mcb_iter_interfaces_with_span, mcb_iter_modules_with_span,
-    };
-
-    let components: Vec<serde_json::Value> = mcb_iter_components_with_span()
-        .into_iter()
-        .map(|(name, uri, span)| serde_json::json!({ "name": name, "uri": uri, "span": span }))
-        .collect();
-
-    let interfaces: Vec<serde_json::Value> = mcb_iter_interfaces_with_span()
-        .into_iter()
-        .map(|(name, uri, span)| serde_json::json!({ "name": name, "uri": uri, "span": span }))
-        .collect();
-
-    let enums: Vec<serde_json::Value> = mcb_iter_enums_with_span()
-        .into_iter()
-        .map(|(name, uri, span)| {
-            serde_json::json!({
-                "name": name,
-                "uri": uri,
-                "span": [span[0], span[1]],
-            })
-        })
-        .collect();
-
-    let modules: Vec<serde_json::Value> = mcb_iter_modules_with_span()
-        .into_iter()
-        .map(|(name, uri, span)| serde_json::json!({ "name": name, "uri": uri, "span": span }))
-        .collect();
-
-    // Per-value rows so the extension can do (class, value) -> uri+span lookup
-    // for F12 on the value half of `PKG.SOP8`.
-    let enum_values: Vec<serde_json::Value> = mcb_iter_enum_values()
-        .into_iter()
-        .map(|(class, name, uri, span)| {
-            serde_json::json!({
-                "class": class,
-                "name": name,
-                "uri": uri,
-                "span": [span[0], span[1]],
-            })
-        })
-        .collect();
-
-    Ok(serde_json::json!({
-        "components": components,
-        "interfaces": interfaces,
-        "enums": enums,
-        "modules": modules,
-        "enum_values": enum_values,
-    }))
-}
 
 /// Handle set_project_root RPC - set project root path
-pub fn handle_set_project_root(params: Option<Value>) -> RpcResult {
-    #[derive(Deserialize)]
-    struct SetProjectRootParams {
-        path: String,
-    }
-
-    let p: SetProjectRootParams = parse_strict(params)?;
-    crate::mcc_set_project_root(std::path::Path::new(&p.path));
-    Ok(serde_json::json!({ "ok": true }))
-}
 
 /// Handle set_system_root RPC - set system root path (for library resolution)
-pub fn handle_set_system_root(params: Option<Value>) -> RpcResult {
-    #[derive(Deserialize)]
-    struct SetSystemRootParams {
-        path: String,
-    }
-
-    let p: SetSystemRootParams = parse_strict(params)?;
-    crate::mcc_set_system_root(std::path::Path::new(&p.path));
-    Ok(serde_json::json!({ "ok": true }))
-}
 
 /// Handle init RPC - initialize mcc system
-pub fn handle_init(_params: Option<Value>) -> RpcResult {
-    // Use mcc_init() (not mcc_init_no_lib) so that configured system libraries
-    // (e.g. `mcode`, providing `enum PKG`) are loaded. The LSP client (mcext)
-    // calls `init` on startup; using the no-lib variant here previously wiped
-    // the mcode library that was loaded at server startup, which broke enum
-    // reference resolution (e.g. goto-definition on `PKG.QFN20`).
-    crate::mcc_init();
-    Ok(serde_json::json!({ "ok": true }))
-}
 
 /// Handle load_project RPC - load entire project
-pub fn handle_load_project(params: Option<Value>) -> RpcResult {
-    #[derive(Deserialize)]
-    struct LoadProjectParams {
-        entry: String,
-    }
-
-    let p: LoadProjectParams = parse_strict(params)?;
-    let mc_uri = McURI::from(p.entry.as_str());
-    crate::mcc_load_project(&mc_uri);
-    Ok(serde_json::json!({ "ok": true }))
-}
 
 /// Handle add_file RPC - add a single file to project
-pub fn handle_add_file(params: Option<Value>) -> RpcResult {
-    #[derive(Deserialize)]
-    struct AddFileParams {
-        uri: String,
-    }
-
-    let p: AddFileParams = parse_strict(params)?;
-    crate::mcc_add(&McURI::from(p.uri.as_str()));
-    Ok(serde_json::json!({ "ok": true }))
-}
 
 /// Handle remove_file RPC - remove a file from project
-pub fn handle_remove_file(params: Option<Value>) -> RpcResult {
-    #[derive(Deserialize)]
-    struct RemoveFileParams {
-        uri: String,
-    }
 
-    let p: RemoveFileParams = parse_strict(params)?;
-    crate::mcc_remove(&McURI::from(p.uri.as_str()));
-    Ok(serde_json::json!({ "ok": true }))
-}
+
+// ── Sub-module declarations ──
+mod admin;
+mod ai_contract;
+mod build_cmd;
+mod defs;
+mod export_cmd;
+mod lib_cmd;
+mod lsp;
+mod show;
+
+pub use admin::*;
+pub use ai_contract::*;
+pub use build_cmd::*;
+pub use defs::*;
+pub use export_cmd::*;
+pub use lib_cmd::*;
+pub use lsp::*;
+pub use show::*;
