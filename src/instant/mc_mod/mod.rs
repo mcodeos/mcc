@@ -23,8 +23,8 @@
 mod bus;
 mod condition;
 mod dump;
-mod funccall;
 mod fcallinst;
+mod funccall;
 pub(crate) mod group;
 mod iterated;
 mod line;
