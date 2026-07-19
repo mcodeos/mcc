@@ -9,7 +9,7 @@ use crate::McURI;
 // === pub fn mcb_module_count() -> usize { ===
 /// Get the number of all modules (for debugging)
 pub fn mcb_module_count() -> usize {
-    workspace::WORKSPACE.modules.borrow().len()
+    workspace::WORKSPACE.modules.len()
 }
 
 // === pub fn mcb_get_first_module_name() -> Option<String> { ===
@@ -17,7 +17,6 @@ pub fn mcb_module_count() -> usize {
 pub fn mcb_get_first_module_name() -> Option<String> {
     workspace::WORKSPACE
         .modules
-        .borrow()
         .iter()
         .next()
         .map(|entry| entry.key().ident.to_string())
@@ -28,7 +27,6 @@ pub fn mcb_get_first_module_name() -> Option<String> {
 pub fn mcb_get_module_name_by_uri(uri: &McURI) -> Option<String> {
     workspace::WORKSPACE
         .modules
-        .borrow()
         .iter()
         .find(|entry| entry.key().uri.ends_with(uri) || uri.ends_with(&entry.key().uri))
         .map(|entry| entry.key().ident.to_string())
@@ -37,7 +35,7 @@ pub fn mcb_get_module_name_by_uri(uri: &McURI) -> Option<String> {
 // === pub fn mcb_component_count() -> usize { ===
 /// Get the number of loaded components
 pub fn mcb_component_count() -> usize {
-    workspace::WORKSPACE.components.borrow().len()
+    workspace::WORKSPACE.components.len()
 }
 
 // === pub fn mcb_get_modules_in_file(uri: &McURI) -> Vec<String> { ===
@@ -45,7 +43,6 @@ pub fn mcb_component_count() -> usize {
 pub fn mcb_get_modules_in_file(uri: &McURI) -> Vec<String> {
     workspace::WORKSPACE
         .modules
-        .borrow()
         .iter()
         .filter(|entry| entry.key().uri == *uri)
         .map(|entry| entry.key().ident.to_string())
@@ -54,7 +51,7 @@ pub fn mcb_get_modules_in_file(uri: &McURI) -> Vec<String> {
 
 // === pub fn mcb_interface_count() -> usize { ===
 pub fn mcb_interface_count() -> usize {
-    workspace::WORKSPACE.interfaces.borrow().len() + global::mcc_interfaces.borrow().len()
+    workspace::WORKSPACE.interfaces.len() + global::mcc_interfaces.len()
 }
 
 // === pub fn mcb_iter_modules() -> Vec<(String, String)> { ===
@@ -62,7 +59,6 @@ pub fn mcb_interface_count() -> usize {
 pub fn mcb_iter_modules() -> Vec<(String, String)> {
     workspace::WORKSPACE
         .modules
-        .borrow()
         .iter()
         .map(|entry| (entry.key().ident.to_string(), entry.key().uri.clone()))
         .collect()
@@ -73,7 +69,6 @@ pub fn mcb_iter_modules() -> Vec<(String, String)> {
 pub fn mcb_iter_modules_with_span() -> Vec<(String, String, [usize; 2])> {
     workspace::WORKSPACE
         .modules
-        .borrow()
         .iter()
         .map(|entry| {
             let span = &entry.value().span;
@@ -91,9 +86,8 @@ pub fn mcb_iter_modules_with_span() -> Vec<(String, String, [usize; 2])> {
 pub fn mcb_iter_components() -> Vec<(String, String)> {
     let mut items: Vec<(String, String)> = workspace::WORKSPACE
         .components
-        .borrow()
         .iter()
-        .chain(global::mcc_components.borrow().iter())
+        .chain(global::mcc_components.iter())
         .map(|entry| (entry.key().ident.to_string(), entry.key().uri.clone()))
         .collect();
     items.sort_by(|a, b| a.0.cmp(&b.0));
@@ -105,9 +99,8 @@ pub fn mcb_iter_components() -> Vec<(String, String)> {
 pub fn mcb_iter_components_with_span() -> Vec<(String, String, [usize; 2])> {
     let mut items: Vec<_> = workspace::WORKSPACE
         .components
-        .borrow()
         .iter()
-        .chain(global::mcc_components.borrow().iter())
+        .chain(global::mcc_components.iter())
         .map(|entry| {
             let span = &entry.value().span;
             (
@@ -126,9 +119,8 @@ pub fn mcb_iter_components_with_span() -> Vec<(String, String, [usize; 2])> {
 pub fn mcb_iter_interfaces() -> Vec<(String, String)> {
     let mut items: Vec<(String, String)> = workspace::WORKSPACE
         .interfaces
-        .borrow()
         .iter()
-        .chain(global::mcc_interfaces.borrow().iter())
+        .chain(global::mcc_interfaces.iter())
         .map(|entry| (entry.key().ident.to_string(), entry.key().uri.clone()))
         .collect();
     items.sort_by(|a, b| a.0.cmp(&b.0));
@@ -140,9 +132,8 @@ pub fn mcb_iter_interfaces() -> Vec<(String, String)> {
 pub fn mcb_iter_interfaces_with_span() -> Vec<(String, String, [usize; 2])> {
     let mut items: Vec<_> = workspace::WORKSPACE
         .interfaces
-        .borrow()
         .iter()
-        .chain(global::mcc_interfaces.borrow().iter())
+        .chain(global::mcc_interfaces.iter())
         .map(|entry| {
             let span = &entry.value().span;
             (
@@ -162,12 +153,12 @@ pub fn mcb_iter_enums() -> Vec<(String, String)> {
     let mut items: Vec<(String, String)> = Vec::new();
 
     // Workspace enums (project files)
-    for entry in workspace::WORKSPACE.enums.borrow().iter() {
+    for entry in workspace::WORKSPACE.enums.iter() {
         items.push((entry.key().ident.to_string(), entry.key().uri.clone()));
     }
 
     // System library enums (e.g. enum PKG in mcode/package.mc)
-    for entry in global::mcc_enums.borrow().iter() {
+    for entry in global::mcc_enums.iter() {
         items.push((entry.key().ident.to_string(), entry.key().uri.clone()));
     }
 
@@ -184,7 +175,7 @@ pub fn mcb_iter_enums_with_span() -> Vec<(String, String, [usize; 2])> {
     let mut items: Vec<(String, String, [usize; 2])> = Vec::new();
 
     // Workspace enums (project files)
-    let enums_guard = workspace::WORKSPACE.enums.borrow();
+    let enums_guard = &workspace::WORKSPACE.enums;
     for entry in enums_guard.iter() {
         let s = entry.value().span;
         items.push((
@@ -193,10 +184,9 @@ pub fn mcb_iter_enums_with_span() -> Vec<(String, String, [usize; 2])> {
             [s[0] as usize, s[1] as usize],
         ));
     }
-    drop(enums_guard);
 
     // System library enums (e.g. enum PKG in mcode/package.mc)
-    let sys_enums_guard = global::mcc_enums.borrow();
+    let sys_enums_guard = &global::mcc_enums;
     for entry in sys_enums_guard.iter() {
         let s = entry.value().span;
         items.push((
@@ -205,7 +195,6 @@ pub fn mcb_iter_enums_with_span() -> Vec<(String, String, [usize; 2])> {
             [s[0] as usize, s[1] as usize],
         ));
     }
-    drop(sys_enums_guard);
 
     items.sort_by(|a, b| a.0.cmp(&b.0));
     items
@@ -218,7 +207,7 @@ pub fn mcb_iter_enum_values() -> Vec<(String, String, String, [u32; 2])> {
     let mut items: Vec<(String, String, String, [u32; 2])> = Vec::new();
 
     // Iterate workspace enums (project files)
-    let enums_guard = workspace::WORKSPACE.enums.borrow();
+    let enums_guard = &workspace::WORKSPACE.enums;
     for entry in enums_guard.iter() {
         let class = entry.key().ident.to_string();
         let uri = entry.key().uri.clone();
@@ -228,10 +217,9 @@ pub fn mcb_iter_enum_values() -> Vec<(String, String, String, [u32; 2])> {
             items.push((class.clone(), value_name, uri.clone(), v.span));
         }
     }
-    drop(enums_guard);
 
     // Iterate system library enums (e.g. enum PKG in mcode/package.mc)
-    let sys_enums_guard = global::mcc_enums.borrow();
+    let sys_enums_guard = &global::mcc_enums;
     for entry in sys_enums_guard.iter() {
         let class = entry.key().ident.to_string();
         let uri = entry.key().uri.clone();
@@ -241,7 +229,6 @@ pub fn mcb_iter_enum_values() -> Vec<(String, String, String, [u32; 2])> {
             items.push((class.clone(), value_name, uri.clone(), v.span));
         }
     }
-    drop(sys_enums_guard);
 
     items.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
     items
@@ -255,7 +242,7 @@ pub fn mcb_iter_ports() -> Vec<(String, String, String, String)> {
 
     let mut ports: Vec<(String, String, String, String)> = Vec::new();
 
-    for entry in workspace::WORKSPACE.modules.borrow().iter() {
+    for entry in workspace::WORKSPACE.modules.iter() {
         let module_name = entry.key().ident.to_string();
         let uri = entry.key().uri.clone();
         let module = entry.value();

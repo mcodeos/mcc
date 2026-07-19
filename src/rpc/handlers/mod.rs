@@ -1819,7 +1819,6 @@ pub(crate) fn auto_load_from_file_path(file_path: &Path) {
     // (call parse_pass1_types directly to trigger create_lapper)
     let loaded_uris: Vec<String> = workspace::WORKSPACE
         .mcodes
-        .borrow()
         .iter()
         .map(|e| e.key().clone())
         .collect();
@@ -1832,10 +1831,7 @@ pub(crate) fn auto_load_from_file_path(file_path: &Path) {
                 mcfile.parse_ast();
                 mcfile.parse_nsp();
                 mcfile.parse_pass1_types(); // triggers create_lapper
-                workspace::WORKSPACE
-                    .mcodes
-                    .borrow()
-                    .insert(uri_str.clone(), mcfile);
+                workspace::WORKSPACE.mcodes.insert(uri_str.clone(), mcfile);
                 info!(target: "mcc::rpc", "auto_load: added independent {}", uri_str);
             }
         }
@@ -2294,6 +2290,42 @@ pub static METHODS: &[MethodMeta] = &[
         name: "remove_file",
         consumer: "lsp",
     },
+    MethodMeta {
+        name: "show.component.list",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.module.list",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.interface.list",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.net.list",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.enum.list",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.ports.list",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "show.dump.all",
+        consumer: "cli",
+    },
+    MethodMeta {
+        name: "completion",
+        consumer: "lsp",
+    },
+    MethodMeta {
+        name: "hover",
+        consumer: "lsp",
+    },
 ];
 
 /// Generate caps JSON from the method registry.
@@ -2409,5 +2441,7 @@ pub fn register_all(
     builder = builder.register_method("load_project", handle_load_project);
     builder = builder.register_method("add_file", handle_add_file);
     builder = builder.register_method("remove_file", handle_remove_file);
+    builder = builder.register_method("completion", handle_completion);
+    builder = builder.register_method("hover", handle_hover);
     builder
 }

@@ -53,7 +53,7 @@ pub fn classify_token_by_symbol(
 }
 
 pub fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
-    let binding = crate::db::cmie::tables::WORKSPACE.mcodes.borrow();
+    let binding = &crate::db::cmie::tables::WORKSPACE.mcodes;
     for mc_uri in candidates {
         if let Some(mcfile) = binding.get(mc_uri) {
             // Get raw tokens and symbol lapper for semantic re-classification

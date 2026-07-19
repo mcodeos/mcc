@@ -32,7 +32,7 @@ pub fn mcb_add(uri: &McURI) {
         mcfile.parse_nsp(); // step 2
         mcfile.parse_pass1(); // step 3
 
-        let binding = workspace::WORKSPACE.mcodes.borrow();
+        let binding = &workspace::WORKSPACE.mcodes;
         let entry: dashmap::Entry<'_, _, McCode> = binding.entry(canonical_uri.clone());
         match entry {
             dashmap::Entry::Occupied(mut occupied_entry) => {
@@ -57,7 +57,7 @@ pub fn mcb_add_from_string(uri: &McURI, content: &str) {
 
     if let Some(mut mcfile) = McCode::new_from_string(&canonical_uri, content) {
         let already_exists = {
-            let binding = workspace::WORKSPACE.mcodes.borrow();
+            let binding = &workspace::WORKSPACE.mcodes;
             binding.contains_key(&canonical_uri)
         };
         tracing::info!(target: "mcc::lsp", "mcb_add_from_string: already_exists={}", already_exists);
@@ -66,7 +66,8 @@ pub fn mcb_add_from_string(uri: &McURI, content: &str) {
             // Also clear diagnostics for this file
             workspace::WORKSPACE
                 .diagnostics
-                .borrow_mut()
+                .lock()
+                .unwrap()
                 .clear_file(&canonical_uri);
             tracing::info!(target: "mcc::lsp", "mcb_add_from_string: cleared diagnostics for {}", canonical_uri);
         }
@@ -76,7 +77,7 @@ pub fn mcb_add_from_string(uri: &McURI, content: &str) {
         mcfile.parse_pass1_types();
         mcfile.parse_pass1_modules(); // ★ Fix: Also parse modules to register instance symbols and build lapper
 
-        let binding = workspace::WORKSPACE.mcodes.borrow();
+        let binding = &workspace::WORKSPACE.mcodes;
         if already_exists {
             binding.insert(canonical_uri.clone(), mcfile);
         } else {
@@ -148,7 +149,6 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
     // 5.5. First insert file into prj_mcodes (so when parse_pass1_types() calls mcb_get_cmie to lookup Interface, it can find current file's spacenames in prj_mcodes)
     workspace::WORKSPACE
         .mcodes
-        .borrow()
         .insert(canonical_uri.clone(), mcfile.clone());
 
     // 6. Mark as loaded (before recursion to prevent circular dependencies)
@@ -175,7 +175,6 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
         // Update spacenames in prj_mcodes
         workspace::WORKSPACE
             .mcodes
-            .borrow()
             .entry(canonical_uri.clone())
             .and_modify(|entry| entry.spacenames.clone_from(&mcfile.spacenames));
     }
@@ -187,10 +186,8 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
     );
 
     // 9. Update project file table (replace pre-inserted empty file with parsed file)
-    if let dashmap::Entry::Occupied(mut occupied_entry) = workspace::WORKSPACE
-        .mcodes
-        .borrow()
-        .entry(canonical_uri.clone())
+    if let dashmap::Entry::Occupied(mut occupied_entry) =
+        workspace::WORKSPACE.mcodes.entry(canonical_uri.clone())
     {
         occupied_entry.insert(mcfile);
     }
@@ -199,13 +196,13 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
 // === pub fn mcb_loaded_file_count() -> usize { ===
 /// Get number of loaded files
 pub fn mcb_loaded_file_count() -> usize {
-    workspace::WORKSPACE.mcodes.borrow().len()
+    workspace::WORKSPACE.mcodes.len()
 }
 
 // === pub fn mcb_print_loaded_files() { ===
 /// Print list of loaded files
 pub fn mcb_print_loaded_files() {
-    for _entry in workspace::WORKSPACE.mcodes.borrow().iter() {}
+    for _entry in workspace::WORKSPACE.mcodes.iter() {}
 }
 
 // === pub fn mcb_remove(uri: &McURI) { ===
@@ -218,7 +215,7 @@ pub fn mcb_remove(uri: &McURI) {
         remove_defines(&canonical_uri);
     }
 
-    let binding = workspace::WORKSPACE.mcodes.borrow();
+    let binding = &workspace::WORKSPACE.mcodes;
     binding.remove(uri);
     if canonical_uri != *uri {
         binding.remove(&canonical_uri);
@@ -247,103 +244,95 @@ pub(crate) fn remove_defines(uri: &McURI) {
     // workspace tables
     let to_remove: Vec<McSpaceName> = workspace::WORKSPACE
         .components
-        .borrow()
         .iter()
         .filter(|entry| entry.key().uri == *uri)
         .map(|entry| entry.key().clone())
         .collect();
     for space_name in to_remove {
-        workspace::WORKSPACE.components.borrow().remove(&space_name);
+        workspace::WORKSPACE.components.remove(&space_name);
     }
 
     let to_remove: Vec<McSpaceName> = workspace::WORKSPACE
         .modules
-        .borrow()
         .iter()
         .filter(|entry| entry.key().uri == *uri)
         .map(|entry| entry.key().clone())
         .collect();
     for space_name in to_remove {
-        workspace::WORKSPACE.modules.borrow().remove(&space_name);
+        workspace::WORKSPACE.modules.remove(&space_name);
     }
 
     let to_remove: Vec<McSpaceName> = workspace::WORKSPACE
         .interfaces
-        .borrow()
         .iter()
         .filter(|entry| entry.key().uri == *uri)
         .map(|entry| entry.key().clone())
         .collect();
     for space_name in to_remove {
-        workspace::WORKSPACE.interfaces.borrow().remove(&space_name);
+        workspace::WORKSPACE.interfaces.remove(&space_name);
     }
 
     let to_remove: Vec<McSpaceName> = workspace::WORKSPACE
         .enums
-        .borrow()
         .iter()
         .filter(|entry| entry.key().uri == *uri)
         .map(|entry| entry.key().clone())
         .collect();
     for space_name in to_remove {
-        workspace::WORKSPACE.enums.borrow().remove(&space_name);
+        workspace::WORKSPACE.enums.remove(&space_name);
     }
 
     let to_remove: Vec<McSpaceName> = workspace::WORKSPACE
         .defines
-        .borrow()
         .iter()
         .filter(|entry| entry.key().uri == *uri)
         .map(|entry| entry.key().clone())
         .collect();
     for space_name in to_remove {
-        workspace::WORKSPACE.defines.borrow().remove(&space_name);
+        workspace::WORKSPACE.defines.remove(&space_name);
     }
 
     // global tables (system lib registrations)
     let to_remove: Vec<McSpaceName> = global::mcc_components
-        .borrow()
         .iter()
         .filter(|entry| entry.key().uri == *uri)
         .map(|entry| entry.key().clone())
         .collect();
     for space_name in to_remove {
-        global::mcc_components.borrow().remove(&space_name);
+        global::mcc_components.remove(&space_name);
     }
 
     let to_remove: Vec<McSpaceName> = global::mcc_modules
-        .borrow()
         .iter()
         .filter(|entry| entry.key().uri == *uri)
         .map(|entry| entry.key().clone())
         .collect();
     for space_name in to_remove {
-        global::mcc_modules.borrow().remove(&space_name);
+        global::mcc_modules.remove(&space_name);
     }
 
     let to_remove: Vec<McSpaceName> = global::mcc_interfaces
-        .borrow()
         .iter()
         .filter(|entry| entry.key().uri == *uri)
         .map(|entry| entry.key().clone())
         .collect();
     for space_name in to_remove {
-        global::mcc_interfaces.borrow().remove(&space_name);
+        global::mcc_interfaces.remove(&space_name);
     }
 
     let to_remove: Vec<McSpaceName> = global::mcc_enums
-        .borrow()
         .iter()
         .filter(|entry| entry.key().uri == *uri)
         .map(|entry| entry.key().clone())
         .collect();
     for space_name in to_remove {
-        global::mcc_enums.borrow().remove(&space_name);
+        global::mcc_enums.remove(&space_name);
     }
 
     // Clear diagnostics for this file so they don't accumulate across edits
     workspace::WORKSPACE
         .diagnostics
-        .borrow_mut()
+        .lock()
+        .unwrap()
         .clear_file(uri);
 }

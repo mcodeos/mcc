@@ -458,7 +458,7 @@ fn check_pin_count_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>
         .iter()
         .flat_map(|n| n.points.iter().cloned())
         .collect();
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for (_, entry) in table.iter() {
         if !matches!(entry.kind, crate::instant::inst_table::InstKind::Component)
             || entry.class_name.is_empty()

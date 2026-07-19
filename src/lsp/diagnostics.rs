@@ -60,8 +60,8 @@ pub fn diagnostic_to_json_full(d: &Diagnostic) -> Value {
             "pos": d.loc.pos,
             "len": d.loc.len,
         },
-        "end_line": d.loc.row,
-        "end_column": d.loc.col,
+        "end_line": d.loc.end_row,
+        "end_column": d.loc.end_col,
         "suggestions": [],
         "related": [],
     });

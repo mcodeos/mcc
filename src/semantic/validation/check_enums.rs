@@ -41,7 +41,7 @@ impl ValidationCheck for EnumsCheck {
 
 /// Within a single enum definition, all value names must be unique.
 fn check_duplicate_enum_values(acc: &mut CheckAccumulator) {
-    let enums = crate::db::cmie::tables::WORKSPACE.enums.borrow();
+    let enums = &crate::db::cmie::tables::WORKSPACE.enums;
     for entry in enums.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -104,7 +104,7 @@ fn check_invalid_enum_member_names(acc: &mut CheckAccumulator) {
     .cloned()
     .collect();
 
-    let enums = crate::db::cmie::tables::WORKSPACE.enums.borrow();
+    let enums = &crate::db::cmie::tables::WORKSPACE.enums;
     for entry in enums.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -170,7 +170,7 @@ fn check_invalid_enum_member_names(acc: &mut CheckAccumulator) {
 /// Detect attributes where the value is the same as the key name,
 /// e.g. `manufacturer = manufacturer` which is likely a copy-paste mistake.
 fn check_self_ref_attr(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -207,7 +207,7 @@ fn check_self_ref_attr(acc: &mut CheckAccumulator) {
     }
 
     // Also check interfaces
-    let ifaces = crate::db::cmie::tables::WORKSPACE.interfaces.borrow();
+    let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
     for entry in ifaces.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -250,7 +250,7 @@ fn check_self_ref_attr(acc: &mut CheckAccumulator) {
 /// e.g. `manufacturer = "TI"` followed by `manufacturer = "ST"` silently
 /// overwrites — the second value wins, which may not be intended.
 fn check_duplicate_attr_keys(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -280,7 +280,7 @@ fn check_duplicate_attr_keys(acc: &mut CheckAccumulator) {
         }
     }
 
-    let ifaces = crate::db::cmie::tables::WORKSPACE.interfaces.borrow();
+    let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
     for entry in ifaces.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {

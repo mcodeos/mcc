@@ -44,7 +44,7 @@ impl ValidationCheck for CondsCheck {
 /// An `if` block whose body contains no pins and no attributes is likely
 /// an oversight — the condition selects nothing.
 fn check_empty_cond_body(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -133,7 +133,7 @@ fn check_empty_cond_body(acc: &mut CheckAccumulator) {
 /// A conditional with `if` branches but no `else` may leave pins/attrs
 /// undefined for some parameter value combinations.
 fn check_missing_else(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -189,7 +189,7 @@ fn check_missing_else(acc: &mut CheckAccumulator) {
 ///   - `nc` (not-connected) on a component pin is unusual (typically on instances)
 ///   - `ps` (power supply) without associated voltage attribute
 fn check_pin_io_context(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -259,7 +259,7 @@ fn check_pin_io_context(acc: &mut CheckAccumulator) {
 /// When multiple pin IDs share the same name (via `McPinPort::Multi`),
 /// check whether their IO types are in conflict.
 fn check_pin_alt_roles(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -351,7 +351,7 @@ fn check_pin_alt_roles(acc: &mut CheckAccumulator) {
 /// A component parameter sharing a name with a pin is confusing —
 /// the same identifier means two different things in different contexts.
 fn check_param_pin_name_collision(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -390,7 +390,7 @@ fn check_param_pin_name_collision(acc: &mut CheckAccumulator) {
 
 /// A module with no content at all is almost certainly a stub or mistake.
 fn check_empty_module(acc: &mut CheckAccumulator) {
-    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {

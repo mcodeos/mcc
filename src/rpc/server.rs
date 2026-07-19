@@ -9,7 +9,7 @@ use anyhow::Result;
 use axum::{
     extract::Request,
     http::{Response, StatusCode},
-    routing::post,
+    routing::{get, post},
     serve, Router,
 };
 use std::net::SocketAddr;
@@ -106,8 +106,10 @@ impl RpcServer {
                         Err(_) => {
                             return Response::builder()
                                 .status(StatusCode::PAYLOAD_TOO_LARGE)
-                                .body("Payload too large".to_string())
-                                .unwrap();
+                                .body(axum::body::Body::from("Payload too large"))
+                                .unwrap_or_else(|_| {
+                                    Response::new(axum::body::Body::from("Error"))
+                                });
                         }
                     };
 
@@ -115,11 +117,17 @@ impl RpcServer {
                         Ok(req) => req,
                         Err(_) => {
                             let err = JsonRpcResponse::error(None, JsonRpcError::parse_error());
+                            let body = serde_json::to_string(&err)
+                                .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse error"}}"#.to_string());
                             return Response::builder()
                                 .status(StatusCode::OK)
                                 .header("Content-Type", "application/json")
-                                .body(serde_json::to_string(&err).unwrap())
-                                .unwrap();
+                                .body(axum::body::Body::from(body))
+                                .unwrap_or_else(|_| {
+                                    Response::new(axum::body::Body::from(
+                                        r#"{"jsonrpc":"2.0","error":{"code":-32700,"message":"Parse error"}}"#,
+                                    ))
+                                });
                         }
                     };
 
@@ -144,7 +152,21 @@ impl RpcServer {
                         })
                         .unwrap_or_else(|| "{}".to_string());
                     let t0 = std::time::Instant::now();
-                    let result = registry.call(&request.method, request.params);
+                    // Run the actual RPC handler in spawn_blocking to avoid blocking
+                    // the async runtime during heavy operations (build, parse, etc.)
+                    let registry2 = registry.clone();
+                    let method2 = method.clone();
+                    let params = request.params;
+                    let result = tokio::task::spawn_blocking(move || {
+                        registry2.call(&method2, params)
+                    })
+                    .await
+                    .unwrap_or_else(|_| {
+                        Err(JsonRpcError::custom(
+                            -32603,
+                            "Internal error: handler panicked",
+                        ))
+                    });
                     let elapsed_ms = t0.elapsed().as_millis();
 
                     // server.info is a probe request, only print when there is a problem
@@ -178,14 +200,20 @@ impl RpcServer {
                         Err(error) => JsonRpcResponse::error(id, error),
                     };
 
+                    let body = serde_json::to_string(&response)
+                        .unwrap_or_else(|_| r#"{"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal error"}}"#.to_string());
                     Response::builder()
                         .status(StatusCode::OK)
                         .header("Content-Type", "application/json")
-                        .body(serde_json::to_string(&response).unwrap())
-                        .unwrap()
+                        .body(axum::body::Body::from(body))
+                        .unwrap_or_else(|_| {
+                            Response::new(axum::body::Body::from(
+                                r#"{"jsonrpc":"2.0","error":{"code":-32603,"message":"Internal error"}}"#,
+                            ))
+                        })
                 }),
             )
-            .route("/health", post(health_check));
+            .route("/health", get(health_check));
 
         let host_addr = if host.is_empty() {
             "127.0.0.1"
@@ -202,9 +230,10 @@ impl RpcServer {
     }
 }
 
-async fn health_check() -> Response<String> {
+async fn health_check() -> Response<axum::body::Body> {
     Response::builder()
         .status(StatusCode::OK)
-        .body("{\"status\": \"ok\"}".to_string())
-        .unwrap()
+        .header("Content-Type", "application/json")
+        .body(axum::body::Body::from("{\"status\": \"ok\"}"))
+        .unwrap_or_else(|_| Response::new(axum::body::Body::from("{\"status\": \"ok\"}")))
 }

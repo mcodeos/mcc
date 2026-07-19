@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! System library management API — PR-4a
+//! System library management API -- PR-4a
 //!
 //! Generalize `mcb_init_system_lib()` hardcoded mcode logic into "load any library by name".
 //!
@@ -20,7 +20,6 @@
 use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
 use crate::db::infra::mc_code::McCode;
-use crate::db::infra::util::MultiThreadRefCell;
 use crate::{McIds, McSpaceName};
 use dashmap::DashMap;
 use lazy_static::lazy_static;
@@ -31,8 +30,7 @@ use tracing::{debug, info, warn};
 
 // ── System library source cache ──
 lazy_static! {
-    pub(crate) static ref mcc_blibs: MultiThreadRefCell<DashMap<String, McCode>> =
-        MultiThreadRefCell::new(DashMap::new());
+    pub(crate) static ref mcc_blibs: DashMap<String, McCode> = DashMap::new();
 }
 
 /// System library basic info (snapshot from mcc_blibs).
@@ -71,11 +69,6 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
         root = ?root,
         "load: start"
     );
-    // ── S3 fix ──
-    // Original entry_file = root.join(format!("{name}.mc")) for `--lib mc/mcode`
-    // (name contains '/') would produce root/mc/mcode/mc/mcode.mc (duplicate mc).
-    // Fix: use name's basename as entry filename (library directory entry file
-    // convention is `<lib_name>.mc` or `<basename>.mc`).
     let entry_basename = name.rsplit(['/', '\\']).next().unwrap_or(name);
     let entry_file = root.join(format!("{entry_basename}.mc"));
     if !entry_file.exists() {
@@ -89,10 +82,9 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
     }
 
     // If already loaded, check if it has interfaces
-    if mcc_blibs.borrow().contains_key(name) {
+    if mcc_blibs.contains_key(name) {
         // Check if it has interfaces spacenames
-        if let Some(blib) = mcc_blibs.borrow().get(name) {
-            // Check if it has interfaces spacenames
+        if let Some(blib) = mcc_blibs.get(name) {
             let has_interfaces = blib.spacenames.keys().any(|ids| {
                 let name = format!("{}", ids);
                 name.contains("SPI")
@@ -112,9 +104,7 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
     }
 
     // Pre-insert empty blib entry (to avoid circular lookup issues)
-    mcc_blibs
-        .borrow_mut()
-        .insert(name.to_string(), McCode::new_empty());
+    mcc_blibs.insert(name.to_string(), McCode::new_empty());
 
     // Set system lib loading flag
     crate::cli::config::set_system_lib_loading(true);
@@ -158,7 +148,7 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
     let symbol_count = lib_entry.spacenames.len();
 
     // Replace blib with new one
-    mcc_blibs.borrow_mut().insert(name.to_string(), lib_entry);
+    mcc_blibs.insert(name.to_string(), lib_entry);
 
     info!(
         target: "mcc::lib",
@@ -177,7 +167,7 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
 /// 2. Remove definitions from `mcc_*` system tables with uri containing library path
 /// 3. Remove definitions from workspace tables with uri containing library path
 pub fn mcb_unload_lib(name: &str) -> bool {
-    let blib = match mcc_blibs.borrow_mut().remove(name) {
+    let blib = match mcc_blibs.remove(name) {
         Some((_, blib)) => blib,
         None => return false,
     };
@@ -201,7 +191,7 @@ pub fn mcb_unload_lib(name: &str) -> bool {
 
 /// List all loaded system libraries in memory.
 pub fn mcb_loaded_libs() -> Vec<String> {
-    mcc_blibs.borrow().iter().map(|e| e.key().clone()).collect()
+    mcc_blibs.iter().map(|e| e.key().clone()).collect()
 }
 
 fn format_mc_ids(ids: &McIds) -> String {
@@ -210,8 +200,7 @@ fn format_mc_ids(ids: &McIds) -> String {
 
 /// Get system library information by name.
 pub fn mcb_lib_info(name: &str) -> Option<LibInfo> {
-    let blibs = mcc_blibs.borrow();
-    let blib = blibs.get(name)?;
+    let blib = mcc_blibs.get(name)?;
     let sn = &blib.spacenames;
 
     let mut module_count = 0usize;
@@ -225,32 +214,23 @@ pub fn mcb_lib_info(name: &str) -> Option<LibInfo> {
     let mut enums_list = Vec::new();
 
     for (_, space_name) in sn.iter() {
-        if workspace::WORKSPACE
-            .modules
-            .borrow()
-            .contains_key(space_name)
-            || global::mcc_modules.borrow().contains_key(space_name)
+        if workspace::WORKSPACE.modules.contains_key(space_name)
+            || global::mcc_modules.contains_key(space_name)
         {
             module_count += 1;
             modules_list.push(format_mc_ids(&space_name.ident));
-        } else if workspace::WORKSPACE
-            .components
-            .borrow()
-            .contains_key(space_name)
-            || global::mcc_components.borrow().contains_key(space_name)
+        } else if workspace::WORKSPACE.components.contains_key(space_name)
+            || global::mcc_components.contains_key(space_name)
         {
             component_count += 1;
             components_list.push(format_mc_ids(&space_name.ident));
-        } else if workspace::WORKSPACE
-            .interfaces
-            .borrow()
-            .contains_key(space_name)
-            || global::mcc_interfaces.borrow().contains_key(space_name)
+        } else if workspace::WORKSPACE.interfaces.contains_key(space_name)
+            || global::mcc_interfaces.contains_key(space_name)
         {
             interface_count += 1;
             interfaces_list.push(format_mc_ids(&space_name.ident));
-        } else if workspace::WORKSPACE.enums.borrow().contains_key(space_name)
-            || global::mcc_enums.borrow().contains_key(space_name)
+        } else if workspace::WORKSPACE.enums.contains_key(space_name)
+            || global::mcc_enums.contains_key(space_name)
         {
             enum_count += 1;
             enums_list.push(format_mc_ids(&space_name.ident));
@@ -282,11 +262,11 @@ pub fn mcb_lib_info(name: &str) -> Option<LibInfo> {
 // ============================================================================
 
 fn collect_spacenames_by_prefix<T>(
-    table: &MultiThreadRefCell<DashMap<McSpaceName, Arc<T>>>,
+    table: &DashMap<McSpaceName, Arc<T>>,
     prefix: &str,
     lib_entry: &mut McCode,
 ) {
-    for entry in table.borrow().iter() {
+    for entry in table.iter() {
         if entry.key().uri.contains(prefix) {
             lib_entry
                 .spacenames
@@ -296,11 +276,11 @@ fn collect_spacenames_by_prefix<T>(
 }
 
 fn collect_spacenames_by_prefix_global<T>(
-    table: &MultiThreadRefCell<DashMap<McSpaceName, Arc<T>>>,
+    table: &DashMap<McSpaceName, Arc<T>>,
     prefix: &str,
     lib_entry: &mut McCode,
 ) {
-    for entry in table.borrow().iter() {
+    for entry in table.iter() {
         let uri = &entry.key().uri;
         if uri.contains(prefix) {
             lib_entry
@@ -310,17 +290,13 @@ fn collect_spacenames_by_prefix_global<T>(
     }
 }
 
-fn remove_by_uris<T>(
-    table: &MultiThreadRefCell<DashMap<McSpaceName, Arc<T>>>,
-    uris: &HashSet<String>,
-) {
+fn remove_by_uris<T>(table: &DashMap<McSpaceName, Arc<T>>, uris: &HashSet<String>) {
     let to_remove: Vec<McSpaceName> = table
-        .borrow()
         .iter()
         .filter(|e| uris.contains(&e.key().uri))
         .map(|e| e.key().clone())
         .collect();
     for key in to_remove {
-        table.borrow().remove(&key);
+        table.remove(&key);
     }
 }

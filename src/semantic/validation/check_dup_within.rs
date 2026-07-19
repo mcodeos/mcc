@@ -25,7 +25,7 @@ impl ValidationCheck for DupWithinCheck {
     fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
         // Check components
         {
-            let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+            let comps = &crate::db::cmie::tables::WORKSPACE.components;
             for entry in comps.iter() {
                 let comp = entry.value();
                 check_pin_name_duplicates(comp.name.to_string(), comp, acc);
@@ -33,7 +33,7 @@ impl ValidationCheck for DupWithinCheck {
         }
         // Check enums
         {
-            let enums = crate::db::cmie::tables::WORKSPACE.enums.borrow();
+            let enums = &crate::db::cmie::tables::WORKSPACE.enums;
             for entry in enums.iter() {
                 let e = entry.value();
                 check_enum_value_duplicates(e.name.to_string(), e, acc);

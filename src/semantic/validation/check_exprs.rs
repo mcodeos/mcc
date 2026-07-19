@@ -48,7 +48,7 @@ impl ValidationCheck for ExprsCheck {
 /// Scans module net phrase text for the `this` keyword. `this` should only
 /// appear inside function bodies, not in top-level net connections.
 fn check_this_outside_instance(acc: &mut CheckAccumulator) {
-    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -85,7 +85,7 @@ fn check_this_outside_instance(acc: &mut CheckAccumulator) {
 ///
 /// A net that connects only to `_` (underscore/NC placeholder) is meaningless.
 fn check_uscore_sole_endpoint(acc: &mut CheckAccumulator) {
-    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -135,7 +135,7 @@ fn check_uscore_sole_endpoint(acc: &mut CheckAccumulator) {
 /// Checks if an `if` condition has an empty block (no phrases inside).
 fn check_empty_conditional(acc: &mut CheckAccumulator) {
     // Check component attrs for McConds with empty blocks
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -195,7 +195,7 @@ fn check_expr_for_empty_cond(
 /// Checks integer and float literal expressions for overflow.
 fn check_constant_overflow(acc: &mut CheckAccumulator) {
     // Check component attribute values for overflowing literal expressions
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -294,7 +294,7 @@ fn check_expr_overflow(
 
 /// V3: Reversed curly brace range (e.g., `{5:2}` instead of `{2:5}`).
 fn check_reversed_range(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -390,7 +390,7 @@ fn check_expr_range(
 /// C5: IDX key collision — two inst names share the same base key before `[`
 /// with different slice specifications.
 fn check_idx_key_collision(acc: &mut CheckAccumulator) {
-    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -433,7 +433,7 @@ fn check_idx_key_collision(acc: &mut CheckAccumulator) {
 fn check_pins_ref_not_found(acc: &mut CheckAccumulator) {
     // ── Component-level: function body lines ──
     {
-        let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+        let comps = &crate::db::cmie::tables::WORKSPACE.components;
         for entry in comps.iter() {
             let uri = entry.key().uri.to_string();
             if super::is_test_file(&uri) {
@@ -504,7 +504,7 @@ fn check_pins_ref_not_found(acc: &mut CheckAccumulator) {
 
     // ── Module-level: body lines ──
     {
-        let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+        let modules = &crate::db::cmie::tables::WORKSPACE.modules;
         for entry in modules.iter() {
             let uri = entry.key().uri.to_string();
             if super::is_test_file(&uri) {

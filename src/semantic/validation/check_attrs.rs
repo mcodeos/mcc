@@ -30,7 +30,7 @@ impl ValidationCheck for AttrsCheck {
     }
 
     fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
-        let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+        let comps = &crate::db::cmie::tables::WORKSPACE.components;
         for entry in comps.iter() {
             let uri = entry.key().uri.to_string();
             if super::is_test_file(&uri) {

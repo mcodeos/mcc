@@ -13,7 +13,7 @@ pub type MccProjectTree = McModuleInst;
 
 // === pub fn mcb_query<'a>(uri: &McURI) -> Option<ParserResult> { ===
 pub fn mcb_query<'a>(uri: &McURI) -> Option<ParserResult> {
-    let binding = workspace::WORKSPACE.mcodes.borrow();
+    let binding = &workspace::WORKSPACE.mcodes;
     let canonical_uri = canonicalize_project_uri(uri);
 
     if let Some(mcfile) = binding.get(&canonical_uri) {
@@ -64,7 +64,7 @@ pub(crate) fn mcb_pass2(entry: &McSpaceName) -> Result<MccProjectTree, Box<dyn E
     let target_module_def;
 
     {
-        let binding = workspace::WORKSPACE.modules.borrow();
+        let binding = &workspace::WORKSPACE.modules;
 
         // 1. Exact match
         let exact = binding

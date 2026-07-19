@@ -37,10 +37,10 @@ impl ValidationCheck for DefsCheck {
 
 /// A4: Same ident used for both a component and an interface.
 fn check_name_collision(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
-    let ifaces = crate::db::cmie::tables::WORKSPACE.interfaces.borrow();
-    let enums = crate::db::cmie::tables::WORKSPACE.enums.borrow();
-    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
+    let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
+    let enums = &crate::db::cmie::tables::WORKSPACE.enums;
+    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
 
     // Collect names by CMIE kind
     let comp_names: HashSet<String> = comps.iter().map(|e| e.key().ident.to_string()).collect();
@@ -143,19 +143,19 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
     // Build the known set of all CMIE names
     let mut known: HashSet<String> = HashSet::new();
     {
-        let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+        let comps = &crate::db::cmie::tables::WORKSPACE.components;
         for e in comps.iter() {
             known.insert(e.key().ident.to_string());
         }
     }
     {
-        let ifaces = crate::db::cmie::tables::WORKSPACE.interfaces.borrow();
+        let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
         for e in ifaces.iter() {
             known.insert(e.key().ident.to_string());
         }
     }
     {
-        let enums = crate::db::cmie::tables::WORKSPACE.enums.borrow();
+        let enums = &crate::db::cmie::tables::WORKSPACE.enums;
         for e in enums.iter() {
             known.insert(e.key().ident.to_string());
         }
@@ -163,7 +163,7 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
 
     // Check component pin interface bindings
     {
-        let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+        let comps = &crate::db::cmie::tables::WORKSPACE.components;
         for entry in comps.iter() {
             let uri = entry.key().uri.to_string();
             if super::is_test_file(&uri) {
@@ -194,7 +194,7 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
 
     // Check component param declare class expressions
     {
-        let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+        let comps = &crate::db::cmie::tables::WORKSPACE.components;
         for entry in comps.iter() {
             let uri = entry.key().uri.to_string();
             if super::is_test_file(&uri) {
@@ -227,7 +227,7 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
 fn check_int_suffix(acc: &mut CheckAccumulator) {
     // M2: .int suffix on component names
     {
-        let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+        let comps = &crate::db::cmie::tables::WORKSPACE.components;
         for entry in comps.iter() {
             let uri = entry.key().uri.to_string();
             if super::is_test_file(&uri) {
@@ -254,7 +254,7 @@ fn check_int_suffix(acc: &mut CheckAccumulator) {
 
     // M5: .int suffix on enum or interface names
     {
-        let enums = crate::db::cmie::tables::WORKSPACE.enums.borrow();
+        let enums = &crate::db::cmie::tables::WORKSPACE.enums;
         for entry in enums.iter() {
             let uri = entry.key().uri.to_string();
             if super::is_test_file(&uri) {
@@ -278,7 +278,7 @@ fn check_int_suffix(acc: &mut CheckAccumulator) {
     }
 
     {
-        let ifaces = crate::db::cmie::tables::WORKSPACE.interfaces.borrow();
+        let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
         for entry in ifaces.iter() {
             let uri = entry.key().uri.to_string();
             if super::is_test_file(&uri) {

@@ -29,22 +29,22 @@ impl NameResolver for DbContext {
     fn resolve_system(&self, class_name: &McIds) -> Option<McCMIE> {
         use crate::db::infra::global;
         let name_str = class_name.to_string();
-        for entry in global::mcc_components.borrow().iter() {
+        for entry in global::mcc_components.iter() {
             if entry.key().ident.to_string() == name_str {
                 return Some(McCMIE::Component(entry.value().clone()));
             }
         }
-        for entry in global::mcc_modules.borrow().iter() {
+        for entry in global::mcc_modules.iter() {
             if entry.key().ident.to_string() == name_str {
                 return Some(McCMIE::Module(entry.value().clone()));
             }
         }
-        for entry in global::mcc_interfaces.borrow().iter() {
+        for entry in global::mcc_interfaces.iter() {
             if entry.key().ident.to_string() == name_str {
                 return Some(McCMIE::Interface(entry.value().clone()));
             }
         }
-        for entry in global::mcc_enums.borrow().iter() {
+        for entry in global::mcc_enums.iter() {
             if entry.key().ident.to_string() == name_str {
                 return Some(McCMIE::Enum(entry.value().clone()));
             }

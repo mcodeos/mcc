@@ -239,10 +239,14 @@ pub fn handle_show_module(params: Option<Value>) -> RpcResult {
         .as_ref()
         .ok_or_else(|| JsonRpcError::custom(-32602, "show.module: need to specify name"))?;
 
-    let first_module_name = crate::mcb_get_first_module_name()
-        .ok_or_else(|| JsonRpcError::custom(-32003, "no module found"))?;
+    // Find the module's actual URI by iterating all modules (not just the first one)
+    let modules = crate::mcb_iter_modules();
+    let (_, module_uri) = modules
+        .iter()
+        .find(|(n, _)| n == name)
+        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("module not found: {name}")))?;
 
-    let uri = crate::McURI::from(first_module_name.as_str());
+    let uri = crate::McURI::from(module_uri.as_str());
     let ident = crate::McIds::from(name.as_str());
 
     let cmie = crate::get_def(&ident, &uri)
@@ -254,28 +258,7 @@ pub fn handle_show_module(params: Option<Value>) -> RpcResult {
                 .insts
                 .iter()
                 .map(|(n, inst)| {
-                    let (kind, class) = match inst {
-                        crate::McInstance::Component(c) => ("component", c.name.to_string()),
-                        crate::McInstance::Module(m) => ("module", m.name.to_string()),
-                        crate::McInstance::Label(l) => ("label", l.clone()),
-                        crate::McInstance::Interface(i) => ("interface", i.name.to_string()),
-                        crate::McInstance::Bus(b) => ("bus", b.to_string()),
-                        crate::McInstance::BusRef { component, bus } => {
-                            ("busref", format!("{component}.{bus}"))
-                        }
-                        crate::McInstance::List(l) => {
-                            let name = l.name().to_string();
-                            let class = format!("{:?}", l);
-                            if class != name {
-                                ("list", class)
-                            } else {
-                                ("list", name)
-                            }
-                        }
-                        crate::McInstance::Unresolved { class_name } => {
-                            ("unresolved", class_name.clone())
-                        }
-                    };
+                    let (kind, class) = inst_kind_class(inst);
                     json!({ "name": n.to_string(), "kind": kind, "class": class })
                 })
                 .collect();

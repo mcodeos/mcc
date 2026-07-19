@@ -43,7 +43,7 @@ impl ValidationCheck for InterfaceCheck {
 /// every pin defined in the interface must be mapped to at least one physical pin.
 /// Missing bindings mean the interface contract is not fulfilled.
 fn check_iface_pin_completeness(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -121,7 +121,7 @@ fn check_iface_pin_completeness(acc: &mut CheckAccumulator) {
 /// When a component's param selects an interface role (e.g. `role=DCE`),
 /// verify that the role actually exists in the interface definition.
 fn check_iface_role_exists(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -139,7 +139,7 @@ fn check_iface_role_exists(acc: &mut CheckAccumulator) {
             } = d.param_type.kind
             {
                 // Look up the interface in the workspace
-                let ifaces = crate::db::cmie::tables::WORKSPACE.interfaces.borrow();
+                let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
                 let mut found_role = false;
                 let mut found_iface = false;
 
@@ -221,7 +221,7 @@ fn check_deprecated_cmie_usage(acc: &mut CheckAccumulator) {
     // Collect deprecated CMIE names
     let deprecated_comps: HashSet<String> = {
         let mut s = HashSet::new();
-        let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+        let comps = &crate::db::cmie::tables::WORKSPACE.components;
         for e in comps.iter() {
             let c = e.value();
             if has_deprecated_attr(&c.attrs) {
@@ -233,7 +233,7 @@ fn check_deprecated_cmie_usage(acc: &mut CheckAccumulator) {
 
     let deprecated_ifaces: HashSet<String> = {
         let mut s = HashSet::new();
-        let ifaces = crate::db::cmie::tables::WORKSPACE.interfaces.borrow();
+        let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
         for e in ifaces.iter() {
             let i = e.value();
             if has_deprecated_attr(&i.attrs) {
@@ -245,7 +245,7 @@ fn check_deprecated_cmie_usage(acc: &mut CheckAccumulator) {
 
     // Check component interface bindings for deprecated interfaces
     {
-        let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+        let comps = &crate::db::cmie::tables::WORKSPACE.components;
         for entry in comps.iter() {
             let uri = entry.key().uri.to_string();
             if super::is_test_file(&uri) {
@@ -299,7 +299,7 @@ fn check_deprecated_cmie_usage(acc: &mut CheckAccumulator) {
 
     // Check module instances for deprecated components
     {
-        let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+        let modules = &crate::db::cmie::tables::WORKSPACE.modules;
         for entry in modules.iter() {
             let uri = entry.key().uri.to_string();
             if super::is_test_file(&uri) {
@@ -350,12 +350,12 @@ fn has_deprecated_attr(attrs: &crate::semantic::component::mc_attr::McAttributes
 /// is used, verify that `port_name` actually exists as a port of `instance_name`'s
 /// component/interface/module type.
 fn check_module_member_refs(acc: &mut CheckAccumulator) {
-    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
 
     // Pre-build: class name → port names set (for components and interfaces)
     let comp_ports: std::collections::HashMap<String, HashSet<String>> = {
         let mut m = std::collections::HashMap::new();
-        let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+        let comps = &crate::db::cmie::tables::WORKSPACE.components;
         for e in comps.iter() {
             let mut ports: HashSet<String> = e.value().pins.names_to_id.keys().cloned().collect();
             // Also include pin names from individual McPin entries
@@ -371,7 +371,7 @@ fn check_module_member_refs(acc: &mut CheckAccumulator) {
 
     let iface_ports: std::collections::HashMap<String, HashSet<String>> = {
         let mut m = std::collections::HashMap::new();
-        let ifaces = crate::db::cmie::tables::WORKSPACE.interfaces.borrow();
+        let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
         for e in ifaces.iter() {
             let ports: HashSet<String> = e.value().pins.names_to_id.keys().cloned().collect();
             m.insert(e.key().ident.to_string(), ports);

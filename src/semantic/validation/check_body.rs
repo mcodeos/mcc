@@ -63,26 +63,26 @@ fn check_mixed_path_separators(acc: &mut CheckAccumulator) {
 
     // Collect all unique URIs from all workspace tables
     {
-        let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+        let comps = &crate::db::cmie::tables::WORKSPACE.components;
         for e in comps.iter() {
             seen.insert(e.key().uri.to_string());
         }
-        let ifaces = crate::db::cmie::tables::WORKSPACE.interfaces.borrow();
+        let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
         for e in ifaces.iter() {
             seen.insert(e.key().uri.to_string());
         }
-        let enums = crate::db::cmie::tables::WORKSPACE.enums.borrow();
+        let enums = &crate::db::cmie::tables::WORKSPACE.enums;
         for e in enums.iter() {
             seen.insert(e.key().uri.to_string());
         }
-        let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+        let modules = &crate::db::cmie::tables::WORKSPACE.modules;
         for e in modules.iter() {
             let uri = e.key().uri.to_string();
             let span = e.value().span.clone();
             uri_spans.insert(uri.clone(), span.start..span.end);
             seen.insert(uri);
         }
-        let mcodes = crate::db::cmie::tables::WORKSPACE.mcodes.borrow();
+        let mcodes = &crate::db::cmie::tables::WORKSPACE.mcodes;
         for e in mcodes.iter() {
             seen.insert(e.key().clone());
         }
@@ -141,7 +141,7 @@ fn check_mixed_path_separators(acc: &mut CheckAccumulator) {
 fn check_return_outside_function(acc: &mut CheckAccumulator) {
     // ── Module top-level body lines ──
     {
-        let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+        let modules = &crate::db::cmie::tables::WORKSPACE.modules;
         for entry in modules.iter() {
             let uri = entry.key().uri.to_string();
             if super::is_test_file(&uri) {
@@ -207,7 +207,7 @@ fn text_contains_keyword(text: &str, keyword: &str) -> bool {
 fn check_return_with_literal(acc: &mut CheckAccumulator) {
     // ── Module functions ──
     {
-        let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+        let modules = &crate::db::cmie::tables::WORKSPACE.modules;
         for entry in modules.iter() {
             let uri = entry.key().uri.to_string();
             if super::is_test_file(&uri) {
@@ -232,7 +232,7 @@ fn check_return_with_literal(acc: &mut CheckAccumulator) {
 
     // ── Component functions ──
     {
-        let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+        let comps = &crate::db::cmie::tables::WORKSPACE.components;
         for entry in comps.iter() {
             let uri = entry.key().uri.to_string();
             if super::is_test_file(&uri) {
@@ -323,7 +323,7 @@ fn check_return_literal_in_text(
 /// This is almost certainly a mistake — the user likely intended to
 /// specify a range or list of instances.
 fn check_empty_bracket_list(acc: &mut CheckAccumulator) {
-    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -362,7 +362,7 @@ fn check_empty_bracket_list(acc: &mut CheckAccumulator) {
 /// current instance and cannot be used as a new instance name.
 /// Valid: `r1 :: RES(10k)`  Invalid: `this :: RES(10k)`
 fn check_this_lhs_declaration(acc: &mut CheckAccumulator) {
-    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -405,7 +405,7 @@ fn check_this_lhs_declaration(acc: &mut CheckAccumulator) {
 ///
 /// Example: `AMP(role, 5V)` — `role` is not a value, it's a keyword.
 fn check_role_as_call_arg(acc: &mut CheckAccumulator) {
-    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -460,7 +460,7 @@ fn check_role_as_call_arg(acc: &mut CheckAccumulator) {
 ///
 /// We detect this by scanning the text of cond_pins/cond_attrs conditions.
 fn check_bitwise_in_condition(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -556,7 +556,7 @@ fn check_condition_for_bitwise(
 /// This is the module-level complement to P4 (unconnected output port in
 /// pass2) — it catches unused formal parameters at the definition level.
 fn check_unconnected_module_ports(acc: &mut CheckAccumulator) {
-    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {

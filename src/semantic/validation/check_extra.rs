@@ -21,15 +21,15 @@ impl ValidationCheck for ExtraCheck {
         // Collect library names for J3 shadow detection
         let lib_names: HashSet<String> = {
             let mut s = HashSet::new();
-            let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+            let comps = &crate::db::cmie::tables::WORKSPACE.components;
             for e in comps.iter() {
                 s.insert(e.key().ident.to_string());
             }
-            let ifaces = crate::db::cmie::tables::WORKSPACE.interfaces.borrow();
+            let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
             for e in ifaces.iter() {
                 s.insert(e.key().ident.to_string());
             }
-            let enums = crate::db::cmie::tables::WORKSPACE.enums.borrow();
+            let enums = &crate::db::cmie::tables::WORKSPACE.enums;
             for e in enums.iter() {
                 s.insert(e.key().ident.to_string());
             }
@@ -38,7 +38,7 @@ impl ValidationCheck for ExtraCheck {
 
         // J3: user port/instance names that shadow library CMIE names
         {
-            let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+            let modules = &crate::db::cmie::tables::WORKSPACE.modules;
             for entry in modules.iter() {
                 let uri = entry.key().uri.to_string();
                 if super::is_test_file(&uri) {
@@ -63,7 +63,7 @@ impl ValidationCheck for ExtraCheck {
 
         // J2: UPPERCASE instance names (should be lowercase)
         {
-            let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+            let modules = &crate::db::cmie::tables::WORKSPACE.modules;
             for entry in modules.iter() {
                 let uri = entry.key().uri.to_string();
                 if super::is_test_file(&uri) {
@@ -99,7 +99,7 @@ impl ValidationCheck for ExtraCheck {
 
         // U1: enums with only one value
         {
-            let enums = crate::db::cmie::tables::WORKSPACE.enums.borrow();
+            let enums = &crate::db::cmie::tables::WORKSPACE.enums;
             for entry in enums.iter() {
                 let e = entry.value();
                 if e.values.len() == 1 {
@@ -151,7 +151,7 @@ impl ValidationCheck for ExtraCheck {
 /// R4: functions with empty bodies (module + component funcs).
 fn check_empty_functions(acc: &mut CheckAccumulator) {
     // Module funcs
-    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -173,7 +173,7 @@ fn check_empty_functions(acc: &mut CheckAccumulator) {
         }
     }
     // Component funcs
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -202,7 +202,7 @@ fn check_empty_functions(acc: &mut CheckAccumulator) {
 
 /// I4: interface pin count mismatch (physical pins vs interface definition).
 fn check_interface_pin_counts(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -236,7 +236,7 @@ fn check_interface_pin_counts(acc: &mut CheckAccumulator) {
 
 /// H3: overlapping pin range assignments.
 fn check_overlapping_pins(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -263,7 +263,7 @@ fn check_overlapping_pins(acc: &mut CheckAccumulator) {
 /// M1: components with no params, no pins, no attrs, no funcs.
 /// M3: components without pins.
 fn check_component_structure(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -305,7 +305,7 @@ fn check_component_structure(acc: &mut CheckAccumulator) {
 
 /// M4: interfaces without pins.
 fn check_interface_structure(acc: &mut CheckAccumulator) {
-    let ifaces = crate::db::cmie::tables::WORKSPACE.interfaces.borrow();
+    let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
     for entry in ifaces.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -328,7 +328,7 @@ fn check_interface_structure(acc: &mut CheckAccumulator) {
 /// N5 + R8: default value type mismatch for typed parameters.
 fn check_default_type_mismatch(acc: &mut CheckAccumulator) {
     use crate::semantic::basic::mc_param_type::McParamTypeKind;
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let comp = entry.value();
         let uri = entry.key().uri.to_string();
@@ -399,7 +399,7 @@ fn check_default_type_mismatch(acc: &mut CheckAccumulator) {
 
 /// U4/U5: defines with non-attribute clauses or empty body.
 fn check_empty_defines(acc: &mut CheckAccumulator) {
-    let defines = crate::db::cmie::tables::WORKSPACE.defines.borrow();
+    let defines = &crate::db::cmie::tables::WORKSPACE.defines;
     for entry in defines.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -441,8 +441,8 @@ fn check_empty_defines(acc: &mut CheckAccumulator) {
 
 /// D2: instance class name not found in workspace component/interfaces tables.
 fn check_instance_class_found(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
-    let ifaces = crate::db::cmie::tables::WORKSPACE.interfaces.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
+    let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
     let mut known: HashSet<String> = HashSet::new();
     for e in comps.iter() {
         known.insert(e.key().ident.to_string());
@@ -451,7 +451,7 @@ fn check_instance_class_found(acc: &mut CheckAccumulator) {
         known.insert(e.key().ident.to_string());
     }
 
-    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -486,7 +486,7 @@ fn check_instance_class_found(acc: &mut CheckAccumulator) {
 /// D3: bus member collision — two instances/buses with same base name,
 /// conflicting or duplicate member names.
 fn check_bus_member_collision(acc: &mut CheckAccumulator) {
-    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -530,7 +530,7 @@ fn check_bus_member_collision(acc: &mut CheckAccumulator) {
 fn check_dry_functions(acc: &mut CheckAccumulator) {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -573,7 +573,7 @@ fn check_dry_functions(acc: &mut CheckAccumulator) {
 
 /// F2: naming convention — UPPER_SNAKE for components/interfaces/enums.
 fn check_naming_convention(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let comp = entry.value();
         let name = entry.key().ident.to_string();
@@ -613,7 +613,7 @@ fn check_reserved_names(acc: &mut CheckAccumulator, _lib_names: &HashSet<String>
     .iter()
     .cloned()
     .collect();
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -639,7 +639,7 @@ fn check_reserved_names(acc: &mut CheckAccumulator, _lib_names: &HashSet<String>
 
 /// R5: function name conflicts with a port/instance name in the same module.
 fn check_func_name_conflict(acc: &mut CheckAccumulator) {
-    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -676,7 +676,7 @@ fn check_func_name_conflict(acc: &mut CheckAccumulator) {
 /// Scans module net phrases to detect cases where both endpoints of a net
 /// are outputs (Out or Power), which could cause driver conflicts.
 fn check_port_direction_mismatch(acc: &mut CheckAccumulator) {
-    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -724,7 +724,7 @@ fn check_port_direction_mismatch(acc: &mut CheckAccumulator) {
 /// as potentially out of range (most integer params expect non-negative).
 fn check_default_value_range(acc: &mut CheckAccumulator) {
     use crate::semantic::basic::mc_param_type::McParamTypeKind;
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -782,7 +782,7 @@ fn check_default_value_range(acc: &mut CheckAccumulator) {
 /// component/module constructor is unusual and likely a mistake.
 /// Body literals are for component definition, not instantiation.
 fn check_body_literal_as_arg(acc: &mut CheckAccumulator) {
-    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -832,7 +832,7 @@ fn check_body_literal_as_arg(acc: &mut CheckAccumulator) {
 /// Module functions should use all declared parameters. An unused parameter
 /// may indicate dead code or an incomplete implementation.
 fn check_module_func_unused_params(acc: &mut CheckAccumulator) {
-    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -897,7 +897,7 @@ fn check_module_func_unused_params(acc: &mut CheckAccumulator) {
 /// A `spec` attribute with duplicate sub-keys (e.g., `spec = [voltage = 5V, voltage = 12V]`)
 /// will silently keep only the last value, which may not be intended.
 fn check_duplicate_spec_keys(acc: &mut CheckAccumulator) {
-    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
+    let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
