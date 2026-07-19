@@ -163,7 +163,7 @@ pub fn handle_lookup_sub(params: Option<Value>) -> RpcResult {
         Some(k) => k,
         None => {
             let msg = format!("Unknown kind: {}", p.kind);
-            return Err(JsonRpcError::custom(32104, &msg))
+            return Err(JsonRpcError::custom(32104, &msg));
         }
     };
     match crate::lookup_sub_def(&parent_uri, p.container_name.as_deref(), kind, &p.name) {

@@ -8,7 +8,6 @@
 //! For v1 the CLI is local-only (no server-side eval yet); the `defs.query`
 //! RPC handler in `rpc/handlers.rs` provides the same capability to IDE/LSP.
 
-use crate::cli::{rpc_client::RpcClient, QueryArgs};
 use crate::cmds::manifest;
 use crate::output::{
     self,
@@ -17,6 +16,7 @@ use crate::output::{
     OutputFormatExt,
 };
 use anyhow::Result;
+use mcc::cli::{rpc_client::RpcClient, QueryArgs};
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -108,7 +108,7 @@ fn run_local(args: &QueryArgs) -> Result<()> {
     };
 
     let format = if args.json {
-        crate::cli::OutputFormat::Json
+        mcc::cli::OutputFormat::Json
     } else {
         args.format
     };

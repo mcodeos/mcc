@@ -18,8 +18,8 @@ pub mod diagnostic;
 pub mod envelope;
 pub mod renderer;
 
-use crate::cli::OutputFormat;
 use anyhow::Result;
+use mcc::cli::OutputFormat;
 use serde::Serialize;
 use std::fmt::Display;
 use std::fs::File;

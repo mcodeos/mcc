@@ -4,8 +4,8 @@
 
 //! Configuration management command
 
-use crate::cli::config::{self, MccConfig};
 use anyhow::Result;
+use mcc::cli::config::{self, MccConfig};
 
 fn strip_global_prefix(name: &str) -> &str {
     if name.starts_with("global.") {
@@ -15,11 +15,11 @@ fn strip_global_prefix(name: &str) -> &str {
     }
 }
 
-pub fn run(action: &crate::cli::ConfigAction) -> Result<()> {
-    let client = crate::cli::rpc_client::RpcClient::probe();
+pub fn run(action: &mcc::cli::ConfigAction) -> Result<()> {
+    let client = mcc::cli::rpc_client::RpcClient::probe();
 
     match action {
-        crate::cli::ConfigAction::Get { name } => {
+        mcc::cli::ConfigAction::Get { name } => {
             let key = strip_global_prefix(name);
             if key.starts_with("trace.") {
                 if let Some(ref c) = client {
@@ -34,7 +34,7 @@ pub fn run(action: &crate::cli::ConfigAction) -> Result<()> {
             let value = get_config_value(&cfg, key)?;
             println!("{}", value);
         }
-        crate::cli::ConfigAction::Set { name, value, rest } => {
+        mcc::cli::ConfigAction::Set { name, value, rest } => {
             let mut keys_values = vec![(name.clone(), value.clone())];
             let mut rest_iter = rest.iter();
             while let Some(k) = rest_iter.next() {
@@ -62,11 +62,11 @@ pub fn run(action: &crate::cli::ConfigAction) -> Result<()> {
                 println!("✓ {} = {}", name, value);
             }
         }
-        crate::cli::ConfigAction::List => {
+        mcc::cli::ConfigAction::List => {
             let cfg = config::load_global_config().unwrap_or_default();
             list_config(&cfg);
         }
-        crate::cli::ConfigAction::Reset => {
+        mcc::cli::ConfigAction::Reset => {
             let cfg = MccConfig::default();
             config::save_global_config(&cfg)?;
             println!("✓ config reset to defaults");

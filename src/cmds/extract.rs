@@ -4,7 +4,6 @@
 
 //! `mcc extract` — structured data extraction (envelope version)
 
-use crate::cli::{rpc_client::RpcClient, ExtractArgs, ExtractTarget};
 use crate::cmds::filter;
 use crate::cmds::manifest;
 use crate::cmds::proj::resolve_workspace_ref;
@@ -15,6 +14,7 @@ use crate::output::{
     OutputFormatExt,
 };
 use anyhow::{Context, Result};
+use mcc::cli::{rpc_client::RpcClient, ExtractArgs, ExtractTarget};
 use mcc::{McCMIE, McIds, McInstance, McURI};
 use serde_json::{json, Value};
 use std::path::Path;

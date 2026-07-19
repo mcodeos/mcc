@@ -52,11 +52,11 @@ pub fn build_tree(
     libs: &[String],
 ) -> Result<(McModuleInst, InstTable), String> {
     let _ = libs;
-    let _ = mcc::mcc_load_project(&McURI::from(file));
+    let _ = crate::mcc_load_project(&McURI::from(file));
 
     let top = match top {
         Some(t) => t.to_string(),
-        None => match mcc::mcb_get_first_module_name() {
+        None => match crate::mcb_get_first_module_name() {
             Some(t) => t,
             None => return Err("no module found in file (use --top)".into()),
         },
@@ -65,7 +65,7 @@ pub fn build_tree(
     let ident = McIds::from(top.as_str());
     let uri = McURI::from(file);
     let built = panic::catch_unwind(panic::AssertUnwindSafe(|| {
-        mcc::mcc_build_flat(&ident, &uri, 0)
+        crate::mcc_build_flat(&ident, &uri, 0)
     }));
     match built {
         Ok(Ok((tree, table))) => Ok((tree, table)),
@@ -94,18 +94,18 @@ pub fn build_payload(
 // Helpers
 // ============================================================================
 
-pub fn attr_value(attrs: &[mcc::McAttribute], name: &str) -> Option<String> {
+pub fn attr_value(attrs: &[crate::McAttribute], name: &str) -> Option<String> {
     let id = McIds::from(name);
     for a in attrs {
         if a.id == id {
             for v in &a.values {
-                if let mcc::McAttrVal::AttrLiteral(mcc::McLiteral::String(s)) = v {
+                if let crate::McAttrVal::AttrLiteral(crate::McLiteral::String(s)) = v {
                     return Some(s.value.clone());
                 }
-                if let mcc::McAttrVal::AttrLiteral(mcc::McLiteral::Int(i)) = v {
+                if let crate::McAttrVal::AttrLiteral(crate::McLiteral::Int(i)) = v {
                     return Some(i.to_string());
                 }
-                if let mcc::McAttrVal::AttrLiteral(mcc::McLiteral::Uval(u)) = v {
+                if let crate::McAttrVal::AttrLiteral(crate::McLiteral::Uval(u)) = v {
                     return Some(u.value().to_string());
                 }
             }

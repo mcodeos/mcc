@@ -31,8 +31,8 @@
 //! - Top-level defs have no `class` field, so `class=...` is always false.
 //! - NO short-circuit evaluation in v1.
 
+use crate::McIds;
 use anyhow::{anyhow, Result};
-use mcc::McIds;
 use regex::Regex;
 use serde_json::Value;
 
@@ -349,7 +349,7 @@ fn approx_eq(a: f64, b: f64) -> bool {
 }
 
 /// For JSON-record filtering (extract/show). Reads name/kind/class/uri from
-/// the object and resolves attrs via `mcc::get_def` only when needed.
+/// the object and resolves attrs via `crate::get_def` only when needed.
 ///
 /// `attr_resolver` is called with `(name, uri)` and returns the attribute
 /// value strings. Pass a closure that captures the loaded workspace.
@@ -392,22 +392,24 @@ pub fn needs_attrs(query: &Query) -> bool {
 /// definition and return its attribute (name, value-string) pairs. Modules
 /// and Enums always return an empty vec. Missing defs return empty.
 ///
-/// `get_def` is the workspace lookup function (`mcc::get_def`).
+/// `get_def` is the workspace lookup function (`crate::get_def`).
 pub fn attrs_for_def<F>(name: &str, uri: &str, get_def: F) -> Vec<(String, String)>
 where
-    F: Fn(&str, &str) -> Option<mcc::McCMIE>,
+    F: Fn(&str, &str) -> Option<crate::McCMIE>,
 {
     let Some(cmie) = get_def(name, uri) else {
         return Vec::new();
     };
     match cmie {
-        mcc::McCMIE::Component(c) => collect_attrs(&c.attrs),
-        mcc::McCMIE::Interface(i) => collect_attrs(&i.attrs),
-        mcc::McCMIE::Module(_) | mcc::McCMIE::Enum(_) => Vec::new(),
+        crate::McCMIE::Component(c) => collect_attrs(&c.attrs),
+        crate::McCMIE::Interface(i) => collect_attrs(&i.attrs),
+        crate::McCMIE::Module(_) | crate::McCMIE::Enum(_) => Vec::new(),
     }
 }
 
-fn collect_attrs(attrs: &mcc::semantic::component::mc_attr::McAttributes) -> Vec<(String, String)> {
+fn collect_attrs(
+    attrs: &crate::semantic::component::mc_attr::McAttributes,
+) -> Vec<(String, String)> {
     let mut out = Vec::new();
     for a in attrs.iter() {
         let id = a.id.to_string();
@@ -420,14 +422,14 @@ fn collect_attrs(attrs: &mcc::semantic::component::mc_attr::McAttributes) -> Vec
     out
 }
 
-fn attrval_to_string(v: &mcc::McAttrVal) -> Option<String> {
-    use mcc::McAttrVal::*;
+fn attrval_to_string(v: &crate::McAttrVal) -> Option<String> {
+    use crate::McAttrVal::*;
     match v {
-        AttrLiteral(mcc::McLiteral::String(s)) => Some(s.value.clone()),
-        AttrLiteral(mcc::McLiteral::Int(i)) => Some(i.to_string()),
-        AttrLiteral(mcc::McLiteral::Float(f)) => Some(f.to_string()),
-        AttrLiteral(mcc::McLiteral::Const(c)) => Some(c.to_string()),
-        AttrLiteral(mcc::McLiteral::Uval(u)) => Some(format!("{}", u.value())),
+        AttrLiteral(crate::McLiteral::String(s)) => Some(s.value.clone()),
+        AttrLiteral(crate::McLiteral::Int(i)) => Some(i.to_string()),
+        AttrLiteral(crate::McLiteral::Float(f)) => Some(f.to_string()),
+        AttrLiteral(crate::McLiteral::Const(c)) => Some(c.to_string()),
+        AttrLiteral(crate::McLiteral::Uval(u)) => Some(format!("{}", u.value())),
         _ => None,
     }
 }
@@ -437,12 +439,12 @@ fn attrval_to_string(v: &mcc::McAttrVal) -> Option<String> {
 #[allow(dead_code)]
 pub fn attrs_for_def_via_mcids<F>(name: &str, uri: &str, get_def: F) -> Vec<(String, String)>
 where
-    F: Fn(&McIds, &mcc::McURI) -> Option<mcc::McCMIE>,
+    F: Fn(&McIds, &crate::McURI) -> Option<crate::McCMIE>,
 {
     let ident = McIds::from(name);
-    let u = mcc::McURI::from(uri);
+    let u = crate::McURI::from(uri);
     attrs_for_def(name, uri, |n, u| {
-        get_def(&McIds::from(n), &mcc::McURI::from(u))
+        get_def(&McIds::from(n), &crate::McURI::from(u))
     })
     .into_iter()
     .filter(|_| get_def(&ident, &u).is_some())

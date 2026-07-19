@@ -2,13 +2,6 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-#![allow(dead_code)]
-
-// Allow `mcc::*` references inside lib-root modules to resolve to self
-// (the crate is itself named `mcc`; without this, `mcc::foo` would look for
-// an external crate called `mcc`).
-extern crate self as mcc;
-
 //1. lib internal
 use crate::db::diagnostic::diagnostic::Diagnostic;
 use std::env;
@@ -21,7 +14,7 @@ use tracing::debug;
 pub(crate) mod ast;
 pub(crate) mod build;
 pub(crate) mod builder;
-pub(crate) mod cli;
+pub mod cli;
 pub(crate) mod db;
 pub(crate) mod instant;
 pub(crate) mod lsp;
@@ -59,14 +52,34 @@ pub use ast::ast_semantic::{McSemSymbols, Span, SymbolType};
 pub use ast::ast_token::{McSemToken, McSemTokens};
 pub use ast::c_macros::*;
 pub use ast::error::*;
-pub use builder::{mcb_pass2_flat, mcb_print, MccProjectTree};
-pub use instant::inst_table::InstKind;
-pub use instant::inst_table::InstTable;
+// ── Builder / Pass infrastructure ──
+pub use builder::diagnostic::{
+    Diagnostic as McDiagnostic, DiagnosticLevel, Location as McLocation,
+};
+pub use builder::lib_mgr::LibInfo;
+pub use builder::{
+    lookup_sub_def, lookup_with_sub, mcb_add_recursive, mcb_component_count, mcb_debug_get_cmie,
+    mcb_get_first_module_name, mcb_get_module_def_by_name, mcb_get_module_name_by_uri,
+    mcb_get_module_with_diagnostics, mcb_get_refs, mcb_get_system_root, mcb_interface_count,
+    mcb_iter_components, mcb_iter_components_with_span, mcb_iter_enums, mcb_iter_enums_with_span,
+    mcb_iter_interfaces, mcb_iter_interfaces_with_span, mcb_iter_modules,
+    mcb_iter_modules_with_span, mcb_iter_ports, mcb_lib_info, mcb_load_lib, mcb_loaded_file_count,
+    mcb_loaded_libs, mcb_module_count, mcb_parse_all_modules, mcb_pass2_flat, mcb_print,
+    mcb_print_lines, mcb_print_loaded_files, mcb_unload_lib, unified_lookup, unified_lookup_all,
+    unified_lookup_with_scope, MccProjectTree, SubElementKind,
+};
+
+// ── Instant / Net ──
+pub use instant::inst_table::{InstKind, InstTable};
 pub use instant::mc_comp::McComponentInst;
 pub use instant::mc_mod::McModuleInst;
 pub use instant::mc_net::NetPoint;
+
+// ── Query ──
 pub use query::search as search_api;
 pub use query::search::dsl as query_api;
+
+// ── Semantic params / types ──
 pub use semantic::basic::mc_param::{
     McParamBindings, McParamDeclare, McParamDeclares, McParamValue,
 };
@@ -74,32 +87,8 @@ pub use semantic::basic::mc_param_type::{McIoTy, McParamArity, McParamType, McPa
 pub use semantic::basic::mc_paramd::{GlobalDiag, GlobalDiagKind};
 pub use semantic::validation as check;
 
-pub use builder::{
-    mcb_get_first_module_name, mcb_get_module_name_by_uri, mcb_module_count, mcb_print_lines,
-};
-
-pub use builder::lib_mgr::LibInfo;
-pub use builder::{mcb_lib_info, mcb_load_lib, mcb_loaded_libs, mcb_unload_lib};
+// ── CLI config ──
 pub use cli::config::{get_libs_load_list, should_load_mcode};
-
-pub use builder::{
-    mcb_add_recursive, mcb_get_refs, mcb_get_system_root, mcb_loaded_file_count,
-    mcb_parse_all_modules, mcb_print_loaded_files,
-};
-
-pub use builder::diagnostic::{
-    Diagnostic as McDiagnostic, DiagnosticLevel, Location as McLocation,
-};
-pub use builder::{
-    lookup_sub_def, lookup_with_sub, mcb_iter_components, mcb_iter_components_with_span,
-    mcb_iter_enums, mcb_iter_enums_with_span, mcb_iter_interfaces, mcb_iter_interfaces_with_span,
-    mcb_iter_modules, mcb_iter_modules_with_span, mcb_iter_ports, unified_lookup,
-    unified_lookup_all, unified_lookup_with_scope, SubElementKind,
-};
-pub use builder::{mcb_component_count, mcb_interface_count};
-pub use builder::{
-    mcb_debug_get_cmie, mcb_get_module_def_by_name, mcb_get_module_with_diagnostics,
-};
 
 // 🆕 New exports
 pub use semantic::basic::mc_ida::McIda;

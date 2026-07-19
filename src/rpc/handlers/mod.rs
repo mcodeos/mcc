@@ -167,9 +167,9 @@ pub(crate) fn run_pass1(
     let mc_uri = McURI::from(uri.as_str());
 
     // Output Pass 1 trace to server log
-    info!(target: "mcc::pass1", "----------------------------------------");
-    info!(target: "mcc::pass1", "[Pass 1] Loading project from: {}", uri);
-    info!(target: "mcc::pass1", "----------------------------------------");
+    info!(target: "crate::pass1", "----------------------------------------");
+    info!(target: "crate::pass1", "[Pass 1] Loading project from: {}", uri);
+    info!(target: "crate::pass1", "----------------------------------------");
 
     crate::mcc_load_project(&mc_uri);
     let pass1 = collect_pass1(&mc_uri, include_system);
@@ -179,10 +179,10 @@ pub(crate) fn run_pass1(
     let interface_count = crate::mcb_interface_count();
 
     // Output definition statistics to server log
-    info!(target: "mcc::pass1", "Total definitions loaded:");
-    info!(target: "mcc::pass1", "  - Modules: {}", module_count);
-    info!(target: "mcc::pass1", "  - Components: {}", component_count);
-    info!(target: "mcc::pass1", "  - Interfaces: {}", interface_count);
+    info!(target: "crate::pass1", "Total definitions loaded:");
+    info!(target: "crate::pass1", "  - Modules: {}", module_count);
+    info!(target: "crate::pass1", "  - Components: {}", component_count);
+    info!(target: "crate::pass1", "  - Interfaces: {}", interface_count);
 
     // Output each module details to server log
     for (name, module_uri) in crate::mcb_iter_modules() {
@@ -190,46 +190,46 @@ pub(crate) fn run_pass1(
         let module_mc_uri = McURI::from(module_uri.as_str());
         if let Some(cmie) = crate::get_def(&ident, &module_mc_uri) {
             if let crate::McCMIE::Module(module_def) = cmie {
-                info!(target: "mcc::pass1", ">> Found module definition: {}", name);
-                info!(target: "mcc::pass1", "------------------------------------------------------------------");
-                info!(target: "mcc::pass1", "| Ports ");
-                info!(target: "mcc::pass1", "|-----------------------------------------------------------------");
-                info!(target: "mcc::pass1", "|   inputs:  {:?}",
+                info!(target: "crate::pass1", ">> Found module definition: {}", name);
+                info!(target: "crate::pass1", "------------------------------------------------------------------");
+                info!(target: "crate::pass1", "| Ports ");
+                info!(target: "crate::pass1", "|-----------------------------------------------------------------");
+                info!(target: "crate::pass1", "|   inputs:  {:?}",
                     module_def.insts.inputs_with_name().iter()
                         .map(|(n, _)| *n).collect::<Vec<_>>()
                 );
-                info!(target: "mcc::pass1", "|   outputs: {:?}",
+                info!(target: "crate::pass1", "|   outputs: {:?}",
                     module_def.insts.outputs_with_name().iter()
                         .map(|(n, _)| *n).collect::<Vec<_>>()
                 );
-                info!(target: "mcc::pass1", "|   bidirs:  {:?}",
+                info!(target: "crate::pass1", "|   bidirs:  {:?}",
                     module_def.insts.bidirs_with_name().iter()
                         .map(|(n, _)| *n).collect::<Vec<_>>()
                 );
-                info!(target: "mcc::pass1", "|   powers:  {:?}",
+                info!(target: "crate::pass1", "|   powers:  {:?}",
                     module_def.insts.powers_with_name().iter()
                         .map(|(n, _)| *n).collect::<Vec<_>>()
                 );
-                info!(target: "mcc::pass1", "|");
-                info!(target: "mcc::pass1", "| Symbols ({} entries)", module_def.insts.iter().count());
-                info!(target: "mcc::pass1", "|-----------------------------------------------------------------");
+                info!(target: "crate::pass1", "|");
+                info!(target: "crate::pass1", "| Symbols ({} entries)", module_def.insts.iter().count());
+                info!(target: "crate::pass1", "|-----------------------------------------------------------------");
                 for (key, ident) in module_def.insts.iter() {
                     let type_name = ident.type_name();
-                    info!(target: "mcc::pass1", "|  {:<15} {}", type_name, key);
+                    info!(target: "crate::pass1", "|  {:<15} {}", type_name, key);
                 }
-                info!(target: "mcc::pass1", "|");
-                info!(target: "mcc::pass1", "| Lines ({} connections)", module_def.lines.len());
-                info!(target: "mcc::pass1", "|-----------------------------------------------------------------");
+                info!(target: "crate::pass1", "|");
+                info!(target: "crate::pass1", "| Lines ({} connections)", module_def.lines.len());
+                info!(target: "crate::pass1", "|-----------------------------------------------------------------");
                 if module_def.lines.is_empty() {
-                    info!(target: "mcc::pass1", "|   (no connections)");
+                    info!(target: "crate::pass1", "|   (no connections)");
                 } else {
                     for (i, _line) in module_def.lines.iter().enumerate() {
-                        info!(target: "mcc::pass1", "|");
-                        info!(target: "mcc::pass1", "|   +--- Series[{}] ----------", i);
+                        info!(target: "crate::pass1", "|");
+                        info!(target: "crate::pass1", "|   +--- Series[{}] ----------", i);
                     }
-                    info!(target: "mcc::pass1", "|   +--------------------------------------------------");
+                    info!(target: "crate::pass1", "|   +--------------------------------------------------");
                 }
-                info!(target: "mcc::pass1", "------------------------------------------------------------------");
+                info!(target: "crate::pass1", "------------------------------------------------------------------");
             }
         }
     }
@@ -246,6 +246,57 @@ pub(crate) fn run_pass1(
     }))
 }
 
+/// Execute Pass2: resolve top module, run instantiation with panic guard,
+/// collect results. Returns (top_name, pass2_json).
+fn execute_pass2(mc_uri: &McURI, top: Option<&str>) -> Result<(String, Value), JsonRpcError> {
+    let top_name = match top {
+        Some(t) => t.to_string(),
+        None => crate::mcb_get_module_name_by_uri(mc_uri)
+            .or_else(crate::mcb_get_first_module_name)
+            .ok_or_else(|| JsonRpcError::custom(32107, "no top module found"))?,
+    };
+
+    let ident = crate::McIds::from(top_name.as_str());
+    if crate::get_def(&ident, mc_uri).is_none() {
+        return Err(JsonRpcError::custom(
+            32107,
+            &format!("top module '{top_name}' not defined"),
+        ));
+    }
+
+    let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        crate::mcc_build(&ident, mc_uri)
+    }));
+
+    match built {
+        Ok(Ok(inst)) => {
+            info!(target: "crate::pass2", "----------------------------------------");
+            info!(target: "crate::pass2", "[Pass 2] Instantiating top module: {}", top_name);
+            info!(target: "crate::pass2", "----------------------------------------");
+            info!(target: "crate::pass2", ">> Instance: {} (class {})",
+                inst.name.to_string(), inst.def.name.to_string());
+            info!(target: "crate::pass2", "|   ports:       {}", inst.ports.len());
+            info!(target: "crate::pass2", "|   components:  {}", inst.components.len());
+            info!(target: "crate::pass2", "|   sub_modules: {}", inst.sub_modules.len());
+            info!(target: "crate::pass2", "|   connections: {}", inst.connections.len());
+            for sub in inst.sub_modules.iter() {
+                info!(target: "crate::pass2", "|     - {} (class {})",
+                    sub.name.to_string(), sub.def.name.to_string());
+            }
+            let pass2 = collect_pass2(&top_name, &inst);
+            Ok((top_name, pass2))
+        }
+        Ok(Err(e)) => Err(JsonRpcError::custom(
+            32107,
+            &format!("instantiation failed: {e}"),
+        )),
+        Err(_) => Err(JsonRpcError::custom(
+            32108,
+            "Pass2 build panicked (engine bug); request aborted, server kept alive",
+        )),
+    }
+}
+
 /// Execute Pass1 + Pass2 from file
 pub(crate) fn run_full_build(
     entry: &Path,
@@ -260,55 +311,7 @@ pub(crate) fn run_full_build(
     crate::mcc_load_project(&mc_uri);
     let pass1 = collect_pass1(&mc_uri, include_system);
 
-    // Decide top module
-    let top_name = match top {
-        Some(t) => t.to_string(),
-        None => crate::mcb_get_module_name_by_uri(&mc_uri)
-            .or_else(crate::mcb_get_first_module_name)
-            .ok_or_else(|| JsonRpcError::custom(32107, "no top module found"))?,
-    };
-
-    // Pass2
-    let ident = crate::McIds::from(top_name.as_str());
-    if crate::get_def(&ident, &mc_uri).is_none() {
-        return Err(JsonRpcError::custom(
-            -32107,
-            &format!("top module '{top_name}' not defined"),
-        ));
-    }
-    let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::mcc_build(&ident, &mc_uri)
-    }));
-    let pass2 = match built {
-        Ok(Ok(inst)) => {
-            info!(target: "mcc::pass2", "----------------------------------------");
-            info!(target: "mcc::pass2", "[Pass 2] Instantiating top module: {}", top_name);
-            info!(target: "mcc::pass2", "----------------------------------------");
-            info!(target: "mcc::pass2", ">> Instance: {} (class {})",
-                inst.name.to_string(), inst.def.name.to_string());
-            info!(target: "mcc::pass2", "|   ports:       {}", inst.ports.len());
-            info!(target: "mcc::pass2", "|   components:  {}", inst.components.len());
-            info!(target: "mcc::pass2", "|   sub_modules: {}", inst.sub_modules.len());
-            info!(target: "mcc::pass2", "|   connections: {}", inst.connections.len());
-            for sub in inst.sub_modules.iter() {
-                info!(target: "mcc::pass2", "|     - {} (class {})",
-                    sub.name.to_string(), sub.def.name.to_string());
-            }
-            collect_pass2(&top_name, &inst)
-        }
-        Ok(Err(e)) => {
-            return Err(JsonRpcError::custom(
-                -32107,
-                &format!("instantiation failed: {e}"),
-            ));
-        }
-        Err(_) => {
-            return Err(JsonRpcError::custom(
-                -32108,
-                "build.full: Pass2 build panicked (engine bug); request aborted, server kept alive",
-            ));
-        }
-    };
+    let (top_name, pass2) = execute_pass2(&mc_uri, top)?;
 
     Ok(json!({
         "command": command,
@@ -366,9 +369,9 @@ pub(crate) fn run_pass1_from_memory(
     include_system: bool,
 ) -> RpcResult {
     let entry_uri = format!("{vdir}/{entry_name}");
-    info!(target: "mcc::pass1", "----------------------------------------");
-    info!(target: "mcc::pass1", "[Pass 1] Loading from memory: {}", entry_uri);
-    info!(target: "mcc::pass1", "----------------------------------------");
+    info!(target: "crate::pass1", "----------------------------------------");
+    info!(target: "crate::pass1", "[Pass 1] Loading from memory: {}", entry_uri);
+    info!(target: "crate::pass1", "----------------------------------------");
 
     // Load all files to builder
     for (fname, content) in store.iter() {
@@ -408,22 +411,20 @@ pub(crate) fn run_full_build_from_memory(
     include_ast: bool,
 ) -> RpcResult {
     // Set AST visit output flag
-    // MCC_LOG_VISIT = 1 << 3 = 8
-    // MCC_LOG_ALL = 0xFF
     if include_ast {
         unsafe {
             mcc_reset(0xFF);
-        } // Enable all logs
+        }
     } else {
         unsafe {
             mcc_reset(0);
-        } // Disable all logs
+        }
     }
 
     let entry_uri = format!("{vdir}/{entry_name}");
-    info!(target: "mcc::pass1", "----------------------------------------");
-    info!(target: "mcc::pass1", "[Pass 1] Loading from memory: {}", entry_uri);
-    info!(target: "mcc::pass1", "----------------------------------------");
+    info!(target: "crate::pass1", "----------------------------------------");
+    info!(target: "crate::pass1", "[Pass 1] Loading from memory: {}", entry_uri);
+    info!(target: "crate::pass1", "----------------------------------------");
 
     // Load all files to builder
     for (fname, content) in store.iter() {
@@ -434,55 +435,7 @@ pub(crate) fn run_full_build_from_memory(
     let mc_uri = McURI::from(entry_uri.as_str());
     let pass1 = collect_pass1(&entry_uri, include_system);
 
-    // Decide top module
-    let top_name = match top {
-        Some(t) => t.to_string(),
-        None => crate::mcb_get_module_name_by_uri(&mc_uri)
-            .or_else(crate::mcb_get_first_module_name)
-            .ok_or_else(|| JsonRpcError::custom(32107, "no top module found"))?,
-    };
-
-    // Pass2
-    let ident = crate::McIds::from(top_name.as_str());
-    if crate::get_def(&ident, &mc_uri).is_none() {
-        return Err(JsonRpcError::custom(
-            -32107,
-            &format!("top module '{top_name}' not defined"),
-        ));
-    }
-    let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        crate::mcc_build(&ident, &mc_uri)
-    }));
-    let pass2 = match built {
-        Ok(Ok(inst)) => {
-            info!(target: "mcc::pass2", "----------------------------------------");
-            info!(target: "mcc::pass2", "[Pass 2] Instantiating top module: {}", top_name);
-            info!(target: "mcc::pass2", "----------------------------------------");
-            info!(target: "mcc::pass2", ">> Instance: {} (class {})",
-                inst.name.to_string(), inst.def.name.to_string());
-            info!(target: "mcc::pass2", "|   ports:       {}", inst.ports.len());
-            info!(target: "mcc::pass2", "|   components:  {}", inst.components.len());
-            info!(target: "mcc::pass2", "|   sub_modules: {}", inst.sub_modules.len());
-            info!(target: "mcc::pass2", "|   connections: {}", inst.connections.len());
-            for sub in inst.sub_modules.iter() {
-                info!(target: "mcc::pass2", "|     - {} (class {})",
-                    sub.name.to_string(), sub.def.name.to_string());
-            }
-            collect_pass2(&top_name, &inst)
-        }
-        Ok(Err(e)) => {
-            return Err(JsonRpcError::custom(
-                -32107,
-                &format!("instantiation failed: {e}"),
-            ));
-        }
-        Err(_) => {
-            return Err(JsonRpcError::custom(
-                -32108,
-                "build: Pass2 build panicked (engine bug); request aborted, server kept alive",
-            ));
-        }
-    };
+    let (top_name, pass2) = execute_pass2(&mc_uri, top)?;
 
     Ok(json!({
         "command": command,
@@ -1576,7 +1529,9 @@ pub(crate) fn attrval_json(v: &crate::McAttrVal) -> Value {
 // ============================================================================
 
 /// Convert a McParamDeclare to a JSON object with smart parameter metadata.
-pub(crate) fn param_declare_to_json(d: &mcc::semantic::basic::mc_paramd::McParamDeclare) -> Value {
+pub(crate) fn param_declare_to_json(
+    d: &crate::semantic::basic::mc_paramd::McParamDeclare,
+) -> Value {
     let name = d.get_primary_name().unwrap_or_default();
     let is_port = d.is_port();
     let has_default = d.has_default_value();
@@ -1793,25 +1748,25 @@ pub(crate) fn instances_json(insts: &crate::McInstances, type_filter: Option<&st
 pub(crate) fn auto_load_from_file_path(file_path: &Path) {
     // Walk up from the file to find the project root (directory containing project.toml or .mc files)
     let project_root = find_project_root(file_path);
-    info!(target: "mcc::rpc", "auto_load: project_root={}", project_root.display());
+    info!(target: "crate::rpc", "auto_load: project_root={}", project_root.display());
 
     // Create project workspace
     let root_name = project_root
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "project".to_string());
-    info!(target: "mcc::rpc", "auto_load: creating workspace id={} root={}", root_name, project_root.display());
+    info!(target: "crate::rpc", "auto_load: creating workspace id={} root={}", root_name, project_root.display());
     crate::workspace_create(&root_name, crate::WorkspaceKind::Project, &project_root);
 
     // 1. Load entry file with mcc_load_project (triggers parse_pass1_types -> create_lapper)
     let mut all_files = Vec::new();
     scan_mc_files_recursive(&project_root, &project_root, &mut all_files);
-    info!(target: "mcc::rpc", "auto_load: found {} .mc files", all_files.len());
+    info!(target: "crate::rpc", "auto_load: found {} .mc files", all_files.len());
 
     if let Some(entry_path) = all_files.first() {
         let full = project_root.join(entry_path);
         let uri = McURI::from(full.to_string_lossy().to_string());
-        info!(target: "mcc::rpc", "auto_load: mcc_load_project({})", uri);
+        info!(target: "crate::rpc", "auto_load: mcc_load_project({})", uri);
         crate::mcc_load_project(&uri);
     }
 
@@ -1832,7 +1787,7 @@ pub(crate) fn auto_load_from_file_path(file_path: &Path) {
                 mcfile.parse_nsp();
                 mcfile.parse_pass1_types(); // triggers create_lapper
                 workspace::WORKSPACE.mcodes.insert(uri_str.clone(), mcfile);
-                info!(target: "mcc::rpc", "auto_load: added independent {}", uri_str);
+                info!(target: "crate::rpc", "auto_load: added independent {}", uri_str);
             }
         }
     }

@@ -22,7 +22,7 @@
 //! connections, collecting all their points and deduplicating gives the actual
 //! coverage of that net. New version calculates directly from connections, no need to wait for Pass2 to change implementation.
 
-use crate::cli::PinSortMode;
+use mcc::cli::PinSortMode;
 use mcc::{IOType, McEndpoint, McInstance, McInstanceRef, McPhrase, MccProjectTree};
 use std::collections::BTreeMap;
 

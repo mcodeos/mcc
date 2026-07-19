@@ -91,7 +91,7 @@ impl McInterface {
         // ★ Smart Param (M5): Finalize after body parsed
         let diags = ret.params.finalize(Some(&body_node), &ifs_name);
         for d in &diags {
-            mcc::mcc_log_global_diag(d);
+            crate::mcc_log_global_diag(d);
         }
 
         Some(ret)

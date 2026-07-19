@@ -189,9 +189,10 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
             return Some(McCMIE::Enum(found_enum.clone()));
         }
         {
-            let mcodes = &workspace::WORKSPACE.mcodes;
-            let existing = mcodes.get(&space_name.uri).map(|e| e.value().clone());
-            drop(mcodes);
+            let existing = workspace::WORKSPACE
+                .mcodes
+                .get(&space_name.uri)
+                .map(|e| e.value().clone());
             if let Some(mut existing) = existing {
                 return existing.parse_cmie_single(&space_name.ident);
             }

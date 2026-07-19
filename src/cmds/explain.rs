@@ -9,8 +9,8 @@
 //! mcc explain         # list all known codes
 //! ```
 
-use crate::cli::{rpc_client::RpcClient, ExplainArgs};
 use anyhow::Result;
+use mcc::cli::{rpc_client::RpcClient, ExplainArgs};
 use mcc::error_codes;
 use serde_json::{json, Value};
 

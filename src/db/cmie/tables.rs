@@ -327,8 +327,7 @@ impl WorkspaceManager {
 // lazy_static singleton
 // ============================================================================
 
-pub(crate) static WORKSPACE: LazyLock<WorkspaceManager> =
-    LazyLock::new(WorkspaceManager::new);
+pub(crate) static WORKSPACE: LazyLock<WorkspaceManager> = LazyLock::new(WorkspaceManager::new);
 
 // ============================================================================
 // DiagnosticManager extension

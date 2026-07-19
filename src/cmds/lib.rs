@@ -10,9 +10,9 @@
 //! - `mcc lib unload <name>` — unload from memory
 //! - `mcc lib info <name>` — show library details
 
-use crate::cli::{data_dir, LibAction, OutputFormat};
 use crate::output;
 use anyhow::{Context, Result};
+use mcc::cli::{data_dir, LibAction, OutputFormat};
 use serde::Serialize;
 use std::fmt;
 use std::path::PathBuf;
@@ -88,7 +88,7 @@ impl fmt::Display for LibInfoReport {
 // ============================================================================
 
 pub fn run(action: &LibAction, format: OutputFormat) -> Result<()> {
-    let client = crate::cli::rpc_client::RpcClient::probe();
+    let client = mcc::cli::rpc_client::RpcClient::probe();
 
     match action {
         LibAction::List => match &client {
