@@ -22,9 +22,9 @@
 //! ### Legacy path
 //! After P1, legacy.rs is **no longer needed** and can be removed entirely.
 
-pub mod report; // ★ P02 (S1)
 pub mod connection;
 pub mod debug;
+pub mod report; // ★ P02 (S1)
 pub mod resolve;
 pub mod visit;
 
