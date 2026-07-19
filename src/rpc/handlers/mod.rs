@@ -1409,22 +1409,7 @@ pub(crate) fn filter_items_by_file<T: Clone>(items: &[(T, String)], file: &str) 
 
 /// Find a definition by name across all four kinds.
 pub(crate) fn find_def_by_name(name: &str) -> Option<(crate::McCMIE, String)> {
-    let iterators: [(&str, Vec<(String, String)>); 4] = [
-        ("component", crate::mcb_iter_components()),
-        ("module", crate::mcb_iter_modules()),
-        ("interface", crate::mcb_iter_interfaces()),
-        ("enum", crate::mcb_iter_enums()),
-    ];
-    for (_, items) in &iterators {
-        if let Some((matched, uri)) = items.iter().find(|(n, _)| n == name) {
-            let ident = crate::McIds::from(matched.as_str());
-            let uri_obj = crate::McURI::from(uri.as_str());
-            if let Some(cmie) = crate::get_def(&ident, &uri_obj) {
-                return Some((cmie, uri.clone()));
-            }
-        }
-    }
-    None
+    crate::lsp::goto_def::find_def_by_name_raw(name)
 }
 
 /// Build a pin JSON object (mirrors pins_json in show.rs).
@@ -1836,53 +1821,38 @@ pub(crate) fn find_project_root(file_path: &Path) -> PathBuf {
 /// This is called when parsing files with content from LSP to ensure
 /// the library context is available for type lookups.
 pub(crate) fn ensure_library_loaded(file_uri: &McURI) {
-    // Check if libraries are already loaded
     let libs = crate::db::infra::lib_mgr::mcb_loaded_libs();
-    eprintln!(
-        "[ensure_library_loaded] uri={} libs_already_loaded={:?}",
-        file_uri, libs
+    tracing::debug!(
+        target: "mcc::lib",
+        uri = %file_uri,
+        loaded = ?libs,
+        "ensure_library_loaded: start"
     );
 
     if !libs.is_empty() {
-        eprintln!("[ensure_library_loaded] skip, libs already loaded");
         return;
     }
 
-    // Find project root from file
     let path = Path::new(file_uri.as_str());
     let project_root = find_project_root(path);
 
-    eprintln!(
-        "[ensure_library_loaded] project_root={}",
-        project_root.display()
-    );
-
     // Try to load project.toml dependencies
     let project_toml = project_root.join("project.toml");
-    eprintln!(
-        "[ensure_library_loaded] project_toml={} exists={}",
-        project_toml.display(),
-        project_toml.exists()
-    );
-
     if project_toml.exists() {
         if let Ok(contents) = std::fs::read_to_string(&project_toml) {
             if let Some(deps) = extract_lib_dependencies(&contents) {
-                eprintln!("[ensure_library_loaded] deps={:?}", deps);
+                tracing::debug!(target: "mcc::lib", deps = ?deps, "loading dependencies");
                 for lib_name in deps {
-                    eprintln!("[ensure_library_loaded] loading lib={}", lib_name);
                     match resolve_lib_root(&lib_name) {
                         Ok(root) => {
-                            eprintln!("[ensure_library_loaded] resolved root={}", root.display());
+                            tracing::info!(target: "mcc::lib", name = %lib_name, root = %root.display(), "auto-loading lib");
                             crate::db::infra::lib_mgr::mcb_load_lib(&lib_name, &root);
                         }
                         Err(e) => {
-                            eprintln!("[ensure_library_loaded] resolve_lib_root failed: {:?}", e);
+                            tracing::warn!(target: "mcc::lib", name = %lib_name, error = ?e, "resolve_lib_root failed");
                         }
                     }
                 }
-            } else {
-                eprintln!("[ensure_library_loaded] no deps extracted");
             }
         }
     }

@@ -2,6 +2,11 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+// Many internal functions are used across files within the crate but the
+// compiler cannot track cross-file usage (e.g., RPC handlers registered
+// via register_all(), phrase ID assignment in instantiation pipeline).
+#![allow(dead_code)]
+
 //1. lib internal
 use crate::db::diagnostic::diagnostic::Diagnostic;
 use std::env;
