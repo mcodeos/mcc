@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use crate::builder::diagnostic::{dlog_error, dlog_warning};
+use crate::db::diagnostic::diagnostic::{dlog_error, dlog_warning};
 use crate::semantic::basic::mc_bus::{McBus, McList};
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::basic::mc_phrase::McPhrase;

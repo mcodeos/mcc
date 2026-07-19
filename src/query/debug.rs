@@ -5,6 +5,7 @@
 use crate::builder::*;
 use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
+use crate::query::lookup::{find_by_name_in_project_tables, find_in_project_tables};
 use crate::{McCMIE, McIds, McSpaceName, McURI};
 
 // === pub fn mcb_print() { ===
@@ -260,13 +261,16 @@ pub fn mcb_debug_get_cmie(class_name: &McIds, uri: &McURI) {
     eprintln!("╠══════════════════════════════════════════════════════╣");
 
     // Step 1: system lib
-    let mcode_found = crate::builder::mcc_blibs
+    let mcode_found = crate::db::infra::lib_mgr::mcc_blibs
         .borrow()
         .get(&"mcode".to_string())
         .is_some();
     eprintln!("â•' Step 1: mcode system lib exists = {mcode_found}");
     // [Diagnostic] Step 1: search in mcode base library
-    if let Some(mcode) = crate::builder::mcc_blibs.borrow().get(&"mcode".to_string()) {
+    if let Some(mcode) = crate::db::infra::lib_mgr::mcc_blibs
+        .borrow()
+        .get(&"mcode".to_string())
+    {
         let has_entry = mcode.spacenames.get(class_name).is_some();
         eprintln!("â•'   spacenames.get({name_str}) = {has_entry}");
         if has_entry {

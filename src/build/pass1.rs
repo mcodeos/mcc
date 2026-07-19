@@ -202,8 +202,11 @@ pub fn mcb_init_system_lib() {
 
     if !should_load_mcode(project_root_ref) {
         debug!(target: "mcc::sysinit", "mcode not in libs.load config, skipping");
-        if !crate::builder::mcc_blibs.borrow().contains_key("mcode") {
-            crate::builder::mcc_blibs
+        if !crate::db::infra::lib_mgr::mcc_blibs
+            .borrow()
+            .contains_key("mcode")
+        {
+            crate::db::infra::lib_mgr::mcc_blibs
                 .borrow_mut()
                 .insert("mcode".to_string(), McCode::new_empty());
         }
@@ -226,8 +229,11 @@ pub fn mcb_init_system_lib() {
         debug!(target: "mcc::sysinit", "system lib loaded");
     } else {
         debug!(target: "mcc::sysinit", "mcode directory not found, registering builtins only");
-        if !crate::builder::mcc_blibs.borrow().contains_key("mcode") {
-            crate::builder::mcc_blibs
+        if !crate::db::infra::lib_mgr::mcc_blibs
+            .borrow()
+            .contains_key("mcode")
+        {
+            crate::db::infra::lib_mgr::mcc_blibs
                 .borrow_mut()
                 .insert("mcode".to_string(), McCode::new_empty());
         }

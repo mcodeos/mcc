@@ -15,13 +15,13 @@ pub fn handle_sem(params: Option<Value>) -> RpcResult {
         // ★ Fix: Ensure library context is loaded before parsing
         let mc_uri = McURI::from(raw_uri.as_str());
         ensure_library_loaded(&mc_uri);
-        crate::builder::mcb_add_from_string(&mc_uri, content);
-        crate::builder::mcb_parse_all_modules();
+        crate::build::loader::mcb_add_from_string(&mc_uri, content);
+        crate::build::pass1::mcb_parse_all_modules();
         // ★ Fix: Use canonicalized URI for lookup (same as what mcb_add_from_string uses)
-        let canonical_uri = crate::builder::canonicalize_project_uri(&mc_uri);
+        let canonical_uri = crate::build::pass1::canonicalize_project_uri(&mc_uri);
         let result = try_lookup_sem(&[McURI::from(&canonical_uri)]);
         // ★ Fix: DON'T remove the entry - mcc_query needs it for goto_definition
-        // crate::builder::workspace::WORKSPACE.mcodes.borrow().remove(&McURI::from(&canonical_uri));
+        // crate::db::cmie::tables::WORKSPACE.mcodes.borrow().remove(&McURI::from(&canonical_uri));
         return result.ok_or_else(|| JsonRpcError::custom(32100, "parse from string failed"));
     }
 
@@ -50,7 +50,7 @@ pub fn handle_sem(params: Option<Value>) -> RpcResult {
     // If not found and workspace is empty, auto-create workspace and load project
     if result.is_none() {
         let workspace_empty = {
-            let binding = crate::builder::workspace::WORKSPACE.mcodes.borrow();
+            let binding = crate::db::cmie::tables::WORKSPACE.mcodes.borrow();
             binding.is_empty()
         };
         if workspace_empty && raw_path.is_absolute() {
@@ -74,7 +74,7 @@ pub fn handle_diagnostics(params: Option<Value>) -> RpcResult {
     let raw_uri = McURI::from(p.uri.as_str());
     // Canonicalize URI to match the keys used when storing diagnostics
     // (mcb_add_from_string and all diagnostic_log calls use canonical URIs)
-    let mc_uri = McURI::from(crate::builder::canonicalize_project_uri(&raw_uri));
+    let mc_uri = McURI::from(crate::build::pass1::canonicalize_project_uri(&raw_uri));
 
     tracing::info!(target: "mcc::rpc", "handle_diagnostics: raw={} canonical={}", raw_uri, mc_uri);
 
@@ -84,7 +84,7 @@ pub fn handle_diagnostics(params: Option<Value>) -> RpcResult {
 
 // === handle_project_symbols (lines 4280-4333 in original) ===
 pub fn handle_project_symbols(_params: Option<Value>) -> RpcResult {
-    use crate::builder::{
+    use crate::query::iterators::{
         mcb_iter_components_with_span, mcb_iter_enum_values, mcb_iter_enums_with_span,
         mcb_iter_interfaces_with_span, mcb_iter_modules_with_span,
     };

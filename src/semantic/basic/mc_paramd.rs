@@ -376,7 +376,7 @@ impl McParamDeclares {
 /// Lightweight diagnostic returned by `finalize()` during parsing.
 ///
 /// Callers convert these to regular diagnostics via [`mcc_log_global_diag`]
-/// which routes them into the per-file [`DiagnosticManager`](crate::builder::diagnostic::DiagnosticManager).
+/// which routes them into the per-file [`DiagnosticManager`](crate::db::diagnostic::diagnostic::DiagnosticManager).
 ///
 /// Variants:
 /// - `Unused`  — declared but unreferenced parameters / ports

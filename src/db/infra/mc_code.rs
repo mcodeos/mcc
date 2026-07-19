@@ -8,9 +8,9 @@ use crate::ast::ast_semantic::{
 };
 use crate::ast::ast_token::McSemTokens;
 use crate::ast::error::message::MISSING_SUBNODE;
-use crate::builder::global;
-use crate::builder::workspace;
+use crate::db::cmie::tables as workspace;
 use crate::db::diagnostic::diagnostic::dlog_error;
+use crate::db::infra::global;
 use crate::db::infra::mc_use::McUse;
 use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
@@ -146,7 +146,7 @@ impl McCode {
 
     pub fn parse_ast(&mut self) {
         current_uri::set(&self.uri);
-        crate::builder::diagnostic::dlog_clear_file(&self.uri);
+        crate::db::diagnostic::diagnostic::dlog_clear_file(&self.uri);
 
         // eprintln!("parse: {:#?}", self.uri);
         let binding = self.uri.clone();
@@ -225,11 +225,14 @@ impl McCode {
                     let err = &*err_ptr;
                     let pos = err.pos as u32;
                     let len = err.len as u32;
-                    let location =
-                        crate::builder::diagnostic::Location::new(self.uri.clone(), pos, len);
-                    let diagnostic = crate::builder::diagnostic::Diagnostic::new(
+                    let location = crate::db::diagnostic::diagnostic::Location::new(
+                        self.uri.clone(),
+                        pos,
+                        len,
+                    );
+                    let diagnostic = crate::db::diagnostic::diagnostic::Diagnostic::new(
                         1000, // E1000: parse error
-                        crate::builder::diagnostic::DiagnosticLevel::Error,
+                        crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
                         location,
                         "syntax error".to_string(),
                     );
@@ -259,7 +262,7 @@ impl McCode {
 
     pub fn parse_ast_quiet(&mut self) {
         current_uri::set(&self.uri);
-        crate::builder::diagnostic::dlog_clear_file(&self.uri);
+        crate::db::diagnostic::diagnostic::dlog_clear_file(&self.uri);
 
         let binding = self.uri.clone();
         let fname = Path::new(&binding);
@@ -298,11 +301,14 @@ impl McCode {
                     let err = &*err_ptr;
                     let pos = err.pos as u32;
                     let len = err.len as u32;
-                    let location =
-                        crate::builder::diagnostic::Location::new(self.uri.clone(), pos, len);
-                    let diagnostic = crate::builder::diagnostic::Diagnostic::new(
+                    let location = crate::db::diagnostic::diagnostic::Location::new(
+                        self.uri.clone(),
+                        pos,
+                        len,
+                    );
+                    let diagnostic = crate::db::diagnostic::diagnostic::Diagnostic::new(
                         1000, // E1000: parse error
-                        crate::builder::diagnostic::DiagnosticLevel::Error,
+                        crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
                         location,
                         "syntax error".to_string(),
                     );
@@ -449,7 +455,7 @@ impl McCode {
     /// Note: the caller must set log flags via `mcc_reset()` before calling
     pub fn parse_ast_from_string(&mut self, content: &str) {
         current_uri::set(&self.uri);
-        crate::builder::diagnostic::dlog_clear_file(&self.uri);
+        crate::db::diagnostic::diagnostic::dlog_clear_file(&self.uri);
 
         // Clear C-level error tokens before parsing to prevent accumulation
         unsafe { crate::ast::c_bindings::mcc_clear_error_tokens() };
@@ -502,11 +508,14 @@ impl McCode {
                     let err = &*err_ptr;
                     let pos = err.pos as u32;
                     let len = err.len as u32;
-                    let location =
-                        crate::builder::diagnostic::Location::new(self.uri.clone(), pos, len);
-                    let diagnostic = crate::builder::diagnostic::Diagnostic::new(
+                    let location = crate::db::diagnostic::diagnostic::Location::new(
+                        self.uri.clone(),
+                        pos,
+                        len,
+                    );
+                    let diagnostic = crate::db::diagnostic::diagnostic::Diagnostic::new(
                         1000, // E1000: parse error
-                        crate::builder::diagnostic::DiagnosticLevel::Error,
+                        crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
                         location,
                         "syntax error".to_string(),
                     );
@@ -2408,7 +2417,7 @@ impl McCode {
                                         // instance_ref entries. Use parent scope (module name)
                                         // so that LSP refs can be resolved by Level 3 name match.
                                         let module_scope = enclosing.clone();
-                                        crate::builder::mcb_register_instance_decl(
+                                        crate::query::refs::mcb_register_instance_decl(
                                             &self.uri,
                                             pspan.clone(),
                                             Some(pname.clone()),

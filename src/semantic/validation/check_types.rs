@@ -41,7 +41,7 @@ impl ValidationCheck for TypesCheck {
 /// verify that all identifiers used inside the closure body are either
 /// declared as closure parameters or are known module-level names.
 fn check_closure_free_vars(acc: &mut CheckAccumulator) {
-    let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
+    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -203,8 +203,8 @@ fn check_closure_in_text(
 ///   - If param is `::INT`, arg should be a number, not a string
 ///   - If param is `::STRING`, arg should be quoted, not a bare number
 fn check_param_type_mismatch(acc: &mut CheckAccumulator) {
-    let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
-    let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
+    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
 
     // Build: component name → Vec<(param_index, param_name, unit_type)>
     let comp_param_types: std::collections::HashMap<String, Vec<(usize, String, String)>> = {

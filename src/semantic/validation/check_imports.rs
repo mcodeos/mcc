@@ -30,12 +30,12 @@ impl ValidationCheck for ImportsCheck {
     }
 
     fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
-        let mcodes = crate::builder::workspace::WORKSPACE.mcodes.borrow();
+        let mcodes = crate::db::cmie::tables::WORKSPACE.mcodes.borrow();
 
         // Build URI → module span map for source locations
         let uri_spans: std::collections::HashMap<String, std::ops::Range<usize>> = {
             let mut m = std::collections::HashMap::new();
-            let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
+            let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
             for e in modules.iter() {
                 let mod_span = e.value().span.clone();
                 m.insert(e.key().uri.to_string(), mod_span.start..mod_span.end);
@@ -180,19 +180,19 @@ impl ValidationCheck for ImportsCheck {
 /// Build the set of all known CMIE names across components, interfaces, enums, and modules.
 fn build_cmie_name_set() -> HashSet<String> {
     let mut names = HashSet::new();
-    let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
     for e in comps.iter() {
         names.insert(e.key().ident.to_string());
     }
-    let ifaces = crate::builder::workspace::WORKSPACE.interfaces.borrow();
+    let ifaces = crate::db::cmie::tables::WORKSPACE.interfaces.borrow();
     for e in ifaces.iter() {
         names.insert(e.key().ident.to_string());
     }
-    let enums = crate::builder::workspace::WORKSPACE.enums.borrow();
+    let enums = crate::db::cmie::tables::WORKSPACE.enums.borrow();
     for e in enums.iter() {
         names.insert(e.key().ident.to_string());
     }
-    let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
+    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
     for e in modules.iter() {
         names.insert(e.key().ident.to_string());
     }

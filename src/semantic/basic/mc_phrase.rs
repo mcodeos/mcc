@@ -162,7 +162,7 @@ impl McPhrase {
                                 // ★ LSP: Register instance reference for MCAST_OPD path
                                 let span = (subnode.get_pos() as usize)
                                     ..((subnode.get_pos() + subnode.get_len()) as usize);
-                                if let Some(decl_id) = crate::builder::mcb_lookup_instance_decl(
+                                if let Some(decl_id) = crate::query::refs::mcb_lookup_instance_decl(
                                     context.uri(),
                                     &ids.to_string(),
                                     scope.as_deref(),
@@ -193,7 +193,7 @@ impl McPhrase {
                                                 + subnode.get_sub_node()?.get_len())
                                                 as usize);
                                         if let Some(decl_id) =
-                                            crate::builder::mcb_lookup_instance_decl(
+                                            crate::query::refs::mcb_lookup_instance_decl(
                                                 context.uri(),
                                                 &bus_info.unwrap().0,
                                                 scope.as_deref(),
@@ -363,7 +363,7 @@ impl McPhrase {
                                         let span = (subnode.get_pos() as usize)
                                             ..((subnode.get_pos() + subnode.get_len()) as usize);
                                         if let Some(decl_id) =
-                                            crate::builder::mcb_lookup_instance_decl(
+                                            crate::query::refs::mcb_lookup_instance_decl(
                                                 context.uri(),
                                                 base,
                                                 scope.as_deref(),
@@ -424,7 +424,7 @@ impl McPhrase {
                         // ★ LSP: Register instance reference when found in symbol table
                         let span =
                             (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
-                        if let Some(decl_id) = crate::builder::mcb_lookup_instance_decl(
+                        if let Some(decl_id) = crate::query::refs::mcb_lookup_instance_decl(
                             context.uri(),
                             &data[0],
                             scope.as_deref(),
@@ -463,7 +463,7 @@ impl McPhrase {
                                 // ★ LSP: Register instance reference for dot-separated path
                                 let span = (node.get_pos() as usize)
                                     ..((node.get_pos() + node.get_len()) as usize);
-                                if let Some(decl_id) = crate::builder::mcb_lookup_instance_decl(
+                                if let Some(decl_id) = crate::query::refs::mcb_lookup_instance_decl(
                                     context.uri(),
                                     base,
                                     scope.as_deref(),
@@ -1474,7 +1474,7 @@ impl McPhrase {
                             // ★ LSP: Register instance reference for MCAST_CLASS path
                             let span = (node.get_pos() as usize)
                                 ..((node.get_pos() + node.get_len()) as usize);
-                            if let Some(decl_id) = crate::builder::mcb_lookup_instance_decl(
+                            if let Some(decl_id) = crate::query::refs::mcb_lookup_instance_decl(
                                 context.uri(),
                                 &names[0],
                                 scope.as_deref(),

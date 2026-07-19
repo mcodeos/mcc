@@ -25,11 +25,11 @@ impl ValidationCheck for StyleCheck {
     fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
         let mut lib_names: HashSet<String> = HashSet::new();
         {
-            let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+            let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
             for e in comps.iter() {
                 lib_names.insert(e.key().ident.to_string());
             }
-            let ifaces = crate::builder::workspace::WORKSPACE.interfaces.borrow();
+            let ifaces = crate::db::cmie::tables::WORKSPACE.interfaces.borrow();
             for e in ifaces.iter() {
                 lib_names.insert(e.key().ident.to_string());
             }
@@ -50,7 +50,7 @@ impl ValidationCheck for StyleCheck {
 }
 
 fn check_lowercase_components(acc: &mut CheckAccumulator, _lib_names: &HashSet<String>) {
-    let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
     for entry in comps.iter() {
         let comp = entry.value();
         let name = entry.key().ident.to_string();
@@ -78,7 +78,7 @@ fn check_lowercase_components(acc: &mut CheckAccumulator, _lib_names: &HashSet<S
 
 fn check_empty_parens(acc: &mut CheckAccumulator) {
     // J4: components declared with () but no params
-    let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
     for entry in comps.iter() {
         let _comp = entry.value();
         let name = entry.key().ident.to_string();

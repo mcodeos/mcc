@@ -117,7 +117,7 @@ fn apply_reserved_overrides(b: &mut McVecBox) {
 /// Returns `None` when the component is not found or all four layout edges are empty
 /// (falls through to heuristic edge assignment).
 fn component_pin_layout(class_name: &str) -> Option<PinLayout> {
-    let comp = crate::builder::workspace::WORKSPACE.component_by_class(class_name)?;
+    let comp = crate::db::cmie::tables::WORKSPACE.component_by_class(class_name)?;
     let layout = &comp.layout;
     if layout.left.is_empty()
         && layout.right.is_empty()
@@ -1023,9 +1023,9 @@ fn build_mc_vec_graph_inner(
     for b in &graph.boxes {
         for p in &b.pins {
             if p.id >= 8_000_000_000 {
-                crate::builder::diagnostic::diagnostic_log(
+                crate::db::diagnostic::diagnostic::diagnostic_log(
                     2004,
-                    crate::builder::diagnostic::DiagnosticLevel::Error,
+                    crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
                     0,
                     1,
                     &format!(
@@ -1292,9 +1292,9 @@ fn generate_viznets_from_block(
                 // Fire when a net endpoint can't be mapped to any box in the
                 // current layer. This includes placeholder pins (id ≥ 8e9) and
                 // pins whose InstTable entry exists but isn't mapped to any box.
-                crate::builder::diagnostic::diagnostic_log(
+                crate::db::diagnostic::diagnostic::diagnostic_log(
                     2004,
-                    crate::builder::diagnostic::DiagnosticLevel::Error,
+                    crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
                     0,
                     1,
                     &format!(

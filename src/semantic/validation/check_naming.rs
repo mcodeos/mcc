@@ -32,11 +32,11 @@ impl ValidationCheck for NamingCheck {
         // Collect library CMIE names for shadow detection context
         let lib_names: HashSet<String> = {
             let mut s = HashSet::new();
-            let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+            let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
             for entry in comps.iter() {
                 s.insert(entry.key().ident.to_string());
             }
-            let ifaces = crate::builder::workspace::WORKSPACE.interfaces.borrow();
+            let ifaces = crate::db::cmie::tables::WORKSPACE.interfaces.borrow();
             for entry in ifaces.iter() {
                 s.insert(entry.key().ident.to_string());
             }
@@ -56,7 +56,7 @@ impl ValidationCheck for NamingCheck {
 // ============================================================================
 
 fn check_lowercase_components(acc: &mut CheckAccumulator) {
-    let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
     for entry in comps.iter() {
         let comp = entry.value();
         let name = entry.key().ident.to_string();
@@ -92,7 +92,7 @@ fn check_lowercase_components(acc: &mut CheckAccumulator) {
 /// Mixing UPPER_SNAKE (e.g., `CHIP_SELECT`) with lower_snake (e.g., `chip_select`)
 /// or PascalCase (e.g., `ChipSelect`) is confusing.
 fn check_mixed_pin_naming(acc: &mut CheckAccumulator) {
-    let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -180,7 +180,7 @@ fn check_mixed_pin_naming(acc: &mut CheckAccumulator) {
 /// but `RES r` is too short) make schematics harder to read. Flag instance
 /// names that are single characters and not obviously a numbered reference.
 fn check_short_instance_names(acc: &mut CheckAccumulator) {
-    let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
+    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -223,7 +223,7 @@ fn check_short_instance_names(acc: &mut CheckAccumulator) {
 /// components (resistors, capacitors), for active components with >3 pins,
 /// purely numeric names suggest incomplete documentation.
 fn check_numeric_pin_names(acc: &mut CheckAccumulator) {
-    let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -267,7 +267,7 @@ fn check_numeric_pin_names(acc: &mut CheckAccumulator) {
 /// User-defined module port/instance names that happen to match a known
 /// library component, interface, or enum name create ambiguity.
 fn check_lib_name_shadow(acc: &mut CheckAccumulator, lib_names: &HashSet<String>) {
-    let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
+    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {

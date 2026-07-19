@@ -10,7 +10,7 @@
 extern crate self as mcc;
 
 //1. lib internal
-use crate::builder::diagnostic::Diagnostic;
+use crate::db::diagnostic::diagnostic::Diagnostic;
 use std::env;
 use std::error::Error;
 use std::path::{Path, PathBuf};
@@ -130,7 +130,7 @@ pub type McSemSymbolsArcCell = Arc<Mutex<McSemSymbols>>;
 // ============================================================================
 
 /// Convert a [`GlobalDiag`] (returned by `finalize()`) into a regular diagnostic
-/// logged to [`DiagnosticManager`](crate::builder::diagnostic::DiagnosticManager).
+/// logged to [`DiagnosticManager`](crate::db::diagnostic::diagnostic::DiagnosticManager).
 ///
 /// This replaces the old `GLOBAL_DIAGS` global-list + `global.diag` RPC pattern.
 /// Diagnostics now go directly into the per-file `DiagnosticManager`, so they
@@ -138,7 +138,7 @@ pub type McSemSymbolsArcCell = Arc<Mutex<McSemSymbols>>;
 pub fn mcc_log_global_diag(d: &GlobalDiag) {
     let level = match d.kind {
         GlobalDiagKind::Unused | GlobalDiagKind::Untyped => {
-            crate::builder::diagnostic::DiagnosticLevel::Warning
+            crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning
         }
     };
     // code 1402: unused param/port; 1403: untyped param
@@ -146,7 +146,7 @@ pub fn mcc_log_global_diag(d: &GlobalDiag) {
         GlobalDiagKind::Unused => 1402,
         GlobalDiagKind::Untyped => 1403,
     };
-    crate::builder::diagnostic::diagnostic_log(
+    crate::db::diagnostic::diagnostic::diagnostic_log(
         code,
         level,
         d.pos as u32,
@@ -283,7 +283,7 @@ pub fn mcc_build_flat(
 }
 
 pub fn mcc_diagnose(uri: &McURI) -> Vec<Diagnostic> {
-    crate::builder::workspace::WORKSPACE
+    crate::db::cmie::tables::WORKSPACE
         .diagnostics
         .borrow()
         .get_diagnostics_for_file(uri)
@@ -293,7 +293,7 @@ pub fn mcc_diagnose(uri: &McURI) -> Vec<Diagnostic> {
 }
 
 pub fn mcc_diagnose_all() -> Vec<Diagnostic> {
-    crate::builder::workspace::WORKSPACE
+    crate::db::cmie::tables::WORKSPACE
         .diagnostics
         .borrow()
         .get_diagnostics()
@@ -302,7 +302,7 @@ pub fn mcc_diagnose_all() -> Vec<Diagnostic> {
 
 /// Clear workspace state (for test isolation).
 pub fn mcc_clear_workspace() {
-    crate::builder::workspace::WORKSPACE.clear_active();
+    crate::db::cmie::tables::WORKSPACE.clear_active();
 }
 
 /// Read D5 BUS_BITS_MISMATCHED counter (for test assertions).

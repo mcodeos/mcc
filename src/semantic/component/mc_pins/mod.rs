@@ -4,8 +4,8 @@
 
 pub mod dynamic;
 
-use crate::builder::diagnostic::dlog_trace;
-use crate::builder::mcb_get_cmie;
+use crate::db::cmie::cmie::mcb_get_cmie;
+use crate::db::diagnostic::diagnostic::dlog_trace;
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_ida::IdaSegment;
 use crate::semantic::basic::mc_ids::IdsSegment;
@@ -256,7 +256,7 @@ impl McPins {
         let node_type = node.get_type();
         // N6: pins+= without prior pins=
         if node_type == MCAST_ATTRIBUTE_PINADD && !self.has_base_pins {
-            crate::builder::diagnostic::dlog_error(
+            crate::db::diagnostic::diagnostic::dlog_error(
                 2106,
                 node,
                 "pins += used without prior pins = definition",

@@ -23,11 +23,11 @@ fn mk_span(pos: u32, len: u32) -> Span {
 
 impl NameResolver for DbContext {
     fn resolve(&self, class_name: &McIds, from_uri: &McURI) -> Option<(McCMIE, McURI)> {
-        crate::builder::mcb_get_cmie_with_uri(class_name, from_uri)
+        crate::db::cmie::cmie::mcb_get_cmie_with_uri(class_name, from_uri)
     }
 
     fn resolve_system(&self, class_name: &McIds) -> Option<McCMIE> {
-        use crate::builder::global;
+        use crate::db::infra::global;
         let name_str = class_name.to_string();
         for entry in global::mcc_components.borrow().iter() {
             if entry.key().ident.to_string() == name_str {
@@ -63,7 +63,7 @@ impl SymbolRegistry for DbContext {
         len: u32,
     ) -> u32 {
         let span = mk_span(pos, len);
-        let id = crate::builder::workspace::WORKSPACE
+        let id = crate::db::cmie::tables::WORKSPACE
             .global_inst_table
             .lock()
             .map(|mut t| t.add(uri, scope, name, span))
@@ -80,14 +80,14 @@ impl SymbolRegistry for DbContext {
         len: u32,
     ) {
         let span = mk_span(pos, len);
-        let _ = crate::builder::workspace::WORKSPACE
+        let _ = crate::db::cmie::tables::WORKSPACE
             .global_inst_table
             .lock()
             .map(|mut t| t.add_ref(DeclareId::from_raw(decl_id), uri, scope, span));
     }
 
     fn lookup_instance_decl(&self, uri: &str, name: &str, scope: Option<&str>) -> Option<u32> {
-        crate::builder::workspace::WORKSPACE
+        crate::db::cmie::tables::WORKSPACE
             .global_inst_table
             .lock()
             .ok()
@@ -97,7 +97,7 @@ impl SymbolRegistry for DbContext {
 
     fn register_declare_class(&self, uri: &str, class_name: &str, pos: u32, len: u32) {
         let span = mk_span(pos, len);
-        let _ = crate::builder::workspace::WORKSPACE
+        let _ = crate::db::cmie::tables::WORKSPACE
             .global_class_table
             .lock()
             .map(|mut t| {
@@ -113,7 +113,7 @@ impl SymbolRegistry for DbContext {
     }
 
     fn find_refs(&self, name: &str) -> Vec<(String, String, (u32, u32))> {
-        crate::builder::mcb_get_refs(name)
+        crate::query::refs::mcb_get_refs(name)
             .into_iter()
             .map(|(uri, scope, span)| (uri, scope, (span.start as u32, span.end as u32)))
             .collect()
@@ -132,12 +132,12 @@ impl DiagnosticSink for DbContext {
         _suggestions: &[String],
     ) {
         let level = match severity {
-            DiagnosticSeverity::Hint => crate::builder::diagnostic::DiagnosticLevel::Hint,
-            DiagnosticSeverity::Info => crate::builder::diagnostic::DiagnosticLevel::Info,
-            DiagnosticSeverity::Warning => crate::builder::diagnostic::DiagnosticLevel::Warning,
-            DiagnosticSeverity::Error => crate::builder::diagnostic::DiagnosticLevel::Error,
+            DiagnosticSeverity::Hint => crate::db::diagnostic::diagnostic::DiagnosticLevel::Hint,
+            DiagnosticSeverity::Info => crate::db::diagnostic::diagnostic::DiagnosticLevel::Info,
+            DiagnosticSeverity::Warning => crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
+            DiagnosticSeverity::Error => crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
         };
-        crate::builder::diagnostic::diagnostic_log(code, level, pos, len, message, &[]);
+        crate::db::diagnostic::diagnostic::diagnostic_log(code, level, pos, len, message, &[]);
     }
 }
 

@@ -3,11 +3,11 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::ast::{ast_node::AstNode, c_macros::*};
-use crate::builder::diagnostic::{dlog_error, dlog_warning};
-use crate::builder::mcb_get_cmie;
-use crate::builder::mcb_register_declare_class;
-use crate::builder::mcb_register_instance_decl;
+use crate::db::cmie::cmie::mcb_get_cmie;
+use crate::db::diagnostic::diagnostic::{dlog_error, dlog_warning};
 use crate::message::MISSING_SUBNODE;
+use crate::query::refs::mcb_register_declare_class;
+use crate::query::refs::mcb_register_instance_decl;
 use crate::semantic::basic::mc_bus::{McBus, McList};
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::basic::mc_ida::McIda;

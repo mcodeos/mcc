@@ -4,7 +4,7 @@
 
 use crate::ast::c_bindings;
 use crate::ast::c_macros::*;
-use crate::builder::diagnostic::{dlog_error, Position};
+use crate::db::diagnostic::diagnostic::{dlog_error, Position};
 use crate::message::*;
 use crate::McIds;
 use std::ffi::{c_char, c_void, CStr};

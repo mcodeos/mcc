@@ -17,8 +17,8 @@
 //!
 //! `mcb_init_system_lib()` preserved, internally changed to call `mcb_load_lib("mcode", mcode_dir)`.
 
-use crate::builder::global;
-use crate::builder::workspace;
+use crate::db::cmie::tables as workspace;
+use crate::db::infra::global;
 use crate::db::infra::mc_code::McCode;
 use crate::db::infra::util::MultiThreadRefCell;
 use crate::{McIds, McSpaceName};
@@ -125,7 +125,7 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
     // Recursively load all dependencies (is_system=true)
     let uri = entry_file.to_string_lossy().to_string();
     let mut loaded = HashSet::new();
-    crate::builder::mcb_add_recursive(&uri, &mut loaded, true);
+    crate::build::loader::mcb_add_recursive(&uri, &mut loaded, true);
 
     // Clear system lib loading flag
     crate::cli::config::set_system_lib_loading(false);

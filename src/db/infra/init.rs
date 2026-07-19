@@ -2,6 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+use crate::build::pass1::canonicalize_project_uri;
 use crate::builder::*;
 use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
@@ -35,7 +36,7 @@ pub fn mcb_canonicalize_uri(uri: &McURI) -> String {
 
 // === pub fn mcb_init() { ===
 pub fn mcb_init() {
-    crate::builder::mcc_blibs.borrow().clear();
+    crate::db::infra::lib_mgr::mcc_blibs.borrow().clear();
     global::mcc_components.borrow().clear();
     global::mcc_modules.borrow().clear();
     global::mcc_interfaces.borrow().clear();

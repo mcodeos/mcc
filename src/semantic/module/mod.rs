@@ -9,7 +9,7 @@ use super::{
     mc_func::{HasFindInst, McFunctions},
     mc_inst::{McInst, McInstance, McInstances},
 };
-use crate::builder::mcb_get_cmie;
+use crate::db::cmie::cmie::mcb_get_cmie;
 use crate::semantic::component::Mc2Component;
 use crate::semantic::mc_func::McFuncReturn;
 use crate::{
@@ -249,9 +249,9 @@ impl McModule {
                     })
                     .sum();
                 if real_count == 0 {
-                    crate::builder::diagnostic::diagnostic_log(
+                    crate::db::diagnostic::diagnostic::diagnostic_log(
                         1402,
-                        crate::builder::diagnostic::DiagnosticLevel::Warning,
+                        crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
                         span.start as u32,
                         (span.end - span.start) as u32,
                         &format!(
@@ -637,7 +637,7 @@ impl McModule {
                         insts.store_port_span(&key, span.clone());
                         // Register LSP lapper entry so goto-def can find this inline port
                         // within the correct scope
-                        crate::builder::mcb_register_instance_decl(
+                        crate::query::refs::mcb_register_instance_decl(
                             uri,
                             span,
                             Some(key),

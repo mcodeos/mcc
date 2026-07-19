@@ -31,7 +31,7 @@ impl ValidationCheck for RefIntegrityCheck {
 
 /// B1 extension: unused parameters in component functions.
 fn check_comp_func_unused_params(acc: &mut CheckAccumulator) {
-    let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
     for entry in comps.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -60,7 +60,7 @@ fn check_comp_func_unused_params(acc: &mut CheckAccumulator) {
 
 /// I2: flag component parameters declared without `::TYPE` annotation.
 fn check_bare_params(acc: &mut CheckAccumulator) {
-    let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
     for entry in comps.iter() {
         let comp_name = entry.key().ident.to_string();
         let uri = entry.key().uri.to_string();
@@ -98,7 +98,7 @@ fn check_bare_params(acc: &mut CheckAccumulator) {
 /// Iterates module net phrases and flags label/port names that appear in
 /// connection expressions but don't match any known instance or parameter.
 fn check_label_refs(acc: &mut CheckAccumulator) {
-    let modules = crate::builder::workspace::WORKSPACE.modules.borrow();
+    let modules = crate::db::cmie::tables::WORKSPACE.modules.borrow();
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
         if super::is_test_file(&uri) {
@@ -147,7 +147,7 @@ fn check_label_refs(acc: &mut CheckAccumulator) {
 
 /// I1: references in spec/attr blocks to undeclared variables.
 fn check_spec_refs(acc: &mut CheckAccumulator) {
-    let comps = crate::builder::workspace::WORKSPACE.components.borrow();
+    let comps = crate::db::cmie::tables::WORKSPACE.components.borrow();
     for entry in comps.iter() {
         let comp_name = entry.key().ident.to_string();
         let uri = entry.key().uri.to_string();

@@ -6,7 +6,7 @@
 //!
 //! Extracted from `rpc/handlers/lsp.rs` (handle_project_symbols).
 
-use crate::builder::{
+use crate::query::iterators::{
     mcb_iter_components_with_span, mcb_iter_enum_values, mcb_iter_enums_with_span,
     mcb_iter_interfaces_with_span, mcb_iter_modules_with_span,
 };
