@@ -927,35 +927,36 @@ pub fn handle_show_dump_all(params: Option<Value>) -> RpcResult {
         crate::mcc_load_project(&uri);
     }
 
+    macro_rules! collect_defs {
+        ($out:ident, $iter:expr, $variant:ident, $dump_fn:ident) => {
+            for (name, _) in $iter {
+                match find_def_by_name(&name) {
+                    Some((crate::McCMIE::$variant(def), uri)) => {
+                        $out.push($dump_fn(&name, def.as_ref(), &uri));
+                    }
+                    Some(_) => {} // wrong variant, skip
+                    None => {
+                        tracing::debug!(target: "mcc::rpc", name = %name, "dump_all: def not found (stale iterator?)");
+                    }
+                }
+            }
+        };
+    }
     let mut all = Vec::new();
-    for (name, _) in crate::mcb_iter_components() {
-        if let Some((cmie, uri)) = find_def_by_name(&name) {
-            if let crate::McCMIE::Component(comp) = &cmie {
-                all.push(dump_component_json(&name, comp, &uri));
-            }
-        }
-    }
-    for (name, _) in crate::mcb_iter_modules() {
-        if let Some((cmie, uri)) = find_def_by_name(&name) {
-            if let crate::McCMIE::Module(module) = &cmie {
-                all.push(dump_module_json(&name, module, &uri));
-            }
-        }
-    }
-    for (name, _) in crate::mcb_iter_interfaces() {
-        if let Some((cmie, uri)) = find_def_by_name(&name) {
-            if let crate::McCMIE::Interface(iface) = &cmie {
-                all.push(dump_interface_json(&name, iface, &uri));
-            }
-        }
-    }
-    for (name, _) in crate::mcb_iter_enums() {
-        if let Some((cmie, uri)) = find_def_by_name(&name) {
-            if let crate::McCMIE::Enum(en) = &cmie {
-                all.push(dump_enum_json(&name, en, &uri));
-            }
-        }
-    }
+    collect_defs!(
+        all,
+        crate::mcb_iter_components(),
+        Component,
+        dump_component_json
+    );
+    collect_defs!(all, crate::mcb_iter_modules(), Module, dump_module_json);
+    collect_defs!(
+        all,
+        crate::mcb_iter_interfaces(),
+        Interface,
+        dump_interface_json
+    );
+    collect_defs!(all, crate::mcb_iter_enums(), Enum, dump_enum_json);
 
     // Apply file filter for consistency
     let mut all = if let Some(ref file) = p.file {

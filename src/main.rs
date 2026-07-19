@@ -4,6 +4,10 @@
 
 //! MCC binary entry point.
 //!
+//! Many helper functions are used across cmds/ files; the compiler
+//! cannot track cross-file usage within the binary crate.
+#![allow(dead_code)]
+//!
 //! ## Initialization flow
 //!
 //!   1. Parse CLI (clap)

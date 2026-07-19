@@ -29,6 +29,7 @@ use tracing::warn;
 /// 3. Spacename directly constructed from current file uri
 /// 4. Iterate through all loaded files' spacenames (handle transitive dependencies)
 /// 5. Directly lookup by name in global table
+#[allow(unused_assignments)]
 pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     let name_str = class_name.to_string();
 

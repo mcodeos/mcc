@@ -603,16 +603,13 @@ impl McCode {
             // (1). load ast
             // ★ Fix: always parse AST (because AstNode pointer cannot be reused across contexts)
             // but can reuse existing spacenames and uselist
-            let existing_spacenames: BTreeMap<McIds, McSpaceName>;
-            let existing_uselist: Vec<McUse>;
+            let has_existing: bool;
             {
-                if let Some(existing) = workspace::WORKSPACE.mcodes.get(&canonical_use_uri) {
-                    existing_spacenames = existing.spacenames.clone();
-                    existing_uselist = existing.uselist.clone();
-                } else {
-                    existing_spacenames = BTreeMap::new();
-                    existing_uselist = Vec::new();
-                }
+                has_existing = workspace::WORKSPACE
+                    .mcodes
+                    .get(&canonical_use_uri)
+                    .map(|e| !e.spacenames.is_empty() && !e.uselist.is_empty())
+                    .unwrap_or(false);
             }
             let mut mcfile = match McCode::new(&mcuse.uri, self.mcbase) {
                 Some(mcfile) => mcfile,
@@ -632,11 +629,13 @@ impl McCode {
 
             // (2.5) ★ Step 3: ensure CMIE definitions are registered to the global table
             // If spacenames and uselist already exist, reuse them directly
-            if !existing_spacenames.is_empty() && !existing_uselist.is_empty() {
-                // Reuse existing spacenames
-                for (key, value) in &existing_spacenames {
-                    if !self.spacenames.contains_key(key) {
-                        self.spacenames.insert(key.clone(), value.clone());
+            if has_existing {
+                // Reuse existing spacenames (clone only when actually needed)
+                if let Some(existing) = workspace::WORKSPACE.mcodes.get(&canonical_use_uri) {
+                    for (key, value) in existing.spacenames.iter() {
+                        if !self.spacenames.contains_key(key) {
+                            self.spacenames.insert(key.clone(), value.clone());
+                        }
                     }
                 }
             } else {
