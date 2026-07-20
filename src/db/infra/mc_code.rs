@@ -2958,7 +2958,49 @@ impl McCode {
                             "create_lapper scope: uri={uri_str}, found {} containers: {:?}",
                             container_names.len(), container_names);
                     }
-                    let default_container = container_names.first().cloned();
+                    // Build a sorted list of (span_start, container_name) for
+                    // O(log n) container lookup by position.  Each container's
+                    // span is the full node extent so that any position between
+                    // start and end belongs to that container.
+                    let mut container_spans: Vec<(usize, usize, String)> = Vec::new();
+                    {
+                        let uri_str = self.uri.as_str();
+                        for entry in workspace::WORKSPACE.modules.iter() {
+                            if entry.key().uri.as_str() == uri_str {
+                                let span = &entry.value().span;
+                                container_spans.push((span.start, span.end, entry.key().ident.to_string()));
+                            }
+                        }
+                        for entry in workspace::WORKSPACE.components.iter() {
+                            if entry.key().uri.as_str() == uri_str {
+                                let span = &entry.value().span;
+                                container_spans.push((span.start, span.end, entry.key().ident.to_string()));
+                            }
+                        }
+                        for entry in global::mcc_modules.iter() {
+                            if entry.key().uri.as_str() == uri_str {
+                                let span = &entry.value().span;
+                                container_spans.push((span.start, span.end, entry.key().ident.to_string()));
+                            }
+                        }
+                        for entry in global::mcc_components.iter() {
+                            if entry.key().uri.as_str() == uri_str {
+                                let span = &entry.value().span;
+                                container_spans.push((span.start, span.end, entry.key().ident.to_string()));
+                            }
+                        }
+                        // Sort by start position, then by end descending (innermost first)
+                        container_spans.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)));
+                    }
+                    let find_container = |pos: usize| -> Option<String> {
+                        container_spans
+                            .iter()
+                            .rev() // latest (innermost) first
+                            .find(|(s, e, _)| pos >= *s && pos < *e)
+                            .map(|(_, _, name)| name.clone())
+                    };
+
+                    let default_container = find_container(0); // for nodes without position context
 
                     for node in &all_nodes {
                         let ntype = node.get_type();
@@ -2981,7 +3023,7 @@ impl McCode {
                                 continue;
                             };
                             if let Some(name_node) = node.get_sub_node() {
-                                let enclosing = default_container.clone();
+                                let enclosing = find_container(span.0);
                                 let func_name = ids_node
                                     .and_then(|n| crate::semantic::basic::mc_ids::McIds::new(&n))
                                     .map(|ids| ids.to_string());
@@ -3104,19 +3146,40 @@ impl McCode {
                                 let func_name = crate::semantic::basic::mc_ids::McIds::new(&nn)
                                     .map(|ids| ids.to_string());
                                 if has_instance {
-                                    // For method calls, try to reuse the FunctionDefinition's
-                                    // ID so gotodef can resolve local same-file jumps.
+                                    // For method calls, reuse the FunctionDefinition's DeclareId.
+                                    // FuncDef is registered with scope "{enclosing}.{func_name}".
+                                    // Strategy (§4.2): search same-file for matching function_def.
                                     let resolved_id = func_name
                                         .as_ref()
                                         .and_then(|n| {
-                                            sem.local_table.name_to_declare_id.get(&(
-                                                self.uri.clone(),
-                                                String::new(),
-                                                n.clone(),
-                                            ))
+                                            // Search all scopes in the same file for this func name.
+                                            // FuncDef may be registered under e.g. "US513_20_F.power".
+                                            let candidates: Vec<_> = sem
+                                                .local_table
+                                                .name_to_declare_id
+                                                .iter()
+                                                .filter(|((u, _s, name), _id)| {
+                                                    u == &self.uri && name.as_str() == n.as_str()
+                                                })
+                                                .collect();
+                                            if candidates.is_empty() {
+                                                None
+                                            } else {
+                                                // Use first match (same file, same name)
+                                                Some(*candidates[0].1)
+                                            }
                                         })
-                                        .copied()
                                         .unwrap_or_else(|| {
+                                            let fname = func_name.as_ref().map(|s| s.as_str()).unwrap_or("?");
+                                            dlog_error(
+                                                1501,
+                                                &node,
+                                                &format!(
+                                                    "function '{}' not found in file '{}'",
+                                                    fname,
+                                                    self.uri
+                                                ),
+                                            );
                                             sem.local_table.add_declare_with_name(
                                                 &self.uri,
                                                 span.0..span.1,
