@@ -714,29 +714,33 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
         .iter()
         .map(|interval| {
             let (kind, id) = match interval.val {
-                SymbolType::ClassDefinition(id) => ("class_def", id._raw),
-                SymbolType::DeclareClass(id) => ("class_ref", id._raw),
-                SymbolType::ClassRef(id) => ("class_ref", id._raw),
-                SymbolType::DeclareInstance(id) => ("instance_def", id._raw),
-                SymbolType::InstanceRef(id) => ("instance_ref", id._raw),
-                SymbolType::EnumValueDefinition(id) => ("enum_value_def", id._raw),
-                SymbolType::EnumValueRef(id) => ("enum_value_ref", id._raw),
-                SymbolType::DefineDefinition(id) => ("define_def", id._raw),
-                SymbolType::FunctionDefinition(id) => ("function_def", id._raw),
-                SymbolType::FunctionRef(id) => ("function_ref", id._raw),
-                SymbolType::PortDefinition(id) => ("port_def", id._raw),
-                SymbolType::PinNameDefinition(id) => ("pin_name_def", id._raw),
-                SymbolType::PinNameRef(id) => ("pin_name_ref", id._raw),
-                SymbolType::RoleDefinition(id) => ("role_def", id._raw),
-                SymbolType::LabelDefinition(id) => ("label_def", id._raw),
-                SymbolType::LabelRef(id) => ("label_ref", id._raw),
-                SymbolType::PortRef(id) => ("port_ref", id._raw),
-                SymbolType::PinIdDefinition(id) => ("pin_id_def", id._raw),
-                SymbolType::PinIdRef(id) => ("pin_id_ref", id._raw),
-                SymbolType::PinIfaceDefinition(id) => ("pin_iface_def", id._raw),
-                SymbolType::PinIfaceRef(id) => ("pin_iface_ref", id._raw),
-                SymbolType::EnumDefinition(id) => ("enum_def", id._raw),
-                SymbolType::EnumRef(id) => ("enum_ref", id._raw),
+                SymbolType::ClassDefinition(id) => (SymbolKind::ClassDef.kind_name(), id._raw),
+                SymbolType::DeclareClass(id) => (SymbolKind::ClassRef.kind_name(), id._raw),
+                SymbolType::ClassRef(id) => (SymbolKind::ClassRef.kind_name(), id._raw),
+                SymbolType::DeclareInstance(id) => (SymbolKind::InstDef.kind_name(), id._raw),
+                SymbolType::InstanceRef(id) => (SymbolKind::InstRef.kind_name(), id._raw),
+                SymbolType::EnumValueDefinition(id) => {
+                    (SymbolKind::EnumValDef.kind_name(), id._raw)
+                }
+                SymbolType::EnumValueRef(id) => (SymbolKind::EnumValRef.kind_name(), id._raw),
+                SymbolType::DefineDefinition(id) => (SymbolKind::DefineDef.kind_name(), id._raw),
+                SymbolType::FunctionDefinition(id) => (SymbolKind::FuncDef.kind_name(), id._raw),
+                SymbolType::FunctionRef(id) => (SymbolKind::FuncRef.kind_name(), id._raw),
+                SymbolType::PortDefinition(id) => (SymbolKind::PortDef.kind_name(), id._raw),
+                SymbolType::PinNameDefinition(id) => (SymbolKind::PinNameDef.kind_name(), id._raw),
+                SymbolType::PinNameRef(id) => (SymbolKind::PinNameRef.kind_name(), id._raw),
+                SymbolType::RoleDefinition(id) => (SymbolKind::RoleDef.kind_name(), id._raw),
+                SymbolType::LabelDefinition(id) => (SymbolKind::LabelDef.kind_name(), id._raw),
+                SymbolType::LabelRef(id) => (SymbolKind::LabelRef.kind_name(), id._raw),
+                SymbolType::PortRef(id) => (SymbolKind::PortRef.kind_name(), id._raw),
+                SymbolType::PinIdDefinition(id) => (SymbolKind::PinIdDef.kind_name(), id._raw),
+                SymbolType::PinIdRef(id) => (SymbolKind::PinIdRef.kind_name(), id._raw),
+                SymbolType::PinIfaceDefinition(id) => {
+                    (SymbolKind::PinIfaceDef.kind_name(), id._raw)
+                }
+                SymbolType::PinIfaceRef(id) => (SymbolKind::PinIfaceRef.kind_name(), id._raw),
+                SymbolType::EnumDefinition(id) => (SymbolKind::EnumDef.kind_name(), id._raw),
+                SymbolType::EnumRef(id) => (SymbolKind::EnumRef.kind_name(), id._raw),
                 SymbolType::ParamDefinition(id) => ("param_def", id._raw),
                 SymbolType::AttrDefinition(id) => ("attr_def", id._raw),
             };
