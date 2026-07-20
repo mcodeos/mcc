@@ -58,6 +58,16 @@ pub enum SymbolType {
     // ── Label support (scope design, step 7) ──
     LabelDefinition(DeclareId), // `label A` or inline label def
     LabelRef(DeclareId),        // label reference in a net phrase
+    // ── RefDefMap gap fill (§3.2.2, §4.1) ──
+    PortRef(DeclareId),            // port reference in net phrase
+    PinIdDefinition(DeclareId),    // pin ID definition: `1` in `1 = _CS`
+    PinIdRef(DeclareId),           // pin ID reference
+    PinIfaceDefinition(DeclareId), // pin interface definition: `UART.TTL`
+    PinIfaceRef(DeclareId),        // pin interface reference
+    EnumDefinition(DeclareId),     // enum class definition (`enum PKG { ... }`)
+    EnumRef(DeclareId),            // enum class reference
+    ParamDefinition(DeclareId),    // parameter definition: `(cap::UV.CAP)`
+    AttrDefinition(DeclareId),     // attribute definition: `capacitance = cap`
 }
 pub type SymbolRangeLapper = Lapper<usize, SymbolType>;
 
@@ -100,18 +110,25 @@ impl SymbolKind {
             "instance_def" | "declare_instance" => Some(Self::InstDef),
             "instance_ref" => Some(Self::InstRef),
             "port_def" => Some(Self::PortDef),
+            "port_ref" => Some(Self::PortRef),
             "label_def" => Some(Self::LabelDef),
             "label_ref" => Some(Self::LabelRef),
             "function_def" => Some(Self::FuncDef),
             "function_ref" => Some(Self::FuncRef),
+            "pin_id_def" => Some(Self::PinIdDef),
+            "pin_id_ref" => Some(Self::PinIdRef),
             "pin_name_def" => Some(Self::PinNameDef),
             "pin_name_ref" => Some(Self::PinNameRef),
-            "enum_class_def" => Some(Self::EnumDef),
+            "pin_iface_def" => Some(Self::PinIfaceDef),
+            "pin_iface_ref" => Some(Self::PinIfaceRef),
+            "enum_def" | "enum_class_def" => Some(Self::EnumDef),
+            "enum_ref" | "enum_class_ref" => Some(Self::EnumRef),
             "enum_value_def" => Some(Self::EnumValDef),
-            "enum_class_ref" => Some(Self::EnumRef),
             "enum_value_ref" => Some(Self::EnumValRef),
             "role_def" => Some(Self::RoleDef),
+            "param_def" => Some(Self::ParamDef),
             "define_def" => Some(Self::DefineDef),
+            "attr_def" => Some(Self::AttrDef),
             _ => None,
         }
     }
@@ -162,6 +179,21 @@ impl SymbolKind {
     }
 }
 
+/// CMIE table kind for direct lookup — tells which WORKSPACE DashMap to query.
+/// Mirrors the 4 CMIE tables. 255 = unknown (not a CMIE entry).
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum CmieKind {
+    Component = 0,
+    Module = 1,
+    Interface = 2,
+    Enum = 3,
+}
+
+impl CmieKind {
+    pub const UNKNOWN: u8 = 255;
+}
+
 /// One entry in the unified ref→def map.
 #[derive(Clone, Debug)]
 pub struct RefDefEntry {
@@ -172,6 +204,8 @@ pub struct RefDefEntry {
     pub def_span_end: u32,
     pub def_kind: SymbolKind,
     pub container_id: u32,
+    /// CMIE table kind for O(1) direct DashMap lookup (0=Comp,1=Mod,2=Ifs,3=Enum,255=unknown)
+    pub cmie_kind: u8,
 }
 
 /// Unified symbol resolution table — built once at pass1 completion.
@@ -409,10 +443,6 @@ pub struct GlobalSymbolTable {
     pub global_inst_name_to_id: HashMap<(McURI, String, String), DeclareId>, // (uri, scope, name) -> decl_id
     pub global_inst_id_to_span: HashMap<DeclareId, (McURI, Span)>, // decl_id -> (uri, span)
 
-    // ★ LSP: Declare class -> target definition span (cross-file)
-    // Used when class_id is from a different file than the reference
-    pub declare_id_to_target_span: HashMap<ReferenceId, (McURI, Span)>,
-
     // ★ LSP: enum global storage
     // (uri, class_name) -> class_id
     pub enum_class_name_to_id: HashMap<(McURI, String), DeclareId>,
@@ -439,7 +469,6 @@ impl GlobalSymbolTable {
 
             global_inst_name_to_id: HashMap::new(),
             global_inst_id_to_span: HashMap::new(),
-            declare_id_to_target_span: HashMap::new(),
 
             enum_class_name_to_id: HashMap::new(),
             enum_class_id_to_span: HashMap::new(),
@@ -599,7 +628,6 @@ impl GlobalSymbolTable {
 
             global_inst_name_to_id: HashMap::new(),
             global_inst_id_to_span: HashMap::new(),
-            declare_id_to_target_span: HashMap::new(),
 
             enum_class_name_to_id: HashMap::new(),
             enum_class_id_to_span: HashMap::new(),
@@ -702,6 +730,15 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
                 SymbolType::RoleDefinition(id) => ("role_def", id._raw),
                 SymbolType::LabelDefinition(id) => ("label_def", id._raw),
                 SymbolType::LabelRef(id) => ("label_ref", id._raw),
+                SymbolType::PortRef(id) => ("port_ref", id._raw),
+                SymbolType::PinIdDefinition(id) => ("pin_id_def", id._raw),
+                SymbolType::PinIdRef(id) => ("pin_id_ref", id._raw),
+                SymbolType::PinIfaceDefinition(id) => ("pin_iface_def", id._raw),
+                SymbolType::PinIfaceRef(id) => ("pin_iface_ref", id._raw),
+                SymbolType::EnumDefinition(id) => ("enum_def", id._raw),
+                SymbolType::EnumRef(id) => ("enum_ref", id._raw),
+                SymbolType::ParamDefinition(id) => ("param_def", id._raw),
+                SymbolType::AttrDefinition(id) => ("attr_def", id._raw),
             };
             let scope = symbols
                 .symbol_scope
@@ -757,6 +794,49 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
 
     // ★ cross_file_targets: deprecated — replaced by ref_def_map.
     // Kept as empty array for backward compatibility with older mcext.
+
+    // ★ §7.6: Build ref_def_map JSON with result_id hash for mcext dedup.
+    let ref_def_map_json = symbols.ref_def_map.as_ref().map(|m| {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        m.entries.len().hash(&mut hasher);
+        m.files.len().hash(&mut hasher);
+        m.containers.len().hash(&mut hasher);
+        m.name_index.len().hash(&mut hasher);
+        if let Some(e) = m.entries.first() {
+            e.ref_kind.hash(&mut hasher);
+            e.file_id.hash(&mut hasher);
+            e.def_span_start.hash(&mut hasher);
+            e.def_span_end.hash(&mut hasher);
+        }
+        if let Some(e) = m.entries.last() {
+            e.ref_kind.hash(&mut hasher);
+            e.file_id.hash(&mut hasher);
+        }
+        let result_id = hasher.finish();
+
+        json!({
+            "entries": m.entries.iter().map(|e| {
+                json!({
+                    "ref_kind": e.ref_kind as u8,
+                    "ref_id": e.ref_id,
+                    "file_id": e.file_id,
+                    "def_span": [e.def_span_start, e.def_span_end],
+                    "def_kind": e.def_kind as u8,
+                    "container_id": e.container_id,
+                    "cmie_kind": e.cmie_kind,
+                })
+            }).collect::<Vec<_>>(),
+            "files": &m.files,
+            "containers": &m.containers,
+            "kind_names": (0u8..=23).map(|i| {
+                let kind: crate::ast::ast_semantic::SymbolKind = unsafe { std::mem::transmute(i) };
+                kind.kind_name()
+            }).collect::<Vec<_>>(),
+            "result_id": result_id,
+        })
+    });
+
     json!({
         "local": {
             "declares": local_declares,
@@ -768,26 +848,6 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
             "references": global_references,
             "cross_file_targets": [],
         },
-        // ★ RefDefMap — unified ref→def resolution table
-        "ref_def_map": symbols.ref_def_map.as_ref().map(|m| {
-            json!({
-                "entries": m.entries.iter().map(|e| {
-                    json!({
-                        "ref_kind": e.ref_kind as u8,
-                        "ref_id": e.ref_id,
-                        "file_id": e.file_id,
-                        "def_span": [e.def_span_start, e.def_span_end],
-                        "def_kind": e.def_kind as u8,
-                        "container_id": e.container_id,
-                    })
-                }).collect::<Vec<_>>(),
-                "files": &m.files,
-                "containers": &m.containers,
-                "kind_names": (0u8..=23).map(|i| {
-                    let kind: crate::ast::ast_semantic::SymbolKind = unsafe { std::mem::transmute(i) };
-                    kind.kind_name()
-                }).collect::<Vec<_>>(),
-            })
-        }),
+        "ref_def_map": ref_def_map_json,
     })
 }

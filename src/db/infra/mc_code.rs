@@ -49,6 +49,13 @@ pub struct McCode {
     pub(crate) modules_parsed: bool,
     /// ★ §7.6: Use table needs refresh because a `use`d file changed.
     pub(crate) use_table_dirty: bool,
+    /// ★ Cross-file class ref targets cached from create_lapper() for consolidate_ref_def_map().
+    /// Replaces GlobalSymbolTable.declare_id_to_target_span (§8.2 removal).
+    cross_file_targets: Vec<(
+        crate::ast::ast_semantic::ReferenceId,
+        McURI,
+        std::ops::Range<usize>,
+    )>,
 }
 
 ////////////////////////////////
@@ -105,6 +112,7 @@ impl McCode {
             pass1_complete: false,
             modules_parsed: false,
             use_table_dirty: false,
+            cross_file_targets: Vec::new(),
         })
     }
 
@@ -121,6 +129,7 @@ impl McCode {
             pass1_complete: false,
             modules_parsed: false,
             use_table_dirty: false,
+            cross_file_targets: Vec::new(),
         }
     }
 
@@ -138,6 +147,7 @@ impl McCode {
             pass1_complete: false,
             modules_parsed: false,
             use_table_dirty: false,
+            cross_file_targets: Vec::new(),
         })
     }
     pub fn free(&mut self) {
@@ -1540,10 +1550,15 @@ impl McCode {
                 SymbolType::LabelDefinition(d) => (SymbolKind::LabelDef, u32::from(*d)),
                 SymbolType::FunctionDefinition(d) => (SymbolKind::FuncDef, u32::from(*d)),
                 SymbolType::PinNameDefinition(d) => (SymbolKind::PinNameDef, u32::from(*d)),
+                SymbolType::PinIdDefinition(d) => (SymbolKind::PinIdDef, u32::from(*d)),
+                SymbolType::PinIfaceDefinition(d) => (SymbolKind::PinIfaceDef, u32::from(*d)),
                 SymbolType::EnumValueDefinition(d) => (SymbolKind::EnumValDef, u32::from(*d)),
+                SymbolType::EnumDefinition(d) => (SymbolKind::EnumDef, u32::from(*d)),
                 SymbolType::ClassDefinition(d) => (SymbolKind::ClassDef, u32::from(*d)),
                 SymbolType::DefineDefinition(d) => (SymbolKind::DefineDef, u32::from(*d)),
                 SymbolType::RoleDefinition(d) => (SymbolKind::RoleDef, u32::from(*d)),
+                SymbolType::ParamDefinition(d) => (SymbolKind::ParamDef, u32::from(*d)),
+                SymbolType::AttrDefinition(d) => (SymbolKind::AttrDef, u32::from(*d)),
                 _ => continue,
             };
             def_map.entry(id).or_insert((iv.start, iv.stop, kind));
@@ -1553,10 +1568,14 @@ impl McCode {
         for iv in lapper.iter() {
             let (ref_kind, decl_id) = match &iv.val {
                 SymbolType::InstanceRef(d) => (SymbolKind::InstRef, u32::from(*d)),
+                SymbolType::PortRef(d) => (SymbolKind::PortRef, u32::from(*d)),
                 SymbolType::LabelRef(d) => (SymbolKind::LabelRef, u32::from(*d)),
                 SymbolType::FunctionRef(d) => (SymbolKind::FuncRef, u32::from(*d)),
                 SymbolType::PinNameRef(d) => (SymbolKind::PinNameRef, u32::from(*d)),
+                SymbolType::PinIdRef(d) => (SymbolKind::PinIdRef, u32::from(*d)),
+                SymbolType::PinIfaceRef(d) => (SymbolKind::PinIfaceRef, u32::from(*d)),
                 SymbolType::EnumValueRef(d) => (SymbolKind::EnumValRef, u32::from(*d)),
+                SymbolType::EnumRef(d) => (SymbolKind::EnumRef, u32::from(*d)),
                 SymbolType::ClassRef(d) => (SymbolKind::ClassRef, u32::from(*d)),
                 _ => continue,
             };
@@ -1584,6 +1603,7 @@ impl McCode {
                         def_span_end: def_stop as u32,
                         def_kind,
                         container_id: cid,
+                        cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
                     },
                 );
             }
@@ -1610,11 +1630,14 @@ impl McCode {
             let lt = &sem.local_table;
             let uri = &self.uri;
 
-            // ── Layer 1: ID chain ──
-            // Use helper closures to avoid double-borrow on map
+            // ── Build reverse DeclareId → scope map for container_id population ──
+            let decl_id_to_scope: std::collections::HashMap<u32, String> = lt
+                .name_to_declare_id
+                .iter()
+                .map(|((_u, scope, _n), &did)| (u32::from(did), scope.clone()))
+                .collect();
 
-            // Inline helper: compute file_id and container_id first, then insert.
-            // This avoids double-borrow on map in the same expression.
+            // ── Layer 1: ID chain ──
 
             // 1a. class_ref (ReferenceId) → class_def
             for (ref_id, class_id) in &gt.declare_id_to_class_id {
@@ -1632,6 +1655,7 @@ impl McCode {
                             def_span_end: span.end as u32,
                             def_kind: SymbolKind::ClassDef,
                             container_id: cid,
+                            cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
                         },
                     );
                 }
@@ -1652,12 +1676,13 @@ impl McCode {
                         def_span_end: span.end as u32,
                         def_kind: SymbolKind::ClassDef,
                         container_id: cid,
+                        cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
                     },
                 );
             }
 
-            // 1c. declare_id_to_target_span (cross-file class ref targets)
-            for (ref_id, (def_uri, span)) in &gt.declare_id_to_target_span {
+            // 1c. cross-file class ref targets (cached from create_lapper, §8.2)
+            for (ref_id, def_uri, span) in &self.cross_file_targets {
                 let fid = map.intern_file(def_uri);
                 let cid = map.intern_container("");
                 map.insert(
@@ -1671,6 +1696,7 @@ impl McCode {
                         def_span_end: span.end as u32,
                         def_kind: SymbolKind::ClassDef,
                         container_id: cid,
+                        cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
                     },
                 );
             }
@@ -1679,7 +1705,11 @@ impl McCode {
             for (inst_id, decl_id) in &lt.inst_id_to_declare_inst {
                 if let Some(span) = lt.declare_inst_to_span.get(decl_id) {
                     let fid = map.intern_file(uri);
-                    let cid = map.intern_container("");
+                    let scope = decl_id_to_scope
+                        .get(&u32::from(*decl_id))
+                        .map(|s| s.as_str())
+                        .unwrap_or("");
+                    let cid = map.intern_container(scope);
                     map.insert(
                         SymbolKind::InstRef,
                         u32::from(*inst_id),
@@ -1691,6 +1721,7 @@ impl McCode {
                             def_span_end: span.end as u32,
                             def_kind: SymbolKind::InstDef,
                             container_id: cid,
+                            cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
                         },
                     );
                 }
@@ -1711,6 +1742,7 @@ impl McCode {
                         def_span_end: span.end as u32,
                         def_kind: SymbolKind::EnumValDef,
                         container_id: cid,
+                        cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
                     },
                 );
             }
@@ -1737,6 +1769,7 @@ impl McCode {
                             def_span_end: span.end as u32,
                             def_kind: SymbolKind::EnumDef,
                             container_id: cid,
+                            cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
                         },
                     );
                 }
@@ -1749,11 +1782,13 @@ impl McCode {
         // Later insertions overwrite earlier ones, so lowest priority first.
         {
             // P5: mcode system library — register from global tables
+            use crate::ast::ast_semantic::CmieKind;
             let mut add_p5 = |name: &str,
                               uri_str: &str,
                               span_start: usize,
                               span_end: usize,
-                              def_kind: SymbolKind| {
+                              def_kind: SymbolKind,
+                              cmie_kind: u8| {
                 let uri: McURI = uri_str.to_string();
                 let fid = map.intern_file(&uri);
                 let cid = map.intern_container("");
@@ -1766,6 +1801,7 @@ impl McCode {
                     def_span_end: span_end as u32,
                     def_kind,
                     container_id: cid,
+                    cmie_kind,
                 });
                 map.name_index
                     .insert((self.uri.to_string(), name.to_string()), idx);
@@ -1774,19 +1810,40 @@ impl McCode {
                 let c = entry.value();
                 let name = entry.key().ident.to_string();
                 let uri = entry.key().uri.to_string();
-                add_p5(&name, &uri, c.span.start, c.span.end, SymbolKind::ClassDef);
+                add_p5(
+                    &name,
+                    &uri,
+                    c.span.start,
+                    c.span.end,
+                    SymbolKind::ClassDef,
+                    CmieKind::Component as u8,
+                );
             }
             for entry in crate::db::infra::global::mcc_modules.iter() {
                 let m = entry.value();
                 let name = entry.key().ident.to_string();
                 let uri = entry.key().uri.to_string();
-                add_p5(&name, &uri, m.span.start, m.span.end, SymbolKind::ClassDef);
+                add_p5(
+                    &name,
+                    &uri,
+                    m.span.start,
+                    m.span.end,
+                    SymbolKind::ClassDef,
+                    CmieKind::Module as u8,
+                );
             }
             for entry in crate::db::infra::global::mcc_interfaces.iter() {
                 let i = entry.value();
                 let name = entry.key().ident.to_string();
                 let uri = entry.key().uri.to_string();
-                add_p5(&name, &uri, i.span.start, i.span.end, SymbolKind::ClassDef);
+                add_p5(
+                    &name,
+                    &uri,
+                    i.span.start,
+                    i.span.end,
+                    SymbolKind::ClassDef,
+                    CmieKind::Interface as u8,
+                );
             }
             for entry in crate::db::infra::global::mcc_enums.iter() {
                 let e = entry.value();
@@ -1798,10 +1855,14 @@ impl McCode {
                     e.span[0] as usize,
                     e.span[1] as usize,
                     SymbolKind::EnumDef,
+                    CmieKind::Enum as u8,
                 );
             }
 
             // P4: use chain (medium priority, overwrites P5)
+            // ★ Fix: target_map entry indices point into target_map.entries,
+            // not self.entries. We must copy the entry data (re-interning file/container)
+            // and register the new index in self's name_index.
             for mc_use in &self.uselist {
                 let target_uri = crate::build::pass1::canonicalize_project_uri(&mc_use.uri);
                 // ★ §7.6: Register reverse dependency — "self uses target"
@@ -1816,12 +1877,46 @@ impl McCode {
                     if let Ok(target_sym) = target_file.symbols.lock() {
                         if let Some(ref target_map) = target_sym.ref_def_map {
                             for ((_target_uri, name), &entry_idx) in &target_map.name_index {
-                                // Register original name (P4)
-                                map.add_name_alias(&self.uri, name, entry_idx);
-                                // ★ §5.1 use as alias: e.g. `use ./helper as h`
-                                if let Some(ref alias) = mc_use.as_id {
-                                    let aliased = format!("{alias}.{name}");
-                                    map.add_name_alias(&self.uri, &aliased, entry_idx);
+                                // Copy the entry from target_map, re-interning
+                                // file_id/container_id into self's map.
+                                if let Some(src_entry) = target_map.entries.get(entry_idx) {
+                                    let src_file_uri =
+                                        target_map.files.get(src_entry.file_id as usize);
+                                    let src_container = if src_entry.container_id != u32::MAX {
+                                        target_map
+                                            .containers
+                                            .get(src_entry.container_id as usize)
+                                            .map(|c| c.as_str())
+                                            .unwrap_or("")
+                                    } else {
+                                        ""
+                                    };
+                                    let new_fid = if let Some(furi) = src_file_uri {
+                                        map.intern_file(&McURI::from(furi.as_str()))
+                                    } else {
+                                        map.intern_file(&self.uri)
+                                    };
+                                    let new_cid = map.intern_container(src_container);
+                                    let new_idx = map.entries.len();
+                                    map.entries.push(RefDefEntry {
+                                        ref_kind: src_entry.ref_kind,
+                                        ref_id: src_entry.ref_id,
+                                        file_id: new_fid,
+                                        def_span_start: src_entry.def_span_start,
+                                        def_span_end: src_entry.def_span_end,
+                                        def_kind: src_entry.def_kind,
+                                        container_id: new_cid,
+                                        cmie_kind: src_entry.cmie_kind,
+                                    });
+                                    // Register original name (P4)
+                                    map.name_index
+                                        .insert((self.uri.to_string(), name.to_string()), new_idx);
+                                    // ★ §5.1 use as alias: e.g. `use ./helper as h`
+                                    if let Some(ref alias) = mc_use.as_id {
+                                        let aliased = format!("{alias}.{name}");
+                                        map.name_index
+                                            .insert((self.uri.to_string(), aliased), new_idx);
+                                    }
                                 }
                             }
                         }
@@ -1846,6 +1941,7 @@ impl McCode {
                                 def_span_end: span.end as u32,
                                 def_kind: SymbolKind::ClassDef,
                                 container_id: cid,
+                                cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
                             });
                             map.add_name_alias(&self.uri, class_name, idx);
                         }
@@ -1863,6 +1959,7 @@ impl McCode {
                                 def_span_end: span.end as u32,
                                 def_kind: SymbolKind::EnumDef,
                                 container_id: cid,
+                                cmie_kind: CmieKind::Enum as u8,
                             });
                             map.add_name_alias(&self.uri, class_name, idx);
                         }
@@ -1886,6 +1983,7 @@ impl McCode {
 
     pub fn create_lapper(&mut self) {
         tracing::info!(target: "mcc::lsp", "[LAPPER_DEBUG] create_lapper START uri={}", self.uri);
+        self.cross_file_targets.clear();
         match self.symbols.lock() {
             Ok(mut sem) => {
                 let mut symbol_lapper = SymbolRangeLapper::new(vec![]);
@@ -1927,9 +2025,10 @@ impl McCode {
                                         decl_span.clone(),
                                         _class_id,
                                     );
-                                    // Store target span so goto-def can resolve cross-file
-                                    gt.declare_id_to_target_span
-                                        .insert(refid, (target_uri.clone(), target_span.clone()));
+                                    // ★ Cache cross-file targets locally for consolidate_ref_def_map,
+                                    // bypassing GlobalSymbolTable.declare_id_to_target_span (§8.2).
+                                    self.cross_file_targets
+                                        .push((refid, target_uri, target_span));
                                 }
                             }
                         }
@@ -3066,17 +3165,8 @@ impl McCode {
                     });
                 }
 
-                // ★ Build RefDefMap Layer 2 inline — shared DeclareId matching.
-                // Done here while the lapper is fresh, no separate re-scan.
-                {
-                    if sem.ref_def_map.is_none() {
-                        sem.ref_def_map = Some(crate::ast::ast_semantic::RefDefMap::new());
-                    }
-                    let scope_clone = sem.symbol_scope.clone();
-                    if let Some(ref mut map) = sem.ref_def_map {
-                        Self::fill_refdef_layer2(map, &symbol_lapper, &scope_clone, &self.uri);
-                    }
-                }
+                // ★ RefDefMap Layer 2 is built after consolidate_ref_def_map
+                // below — moved outside this lock scope so consolidate doesn't overwrite.
 
                 sem.symbol_lapper = symbol_lapper;
             }
@@ -3086,6 +3176,24 @@ impl McCode {
         }
         // ★ Layer 1 + name index — build after lapper is complete and lock released.
         self.consolidate_ref_def_map();
+
+        // ★ Layer 2 — merge after Layer 1 so entries aren't overwritten.
+        let (lapper_snapshot, scope_snapshot) = self
+            .symbols
+            .lock()
+            .ok()
+            .map(|s| (s.symbol_lapper.clone(), s.symbol_scope.clone()))
+            .unwrap_or_else(|| {
+                (
+                    SymbolRangeLapper::new(vec![]),
+                    std::collections::HashMap::new(),
+                )
+            });
+        if let Ok(mut sem) = self.symbols.lock() {
+            if let Some(ref mut map) = sem.ref_def_map {
+                Self::fill_refdef_layer2(map, &lapper_snapshot, &scope_snapshot, &self.uri);
+            }
+        }
     }
 
     pub fn pass2(&mut self) {}
