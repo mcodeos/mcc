@@ -14,11 +14,19 @@ use crate::db::infra::global;
 use crate::db::infra::mc_use::McUse;
 use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
+use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Global deduplication flag: each parse cycle outputs AST visit only once
 /// Reset at the mcc_load_project entry point (mcb_reset_ast_visit_flag)
 pub static AST_VISIT_DONE: AtomicBool = AtomicBool::new(false);
+
+/// Re-entrancy guard for parse_pass1_types: prevents mcb_get_cmie's
+/// on-demand parsing from re-entering parse_pass1_types for a file
+/// that is already being parsed higher up the call stack.
+thread_local! {
+    static PARSING_PASS1: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+}
 
 pub fn mcb_reset_ast_visit_flag() {
     AST_VISIT_DONE.store(false, Ordering::SeqCst);
@@ -908,6 +916,12 @@ impl McCode {
     /// Phase 1a: only register component/interface/enum definitions to the global table
     /// This step does not parse module body, ensuring cross-file type definitions are ready first
     pub fn parse_pass1_types(&mut self) {
+        // Re-entrancy guard: if this file is already being parsed up the call
+        // stack (triggered from mcb_get_cmie's on-demand parsing), skip.
+        let already_parsing = PARSING_PASS1.with(|s| !s.borrow_mut().insert(self.uri.clone()));
+        if already_parsing {
+            return;
+        }
         for node in self.ast.iter() {
             match node.get_type() {
                 MCAST_INTERFACE => {
@@ -1093,7 +1107,11 @@ impl McCode {
         // Mark Pass1 parse as complete
         self.pass1_complete = true;
 
+        // Mark Pass1 parse as complete
+        self.pass1_complete = true;
+
         self.parse_pass1_modules();
+        PARSING_PASS1.with(|s| s.borrow_mut().remove(&self.uri));
     }
 
     /// Phase 1b: parse all module definitions (at this point all component/interface/enum are already registered)
@@ -1153,7 +1171,15 @@ impl McCode {
     }
 
     pub fn parse_pass1_modules(&mut self) {
+        // Re-entrancy guard: same as parse_pass1_types — mcb_get_cmie's
+        // on-demand parsing can trigger parse_pass1_modules for a file
+        // that is already being parsed higher up the call stack.
+        let already_parsing = PARSING_PASS1.with(|s| !s.borrow_mut().insert(self.uri.clone()));
+        if already_parsing {
+            return;
+        }
         if self.modules_parsed && !self.use_table_dirty {
+            PARSING_PASS1.with(|s| s.borrow_mut().remove(&self.uri));
             return;
         }
         // ★ §7.6: Use table dirty — only rebuild RefDefMap/name_index,
@@ -1161,6 +1187,7 @@ impl McCode {
         if self.modules_parsed && self.use_table_dirty {
             self.create_lapper(); // includes inline Layer 2 + consolidate (Layer 1 + name_index)
             self.use_table_dirty = false;
+            PARSING_PASS1.with(|s| s.borrow_mut().remove(&self.uri));
             return;
         }
         self.modules_parsed = true;
@@ -1184,8 +1211,10 @@ impl McCode {
         // This new instance has the same Arc<Mutex<McSemSymbols>> (shared symbol data),
         // but create_lapper() was NOT called on it, so symbol_lapper was empty.
         // Call create_lapper here to ensure the lapper is built for the current file.
+        // ★ Fix: Build the lapper after processing all modules.
         self.create_lapper(); // includes inline Layer 2 + consolidate_ref_def_map (Layer 1 + name_index)
         self.use_table_dirty = false;
+        PARSING_PASS1.with(|s| s.borrow_mut().remove(&self.uri));
 
         // ★ §7.6: Mark dependent files dirty — their Use table P4 entries
         // may need refreshing because this file's CMIE defs changed.
