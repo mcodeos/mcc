@@ -265,8 +265,6 @@ impl McModule {
             }
         }
     }
-
-    /// Find instance
     pub(crate) fn find_inst(&self, id: &str) -> Option<McInstance> {
         self.insts.get(id).cloned()
     }
