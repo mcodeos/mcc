@@ -17,6 +17,8 @@ pub struct McSemSymbols {
     pub symbol_lapper: SymbolRangeLapper,
     /// ★ LSP: Scope annotations for lapper intervals (start, stop) -> scope_name
     pub symbol_scope: HashMap<(usize, usize), String>,
+    /// ★ Unified ref→def map — built once at pass1 completion
+    pub ref_def_map: Option<RefDefMap>,
 }
 impl Default for McSemSymbols {
     fn default() -> Self {
@@ -31,6 +33,7 @@ impl McSemSymbols {
             local_table: LocalSymbolTable::new(),
             symbol_lapper: SymbolRangeLapper::new(vec![]),
             symbol_scope: HashMap::new(),
+            ref_def_map: None,
         }
     }
 }
@@ -57,6 +60,214 @@ pub enum SymbolType {
     LabelRef(DeclareId),        // label reference in a net phrase
 }
 pub type SymbolRangeLapper = Lapper<usize, SymbolType>;
+
+// ── Compact SymbolKind for RefDefMap (replaces lapper kind strings) ──
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum SymbolKind {
+    ClassDef = 0,
+    ClassRef = 1,
+    InstDef = 2,
+    InstRef = 3,
+    PortDef = 4,
+    PortRef = 5,
+    LabelDef = 6,
+    LabelRef = 7,
+    FuncDef = 8,
+    FuncRef = 9,
+    PinIdDef = 10,
+    PinIdRef = 11,
+    PinNameDef = 12,
+    PinNameRef = 13,
+    PinIfaceDef = 14,
+    PinIfaceRef = 15,
+    EnumDef = 16,
+    EnumRef = 17,
+    EnumValDef = 18,
+    EnumValRef = 19,
+    RoleDef = 20,
+    ParamDef = 21,
+    DefineDef = 22,
+    AttrDef = 23,
+}
+
+impl SymbolKind {
+    pub fn from_lapper_kind(kind: &str) -> Option<Self> {
+        match kind {
+            "class_def" | "class_definition" => Some(Self::ClassDef),
+            "class_ref" | "declare_class" => Some(Self::ClassRef),
+            "instance_def" | "declare_instance" => Some(Self::InstDef),
+            "instance_ref" => Some(Self::InstRef),
+            "port_def" => Some(Self::PortDef),
+            "label_def" => Some(Self::LabelDef),
+            "label_ref" => Some(Self::LabelRef),
+            "function_def" => Some(Self::FuncDef),
+            "function_ref" => Some(Self::FuncRef),
+            "pin_name_def" => Some(Self::PinNameDef),
+            "pin_name_ref" => Some(Self::PinNameRef),
+            "enum_class_def" => Some(Self::EnumDef),
+            "enum_value_def" => Some(Self::EnumValDef),
+            "enum_class_ref" => Some(Self::EnumRef),
+            "enum_value_ref" => Some(Self::EnumValRef),
+            "role_def" => Some(Self::RoleDef),
+            "define_def" => Some(Self::DefineDef),
+            _ => None,
+        }
+    }
+
+    pub fn is_ref(&self) -> bool {
+        matches!(
+            self,
+            Self::ClassRef
+                | Self::InstRef
+                | Self::PortRef
+                | Self::LabelRef
+                | Self::FuncRef
+                | Self::PinIdRef
+                | Self::PinNameRef
+                | Self::PinIfaceRef
+                | Self::EnumRef
+                | Self::EnumValRef
+        )
+    }
+
+    pub fn kind_name(&self) -> &'static str {
+        match self {
+            Self::ClassDef => "ClassDef",
+            Self::ClassRef => "ClassRef",
+            Self::InstDef => "InstDef",
+            Self::InstRef => "InstRef",
+            Self::PortDef => "PortDef",
+            Self::PortRef => "PortRef",
+            Self::LabelDef => "LabelDef",
+            Self::LabelRef => "LabelRef",
+            Self::FuncDef => "FuncDef",
+            Self::FuncRef => "FuncRef",
+            Self::PinIdDef => "PinIdDef",
+            Self::PinIdRef => "PinIdRef",
+            Self::PinNameDef => "PinNameDef",
+            Self::PinNameRef => "PinNameRef",
+            Self::PinIfaceDef => "PinIfaceDef",
+            Self::PinIfaceRef => "PinIfaceRef",
+            Self::EnumDef => "EnumDef",
+            Self::EnumRef => "EnumRef",
+            Self::EnumValDef => "EnumValDef",
+            Self::EnumValRef => "EnumValRef",
+            Self::RoleDef => "RoleDef",
+            Self::ParamDef => "ParamDef",
+            Self::DefineDef => "DefineDef",
+            Self::AttrDef => "AttrDef",
+        }
+    }
+}
+
+/// One entry in the unified ref→def map.
+#[derive(Clone, Debug)]
+pub struct RefDefEntry {
+    pub ref_kind: SymbolKind,
+    pub ref_id: u32,
+    pub file_id: u32,
+    pub def_span_start: u32,
+    pub def_span_end: u32,
+    pub def_kind: SymbolKind,
+    pub container_id: u32,
+}
+
+/// Unified symbol resolution table — built once at pass1 completion.
+#[derive(Clone, Debug, Default)]
+pub struct RefDefMap {
+    pub entries: Vec<RefDefEntry>,
+    /// (kind, id) → index into entries (for O(1) ID-based lookup)
+    pub index: HashMap<(SymbolKind, u32), usize>,
+    pub files: Vec<String>,
+    pub containers: Vec<String>,
+    /// ★ Use table: (file_uri, class_name) → entry index (for name-based P3/P4/P5 lookup)
+    /// Maps from "which file is looking" + "class name" → "where is the def".
+    /// Populated from GlobalSymbolTable after ID-based entries are built.
+    pub name_index: HashMap<(String, String), usize>,
+}
+
+impl RefDefMap {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn insert(&mut self, kind: SymbolKind, ref_id: u32, mut entry: RefDefEntry) {
+        entry.ref_kind = kind;
+        entry.ref_id = ref_id;
+        let idx = self.entries.len();
+        self.entries.push(entry);
+        self.index.insert((kind, ref_id), idx);
+    }
+
+    /// Insert with name-based index for Use-table lookup.
+    /// `lookup_file_uri` = the file performing the lookup (for P3/P4 scoping).
+    /// `class_name` = the CMIE class name being looked up.
+    pub fn insert_with_name(
+        &mut self,
+        kind: SymbolKind,
+        ref_id: u32,
+        lookup_file_uri: &McURI,
+        class_name: &str,
+        mut entry: RefDefEntry,
+    ) {
+        entry.ref_kind = kind;
+        entry.ref_id = ref_id;
+        let idx = self.entries.len();
+        self.entries.push(entry);
+        self.index.insert((kind, ref_id), idx);
+        // ★ Populate name index for O(1) class name lookup
+        self.name_index
+            .insert((lookup_file_uri.to_string(), class_name.to_string()), idx);
+    }
+
+    pub fn get(&self, kind: SymbolKind, ref_id: u32) -> Option<&RefDefEntry> {
+        self.index.get(&(kind, ref_id)).map(|&i| &self.entries[i])
+    }
+
+    /// Add a name-index entry pointing to an existing entry.
+    /// Later insertions overwrite earlier ones — caller must ensure P5→P4→P3 order.
+    pub fn add_name_alias(&mut self, file_uri: &McURI, class_name: &str, entry_idx: usize) {
+        self.name_index
+            .insert((file_uri.to_string(), class_name.to_string()), entry_idx);
+    }
+
+    /// Look up by (file_uri, class_name) — Use table query.
+    pub fn get_by_name(&self, file_uri: &McURI, class_name: &str) -> Option<&RefDefEntry> {
+        self.name_index
+            .get(&(file_uri.to_string(), class_name.to_string()))
+            .map(|&i| &self.entries[i])
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn intern_file(&mut self, uri: &McURI) -> u32 {
+        let s = uri.to_string();
+        if let Some(pos) = self.files.iter().position(|f| f == &s) {
+            pos as u32
+        } else {
+            let id = self.files.len() as u32;
+            self.files.push(s);
+            id
+        }
+    }
+
+    pub fn intern_container(&mut self, name: &str) -> u32 {
+        if name.is_empty() {
+            return u32::MAX;
+        }
+        if let Some(pos) = self.containers.iter().position(|c| c == name) {
+            pos as u32
+        } else {
+            let id = self.containers.len() as u32;
+            self.containers.push(name.to_string());
+            id
+        }
+    }
+}
 
 //---------------------------
 pub type Span = Range<usize>;
@@ -114,12 +325,13 @@ impl LocalSymbolTable {
         rid
     }
 
-    pub fn add_declare(&mut self, span: Span) -> DeclareId {
-        self.add_declare_with_name(span, None, None)
+    pub fn add_declare(&mut self, uri: &McURI, span: Span) -> DeclareId {
+        self.add_declare_with_name(uri, span, None, None)
     }
 
     pub fn add_declare_with_name(
         &mut self,
+        uri: &McURI,
         span: Span,
         name: Option<String>,
         scope: Option<&str>,
@@ -130,7 +342,7 @@ impl LocalSymbolTable {
         if let Some(n) = name {
             let scope_key = scope.unwrap_or("");
             self.name_to_declare_id
-                .insert((McURI::new(), scope_key.to_string(), n), declare_id);
+                .insert((uri.clone(), scope_key.to_string(), n), declare_id);
         }
         declare_id
     }
@@ -201,9 +413,6 @@ pub struct GlobalSymbolTable {
     // Used when class_id is from a different file than the reference
     pub declare_id_to_target_span: HashMap<ReferenceId, (McURI, Span)>,
 
-    // ★ LSP: Instance usage → definition target (DeclareId → definition uri+span)
-    pub declare_inst_to_target_span: HashMap<DeclareId, (McURI, Span)>,
-
     // ★ LSP: enum global storage
     // (uri, class_name) -> class_id
     pub enum_class_name_to_id: HashMap<(McURI, String), DeclareId>,
@@ -231,7 +440,6 @@ impl GlobalSymbolTable {
             global_inst_name_to_id: HashMap::new(),
             global_inst_id_to_span: HashMap::new(),
             declare_id_to_target_span: HashMap::new(),
-            declare_inst_to_target_span: HashMap::new(),
 
             enum_class_name_to_id: HashMap::new(),
             enum_class_id_to_span: HashMap::new(),
@@ -392,7 +600,6 @@ impl GlobalSymbolTable {
             global_inst_name_to_id: HashMap::new(),
             global_inst_id_to_span: HashMap::new(),
             declare_id_to_target_span: HashMap::new(),
-            declare_inst_to_target_span: HashMap::new(),
 
             enum_class_name_to_id: HashMap::new(),
             enum_class_id_to_span: HashMap::new(),
@@ -548,42 +755,8 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
         })
         .unwrap_or_default();
 
-    // ★ LSP: Cross-file goto targets — unified by kind+id.
-    // Each entry has {kind, ref_id, target_uri, span}.
-    // kind matches the lapper interval kind (e.g. "declare_class", "instance_ref").
-    let mut all_targets: Vec<serde_json::Value> = Vec::new();
-
-    // declare_class targets (ReferenceId → target)
-    if let Some(g) = gtable.as_ref() {
-        for (ref_id, (target_uri, span)) in g.declare_id_to_target_span.iter() {
-            all_targets.push(json!({
-                "kind": "class_ref",
-                "ref_id": ref_id._raw,
-                "target_uri": target_uri,
-                "span": [span.start, span.end],
-            }));
-        }
-    }
-
-    // instance_ref + declare_instance targets (DeclareId → target)
-    // Both use the same DeclareId system, generated in create_lapper Pass C.
-    if let Some(g) = gtable.as_ref() {
-        for (decl_id, (target_uri, span)) in g.declare_inst_to_target_span.iter() {
-            all_targets.push(json!({
-                "kind": "instance_def",
-                "ref_id": decl_id._raw,
-                "target_uri": target_uri,
-                "span": [span.start, span.end],
-            }));
-            all_targets.push(json!({
-                "kind": "instance_ref",
-                "ref_id": decl_id._raw,
-                "target_uri": target_uri,
-                "span": [span.start, span.end],
-            }));
-        }
-    }
-
+    // ★ cross_file_targets: deprecated — replaced by ref_def_map.
+    // Kept as empty array for backward compatibility with older mcext.
     json!({
         "local": {
             "declares": local_declares,
@@ -593,7 +766,28 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
         "global": {
             "declares": global_declares,
             "references": global_references,
-            "cross_file_targets": all_targets,
+            "cross_file_targets": [],
         },
+        // ★ RefDefMap — unified ref→def resolution table
+        "ref_def_map": symbols.ref_def_map.as_ref().map(|m| {
+            json!({
+                "entries": m.entries.iter().map(|e| {
+                    json!({
+                        "ref_kind": e.ref_kind as u8,
+                        "ref_id": e.ref_id,
+                        "file_id": e.file_id,
+                        "def_span": [e.def_span_start, e.def_span_end],
+                        "def_kind": e.def_kind as u8,
+                        "container_id": e.container_id,
+                    })
+                }).collect::<Vec<_>>(),
+                "files": &m.files,
+                "containers": &m.containers,
+                "kind_names": (0u8..=23).map(|i| {
+                    let kind: crate::ast::ast_semantic::SymbolKind = unsafe { std::mem::transmute(i) };
+                    kind.kind_name()
+                }).collect::<Vec<_>>(),
+            })
+        }),
     })
 }

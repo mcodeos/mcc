@@ -92,10 +92,13 @@ pub fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
                 })
                 .collect();
 
-            // Compute stable result_id: hash of (token_count, first_pos, last_pos)
+            // ★ §7.6: Stable result_id for mcext dedup.
+            // Hash of (token_count, total_length, first_token_pos, last_token_pos)
+            // so content-identical responses skip symbol rebuilding.
             let result_id = if tokens.is_empty() {
                 None
             } else {
+                use std::hash::{Hash, Hasher};
                 let count = tokens.len();
                 let first_pos = tokens[0]
                     .get("position")
@@ -105,7 +108,16 @@ pub fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
                     .last()
                     .and_then(|v| v.get("position").and_then(|v| v.as_i64()))
                     .unwrap_or(0);
-                Some(format!("{}-{}-{}", count, first_pos, last_pos))
+                let total_len = raw_tokens
+                    .iter()
+                    .map(|(_, _, len)| *len as i64)
+                    .sum::<i64>();
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                count.hash(&mut h);
+                total_len.hash(&mut h);
+                first_pos.hash(&mut h);
+                last_pos.hash(&mut h);
+                Some(format!("{:x}", h.finish()))
             };
 
             let symbols = mcfile
@@ -114,10 +126,18 @@ pub fn try_lookup_sem(candidates: &[McURI]) -> Option<Value> {
                 .map(|s| crate::ast::ast_semantic::symbol_table_to_json(&s, mc_uri))
                 .unwrap_or_else(|_| serde_json::json!({}));
 
+            // ★ §7.6: Affected files via reverse_deps — files that `use` this one
+            let affected: Vec<String> = crate::db::cmie::tables::WORKSPACE
+                .reverse_deps
+                .get(mc_uri)
+                .map(|deps| deps.value().clone())
+                .unwrap_or_default();
+
             return Some(json!({
                 "tokens": tokens,
                 "symbols": symbols,
                 "result_id": result_id,
+                "affected_uris": affected,
             }));
         }
     }

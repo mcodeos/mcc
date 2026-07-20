@@ -50,6 +50,10 @@ pub struct McPins {
 
     /// Source spans for pin names (for LSP goto-definition).
     pub pin_name_spans: std::collections::HashMap<String, std::ops::Range<usize>>,
+    /// §3.2.2: Source spans for pin IDs (e.g., "1", "2" in "1 = VDD").
+    pub pin_id_spans: std::collections::HashMap<String, std::ops::Range<usize>>,
+    /// §3.2.2: Source spans for pin interfaces (e.g., "UART.TTL" in "1::UART.TTL = VDD").
+    pub pin_iface_spans: std::collections::HashMap<String, std::ops::Range<usize>>,
     /// Whether a `pins = [...]` (base) was seen before any `pins += [...]` (N6 check).
     pub has_base_pins: bool,
     /// Pin ID ranges for overlap detection (H3 check).
@@ -102,6 +106,8 @@ impl McPins {
             pins: BTreeMap::new(),
             names_to_id: BTreeMap::new(),
             pin_name_spans: std::collections::HashMap::new(),
+            pin_id_spans: std::collections::HashMap::new(),
+            pin_iface_spans: std::collections::HashMap::new(),
             has_base_pins: false,
             pin_ranges: Vec::new(),
             pin_id_to_names: BTreeMap::new(),
@@ -290,12 +296,21 @@ impl McPins {
                 match subnode.get_type() {
                     MCAST_IOTYPE => {
                         iotype = IOType::new(&subnode);
+                        // §3.2.2: Track pin interface spans for LSP
+                        if let Some(iface_name) = subnode.to_string() {
+                            let span = (subnode.get_pos() as usize)
+                                ..((subnode.get_pos() + subnode.get_len()) as usize);
+                            self.pin_iface_spans.insert(iface_name, span);
+                        }
                     }
                     MCAST_PIN_ID => {
                         pinids = McPins::parse_pinid(&subnode);
-                        // Note: We don't check pin_id_has_param_ref for pin IDs because
-                        // pin IDs are always fixed (numbers or letters), never parameter references.
-                        // Dynamic pins are handled via pin_name_has_param_ref instead.
+                        // §3.2.2: Track pin ID spans for LSP
+                        if let Some(ids) = subnode.to_string() {
+                            let span = (subnode.get_pos() as usize)
+                                ..((subnode.get_pos() + subnode.get_len()) as usize);
+                            self.pin_id_spans.insert(ids, span);
+                        }
                     }
                     MCAST_PIN_NAMES => {
                         pinnames = McPinNames::new(&subnode);
