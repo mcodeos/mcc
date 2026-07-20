@@ -346,6 +346,19 @@ impl McInstances {
         &self.insts
     }
 
+    /// §7.5: Unified idx-aware name resolution.
+    /// Given a reference name (e.g. "GPIO1", "rs485.A", "DC1"),
+    /// find the matching definition key (e.g. "GPIO[1:2]", "rs485{A,B}", "DC1{VDD,GND}").
+    /// Returns None if no matching def key is found.
+    pub fn resolve_idx(&self, ref_name: &str) -> Option<String> {
+        if self.port_spans.contains_key(ref_name) {
+            return Some(ref_name.to_string());
+        }
+        self.iter_instance_names()
+            .find(|k| self.all_name_forms_for(k).contains(&ref_name.to_string()))
+            .cloned()
+    }
+
     /// Return all possible name forms that could reference this port at a usage site.
     pub fn all_name_forms_for(&self, key: &str) -> Vec<String> {
         let mut forms = vec![key.to_string()];

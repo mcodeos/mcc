@@ -631,11 +631,7 @@ impl McModule {
                 if let Some(text) = node.to_string() {
                     let span =
                         (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
-                    let key = insts
-                        .iter_instance_names()
-                        .find(|k| *k == &text || insts.all_name_forms_for(k).contains(&text))
-                        .cloned()
-                        .unwrap_or(text);
+                    let key = insts.resolve_idx(&text).unwrap_or(text);
                     if insts.get(&key).is_some() && insts.port_spans().get(&key).is_none() {
                         insts.store_port_span(&key, span.clone());
                         // Register LSP lapper entry so goto-def can find this inline port
@@ -674,7 +670,7 @@ impl McModule {
             MCAST_ID | MCAST_IDA | MCAST_IDS
             // Curly-brace / square-vec expansions (MIC{P,N}, GPIO[1:2]):
             // extract the base name and record as port ref.
-            | MCAST_OPD_CURLY | MCAST_OPD_CURLY_MN | MCAST_SQUARE_VEC | MCAST_OPD_SQUARE_VEC => {
+            | MCAST_OPD_CURLY | MCAST_OPD_CURLY_MN => {
                 if let Some(text) = node.to_string() {
                     let span =
                         (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
@@ -687,10 +683,7 @@ impl McModule {
                     let matched_key: Option<String> = if insts.port_spans().contains_key(base) {
                         Some(base.to_string())
                     } else {
-                        insts
-                            .iter_instance_names()
-                            .find(|k| insts.all_name_forms_for(k).contains(&text))
-                            .cloned()
+                        insts.resolve_idx(&text)
                     };
                     if let Some(ref key) = matched_key {
                         insts.record_port_ref(span, key, scope);
@@ -699,6 +692,41 @@ impl McModule {
                     }
                     // Note: no else-branch diagnostic here — leaf nodes may be
                     // class refs or instance refs resolved elsewhere.
+                }
+            }
+            // ★ SQUARE_VEC / OPD_SQUARE_VEC (e.g. [VDD_3V3,GND]):
+            //   text starts with `[` so split-by-`[` gives empty base.
+            //   Iterate members and look up each individually — matching how
+            //   McParamDeclares::parse stores them as individual keys in def_spans.
+            MCAST_SQUARE_VEC | MCAST_OPD_SQUARE_VEC => {
+                tracing::info!(target: "mcc::lsp",
+                    "SQUARE_VEC_REF node_type={} pos={} len={}",
+                    node.get_type(),
+                    node.get_pos(),
+                    node.get_len()
+                );
+                let mut current = node.get_sub_node();
+                while let Some(phrase_node) = current {
+                    let ids_node = phrase_node
+                        .get_sub_node()
+                        .unwrap_or_else(|| phrase_node.clone());
+                    if let Some(ids) = crate::semantic::basic::mc_ids::McIds::new(&ids_node) {
+                        let name = ids.to_string();
+                        let member_span = (ids_node.get_pos() as usize)
+                            ..((ids_node.get_pos() + ids_node.get_len()) as usize);
+                        let in_insts = insts.port_spans().contains_key(&name);
+                        let in_params = params.is_defined(&name);
+                        tracing::info!(
+                            "SQUARE_VEC_REF member='{name}' span=[{},{}] in_insts={in_insts} in_params={in_params} scope='{scope}'",
+                            member_span.start, member_span.end
+                        );
+                        if in_insts {
+                            insts.record_port_ref(member_span, &name, scope);
+                        } else if in_params {
+                            params.record_port_ref(member_span, &name, scope);
+                        }
+                    }
+                    current = phrase_node.get_next();
                 }
             }
             // MCAST_OPD wraps a simple operand — extract the inner identifier directly.
@@ -713,10 +741,7 @@ impl McModule {
                                 if insts.port_spans().contains_key(&text) {
                                     Some(text.clone())
                                 } else {
-                                    insts
-                                        .iter_instance_names()
-                                        .find(|k| insts.all_name_forms_for(k).contains(&text))
-                                        .cloned()
+                                    insts.resolve_idx(&text)
                                 };
                             if let Some(ref key) = matched_key {
                                 insts.record_port_ref(span, key, scope);

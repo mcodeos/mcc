@@ -107,6 +107,11 @@ pub struct WorkspaceManager {
 
     // LSP tables -- extracted to db/symbol/workspace.rs
     pub(crate) lsp: crate::db::symbol::workspace::LspTables,
+
+    /// ★ §7.6: Reverse dependency index — "who uses me".
+    /// When file B's CMIE defs change, iterate `reverse_deps[B]` to find
+    /// affected files whose Use table needs rebuilding.
+    pub(crate) reverse_deps: DashMap<McURI, Vec<McURI>>,
 }
 
 impl WorkspaceManager {
@@ -122,6 +127,7 @@ impl WorkspaceManager {
             meta: Mutex::new(WorkspaceMeta::default()),
             saved: Mutex::new(HashMap::new()),
             lsp: crate::db::symbol::workspace::LspTables::new(),
+            reverse_deps: DashMap::new(),
         }
     }
 

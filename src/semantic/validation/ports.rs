@@ -116,10 +116,7 @@ fn check_undefined_net_refs(mod_name: &str, m: &crate::McModule, acc: &mut Check
             }
             // Check if it's a known port/instance
             if !m.insts.contains(clean)
-                && !m
-                    .insts
-                    .iter_instance_names()
-                    .any(|k| m.insts.all_name_forms_for(k).contains(&clean.to_string()))
+                && m.insts.resolve_idx(clean).is_none()
                 && !m.params.is_defined(clean)
             {
                 acc.push(CheckResult {
