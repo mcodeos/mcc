@@ -1611,7 +1611,26 @@ impl McCode {
             if map.index.contains_key(&(ref_kind, decl_id)) {
                 continue;
             }
+            // Verify def_kind matches ref_kind (e.g. FuncRef→FuncDef, InstRef→InstDef)
+            let expected_def = match ref_kind {
+                SymbolKind::InstRef => Some(SymbolKind::InstDef),
+                SymbolKind::FuncRef => Some(SymbolKind::FuncDef),
+                SymbolKind::PortRef => Some(SymbolKind::PortDef),
+                SymbolKind::LabelRef => Some(SymbolKind::LabelDef),
+                SymbolKind::PinNameRef => Some(SymbolKind::PinNameDef),
+                SymbolKind::PinIdRef => Some(SymbolKind::PinIdDef),
+                SymbolKind::PinIfaceRef => Some(SymbolKind::PinIfaceDef),
+                SymbolKind::EnumValRef => Some(SymbolKind::EnumValDef),
+                SymbolKind::EnumRef => Some(SymbolKind::EnumDef),
+                SymbolKind::ClassRef => Some(SymbolKind::ClassDef),
+                _ => None,
+            };
             if let Some(&(def_start, def_stop, def_kind)) = def_map.get(&decl_id) {
+                if let Some(expected) = expected_def {
+                    if def_kind != expected {
+                        continue;
+                    }
+                }
                 if def_start == iv.start && def_stop == iv.stop {
                     continue;
                 }
@@ -3000,7 +3019,7 @@ impl McCode {
                             .map(|(_, _, name)| name.clone())
                     };
 
-                    let default_container = find_container(0); // for nodes without position context
+                    let _default_container = find_container(0); // unused, kept for reference
 
                     for node in &all_nodes {
                         let ntype = node.get_type();
@@ -3089,7 +3108,7 @@ impl McCode {
                                     name_node.get_pos() as usize,
                                     (name_node.get_pos() + name_node.get_len()) as usize,
                                 );
-                                let enclosing = default_container.clone();
+                                let enclosing = find_container(span.0);
                                 let decl_id = sem.local_table.add_declare_with_name(
                                     &self.uri,
                                     span.0..span.1,
@@ -3108,7 +3127,7 @@ impl McCode {
                                     name_node.get_pos() as usize,
                                     (name_node.get_pos() + name_node.get_len()) as usize,
                                 );
-                                let enclosing = default_container.clone();
+                                let enclosing = find_container(span.0);
                                 let decl_id = sem.local_table.add_declare_with_name(
                                     &self.uri,
                                     span.0..span.1,
@@ -3213,12 +3232,12 @@ impl McCode {
                                 // (e.g. uC.power([VDD_3V3,GND]) → VDD_3V3 refs)
                                 // Walk ALL descendants of the funcall node — not just
                                 // next siblings (which may be at wrong nesting level).
-                                if let Some(enclosing) = &default_container {
+                                if let Some(enclosing) = find_container(span.0) {
                                     let refs = Self::collect_funccall_arg_refs(
                                         node,
                                         &sem.local_table,
                                         &self.uri,
-                                        enclosing,
+                                        &enclosing,
                                     );
                                     for (span, did) in refs {
                                         symbol_lapper.insert(Interval {
