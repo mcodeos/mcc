@@ -2032,6 +2032,14 @@ impl McCode {
     pub fn create_lapper(&mut self) {
         tracing::info!(target: "mcc::lsp", "[LAPPER_DEBUG] create_lapper START uri={}", self.uri);
         self.cross_file_targets.clear();
+        // Clear stale name_to_declare_id entries from previous lapper builds.
+        // mcb_parse_all_modules rebuilds the lapper but name_to_declare_id is
+        // shared via Arc, so old DeclareIds would pollute FuncRef scope searches.
+        if let Ok(mut sem) = self.symbols.lock() {
+            let before = sem.local_table.name_to_declare_id.len();
+            sem.local_table.name_to_declare_id.retain(|(uri, _, _), _| uri != &self.uri);
+            // Cleanup complete — stale entries removed
+        }
         match self.symbols.lock() {
             Ok(mut sem) => {
                 let mut symbol_lapper = SymbolRangeLapper::new(vec![]);
@@ -2977,49 +2985,54 @@ impl McCode {
                             "create_lapper scope: uri={uri_str}, found {} containers: {:?}",
                             container_names.len(), container_names);
                     }
-                    // Build a sorted list of (span_start, container_name) for
-                    // O(log n) container lookup by position.  Each container's
-                    // span is the full node extent so that any position between
-                    // start and end belongs to that container.
-                    let mut container_spans: Vec<(usize, usize, String)> = Vec::new();
-                    {
-                        let uri_str = self.uri.as_str();
-                        for entry in workspace::WORKSPACE.modules.iter() {
-                            if entry.key().uri.as_str() == uri_str {
-                                let span = &entry.value().span;
-                                container_spans.push((span.start, span.end, entry.key().ident.to_string()));
+                    // Build enclosing container lookup from AST node positions.
+                    // Stored spans (McModule::span / McComponent::span) may be
+                    // truncated (get_pos() returns 0 for MCAST_COMPONENT), so we
+                    // use the AST nodes directly from all_nodes to determine
+                    // which container a position falls within.
+                    // Use AST node extents to determine enclosing container.
+                    // Nodes are in DFS order; child nodes appear after parent.
+                    // Track a stack of (name, end_pos) — when we pass a node's
+                    // end position, pop it from the stack.
+                    let mut container_stack: Vec<(String, usize)> = Vec::new();
+                    let mut pos_to_container: Vec<(usize, String)> = Vec::new();
+                    for node in &all_nodes {
+                        let ntype = node.get_type();
+                        let node_start = node.get_pos() as usize;
+                        let node_end = node_start + node.get_len() as usize;
+                        // Pop containers we've moved past
+                        while let Some((_, end)) = container_stack.last() {
+                            if node_start >= *end {
+                                container_stack.pop();
+                            } else {
+                                break;
                             }
                         }
-                        for entry in workspace::WORKSPACE.components.iter() {
-                            if entry.key().uri.as_str() == uri_str {
-                                let span = &entry.value().span;
-                                container_spans.push((span.start, span.end, entry.key().ident.to_string()));
+                        if ntype == MCAST_MODULE || ntype == MCAST_COMPONENT {
+                            if let Some(sub) = node.get_sub_node() {
+                                if let Some(name_node) = sub.iter().find(|x| x.is_type(MCAST_NAME)) {
+                                    if let Some(ids_node) = name_node.get_sub_node() {
+                                        if let Some(ids) = McIds::new(&ids_node) {
+                                            container_stack.push((ids.to_string(), node_end));
+                                        }
+                                    }
+                                }
                             }
                         }
-                        for entry in global::mcc_modules.iter() {
-                            if entry.key().uri.as_str() == uri_str {
-                                let span = &entry.value().span;
-                                container_spans.push((span.start, span.end, entry.key().ident.to_string()));
-                            }
+                        // Record current container for this position
+                        if let Some((name, _)) = container_stack.last() {
+                            pos_to_container.push((node_start, name.clone()));
                         }
-                        for entry in global::mcc_components.iter() {
-                            if entry.key().uri.as_str() == uri_str {
-                                let span = &entry.value().span;
-                                container_spans.push((span.start, span.end, entry.key().ident.to_string()));
-                            }
-                        }
-                        // Sort by start position, then by end descending (innermost first)
-                        container_spans.sort_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(&a.1)));
                     }
-                    let find_container = |pos: usize| -> Option<String> {
-                        container_spans
+                    // Build a sorted lookup by position
+                    pos_to_container.sort_by_key(|(pos, _)| *pos);
+                    let find_container = move |pos: usize| -> Option<String> {
+                        pos_to_container
                             .iter()
-                            .rev() // latest (innermost) first
-                            .find(|(s, e, _)| pos >= *s && pos < *e)
-                            .map(|(_, _, name)| name.clone())
+                            .take_while(|(p, _)| *p <= pos)
+                            .last()
+                            .map(|(_, name)| name.clone())
                     };
-
-                    let _default_container = find_container(0); // unused, kept for reference
 
                     for node in &all_nodes {
                         let ntype = node.get_type();
@@ -3050,6 +3063,7 @@ impl McCode {
                                     (Some(m), Some(f)) => Some(format!("{m}.{f}")),
                                     _ => func_name.clone(),
                                 };
+                                // FuncDef scope: {enclosing}.{func_name}
                                 let decl_id = sem.local_table.add_declare_with_name(
                                     &self.uri,
                                     span.0..span.1,
@@ -3164,6 +3178,7 @@ impl McCode {
                                     .unwrap_or(false);
                                 let func_name = crate::semantic::basic::mc_ids::McIds::new(&nn)
                                     .map(|ids| ids.to_string());
+                                // MCAST_OPD_FCALL: func_name={:?} has_instance={}
                                 if has_instance {
                                     // For method calls, reuse the FunctionDefinition's DeclareId.
                                     // FuncDef is registered with scope "{enclosing}.{func_name}".
@@ -3181,6 +3196,7 @@ impl McCode {
                                                     u == &self.uri && name.as_str() == n.as_str()
                                                 })
                                                 .collect();
+                                            // FuncRef scope search complete
                                             if candidates.is_empty() {
                                                 None
                                             } else {
