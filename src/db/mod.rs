@@ -6,5 +6,4 @@ pub(crate) mod cmie;
 pub(crate) mod context;
 pub(crate) mod diagnostic;
 pub(crate) mod infra;
-pub(crate) mod mcode;
 pub(crate) mod symbol;
