@@ -41,6 +41,8 @@ use super::entry_points::{
 };
 use super::ladder_model::LadderModel;
 use super::ladder_place::{apply_ladder_model, LadderGeometry};
+use super::sp_model::try_build_sp_model;
+use super::sp_place::apply_sp_model as apply_sp;
 use super::normalize::{compute_canvas, normalize_positions, CANVAS_MARGIN};
 use super::optimize::PlaceOptimizer;
 use super::rails::{explode_power_rails_to_flags, is_rail_box};
@@ -425,9 +427,13 @@ impl Layouter for FlowLayouter {
         super::pin_place::pin_place_pipeline(graph, Some(root_id), true, self.hub_keep_semantic);
         probe_degenerate_boxes(graph, "after pin_place");
 
-        // ★ Ladder：net 表推导的确定性摆位。必须在 pin_place 之后 —— 做最后一个写者。
-        // 模型命中时覆盖 two_lane_ladder 写的一切；模型 bail 时旧路径已兜底。
-        if let Some(m) = super::ladder_model::try_build_ladder_model(graph) {
+        // ★ 确定性摆位，pin_place 之后做最后写者。SP 先手：命中即抢先落两把锁
+        // (geom_locked + SeriesInline)，之后 select.rs 的三个 passive pass 全跳过。
+        // 纯 SP 树 → SP 命中，ladder 若被调也会 NoBridge bail（互补）。
+        // 桥式网孔 → SP 判 NonSpBridge bail → ladder 接手。两者皆 bail → 通用 flow 兜底。
+        if let Some(sp) = try_build_sp_model(graph) {
+            apply_sp(graph, &sp);
+        } else if let Some(m) = super::ladder_model::try_build_ladder_model(graph) {
             apply_ladder_model(graph, &m);
         }
 
