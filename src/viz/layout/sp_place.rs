@@ -20,7 +20,7 @@
 //! and the router (TrunkTap) grows the vertical rail / horizontal lead itself.
 
 use crate::vector::graph::boxdef::{PinLayout, VisualRole};
-use crate::vector::graph::{EntryPoint, EntrySide, McVecGraph};
+use crate::vector::graph::{EntryPoint, EntrySide, McVecBox, McVecGraph, Point, Route, Segment};
 
 use super::sp_model::{SpKind, SpModel, SpTree};
 
@@ -70,6 +70,14 @@ pub fn apply_sp_model(graph: &mut McVecGraph, m: &SpModel) {
     let mid_y = MARGIN + (root_h - 1.0) / 2.0 * ROW_H;
     place_terminal(graph, m.left_box, m.left_node, EntrySide::Right, 0.0, mid_y, term_w, term_h);
     place_terminal(graph, m.right_box, m.right_node, EntrySide::Left, root_w, mid_y, term_w, term_h);
+
+    // ── ★ wiring: emit rails + taps + leads directly into net.route ─────────
+    // Every same-node pin already shares a grid column, so the rail is a vertical
+    // line at that column and each pin taps in horizontally (short branches tap
+    // across as leads). Emitting here — instead of leaving it to the generic
+    // router — is what removes the over-the-top / snaking wires. The router is
+    // told to skip any net that already carries a route (see the flow patch).
+    emit_sp_routes(graph, m, &grid, root_w);
 }
 
 /// A common size for both terminal ICs so u1 and u2 render at the same scale.
@@ -319,6 +327,121 @@ fn pin_on_net(graph: &McVecGraph, box_id: i64, ni: usize) -> Option<i64> {
 }
 
 // ============================================================================
+// Wiring — emit rails / taps / leads directly into net.route
+// ============================================================================
+
+const EPS: f64 = 1e-6;
+
+/// Pixel position of a pin on a box edge, from its entry point.
+fn pin_pixel(b: &McVecBox, pin_id: i64) -> Option<Point> {
+    let ep = b.entry_points.iter().find(|e| e.pin_id == pin_id)?;
+    let p = match ep.side {
+        EntrySide::Left => Point::new(b.x, b.y + ep.offset * b.h),
+        EntrySide::Right => Point::new(b.x + b.w, b.y + ep.offset * b.h),
+        EntrySide::Top => Point::new(b.x + ep.offset * b.w, b.y),
+        EntrySide::Bottom => Point::new(b.x + ep.offset * b.w, b.y + b.h),
+    };
+    Some(p)
+}
+
+/// One tap contribution to a node's rail: the pin's pixel position + its grid column.
+struct Tap {
+    px: f64,
+    py: f64,
+    col: f64,
+}
+
+/// For every net the SP model fully owns, build `route = vertical rail + horizontal
+/// taps (+ leads) + junctions`, deterministically, from the placed geometry.
+fn emit_sp_routes(graph: &mut McVecGraph, m: &SpModel, grid: &[GridPlacement], root_w: f64) {
+    // ── read pass: gather taps per net + compute each route (immutable borrow) ──
+    let computed: Vec<(usize, Route)> = {
+        let mut per_net: std::collections::HashMap<usize, Vec<Tap>> =
+            std::collections::HashMap::new();
+        let mut owned: std::collections::HashSet<i64> = std::collections::HashSet::new();
+        owned.insert(m.left_box);
+        owned.insert(m.right_box);
+
+        let bx = |id: i64| graph.boxes.iter().find(|b| b.id == id);
+
+        // passives: left pin on node a (col = x_slot), right pin on node b (col = x_slot+1)
+        for gp in grid {
+            owned.insert(gp.box_id);
+            let Some((a, b)) = span_of(&m.root, gp.box_id) else { continue };
+            let Some(bo) = bx(gp.box_id) else { continue };
+            if let Some(pid) = pin_on_net(graph, gp.box_id, a) {
+                if let Some(p) = pin_pixel(bo, pid) {
+                    per_net.entry(a).or_default().push(Tap { px: p.x, py: p.y, col: gp.x_slot });
+                }
+            }
+            if let Some(pid) = pin_on_net(graph, gp.box_id, b) {
+                if let Some(p) = pin_pixel(bo, pid) {
+                    per_net.entry(b).or_default().push(Tap { px: p.x, py: p.y, col: gp.x_slot + 1.0 });
+                }
+            }
+        }
+
+        // terminals: connecting pin on its node (col = 0 / root_w)
+        for &(bid, node, col) in &[(m.left_box, m.left_node, 0.0), (m.right_box, m.right_node, root_w)] {
+            if let (Some(bo), Some(pid)) = (bx(bid), pin_on_net(graph, bid, node)) {
+                if let Some(p) = pin_pixel(bo, pid) {
+                    per_net.entry(node).or_default().push(Tap { px: p.x, py: p.y, col });
+                }
+            }
+        }
+
+        let mut out = Vec::new();
+        for (ni, taps) in per_net {
+            let Some(net) = graph.nets.get(ni) else { continue };
+            // only own a net if every endpoint box is SP-placed or a terminal
+            if !net.endpoints.iter().all(|e| owned.contains(&e.box_id)) || taps.len() < 2 {
+                continue;
+            }
+            out.push((ni, build_rail_route(&taps)));
+        }
+        out
+    };
+
+    // ── write pass: commit routes (mutable borrow) ──
+    for (ni, route) in computed {
+        if let Some(net) = graph.nets.get_mut(ni) {
+            net.route = Some(route);
+        }
+    }
+}
+
+/// Build one net's route: vertical rail at the max-column, horizontal taps from
+/// every pin (short branches tap across as leads), junction dots where 3+ meet.
+fn build_rail_route(taps: &[Tap]) -> Route {
+    let rail_col = taps.iter().map(|t| t.col).fold(f64::MIN, f64::max);
+    let rail_x = MARGIN + rail_col * COL_W;
+    let y_top = taps.iter().map(|t| t.py).fold(f64::MAX, f64::min);
+    let y_bot = taps.iter().map(|t| t.py).fold(f64::MIN, f64::max);
+
+    let mut route = Route::new();
+    if (y_bot - y_top).abs() > EPS {
+        route.segments.push(Segment {
+            from: Point::new(rail_x, y_top),
+            to: Point::new(rail_x, y_bot),
+        });
+    }
+    for t in taps {
+        if (t.px - rail_x).abs() > EPS {
+            route.segments.push(Segment {
+                from: Point::new(t.px, t.py),
+                to: Point::new(rail_x, t.py),
+            });
+        }
+    }
+    if taps.len() >= 3 {
+        for t in taps {
+            route.junctions.push(Point::new(rail_x, t.py));
+        }
+    }
+    route
+}
+
+// ============================================================================
 // Golden regression (Phase 5)
 // ============================================================================
 
@@ -491,5 +614,43 @@ mod tests {
         let u1 = g.boxes.iter().find(|b| b.id == 101).unwrap();
         let conn = u1.entry_points.iter().find(|e| e.pin_id == 6).unwrap();
         assert_eq!(conn.side, EntrySide::Right, "u1 connecting pin must face the block");
+    }
+
+    #[test]
+    fn golden_rails_and_leads_emitted() {
+        let mut g = golden();
+        let m = build_sp_model(&g).unwrap();
+        apply_sp_model(&mut g, &m);
+
+        // a net has a vertical rail iff it carries a segment with equal x, differing y
+        let has_rail = |ni: usize| {
+            g.nets[ni].route.as_ref().map_or(false, |r| {
+                r.segments.iter().any(|s| {
+                    (s.from.x - s.to.x).abs() < 1e-6 && (s.from.y - s.to.y).abs() > 1e-6
+                })
+            })
+        };
+        // horizontal leads (equal y, differing x)
+        let n_leads = |ni: usize| {
+            g.nets[ni].route.as_ref().map_or(0, |r| {
+                r.segments
+                    .iter()
+                    .filter(|s| (s.from.y - s.to.y).abs() < 1e-6 && (s.from.x - s.to.x).abs() > 1e-6)
+                    .count()
+            })
+        };
+
+        // every SP net is routed by SP
+        for ni in 0..5 {
+            assert!(g.nets[ni].route.is_some(), "net {ni} should be SP-routed");
+        }
+        // N1(0), N3(2), N4(3) are risers; N2(1), N5(4) are single-row (no rail)
+        assert!(has_rail(0), "N1 rail");
+        assert!(has_rail(2), "N3 rail");
+        assert!(has_rail(3), "N4 rail");
+        assert!(!has_rail(1), "N2 no rail");
+        assert!(!has_rail(4), "N5 no rail");
+        // N3 has the two leads (C2 row0, R6 row2) plus C5's tap → several horizontal segments
+        assert!(n_leads(2) >= 2, "N3 should carry the C2 + R6 leads");
     }
 }
