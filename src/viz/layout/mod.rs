@@ -29,6 +29,8 @@ pub mod grid;
 pub mod hierarchical;
 pub mod ladder_model;
 pub mod ladder_place;
+pub mod sp_model;
+pub mod sp_place;
 pub mod layered;
 pub mod multi_strategy;
 pub mod normalize;
