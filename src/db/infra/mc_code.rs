@@ -1214,7 +1214,9 @@ impl McCode {
         // ★ Fix: Build the lapper after processing all modules.
         self.create_lapper(); // includes inline Layer 2 + consolidate_ref_def_map (Layer 1 + name_index)
         self.use_table_dirty = false;
-        PARSING_PASS1.with(|s| s.borrow_mut().remove(&self.uri));
+        // Keep URI in PARSING_PASS1 so mcb_parse_all_modules' second pass
+        // skips rebuild (which would clear name_to_declare_id and create
+        // new DeclareIds, breaking FuncRef→FuncDef matching).
 
         // ★ §7.6: Mark dependent files dirty — their Use table P4 entries
         // may need refreshing because this file's CMIE defs changed.
@@ -2037,7 +2039,9 @@ impl McCode {
         // shared via Arc, so old DeclareIds would pollute FuncRef scope searches.
         if let Ok(mut sem) = self.symbols.lock() {
             let before = sem.local_table.name_to_declare_id.len();
-            sem.local_table.name_to_declare_id.retain(|(uri, _, _), _| uri != &self.uri);
+            sem.local_table
+                .name_to_declare_id
+                .retain(|(uri, _, _), _| uri != &self.uri);
             // Cleanup complete — stale entries removed
         }
         match self.symbols.lock() {
@@ -3010,7 +3014,8 @@ impl McCode {
                         }
                         if ntype == MCAST_MODULE || ntype == MCAST_COMPONENT {
                             if let Some(sub) = node.get_sub_node() {
-                                if let Some(name_node) = sub.iter().find(|x| x.is_type(MCAST_NAME)) {
+                                if let Some(name_node) = sub.iter().find(|x| x.is_type(MCAST_NAME))
+                                {
                                     if let Some(ids_node) = name_node.get_sub_node() {
                                         if let Some(ids) = McIds::new(&ids_node) {
                                             container_stack.push((ids.to_string(), node_end));
@@ -3034,7 +3039,8 @@ impl McCode {
                             .map(|(_, name)| name.clone())
                     };
 
-                    for node in &all_nodes {
+                    // Process in forward file order: FuncDefs before FuncRefs
+                    for node in all_nodes.iter().rev() {
                         let ntype = node.get_type();
                         if ntype == MCAST_FUNCTION {
                             // ★ Fix: use MCAST_IDS (the actual name) for span, not
@@ -3067,9 +3073,10 @@ impl McCode {
                                 let decl_id = sem.local_table.add_declare_with_name(
                                     &self.uri,
                                     span.0..span.1,
-                                    func_name,
+                                    func_name.clone(),
                                     scope.as_deref(),
                                 );
+                                // FuncDef registered in name_to_declare_id
                                 symbol_lapper.insert(Interval {
                                     start: span.0,
                                     stop: span.1,
@@ -3167,18 +3174,25 @@ impl McCode {
                             if let Some(nn) = name_node {
                                 // Use the tightest IDS sub-node for the span,
                                 // not the parent which may cover constructor args.
-                                let id_node = nn.get_sub_node().unwrap_or_else(|| nn.clone());
+                                // Extract the innermost MCAST_IDS for accurate span and name.
+                                // nn may be MCAST_NAME (wrapper) → need child MCAST_IDS.
+                                let ids_node = if nn.get_type() == MCAST_IDS {
+                                    nn.clone()
+                                } else {
+                                    nn.get_sub_node().unwrap_or_else(|| nn.clone())
+                                };
                                 let span = (
-                                    id_node.get_pos() as usize,
-                                    (id_node.get_pos() + id_node.get_len()) as usize,
+                                    ids_node.get_pos() as usize,
+                                    (ids_node.get_pos() + ids_node.get_len()) as usize,
                                 );
                                 let has_instance = sub
                                     .as_ref()
                                     .map(|s| s.get_type() == MCAST_INSTANCE)
                                     .unwrap_or(false);
-                                let func_name = crate::semantic::basic::mc_ids::McIds::new(&nn)
-                                    .map(|ids| ids.to_string());
-                                // MCAST_OPD_FCALL: func_name={:?} has_instance={}
+                                // Use ids_node (MCAST_IDS) for name parsing
+                                let func_name =
+                                    crate::semantic::basic::mc_ids::McIds::new(&ids_node)
+                                        .map(|ids| ids.to_string());
                                 if has_instance {
                                     // For method calls, reuse the FunctionDefinition's DeclareId.
                                     // FuncDef is registered with scope "{enclosing}.{func_name}".
@@ -3196,7 +3210,6 @@ impl McCode {
                                                     u == &self.uri && name.as_str() == n.as_str()
                                                 })
                                                 .collect();
-                                            // FuncRef scope search complete
                                             if candidates.is_empty() {
                                                 None
                                             } else {

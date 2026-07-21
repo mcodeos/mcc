@@ -77,24 +77,24 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     let _guard = CmieGuard(guard_key);
 
     // ═══════════════════════════════════════════════════════════════
-    // RefDefMap lookup — ID-based first (§6.3), name_index fallback (§5).
+    // RefDefMap resolution (§6.3 → §5 fallback)
+    // §6.3: ID-based ClassRef lookup via name_to_declare_id (all scopes).
+    // §5:   Name-based fallback via Use table (P3→P4→P5 priority).
     // ═══════════════════════════════════════════════════════════════
-    let mut has_refdefmap = false;
     if let Some(mcfile) = workspace::WORKSPACE.mcodes.get(uri) {
         if let Ok(sym) = mcfile.symbols.lock() {
-            has_refdefmap = sym.ref_def_map.is_some();
             if let Some(ref map) = sym.ref_def_map {
+                // §6.3: search all scopes in name_to_declare_id for ClassRef entries
                 let decl_id = sym
                     .local_table
                     .name_to_declare_id
-                    .get(&(uri.clone(), String::new(), name_str.clone()))
-                    .copied();
+                    .iter()
+                    .find(|((u, _s, name), _)| u == uri && name.as_str() == name_str)
+                    .map(|(_, &id)| id);
                 let id_hit = decl_id.and_then(|did| {
-                    map.get(
-                        crate::ast::ast_semantic::SymbolKind::ClassRef,
-                        u32::from(did),
-                    )
+                    map.get(crate::ast::ast_semantic::SymbolKind::ClassRef, u32::from(did))
                 });
+                // §5: name-based Use table lookup
                 let entry = id_hit.or_else(|| map.get_by_name(uri, &name_str));
                 if let Some(entry) = entry {
                     let def_uri = map
@@ -104,11 +104,9 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
                         .unwrap_or_default();
                     trace!(target: "mcc::mcb_get_cmie", name = %name_str, def_uri = %def_uri, cmie_kind = entry.cmie_kind, "RefDefMap hit");
                     let space_name = McSpaceName::new(class_name, def_uri.clone());
-                    // ★ Direct single-table lookup via cmie_kind
                     if let Some(cmie) = lookup_cmie_by_kind(entry.cmie_kind, &space_name) {
                         return Some(cmie);
                     }
-                    // UNKNOWN cmie_kind: probe all tables (only Layer 1 C/M/I entries)
                     if let Some(cmie) = crate::query::lookup::find_in_project_tables(&space_name) {
                         return Some(cmie);
                     }
@@ -117,44 +115,8 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
         }
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // RefDefMap miss: trigger on-demand parsing, then retry.
-    // ═══════════════════════════════════════════════════════════════
-    if !has_refdefmap {
-        if let Some(mut mcfile) = workspace::WORKSPACE.mcodes.get_mut(uri) {
-            if !mcfile.pass1_complete {
-                mcfile.parse_pass1_types();
-            }
-            if !mcfile.modules_parsed {
-                let prev = crate::current_uri::get();
-                crate::current_uri::set(uri);
-                mcfile.parse_pass1_modules();
-                crate::current_uri::set(&prev);
-            }
-            if let Ok(sym) = mcfile.symbols.lock() {
-                if let Some(ref map) = sym.ref_def_map {
-                    if let Some(entry) = map.get_by_name(uri, &name_str) {
-                        let def_uri = map
-                            .files
-                            .get(entry.file_id as usize)
-                            .cloned()
-                            .unwrap_or_default();
-                        let space_name = McSpaceName::new(class_name, def_uri);
-                        if let Some(cmie) = lookup_cmie_by_kind(entry.cmie_kind, &space_name) {
-                            return Some(cmie);
-                        }
-                        if let Some(cmie) =
-                            crate::query::lookup::find_in_project_tables(&space_name)
-                        {
-                            return Some(cmie);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    None
+    // RefDefMap miss or not yet built: fall back to old name-only search
+    find_by_name_in_project_tables(class_name)
 }
 
 pub(crate) fn mcb_get_cmie_with_uri(class_name: &McIds, uri: &McURI) -> Option<(McCMIE, McURI)> {
