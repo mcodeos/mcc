@@ -293,11 +293,14 @@ pub fn pick_router(intent: &RouteIntent) -> RouterChoice {
 /// **Does not recurse** ── sub-layers (`graph.sub_graphs`) are recursed by
 /// [`route_all_with_dispatch`].
 pub fn route_layer_with_dispatch(graph: &mut McVecGraph) {
-    // First pass: compute each net's intent + choice (immutable borrow)
+    // First pass: compute each net's intent + choice (immutable borrow).
+    // ★ Nets that already carry a route (placed by SP / ladder / other deterministic
+    // placers) are skipped here — the router will not overwrite them.
     let plans: Vec<(usize, RouterChoice, String)> = graph
         .nets
         .iter()
         .enumerate()
+        .filter(|(_, net)| net.route.is_none())
         .map(|(i, net)| {
             let intent = RouteIntent::from_net(net, graph);
             let choice = pick_router(&intent);
@@ -314,6 +317,14 @@ pub fn route_layer_with_dispatch(graph: &mut McVecGraph) {
 
     // Second pass: execute according to the plan
     for (i, choice, name) in plans {
+        // ★ Belt-and-suspenders: skip nets that already carry a route (placed by
+        // SP / ladder / other deterministic placers). The first-pass filter already
+        // excluded them, but this guards against any future code paths that might
+        // still include them.
+        if graph.nets[i].route.is_some() {
+            continue;
+        }
+
         // DRC warning
         if choice.should_warn() {
             crate::vlog!(
