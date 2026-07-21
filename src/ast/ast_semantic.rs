@@ -118,7 +118,10 @@ pub struct SymbolType {
 
 impl SymbolType {
     pub fn new(kind: SymbolKind, id: u32) -> Self {
-        SymbolType { kind: kind as u8, id }
+        SymbolType {
+            kind: kind as u8,
+            id,
+        }
     }
 
     pub fn decl_id(&self) -> DeclareId {
@@ -156,6 +159,8 @@ pub enum SymbolKind {
     ParamDef = 21,
     DefineDef = 22,
     AttrDef = 23,
+    /// ★ §15.1: Function parameter reference at call site.
+    FuncParamRef = 24,
 }
 
 impl SymbolKind {
@@ -185,6 +190,7 @@ impl SymbolKind {
             "param_def" => Some(Self::ParamDef),
             "define_def" => Some(Self::DefineDef),
             "attr_def" => Some(Self::AttrDef),
+            "func_param_ref" => Some(Self::FuncParamRef),
             _ => None,
         }
     }
@@ -202,6 +208,7 @@ impl SymbolKind {
                 | Self::PinIfaceRef
                 | Self::EnumRef
                 | Self::EnumValRef
+                | Self::FuncParamRef
         )
     }
 
@@ -231,6 +238,7 @@ impl SymbolKind {
             Self::ParamDef => "ParamDef",
             Self::DefineDef => "DefineDef",
             Self::AttrDef => "AttrDef",
+            Self::FuncParamRef => "FuncParamRef",
         }
     }
 }
@@ -270,6 +278,9 @@ pub struct RefDefMap {
     pub containers: Vec<String>,
     /// ★ Use table: (file_uri, class_name) → entry for name-based P3/P4/P5 lookup.
     pub name_index: HashMap<(String, String), RefDefEntry>,
+    /// ★ §15.2: Reverse index — (def_kind, file_id, byte_start, byte_end) → [(ref_kind, ref_id)].
+    /// Built alongside entries for O(1) find-all-references and rename.
+    pub def_to_refs: HashMap<(SymbolKind, u32, u32, u32), Vec<(SymbolKind, u32)>>,
 }
 
 impl RefDefMap {
@@ -280,6 +291,17 @@ impl RefDefMap {
     pub fn insert(&mut self, kind: SymbolKind, ref_id: u32, mut entry: RefDefEntry) {
         entry.ref_kind = kind;
         entry.ref_id = ref_id;
+        // ★ §15.2: Populate reverse index (def→refs)
+        let def_key = (
+            entry.def_kind,
+            entry.def_loc.file_id,
+            entry.def_loc.byte_start,
+            entry.def_loc.byte_end,
+        );
+        self.def_to_refs
+            .entry(def_key)
+            .or_default()
+            .push((kind, ref_id));
         self.entries.insert((kind, ref_id), entry);
     }
 
@@ -294,6 +316,17 @@ impl RefDefMap {
     ) {
         entry.ref_kind = kind;
         entry.ref_id = ref_id;
+        // ★ §15.2: Populate reverse index
+        let def_key = (
+            entry.def_kind,
+            entry.def_loc.file_id,
+            entry.def_loc.byte_start,
+            entry.def_loc.byte_end,
+        );
+        self.def_to_refs
+            .entry(def_key)
+            .or_default()
+            .push((kind, ref_id));
         self.entries.insert((kind, ref_id), entry.clone());
         self.name_index
             .insert((lookup_file_uri.to_string(), class_name.to_string()), entry);
@@ -313,6 +346,20 @@ impl RefDefMap {
     pub fn get_by_name(&self, file_uri: &McURI, class_name: &str) -> Option<&RefDefEntry> {
         self.name_index
             .get(&(file_uri.to_string(), class_name.to_string()))
+    }
+
+    /// ★ §15.2: Find all references to a definition.
+    pub fn get_refs_for_def(
+        &self,
+        def_kind: SymbolKind,
+        file_id: u32,
+        byte_start: u32,
+        byte_end: u32,
+    ) -> &[(SymbolKind, u32)] {
+        self.def_to_refs
+            .get(&(def_kind, file_id, byte_start, byte_end))
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     pub fn is_empty(&self) -> bool {
@@ -401,7 +448,9 @@ impl LocalSymbolTable {
         uri.as_str().hash(&mut h);
         scope.hash(&mut h);
         name.hash(&mut h);
-        DeclareId { _raw: h.finish() as u32 }
+        DeclareId {
+            _raw: h.finish() as u32,
+        }
     }
     pub fn assign_inst_id(&mut self) -> ReferenceId {
         let rid = self.inst_id_counter;
@@ -423,14 +472,18 @@ impl LocalSymbolTable {
             self.assign_declare_id()
         };
         if let Some(n) = name {
-            self.name_to_declare_id
-                .insert((loc.file_id, loc.container_id, loc.func_id, n), (declare_id, loc));
+            self.name_to_declare_id.insert(
+                (loc.file_id, loc.container_id, loc.func_id, n),
+                (declare_id, loc),
+            );
         }
         // Populate scope_index for scope-based lookups
         if !scope_key.is_empty() {
-            self.scope_index
-                .entry(scope_key.to_string())
-                .or_insert((loc.file_id, loc.container_id, loc.func_id));
+            self.scope_index.entry(scope_key.to_string()).or_insert((
+                loc.file_id,
+                loc.container_id,
+                loc.func_id,
+            ));
         }
         declare_id
     }
@@ -442,9 +495,15 @@ impl LocalSymbolTable {
     }
 
     /// Look up a declare by scope string + name, using scope_index.
-    pub fn lookup_by_scope_name(&self, scope_str: &str, name: &str) -> Option<(DeclareId, SourceLocation)> {
+    pub fn lookup_by_scope_name(
+        &self,
+        scope_str: &str,
+        name: &str,
+    ) -> Option<(DeclareId, SourceLocation)> {
         let (fid, cid, fnid) = self.scope_index.get(scope_str)?;
-        self.name_to_declare_id.get(&(*fid, *cid, *fnid, name.to_string())).copied()
+        self.name_to_declare_id
+            .get(&(*fid, *cid, *fnid, name.to_string()))
+            .copied()
     }
 }
 
@@ -643,9 +702,17 @@ fn resolve_file_id(file_table: &[String], uri: &McURI) -> u32 {
 }
 
 /// Helper: reconstruct a scope string from container_id and func_id.
-pub fn scope_from_ids(container_table: &[String], func_table: &[String], cid: u32, fnid: u32) -> String {
+pub fn scope_from_ids(
+    container_table: &[String],
+    func_table: &[String],
+    cid: u32,
+    fnid: u32,
+) -> String {
     let container = if cid > 0 {
-        container_table.get(cid as usize).cloned().unwrap_or_default()
+        container_table
+            .get(cid as usize)
+            .cloned()
+            .unwrap_or_default()
     } else {
         String::new()
     };
@@ -709,7 +776,9 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
                 .local_table
                 .name_to_declare_id
                 .iter()
-                .find(|(_, (_, s))| s.byte_start as usize == interval.start && s.byte_end as usize == interval.stop)
+                .find(|(_, (_, s))| {
+                    s.byte_start as usize == interval.start && s.byte_end as usize == interval.stop
+                })
                 .map(|((_fid, cid, fnid, _name), _)| {
                     scope_from_ids(&symbols.container_table, &symbols.func_table, *cid, *fnid)
                 })
@@ -795,11 +864,21 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
             }).collect::<Vec<_>>(),
             "files": &m.files,
             "containers": &m.containers,
-            "kind_names": (0u8..=23).map(|i| {
+            "kind_names": (0u8..=24).map(|i| {
                 let kind: crate::ast::ast_semantic::SymbolKind = unsafe { std::mem::transmute(i) };
                 kind.kind_name()
             }).collect::<Vec<_>>(),
             "result_id": result_id,
+            // ★ §15.2: Reverse index for find-all-references
+            "def_to_refs": m.def_to_refs.iter().map(|((dk, fid, bs, be), refs)| {
+                json!({
+                    "def_kind": *dk as u8,
+                    "file_id": *fid,
+                    "byte_start": *bs,
+                    "byte_end": *be,
+                    "refs": refs.iter().map(|(rk, rid)| json!([*rk as u8, *rid])).collect::<Vec<_>>(),
+                })
+            }).collect::<Vec<_>>(),
         })
     });
 

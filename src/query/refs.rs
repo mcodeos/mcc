@@ -44,7 +44,12 @@ pub fn mcb_lookup_instance_decl(uri: &McURI, name: &str, scope: Option<&str>) ->
 ///
 /// Called when an instance name is used elsewhere in the module (e.g., `uC.i2c()`).
 /// The reference is linked to the declaration via decl_id.
-pub fn mcb_register_instance_ref(uri: &McURI, span: Span, decl_id: DeclareId, _scope: Option<&str>) {
+pub fn mcb_register_instance_ref(
+    uri: &McURI,
+    span: Span,
+    decl_id: DeclareId,
+    _scope: Option<&str>,
+) {
     if let Some(mcode) = workspace::WORKSPACE.mcodes.get(uri) {
         if let Ok(mut sem) = mcode.symbols.lock() {
             sem.local_table.add_inst(span, decl_id);

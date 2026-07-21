@@ -1268,19 +1268,20 @@ impl McInstances {
                     ..((ids_node.get_pos() + ids_node.get_len()) as usize);
                 self.store_port_span(inst_name_ref, inst_span.clone());
                 let scope = self.scope.as_deref();
-                let decl_id = crate::db::cmie::tables::WORKSPACE
-                    .mcodes
-                    .get(uri)
-                    .and_then(|mcode| {
-                        mcode.symbols.lock().ok().map(|mut sem| {
-                            sem.local_table.add_declare_with_name(
-                                uri,
-                                crate::ast::ast_semantic::SourceLocation::from_span(&inst_span),
-                                Some(inst_name.clone()),
-                                scope,
-                            )
-                        })
-                    });
+                let decl_id =
+                    crate::db::cmie::tables::WORKSPACE
+                        .mcodes
+                        .get(uri)
+                        .and_then(|mcode| {
+                            mcode.symbols.lock().ok().map(|mut sem| {
+                                sem.local_table.add_declare_with_name(
+                                    uri,
+                                    crate::ast::ast_semantic::SourceLocation::from_span(&inst_span),
+                                    Some(inst_name.clone()),
+                                    scope,
+                                )
+                            })
+                        });
                 if let Some(id) = decl_id {
                     tracing::info!(target: "crate::lsp", "Registered instance decl: {} at {:?} -> id={:?}", inst_name, inst_span, id);
                 } else {
