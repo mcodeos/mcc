@@ -775,7 +775,36 @@ cd /Users/dan/work/mo/mcc
 cargo test
 ```
 
-### 6.6 RPC-Based Debug Session
+### 6.6 Lapper / RefDefMap Debug Dump
+
+```bash
+# Start server + load project, then dump lapper + RefDefMap
+mcc start -d && sleep 3
+mcc show lapper /Users/dan/work/mo/mcd/projects/hbl/src/us513.mc > /tmp/us513_lap.txt 2>&1
+
+# Or one-liner for any file:
+mcc show lapper /path/to/file.mc > /tmp/lap_dump.txt 2>&1
+```
+
+Output JSON structure:
+- `lapper` — raw lapper entries (kind, id, start, stop, scope)
+- `local.declares` / `local.references` — DeclareId assignments
+- `ref_def_map.entries` — final ref→def mappings (ref_kind, ref_id, def_span, file_id)
+- `ref_def_map.kind_names` — 24 SymbolKind ordinal→name mapping
+
+Quick analysis:
+```bash
+python3 -c "
+import json
+with open('/tmp/lap_dump.txt') as f: d = json.load(f)
+kn = d['ref_def_map']['kind_names']
+from collections import Counter
+for k,c in sorted(Counter(kn[e['ref_kind']]+'->'+kn[e['def_kind']] for e in d['ref_def_map']['entries']).items()):
+    print(f'{k}: {c}')
+"
+```
+
+### 6.7 RPC-Based Debug Session
 
 ```bash
 # Terminal 1: Start server
