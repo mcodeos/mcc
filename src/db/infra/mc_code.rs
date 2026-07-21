@@ -1434,26 +1434,18 @@ impl McCode {
         scope_path: &crate::ScopePath,
     ) -> Option<crate::ast::ast_semantic::DeclareId> {
         let ref_scope = scope_path.scope_key();
-        let file_uri = &scope_path.uri;
 
-        // P1: exact scope match — scope identified by (file_uri, scope_string)
-        //   func body ref → scope = "US513.i2c"
-        //   module body ref → scope = "US513"
-        let exact_key = (file_uri.clone(), ref_scope.clone(), name.to_string());
-        if let Some((id, _)) = local.name_to_declare_id.get(&exact_key) {
-            return Some(*id);
+        // P1: exact scope match — scope identified by scope string via scope_index
+        if let Some((id, _)) = local.lookup_by_scope_name(&ref_scope, name) {
+            return Some(id);
         }
 
         // P2: container-level match — when inside a func, fall back to
         //   the parent container (module/component) scope
         if scope_path.func.is_some() {
-            let container_key = (
-                file_uri.clone(),
-                scope_path.container.name.clone(),
-                name.to_string(),
-            );
-            if let Some((id, _)) = local.name_to_declare_id.get(&container_key) {
-                return Some(*id);
+            let container_scope = &scope_path.container.name;
+            if let Some((id, _)) = local.lookup_by_scope_name(container_scope, name) {
+                return Some(id);
             }
         }
 
@@ -1694,7 +1686,12 @@ impl McCode {
             let _decl_id_to_scope: std::collections::HashMap<u32, String> = lt
                 .name_to_declare_id
                 .iter()
-                .map(|((_u, scope, _n), (did, _))| (u32::from(*did), scope.clone()))
+                .map(|((_fid, cid, fnid, _n), (did, _))| {
+                    let scope = crate::ast::ast_semantic::scope_from_ids(
+                        &sem.container_table, &sem.func_table, *cid, *fnid,
+                    );
+                    (u32::from(*did), scope)
+                })
                 .collect();
 
             // ── Layer 1: ID chain ──
@@ -2058,10 +2055,14 @@ impl McCode {
         // mcb_parse_all_modules rebuilds the lapper but name_to_declare_id is
         // shared via Arc, so old DeclareIds would pollute FuncRef scope searches.
         if let Ok(mut sem) = self.symbols.lock() {
+            let file_id = crate::ast::ast_semantic::intern(&mut sem.file_table, self.uri.as_str());
             let _ = sem.local_table.name_to_declare_id.len();
             sem.local_table
                 .name_to_declare_id
-                .retain(|(uri, _, _), _| uri != &self.uri);
+                .retain(|(fid, _, _, _), _| *fid != file_id);
+            sem.local_table
+                .scope_index
+                .retain(|_, (fid, _, _)| *fid != file_id);
             // Cleanup complete — stale entries removed
         }
         match self.symbols.lock() {
@@ -2073,8 +2074,9 @@ impl McCode {
                 Self::lapper_interfaces(&self.uri, &mut sem, &mut symbol_lapper);
                 Self::lapper_module_ports(&self.uri, &mut sem, &mut symbol_lapper);
 
+                let decl_count_file_id = crate::ast::ast_semantic::intern(&mut sem.file_table, self.uri.as_str());
                 let decl_count = sem.local_table.name_to_declare_id.iter()
-                    .filter(|((u, _, _), _)| u == &self.uri)
+                    .filter(|((fid, _, _, _), _)| *fid == decl_count_file_id)
                     .count();
                 let local_ref_count = sem.local_table.inst_id_to_span.len();
                 tracing::info!(target: "mcc::lsp", "create_lapper: {} decls, {} local_refs, lapper len={}", decl_count, local_ref_count, symbol_lapper.len());
@@ -2102,7 +2104,12 @@ impl McCode {
             .map(|s| {
                 let scope_map: std::collections::HashMap<(usize, usize), String> = s.local_table.name_to_declare_id
                     .iter()
-                    .map(|((_, scope, _), (_, loc))| ((loc.byte_start as usize, loc.byte_end as usize), scope.clone()))
+                    .map(|((_fid, cid, fnid, _n), (_, loc))| {
+                        let scope = crate::ast::ast_semantic::scope_from_ids(
+                            &s.container_table, &s.func_table, *cid, *fnid,
+                        );
+                        ((loc.byte_start as usize, loc.byte_end as usize), scope)
+                    })
                     .collect();
                 (scope_map, s.def_map.clone(), s.ref_entries.clone())
             })
@@ -2145,7 +2152,7 @@ impl McCode {
                         symbol_lapper.insert(Interval {
                             start: span.start,
                             stop: span.end,
-                            val: SymbolType::ClassDefinition(*clsid),
+                            val: SymbolType::new(SymbolKind::ClassDef, u32::from(*clsid)),
                         });
                     }
                 }
@@ -2175,7 +2182,7 @@ impl McCode {
                         symbol_lapper.insert(Interval {
                             start: span.start,
                             stop: span.end,
-                            val: SymbolType::DeclareClass(*refid),
+                            val: SymbolType::new(SymbolKind::ClassRef, u32::from(*refid)),
                         });
                         sem.ref_entries.push((SymbolKind::ClassRef, u32::from(*refid), span.start, span.end));
                     }
@@ -2189,7 +2196,7 @@ impl McCode {
                         symbol_lapper.insert(Interval {
                             start: span.start,
                             stop: span.end,
-                            val: SymbolType::ClassDefinition(*class_id),
+                            val: SymbolType::new(SymbolKind::ClassDef, u32::from(*class_id)),
                         });
                     }
                 }
@@ -2198,7 +2205,7 @@ impl McCode {
                         symbol_lapper.insert(Interval {
                             start: span.start,
                             stop: span.end,
-                            val: SymbolType::EnumValueDefinition(*value_id),
+                            val: SymbolType::new(SymbolKind::EnumValDef, u32::from(*value_id)),
                         });
                     }
                 }
@@ -2214,13 +2221,16 @@ impl McCode {
         sem: &mut McSemSymbols,
         symbol_lapper: &mut SymbolRangeLapper,
     ) {
-        for ((u, _, _), (decl_id, loc)) in sem.local_table.name_to_declare_id.iter() {
-            if u == uri {
-                symbol_lapper.insert(Interval {
-                    start: loc.byte_start as usize,
-                    stop: loc.byte_end as usize,
-                    val: SymbolType::DeclareInstance(*decl_id),
-                });
+        {
+            let file_id = crate::ast::ast_semantic::intern(&mut sem.file_table, uri.as_str());
+            for ((fid, _, _, _), (decl_id, loc)) in sem.local_table.name_to_declare_id.iter() {
+                if *fid == file_id {
+                    symbol_lapper.insert(Interval {
+                        start: loc.byte_start as usize,
+                        stop: loc.byte_end as usize,
+                        val: SymbolType::new(SymbolKind::InstDef, u32::from(*decl_id)),
+                    });
+                }
             }
         }
         for (inst_id, span) in sem.local_table.inst_id_to_span.iter() {
@@ -2233,7 +2243,7 @@ impl McCode {
             symbol_lapper.insert(Interval {
                 start: span.start,
                 stop: span.end,
-                val: SymbolType::InstanceRef(decl_id),
+                val: SymbolType::new(SymbolKind::InstRef, u32::from(decl_id)),
             });
             sem.ref_entries.push((SymbolKind::InstRef, u32::from(decl_id), span.start, span.end));
         }
@@ -2253,7 +2263,7 @@ impl McCode {
                 symbol_lapper.insert(Interval {
                     start: iface.span.start,
                     stop: iface.span.end,
-                    val: SymbolType::ClassDefinition(DeclareId::new(0)),
+                    val: SymbolType::new(SymbolKind::ClassDef, 0),
                 });
                 let mut param_decl_ids: std::collections::HashMap<String, DeclareId> =
                     std::collections::HashMap::new();
@@ -2264,7 +2274,7 @@ impl McCode {
                     symbol_lapper.insert(Interval {
                         start: span.start,
                         stop: span.end,
-                        val: SymbolType::PortDefinition(d),
+                        val: SymbolType::new(SymbolKind::PortDef, u32::from(d)),
                     });
                 }
                 for attr in iface.attrs.iter() {
@@ -2295,7 +2305,7 @@ impl McCode {
                         symbol_lapper.insert(Interval {
                             start: span.start,
                             stop: span.end,
-                            val: SymbolType::PortRef(decl_id),
+                            val: SymbolType::new(SymbolKind::PortRef, u32::from(decl_id)),
                         });
                         sem.ref_entries.push((SymbolKind::PortRef, u32::from(decl_id), span.start, span.end));
                     }
@@ -2309,7 +2319,7 @@ impl McCode {
                 symbol_lapper.insert(Interval {
                     start: iface.span.start,
                     stop: iface.span.end,
-                    val: SymbolType::ClassDefinition(DeclareId::new(0)),
+                    val: SymbolType::new(SymbolKind::ClassDef, 0),
                 });
                 let iface_name_g = iface.name.to_string();
                 let mut param_decl_ids: std::collections::HashMap<String, DeclareId> =
@@ -2328,7 +2338,7 @@ impl McCode {
                     symbol_lapper.insert(Interval {
                         start: span.start,
                         stop: span.end,
-                        val: SymbolType::PortDefinition(d),
+                        val: SymbolType::new(SymbolKind::PortDef, u32::from(d)),
                     });
                 }
                 for attr in iface.attrs.iter() {
@@ -2359,7 +2369,7 @@ impl McCode {
                         symbol_lapper.insert(Interval {
                             start: span.start,
                             stop: span.end,
-                            val: SymbolType::InstanceRef(decl_id),
+                            val: SymbolType::new(SymbolKind::InstRef, u32::from(decl_id)),
                         });
                         sem.ref_entries.push((SymbolKind::InstRef, u32::from(decl_id), span.start, span.end));
                     }
@@ -2398,7 +2408,7 @@ impl McCode {
                 symbol_lapper.insert(Interval {
                     start: span.start,
                     stop: span.end,
-                    val: SymbolType::PortDefinition(d),
+                    val: SymbolType::new(SymbolKind::PortDef, u32::from(d)),
                 });
             }
 
@@ -2416,7 +2426,7 @@ impl McCode {
                 symbol_lapper.insert(Interval {
                     start: span.start,
                     stop: span.end,
-                    val: SymbolType::PortDefinition(d),
+                    val: SymbolType::new(SymbolKind::PortDef, u32::from(d)),
                 });
             }
             for (span, port_name, scope) in m.insts.iter_port_refs() {
@@ -2431,7 +2441,7 @@ impl McCode {
                     symbol_lapper.insert(Interval {
                         start: span.start,
                         stop: span.end,
-                        val: SymbolType::PortRef(decl_id),
+                        val: SymbolType::new(SymbolKind::PortRef, u32::from(decl_id)),
                     });
                     sem.ref_entries.push((SymbolKind::PortRef, u32::from(decl_id), span.start, span.end));
                 }
@@ -2448,7 +2458,7 @@ impl McCode {
                     symbol_lapper.insert(Interval {
                         start: span.start,
                         stop: span.end,
-                        val: SymbolType::InstanceRef(decl_id),
+                        val: SymbolType::new(SymbolKind::InstRef, u32::from(decl_id)),
                     });
                     sem.ref_entries.push((SymbolKind::InstRef, u32::from(decl_id), span.start, span.end));
                 }
@@ -2464,7 +2474,7 @@ impl McCode {
                 symbol_lapper.insert(Interval {
                     start: span.start,
                     stop: span.end,
-                    val: SymbolType::LabelDefinition(decl_id),
+                    val: SymbolType::new(SymbolKind::LabelDef, u32::from(decl_id)),
                 });
             }
         }
@@ -2495,7 +2505,7 @@ impl McCode {
                         symbol_lapper.insert(Interval {
                             start: span.start,
                             stop: span.end,
-                            val: SymbolType::InstanceRef(decl_id),
+                            val: SymbolType::new(SymbolKind::InstRef, u32::from(decl_id)),
                         });
                         sem.ref_entries.push((SymbolKind::InstRef, u32::from(decl_id), span.start, span.end));
                     }
@@ -2512,7 +2522,7 @@ impl McCode {
                     symbol_lapper.insert(Interval {
                         start: span.start,
                         stop: span.end,
-                        val: SymbolType::LabelDefinition(decl_id),
+                        val: SymbolType::new(SymbolKind::LabelDef, u32::from(decl_id)),
                     });
                 }
             }
@@ -2550,7 +2560,7 @@ impl McCode {
                 symbol_lapper.insert(Interval {
                     start: span.start,
                     stop: span.end,
-                    val: SymbolType::PortDefinition(d),
+                    val: SymbolType::new(SymbolKind::PortDef, u32::from(d)),
                 });
             }
             for (pin_name, pin_span) in Self::extract_pin_name_spans(comp) {
@@ -2566,7 +2576,7 @@ impl McCode {
                 symbol_lapper.insert(Interval {
                     start: pin_span.start,
                     stop: pin_span.end,
-                    val: SymbolType::PinNameDefinition(d),
+                    val: SymbolType::new(SymbolKind::PinNameDef, u32::from(d)),
                 });
             }
             for (pin_id, id_span) in Self::extract_pin_id_spans(comp) {
@@ -2582,7 +2592,7 @@ impl McCode {
                 symbol_lapper.insert(Interval {
                     start: id_span.start,
                     stop: id_span.end,
-                    val: SymbolType::PinIdDefinition(d),
+                    val: SymbolType::new(SymbolKind::PinIdDef, u32::from(d)),
                 });
             }
             for (iface, if_span) in Self::extract_pin_iface_spans(comp) {
@@ -2598,7 +2608,7 @@ impl McCode {
                 symbol_lapper.insert(Interval {
                     start: if_span.start,
                     stop: if_span.end,
-                    val: SymbolType::PinIfaceDefinition(d),
+                    val: SymbolType::new(SymbolKind::PinIfaceDef, u32::from(d)),
                 });
             }
             for (key_name, key_span) in Self::extract_spec_key_spans(comp) {
@@ -2611,7 +2621,7 @@ impl McCode {
                 symbol_lapper.insert(Interval {
                     start: key_span.start,
                     stop: key_span.end,
-                    val: SymbolType::AttrDefinition(sdecl_id),
+                    val: SymbolType::new(SymbolKind::AttrDef, u32::from(sdecl_id)),
                 });
             }
             for (span, port_name, scope) in comp.params.iter_port_refs() {
@@ -2626,7 +2636,7 @@ impl McCode {
                     symbol_lapper.insert(Interval {
                         start: span.start,
                         stop: span.end,
-                        val: SymbolType::InstanceRef(decl_id),
+                        val: SymbolType::new(SymbolKind::InstRef, u32::from(decl_id)),
                     });
                     sem.ref_entries.push((SymbolKind::InstRef, u32::from(decl_id), span.start, span.end));
                 }
@@ -2642,7 +2652,7 @@ impl McCode {
                 symbol_lapper.insert(Interval {
                     start: span.start,
                     stop: span.end,
-                    val: SymbolType::LabelDefinition(decl_id),
+                    val: SymbolType::new(SymbolKind::LabelDef, u32::from(decl_id)),
                 });
             }
         }
@@ -2767,13 +2777,13 @@ impl McCode {
                 symbol_lapper.insert(Interval {
                     start: base_start as usize,
                     stop: base_end as usize,
-                    val: SymbolType::EnumRef(class_id),
+                    val: SymbolType::new(SymbolKind::EnumRef, u32::from(class_id)),
                 });
                 sem.ref_entries.push((SymbolKind::EnumRef, u32::from(class_id), base_start as usize, base_end as usize));
                 symbol_lapper.insert(Interval {
                     start: member_start as usize,
                     stop: member_end as usize,
-                    val: SymbolType::EnumValueRef(value_id),
+                    val: SymbolType::new(SymbolKind::EnumValRef, u32::from(value_id)),
                 });
                 sem.ref_entries.push((SymbolKind::EnumValRef, u32::from(value_id), member_start as usize, member_end as usize));
                 tracing::debug!(target: "mcc::enum_ref",
@@ -2920,7 +2930,7 @@ impl McCode {
                     symbol_lapper.insert(Interval {
                         start: span.0,
                         stop: span.1,
-                        val: SymbolType::FunctionDefinition(d),
+                        val: SymbolType::new(SymbolKind::FuncDef, u32::from(d)),
                     });
                     if let Some(params_node) = node
                         .get_sub_node()
@@ -2946,7 +2956,7 @@ impl McCode {
                             symbol_lapper.insert(Interval {
                                 start: pspan.start,
                                 stop: pspan.end,
-                                val: SymbolType::PortDefinition(d),
+                                val: SymbolType::new(SymbolKind::PortDef, u32::from(d)),
                             });
                         }
                     }
@@ -2974,7 +2984,7 @@ impl McCode {
                     symbol_lapper.insert(Interval {
                         start: span.0,
                         stop: span.1,
-                        val: SymbolType::DefineDefinition(decl_id),
+                        val: SymbolType::new(SymbolKind::DefineDef, u32::from(decl_id)),
                     });
                 }
             } else if ntype == MCAST_ROLE {
@@ -2993,7 +3003,7 @@ impl McCode {
                     symbol_lapper.insert(Interval {
                         start: span.0,
                         stop: span.1,
-                        val: SymbolType::RoleDefinition(decl_id),
+                        val: SymbolType::new(SymbolKind::RoleDef, u32::from(decl_id)),
                     });
                 }
             } else if ntype == MCAST_OPD_FCALL {
@@ -3027,12 +3037,13 @@ impl McCode {
                         let resolved_id = func_name
                             .as_ref()
                             .and_then(|n| {
+                                let filt_file_id = crate::ast::ast_semantic::intern(&mut sem.file_table, uri.as_str());
                                 let candidates: Vec<_> = sem
                                     .local_table
                                     .name_to_declare_id
                                     .iter()
-                                    .filter(|((u, _s, name), _id)| {
-                                        *u == *uri && name.as_str() == n.as_str()
+                                    .filter(|((fid, _, _, name), _id)| {
+                                        *fid == filt_file_id && name.as_str() == n.as_str()
                                     })
                                     .collect();
                                 if candidates.is_empty() {
@@ -3064,7 +3075,7 @@ impl McCode {
                         symbol_lapper.insert(Interval {
                             start: span.0,
                             stop: span.1,
-                            val: SymbolType::FunctionRef(resolved_id),
+                            val: SymbolType::new(SymbolKind::FuncRef, u32::from(resolved_id)),
                         });
                         sem.ref_entries.push((SymbolKind::FuncRef, u32::from(resolved_id), span.0, span.1));
                     } else {
@@ -3077,7 +3088,7 @@ impl McCode {
                         symbol_lapper.insert(Interval {
                             start: span.0,
                             stop: span.1,
-                            val: SymbolType::ClassRef(decl_id),
+                            val: SymbolType::new(SymbolKind::ClassRef, u32::from(decl_id)),
                         });
                         sem.ref_entries.push((SymbolKind::ClassRef, u32::from(decl_id), span.0, span.1));
                     }
@@ -3092,7 +3103,7 @@ impl McCode {
                             symbol_lapper.insert(Interval {
                                 start: span.start,
                                 stop: span.end,
-                                val: SymbolType::PortRef(did),
+                                val: SymbolType::new(SymbolKind::PortRef, u32::from(did)),
                             });
                             sem.ref_entries.push((SymbolKind::PortRef, u32::from(did), span.start, span.end));
                         }
@@ -3116,7 +3127,7 @@ impl McCode {
             symbol_lapper.insert(Interval {
                 start: span.start,
                 stop: span.end,
-                val: SymbolType::InstanceRef(decl_id),
+                val: SymbolType::new(SymbolKind::InstRef, u32::from(decl_id)),
             });
             sem.ref_entries.push((SymbolKind::InstRef, u32::from(decl_id), span.start, span.end));
         }
@@ -3124,33 +3135,7 @@ impl McCode {
         let mut seen = std::collections::HashSet::new();
         let mut deduped = Vec::new();
         for iv in symbol_lapper.iter() {
-            let key: (u32, u32, usize, usize) = match &iv.val {
-                SymbolType::DeclareInstance(d) => (1, u32::from(*d), iv.start, iv.stop),
-                SymbolType::InstanceRef(d) => (2, u32::from(*d), iv.start, iv.stop),
-                SymbolType::PortDefinition(d) => (3, u32::from(*d), iv.start, iv.stop),
-                SymbolType::PortRef(d) => (4, u32::from(*d), iv.start, iv.stop),
-                SymbolType::FunctionDefinition(d) => (5, u32::from(*d), iv.start, iv.stop),
-                SymbolType::FunctionRef(d) => (6, u32::from(*d), iv.start, iv.stop),
-                SymbolType::ClassDefinition(d) => (7, u32::from(*d), iv.start, iv.stop),
-                SymbolType::ClassRef(d) => (8, u32::from(*d), iv.start, iv.stop),
-                SymbolType::DeclareClass(d) => (9, u32::from(*d), iv.start, iv.stop),
-                SymbolType::LabelDefinition(d) => (10, u32::from(*d), iv.start, iv.stop),
-                SymbolType::LabelRef(d) => (11, u32::from(*d), iv.start, iv.stop),
-                SymbolType::PinNameDefinition(d) => (12, u32::from(*d), iv.start, iv.stop),
-                SymbolType::PinNameRef(d) => (13, u32::from(*d), iv.start, iv.stop),
-                SymbolType::PinIdDefinition(d) => (14, u32::from(*d), iv.start, iv.stop),
-                SymbolType::PinIdRef(d) => (15, u32::from(*d), iv.start, iv.stop),
-                SymbolType::PinIfaceDefinition(d) => (16, u32::from(*d), iv.start, iv.stop),
-                SymbolType::PinIfaceRef(d) => (17, u32::from(*d), iv.start, iv.stop),
-                SymbolType::EnumDefinition(d) => (18, u32::from(*d), iv.start, iv.stop),
-                SymbolType::EnumRef(d) => (19, u32::from(*d), iv.start, iv.stop),
-                SymbolType::EnumValueDefinition(d) => (20, u32::from(*d), iv.start, iv.stop),
-                SymbolType::EnumValueRef(d) => (21, u32::from(*d), iv.start, iv.stop),
-                SymbolType::DefineDefinition(d) => (22, u32::from(*d), iv.start, iv.stop),
-                SymbolType::RoleDefinition(d) => (23, u32::from(*d), iv.start, iv.stop),
-                SymbolType::ParamDefinition(d) => (24, u32::from(*d), iv.start, iv.stop),
-                SymbolType::AttrDefinition(d) => (25, u32::from(*d), iv.start, iv.stop),
-            };
+            let key: (u8, u32, usize, usize) = (iv.val.kind, iv.val.id, iv.start, iv.stop);
             if seen.insert(key) {
                 deduped.push(iv.clone());
             }

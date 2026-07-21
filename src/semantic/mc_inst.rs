@@ -7,7 +7,6 @@ use crate::db::context::DB;
 use crate::db::diagnostic::diagnostic::{dlog_error, dlog_warning};
 use crate::message::MISSING_SUBNODE;
 use crate::query::refs::mcb_register_declare_class;
-use crate::query::refs::mcb_register_instance_decl;
 use crate::semantic::basic::mc_bus::{McBus, McList};
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::basic::mc_ida::McIda;
@@ -1269,12 +1268,19 @@ impl McInstances {
                     ..((ids_node.get_pos() + ids_node.get_len()) as usize);
                 self.store_port_span(inst_name_ref, inst_span.clone());
                 let scope = self.scope.as_deref();
-                let decl_id = mcb_register_instance_decl(
-                    uri,
-                    inst_span.clone(),
-                    Some(inst_name.clone()),
-                    scope,
-                );
+                let decl_id = crate::db::cmie::tables::WORKSPACE
+                    .mcodes
+                    .get(uri)
+                    .and_then(|mcode| {
+                        mcode.symbols.lock().ok().map(|mut sem| {
+                            sem.local_table.add_declare_with_name(
+                                uri,
+                                crate::ast::ast_semantic::SourceLocation::from_span(&inst_span),
+                                Some(inst_name.clone()),
+                                scope,
+                            )
+                        })
+                    });
                 if let Some(id) = decl_id {
                     tracing::info!(target: "crate::lsp", "Registered instance decl: {} at {:?} -> id={:?}", inst_name, inst_span, id);
                 } else {

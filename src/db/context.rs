@@ -96,8 +96,13 @@ impl SymbolRegistry for DbContext {
         // First try the exact file
         if let Some(mcode) = crate::db::cmie::tables::WORKSPACE.mcodes.get(&mc_uri) {
             if let Ok(sem) = mcode.symbols.lock() {
-                for ((u, s, n), (id, _)) in sem.local_table.name_to_declare_id.iter() {
-                    if u.as_str() == uri && s == scope_str && n == name {
+                // Use scope_index for precise scope-based lookup
+                if let Some((id, _)) = sem.local_table.lookup_by_scope_name(scope_str, name) {
+                    return Some(id.raw());
+                }
+                // Fallback: iterate and match by name only
+                for ((_fid, _cid, _fnid, n), (id, _)) in sem.local_table.name_to_declare_id.iter() {
+                    if n == name {
                         return Some(id.raw());
                     }
                 }
@@ -106,10 +111,8 @@ impl SymbolRegistry for DbContext {
         // Cross-file fallback: search all loaded files
         for entry in crate::db::cmie::tables::WORKSPACE.mcodes.iter() {
             if let Ok(sem) = entry.value().symbols.lock() {
-                for ((_u, s, n), (id, _)) in sem.local_table.name_to_declare_id.iter() {
-                    if s == scope_str && n == name {
-                        return Some(id.raw());
-                    }
+                if let Some((id, _)) = sem.local_table.lookup_by_scope_name(scope_str, name) {
+                    return Some(id.raw());
                 }
             }
         }

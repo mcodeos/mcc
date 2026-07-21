@@ -29,17 +29,17 @@ pub fn classify_token_by_symbol(
             let sym_start = interval.start;
             let sym_stop = interval.stop;
             if token_start < sym_stop && token_end > sym_start {
-                use crate::ast::ast_semantic::SymbolType;
-                if matches!(&interval.val, SymbolType::ClassDefinition(_)) {
+                use crate::ast::ast_semantic::SymbolKind;
+                if interval.val.kind == SymbolKind::ClassDef as u8 {
                     return 3; // CLASS
                 }
-                if matches!(&interval.val, SymbolType::DeclareClass(_)) {
+                if interval.val.kind == SymbolKind::ClassRef as u8 {
                     return 2; // TYPE
                 }
-                if matches!(&interval.val, SymbolType::DeclareInstance(_)) {
+                if interval.val.kind == SymbolKind::InstDef as u8 {
                     return 4; // FUNCTION
                 }
-                if matches!(&interval.val, SymbolType::InstanceRef(_)) {
+                if interval.val.kind == SymbolKind::InstRef as u8 {
                     return 9; // VARIABLE
                 }
             }

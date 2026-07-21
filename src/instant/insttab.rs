@@ -94,6 +94,21 @@ pub struct InstEntry {
     pub src_pos: Option<i32>,
     /// URI of the file where this instance was defined
     pub def_uri: String,
+    /// ★ P5: Unified source location (file_id/container_id/func_id/span).
+    pub src_loc: Option<crate::ast::ast_semantic::SourceLocation>,
+}
+
+impl InstEntry {
+    /// ★ P5: Set unified source location. Call after registration when SourceLocation is available.
+    pub fn set_src_loc(&mut self, loc: crate::ast::ast_semantic::SourceLocation) {
+        self.src_loc = Some(loc);
+        if self.def_uri.is_empty() {
+            // def_uri can be derived from file_table later; leave empty for now.
+        }
+        if self.src_pos.is_none() {
+            self.src_pos = Some(loc.byte_start as i32);
+        }
+    }
 }
 
 // ============================================================================
@@ -269,6 +284,7 @@ impl InstTable {
             io_type,
             src_pos,
             def_uri,
+            src_loc: None,
         };
 
         self.entries.insert(id, entry);
