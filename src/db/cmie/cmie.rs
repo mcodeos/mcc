@@ -102,7 +102,7 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
                 if let Some(entry) = entry {
                     let def_uri = map
                         .files
-                        .get(entry.file_id as usize)
+                        .get(entry.def_loc.file_id as usize)
                         .cloned()
                         .unwrap_or_default();
                     trace!(target: "mcc::mcb_get_cmie", name = %name_str, def_uri = %def_uri, cmie_kind = entry.cmie_kind, "RefDefMap hit");

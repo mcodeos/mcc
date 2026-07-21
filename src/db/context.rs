@@ -7,7 +7,7 @@
 //! Provides concrete implementations of [`crate::semantic::context`] traits
 //! backed by the global workspace / system tables in `db/`.
 
-use crate::ast::ast_semantic::{DeclareId, Span};
+use crate::ast::ast_semantic::{DeclareId, SourceLocation, Span};
 use crate::semantic::context::{DiagnosticSeverity, DiagnosticSink, NameResolver, SymbolRegistry};
 use crate::{McCMIE, McIds, McURI};
 
@@ -63,39 +63,57 @@ impl SymbolRegistry for DbContext {
         len: u32,
     ) -> u32 {
         let span = mk_span(pos, len);
-        let id = crate::db::cmie::tables::WORKSPACE
-            .lsp
-            .inst_table
-            .lock()
-            .map(|mut t| t.add(uri, scope, name, span))
-            .unwrap_or_default();
-        id.raw()
+        let mc_uri = McURI::from(uri);
+        if let Some(mcode) = crate::db::cmie::tables::WORKSPACE.mcodes.get(&mc_uri) {
+            if let Ok(mut sem) = mcode.symbols.lock() {
+                let id = sem.local_table.add_declare_with_name(&mc_uri, SourceLocation::from_span(&span), Some(name.to_string()), scope);
+                return id.raw();
+            }
+        }
+        0
     }
 
     fn register_instance_ref(
         &self,
         uri: &str,
         decl_id: u32,
-        scope: Option<&str>,
+        _scope: Option<&str>,
         pos: u32,
         len: u32,
     ) {
         let span = mk_span(pos, len);
-        let _ = crate::db::cmie::tables::WORKSPACE
-            .lsp
-            .inst_table
-            .lock()
-            .map(|mut t| t.add_ref(DeclareId::from_raw(decl_id), uri, scope, span));
+        let mc_uri = McURI::from(uri);
+        if let Some(mcode) = crate::db::cmie::tables::WORKSPACE.mcodes.get(&mc_uri) {
+            if let Ok(mut sem) = mcode.symbols.lock() {
+                sem.local_table.add_inst(span, DeclareId::from_raw(decl_id));
+            }
+        }
     }
 
     fn lookup_instance_decl(&self, uri: &str, name: &str, scope: Option<&str>) -> Option<u32> {
-        crate::db::cmie::tables::WORKSPACE
-            .lsp
-            .inst_table
-            .lock()
-            .ok()
-            .and_then(|t| t.get(uri, scope, name))
-            .map(|id| id.raw())
+        let mc_uri = McURI::from(uri);
+        let scope_str = scope.unwrap_or("");
+        // First try the exact file
+        if let Some(mcode) = crate::db::cmie::tables::WORKSPACE.mcodes.get(&mc_uri) {
+            if let Ok(sem) = mcode.symbols.lock() {
+                for ((u, s, n), (id, _)) in sem.local_table.name_to_declare_id.iter() {
+                    if u.as_str() == uri && s == scope_str && n == name {
+                        return Some(id.raw());
+                    }
+                }
+            }
+        }
+        // Cross-file fallback: search all loaded files
+        for entry in crate::db::cmie::tables::WORKSPACE.mcodes.iter() {
+            if let Ok(sem) = entry.value().symbols.lock() {
+                for ((_u, s, n), (id, _)) in sem.local_table.name_to_declare_id.iter() {
+                    if s == scope_str && n == name {
+                        return Some(id.raw());
+                    }
+                }
+            }
+        }
+        None
     }
 
     fn register_declare_class(&self, uri: &str, class_name: &str, pos: u32, len: u32) {
