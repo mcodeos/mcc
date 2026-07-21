@@ -4,7 +4,7 @@
 
 use crate::ast::ast_node::McValueFFI;
 use crate::ast::ast_semantic::{
-    DeclareId, McSemSymbols, ReferenceId, Span, SymbolRangeLapper, SymbolType,
+    DeclareId, McSemSymbols, Span, SymbolRangeLapper, SymbolType,
 };
 use crate::ast::ast_token::McSemTokens;
 use crate::ast::error::message::MISSING_SUBNODE;
@@ -70,6 +70,7 @@ pub struct McCode {
 
 ////////////////////////////////
 impl McCode {
+
     fn collect_direct_uses(&self, current_path: &Path) -> Vec<McUse> {
         let mut uses = Vec::new();
         self.ast
@@ -989,9 +990,6 @@ impl McCode {
                             ident: comp.name.clone(),
                             uri: self.canonical_uri.clone(),
                         };
-                        if let Ok(mut sem) = self.symbols.lock() {
-                            sem.my_components.push(space_name.clone());
-                        }
                         {
                             if self.mcbase {
                                 global::mcc_components
@@ -1357,82 +1355,6 @@ impl McCode {
             }
         }
     }
-    pub fn add_declare_inst(&self, span: Span) -> Option<DeclareId> {
-        self.add_declare_inst_with_name(span, None)
-    }
-
-    pub fn add_declare_inst_with_name(
-        &self,
-        span: Span,
-        name: Option<String>,
-    ) -> Option<DeclareId> {
-        match self.symbols.lock() {
-            Ok(mut symbols) => {
-                // Register to local table
-                let local_id = symbols.local_table.add_declare_with_name(
-                    &self.uri,
-                    span.clone(),
-                    name.clone(),
-                    None,
-                );
-                // ★ Also register to global table for cross-file lookup
-                if let Some(ref n) = name {
-                    if let Ok(mut gtable) = symbols.global_table.lock() {
-                        let global_id = gtable.add_global_inst(&self.uri, n, span.clone());
-                        tracing::debug!(target: "mcc::lsp", "Registered inst {} at {:?} -> global_id={:?}", n, span, global_id);
-                    }
-                }
-                Some(local_id)
-            }
-            Err(e) => {
-                tracing::error!(target: "mcc::code", error = %e, "symbols mutex poisoned (add_declare_inst)");
-                None
-            }
-        }
-    }
-
-    pub fn get_declare_id_by_name(&self, name: &str) -> Option<DeclareId> {
-        match self.symbols.lock() {
-            Ok(symbols) => {
-                // First check global table (cross-file)
-                if let Ok(gtable) = symbols.global_table.lock() {
-                    if let Some(id) = gtable.get_global_inst(&self.uri, name) {
-                        return Some(id);
-                    }
-                }
-                // Then check local table — unscoped lookup within this file
-                symbols
-                    .local_table
-                    .name_to_declare_id
-                    .get(&(self.uri.clone(), String::new(), name.to_string()))
-                    .copied()
-            }
-            Err(e) => {
-                tracing::error!(target: "mcc::code", error = %e, "symbols mutex poisoned (get_declare_id_by_name)");
-                None
-            }
-        }
-    }
-
-    pub fn add_inst_reference(&self, span: Span, declr_id: DeclareId) {
-        if let Ok(mut symbols) = self.symbols.lock() {
-            symbols.local_table.add_inst(span, declr_id);
-        }
-    }
-
-    /// Look up a DeclareId in the workspace global instance table.
-    fn lookup_global_inst(
-        uri: &str,
-        name: &str,
-        scope: Option<&str>,
-    ) -> Option<crate::ast::ast_semantic::DeclareId> {
-        crate::db::cmie::tables::WORKSPACE
-            .lsp
-            .inst_table
-            .lock()
-            .ok()
-            .and_then(|t| t.get(uri, scope, name))
-    }
 
     /// Public wrapper for RPC handlers.
     pub fn scope_path_from_scope_str_public(uri: &McURI, scope: &str) -> crate::ScopePath {
@@ -1451,6 +1373,28 @@ impl McCode {
         } else {
             crate::ScopePath::module(uri, scope)
         }
+    }
+
+    /// Register a definition in the local symbol table and return its DeclareId.
+    fn register_def(
+        sem: &mut crate::ast::ast_semantic::McSemSymbols,
+        uri: &McURI,
+        container: &str,
+        func: Option<&str>,
+        name: &str,
+        span: std::ops::Range<usize>,
+    ) -> crate::ast::ast_semantic::DeclareId {
+        let scope = match func {
+            Some(f) if !f.is_empty() => format!("{container}.{f}"),
+            _ => container.to_string(),
+        };
+        let decl_id = sem.local_table.add_declare_with_name(
+            uri,
+            span.clone(),
+            Some(name.to_string()),
+            Some(&scope),
+        );
+        decl_id
     }
 
     /// Priority-based declare lookup.
@@ -1485,8 +1429,8 @@ impl McCode {
         //   func body ref → scope = "US513.i2c"
         //   module body ref → scope = "US513"
         let exact_key = (file_uri.clone(), ref_scope.clone(), name.to_string());
-        if let Some(id) = local.name_to_declare_id.get(&exact_key).copied() {
-            return Some(id);
+        if let Some((id, _)) = local.name_to_declare_id.get(&exact_key) {
+            return Some(*id);
         }
 
         // P2: container-level match — when inside a func, fall back to
@@ -1497,8 +1441,8 @@ impl McCode {
                 scope_path.container.name.clone(),
                 name.to_string(),
             );
-            if let Some(id) = local.name_to_declare_id.get(&container_key).copied() {
-                return Some(id);
+            if let Some((id, _)) = local.name_to_declare_id.get(&container_key) {
+                return Some(*id);
             }
         }
 
@@ -1804,7 +1748,7 @@ impl McCode {
             let _decl_id_to_scope: std::collections::HashMap<u32, String> = lt
                 .name_to_declare_id
                 .iter()
-                .map(|((_u, scope, _n), &did)| (u32::from(did), scope.clone()))
+                .map(|((_u, scope, _n), (did, _))| (u32::from(*did), scope.clone()))
                 .collect();
 
             // ── Layer 1: ID chain ──
@@ -2203,7 +2147,7 @@ impl McCode {
         // mcb_parse_all_modules rebuilds the lapper but name_to_declare_id is
         // shared via Arc, so old DeclareIds would pollute FuncRef scope searches.
         if let Ok(mut sem) = self.symbols.lock() {
-            let _before = sem.local_table.name_to_declare_id.len();
+            let _ = sem.local_table.name_to_declare_id.len();
             sem.local_table
                 .name_to_declare_id
                 .retain(|(uri, _, _), _| uri != &self.uri);
@@ -2212,1263 +2156,24 @@ impl McCode {
         match self.symbols.lock() {
             Ok(mut sem) => {
                 let mut symbol_lapper = SymbolRangeLapper::new(vec![]);
-                let uri_str = self.uri.as_str();
 
-                match sem.global_table.lock() {
-                    Ok(mut gt) => {
-                        let clsids: Vec<_> = gt
-                            .class_name_to_id
-                            .iter()
-                            .filter(|((uri, _clsname), _clsid)| uri == &self.uri)
-                            .map(|(_key, clsid)| *clsid)
-                            .collect();
+                Self::lapper_global_classes(&self.uri, &mut self.cross_file_targets, &mut sem, &mut symbol_lapper);
+                Self::lapper_instance_decls_and_refs(&self.uri, &mut sem, &mut symbol_lapper);
+                let global_ref_count = Self::lapper_global_instance_refs(&self.uri, &mut sem, &mut symbol_lapper);
+                Self::lapper_interfaces(&self.uri, &mut sem, &mut symbol_lapper);
+                Self::lapper_module_ports(&self.uri, &mut sem, &mut symbol_lapper);
 
-                        for clsid in &clsids {
-                            if let Some((_uri, span)) = gt.class_id_to_span.get(clsid) {
-                                symbol_lapper.insert(Interval {
-                                    start: span.start,
-                                    stop: span.end,
-                                    val: SymbolType::ClassDefinition(*clsid),
-                                });
-                            }
-                        }
-
-                        // ★ LSP: Read declare class refs from workspace table FIRST,
-                        // then populate span_to_declare_class_id via add_declare_class(),
-                        // THEN iterate span_to_declare_class_id to insert into symbol_lapper.
-                        {
-                            let mut decl_refs = crate::db::cmie::tables::WORKSPACE
-                                .lsp
-                                .declare_class_refs
-                                .lock()
-                                .unwrap();
-                            tracing::info!(target: "mcc::lsp", "  create_lapper: lsp.declare_class_refs for '{}' = {} entries", self.uri, decl_refs.get(&self.uri).map(|v| v.len()).unwrap_or(0));
-                            if let Some(refs) = decl_refs.remove(&self.uri) {
-                                for (decl_span, _class_id, target_uri, target_span) in refs {
-                                    let refid = gt.add_declare_class(
-                                        &self.uri,
-                                        decl_span.clone(),
-                                        _class_id,
-                                    );
-                                    // ★ Cache cross-file targets locally for consolidate_ref_def_map,
-                                    // bypassing GlobalSymbolTable.declare_id_to_target_span (§8.2).
-                                    self.cross_file_targets
-                                        .push((refid, target_uri, target_span));
-                                }
-                            }
-                        }
-
-                        // Now iterate span_to_declare_class_id (which now includes entries
-                        // from lsp.declare_class_refs above) and insert into symbol_lapper
-                        for ((uri, span), refid) in gt.span_to_declare_class_id.iter() {
-                            if uri == &self.uri {
-                                symbol_lapper.insert(Interval {
-                                    start: span.start,
-                                    stop: span.end,
-                                    val: SymbolType::DeclareClass(*refid),
-                                });
-                            }
-                        }
-
-                        // ★ LSP: enum class + value defs — emit to lapper so cursor on the
-                        //   `enum PKG {` line or the `SOP8,` row self-locates (matches the
-                        //   existing `class_definition` / `port_definition` self-resolution
-                        //   pattern in gotodef).
-                        for ((uri, _name), class_id) in gt.enum_class_name_to_id.iter() {
-                            if uri != &self.uri {
-                                continue;
-                            }
-                            if let Some((_u, span)) = gt.enum_class_id_to_span.get(class_id) {
-                                symbol_lapper.insert(Interval {
-                                    start: span.start,
-                                    stop: span.end,
-                                    val: SymbolType::ClassDefinition(*class_id),
-                                });
-                            }
-                        }
-                        for (value_id, (uri, span)) in gt.enum_value_id_to_span.iter() {
-                            if uri == &self.uri {
-                                symbol_lapper.insert(Interval {
-                                    start: span.start,
-                                    stop: span.end,
-                                    val: SymbolType::EnumValueDefinition(*value_id),
-                                });
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!(target: "mcc::code", error = %e, "global_table mutex poisoned (create_lapper)")
-                    }
-                }
-
-                // ★ LSP: Get instance declarations from workspace global table (cross-file)
-                // and also add to local_table so LSP handler can find them
-                {
-                    let inst_table = crate::db::cmie::tables::WORKSPACE
-                        .lsp
-                        .inst_table
-                        .lock()
-                        .unwrap();
-
-                    tracing::info!(target: "mcc::lsp", "  create_lapper: inst_table.len = {}", inst_table.len());
-                    for (decl_id, scope, span) in inst_table.get_decls_for_uri(uri_str) {
-                        // Add to symbol_lapper for LSP lookup
-                        symbol_lapper.insert(Interval {
-                            start: span.start,
-                            stop: span.end,
-                            val: SymbolType::DeclareInstance(decl_id),
-                        });
-                        // ★ Store scope for LSP goto-def
-                        if !scope.is_empty() {
-                            sem.symbol_scope.insert((span.start, span.end), scope);
-                        }
-                        // ★ Also add to local_table so LSP handler can find the span
-                        sem.local_table
-                            .declare_inst_to_span
-                            .insert(decl_id, span.clone());
-                    }
-                }
-
-                //local (keep for backward compatibility)
-                let decl_count = sem.local_table.declare_inst_to_span.len();
-                for (dcl_id, span) in sem.local_table.declare_inst_to_span.iter() {
-                    symbol_lapper.insert(Interval {
-                        start: span.start,
-                        stop: span.end,
-                        val: SymbolType::DeclareInstance(*dcl_id),
-                    });
-                }
-                // First pass: register known refs as InstanceRef(DeclareId)
-                // instead of InstanceReference(ReferenceId), using the
-                // declare_inst_to_inst_ids reverse mapping.
-                let mut inst_to_decl: std::collections::HashMap<ReferenceId, DeclareId> =
-                    std::collections::HashMap::new();
-                for (decl_id, inst_ids) in sem.local_table.declare_inst_to_inst_ids.iter() {
-                    for iid in inst_ids {
-                        inst_to_decl.insert(*iid, *decl_id);
-                    }
-                }
-                for (inst_id, span) in sem.local_table.inst_id_to_span.iter() {
-                    let decl_id = inst_to_decl
-                        .get(inst_id)
-                        .copied()
-                        .unwrap_or(DeclareId::default());
-                    symbol_lapper.insert(Interval {
-                        start: span.start,
-                        stop: span.end,
-                        val: SymbolType::InstanceRef(decl_id),
-                    });
-                }
-
-                // ★ LSP: Also add global instance references
-                let global_ref_count = {
-                    let inst_table = crate::db::cmie::tables::WORKSPACE
-                        .lsp
-                        .inst_table
-                        .lock()
-                        .unwrap();
-                    let refs = inst_table.get_all_refs_for_uri(uri_str);
-                    let count = refs.len();
-                    for (decl_id, scope, span) in refs {
-                        symbol_lapper.insert(Interval {
-                            start: span.start,
-                            stop: span.end,
-                            val: SymbolType::InstanceRef(decl_id),
-                        });
-                        // ★ Store scope for LSP goto-def
-                        if !scope.is_empty() {
-                            sem.symbol_scope.insert((span.start, span.end), scope);
-                        }
-                    }
-                    count
-                };
-
-                // ★ LSP: Add interface definitions + param port_definitions
-                {
-                    let interfaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
-                    for entry in interfaces.iter() {
-                        let iface = entry.value();
-                        if iface.uri.as_str() == uri_str {
-                            symbol_lapper.insert(Interval {
-                                start: iface.span.start,
-                                stop: iface.span.end,
-                                val: SymbolType::ClassDefinition(DeclareId::new(0)),
-                            });
-                            // Collect param decl_ids for attr reference linking
-                            let mut param_decl_ids: std::collections::HashMap<String, DeclareId> =
-                                std::collections::HashMap::new();
-                            let iface_ident = iface.name.to_string();
-                            for (name, span) in iface.params.iter_defs_with_span() {
-                                let decl_id = sem.local_table.add_declare_with_name(
-                                    &self.uri,
-                                    span.clone(),
-                                    Some(name.to_string()),
-                                    Some(&iface_ident),
-                                );
-                                param_decl_ids.insert(name.to_string(), decl_id);
-                                symbol_lapper.insert(Interval {
-                                    start: span.start,
-                                    stop: span.end,
-                                    val: SymbolType::PortDefinition(decl_id),
-                                });
-                                sem.symbol_scope
-                                    .insert((span.start, span.end), iface_ident.clone());
-                            }
-                            // Register attribute variable references linked to param decls
-                            for attr in iface.attrs.iter() {
-                                for val in &attr.values {
-                                    if let crate::semantic::component::mc_attr::McAttrVal::AttrVariable(opd, Some(span)) = val {
-                                        let var_name = opd.to_string();
-                                        let decl_id = param_decl_ids.get(&var_name).copied().unwrap_or(DeclareId::new(0));
-                                        sem.local_table.add_inst(span.clone(), decl_id);
-                                    }
-                                }
-                            }
-                            // ★ Register interface param refs from body expressions
-                            // (e.g. `spec.voltage = volt` where volt is a param)
-                            for (span, port_name, scope) in iface.params.iter_port_refs() {
-                                let sp = Self::scope_path_from_scope_str(&self.uri, scope);
-                                let decl_id = Self::lookup_declare_id(
-                                    &sem.local_table,
-                                    self.uri.as_str(),
-                                    port_name,
-                                    &sp,
-                                );
-                                if let Some(decl_id) = decl_id {
-                                    symbol_lapper.insert(Interval {
-                                        start: span.start,
-                                        stop: span.end,
-                                        val: SymbolType::PortRef(decl_id),
-                                    });
-                                    sem.symbol_scope
-                                        .insert((span.start, span.end), scope.clone());
-                                }
-                            }
-                        }
-                    }
-                    let global_interfaces = &crate::db::infra::global::mcc_interfaces;
-                    for entry in global_interfaces.iter() {
-                        let iface = entry.value();
-                        if iface.uri.as_str() == uri_str {
-                            symbol_lapper.insert(Interval {
-                                start: iface.span.start,
-                                stop: iface.span.end,
-                                val: SymbolType::ClassDefinition(DeclareId::new(0)),
-                            });
-                            let iface_name_g = iface.name.to_string();
-                            let mut param_decl_ids: std::collections::HashMap<String, DeclareId> =
-                                std::collections::HashMap::new();
-                            for (name, span) in iface.params.iter_defs_with_span() {
-                                let decl_id = sem.local_table.add_declare_with_name(
-                                    &self.uri,
-                                    span.clone(),
-                                    Some(name.to_string()),
-                                    Some(&iface_name_g),
-                                );
-                                param_decl_ids.insert(name.to_string(), decl_id);
-                                symbol_lapper.insert(Interval {
-                                    start: span.start,
-                                    stop: span.end,
-                                    val: SymbolType::PortDefinition(decl_id),
-                                });
-                                sem.symbol_scope
-                                    .insert((span.start, span.end), iface_name_g.clone());
-                            }
-                            for attr in iface.attrs.iter() {
-                                for val in &attr.values {
-                                    if let crate::semantic::component::mc_attr::McAttrVal::AttrVariable(opd, Some(span)) = val {
-                                        let var_name = opd.to_string();
-                                        let decl_id = param_decl_ids.get(&var_name).copied().unwrap_or(DeclareId::new(0));
-                                        sem.local_table.add_inst(span.clone(), decl_id);
-                                    }
-                                }
-                            }
-                            // ★ Register interface param refs from body expressions
-                            for (span, port_name, scope) in iface.params.iter_port_refs() {
-                                let sp = Self::scope_path_from_scope_str(&self.uri, scope);
-                                let decl_id = Self::lookup_declare_id(
-                                    &sem.local_table,
-                                    self.uri.as_str(),
-                                    port_name,
-                                    &sp,
-                                );
-                                if let Some(decl_id) = decl_id {
-                                    symbol_lapper.insert(Interval {
-                                        start: span.start,
-                                        stop: span.end,
-                                        val: SymbolType::InstanceRef(decl_id),
-                                    });
-                                    sem.symbol_scope
-                                        .insert((span.start, span.end), scope.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ★ LSP: Add module port definitions to symbol_lapper and local_table
-                {
-                    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-                    for entry in modules.iter() {
-                        let m = entry.value();
-                        // Only process modules that belong to the current file
-                        if entry.key().uri.as_str() != self.uri.as_str() {
-                            continue;
-                        }
-
-                        // Ports from params (e.g. `module m(dc24v, GPIO[1:2])`)
-                        tracing::debug!(
-                            target: "mcc::lsp",
-                            "[LAPPER_DEBUG] Processing module params: {}",
-                            entry.key().ident
-                        );
-                        let param_def_count = m.params.iter_defs_with_span().count();
-                        tracing::debug!(
-                            target: "mcc::lsp",
-                            "[LAPPER_DEBUG] module={}, param_def_count={}",
-                            entry.key().ident,
-                            param_def_count
-                        );
-                        let mod_ident = entry.key().ident.to_string();
-                        for (name, span) in m.params.iter_defs_with_span() {
-                            let span_clone = span.clone();
-                            let decl_id = sem.local_table.add_declare_with_name(
-                                &self.uri,
-                                span_clone,
-                                Some(name.to_string()),
-                                Some(&mod_ident),
-                            );
-                            tracing::debug!(
-                                target: "mcc::lsp",
-                                "[LAPPER_DEBUG]   param port: name={}, span=[{},{}], decl_id={:?}",
-                                name, span.start, span.end, decl_id
-                            );
-                            symbol_lapper.insert(Interval {
-                                start: span.start,
-                                stop: span.end,
-                                val: SymbolType::PortDefinition(decl_id),
-                            });
-                            sem.symbol_scope
-                                .insert((span.start, span.end), mod_ident.clone());
-                        }
-
-                        // Ports from body declarations (e.g. `ps dc24v`, `io GPIO[1:2]`)
-                        let mod_ident2 = entry.key().ident.to_string();
-                        for (name, _iotype, span) in m.insts.iter_ports_with_span() {
-                            let span_clone = span.clone();
-                            let decl_id = sem.local_table.add_declare_with_name(
-                                &self.uri,
-                                span_clone,
-                                Some(name.to_string()),
-                                Some(&mod_ident2),
-                            );
-                            tracing::debug!(
-                                target: "mcc::lsp",
-                                "[LAPPER_DEBUG]   inst port: name={}, span=[{},{}], decl_id={:?}",
-                                name, span.start, span.end, decl_id
-                            );
-                            symbol_lapper.insert(Interval {
-                                start: span.start,
-                                stop: span.end,
-                                val: SymbolType::PortDefinition(decl_id),
-                            });
-                            sem.symbol_scope
-                                .insert((span.start, span.end), mod_ident2.clone());
-                        }
-                        // Register port references from net lines (§3.2.2 Rule 1)
-                        for (span, port_name, scope) in m.insts.iter_port_refs() {
-                            let sp = Self::scope_path_from_scope_str(&self.uri, scope);
-                            let decl_id = Self::lookup_declare_id(
-                                &sem.local_table,
-                                self.uri.as_str(),
-                                port_name,
-                                &sp,
-                            );
-                            if let Some(decl_id) = decl_id {
-                                symbol_lapper.insert(Interval {
-                                    start: span.start,
-                                    stop: span.end,
-                                    val: SymbolType::PortRef(decl_id),
-                                });
-                                sem.symbol_scope
-                                    .insert((span.start, span.end), scope.clone());
-                            }
-                        }
-                        // Register param port references from net lines
-                        for (span, port_name, scope) in m.params.iter_port_refs() {
-                            let sp = Self::scope_path_from_scope_str(&self.uri, scope);
-                            let decl_id = Self::lookup_declare_id(
-                                &sem.local_table,
-                                self.uri.as_str(),
-                                port_name,
-                                &sp,
-                            );
-                            if let Some(decl_id) = decl_id {
-                                symbol_lapper.insert(Interval {
-                                    start: span.start,
-                                    stop: span.end,
-                                    val: SymbolType::InstanceRef(decl_id),
-                                });
-                                sem.symbol_scope
-                                    .insert((span.start, span.end), scope.clone());
-                            }
-                        }
-                        // ★ Label definitions (explicit + inline) for LSP goto-def
-                        let mod_ident_label = entry.key().ident.to_string();
-                        for (name, _label_kind, span) in m.insts.iter_labels_with_span() {
-                            let decl_id = sem.local_table.add_declare_with_name(
-                                &self.uri,
-                                span.clone(),
-                                Some(name.to_string()),
-                                Some(&mod_ident_label),
-                            );
-                            symbol_lapper.insert(Interval {
-                                start: span.start,
-                                stop: span.end,
-                                val: SymbolType::LabelDefinition(decl_id),
-                            });
-                            sem.symbol_scope
-                                .insert((span.start, span.end), mod_ident_label.clone());
-                            // ★ Register in global instance table for cross-file lookup
-                            if let Ok(mut ginst) =
-                                crate::db::cmie::tables::WORKSPACE.lsp.inst_table.lock()
-                            {
-                                ginst.add(
-                                    self.uri.as_str(),
-                                    Some(&mod_ident_label),
-                                    name,
-                                    span.clone(),
-                                );
-                            }
-                        }
-                    }
-                }
-
+                let decl_count = sem.local_table.name_to_declare_id.iter()
+                    .filter(|((u, _, _), _)| u == &self.uri)
+                    .count();
                 let local_ref_count = sem.local_table.inst_id_to_span.len();
                 tracing::info!(target: "mcc::lsp", "create_lapper: {} decls, {} local_refs, {} global_refs, lapper len={}", decl_count, local_ref_count, global_ref_count, symbol_lapper.len());
 
-                // ★ G2: Register function parameter refs from module functions
-                {
-                    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-                    for entry in modules.iter() {
-                        let m = entry.value();
-                        if entry.key().uri.as_str() != self.uri.as_str() {
-                            continue;
-                        }
-                        for func in m.funcs.iter() {
-                            let fscope = func.name.to_string();
-                            for (span, port_name, scope) in func.params.iter_port_refs() {
-                                let sp = Self::scope_path_from_scope_str(&self.uri, scope);
-                                let decl_id = Self::lookup_declare_id(
-                                    &sem.local_table,
-                                    self.uri.as_str(),
-                                    port_name,
-                                    &sp,
-                                );
-                                if let Some(decl_id) = decl_id {
-                                    symbol_lapper.insert(Interval {
-                                        start: span.start,
-                                        stop: span.end,
-                                        val: SymbolType::InstanceRef(decl_id),
-                                    });
-                                    sem.symbol_scope
-                                        .insert((span.start, span.end), scope.clone());
-                                }
-                            }
-                            // ★ Label definitions within function body
-                            let func_scope =
-                                func.insts.scope.clone().unwrap_or_else(|| fscope.clone());
-                            for (name, _label_kind, span) in func.insts.iter_labels_with_span() {
-                                let decl_id = sem.local_table.add_declare_with_name(
-                                    &self.uri,
-                                    span.clone(),
-                                    Some(name.to_string()),
-                                    Some(&func_scope),
-                                );
-                                symbol_lapper.insert(Interval {
-                                    start: span.start,
-                                    stop: span.end,
-                                    val: SymbolType::LabelDefinition(decl_id),
-                                });
-                                sem.symbol_scope
-                                    .insert((span.start, span.end), func_scope.clone());
-                                // ★ Register in global instance table for cross-file lookup
-                                if let Ok(mut ginst) =
-                                    crate::db::cmie::tables::WORKSPACE.lsp.inst_table.lock()
-                                {
-                                    ginst.add(
-                                        self.uri.as_str(),
-                                        Some(&func_scope),
-                                        name,
-                                        span.clone(),
-                                    );
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ★ LSP: Add component parameter definitions to symbol_lapper
-                //   (e.g. `component RESA(rs, volt)` -> rs, volt are PortDefinition)
-                {
-                    // Only components from THIS file (match by canonical path)
-                    let all_comps: Vec<(String, Arc<McComponent>)> = workspace::WORKSPACE
-                        .components
-                        .iter()
-                        .map(|e| (e.key().ident.to_string(), e.value().clone()))
-                        .chain(
-                            global::mcc_components
-                                .iter()
-                                .map(|e| (e.key().ident.to_string(), e.value().clone())),
-                        )
-                        .collect();
-                    for (comp_ident, comp) in &all_comps {
-                        // Component params (e.g. `component RESA(rs, volt)`)
-                        for (name, span) in comp.params.iter_defs_with_span() {
-                            let span_clone = span.clone();
-                            let decl_id = sem.local_table.add_declare_with_name(
-                                &self.uri,
-                                span_clone,
-                                Some(name.to_string()),
-                                Some(&comp_ident),
-                            );
-                            symbol_lapper.insert(Interval {
-                                start: span.start,
-                                stop: span.end,
-                                val: SymbolType::PortDefinition(decl_id),
-                            });
-                            sem.symbol_scope
-                                .insert((span.start, span.end), comp_ident.clone());
-                        }
-                        // ★ G5: Pin name definitions from component pins
-                        for (pin_name, pin_span) in Self::extract_pin_name_spans(comp) {
-                            let pdecl_id = sem.local_table.add_declare_with_name(
-                                &self.uri,
-                                pin_span.clone(),
-                                Some(pin_name.clone()),
-                                Some(&comp_ident),
-                            );
-                            symbol_lapper.insert(Interval {
-                                start: pin_span.start,
-                                stop: pin_span.end,
-                                val: SymbolType::PinNameDefinition(pdecl_id),
-                            });
-                            sem.symbol_scope
-                                .insert((pin_span.start, pin_span.end), comp_ident.clone());
-                        }
-                        // §3.2.2: Pin ID definitions (e.g. "1", "2" in "1 = VDD")
-                        for (pin_id, id_span) in Self::extract_pin_id_spans(comp) {
-                            let decl_id = sem.local_table.add_declare_with_name(
-                                &self.uri,
-                                id_span.clone(),
-                                Some(pin_id.clone()),
-                                Some(&comp_ident),
-                            );
-                            symbol_lapper.insert(Interval {
-                                start: id_span.start,
-                                stop: id_span.end,
-                                val: SymbolType::PinIdDefinition(decl_id),
-                            });
-                            sem.symbol_scope
-                                .insert((id_span.start, id_span.end), comp_ident.clone());
-                        }
-                        // §3.2.2: Pin interface definitions (e.g. "UART.TTL" in "1::UART.TTL")
-                        for (iface, if_span) in Self::extract_pin_iface_spans(comp) {
-                            let decl_id = sem.local_table.add_declare_with_name(
-                                &self.uri,
-                                if_span.clone(),
-                                Some(iface.clone()),
-                                Some(&comp_ident),
-                            );
-                            symbol_lapper.insert(Interval {
-                                start: if_span.start,
-                                stop: if_span.end,
-                                val: SymbolType::PinIfaceDefinition(decl_id),
-                            });
-                            sem.symbol_scope
-                                .insert((if_span.start, if_span.end), comp_ident.clone());
-                        }
-                        // ★ G8: Spec key definitions from component attrs
-                        for (key_name, key_span) in Self::extract_spec_key_spans(comp) {
-                            let sdecl_id = sem.local_table.add_declare_with_name(
-                                &self.uri,
-                                key_span.clone(),
-                                Some(key_name.clone()),
-                                Some(&comp_ident),
-                            );
-                            symbol_lapper.insert(Interval {
-                                start: key_span.start,
-                                stop: key_span.end,
-                                val: SymbolType::AttrDefinition(sdecl_id),
-                            });
-                            sem.symbol_scope
-                                .insert((key_span.start, key_span.end), comp_ident.clone());
-                        }
-                        // Component param references from body expressions
-                        // (e.g. `spec.value = rs` where rs is a param)
-                        for (span, port_name, scope) in comp.params.iter_port_refs() {
-                            let sp = Self::scope_path_from_scope_str(&self.uri, scope);
-                            let decl_id = Self::lookup_declare_id(
-                                &sem.local_table,
-                                self.uri.as_str(),
-                                port_name,
-                                &sp,
-                            );
-                            if let Some(decl_id) = decl_id {
-                                symbol_lapper.insert(Interval {
-                                    start: span.start,
-                                    stop: span.end,
-                                    val: SymbolType::InstanceRef(decl_id),
-                                });
-                                sem.symbol_scope
-                                    .insert((span.start, span.end), scope.clone());
-                            }
-                        }
-                        // ★ Label definitions for components
-                        let comp_ident_label = comp_ident.clone();
-                        for (name, _label_kind, span) in comp.insts.iter_labels_with_span() {
-                            let decl_id = sem.local_table.add_declare_with_name(
-                                &self.uri,
-                                span.clone(),
-                                Some(name.to_string()),
-                                Some(&comp_ident_label),
-                            );
-                            symbol_lapper.insert(Interval {
-                                start: span.start,
-                                stop: span.end,
-                                val: SymbolType::LabelDefinition(decl_id),
-                            });
-                            sem.symbol_scope
-                                .insert((span.start, span.end), comp_ident_label.clone());
-                            // ★ Register in global instance table for cross-file lookup
-                            if let Ok(mut ginst) =
-                                crate::db::cmie::tables::WORKSPACE.lsp.inst_table.lock()
-                            {
-                                ginst.add(
-                                    self.uri.as_str(),
-                                    Some(&comp_ident_label),
-                                    name,
-                                    span.clone(),
-                                );
-                            }
-                        }
-                    }
-                }
-
-                // ★ LSP: emit enum reference entries for qualified refs like
-                //   `package = PKG.SOP8`. We walk the AST for `MCAST_ATTRIBUTE`
-                //   whose `key` is `package` (or `pkg`), and inspect each value
-                //   OPD. When a value has the form `A.B` and `A` matches a known
-                //   enum class while `B` matches one of its values, we push:
-                //     - `enum_class_ref` at A's span, target = class_id
-                //     - `enum_value_ref` at B's span, target = packed_value_id
-                {
-                    use crate::ast::ast_semantic::GlobalSymbolTable;
-                    use rust_lapper::Interval;
-
-                    fn attr_key_name(attr_node: &AstNode) -> Option<String> {
-                        let sub = attr_node.get_sub_node()?;
-                        let ids_node = sub.get_sub_node()?;
-                        crate::semantic::basic::mc_ids::McIds::new(&ids_node)
-                            .map(|ids| ids.to_string())
-                    }
-
-                    fn extract_dot_pair(
-                        value_node: &AstNode,
-                    ) -> Option<(
-                        String,
-                        String,
-                        u32, /*base_start*/
-                        u32, /*base_end*/
-                        u32, /*member_start*/
-                        u32, /*member_end*/
-                    )> {
-                        use crate::ast::c_macros::{MCAST_ID, MCAST_IDS, MCAST_OPD_DOT};
-                        // Get the inner MCAST_IDS, unwrapping MCAST_OPD if present.
-                        let ids_node = if value_node.is_type(crate::ast::c_macros::MCAST_OPD) {
-                            value_node.get_sub_node()?
-                        } else if value_node.is_type(MCAST_IDS) {
-                            value_node.clone()
-                        } else {
-                            return None;
-                        };
-                        if !ids_node.is_type(MCAST_IDS) {
-                            return None;
-                        }
-                        // MCAST_IDS children: MCAST_ID("PKG"), MCAST_OPD_DOT->MCAST_ID("QFN20")
-                        let mut children = ids_node.get_sub_node()?.iter();
-                        let first_id = children.next()?;
-                        if !first_id.is_type(MCAST_ID) && first_id.get_type() != 7 {
-                            // 7 = MCAST_IDA
-                            return None;
-                        }
-                        let dot_node = children.next()?;
-                        if !dot_node.is_type(MCAST_OPD_DOT) {
-                            return None;
-                        }
-                        let member_node = dot_node.get_sub_node()?;
-                        let (base_name, member_name) = {
-                            let base = crate::semantic::basic::mc_ids::McIds::new(&first_id)
-                                .map(|i| i.to_string())?;
-                            let mem = crate::semantic::basic::mc_ids::McIds::new(&member_node)
-                                .map(|i| i.to_string())?;
-                            (base, mem)
-                        };
-                        let base_start = first_id.get_pos();
-                        // The parser's first_id.get_len() sometimes spans the whole
-                        // dotted path (`PKG.QFN20`), which would make the class-ref
-                        // interval overlap the value-ref interval. Clamp it to just
-                        // the base identifier so `PKG` and `QFN20` map to disjoint
-                        // lapper ranges.
-                        let base_end = base_start + base_name.len() as u32;
-                        let member_start = member_node.get_pos();
-                        let member_end = member_start + member_node.get_len();
-                        Some((
-                            base_name,
-                            member_name,
-                            base_start,
-                            base_end,
-                            member_start,
-                            member_end,
-                        ))
-                    }
-
-                    fn single_id_text(node: &AstNode) -> Option<String> {
-                        crate::semantic::basic::mc_ids::McIds::new(node).map(|ids| ids.to_string())
-                    }
-
-                    // `AstNode::iter()` only walks sibling nodes (via `.next`), it does
-                    // NOT descend into children (`.sub`). Attributes like
-                    // `package = PKG.QFN20` are nested inside `component { ... }` /
-                    // `class { ... }` bodies, so a flat top-level scan misses them.
-                    // Collect every reachable node via an explicit DFS first.
-                    let all_ast_nodes: Vec<AstNode> = {
-                        let mut acc: Vec<AstNode> = Vec::new();
-                        let mut stack: Vec<AstNode> = self.ast.iter().collect();
-                        while let Some(node) = stack.pop() {
-                            if let Some(sub) = node.get_sub_node() {
-                                for child in sub.iter() {
-                                    stack.push(child);
-                                }
-                            }
-                            acc.push(node);
-                        }
-                        acc
-                    };
-                    'outer: for attr_node in all_ast_nodes.iter().cloned() {
-                        if !attr_node.is_type(MCAST_ATTRIBUTE) {
-                            continue;
-                        }
-                        let key_name = match attr_key_name(&attr_node) {
-                            Some(k) => k,
-                            None => continue,
-                        };
-                        if key_name != "package" && key_name != "pkg" {
-                            continue;
-                        }
-                        let att_id = match attr_node.get_sub_node() {
-                            Some(s) => s,
-                            None => continue,
-                        };
-                        let values_node = match att_id.get_next() {
-                            Some(v) => v,
-                            None => continue,
-                        };
-                        if !values_node.is_type(MCAST_ATT_VALUES) {
-                            continue;
-                        }
-                        let values_sub = match values_node.get_sub_node() {
-                            Some(s) => s,
-                            None => continue,
-                        };
-                        for opd_node in values_sub.iter() {
-                            let parsed = match extract_dot_pair(&opd_node) {
-                                Some(p) => p,
-                                None => continue,
-                            };
-                            let (
-                                base_name,
-                                member_name,
-                                base_start,
-                                base_end,
-                                member_start,
-                                member_end,
-                            ) = parsed;
-
-                            // Resolve the enum class + value index. The enum may be:
-                            //   (a) defined in a project/workspace file — registered in
-                            //       this file's semantic `global_table`, or
-                            //   (b) a system-library enum (e.g. `enum PKG` in mcode) —
-                            //       only present in `global::mcc_enums`; the per-file
-                            //       semantic table does NOT know about it.
-                            // We therefore look up the class id best-effort and search
-                            // both the workspace and the system-library enum stores for
-                            // the value. mcext resolves `enum_value_ref` by (class,value)
-                            // name via the project index, so the packed id is only used
-                            // for display, not navigation — a system enum still gets a
-                            // usable lapper entry even without a per-file class id.
-                            let (class_id, value_idx) = {
-                                // Best-effort class id from the per-file semantic table.
-                                let class_id = match sem.global_table.lock() {
-                                    Ok(gt) => gt
-                                        .lookup_enum_class(&self.uri, &base_name)
-                                        .or_else(|| {
-                                            gt.enum_class_name_to_id.iter().find_map(
-                                                |((_uri, name), cid)| {
-                                                    (name == &base_name).then_some(*cid)
-                                                },
-                                            )
-                                        })
-                                        .unwrap_or_default(),
-                                    Err(_) => continue 'outer,
-                                };
-
-                                // Search enum values in workspace enums first, then the
-                                // system-library enum store.
-                                let mut idx = None;
-                                {
-                                    let enums_guard = &crate::db::cmie::tables::WORKSPACE.enums;
-                                    for entry in enums_guard.iter() {
-                                        if entry.key().ident.to_string() != base_name {
-                                            continue;
-                                        }
-                                        for (i, v) in entry.value().values.iter().enumerate() {
-                                            if v.name.to_string() == member_name {
-                                                idx = Some(i as u32);
-                                                break;
-                                            }
-                                        }
-                                        break;
-                                    }
-                                }
-                                if idx.is_none() {
-                                    let sys_enums_guard = &crate::db::infra::global::mcc_enums;
-                                    for entry in sys_enums_guard.iter() {
-                                        if entry.key().ident.to_string() != base_name {
-                                            continue;
-                                        }
-                                        for (i, v) in entry.value().values.iter().enumerate() {
-                                            if v.name.to_string() == member_name {
-                                                idx = Some(i as u32);
-                                                break;
-                                            }
-                                        }
-                                        break;
-                                    }
-                                }
-
-                                // Not a known enum value (base_name isn't an enum class,
-                                // or member isn't one of its values) — skip silently.
-                                match idx {
-                                    Some(i) => (class_id, i),
-                                    None => continue,
-                                }
-                            };
-                            let value_id =
-                                GlobalSymbolTable::pack_enum_value_id(class_id, value_idx);
-
-                            symbol_lapper.insert(Interval {
-                                start: base_start as usize,
-                                stop: base_end as usize,
-                                val: SymbolType::EnumRef(class_id),
-                            });
-                            symbol_lapper.insert(Interval {
-                                start: member_start as usize,
-                                stop: member_end as usize,
-                                val: SymbolType::EnumValueRef(value_id),
-                            });
-                            tracing::debug!(target: "mcc::enum_ref",
-                                "pushed enum_class_ref+enum_value_ref for {base_name}.{member_name} (class_id={class_id:?}, value_id={value_id:?})");
-                        }
-                    }
-                }
-
-                // ── M6: func / define / role definitions ──
-                {
-                    let all_nodes: Vec<AstNode> = {
-                        let mut acc = Vec::new();
-                        let mut stack: Vec<AstNode> = self.ast.iter().collect();
-                        while let Some(node) = stack.pop() {
-                            if let Some(sub) = node.get_sub_node() {
-                                for child in sub.iter() {
-                                    stack.push(child);
-                                }
-                            }
-                            acc.push(node);
-                        }
-                        acc
-                    };
-                    // Collect enclosing module/component names for the current file.
-                    // Module spans cover only the name, not the full body, so we
-                    // just collect all containers in this file.
-                    let _uri_str = self.uri.as_str();
-                    // Collect enclosing module/component names for the current file.
-                    let mut container_names: Vec<String> = Vec::new();
-                    {
-                        let uri_str = self.uri.as_str();
-                        let modules = &workspace::WORKSPACE.modules;
-                        for entry in modules.iter() {
-                            let key_uri = entry.key().uri.as_str();
-                            if key_uri == uri_str
-                                || key_uri.ends_with(uri_str)
-                                || uri_str.ends_with(key_uri)
-                            {
-                                container_names.push(entry.key().ident.to_string());
-                            }
-                        }
-                        let comps = &workspace::WORKSPACE.components;
-                        for entry in comps.iter() {
-                            let key_uri = entry.key().uri.as_str();
-                            if key_uri == uri_str
-                                || key_uri.ends_with(uri_str)
-                                || uri_str.ends_with(key_uri)
-                            {
-                                container_names.push(entry.key().ident.to_string());
-                            }
-                        }
-                        // Also check global tables
-                        for entry in global::mcc_modules.iter() {
-                            let key_uri = entry.key().uri.as_str();
-                            if key_uri == uri_str
-                                || key_uri.ends_with(uri_str)
-                                || uri_str.ends_with(key_uri)
-                            {
-                                container_names.push(entry.key().ident.to_string());
-                            }
-                        }
-                        for entry in global::mcc_components.iter() {
-                            let key_uri = entry.key().uri.as_str();
-                            if key_uri == uri_str
-                                || key_uri.ends_with(uri_str)
-                                || uri_str.ends_with(key_uri)
-                            {
-                                container_names.push(entry.key().ident.to_string());
-                            }
-                        }
-                        tracing::info!(target: "mcc::lsp",
-                            "create_lapper scope: uri={uri_str}, found {} containers: {:?}",
-                            container_names.len(), container_names);
-                    }
-                    // Build enclosing container lookup from AST node positions.
-                    // Stored spans (McModule::span / McComponent::span) may be
-                    // truncated (get_pos() returns 0 for MCAST_COMPONENT), so we
-                    // use the AST nodes directly from all_nodes to determine
-                    // which container a position falls within.
-                    // Use AST node extents to determine enclosing container.
-                    // Nodes are in DFS order; child nodes appear after parent.
-                    // Track a stack of (name, end_pos) — when we pass a node's
-                    // end position, pop it from the stack.
-                    let mut container_stack: Vec<(String, usize)> = Vec::new();
-                    let mut pos_to_container: Vec<(usize, String)> = Vec::new();
-                    for node in &all_nodes {
-                        let ntype = node.get_type();
-                        let node_start = node.get_pos() as usize;
-                        let node_end = node_start + node.get_len() as usize;
-                        // Pop containers we've moved past
-                        while let Some((_, end)) = container_stack.last() {
-                            if node_start >= *end {
-                                container_stack.pop();
-                            } else {
-                                break;
-                            }
-                        }
-                        if ntype == MCAST_MODULE || ntype == MCAST_COMPONENT {
-                            if let Some(sub) = node.get_sub_node() {
-                                if let Some(name_node) = sub.iter().find(|x| x.is_type(MCAST_NAME))
-                                {
-                                    if let Some(ids_node) = name_node.get_sub_node() {
-                                        if let Some(ids) = McIds::new(&ids_node) {
-                                            container_stack.push((ids.to_string(), node_end));
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        // Record current container for this position
-                        if let Some((name, _)) = container_stack.last() {
-                            pos_to_container.push((node_start, name.clone()));
-                        }
-                    }
-                    // Build a sorted lookup by position
-                    pos_to_container.sort_by_key(|(pos, _)| *pos);
-                    let find_container = move |pos: usize| -> Option<String> {
-                        pos_to_container
-                            .iter()
-                            .take_while(|(p, _)| *p <= pos)
-                            .last()
-                            .map(|(_, name)| name.clone())
-                    };
-
-                    // Process in forward file order: FuncDefs before FuncRefs
-                    for node in all_nodes.iter().rev() {
-                        let ntype = node.get_type();
-                        if ntype == MCAST_FUNCTION {
-                            // ★ Fix: use MCAST_IDS (the actual name) for span, not
-                            // MCAST_NAME which may cover the entire func body and
-                            // shadow instance_ref entries inside func bodies.
-                            let ids_node = node.get_sub_node().and_then(|n| n.get_sub_node()); // MCAST_NAME -> MCAST_IDS
-                            let span = if let Some(ref ids) = ids_node {
-                                (
-                                    ids.get_pos() as usize,
-                                    (ids.get_pos() + ids.get_len()) as usize,
-                                )
-                            } else if let Some(name_node) = node.get_sub_node() {
-                                (
-                                    name_node.get_pos() as usize,
-                                    (name_node.get_pos() + name_node.get_len()) as usize,
-                                )
-                            } else {
-                                continue;
-                            };
-                            if let Some(name_node) = node.get_sub_node() {
-                                let enclosing = find_container(span.0);
-                                let func_name = ids_node
-                                    .and_then(|n| crate::semantic::basic::mc_ids::McIds::new(&n))
-                                    .map(|ids| ids.to_string());
-                                let scope = match (&enclosing, &func_name) {
-                                    (Some(m), Some(f)) => Some(format!("{m}.{f}")),
-                                    _ => func_name.clone(),
-                                };
-                                // FuncDef scope: {enclosing}.{func_name}
-                                let decl_id = sem.local_table.add_declare_with_name(
-                                    &self.uri,
-                                    span.0..span.1,
-                                    func_name.clone(),
-                                    scope.as_deref(),
-                                );
-                                // FuncDef registered in name_to_declare_id
-                                symbol_lapper.insert(Interval {
-                                    start: span.0,
-                                    stop: span.1,
-                                    val: SymbolType::FunctionDefinition(decl_id),
-                                });
-                                // ★ G2: function parameter definitions
-                                if let Some(params_node) = node
-                                    .get_sub_node()
-                                    .and_then(|s| s.iter().find(|n| n.is_type(MCAST_PARAMS)))
-                                {
-                                    // Use the same scope as FunctionDefinition (enclosing.funcName)
-                                    let func_scope = scope.clone().unwrap_or_else(|| {
-                                        crate::semantic::basic::mc_ids::McIds::new(&name_node)
-                                            .map(|ids| ids.to_string())
-                                            .unwrap_or_default()
-                                    });
-                                    for (pname, pspan) in
-                                        Self::extract_func_param_spans(&params_node)
-                                    {
-                                        let pdecl_id = sem.local_table.add_declare_with_name(
-                                            &self.uri,
-                                            pspan.clone(),
-                                            Some(pname.clone()),
-                                            Some(&func_scope),
-                                        );
-                                        symbol_lapper.insert(Interval {
-                                            start: pspan.start,
-                                            stop: pspan.end,
-                                            val: SymbolType::PortDefinition(pdecl_id),
-                                        });
-                                        sem.symbol_scope
-                                            .insert((pspan.start, pspan.end), func_scope.clone());
-                                        // ★ Fix: also register in GlobalInstTable so
-                                        // McPhrase::new can find func params and register
-                                        // instance_ref entries. Use parent scope (module name)
-                                        // so that LSP refs can be resolved by Level 3 name match.
-                                        let module_scope = enclosing.clone();
-                                        crate::query::refs::mcb_register_instance_decl(
-                                            &self.uri,
-                                            pspan.clone(),
-                                            Some(pname.clone()),
-                                            module_scope.as_deref(),
-                                        );
-                                    }
-                                }
-                            }
-                        } else if ntype == MCAST_DEFINE {
-                            if let Some(name_node) = node.get_sub_node() {
-                                let span = (
-                                    name_node.get_pos() as usize,
-                                    (name_node.get_pos() + name_node.get_len()) as usize,
-                                );
-                                let enclosing = find_container(span.0);
-                                let decl_id = sem.local_table.add_declare_with_name(
-                                    &self.uri,
-                                    span.0..span.1,
-                                    None,
-                                    enclosing.as_deref(),
-                                );
-                                symbol_lapper.insert(Interval {
-                                    start: span.0,
-                                    stop: span.1,
-                                    val: SymbolType::DefineDefinition(decl_id),
-                                });
-                            }
-                        } else if ntype == MCAST_ROLE {
-                            if let Some(name_node) = node.get_sub_node() {
-                                let span = (
-                                    name_node.get_pos() as usize,
-                                    (name_node.get_pos() + name_node.get_len()) as usize,
-                                );
-                                let enclosing = find_container(span.0);
-                                let decl_id = sem.local_table.add_declare_with_name(
-                                    &self.uri,
-                                    span.0..span.1,
-                                    None,
-                                    enclosing.as_deref(),
-                                );
-                                symbol_lapper.insert(Interval {
-                                    start: span.0,
-                                    stop: span.1,
-                                    val: SymbolType::RoleDefinition(decl_id),
-                                });
-                            }
-                        } else if ntype == MCAST_OPD_FCALL {
-                            let sub = node.get_sub_node();
-                            let name_node = if let Some(s) = &sub {
-                                match s.get_type() {
-                                    MCAST_INSTANCE => s.get_next(),
-                                    _ => Some(s.clone()),
-                                }
-                            } else {
-                                None
-                            };
-                            if let Some(nn) = name_node {
-                                // Use the tightest IDS sub-node for the span,
-                                // not the parent which may cover constructor args.
-                                // Extract the innermost MCAST_IDS for accurate span and name.
-                                // nn may be MCAST_NAME (wrapper) → need child MCAST_IDS.
-                                let ids_node = if nn.get_type() == MCAST_IDS {
-                                    nn.clone()
-                                } else {
-                                    nn.get_sub_node().unwrap_or_else(|| nn.clone())
-                                };
-                                let span = (
-                                    ids_node.get_pos() as usize,
-                                    (ids_node.get_pos() + ids_node.get_len()) as usize,
-                                );
-                                let has_instance = sub
-                                    .as_ref()
-                                    .map(|s| s.get_type() == MCAST_INSTANCE)
-                                    .unwrap_or(false);
-                                // Use ids_node (MCAST_IDS) for name parsing
-                                let func_name =
-                                    crate::semantic::basic::mc_ids::McIds::new(&ids_node)
-                                        .map(|ids| ids.to_string());
-                                if has_instance {
-                                    // For method calls, reuse the FunctionDefinition's DeclareId.
-                                    // FuncDef is registered with scope "{enclosing}.{func_name}".
-                                    // Strategy (§4.2): search same-file for matching function_def.
-                                    let resolved_id = func_name
-                                        .as_ref()
-                                        .and_then(|n| {
-                                            // Search all scopes in the same file for this func name.
-                                            // FuncDef may be registered under e.g. "US513_20_F.power".
-                                            let candidates: Vec<_> = sem
-                                                .local_table
-                                                .name_to_declare_id
-                                                .iter()
-                                                .filter(|((u, _s, name), _id)| {
-                                                    u == &self.uri && name.as_str() == n.as_str()
-                                                })
-                                                .collect();
-                                            if candidates.is_empty() {
-                                                None
-                                            } else {
-                                                // Use first match (same file, same name)
-                                                Some(*candidates[0].1)
-                                            }
-                                        })
-                                        .unwrap_or_else(|| {
-                                            let fname = func_name
-                                                .as_ref()
-                                                .map(|s| s.as_str())
-                                                .unwrap_or("?");
-                                            dlog_error(
-                                                1501,
-                                                &node,
-                                                &format!(
-                                                    "function '{}' not found in file '{}'",
-                                                    fname, self.uri
-                                                ),
-                                            );
-                                            sem.local_table.add_declare_with_name(
-                                                &self.uri,
-                                                span.0..span.1,
-                                                func_name.clone(),
-                                                None,
-                                            )
-                                        });
-                                    // ★ Register in inst_id_to_declare_inst for RefDefMap Layer 1d
-                                    sem.local_table.add_inst(span.0..span.1, resolved_id);
-                                    symbol_lapper.insert(Interval {
-                                        start: span.0,
-                                        stop: span.1,
-                                        val: SymbolType::FunctionRef(resolved_id),
-                                    });
-                                } else {
-                                    let decl_id = sem.local_table.add_declare_with_name(
-                                        &self.uri,
-                                        span.0..span.1,
-                                        func_name,
-                                        None,
-                                    );
-                                    // ★ Register in inst_id_to_declare_inst for RefDefMap Layer 1d
-                                    sem.local_table.add_inst(span.0..span.1, decl_id);
-                                    symbol_lapper.insert(Interval {
-                                        start: span.0,
-                                        stop: span.1,
-                                        val: SymbolType::ClassRef(decl_id),
-                                    });
-                                }
-                                // ★ Scan funcall arguments for port refs
-                                // (e.g. uC.power([VDD_3V3,GND]) → VDD_3V3 refs)
-                                // Walk ALL descendants of the funcall node — not just
-                                // next siblings (which may be at wrong nesting level).
-                                if let Some(enclosing) = find_container(span.0) {
-                                    let refs = Self::collect_funccall_arg_refs(
-                                        node,
-                                        &sem.local_table,
-                                        &self.uri,
-                                        &enclosing,
-                                    );
-                                    for (span, did) in refs {
-                                        symbol_lapper.insert(Interval {
-                                            start: span.start,
-                                            stop: span.end,
-                                            val: SymbolType::PortRef(did),
-                                        });
-                                        sem.symbol_scope
-                                            .insert((span.start, span.end), enclosing.clone());
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // Second pass A: pick up refs registered after the first pass
-                // (e.g. interface attr variable references)
-                // Also uses InstanceRef(DeclareId) via reverse mapping.
-                let mut inst_to_decl2: std::collections::HashMap<ReferenceId, DeclareId> =
-                    std::collections::HashMap::new();
-                for (decl_id, inst_ids) in sem.local_table.declare_inst_to_inst_ids.iter() {
-                    for iid in inst_ids {
-                        inst_to_decl2.insert(*iid, *decl_id);
-                    }
-                }
-                for (inst_id, span) in sem.local_table.inst_id_to_span.iter() {
-                    let decl_id = inst_to_decl2
-                        .get(inst_id)
-                        .copied()
-                        .unwrap_or(DeclareId::default());
-                    symbol_lapper.insert(Interval {
-                        start: span.start,
-                        stop: span.end,
-                        val: SymbolType::InstanceRef(decl_id),
-                    });
-                }
-
-                // ★ RefDefMap Layer 2 is built after consolidate_ref_def_map
-                // below — moved outside this lock scope so consolidate doesn't overwrite.
+                Self::lapper_function_params(&self.uri, &mut sem, &mut symbol_lapper);
+                Self::lapper_component_defs(&self.uri, &mut sem, &mut symbol_lapper);
+                Self::lapper_enum_refs(&self.uri, &self.ast, &mut sem, &mut symbol_lapper);
+                Self::lapper_func_define_role(&self.uri, &self.ast, &mut sem, &mut symbol_lapper);
+                Self::lapper_second_pass_and_dedup(&mut sem, &mut symbol_lapper);
 
                 sem.symbol_lapper = symbol_lapper;
             }
@@ -3484,7 +2189,13 @@ impl McCode {
             .symbols
             .lock()
             .ok()
-            .map(|s| (s.symbol_lapper.clone(), s.symbol_scope.clone()))
+            .map(|s| {
+                let scope_map: std::collections::HashMap<(usize, usize), String> = s.local_table.name_to_declare_id
+                    .iter()
+                    .map(|((_, scope, _), (_, span))| ((span.start, span.end), scope.clone()))
+                    .collect();
+                (s.symbol_lapper.clone(), scope_map)
+            })
             .unwrap_or_else(|| {
                 (
                     SymbolRangeLapper::new(vec![]),
@@ -3499,4 +2210,1107 @@ impl McCode {
     }
 
     pub fn pass2(&mut self) {}
+    fn lapper_global_classes(
+        uri: &McURI,
+        cross_file_targets: &mut Vec<(
+            crate::ast::ast_semantic::ReferenceId,
+            McURI,
+            std::ops::Range<usize>,
+        )>,
+        sem: &mut McSemSymbols,
+        symbol_lapper: &mut SymbolRangeLapper,
+    ) {
+        match sem.global_table.lock() {
+            Ok(mut gt) => {
+                let clsids: Vec<_> = gt
+                    .class_name_to_id
+                    .iter()
+                    .filter(|((u, _clsname), _clsid)| u == uri)
+                    .map(|(_key, clsid)| *clsid)
+                    .collect();
+
+                for clsid in &clsids {
+                    if let Some((_uri, span)) = gt.class_id_to_span.get(clsid) {
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::ClassDefinition(*clsid),
+                        });
+                    }
+                }
+
+                {
+                    let mut decl_refs = crate::db::cmie::tables::WORKSPACE
+                        .lsp
+                        .declare_class_refs
+                        .lock()
+                        .unwrap();
+                    tracing::info!(target: "mcc::lsp", "  create_lapper: lsp.declare_class_refs for '{}' = {} entries", uri, decl_refs.get(uri).map(|v| v.len()).unwrap_or(0));
+                    if let Some(refs) = decl_refs.remove(uri) {
+                        for (decl_span, _class_id, target_uri, target_span) in refs {
+                            let refid = gt.add_declare_class(
+                                &uri,
+                                decl_span.clone(),
+                                _class_id,
+                            );
+                            cross_file_targets
+                                .push((refid, target_uri, target_span));
+                        }
+                    }
+                }
+
+                for ((loop_uri, span), refid) in gt.span_to_declare_class_id.iter() {
+                    if loop_uri == uri {
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::DeclareClass(*refid),
+                        });
+                    }
+                }
+
+                for ((loop_uri, _name), class_id) in gt.enum_class_name_to_id.iter() {
+                    if loop_uri != uri {
+                        continue;
+                    }
+                    if let Some((_u, span)) = gt.enum_class_id_to_span.get(class_id) {
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::ClassDefinition(*class_id),
+                        });
+                    }
+                }
+                for (value_id, (loop_uri, span)) in gt.enum_value_id_to_span.iter() {
+                    if loop_uri == uri {
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::EnumValueDefinition(*value_id),
+                        });
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::error!(target: "mcc::code", error = %e, "global_table mutex poisoned (create_lapper)")
+            }
+        }
+    }
+
+    fn lapper_instance_decls_and_refs(
+        uri: &McURI,
+        sem: &mut McSemSymbols,
+        symbol_lapper: &mut SymbolRangeLapper,
+    ) {
+        for ((u, _, _), (decl_id, span)) in sem.local_table.name_to_declare_id.iter() {
+            if u == uri {
+                symbol_lapper.insert(Interval {
+                    start: span.start,
+                    stop: span.end,
+                    val: SymbolType::DeclareInstance(*decl_id),
+                });
+            }
+        }
+        for (inst_id, span) in sem.local_table.inst_id_to_span.iter() {
+            let decl_id = sem
+                .local_table
+                .inst_id_to_declare_inst
+                .get(inst_id)
+                .copied()
+                .unwrap_or(DeclareId::default());
+            symbol_lapper.insert(Interval {
+                start: span.start,
+                stop: span.end,
+                val: SymbolType::InstanceRef(decl_id),
+            });
+        }
+    }
+
+    fn lapper_global_instance_refs(
+        uri: &McURI,
+        _sem: &mut McSemSymbols,
+        symbol_lapper: &mut SymbolRangeLapper,
+    ) -> usize {
+        let uri_str = uri.as_str();
+        let inst_table = crate::db::cmie::tables::WORKSPACE
+            .lsp
+            .inst_table
+            .lock()
+            .unwrap();
+        let refs = inst_table.get_all_refs_for_uri(uri_str);
+        let count = refs.len();
+        for (decl_id, _scope, span) in refs {
+            symbol_lapper.insert(Interval {
+                start: span.start,
+                stop: span.end,
+                val: SymbolType::InstanceRef(decl_id),
+            });
+        }
+        count
+    }
+
+    fn lapper_interfaces(
+        uri: &McURI,
+        sem: &mut McSemSymbols,
+        symbol_lapper: &mut SymbolRangeLapper,
+    ) {
+        let uri_str = uri.as_str();
+
+        let interfaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
+        for entry in interfaces.iter() {
+            let iface = entry.value();
+            if iface.uri.as_str() == uri_str {
+                symbol_lapper.insert(Interval {
+                    start: iface.span.start,
+                    stop: iface.span.end,
+                    val: SymbolType::ClassDefinition(DeclareId::new(0)),
+                });
+                let mut param_decl_ids: std::collections::HashMap<String, DeclareId> =
+                    std::collections::HashMap::new();
+                let iface_ident = iface.name.to_string();
+                for (name, span) in iface.params.iter_defs_with_span() {
+                    let d = Self::register_def(&mut *sem, &uri, &iface_ident, None, name, span.clone());
+                    param_decl_ids.insert(name.to_string(), d);
+                    symbol_lapper.insert(Interval {
+                        start: span.start,
+                        stop: span.end,
+                        val: SymbolType::PortDefinition(d),
+                    });
+                }
+                for attr in iface.attrs.iter() {
+                    for val in &attr.values {
+                        if let crate::semantic::component::mc_attr::McAttrVal::AttrVariable(
+                            opd,
+                            Some(span),
+                        ) = val
+                        {
+                            let var_name = opd.to_string();
+                            let decl_id = param_decl_ids
+                                .get(&var_name)
+                                .copied()
+                                .unwrap_or(DeclareId::new(0));
+                            sem.local_table.add_inst(span.clone(), decl_id);
+                        }
+                    }
+                }
+                for (span, port_name, scope) in iface.params.iter_port_refs() {
+                    let sp = Self::scope_path_from_scope_str(&uri, scope);
+                    let decl_id = Self::lookup_declare_id(
+                        &sem.local_table,
+                        uri.as_str(),
+                        port_name,
+                        &sp,
+                    );
+                    if let Some(decl_id) = decl_id {
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::PortRef(decl_id),
+                        });
+                    }
+                }
+            }
+        }
+        let global_interfaces = &crate::db::infra::global::mcc_interfaces;
+        for entry in global_interfaces.iter() {
+            let iface = entry.value();
+            if iface.uri.as_str() == uri_str {
+                symbol_lapper.insert(Interval {
+                    start: iface.span.start,
+                    stop: iface.span.end,
+                    val: SymbolType::ClassDefinition(DeclareId::new(0)),
+                });
+                let iface_name_g = iface.name.to_string();
+                let mut param_decl_ids: std::collections::HashMap<String, DeclareId> =
+                    std::collections::HashMap::new();
+                for (name, span) in iface.params.iter_defs_with_span() {
+                    let d = Self::register_def(
+                        &mut *sem,
+                        &uri,
+                        &iface_name_g,
+                        None,
+                        name,
+                        span.clone(),
+                    );
+                    param_decl_ids.insert(name.to_string(), d);
+                    symbol_lapper.insert(Interval {
+                        start: span.start,
+                        stop: span.end,
+                        val: SymbolType::PortDefinition(d),
+                    });
+                }
+                for attr in iface.attrs.iter() {
+                    for val in &attr.values {
+                        if let crate::semantic::component::mc_attr::McAttrVal::AttrVariable(
+                            opd,
+                            Some(span),
+                        ) = val
+                        {
+                            let var_name = opd.to_string();
+                            let decl_id = param_decl_ids
+                                .get(&var_name)
+                                .copied()
+                                .unwrap_or(DeclareId::new(0));
+                            sem.local_table.add_inst(span.clone(), decl_id);
+                        }
+                    }
+                }
+                for (span, port_name, scope) in iface.params.iter_port_refs() {
+                    let sp = Self::scope_path_from_scope_str(&uri, scope);
+                    let decl_id = Self::lookup_declare_id(
+                        &sem.local_table,
+                        uri.as_str(),
+                        port_name,
+                        &sp,
+                    );
+                    if let Some(decl_id) = decl_id {
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::InstanceRef(decl_id),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    fn lapper_module_ports(
+        uri: &McURI,
+        sem: &mut McSemSymbols,
+        symbol_lapper: &mut SymbolRangeLapper,
+    ) {
+        let modules = &crate::db::cmie::tables::WORKSPACE.modules;
+        for entry in modules.iter() {
+            let m = entry.value();
+            if entry.key().uri.as_str() != uri.as_str() {
+                continue;
+            }
+
+            tracing::debug!(
+                target: "mcc::lsp",
+                "[LAPPER_DEBUG] Processing module params: {}",
+                entry.key().ident
+            );
+            let param_def_count = m.params.iter_defs_with_span().count();
+            tracing::debug!(
+                target: "mcc::lsp",
+                "[LAPPER_DEBUG] module={}, param_def_count={}",
+                entry.key().ident,
+                param_def_count
+            );
+            let mod_ident = entry.key().ident.to_string();
+            for (name, span) in m.params.iter_defs_with_span() {
+                let d = Self::register_def(&mut *sem, &uri, &mod_ident, None, name, span.clone());
+                symbol_lapper.insert(Interval {
+                    start: span.start,
+                    stop: span.end,
+                    val: SymbolType::PortDefinition(d),
+                });
+            }
+
+            let mod_ident2 = entry.key().ident.to_string();
+            for (name, _iotype, span) in m.insts.iter_ports_with_span() {
+                let d = Self::register_def(
+                    &mut *sem,
+                    &uri,
+                    &mod_ident2,
+                    None,
+                    name,
+                    span.clone(),
+                );
+                symbol_lapper.insert(Interval {
+                    start: span.start,
+                    stop: span.end,
+                    val: SymbolType::PortDefinition(d),
+                });
+            }
+            for (span, port_name, scope) in m.insts.iter_port_refs() {
+                let sp = Self::scope_path_from_scope_str(&uri, scope);
+                let decl_id = Self::lookup_declare_id(
+                    &sem.local_table,
+                    uri.as_str(),
+                    port_name,
+                    &sp,
+                );
+                if let Some(decl_id) = decl_id {
+                    symbol_lapper.insert(Interval {
+                        start: span.start,
+                        stop: span.end,
+                        val: SymbolType::PortRef(decl_id),
+                    });
+                }
+            }
+            for (span, port_name, scope) in m.params.iter_port_refs() {
+                let sp = Self::scope_path_from_scope_str(&uri, scope);
+                let decl_id = Self::lookup_declare_id(
+                    &sem.local_table,
+                    uri.as_str(),
+                    port_name,
+                    &sp,
+                );
+                if let Some(decl_id) = decl_id {
+                    symbol_lapper.insert(Interval {
+                        start: span.start,
+                        stop: span.end,
+                        val: SymbolType::InstanceRef(decl_id),
+                    });
+                }
+            }
+            let mod_ident_label = entry.key().ident.to_string();
+            for (name, _label_kind, span) in m.insts.iter_labels_with_span() {
+                let decl_id = sem.local_table.add_declare_with_name(
+                    &uri,
+                    span.clone(),
+                    Some(name.to_string()),
+                    Some(&mod_ident_label),
+                );
+                symbol_lapper.insert(Interval {
+                    start: span.start,
+                    stop: span.end,
+                    val: SymbolType::LabelDefinition(decl_id),
+                });
+            }
+        }
+    }
+
+    fn lapper_function_params(
+        uri: &McURI,
+        sem: &mut McSemSymbols,
+        symbol_lapper: &mut SymbolRangeLapper,
+    ) {
+        let modules = &crate::db::cmie::tables::WORKSPACE.modules;
+        for entry in modules.iter() {
+            let m = entry.value();
+            if entry.key().uri.as_str() != uri.as_str() {
+                continue;
+            }
+            for func in m.funcs.iter() {
+                let fscope = func.name.to_string();
+                for (span, port_name, scope) in func.params.iter_port_refs() {
+                    let sp = Self::scope_path_from_scope_str(&uri, scope);
+                    let decl_id = Self::lookup_declare_id(
+                        &sem.local_table,
+                        uri.as_str(),
+                        port_name,
+                        &sp,
+                    );
+                    if let Some(decl_id) = decl_id {
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::InstanceRef(decl_id),
+                        });
+                    }
+                }
+                let func_scope =
+                    func.insts.scope.clone().unwrap_or_else(|| fscope.clone());
+                for (name, _label_kind, span) in func.insts.iter_labels_with_span() {
+                    let decl_id = sem.local_table.add_declare_with_name(
+                        &uri,
+                        span.clone(),
+                        Some(name.to_string()),
+                        Some(&func_scope),
+                    );
+                    symbol_lapper.insert(Interval {
+                        start: span.start,
+                        stop: span.end,
+                        val: SymbolType::LabelDefinition(decl_id),
+                    });
+                }
+            }
+        }
+    }
+
+    fn lapper_component_defs(
+        uri: &McURI,
+        sem: &mut McSemSymbols,
+        symbol_lapper: &mut SymbolRangeLapper,
+    ) {
+        let all_comps: Vec<(String, Arc<McComponent>, String)> = workspace::WORKSPACE
+            .components
+            .iter()
+            .map(|e| {
+                (
+                    e.key().ident.to_string(),
+                    e.value().clone(),
+                    e.key().uri.to_string(),
+                )
+            })
+            .chain(global::mcc_components.iter().map(|e| {
+                (
+                    e.key().ident.to_string(),
+                    e.value().clone(),
+                    e.key().uri.to_string(),
+                )
+            }))
+            .filter(|(_, _, comp_uri)| comp_uri == uri.as_str())
+            .collect();
+        for (comp_ident, comp, _comp_uri) in &all_comps {
+            for (name, span) in comp.params.iter_defs_with_span() {
+                let d =
+                    Self::register_def(&mut *sem, &uri, comp_ident, None, name, span.clone());
+                symbol_lapper.insert(Interval {
+                    start: span.start,
+                    stop: span.end,
+                    val: SymbolType::PortDefinition(d),
+                });
+            }
+            for (pin_name, pin_span) in Self::extract_pin_name_spans(comp) {
+                let d = Self::register_def(
+                    &mut *sem,
+                    &uri,
+                    comp_ident,
+                    None,
+                    &pin_name,
+                    pin_span.clone(),
+                );
+                symbol_lapper.insert(Interval {
+                    start: pin_span.start,
+                    stop: pin_span.end,
+                    val: SymbolType::PinNameDefinition(d),
+                });
+            }
+            for (pin_id, id_span) in Self::extract_pin_id_spans(comp) {
+                let d = Self::register_def(
+                    &mut *sem,
+                    &uri,
+                    comp_ident,
+                    None,
+                    &pin_id,
+                    id_span.clone(),
+                );
+                symbol_lapper.insert(Interval {
+                    start: id_span.start,
+                    stop: id_span.end,
+                    val: SymbolType::PinIdDefinition(d),
+                });
+            }
+            for (iface, if_span) in Self::extract_pin_iface_spans(comp) {
+                let d = Self::register_def(
+                    &mut *sem,
+                    &uri,
+                    comp_ident,
+                    None,
+                    &iface,
+                    if_span.clone(),
+                );
+                symbol_lapper.insert(Interval {
+                    start: if_span.start,
+                    stop: if_span.end,
+                    val: SymbolType::PinIfaceDefinition(d),
+                });
+            }
+            for (key_name, key_span) in Self::extract_spec_key_spans(comp) {
+                let sdecl_id = sem.local_table.add_declare_with_name(
+                    &uri,
+                    key_span.clone(),
+                    Some(key_name.clone()),
+                    Some(comp_ident),
+                );
+                symbol_lapper.insert(Interval {
+                    start: key_span.start,
+                    stop: key_span.end,
+                    val: SymbolType::AttrDefinition(sdecl_id),
+                });
+            }
+            for (span, port_name, scope) in comp.params.iter_port_refs() {
+                let sp = Self::scope_path_from_scope_str(&uri, scope);
+                let decl_id = Self::lookup_declare_id(
+                    &sem.local_table,
+                    uri.as_str(),
+                    port_name,
+                    &sp,
+                );
+                if let Some(decl_id) = decl_id {
+                    symbol_lapper.insert(Interval {
+                        start: span.start,
+                        stop: span.end,
+                        val: SymbolType::InstanceRef(decl_id),
+                    });
+                }
+            }
+            let comp_ident_label = comp_ident.clone();
+            for (name, _label_kind, span) in comp.insts.iter_labels_with_span() {
+                let decl_id = sem.local_table.add_declare_with_name(
+                    &uri,
+                    span.clone(),
+                    Some(name.to_string()),
+                    Some(&comp_ident_label),
+                );
+                symbol_lapper.insert(Interval {
+                    start: span.start,
+                    stop: span.end,
+                    val: SymbolType::LabelDefinition(decl_id),
+                });
+            }
+        }
+    }
+
+    fn lapper_enum_refs(
+        uri: &McURI,
+        ast: &AstNode,
+        sem: &mut McSemSymbols,
+        symbol_lapper: &mut SymbolRangeLapper,
+    ) {
+        use crate::ast::ast_semantic::GlobalSymbolTable;
+        use rust_lapper::Interval;
+
+        let all_ast_nodes: Vec<AstNode> = {
+            let mut acc: Vec<AstNode> = Vec::new();
+            let mut stack: Vec<AstNode> = ast.iter().collect();
+            while let Some(node) = stack.pop() {
+                if let Some(sub) = node.get_sub_node() {
+                    for child in sub.iter() {
+                        stack.push(child);
+                    }
+                }
+                acc.push(node);
+            }
+            acc
+        };
+        'outer: for attr_node in all_ast_nodes.iter().cloned() {
+            if !attr_node.is_type(MCAST_ATTRIBUTE) {
+                continue;
+            }
+            let key_name = match attr_key_name(&attr_node) {
+                Some(k) => k,
+                None => continue,
+            };
+            if key_name != "package" && key_name != "pkg" {
+                continue;
+            }
+            let att_id = match attr_node.get_sub_node() {
+                Some(s) => s,
+                None => continue,
+            };
+            let values_node = match att_id.get_next() {
+                Some(v) => v,
+                None => continue,
+            };
+            if !values_node.is_type(MCAST_ATT_VALUES) {
+                continue;
+            }
+            let values_sub = match values_node.get_sub_node() {
+                Some(s) => s,
+                None => continue,
+            };
+            for opd_node in values_sub.iter() {
+                let parsed = match extract_dot_pair(&opd_node) {
+                    Some(p) => p,
+                    None => continue,
+                };
+                let (
+                    base_name,
+                    member_name,
+                    base_start,
+                    base_end,
+                    member_start,
+                    member_end,
+                ) = parsed;
+
+                let (class_id, value_idx) = {
+                    let class_id = match sem.global_table.lock() {
+                        Ok(gt) => gt
+                            .lookup_enum_class(&uri, &base_name)
+                            .or_else(|| {
+                                gt.enum_class_name_to_id
+                                    .iter()
+                                    .find_map(|((_uri, name), cid)| {
+                                        (name == &base_name).then_some(*cid)
+                                    })
+                            })
+                            .unwrap_or_default(),
+                        Err(_) => continue 'outer,
+                    };
+
+                    let mut idx = None;
+                    {
+                        let enums_guard = &crate::db::cmie::tables::WORKSPACE.enums;
+                        for entry in enums_guard.iter() {
+                            if entry.key().ident.to_string() != base_name {
+                                continue;
+                            }
+                            for (i, v) in entry.value().values.iter().enumerate() {
+                                if v.name.to_string() == member_name {
+                                    idx = Some(i as u32);
+                                    break;
+                                }
+                            }
+                            break;
+                        }
+                    }
+                    if idx.is_none() {
+                        let sys_enums_guard = &crate::db::infra::global::mcc_enums;
+                        for entry in sys_enums_guard.iter() {
+                            if entry.key().ident.to_string() != base_name {
+                                continue;
+                            }
+                            for (i, v) in entry.value().values.iter().enumerate() {
+                                if v.name.to_string() == member_name {
+                                    idx = Some(i as u32);
+                                    break;
+                                }
+                            }
+                            break;
+                        }
+                    }
+
+                    match idx {
+                        Some(i) => (class_id, i),
+                        None => continue,
+                    }
+                };
+                let value_id = GlobalSymbolTable::pack_enum_value_id(class_id, value_idx);
+
+                symbol_lapper.insert(Interval {
+                    start: base_start as usize,
+                    stop: base_end as usize,
+                    val: SymbolType::EnumRef(class_id),
+                });
+                symbol_lapper.insert(Interval {
+                    start: member_start as usize,
+                    stop: member_end as usize,
+                    val: SymbolType::EnumValueRef(value_id),
+                });
+                tracing::debug!(target: "mcc::enum_ref",
+                    "pushed enum_class_ref+enum_value_ref for {base_name}.{member_name} (class_id={class_id:?}, value_id={value_id:?})");
+            }
+        }
+    }
+
+    fn lapper_func_define_role(
+        uri: &McURI,
+        ast: &AstNode,
+        sem: &mut McSemSymbols,
+        symbol_lapper: &mut SymbolRangeLapper,
+    ) {
+        let all_nodes: Vec<AstNode> = {
+            let mut acc = Vec::new();
+            let mut stack: Vec<AstNode> = ast.iter().collect();
+            while let Some(node) = stack.pop() {
+                if let Some(sub) = node.get_sub_node() {
+                    for child in sub.iter() {
+                        stack.push(child);
+                    }
+                }
+                acc.push(node);
+            }
+            acc
+        };
+        let mut container_names: Vec<String> = Vec::new();
+        {
+            let uri_str = uri.as_str();
+            let modules = &workspace::WORKSPACE.modules;
+            for entry in modules.iter() {
+                let key_uri = entry.key().uri.as_str();
+                if key_uri == uri_str
+                    || key_uri.ends_with(uri_str)
+                    || uri_str.ends_with(key_uri)
+                {
+                    container_names.push(entry.key().ident.to_string());
+                }
+            }
+            let comps = &workspace::WORKSPACE.components;
+            for entry in comps.iter() {
+                let key_uri = entry.key().uri.as_str();
+                if key_uri == uri_str
+                    || key_uri.ends_with(uri_str)
+                    || uri_str.ends_with(key_uri)
+                {
+                    container_names.push(entry.key().ident.to_string());
+                }
+            }
+            for entry in global::mcc_modules.iter() {
+                let key_uri = entry.key().uri.as_str();
+                if key_uri == uri_str
+                    || key_uri.ends_with(uri_str)
+                    || uri_str.ends_with(key_uri)
+                {
+                    container_names.push(entry.key().ident.to_string());
+                }
+            }
+            for entry in global::mcc_components.iter() {
+                let key_uri = entry.key().uri.as_str();
+                if key_uri == uri_str
+                    || key_uri.ends_with(uri_str)
+                    || uri_str.ends_with(key_uri)
+                {
+                    container_names.push(entry.key().ident.to_string());
+                }
+            }
+            tracing::info!(target: "mcc::lsp",
+                "create_lapper scope: uri={uri_str}, found {} containers: {:?}",
+                container_names.len(), container_names);
+        }
+        let mut container_stack: Vec<(String, usize)> = Vec::new();
+        let mut pos_to_container: Vec<(usize, String)> = Vec::new();
+        for node in &all_nodes {
+            let ntype = node.get_type();
+            let node_start = node.get_pos() as usize;
+            let node_end = node_start + node.get_len() as usize;
+            while let Some((_, end)) = container_stack.last() {
+                if node_start >= *end {
+                    container_stack.pop();
+                } else {
+                    break;
+                }
+            }
+            if ntype == MCAST_MODULE || ntype == MCAST_COMPONENT {
+                if let Some(sub) = node.get_sub_node() {
+                    if let Some(name_node) = sub.iter().find(|x| x.is_type(MCAST_NAME)) {
+                        if let Some(ids_node) = name_node.get_sub_node() {
+                            if let Some(ids) = McIds::new(&ids_node) {
+                                container_stack.push((ids.to_string(), node_end));
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some((name, _)) = container_stack.last() {
+                pos_to_container.push((node_start, name.clone()));
+            }
+        }
+        pos_to_container.sort_by_key(|(pos, _)| *pos);
+        let find_container = move |pos: usize| -> Option<String> {
+            pos_to_container
+                .iter()
+                .take_while(|(p, _)| *p <= pos)
+                .last()
+                .map(|(_, name)| name.clone())
+        };
+
+        for node in &all_nodes {
+            if node.get_type() == MCAST_FUNCTION {
+                let ids_node = node.get_sub_node().and_then(|n| n.get_sub_node());
+                let span = if let Some(ref ids) = ids_node {
+                    (
+                        ids.get_pos() as usize,
+                        (ids.get_pos() + ids.get_len()) as usize,
+                    )
+                } else if let Some(name_node) = node.get_sub_node() {
+                    (
+                        name_node.get_pos() as usize,
+                        (name_node.get_pos() + name_node.get_len()) as usize,
+                    )
+                } else {
+                    continue;
+                };
+                if let Some(name_node) = node.get_sub_node() {
+                    let enclosing = find_container(span.0);
+                    let func_name = ids_node
+                        .and_then(|n| crate::semantic::basic::mc_ids::McIds::new(&n))
+                        .map(|ids| ids.to_string());
+                    let scope = match (&enclosing, &func_name) {
+                        (Some(m), Some(f)) => Some(format!("{m}.{f}")),
+                        _ => func_name.clone(),
+                    };
+                    let d = Self::register_def(
+                        &mut *sem,
+                        &uri,
+                        enclosing.as_deref().unwrap_or(""),
+                        func_name.as_deref(),
+                        func_name.as_deref().unwrap_or("?"),
+                        span.0..span.1,
+                    );
+                    symbol_lapper.insert(Interval {
+                        start: span.0,
+                        stop: span.1,
+                        val: SymbolType::FunctionDefinition(d),
+                    });
+                    if let Some(params_node) = node
+                        .get_sub_node()
+                        .and_then(|s| s.iter().find(|n| n.is_type(MCAST_PARAMS)))
+                    {
+                        let _func_scope = scope.clone().unwrap_or_else(|| {
+                            crate::semantic::basic::mc_ids::McIds::new(&name_node)
+                                .map(|ids| ids.to_string())
+                                .unwrap_or_default()
+                        });
+                        for (pname, pspan) in
+                            Self::extract_func_param_spans(&params_node)
+                        {
+                            let d = Self::register_def(
+                                &mut *sem,
+                                &uri,
+                                enclosing.as_deref().unwrap_or(""),
+                                func_name.as_deref(),
+                                &pname,
+                                pspan.clone(),
+                            );
+                            symbol_lapper.insert(Interval {
+                                start: pspan.start,
+                                stop: pspan.end,
+                                val: SymbolType::PortDefinition(d),
+                            });
+                            let module_scope = enclosing.clone();
+                            crate::query::refs::mcb_register_instance_decl(
+                                &uri,
+                                pspan.clone(),
+                                Some(pname.clone()),
+                                module_scope.as_deref(),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        for node in all_nodes.iter().rev() {
+            let ntype = node.get_type();
+            if ntype == MCAST_FUNCTION {
+                continue;
+            }
+            if ntype == MCAST_DEFINE {
+                if let Some(name_node) = node.get_sub_node() {
+                    let span = (
+                        name_node.get_pos() as usize,
+                        (name_node.get_pos() + name_node.get_len()) as usize,
+                    );
+                    let enclosing = find_container(span.0);
+                    let decl_id = sem.local_table.add_declare_with_name(
+                        &uri,
+                        span.0..span.1,
+                        None,
+                        enclosing.as_deref(),
+                    );
+                    symbol_lapper.insert(Interval {
+                        start: span.0,
+                        stop: span.1,
+                        val: SymbolType::DefineDefinition(decl_id),
+                    });
+                }
+            } else if ntype == MCAST_ROLE {
+                if let Some(name_node) = node.get_sub_node() {
+                    let span = (
+                        name_node.get_pos() as usize,
+                        (name_node.get_pos() + name_node.get_len()) as usize,
+                    );
+                    let enclosing = find_container(span.0);
+                    let decl_id = sem.local_table.add_declare_with_name(
+                        &uri,
+                        span.0..span.1,
+                        None,
+                        enclosing.as_deref(),
+                    );
+                    symbol_lapper.insert(Interval {
+                        start: span.0,
+                        stop: span.1,
+                        val: SymbolType::RoleDefinition(decl_id),
+                    });
+                }
+            } else if ntype == MCAST_OPD_FCALL {
+                let sub = node.get_sub_node();
+                let name_node = if let Some(s) = &sub {
+                    match s.get_type() {
+                        MCAST_INSTANCE => s.get_next(),
+                        _ => Some(s.clone()),
+                    }
+                } else {
+                    None
+                };
+                if let Some(nn) = name_node {
+                    let ids_node = if nn.get_type() == MCAST_IDS {
+                        nn.clone()
+                    } else {
+                        nn.get_sub_node().unwrap_or_else(|| nn.clone())
+                    };
+                    let span = (
+                        ids_node.get_pos() as usize,
+                        (ids_node.get_pos() + ids_node.get_len()) as usize,
+                    );
+                    let has_instance = sub
+                        .as_ref()
+                        .map(|s| s.get_type() == MCAST_INSTANCE)
+                        .unwrap_or(false);
+                    let func_name =
+                        crate::semantic::basic::mc_ids::McIds::new(&ids_node)
+                            .map(|ids| ids.to_string());
+                    if has_instance {
+                        let resolved_id = func_name
+                            .as_ref()
+                            .and_then(|n| {
+                                let candidates: Vec<_> = sem
+                                    .local_table
+                                    .name_to_declare_id
+                                    .iter()
+                                    .filter(|((u, _s, name), _id)| {
+                                        *u == *uri && name.as_str() == n.as_str()
+                                    })
+                                    .collect();
+                                if candidates.is_empty() {
+                                    None
+                                } else {
+                                    Some(candidates[0].1.0)
+                                }
+                            })
+                            .unwrap_or_else(|| {
+                                let fname = func_name
+                                    .as_ref()
+                                    .map(|s| s.as_str())
+                                    .unwrap_or("?");
+                                dlog_error(
+                                    1501,
+                                    node,
+                                    &format!(
+                                        "function '{}' not found in file '{}'",
+                                        fname, uri
+                                    ),
+                                );
+                                sem.local_table.add_declare_with_name(
+                                    &uri,
+                                    span.0..span.1,
+                                    func_name.clone(),
+                                    None,
+                                )
+                            });
+                        symbol_lapper.insert(Interval {
+                            start: span.0,
+                            stop: span.1,
+                            val: SymbolType::FunctionRef(resolved_id),
+                        });
+                    } else {
+                        let decl_id = sem.local_table.add_declare_with_name(
+                            &uri,
+                            span.0..span.1,
+                            func_name,
+                            None,
+                        );
+                        symbol_lapper.insert(Interval {
+                            start: span.0,
+                            stop: span.1,
+                            val: SymbolType::ClassRef(decl_id),
+                        });
+                    }
+                    if let Some(enclosing) = find_container(span.0) {
+                        let refs = Self::collect_funccall_arg_refs(
+                            node,
+                            &sem.local_table,
+                            &uri,
+                            &enclosing,
+                        );
+                        for (span, did) in refs {
+                            symbol_lapper.insert(Interval {
+                                start: span.start,
+                                stop: span.end,
+                                val: SymbolType::PortRef(did),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn lapper_second_pass_and_dedup(
+        sem: &mut McSemSymbols,
+        symbol_lapper: &mut SymbolRangeLapper,
+    ) {
+        for (inst_id, span) in sem.local_table.inst_id_to_span.iter() {
+            let decl_id = sem
+                .local_table
+                .inst_id_to_declare_inst
+                .get(inst_id)
+                .copied()
+                .unwrap_or(DeclareId::default());
+            symbol_lapper.insert(Interval {
+                start: span.start,
+                stop: span.end,
+                val: SymbolType::InstanceRef(decl_id),
+            });
+        }
+
+        let mut seen = std::collections::HashSet::new();
+        let mut deduped = Vec::new();
+        for iv in symbol_lapper.iter() {
+            let key: (u32, u32, usize, usize) = match &iv.val {
+                SymbolType::DeclareInstance(d) => (1, u32::from(*d), iv.start, iv.stop),
+                SymbolType::InstanceRef(d) => (2, u32::from(*d), iv.start, iv.stop),
+                SymbolType::PortDefinition(d) => (3, u32::from(*d), iv.start, iv.stop),
+                SymbolType::PortRef(d) => (4, u32::from(*d), iv.start, iv.stop),
+                SymbolType::FunctionDefinition(d) => (5, u32::from(*d), iv.start, iv.stop),
+                SymbolType::FunctionRef(d) => (6, u32::from(*d), iv.start, iv.stop),
+                SymbolType::ClassDefinition(d) => (7, u32::from(*d), iv.start, iv.stop),
+                SymbolType::ClassRef(d) => (8, u32::from(*d), iv.start, iv.stop),
+                SymbolType::DeclareClass(d) => (9, u32::from(*d), iv.start, iv.stop),
+                SymbolType::LabelDefinition(d) => (10, u32::from(*d), iv.start, iv.stop),
+                SymbolType::LabelRef(d) => (11, u32::from(*d), iv.start, iv.stop),
+                SymbolType::PinNameDefinition(d) => (12, u32::from(*d), iv.start, iv.stop),
+                SymbolType::PinNameRef(d) => (13, u32::from(*d), iv.start, iv.stop),
+                SymbolType::PinIdDefinition(d) => (14, u32::from(*d), iv.start, iv.stop),
+                SymbolType::PinIdRef(d) => (15, u32::from(*d), iv.start, iv.stop),
+                SymbolType::PinIfaceDefinition(d) => (16, u32::from(*d), iv.start, iv.stop),
+                SymbolType::PinIfaceRef(d) => (17, u32::from(*d), iv.start, iv.stop),
+                SymbolType::EnumDefinition(d) => (18, u32::from(*d), iv.start, iv.stop),
+                SymbolType::EnumRef(d) => (19, u32::from(*d), iv.start, iv.stop),
+                SymbolType::EnumValueDefinition(d) => (20, u32::from(*d), iv.start, iv.stop),
+                SymbolType::EnumValueRef(d) => (21, u32::from(*d), iv.start, iv.stop),
+                SymbolType::DefineDefinition(d) => (22, u32::from(*d), iv.start, iv.stop),
+                SymbolType::RoleDefinition(d) => (23, u32::from(*d), iv.start, iv.stop),
+                SymbolType::ParamDefinition(d) => (24, u32::from(*d), iv.start, iv.stop),
+                SymbolType::AttrDefinition(d) => (25, u32::from(*d), iv.start, iv.stop),
+            };
+            if seen.insert(key) {
+                deduped.push(iv.clone());
+            }
+        }
+        sem.symbol_lapper = SymbolRangeLapper::new(deduped);
+    }
+}
+
+fn attr_key_name(attr_node: &AstNode) -> Option<String> {
+    let sub = attr_node.get_sub_node()?;
+    let ids_node = sub.get_sub_node()?;
+    crate::semantic::basic::mc_ids::McIds::new(&ids_node).map(|ids| ids.to_string())
+}
+
+fn extract_dot_pair(
+    value_node: &AstNode,
+) -> Option<(
+    String,
+    String,
+    u32,
+    u32,
+    u32,
+    u32,
+)> {
+    use crate::ast::c_macros::{MCAST_ID, MCAST_IDS, MCAST_OPD_DOT};
+    let ids_node = if value_node.is_type(crate::ast::c_macros::MCAST_OPD) {
+        value_node.get_sub_node()?
+    } else if value_node.is_type(MCAST_IDS) {
+        value_node.clone()
+    } else {
+        return None;
+    };
+    if !ids_node.is_type(MCAST_IDS) {
+        return None;
+    }
+    let mut children = ids_node.get_sub_node()?.iter();
+    let first_id = children.next()?;
+    if !first_id.is_type(MCAST_ID) && first_id.get_type() != 7 {
+        return None;
+    }
+    let dot_node = children.next()?;
+    if !dot_node.is_type(MCAST_OPD_DOT) {
+        return None;
+    }
+    let member_node = dot_node.get_sub_node()?;
+    let (base_name, member_name) = {
+        let base = crate::semantic::basic::mc_ids::McIds::new(&first_id)
+            .map(|i| i.to_string())?;
+        let mem = crate::semantic::basic::mc_ids::McIds::new(&member_node)
+            .map(|i| i.to_string())?;
+        (base, mem)
+    };
+    let base_start = first_id.get_pos();
+    let base_end = base_start + base_name.len() as u32;
+    let member_start = member_node.get_pos();
+    let member_end = member_start + member_node.get_len();
+    Some((
+        base_name,
+        member_name,
+        base_start,
+        base_end,
+        member_start,
+        member_end,
+    ))
 }
