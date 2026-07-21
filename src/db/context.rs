@@ -66,7 +66,12 @@ impl SymbolRegistry for DbContext {
         let mc_uri = McURI::from(uri);
         if let Some(mcode) = crate::db::cmie::tables::WORKSPACE.mcodes.get(&mc_uri) {
             if let Ok(mut sem) = mcode.symbols.lock() {
-                let id = sem.local_table.add_declare_with_name(&mc_uri, SourceLocation::from_span(&span), Some(name.to_string()), scope);
+                let id = sem.local_table.add_declare_with_name(
+                    &mc_uri,
+                    SourceLocation::from_span(&span),
+                    Some(name.to_string()),
+                    scope,
+                );
                 return id.raw();
             }
         }
