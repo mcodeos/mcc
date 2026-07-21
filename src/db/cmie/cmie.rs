@@ -90,7 +90,7 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
                     .name_to_declare_id
                     .iter()
                     .find(|((u, _s, name), _)| u == uri && name.as_str() == name_str)
-                    .map(|(_, &id)| id);
+                    .map(|(_, (id, _))| *id);
                 let id_hit = decl_id.and_then(|did| {
                     map.get(
                         crate::ast::ast_semantic::SymbolKind::ClassRef,

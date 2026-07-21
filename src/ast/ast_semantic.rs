@@ -15,13 +15,9 @@ pub struct McSemSymbols {
     pub global_table: Arc<Mutex<GlobalSymbolTable>>,
     pub local_table: LocalSymbolTable,
     pub symbol_lapper: SymbolRangeLapper,
-    /// ★ LSP: Scope annotations for lapper intervals (start, stop) -> scope_name
-    pub symbol_scope: HashMap<(usize, usize), String>,
     /// ★ Unified ref→def map — built once at pass1 completion
     pub ref_def_map: Option<RefDefMap>,
-    /// Components/interfaces defined in THIS file (populated during parse_pass1_types).
-    /// Stored here (not McCode) so workspace clone shares via Arc.
-    pub my_components: Vec<crate::McSpaceName>,
+    // (my_components field removed — dead code)
 }
 impl Default for McSemSymbols {
     fn default() -> Self {
@@ -35,9 +31,8 @@ impl McSemSymbols {
             global_table: Arc::new(Mutex::new(GlobalSymbolTable::new())),
             local_table: LocalSymbolTable::new(),
             symbol_lapper: SymbolRangeLapper::new(vec![]),
-            symbol_scope: HashMap::new(),
             ref_def_map: None,
-            my_components: Vec::new(),
+            // (my_components removed)
         }
     }
 }
@@ -327,13 +322,9 @@ pub struct LocalSymbolTable {
     declare_inst_id_counter: DeclareId,
     inst_id_counter: ReferenceId,
 
-    pub declare_inst_to_span: HashMap<DeclareId, Span>,
-    pub span_to_declare_inst: HashMap<Span, DeclareId>,
-    pub declare_inst_to_inst_ids: HashMap<DeclareId, Vec<ReferenceId>>,
-    pub name_to_declare_id: HashMap<(McURI, String, String), DeclareId>, // ★ LSP: (uri, scope, name) -> declare_id
+    pub name_to_declare_id: HashMap<(McURI, String, String), (DeclareId, Span)>, // ★ LSP: (uri, scope, name) -> (declare_id, span)
 
     pub inst_id_to_span: HashMap<ReferenceId, Span>,
-    pub span_to_inst_id: HashMap<Span, ReferenceId>,
     pub inst_id_to_declare_inst: HashMap<ReferenceId, DeclareId>,
     //.. pub class_id_reference_list : Vec<((McURI, String), Span)>,
 }
@@ -343,12 +334,8 @@ impl LocalSymbolTable {
         LocalSymbolTable {
             declare_inst_id_counter: DeclareId { _raw: 0 },
             inst_id_counter: ReferenceId { _raw: 0 },
-            declare_inst_to_span: HashMap::new(),
-            span_to_declare_inst: HashMap::new(),
-            declare_inst_to_inst_ids: HashMap::new(),
             name_to_declare_id: HashMap::new(), // ★ LSP
             inst_id_to_span: HashMap::new(),
-            span_to_inst_id: HashMap::new(),
             inst_id_to_declare_inst: HashMap::new(),
         }
     }
@@ -363,10 +350,6 @@ impl LocalSymbolTable {
         rid
     }
 
-    pub fn add_declare(&mut self, uri: &McURI, span: Span) -> DeclareId {
-        self.add_declare_with_name(uri, span, None, None)
-    }
-
     pub fn add_declare_with_name(
         &mut self,
         uri: &McURI,
@@ -375,54 +358,17 @@ impl LocalSymbolTable {
         scope: Option<&str>,
     ) -> DeclareId {
         let declare_id = self.assign_declare_id();
-        self.declare_inst_to_span.insert(declare_id, span.clone());
-        self.span_to_declare_inst.insert(span, declare_id);
         if let Some(n) = name {
             let scope_key = scope.unwrap_or("");
             self.name_to_declare_id
-                .insert((uri.clone(), scope_key.to_string(), n), declare_id);
+                .insert((uri.clone(), scope_key.to_string(), n), (declare_id, span));
         }
         declare_id
-    }
-
-    /// Register with full (uri, scope, name) key for cross-file scope isolation.
-    pub fn add_declare_scoped(
-        &mut self,
-        uri: &McURI,
-        span: Span,
-        name: Option<String>,
-        scope: Option<&str>,
-    ) -> DeclareId {
-        let declare_id = self.assign_declare_id();
-        self.declare_inst_to_span.insert(declare_id, span.clone());
-        self.span_to_declare_inst.insert(span, declare_id);
-        if let Some(n) = name {
-            let scope_key = scope.unwrap_or("");
-            self.name_to_declare_id
-                .insert((uri.clone(), scope_key.to_string(), n), declare_id);
-        }
-        declare_id
-    }
-
-    /// Lookup with URI-aware scope.
-    pub fn lookup_scoped(&self, uri: &McURI, scope: &str, name: &str) -> Option<DeclareId> {
-        self.name_to_declare_id
-            .get(&(uri.clone(), scope.to_string(), name.to_string()))
-            .copied()
     }
 
     pub fn add_inst(&mut self, span: Span, declr_id: DeclareId) {
         let inst_id = self.assign_inst_id();
-        //1. Register inst_id
         self.inst_id_to_span.insert(inst_id, span.clone());
-        //2. Record inst_id position
-        self.span_to_inst_id.insert(span, inst_id);
-        //3. Add inst_id -> declare_id record
-        self.declare_inst_to_inst_ids
-            .entry(declr_id)
-            .or_default()
-            .push(inst_id);
-        //4. Add inst_id -> declare_id record
         self.inst_id_to_declare_inst.insert(inst_id, declr_id);
     }
 }
@@ -432,20 +378,13 @@ impl LocalSymbolTable {
 pub struct GlobalSymbolTable {
     class_id_counter: DeclareId,           // Global class ID counter
     declare_class_id_counter: ReferenceId, // Global reference ID counter
-    global_inst_counter: DeclareId,        // ★ LSP: Global instance declaration ID counter
 
     pub class_name_to_id: HashMap<(McURI, String), DeclareId>, // id
     pub class_id_to_span: HashMap<DeclareId, (McURI, Span)>,   // Find class position in source code
-    pub span_to_class_id: HashMap<(McURI, Span), DeclareId>, // Find class ID from position in source code
-    pub class_id_to_reference_ids: HashMap<DeclareId, Vec<ReferenceId>>, // Find reference IDs for a class ID
 
     pub declare_class_id_to_span: HashMap<ReferenceId, (McURI, Span)>, // Find reference ID position in source code
     pub span_to_declare_class_id: HashMap<(McURI, Span), ReferenceId>, //
     pub declare_id_to_class_id: HashMap<ReferenceId, DeclareId>,       //
-
-    // ★ LSP: Global instance declaration table (shared across all files)
-    pub global_inst_name_to_id: HashMap<(McURI, String, String), DeclareId>, // (uri, scope, name) -> decl_id
-    pub global_inst_id_to_span: HashMap<DeclareId, (McURI, Span)>, // decl_id -> (uri, span)
 
     // ★ LSP: enum global storage
     // (uri, class_name) -> class_id
@@ -461,18 +400,12 @@ impl GlobalSymbolTable {
         GlobalSymbolTable {
             class_id_counter: DeclareId { _raw: 0 },
             declare_class_id_counter: ReferenceId { _raw: 0 },
-            global_inst_counter: DeclareId { _raw: 0 },
 
             class_name_to_id: HashMap::new(),
             class_id_to_span: HashMap::new(),
-            span_to_class_id: HashMap::new(),
-            class_id_to_reference_ids: HashMap::new(),
             declare_class_id_to_span: HashMap::new(),
             span_to_declare_class_id: HashMap::new(),
             declare_id_to_class_id: HashMap::new(),
-
-            global_inst_name_to_id: HashMap::new(),
-            global_inst_id_to_span: HashMap::new(),
 
             enum_class_name_to_id: HashMap::new(),
             enum_class_id_to_span: HashMap::new(),
@@ -553,8 +486,6 @@ impl GlobalSymbolTable {
             .insert((uri.clone(), class_name.clone()), cls_id);
         self.class_id_to_span
             .insert(cls_id, (uri.clone(), span.clone()));
-        self.span_to_class_id
-            .insert((uri.clone(), span.clone()), cls_id);
         cls_id
     }
 
@@ -571,12 +502,7 @@ impl GlobalSymbolTable {
         //2. Record reference_id position
         self.span_to_declare_class_id
             .insert((uri.clone(), span.clone()), reference_id);
-        //3. Add reference_id record
-        self.class_id_to_reference_ids
-            .entry(class_id)
-            .or_default()
-            .push(reference_id);
-        //4. reference_id -> class_id
+        //3. reference_id -> class_id
         self.declare_id_to_class_id.insert(reference_id, class_id);
         reference_id
     }
@@ -607,11 +533,7 @@ impl GlobalSymbolTable {
 
         let _ = class_id_to_remove.iter().map(|clsid| {
             self.class_id_to_span.remove(clsid);
-            self.class_id_to_reference_ids.remove(clsid);
-            // Vec<ReferenceId> in class_id_to_reference_ids is auto-removed
         });
-        self.span_to_class_id
-            .retain(|(uri, _), _| uri != target_uri);
         self.class_name_to_id
             .retain(|(uri, _), _| uri != target_uri);
     }
@@ -620,18 +542,12 @@ impl GlobalSymbolTable {
         *self = GlobalSymbolTable {
             class_id_counter: DeclareId { _raw: 0 },
             declare_class_id_counter: ReferenceId { _raw: 0 },
-            global_inst_counter: DeclareId { _raw: 0 },
 
             class_name_to_id: HashMap::new(),
             class_id_to_span: HashMap::new(),
-            span_to_class_id: HashMap::new(),
-            class_id_to_reference_ids: HashMap::new(),
             declare_class_id_to_span: HashMap::new(),
             span_to_declare_class_id: HashMap::new(),
             declare_id_to_class_id: HashMap::new(),
-
-            global_inst_name_to_id: HashMap::new(),
-            global_inst_id_to_span: HashMap::new(),
 
             enum_class_name_to_id: HashMap::new(),
             enum_class_id_to_span: HashMap::new(),
@@ -639,45 +555,7 @@ impl GlobalSymbolTable {
         };
     }
 
-    // ★ LSP: Add global instance declaration (shared across all files)
-    pub fn add_global_inst(&mut self, uri: &McURI, name: &str, span: Span) -> DeclareId {
-        self.add_global_inst_scoped(uri, name, "", span)
-    }
-
-    pub fn add_global_inst_scoped(
-        &mut self,
-        uri: &McURI,
-        name: &str,
-        scope: &str,
-        span: Span,
-    ) -> DeclareId {
-        let decl_id = self.global_inst_counter;
-        self.global_inst_counter += 1;
-        self.global_inst_name_to_id
-            .insert((uri.clone(), scope.to_string(), name.to_string()), decl_id);
-        self.global_inst_id_to_span
-            .insert(decl_id, (uri.clone(), span));
-        decl_id
-    }
-
-    // ★ LSP: Look up global instance declaration by name
-    pub fn get_global_inst(&self, uri: &McURI, name: &str) -> Option<DeclareId> {
-        self.global_inst_name_to_id
-            .iter()
-            .find(|((u, _s, n), _)| u == uri && n == name)
-            .map(|(_, &id)| id)
-    }
-
-    pub fn get_global_inst_scoped(
-        &self,
-        uri: &McURI,
-        scope: &str,
-        name: &str,
-    ) -> Option<DeclareId> {
-        self.global_inst_name_to_id
-            .get(&(uri.clone(), scope.to_string(), name.to_string()))
-            .copied()
-    }
+    // (global_inst methods removed — dead code)
 }
 
 /// Convert McSemSymbols to JSON for RPC transfer to LSP
@@ -687,13 +565,16 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
     // Get local table data
     let local = &symbols.local_table;
     let local_declares: Vec<serde_json::Value> = local
-        .declare_inst_to_span
+        .name_to_declare_id
         .iter()
-        .map(|(id, span)| {
+        .filter(|((u, _, _), _)| u == uri)
+        .map(|((_, scope, name), (id, span))| {
             json!({
                 "kind": "declare",
                 "id": id._raw,
                 "span": [span.start, span.end],
+                "scope": scope,
+                "name": name,
             })
         })
         .collect();
@@ -749,9 +630,11 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
                 SymbolType::AttrDefinition(id) => (SymbolKind::AttrDef.kind_name(), id._raw),
             };
             let scope = symbols
-                .symbol_scope
-                .get(&(interval.start, interval.stop))
-                .cloned()
+                .local_table
+                .name_to_declare_id
+                .iter()
+                .find(|(_, (_, s))| s.start == interval.start && s.end == interval.stop)
+                .map(|((_, scope, _), _)| scope.clone())
                 .unwrap_or_default();
             json!({
                 "kind": kind,
