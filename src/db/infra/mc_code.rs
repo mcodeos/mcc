@@ -1571,8 +1571,10 @@ impl McCode {
     ) {
         use crate::ast::ast_semantic::{RefDefEntry, SymbolKind};
 
-        // Build def_map: decl_id → (start, stop, kind) from lapper defs
-        let mut def_map: std::collections::HashMap<u32, (usize, usize, SymbolKind)> =
+        // Build def_map: (kind, decl_id) → (start, stop) from lapper defs.
+        // Key includes kind to prevent cross-kind DeclareId collisions
+        // (e.g. ClassRef(id=0) overwriting InstDef(id=0)).
+        let mut def_map: std::collections::HashMap<(SymbolKind, u32), (usize, usize)> =
             std::collections::HashMap::new();
         for iv in lapper.iter() {
             let (kind, id) = match &iv.val {
@@ -1592,7 +1594,7 @@ impl McCode {
                 SymbolType::AttrDefinition(d) => (SymbolKind::AttrDef, u32::from(*d)),
                 _ => continue,
             };
-            def_map.entry(id).or_insert((iv.start, iv.stop, kind));
+            def_map.entry((kind, id)).or_insert((iv.start, iv.stop));
         }
 
         // For each ref, match to def via shared DeclareId
@@ -1610,29 +1612,36 @@ impl McCode {
                 SymbolType::ClassRef(d) => (SymbolKind::ClassRef, u32::from(*d)),
                 _ => continue,
             };
-            if map.index.contains_key(&(ref_kind, decl_id)) {
-                continue;
-            }
-            // Verify def_kind matches ref_kind (e.g. FuncRef→FuncDef, InstRef→InstDef)
-            let expected_def = match ref_kind {
-                SymbolKind::InstRef => Some(SymbolKind::InstDef),
-                SymbolKind::FuncRef => Some(SymbolKind::FuncDef),
-                SymbolKind::PortRef => Some(SymbolKind::PortDef),
-                SymbolKind::LabelRef => Some(SymbolKind::LabelDef),
-                SymbolKind::PinNameRef => Some(SymbolKind::PinNameDef),
-                SymbolKind::PinIdRef => Some(SymbolKind::PinIdDef),
-                SymbolKind::PinIfaceRef => Some(SymbolKind::PinIfaceDef),
-                SymbolKind::EnumValRef => Some(SymbolKind::EnumValDef),
-                SymbolKind::EnumRef => Some(SymbolKind::EnumDef),
-                SymbolKind::ClassRef => Some(SymbolKind::ClassDef),
-                _ => None,
+            // Don't skip already-resolved keys — Layer 1d may have wrong
+            // InstRef→InstDef entries that Layer 2 can fix via PortDef/LabelDef.
+            // Determine candidate def kinds to try (in priority order).
+            // InstRef covers instance/port/label refs (§4.1).
+            let candidate_defs: &[SymbolKind] = match ref_kind {
+                SymbolKind::InstRef => &[
+                    SymbolKind::InstDef,
+                    SymbolKind::PortDef,
+                    SymbolKind::LabelDef,
+                ],
+                SymbolKind::FuncRef => &[SymbolKind::FuncDef],
+                SymbolKind::PortRef => &[SymbolKind::PortDef],
+                SymbolKind::LabelRef => &[SymbolKind::LabelDef],
+                SymbolKind::PinNameRef => &[SymbolKind::PinNameDef],
+                SymbolKind::PinIdRef => &[SymbolKind::PinIdDef],
+                SymbolKind::PinIfaceRef => &[SymbolKind::PinIfaceDef],
+                SymbolKind::EnumValRef => &[SymbolKind::EnumValDef],
+                SymbolKind::EnumRef => &[SymbolKind::EnumDef],
+                SymbolKind::ClassRef => &[SymbolKind::ClassDef],
+                _ => &[],
             };
-            if let Some(&(def_start, def_stop, def_kind)) = def_map.get(&decl_id) {
-                if let Some(expected) = expected_def {
-                    if def_kind != expected {
-                        continue;
-                    }
+            // Try each candidate def kind in order
+            let mut def_match: Option<(usize, usize, SymbolKind)> = None;
+            for &dk in candidate_defs {
+                if let Some(&(ds, de)) = def_map.get(&(dk, decl_id)) {
+                    def_match = Some((ds, de, dk));
+                    break;
                 }
+            }
+            if let Some((def_start, def_stop, def_kind)) = def_match {
                 if def_start == iv.start && def_stop == iv.stop {
                     continue;
                 }
@@ -1658,12 +1667,69 @@ impl McCode {
                 );
             }
         }
+
+        // ── LabelRef post-pass ──
+        // PortDef and LabelDef at the same position have different DeclareIds.
+        // When InstRef matches PortDef, also create a LabelRef→LabelDef entry.
+        // 1. Build PortDef DeclareId → LabelDef DeclareId map (by position)
+        let mut port_to_label: std::collections::HashMap<u32, (u32, (usize, usize))> =
+            std::collections::HashMap::new();
+        {
+            let mut pos_to_label: std::collections::HashMap<(usize, usize), u32> =
+                std::collections::HashMap::new();
+            for iv in lapper.iter() {
+                if let SymbolType::LabelDefinition(d) = &iv.val {
+                    pos_to_label.insert((iv.start, iv.stop), u32::from(*d));
+                }
+            }
+            for iv in lapper.iter() {
+                if let SymbolType::PortDefinition(d) = &iv.val {
+                    let pid = u32::from(*d);
+                    if let Some(&lid) = pos_to_label.get(&(iv.start, iv.stop)) {
+                        if let Some(&(def_start, def_stop)) =
+                            def_map.get(&(SymbolKind::LabelDef, lid))
+                        {
+                            port_to_label.insert(pid, (lid, (def_start, def_stop)));
+                        }
+                    }
+                }
+            }
+        }
+        // 2. For each InstRef→PortDef already in the map, add LabelRef→LabelDef
+        if !port_to_label.is_empty() {
+            for iv in lapper.iter() {
+                if let SymbolType::InstanceRef(decl_id) = &iv.val {
+                    let rid = u32::from(*decl_id);
+                    if let Some(&(lid, (def_start, def_stop))) = port_to_label.get(&rid) {
+                        if map.index.contains_key(&(SymbolKind::LabelRef, lid)) {
+                            continue;
+                        }
+                        let fid = map.intern_file(file_uri);
+                        let cid = map.intern_container("");
+                        map.insert(
+                            SymbolKind::LabelRef,
+                            lid,
+                            RefDefEntry {
+                                ref_kind: SymbolKind::ClassDef,
+                                ref_id: 0,
+                                file_id: fid,
+                                def_span_start: def_start as u32,
+                                def_span_end: def_stop as u32,
+                                def_kind: SymbolKind::LabelDef,
+                                container_id: cid,
+                                cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
+                            },
+                        );
+                    }
+                }
+            }
+        }
     }
 
     /// Build RefDefMap from semantic tables.
     /// Runs after parse_pass1_modules() registers all symbols, before create_lapper().
     fn consolidate_ref_def_map(&mut self) {
-        use crate::ast::ast_semantic::{RefDefEntry, RefDefMap, SymbolKind};
+        use crate::ast::ast_semantic::{GlobalSymbolTable, RefDefEntry, RefDefMap, SymbolKind};
 
         let mut map = RefDefMap::new();
 
@@ -1751,45 +1817,63 @@ impl McCode {
                 );
             }
 
-            // 1d. instance_ref → def (via inst_id_to_declare_inst)
-            for (inst_id, decl_id) in &lt.inst_id_to_declare_inst {
-                if let Some(span) = lt.declare_inst_to_span.get(decl_id) {
-                    let fid = map.intern_file(uri);
-                    let scope = decl_id_to_scope
-                        .get(&u32::from(*decl_id))
-                        .map(|s| s.as_str())
-                        .unwrap_or("");
-                    let cid = map.intern_container(scope);
-                    map.insert(
-                        SymbolKind::InstRef,
-                        u32::from(*inst_id),
-                        RefDefEntry {
-                            ref_kind: SymbolKind::ClassDef,
-                            ref_id: 0,
-                            file_id: fid,
-                            def_span_start: span.start as u32,
-                            def_span_end: span.end as u32,
-                            def_kind: SymbolKind::InstDef,
-                            container_id: cid,
-                            cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
-                        },
-                    );
+            // 1d (REMOVED): instance_ref → def (via inst_id_to_declare_inst).
+            // Layer 1d mixed ReferenceId and DeclareId namespaces, producing
+            // wrong def positions. Same-file InstRef resolution is now handled
+            // by Layer 2 (fill_refdef_layer2) with proper kind-specific matching.
+            // Cross-file InstRef will be re-added with a clean implementation.
+
+            // 1e. enum_value_ref → def (§1.3: P3 > P4 > P5).
+            // Collect all entries, then insert in priority order (P3 first).
+            // Lower-priority entries are skipped if key already exists.
+            let mut enum_val_entries: Vec<(u32, String, usize, usize)> = Vec::new();
+            let mut collect_ev = |gt: &GlobalSymbolTable| {
+                for (value_id, (def_uri, span)) in &gt.enum_value_id_to_span {
+                    enum_val_entries.push((
+                        u32::from(*value_id),
+                        def_uri.clone(),
+                        span.start,
+                        span.end,
+                    ));
+                }
+            };
+            // Gather from all sources
+            collect_ev(&gt); // P3: current file
+            for entry in workspace::WORKSPACE.mcodes.iter() {
+                if entry.key() == &self.uri {
+                    continue;
+                }
+                if let Ok(ws_sym) = entry.value().symbols.lock() {
+                    if let Ok(ws_gt) = ws_sym.global_table.lock() {
+                        collect_ev(&ws_gt);
+                    }
                 }
             }
-
-            // 1e. enum_value_ref → def
-            for (value_id, (def_uri, span)) in &gt.enum_value_id_to_span {
+            for entry in crate::db::infra::libmgr::mcc_blibs.iter() {
+                if let Ok(ws_sym) = entry.value().symbols.lock() {
+                    if let Ok(ws_gt) = ws_sym.global_table.lock() {
+                        collect_ev(&ws_gt);
+                    }
+                }
+            }
+            // Insert: P3 entries first (they "win"), then P4, then P5.
+            // reverse so earlier (higher-priority) entries stay.
+            enum_val_entries.reverse();
+            for (value_id, def_uri, start, end) in &enum_val_entries {
+                if map.index.contains_key(&(SymbolKind::EnumValRef, *value_id)) {
+                    continue; // already resolved by higher priority
+                }
                 let fid = map.intern_file(def_uri);
                 let cid = map.intern_container("");
                 map.insert(
                     SymbolKind::EnumValRef,
-                    u32::from(*value_id),
+                    *value_id,
                     RefDefEntry {
                         ref_kind: SymbolKind::ClassDef,
                         ref_id: 0,
                         file_id: fid,
-                        def_span_start: span.start as u32,
-                        def_span_end: span.end as u32,
+                        def_span_start: *start as u32,
+                        def_span_end: *end as u32,
                         def_kind: SymbolKind::EnumValDef,
                         container_id: cid,
                         cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
@@ -1797,32 +1881,59 @@ impl McCode {
                 );
             }
 
-            // 1f. enum class ref → enum class def
-            // Enum classes use a separate span storage (enum_class_id_to_span),
-            // so DeclareClass refs to enums need this extra lookup.
-            for (ref_id, class_id) in &gt.declare_id_to_class_id {
-                // Skip if already covered by 1a (class_id_to_span)
-                if gt.class_id_to_span.contains_key(class_id) {
+            // 1f. enum class ref → enum class def (§1.3: P3 > P4 > P5).
+            // Like Layer 1b: use DeclareId (class_id) as key, matching lapper EnumRef.
+            let mut enum_cls_entries: Vec<(u32, String, usize, usize)> = Vec::new();
+            let mut collect_ec = |gt: &GlobalSymbolTable| {
+                for (class_id, (def_uri, span)) in &gt.enum_class_id_to_span {
+                    enum_cls_entries.push((
+                        u32::from(*class_id),
+                        def_uri.clone(),
+                        span.start,
+                        span.end,
+                    ));
+                }
+            };
+            // Gather P3→P4→P5, then reverse for priority-ordered insert
+            collect_ec(&gt);
+            for entry in workspace::WORKSPACE.mcodes.iter() {
+                if entry.key() == &self.uri {
                     continue;
                 }
-                if let Some((def_uri, span)) = gt.enum_class_id_to_span.get(class_id) {
-                    let fid = map.intern_file(def_uri);
-                    let cid = map.intern_container("");
-                    map.insert(
-                        SymbolKind::EnumRef,
-                        u32::from(*ref_id),
-                        RefDefEntry {
-                            ref_kind: SymbolKind::ClassDef,
-                            ref_id: 0,
-                            file_id: fid,
-                            def_span_start: span.start as u32,
-                            def_span_end: span.end as u32,
-                            def_kind: SymbolKind::EnumDef,
-                            container_id: cid,
-                            cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
-                        },
-                    );
+                if let Ok(ws_sym) = entry.value().symbols.lock() {
+                    if let Ok(ws_gt) = ws_sym.global_table.lock() {
+                        collect_ec(&ws_gt);
+                    }
                 }
+            }
+            for entry in crate::db::infra::libmgr::mcc_blibs.iter() {
+                if let Ok(ws_sym) = entry.value().symbols.lock() {
+                    if let Ok(ws_gt) = ws_sym.global_table.lock() {
+                        collect_ec(&ws_gt);
+                    }
+                }
+            }
+            enum_cls_entries.reverse();
+            for (ref_id, def_uri, start, end) in &enum_cls_entries {
+                if map.index.contains_key(&(SymbolKind::EnumRef, *ref_id)) {
+                    continue;
+                }
+                let fid = map.intern_file(def_uri);
+                let cid = map.intern_container("");
+                map.insert(
+                    SymbolKind::EnumRef,
+                    *ref_id,
+                    RefDefEntry {
+                        ref_kind: SymbolKind::ClassDef,
+                        ref_id: 0,
+                        file_id: fid,
+                        def_span_start: *start as u32,
+                        def_span_end: *end as u32,
+                        def_kind: SymbolKind::EnumDef,
+                        container_id: cid,
+                        cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
+                    },
+                );
             }
         } // lock released here
 
@@ -2910,7 +3021,7 @@ impl McCode {
                             symbol_lapper.insert(Interval {
                                 start: base_start as usize,
                                 stop: base_end as usize,
-                                val: SymbolType::ClassRef(class_id),
+                                val: SymbolType::EnumRef(class_id),
                             });
                             symbol_lapper.insert(Interval {
                                 start: member_start as usize,
@@ -3218,14 +3329,16 @@ impl McCode {
                                             }
                                         })
                                         .unwrap_or_else(|| {
-                                            let fname = func_name.as_ref().map(|s| s.as_str()).unwrap_or("?");
+                                            let fname = func_name
+                                                .as_ref()
+                                                .map(|s| s.as_str())
+                                                .unwrap_or("?");
                                             dlog_error(
                                                 1501,
                                                 &node,
                                                 &format!(
                                                     "function '{}' not found in file '{}'",
-                                                    fname,
-                                                    self.uri
+                                                    fname, self.uri
                                                 ),
                                             );
                                             sem.local_table.add_declare_with_name(

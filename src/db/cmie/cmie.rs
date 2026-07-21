@@ -92,7 +92,10 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
                     .find(|((u, _s, name), _)| u == uri && name.as_str() == name_str)
                     .map(|(_, &id)| id);
                 let id_hit = decl_id.and_then(|did| {
-                    map.get(crate::ast::ast_semantic::SymbolKind::ClassRef, u32::from(did))
+                    map.get(
+                        crate::ast::ast_semantic::SymbolKind::ClassRef,
+                        u32::from(did),
+                    )
                 });
                 // §5: name-based Use table lookup
                 let entry = id_hit.or_else(|| map.get_by_name(uri, &name_str));
