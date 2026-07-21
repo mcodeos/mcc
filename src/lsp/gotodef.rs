@@ -23,7 +23,7 @@ fn find_def_in_refdefmap(name: &str) -> Option<(String, String)> {
                 if let Some(def_entry) = map.get_by_name(&mcfile.uri, name) {
                     let def_uri = map
                         .files
-                        .get(def_entry.file_id as usize)
+                        .get(def_entry.def_loc.file_id as usize)
                         .cloned()
                         .unwrap_or_default();
                     let def_kind = def_entry.def_kind.kind_name().to_string();

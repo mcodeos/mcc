@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use crate::ast::ast_semantic::{DeclareId, Span};
+use crate::ast::ast_semantic::{DeclareId, SourceLocation, Span};
 use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
 use crate::McURI;
@@ -18,16 +18,15 @@ pub fn mcb_register_instance_decl(
     name: Option<String>,
     scope: Option<&str>,
 ) -> Option<DeclareId> {
-    let uri_str = uri.as_str();
-    let span_clone = span.clone();
     if let Some(n) = name {
-        let mut table = workspace::WORKSPACE.lsp.inst_table.lock().unwrap();
-        let id = table.add(uri_str, scope, &n, span_clone);
-        tracing::debug!(target: "crate::lsp", "Registered inst decl: {} scope={:?} at {:?} -> id={:?}", n, scope, span, id);
-        Some(id)
-    } else {
-        None
+        if let Some(mcode) = workspace::WORKSPACE.mcodes.get(uri) {
+            if let Ok(mut sem) = mcode.symbols.lock() {
+                let id = sem.local_table.add_declare_with_name(uri, SourceLocation::from_span(&span), Some(n), scope);
+                return Some(id);
+            }
+        }
     }
+    None
 }
 
 // === pub fn mcb_lookup_instance_decl(uri: &McURI, name: &str, scope: Option<&str>) -> ===
@@ -35,9 +34,28 @@ pub fn mcb_register_instance_decl(
 ///
 /// Returns the DeclareId for a given instance name, if registered.
 pub fn mcb_lookup_instance_decl(uri: &McURI, name: &str, scope: Option<&str>) -> Option<DeclareId> {
-    let uri_str = uri.as_str();
-    let table = workspace::WORKSPACE.lsp.inst_table.lock().unwrap();
-    table.get(uri_str, scope, name)
+    let scope_str = scope.unwrap_or("");
+    // First try exact URI match
+    if let Some(mcode) = workspace::WORKSPACE.mcodes.get(uri) {
+        if let Ok(sem) = mcode.symbols.lock() {
+            for ((u, s, n), (id, _)) in sem.local_table.name_to_declare_id.iter() {
+                if u == uri && s == scope_str && n == name {
+                    return Some(*id);
+                }
+            }
+        }
+    }
+    // Cross-file fallback
+    for entry in workspace::WORKSPACE.mcodes.iter() {
+        if let Ok(sem) = entry.value().symbols.lock() {
+            for ((_u, s, n), (id, _)) in sem.local_table.name_to_declare_id.iter() {
+                if s == scope_str && n == name {
+                    return Some(*id);
+                }
+            }
+        }
+    }
+    None
 }
 
 // === pub fn mcb_register_instance_ref(uri: &McURI, span: Span, decl_id: DeclareId, sc ===
@@ -45,23 +63,37 @@ pub fn mcb_lookup_instance_decl(uri: &McURI, name: &str, scope: Option<&str>) ->
 ///
 /// Called when an instance name is used elsewhere in the module (e.g., `uC.i2c()`).
 /// The reference is linked to the declaration via decl_id.
-pub fn mcb_register_instance_ref(uri: &McURI, span: Span, decl_id: DeclareId, scope: Option<&str>) {
-    let uri_str = uri.as_str();
-    let span_clone = span.clone();
-    let mut table = workspace::WORKSPACE.lsp.inst_table.lock().unwrap();
-    table.add_ref(decl_id, uri_str, scope, span);
-    tracing::info!(target: "crate::lsp", "Registered inst ref: decl_id={:?} scope={:?} at {:?}", decl_id, scope, span_clone);
+pub fn mcb_register_instance_ref(uri: &McURI, span: Span, decl_id: DeclareId, _scope: Option<&str>) {
+    if let Some(mcode) = workspace::WORKSPACE.mcodes.get(uri) {
+        if let Ok(mut sem) = mcode.symbols.lock() {
+            sem.local_table.add_inst(span, decl_id);
+        }
+    }
 }
 
 // === pub fn mcb_get_refs(name: &str) -> Vec<(String, String, Span)> { ===
 /// M6: Get all references for a named declaration.
 /// Returns Vec<(uri, scope, span)>.
 pub fn mcb_get_refs(name: &str) -> Vec<(String, String, Span)> {
-    let table = workspace::WORKSPACE.lsp.inst_table.lock().unwrap();
-    let decl_ids = table.find_decls_by_name(name);
     let mut results = Vec::new();
-    for decl_id in &decl_ids {
-        results.extend(table.get_refs(*decl_id));
+    for entry in workspace::WORKSPACE.mcodes.iter() {
+        if let Ok(sem) = entry.value().symbols.lock() {
+            // Find decl_ids matching name
+            let mut decl_ids: Vec<DeclareId> = Vec::new();
+            for ((_u, _s, n), (id, _)) in sem.local_table.name_to_declare_id.iter() {
+                if n == name {
+                    decl_ids.push(*id);
+                }
+            }
+            // Find refs for those decl_ids
+            for (inst_id, decl_id) in sem.local_table.inst_id_to_declare_inst.iter() {
+                if decl_ids.contains(decl_id) {
+                    if let Some(span) = sem.local_table.inst_id_to_span.get(inst_id) {
+                        results.push((entry.key().to_string(), String::new(), span.clone()));
+                    }
+                }
+            }
+        }
     }
     results
 }

@@ -10,6 +10,61 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+/// ★ SourceLocation carries file_id/container_id/func_id/byte_start/byte_end
+/// Replaces bare Span for precise location tracking.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SourceLocation {
+    pub file_id: u32,
+    pub container_id: u32,
+    pub func_id: u32,
+    pub byte_start: u32,
+    pub byte_end: u32,
+}
+
+impl SourceLocation {
+    pub const NONE: SourceLocation = SourceLocation {
+        file_id: 0,
+        container_id: 0,
+        func_id: 0,
+        byte_start: 0,
+        byte_end: 0,
+    };
+
+    pub fn new(file_id: u32, container_id: u32, byte_start: u32, byte_end: u32) -> Self {
+        SourceLocation {
+            file_id,
+            container_id,
+            func_id: 0,
+            byte_start,
+            byte_end,
+        }
+    }
+
+    pub fn from_span(span: &Span) -> Self {
+        SourceLocation {
+            file_id: 0,
+            container_id: 0,
+            func_id: 0,
+            byte_start: span.start as u32,
+            byte_end: span.end as u32,
+        }
+    }
+}
+
+/// Intern `s` into `table`, returning its u32 id. Empty strings get id 0.
+pub fn intern(table: &mut Vec<String>, s: &str) -> u32 {
+    if s.is_empty() {
+        return 0;
+    }
+    if let Some(pos) = table.iter().position(|x| x == s) {
+        pos as u32
+    } else {
+        let id = table.len() as u32;
+        table.push(s.to_string());
+        id
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct McSemSymbols {
     pub global_table: Arc<Mutex<GlobalSymbolTable>>,
@@ -17,6 +72,17 @@ pub struct McSemSymbols {
     pub symbol_lapper: SymbolRangeLapper,
     /// ★ Unified ref→def map — built once at pass1 completion
     pub ref_def_map: Option<RefDefMap>,
+    /// ★ A3: Pre-populated def_map — (def_kind, decl_id) → SourceLocation.
+    /// Built during register_def, consumed by fill_refdef_layer2.
+    pub def_map: HashMap<(SymbolKind, u32), SourceLocation>,
+    /// ★ A3: Pre-collected ref entries — (ref_kind, decl_id, start, stop).
+    /// Populated during lapper ref registration, consumed by fill_refdef_layer2
+    /// (eliminates lapper scan for ref→def matching).
+    pub ref_entries: Vec<(SymbolKind, u32, usize, usize)>,
+    /// ★ SourceLocation tables: intern file/container/func names to u32 IDs.
+    pub file_table: Vec<String>,
+    pub container_table: Vec<String>,
+    pub func_table: Vec<String>,
     // (my_components field removed — dead code)
 }
 impl Default for McSemSymbols {
@@ -32,6 +98,11 @@ impl McSemSymbols {
             local_table: LocalSymbolTable::new(),
             symbol_lapper: SymbolRangeLapper::new(vec![]),
             ref_def_map: None,
+            def_map: HashMap::new(),
+            ref_entries: Vec::new(),
+            file_table: Vec::new(),
+            container_table: Vec::new(),
+            func_table: Vec::new(),
             // (my_components removed)
         }
     }
@@ -198,11 +269,8 @@ impl CmieKind {
 pub struct RefDefEntry {
     pub ref_kind: SymbolKind,
     pub ref_id: u32,
-    pub file_id: u32,
-    pub def_span_start: u32,
-    pub def_span_end: u32,
+    pub def_loc: SourceLocation,
     pub def_kind: SymbolKind,
-    pub container_id: u32,
     /// CMIE table kind for O(1) direct DashMap lookup (0=Comp,1=Mod,2=Ifs,3=Enum,255=unknown)
     pub cmie_kind: u8,
 }
@@ -210,15 +278,12 @@ pub struct RefDefEntry {
 /// Unified symbol resolution table — built once at pass1 completion.
 #[derive(Clone, Debug, Default)]
 pub struct RefDefMap {
-    pub entries: Vec<RefDefEntry>,
-    /// (kind, id) → index into entries (for O(1) ID-based lookup)
-    pub index: HashMap<(SymbolKind, u32), usize>,
+    /// (ref_kind, ref_id) → entry. Single-layer O(1) ID-based lookup.
+    pub entries: HashMap<(SymbolKind, u32), RefDefEntry>,
     pub files: Vec<String>,
     pub containers: Vec<String>,
-    /// ★ Use table: (file_uri, class_name) → entry index (for name-based P3/P4/P5 lookup)
-    /// Maps from "which file is looking" + "class name" → "where is the def".
-    /// Populated from GlobalSymbolTable after ID-based entries are built.
-    pub name_index: HashMap<(String, String), usize>,
+    /// ★ Use table: (file_uri, class_name) → entry for name-based P3/P4/P5 lookup.
+    pub name_index: HashMap<(String, String), RefDefEntry>,
 }
 
 impl RefDefMap {
@@ -229,14 +294,10 @@ impl RefDefMap {
     pub fn insert(&mut self, kind: SymbolKind, ref_id: u32, mut entry: RefDefEntry) {
         entry.ref_kind = kind;
         entry.ref_id = ref_id;
-        let idx = self.entries.len();
-        self.entries.push(entry);
-        self.index.insert((kind, ref_id), idx);
+        self.entries.insert((kind, ref_id), entry);
     }
 
     /// Insert with name-based index for Use-table lookup.
-    /// `lookup_file_uri` = the file performing the lookup (for P3/P4 scoping).
-    /// `class_name` = the CMIE class name being looked up.
     pub fn insert_with_name(
         &mut self,
         kind: SymbolKind,
@@ -247,30 +308,25 @@ impl RefDefMap {
     ) {
         entry.ref_kind = kind;
         entry.ref_id = ref_id;
-        let idx = self.entries.len();
-        self.entries.push(entry);
-        self.index.insert((kind, ref_id), idx);
-        // ★ Populate name index for O(1) class name lookup
+        self.entries.insert((kind, ref_id), entry.clone());
         self.name_index
-            .insert((lookup_file_uri.to_string(), class_name.to_string()), idx);
+            .insert((lookup_file_uri.to_string(), class_name.to_string()), entry);
     }
 
     pub fn get(&self, kind: SymbolKind, ref_id: u32) -> Option<&RefDefEntry> {
-        self.index.get(&(kind, ref_id)).map(|&i| &self.entries[i])
+        self.entries.get(&(kind, ref_id))
     }
 
-    /// Add a name-index entry pointing to an existing entry.
-    /// Later insertions overwrite earlier ones — caller must ensure P5→P4→P3 order.
-    pub fn add_name_alias(&mut self, file_uri: &McURI, class_name: &str, entry_idx: usize) {
+    /// Add a name-index entry for a class definition.
+    pub fn add_name_alias(&mut self, file_uri: &McURI, class_name: &str, entry: RefDefEntry) {
         self.name_index
-            .insert((file_uri.to_string(), class_name.to_string()), entry_idx);
+            .insert((file_uri.to_string(), class_name.to_string()), entry);
     }
 
     /// Look up by (file_uri, class_name) — Use table query.
     pub fn get_by_name(&self, file_uri: &McURI, class_name: &str) -> Option<&RefDefEntry> {
         self.name_index
             .get(&(file_uri.to_string(), class_name.to_string()))
-            .map(|&i| &self.entries[i])
     }
 
     pub fn is_empty(&self) -> bool {
@@ -322,7 +378,10 @@ pub struct LocalSymbolTable {
     declare_inst_id_counter: DeclareId,
     inst_id_counter: ReferenceId,
 
-    pub name_to_declare_id: HashMap<(McURI, String, String), (DeclareId, Span)>, // ★ LSP: (uri, scope, name) -> (declare_id, span)
+    /// (uri, scope, name) → (declare_id, source_location).
+    /// SourceLocation carries file_id/container_id/func_id/span — replaces
+    /// declare_inst_to_span + symbol_scope + scope string parsing.
+    pub name_to_declare_id: HashMap<(McURI, String, String), (DeclareId, SourceLocation)>,
 
     pub inst_id_to_span: HashMap<ReferenceId, Span>,
     pub inst_id_to_declare_inst: HashMap<ReferenceId, DeclareId>,
@@ -344,6 +403,15 @@ impl LocalSymbolTable {
         self.declare_inst_id_counter += 1;
         did
     }
+    /// ★ 14.2: Deterministic DeclareId via hash — stable across runs.
+    pub fn assign_declare_id_stable(uri: &McURI, scope: &str, name: &str) -> DeclareId {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        uri.as_str().hash(&mut h);
+        scope.hash(&mut h);
+        name.hash(&mut h);
+        DeclareId { _raw: h.finish() as u32 }
+    }
     pub fn assign_inst_id(&mut self) -> ReferenceId {
         let rid = self.inst_id_counter;
         self.inst_id_counter += 1;
@@ -353,15 +421,19 @@ impl LocalSymbolTable {
     pub fn add_declare_with_name(
         &mut self,
         uri: &McURI,
-        span: Span,
+        loc: SourceLocation,
         name: Option<String>,
         scope: Option<&str>,
     ) -> DeclareId {
-        let declare_id = self.assign_declare_id();
+        let scope_key = scope.unwrap_or("");
+        let declare_id = if let Some(ref n) = name {
+            Self::assign_declare_id_stable(uri, scope_key, n)
+        } else {
+            self.assign_declare_id()
+        };
         if let Some(n) = name {
-            let scope_key = scope.unwrap_or("");
             self.name_to_declare_id
-                .insert((uri.clone(), scope_key.to_string(), n), (declare_id, span));
+                .insert((uri.clone(), scope_key.to_string(), n), (declare_id, loc));
         }
         declare_id
     }
@@ -568,11 +640,11 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
         .name_to_declare_id
         .iter()
         .filter(|((u, _, _), _)| u == uri)
-        .map(|((_, scope, name), (id, span))| {
+        .map(|((_, scope, name), (id, loc))| {
             json!({
                 "kind": "declare",
                 "id": id._raw,
-                "span": [span.start, span.end],
+                "span": [loc.byte_start, loc.byte_end],
                 "scope": scope,
                 "name": name,
             })
@@ -599,41 +671,37 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
         .iter()
         .map(|interval| {
             let (kind, id) = match interval.val {
-                SymbolType::ClassDefinition(id) => (SymbolKind::ClassDef.kind_name(), id._raw),
-                SymbolType::DeclareClass(id) => (SymbolKind::ClassRef.kind_name(), id._raw),
-                SymbolType::ClassRef(id) => (SymbolKind::ClassRef.kind_name(), id._raw),
-                SymbolType::DeclareInstance(id) => (SymbolKind::InstDef.kind_name(), id._raw),
-                SymbolType::InstanceRef(id) => (SymbolKind::InstRef.kind_name(), id._raw),
-                SymbolType::EnumValueDefinition(id) => {
-                    (SymbolKind::EnumValDef.kind_name(), id._raw)
-                }
-                SymbolType::EnumValueRef(id) => (SymbolKind::EnumValRef.kind_name(), id._raw),
-                SymbolType::DefineDefinition(id) => (SymbolKind::DefineDef.kind_name(), id._raw),
-                SymbolType::FunctionDefinition(id) => (SymbolKind::FuncDef.kind_name(), id._raw),
-                SymbolType::FunctionRef(id) => (SymbolKind::FuncRef.kind_name(), id._raw),
-                SymbolType::PortDefinition(id) => (SymbolKind::PortDef.kind_name(), id._raw),
-                SymbolType::PinNameDefinition(id) => (SymbolKind::PinNameDef.kind_name(), id._raw),
-                SymbolType::PinNameRef(id) => (SymbolKind::PinNameRef.kind_name(), id._raw),
-                SymbolType::RoleDefinition(id) => (SymbolKind::RoleDef.kind_name(), id._raw),
-                SymbolType::LabelDefinition(id) => (SymbolKind::LabelDef.kind_name(), id._raw),
-                SymbolType::LabelRef(id) => (SymbolKind::LabelRef.kind_name(), id._raw),
-                SymbolType::PortRef(id) => (SymbolKind::PortRef.kind_name(), id._raw),
-                SymbolType::PinIdDefinition(id) => (SymbolKind::PinIdDef.kind_name(), id._raw),
-                SymbolType::PinIdRef(id) => (SymbolKind::PinIdRef.kind_name(), id._raw),
-                SymbolType::PinIfaceDefinition(id) => {
-                    (SymbolKind::PinIfaceDef.kind_name(), id._raw)
-                }
-                SymbolType::PinIfaceRef(id) => (SymbolKind::PinIfaceRef.kind_name(), id._raw),
-                SymbolType::EnumDefinition(id) => (SymbolKind::EnumDef.kind_name(), id._raw),
-                SymbolType::EnumRef(id) => (SymbolKind::EnumRef.kind_name(), id._raw),
-                SymbolType::ParamDefinition(id) => (SymbolKind::ParamDef.kind_name(), id._raw),
-                SymbolType::AttrDefinition(id) => (SymbolKind::AttrDef.kind_name(), id._raw),
+                SymbolType::ClassDefinition(id) => (SymbolKind::ClassDef as u8, id._raw),
+                SymbolType::DeclareClass(id) => (SymbolKind::ClassRef as u8, id._raw),
+                SymbolType::ClassRef(id) => (SymbolKind::ClassRef as u8, id._raw),
+                SymbolType::DeclareInstance(id) => (SymbolKind::InstDef as u8, id._raw),
+                SymbolType::InstanceRef(id) => (SymbolKind::InstRef as u8, id._raw),
+                SymbolType::EnumValueDefinition(id) => (SymbolKind::EnumValDef as u8, id._raw),
+                SymbolType::EnumValueRef(id) => (SymbolKind::EnumValRef as u8, id._raw),
+                SymbolType::DefineDefinition(id) => (SymbolKind::DefineDef as u8, id._raw),
+                SymbolType::FunctionDefinition(id) => (SymbolKind::FuncDef as u8, id._raw),
+                SymbolType::FunctionRef(id) => (SymbolKind::FuncRef as u8, id._raw),
+                SymbolType::PortDefinition(id) => (SymbolKind::PortDef as u8, id._raw),
+                SymbolType::PinNameDefinition(id) => (SymbolKind::PinNameDef as u8, id._raw),
+                SymbolType::PinNameRef(id) => (SymbolKind::PinNameRef as u8, id._raw),
+                SymbolType::RoleDefinition(id) => (SymbolKind::RoleDef as u8, id._raw),
+                SymbolType::LabelDefinition(id) => (SymbolKind::LabelDef as u8, id._raw),
+                SymbolType::LabelRef(id) => (SymbolKind::LabelRef as u8, id._raw),
+                SymbolType::PortRef(id) => (SymbolKind::PortRef as u8, id._raw),
+                SymbolType::PinIdDefinition(id) => (SymbolKind::PinIdDef as u8, id._raw),
+                SymbolType::PinIdRef(id) => (SymbolKind::PinIdRef as u8, id._raw),
+                SymbolType::PinIfaceDefinition(id) => (SymbolKind::PinIfaceDef as u8, id._raw),
+                SymbolType::PinIfaceRef(id) => (SymbolKind::PinIfaceRef as u8, id._raw),
+                SymbolType::EnumDefinition(id) => (SymbolKind::EnumDef as u8, id._raw),
+                SymbolType::EnumRef(id) => (SymbolKind::EnumRef as u8, id._raw),
+                SymbolType::ParamDefinition(id) => (SymbolKind::ParamDef as u8, id._raw),
+                SymbolType::AttrDefinition(id) => (SymbolKind::AttrDef as u8, id._raw),
             };
             let scope = symbols
                 .local_table
                 .name_to_declare_id
                 .iter()
-                .find(|(_, (_, s))| s.start == interval.start && s.end == interval.stop)
+                .find(|(_, (_, s))| s.byte_start as usize == interval.start && s.byte_end as usize == interval.stop)
                 .map(|((_, scope, _), _)| scope.clone())
                 .unwrap_or_default();
             json!({
@@ -694,31 +762,23 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
         m.files.len().hash(&mut hasher);
         m.containers.len().hash(&mut hasher);
         m.name_index.len().hash(&mut hasher);
-        if let Some(e) = m.entries.first() {
+        if let Some((_, e)) = m.entries.iter().next() {
             e.ref_kind.hash(&mut hasher);
-            e.file_id.hash(&mut hasher);
-            e.def_span_start.hash(&mut hasher);
-            e.def_span_end.hash(&mut hasher);
-        }
-        if let Some(e) = m.entries.last() {
-            e.ref_kind.hash(&mut hasher);
-            e.file_id.hash(&mut hasher);
+            e.def_loc.file_id.hash(&mut hasher);
+            e.def_loc.byte_start.hash(&mut hasher);
+            e.def_loc.byte_end.hash(&mut hasher);
         }
         let result_id = hasher.finish();
 
         json!({
-            "entries": m.entries.iter().enumerate().filter(|(i, e)| {
-                // Only output entries still referenced by the index
-                let key = (e.ref_kind, e.ref_id);
-                m.index.get(&key).map_or(false, |&idx| idx == *i)
-            }).map(|(_, e)| {
+            "entries": m.entries.iter().map(|((_kind, _id), e)| {
                 json!({
                     "ref_kind": e.ref_kind as u8,
                     "ref_id": e.ref_id,
-                    "file_id": e.file_id,
-                    "def_span": [e.def_span_start, e.def_span_end],
+                    "file_id": e.def_loc.file_id,
+                    "def_span": [e.def_loc.byte_start, e.def_loc.byte_end],
                     "def_kind": e.def_kind as u8,
-                    "container_id": e.container_id,
+                    "container_id": e.def_loc.container_id,
                     "cmie_kind": e.cmie_kind,
                 })
             }).collect::<Vec<_>>(),
