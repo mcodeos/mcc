@@ -376,15 +376,16 @@ fn show_lapper(args: &ShowArgs) -> Result<()> {
 
     let c = RpcClient::probe().context("no mcc server running")?;
     let result = c.call("sem", json!({"uri": uri, "content": content}))?;
-    let lapper = &result["symbols"]["lapper"];
-    let cross_file = &result["symbols"]["global"]["cross_file_targets"];
+    let symbols = &result["symbols"];
 
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
             "file": uri,
-            "lapper": lapper,
-            "cross_file_targets": cross_file,
+            "lapper": symbols["lapper"],
+            "local": symbols["local"],
+            "ref_def_map": symbols["ref_def_map"],
+            "cross_file_targets": symbols["global"]["cross_file_targets"],
         }))?
     );
     Ok(())

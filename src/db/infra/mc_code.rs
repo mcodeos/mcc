@@ -21,9 +21,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 /// Reset at the mcc_load_project entry point (mcb_reset_ast_visit_flag)
 pub static AST_VISIT_DONE: AtomicBool = AtomicBool::new(false);
 
-/// Re-entrancy guard for parse_pass1_types: prevents mcb_get_cmie's
-/// on-demand parsing from re-entering parse_pass1_types for a file
-/// that is already being parsed higher up the call stack.
+// Re-entrancy guard for parse_pass1_types: prevents mcb_get_cmie's
+// on-demand parsing from re-entering parse_pass1_types for a file
+// that is already being parsed higher up the call stack.
 thread_local! {
     static PARSING_PASS1: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
 }
@@ -47,6 +47,8 @@ use std::sync::{Arc, Mutex};
 pub struct McCode {
     pub(crate) mcbase: bool,
     pub(crate) uri: McURI,
+    /// Canonical (symlink-resolved) path for reliable file comparison.
+    pub(crate) canonical_uri: String,
     pub(crate) ast: AstNode,
     pub(crate) tokens: Arc<Mutex<McSemTokens>>,
     pub(crate) symbols: Arc<Mutex<McSemSymbols>>,
@@ -108,9 +110,13 @@ impl McCode {
             return None;
         }
 
+        let canonical_uri = std::fs::canonicalize(Path::new(uri))
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| uri.clone());
         Some(McCode {
             mcbase: base,
             uri: uri.clone(),
+            canonical_uri,
             ast: AstNode::new(null_mut()),
             tokens: Arc::new(Mutex::new(McSemTokens::new())),
             symbols: Arc::new(Mutex::new(McSemSymbols::new())),
@@ -128,6 +134,7 @@ impl McCode {
         Self {
             mcbase: false,
             uri: String::new(),
+            canonical_uri: String::new(),
             ast: AstNode::new(null_mut()),
             tokens: Arc::new(Mutex::new(McSemTokens::new())),
             symbols: Arc::new(Mutex::new(McSemSymbols::new())),
@@ -143,9 +150,13 @@ impl McCode {
 
     /// Create McCode from an in-memory string (no disk file dependency)
     pub fn new_from_string(uri: &McURI, content: &str) -> Option<Self> {
+        let canonical_uri = std::fs::canonicalize(Path::new(uri))
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| uri.clone());
         Some(McCode {
             mcbase: false,
             uri: uri.clone(),
+            canonical_uri,
             ast: AstNode::new(null_mut()),
             tokens: Arc::new(Mutex::new(McSemTokens::new())),
             symbols: Arc::new(Mutex::new(McSemSymbols::new())),
@@ -976,8 +987,11 @@ impl McCode {
 
                         let space_name = McSpaceName {
                             ident: comp.name.clone(),
-                            uri: self.uri.clone(),
+                            uri: self.canonical_uri.clone(),
                         };
+                        if let Ok(mut sem) = self.symbols.lock() {
+                            sem.my_components.push(space_name.clone());
+                        }
                         {
                             if self.mcbase {
                                 global::mcc_components
@@ -1617,11 +1631,7 @@ impl McCode {
             // Determine candidate def kinds to try (in priority order).
             // InstRef covers instance/port/label refs (§4.1).
             let candidate_defs: &[SymbolKind] = match ref_kind {
-                SymbolKind::InstRef => &[
-                    SymbolKind::InstDef,
-                    SymbolKind::PortDef,
-                    SymbolKind::LabelDef,
-                ],
+                SymbolKind::InstRef => &[SymbolKind::InstDef],
                 SymbolKind::FuncRef => &[SymbolKind::FuncDef],
                 SymbolKind::PortRef => &[SymbolKind::PortDef],
                 SymbolKind::LabelRef => &[SymbolKind::LabelDef],
@@ -1668,10 +1678,55 @@ impl McCode {
             }
         }
 
-        // ── LabelRef post-pass ──
-        // PortDef and LabelDef at the same position have different DeclareIds.
-        // When InstRef matches PortDef, also create a LabelRef→LabelDef entry.
-        // 1. Build PortDef DeclareId → LabelDef DeclareId map (by position)
+        // ── PortRef generation (§3.2.2 Rule 1) ──
+        let fid = map.intern_file(file_uri);
+        let cid = map.intern_container("");
+        for iv in lapper.iter() {
+            if let SymbolType::InstanceRef(decl_id) = &iv.val {
+                let rid = u32::from(*decl_id);
+                if let Some(&(def_start, def_stop)) = def_map.get(&(SymbolKind::PortDef, rid)) {
+                    if def_start == iv.start && def_stop == iv.stop {
+                        continue;
+                    }
+                    if map.index.contains_key(&(SymbolKind::PortRef, rid)) {
+                        continue;
+                    }
+                    // Remove wrong InstRef→InstDef if present (clear both index + entry)
+                    if let Some(&wrong_idx) = map.index.get(&(SymbolKind::InstRef, rid)) {
+                        map.index.remove(&(SymbolKind::InstRef, rid));
+                        // Zero out the stale entry so serialization skips it
+                        map.entries[wrong_idx] = RefDefEntry {
+                            ref_kind: SymbolKind::ClassDef,
+                            ref_id: 0,
+                            file_id: 0,
+                            def_span_start: 0,
+                            def_span_end: 0,
+                            def_kind: SymbolKind::ClassDef,
+                            container_id: 0,
+                            cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
+                        };
+                    }
+                    map.insert(
+                        SymbolKind::PortRef,
+                        rid,
+                        RefDefEntry {
+                            ref_kind: SymbolKind::ClassDef,
+                            ref_id: 0,
+                            file_id: fid,
+                            def_span_start: def_start as u32,
+                            def_span_end: def_stop as u32,
+                            def_kind: SymbolKind::PortDef,
+                            container_id: cid,
+                            cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
+                        },
+                    );
+                }
+            }
+        }
+
+        // ── LabelRef generation ──
+        // PortDef and LabelDef at the same position have different DeclareIds (§3.2.2 Rule 1+3).
+        // A port ref (PortRef→PortDef) implies a label ref (LabelRef→LabelDef) at the same def.
         let mut port_to_label: std::collections::HashMap<u32, (u32, (usize, usize))> =
             std::collections::HashMap::new();
         {
@@ -1695,17 +1750,16 @@ impl McCode {
                 }
             }
         }
-        // 2. For each InstRef→PortDef already in the map, add LabelRef→LabelDef
         if !port_to_label.is_empty() {
+            let fid = map.intern_file(file_uri);
+            let cid = map.intern_container("");
             for iv in lapper.iter() {
-                if let SymbolType::InstanceRef(decl_id) = &iv.val {
+                if let SymbolType::PortRef(decl_id) = &iv.val {
                     let rid = u32::from(*decl_id);
                     if let Some(&(lid, (def_start, def_stop))) = port_to_label.get(&rid) {
                         if map.index.contains_key(&(SymbolKind::LabelRef, lid)) {
                             continue;
                         }
-                        let fid = map.intern_file(file_uri);
-                        let cid = map.intern_container("");
                         map.insert(
                             SymbolKind::LabelRef,
                             lid,
@@ -1744,10 +1798,10 @@ impl McCode {
                 Err(_) => return,
             };
             let lt = &sem.local_table;
-            let uri = &self.uri;
+            let _uri = &self.uri;
 
-            // ── Build reverse DeclareId → scope map for container_id population ──
-            let decl_id_to_scope: std::collections::HashMap<u32, String> = lt
+            // ── DeclareId → scope map (reserved for future cross-file Layer 1d) ──
+            let _decl_id_to_scope: std::collections::HashMap<u32, String> = lt
                 .name_to_declare_id
                 .iter()
                 .map(|((_u, scope, _n), &did)| (u32::from(did), scope.clone()))
@@ -2149,7 +2203,7 @@ impl McCode {
         // mcb_parse_all_modules rebuilds the lapper but name_to_declare_id is
         // shared via Arc, so old DeclareIds would pollute FuncRef scope searches.
         if let Ok(mut sem) = self.symbols.lock() {
-            let before = sem.local_table.name_to_declare_id.len();
+            let _before = sem.local_table.name_to_declare_id.len();
             sem.local_table
                 .name_to_declare_id
                 .retain(|(uri, _, _), _| uri != &self.uri);
@@ -2384,7 +2438,7 @@ impl McCode {
                                     symbol_lapper.insert(Interval {
                                         start: span.start,
                                         stop: span.end,
-                                        val: SymbolType::InstanceRef(decl_id),
+                                        val: SymbolType::PortRef(decl_id),
                                     });
                                     sem.symbol_scope
                                         .insert((span.start, span.end), scope.clone());
@@ -2521,7 +2575,7 @@ impl McCode {
                             sem.symbol_scope
                                 .insert((span.start, span.end), mod_ident2.clone());
                         }
-                        // Register port references from net lines (e.g. GPIO1 - A references port GPIO1)
+                        // Register port references from net lines (§3.2.2 Rule 1)
                         for (span, port_name, scope) in m.insts.iter_port_refs() {
                             let sp = Self::scope_path_from_scope_str(&self.uri, scope);
                             let decl_id = Self::lookup_declare_id(
@@ -2534,18 +2588,13 @@ impl McCode {
                                 symbol_lapper.insert(Interval {
                                     start: span.start,
                                     stop: span.end,
-                                    val: SymbolType::InstanceRef(decl_id),
+                                    val: SymbolType::PortRef(decl_id),
                                 });
                                 sem.symbol_scope
                                     .insert((span.start, span.end), scope.clone());
                             }
                         }
                         // Register param port references from net lines
-                        tracing::info!(
-                            "LAPPER_PARAM_REFS: module={} param_port_refs_count={}",
-                            entry.key().ident,
-                            m.params.iter_port_refs().count()
-                        );
                         for (span, port_name, scope) in m.params.iter_port_refs() {
                             let sp = Self::scope_path_from_scope_str(&self.uri, scope);
                             let decl_id = Self::lookup_declare_id(
@@ -2553,11 +2602,6 @@ impl McCode {
                                 self.uri.as_str(),
                                 port_name,
                                 &sp,
-                            );
-                            tracing::info!(
-                                "LAPPER_PARAM_REF: port_name='{port_name}' span=[{},{}] scope='{scope}' decl_id={}",
-                                span.start, span.end,
-                                decl_id.map(|d| u32::from(d) as i64).unwrap_or(-1)
                             );
                             if let Some(decl_id) = decl_id {
                                 symbol_lapper.insert(Interval {
@@ -2667,14 +2711,19 @@ impl McCode {
                 // ★ LSP: Add component parameter definitions to symbol_lapper
                 //   (e.g. `component RESA(rs, volt)` -> rs, volt are PortDefinition)
                 {
-                    let components = &crate::db::cmie::tables::WORKSPACE.components;
-                    for entry in components.iter() {
-                        let comp = entry.value();
-                        if entry.key().uri.as_str() != self.uri.as_str() {
-                            continue;
-                        }
+                    // Only components from THIS file (match by canonical path)
+                    let all_comps: Vec<(String, Arc<McComponent>)> = workspace::WORKSPACE
+                        .components
+                        .iter()
+                        .map(|e| (e.key().ident.to_string(), e.value().clone()))
+                        .chain(
+                            global::mcc_components
+                                .iter()
+                                .map(|e| (e.key().ident.to_string(), e.value().clone())),
+                        )
+                        .collect();
+                    for (comp_ident, comp) in &all_comps {
                         // Component params (e.g. `component RESA(rs, volt)`)
-                        let comp_ident = entry.key().ident.to_string();
                         for (name, span) in comp.params.iter_defs_with_span() {
                             let span_clone = span.clone();
                             let decl_id = sem.local_table.add_declare_with_name(
@@ -2718,7 +2767,7 @@ impl McCode {
                             symbol_lapper.insert(Interval {
                                 start: id_span.start,
                                 stop: id_span.end,
-                                val: SymbolType::PinNameDefinition(decl_id),
+                                val: SymbolType::PinIdDefinition(decl_id),
                             });
                             sem.symbol_scope
                                 .insert((id_span.start, id_span.end), comp_ident.clone());
@@ -2734,7 +2783,7 @@ impl McCode {
                             symbol_lapper.insert(Interval {
                                 start: if_span.start,
                                 stop: if_span.end,
-                                val: SymbolType::PinNameDefinition(decl_id),
+                                val: SymbolType::PinIfaceDefinition(decl_id),
                             });
                             sem.symbol_scope
                                 .insert((if_span.start, if_span.end), comp_ident.clone());
@@ -2750,7 +2799,7 @@ impl McCode {
                             symbol_lapper.insert(Interval {
                                 start: key_span.start,
                                 stop: key_span.end,
-                                val: SymbolType::PinNameDefinition(sdecl_id),
+                                val: SymbolType::AttrDefinition(sdecl_id),
                             });
                             sem.symbol_scope
                                 .insert((key_span.start, key_span.end), comp_ident.clone());
@@ -2776,7 +2825,7 @@ impl McCode {
                             }
                         }
                         // ★ Label definitions for components
-                        let comp_ident_label = entry.key().ident.to_string();
+                        let comp_ident_label = comp_ident.clone();
                         for (name, _label_kind, span) in comp.insts.iter_labels_with_span() {
                             let decl_id = sem.local_table.add_declare_with_name(
                                 &self.uri,
@@ -3385,7 +3434,7 @@ impl McCode {
                                         symbol_lapper.insert(Interval {
                                             start: span.start,
                                             stop: span.end,
-                                            val: SymbolType::InstanceRef(did),
+                                            val: SymbolType::PortRef(did),
                                         });
                                         sem.symbol_scope
                                             .insert((span.start, span.end), enclosing.clone());

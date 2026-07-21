@@ -19,6 +19,9 @@ pub struct McSemSymbols {
     pub symbol_scope: HashMap<(usize, usize), String>,
     /// ★ Unified ref→def map — built once at pass1 completion
     pub ref_def_map: Option<RefDefMap>,
+    /// Components/interfaces defined in THIS file (populated during parse_pass1_types).
+    /// Stored here (not McCode) so workspace clone shares via Arc.
+    pub my_components: Vec<crate::McSpaceName>,
 }
 impl Default for McSemSymbols {
     fn default() -> Self {
@@ -34,6 +37,7 @@ impl McSemSymbols {
             symbol_lapper: SymbolRangeLapper::new(vec![]),
             symbol_scope: HashMap::new(),
             ref_def_map: None,
+            my_components: Vec::new(),
         }
     }
 }
@@ -741,8 +745,8 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
                 SymbolType::PinIfaceRef(id) => (SymbolKind::PinIfaceRef.kind_name(), id._raw),
                 SymbolType::EnumDefinition(id) => (SymbolKind::EnumDef.kind_name(), id._raw),
                 SymbolType::EnumRef(id) => (SymbolKind::EnumRef.kind_name(), id._raw),
-                SymbolType::ParamDefinition(id) => ("param_def", id._raw),
-                SymbolType::AttrDefinition(id) => ("attr_def", id._raw),
+                SymbolType::ParamDefinition(id) => (SymbolKind::ParamDef.kind_name(), id._raw),
+                SymbolType::AttrDefinition(id) => (SymbolKind::AttrDef.kind_name(), id._raw),
             };
             let scope = symbols
                 .symbol_scope
@@ -820,7 +824,11 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
         let result_id = hasher.finish();
 
         json!({
-            "entries": m.entries.iter().map(|e| {
+            "entries": m.entries.iter().enumerate().filter(|(i, e)| {
+                // Only output entries still referenced by the index
+                let key = (e.ref_kind, e.ref_id);
+                m.index.get(&key).map_or(false, |&idx| idx == *i)
+            }).map(|(_, e)| {
                 json!({
                     "ref_kind": e.ref_kind as u8,
                     "ref_id": e.ref_id,
