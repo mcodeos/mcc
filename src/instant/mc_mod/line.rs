@@ -29,7 +29,13 @@ enum LaneItem<'a> {
 impl McModuleInst {
     /// Process connection line - accepts McPhrase
     pub(super) fn process_line(&mut self, phrase: &McPhrase) -> Result<(), InstError> {
-        let members = self.phrase_to_members(phrase);
+        // ── P0.4 follow-up: assign stable IDs before phrase_to_members clones ──
+        // assign_phrase_ids was defined but never called, causing all FuncCall.id
+        // to remain 0. Since auto_inst_map is keyed by member_key(f.id), all
+        // FuncCalls shared key=0, overwriting each other's entries.
+        let mut phrase = phrase.clone();
+        Self::assign_phrase_ids(&mut phrase, &mut self.next_phrase_id);
+        let members = self.phrase_to_members(&phrase);
         if members.is_empty() {
             return Ok(());
         }
@@ -295,6 +301,7 @@ impl McModuleInst {
             .map(|m| self.member_lane_width(m))
             .max()
             .unwrap_or(0);
+        crate::vlog!("[lane-by-lane] num_lanes={num_lanes}");
         if num_lanes == 0 {
             return Ok(());
         }
@@ -440,6 +447,16 @@ impl McModuleInst {
                 }
                 self.try_record_bridge_passive(inner);
             }
+            McPhrase::Group(g) => {
+                // M11.4: expand Group's opds per lane, same as Multiple.
+                // Each opd is a lane item (e.g. (RES(),RES()) gives RES1 to lane 0,
+                // RES2 to lane 1). Lead (_) elements are skipped.
+                if let Some(p) = g.opds.get(lane) {
+                    if !matches!(p, McPhrase::Lead) {
+                        items.push(LaneItem::Series(p));
+                    }
+                }
+            }
             _ => {
                 if lane == 0 {
                     items.push(LaneItem::Series(member));
@@ -467,7 +484,6 @@ impl McModuleInst {
         if let McPhrase::Endpoint(McEndpoint::Single(iref)) = inner {
             if let McInstance::Component(c) = &iref.base {
                 let inst_name = c.name.to_string();
-                eprintln!("[try_rbp] Endpoint.Component: inst_name={inst_name}");
                 self.bridge_passive_names.insert(inst_name);
                 return;
             }
@@ -477,7 +493,6 @@ impl McModuleInst {
         // separately in process_member_internal).
         let key = Self::member_key(inner);
         if let Some(inst_name) = self.auto_inst_map.get(&key) {
-            eprintln!("[try_rbp] auto_inst_map HIT: key={key} inst_name={inst_name}");
             if let Some(stripped) = inst_name.strip_prefix("@@ARRAY:") {
                 for name in stripped.split(',') {
                     self.bridge_passive_names.insert(name.to_string());
@@ -485,8 +500,6 @@ impl McModuleInst {
             } else {
                 self.bridge_passive_names.insert(inst_name.clone());
             }
-        } else {
-            eprintln!("[try_rbp] MISS: key={key}");
         }
     }
 
@@ -1617,14 +1630,8 @@ impl McModuleInst {
                         self.process_member_internal(inner)?;
                         // ★ M11.3: record bridge passive instance names from Transposed
                         let key = Self::member_key(inner);
-                        let variant = match inner.as_ref() {
-                            McPhrase::FuncCall(_) => "FuncCall",
-                            McPhrase::Endpoint(_) => "Endpoint",
-                            _ => "Other",
-                        };
                         match self.auto_inst_map.get(&key) {
                             Some(inst_name) => {
-                                eprintln!("[pmi Transposed] HIT: variant={variant} key={key} inst_name={inst_name}");
                                 if let Some(stripped) = inst_name.strip_prefix("@@ARRAY:") {
                                     for name in stripped.split(',') {
                                         self.bridge_passive_names.insert(name.to_string());
@@ -1633,9 +1640,7 @@ impl McModuleInst {
                                     self.bridge_passive_names.insert(inst_name.clone());
                                 }
                             }
-                            None => {
-                                eprintln!("[pmi Transposed] MISS: variant={variant} key={key}");
-                            }
+                            None => {}
                         }
                     }
                     _ => {
