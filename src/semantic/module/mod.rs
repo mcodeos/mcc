@@ -632,14 +632,17 @@ impl McModule {
                     let key = insts.resolve_idx(&text).unwrap_or(text);
                     if insts.get(&key).is_some() && insts.port_spans().get(&key).is_none() {
                         insts.store_port_span(&key, span.clone());
-                        // Register LSP lapper entry so goto-def can find this inline port
-                        // within the correct scope
-                        crate::query::refs::mcb_register_instance_decl(
-                            uri,
-                            span,
-                            Some(key),
-                            Some(scope),
-                        );
+                        // Register in name_to_declare_id so goto-def can find this inline port
+                        if let Some(mcode) = crate::db::cmie::tables::WORKSPACE.mcodes.get(uri) {
+                            if let Ok(mut sem) = mcode.symbols.lock() {
+                                sem.local_table.add_declare_with_name(
+                                    uri,
+                                    crate::ast::ast_semantic::SourceLocation::from_span(&span),
+                                    Some(key),
+                                    Some(scope),
+                                );
+                            }
+                        }
                     }
                 }
             }

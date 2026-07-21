@@ -109,35 +109,21 @@ impl McSemSymbols {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SymbolType {
-    ClassDefinition(DeclareId), // component/module/interface/enum head
-    DeclareClass(ReferenceId),
-    DeclareInstance(DeclareId),
-    InstanceRef(DeclareId),         // Reference to instance
-    PortDefinition(DeclareId),      // ★ Module port definition (ps/io/in/out)
-    EnumValueDefinition(DeclareId), // `SOP8,` — body row; id packed as (class<<16 | idx)
-    EnumValueRef(DeclareId),        // `SOP8` in `PKG.SOP8`
-    // ── M6 gaps: language constructs not previously tracked ──
-    FunctionDefinition(DeclareId), // `func i2c()` — func name definition
-    FunctionRef(DeclareId),        // function/method call reference
-    ClassRef(DeclareId),           // standalone class ref: `RES(10k)` (not in declare)
-    PinNameDefinition(DeclareId),  // pin name in component body: `1 = _CS`
-    PinNameRef(DeclareId),         // pin name reference: `Pullup(_CS, V3V3)`
-    DefineDefinition(DeclareId),   // `define name body`
-    RoleDefinition(DeclareId),     // `role id { ... }`
-    // ── Label support (scope design, step 7) ──
-    LabelDefinition(DeclareId), // `label A` or inline label def
-    LabelRef(DeclareId),        // label reference in a net phrase
-    // ── RefDefMap gap fill (§3.2.2, §4.1) ──
-    PortRef(DeclareId),            // port reference in net phrase
-    PinIdDefinition(DeclareId),    // pin ID definition: `1` in `1 = _CS`
-    PinIdRef(DeclareId),           // pin ID reference
-    PinIfaceDefinition(DeclareId), // pin interface definition: `UART.TTL`
-    PinIfaceRef(DeclareId),        // pin interface reference
-    EnumDefinition(DeclareId),     // enum class definition (`enum PKG { ... }`)
-    EnumRef(DeclareId),            // enum class reference
-    ParamDefinition(DeclareId),    // parameter definition: `(cap::UV.CAP)`
-    AttrDefinition(DeclareId),     // attribute definition: `capacitance = cap`
+pub struct SymbolType {
+    /// SymbolKind ordinal (u8). Maps to kind_names[] for serialization.
+    pub kind: u8,
+    /// DeclareId or ReferenceId as raw u32.
+    pub id: u32,
+}
+
+impl SymbolType {
+    pub fn new(kind: SymbolKind, id: u32) -> Self {
+        SymbolType { kind: kind as u8, id }
+    }
+
+    pub fn decl_id(&self) -> DeclareId {
+        DeclareId { _raw: self.id }
+    }
 }
 pub type SymbolRangeLapper = Lapper<usize, SymbolType>;
 
@@ -378,10 +364,14 @@ pub struct LocalSymbolTable {
     declare_inst_id_counter: DeclareId,
     inst_id_counter: ReferenceId,
 
-    /// (uri, scope, name) → (declare_id, source_location).
-    /// SourceLocation carries file_id/container_id/func_id/span — replaces
-    /// declare_inst_to_span + symbol_scope + scope string parsing.
-    pub name_to_declare_id: HashMap<(McURI, String, String), (DeclareId, SourceLocation)>,
+    /// ★ P3: (file_id, container_id, func_id, name) → (declare_id, source_location).
+    /// file_id/container_id/func_id from SourceLocation intern tables.
+    /// Replaces (McURI, scope_str, name) triple with ID-based key.
+    pub name_to_declare_id: HashMap<(u32, u32, u32, String), (DeclareId, SourceLocation)>,
+
+    /// ★ Parallel index: scope string → (file_id, container_id, func_id).
+    /// For scope-based lookups (e.g. "US513.i2c" → IDs) without parsing scope strings.
+    pub scope_index: HashMap<String, (u32, u32, u32)>,
 
     pub inst_id_to_span: HashMap<ReferenceId, Span>,
     pub inst_id_to_declare_inst: HashMap<ReferenceId, DeclareId>,
@@ -394,6 +384,7 @@ impl LocalSymbolTable {
             declare_inst_id_counter: DeclareId { _raw: 0 },
             inst_id_counter: ReferenceId { _raw: 0 },
             name_to_declare_id: HashMap::new(), // ★ LSP
+            scope_index: HashMap::new(),
             inst_id_to_span: HashMap::new(),
             inst_id_to_declare_inst: HashMap::new(),
         }
@@ -433,7 +424,13 @@ impl LocalSymbolTable {
         };
         if let Some(n) = name {
             self.name_to_declare_id
-                .insert((uri.clone(), scope_key.to_string(), n), (declare_id, loc));
+                .insert((loc.file_id, loc.container_id, loc.func_id, n), (declare_id, loc));
+        }
+        // Populate scope_index for scope-based lookups
+        if !scope_key.is_empty() {
+            self.scope_index
+                .entry(scope_key.to_string())
+                .or_insert((loc.file_id, loc.container_id, loc.func_id));
         }
         declare_id
     }
@@ -442,6 +439,12 @@ impl LocalSymbolTable {
         let inst_id = self.assign_inst_id();
         self.inst_id_to_span.insert(inst_id, span.clone());
         self.inst_id_to_declare_inst.insert(inst_id, declr_id);
+    }
+
+    /// Look up a declare by scope string + name, using scope_index.
+    pub fn lookup_by_scope_name(&self, scope_str: &str, name: &str) -> Option<(DeclareId, SourceLocation)> {
+        let (fid, cid, fnid) = self.scope_index.get(scope_str)?;
+        self.name_to_declare_id.get(&(*fid, *cid, *fnid, name.to_string())).copied()
     }
 }
 
@@ -630,17 +633,47 @@ impl GlobalSymbolTable {
     // (global_inst methods removed — dead code)
 }
 
+/// Helper: look up a file_id from the file_table (read-only, no interning).
+fn resolve_file_id(file_table: &[String], uri: &McURI) -> u32 {
+    file_table
+        .iter()
+        .position(|x| x == uri.as_str())
+        .map(|i| i as u32)
+        .unwrap_or(u32::MAX)
+}
+
+/// Helper: reconstruct a scope string from container_id and func_id.
+pub fn scope_from_ids(container_table: &[String], func_table: &[String], cid: u32, fnid: u32) -> String {
+    let container = if cid > 0 {
+        container_table.get(cid as usize).cloned().unwrap_or_default()
+    } else {
+        String::new()
+    };
+    let func = if fnid > 0 {
+        func_table.get(fnid as usize).cloned().unwrap_or_default()
+    } else {
+        String::new()
+    };
+    match (container.is_empty(), func.is_empty()) {
+        (true, _) => func,
+        (false, true) => container,
+        (false, false) => format!("{container}.{func}"),
+    }
+}
+
 /// Convert McSemSymbols to JSON for RPC transfer to LSP
 pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::Value {
     use serde_json::json;
 
     // Get local table data
     let local = &symbols.local_table;
+    let file_id = resolve_file_id(&symbols.file_table, uri);
     let local_declares: Vec<serde_json::Value> = local
         .name_to_declare_id
         .iter()
-        .filter(|((u, _, _), _)| u == uri)
-        .map(|((_, scope, name), (id, loc))| {
+        .filter(|((fid, _, _, _), _)| *fid == file_id)
+        .map(|((_fid, cid, fnid, name), (id, loc))| {
+            let scope = scope_from_ids(&symbols.container_table, &symbols.func_table, *cid, *fnid);
             json!({
                 "kind": "declare",
                 "id": id._raw,
@@ -670,39 +703,16 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
         .symbol_lapper
         .iter()
         .map(|interval| {
-            let (kind, id) = match interval.val {
-                SymbolType::ClassDefinition(id) => (SymbolKind::ClassDef as u8, id._raw),
-                SymbolType::DeclareClass(id) => (SymbolKind::ClassRef as u8, id._raw),
-                SymbolType::ClassRef(id) => (SymbolKind::ClassRef as u8, id._raw),
-                SymbolType::DeclareInstance(id) => (SymbolKind::InstDef as u8, id._raw),
-                SymbolType::InstanceRef(id) => (SymbolKind::InstRef as u8, id._raw),
-                SymbolType::EnumValueDefinition(id) => (SymbolKind::EnumValDef as u8, id._raw),
-                SymbolType::EnumValueRef(id) => (SymbolKind::EnumValRef as u8, id._raw),
-                SymbolType::DefineDefinition(id) => (SymbolKind::DefineDef as u8, id._raw),
-                SymbolType::FunctionDefinition(id) => (SymbolKind::FuncDef as u8, id._raw),
-                SymbolType::FunctionRef(id) => (SymbolKind::FuncRef as u8, id._raw),
-                SymbolType::PortDefinition(id) => (SymbolKind::PortDef as u8, id._raw),
-                SymbolType::PinNameDefinition(id) => (SymbolKind::PinNameDef as u8, id._raw),
-                SymbolType::PinNameRef(id) => (SymbolKind::PinNameRef as u8, id._raw),
-                SymbolType::RoleDefinition(id) => (SymbolKind::RoleDef as u8, id._raw),
-                SymbolType::LabelDefinition(id) => (SymbolKind::LabelDef as u8, id._raw),
-                SymbolType::LabelRef(id) => (SymbolKind::LabelRef as u8, id._raw),
-                SymbolType::PortRef(id) => (SymbolKind::PortRef as u8, id._raw),
-                SymbolType::PinIdDefinition(id) => (SymbolKind::PinIdDef as u8, id._raw),
-                SymbolType::PinIdRef(id) => (SymbolKind::PinIdRef as u8, id._raw),
-                SymbolType::PinIfaceDefinition(id) => (SymbolKind::PinIfaceDef as u8, id._raw),
-                SymbolType::PinIfaceRef(id) => (SymbolKind::PinIfaceRef as u8, id._raw),
-                SymbolType::EnumDefinition(id) => (SymbolKind::EnumDef as u8, id._raw),
-                SymbolType::EnumRef(id) => (SymbolKind::EnumRef as u8, id._raw),
-                SymbolType::ParamDefinition(id) => (SymbolKind::ParamDef as u8, id._raw),
-                SymbolType::AttrDefinition(id) => (SymbolKind::AttrDef as u8, id._raw),
-            };
+            let kind = interval.val.kind;
+            let id = interval.val.id;
             let scope = symbols
                 .local_table
                 .name_to_declare_id
                 .iter()
                 .find(|(_, (_, s))| s.byte_start as usize == interval.start && s.byte_end as usize == interval.stop)
-                .map(|((_, scope, _), _)| scope.clone())
+                .map(|((_fid, cid, fnid, _name), _)| {
+                    scope_from_ids(&symbols.container_table, &symbols.func_table, *cid, *fnid)
+                })
                 .unwrap_or_default();
             json!({
                 "kind": kind,
@@ -710,6 +720,7 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
                 "stop": interval.stop,
                 "id": id,
                 "scope": scope,
+                "file": uri.as_str(),
             })
         })
         .collect();
