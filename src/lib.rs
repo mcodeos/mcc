@@ -53,7 +53,10 @@ pub use crate::semantic::{
 };
 pub use db::diagnostic::errcodes;
 pub mod export;
-pub use ast::ast_semantic::{McSemSymbols, Span, SymbolType, SymbolKind, SourceLocation, scope_from_ids, symbol_table_to_json};
+pub use ast::ast_semantic::{
+    scope_from_ids, symbol_table_to_json, McSemSymbols, SourceLocation, Span, SymbolKind,
+    SymbolType,
+};
 pub use ast::ast_token::{McSemToken, McSemTokens};
 pub use ast::c_macros::*;
 pub use ast::error::*;
@@ -390,7 +393,11 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
             *cid,
             *fnid,
         );
-        let file_name = sym.file_table.get(*fid as usize).map(|s| s.as_str()).unwrap_or("?");
+        let file_name = sym
+            .file_table
+            .get(*fid as usize)
+            .map(|s| s.as_str())
+            .unwrap_or("?");
         out.push_str(&format!(
             "F12_DIAG DECLARE: id={id:5} span=[{start:5},{end:5}] scope='{scope}' name='{name}' file={file}\n",
             id = decl_id.raw(),
@@ -443,7 +450,11 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
     let mut defs: Vec<_> = sym.def_map.iter().collect();
     defs.sort_by_key(|((k, id), _)| (*k as u8, *id));
     for ((def_kind, decl_id), loc) in &defs {
-        let file_name = sym.file_table.get(loc.file_id as usize).map(|s| s.as_str()).unwrap_or("?");
+        let file_name = sym
+            .file_table
+            .get(loc.file_id as usize)
+            .map(|s| s.as_str())
+            .unwrap_or("?");
         out.push_str(&format!(
             "F12_DIAG DEF_MAP: kind={kind:14}({ku:2}) decl_id={did:5} span=[{start:5},{end:5}] container_id={cid} file={file}\n",
             kind = def_kind.kind_name(),
@@ -492,23 +503,32 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
             }
             out.push_str(&format!("  files:     {:?}\n", map.files));
             out.push_str(&format!("  containers:{:?}\n", map.containers));
-            let kind_names: Vec<&str> = (0u8..=24).map(|i| {
-                let k: SymbolKind = unsafe { std::mem::transmute(i) };
-                k.kind_name()
-            }).collect();
+            let kind_names: Vec<&str> = (0u8..=24)
+                .map(|i| {
+                    let k: SymbolKind = unsafe { std::mem::transmute(i) };
+                    k.kind_name()
+                })
+                .collect();
             out.push_str(&format!("  kind_names:{:?}\n", kind_names));
             out.push_str("  --- entries ---\n");
             let mut entries: Vec<_> = map.entries.iter().collect();
             entries.sort_by_key(|((rk, rid), _)| (*rk as u8, *rid));
             for ((ref_kind, ref_id), entry) in &entries {
-                let def_file = map.files.get(entry.def_loc.file_id as usize)
-                    .map(|s| s.as_str()).unwrap_or("?");
-                let ref_name = sym.ref_entries.iter()
+                let def_file = map
+                    .files
+                    .get(entry.def_loc.file_id as usize)
+                    .map(|s| s.as_str())
+                    .unwrap_or("?");
+                let ref_name = sym
+                    .ref_entries
+                    .iter()
                     .find(|(k, id, _, _)| *k as u8 == *ref_kind as u8 && *id == *ref_id)
                     .and_then(|(_, _, s, e)| {
                         if *s < content.len() && *e <= content.len() {
                             Some(content[*s..*e].to_string())
-                        } else { None }
+                        } else {
+                            None
+                        }
                     })
                     .unwrap_or_else(|| "?".to_string());
                 out.push_str(&format!(

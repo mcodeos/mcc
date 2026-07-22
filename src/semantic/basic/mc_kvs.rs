@@ -90,12 +90,11 @@ impl McKVS {
             }
 
             // Handle direct unit value types
-            t if (MCAST_UVAL_VOLT..=MCAST_UVAL_RESPONSIVITY).contains(&t) => {
-                McConst::new(&value_data).map(|const_val| Self {
+            t if (MCAST_UVAL_VOLT..=MCAST_UVAL_CHARGE).contains(&t) => McConst::new(&value_data)
+                .map(|const_val| Self {
                     key: key_ids,
                     value: KVSValue::Const(const_val),
-                })
-            }
+                }),
 
             // Handle ranges
             MCAST_OPD_COLON | MCAST_RANGE_PLUSMINUS => {

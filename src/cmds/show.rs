@@ -348,15 +348,10 @@ fn show_all(args: &ShowArgs) -> Result<()> {
     let enums: Vec<String> = mcc::mcb_iter_enums().into_iter().map(|(n, _)| n).collect();
 
     let data = json!({
-        "type": "all",
-        "module_count": modules.len(),
-        "module_list": modules,
-        "component_count": components.len(),
-        "component_list": components,
-        "interface_count": interfaces.len(),
-        "interface_list": interfaces,
-        "enum_count": enums.len(),
-        "enum_list": enums,
+        format!("module_list({})", modules.len()): modules,
+        format!("component_list({})", components.len()): components,
+        format!("interface_list({})", interfaces.len()): interfaces,
+        format!("enum_list({})", enums.len()): enums,
     });
     output(&data, args)
 }
@@ -444,16 +439,11 @@ fn show_file(args: &ShowArgs) -> Result<()> {
     let enums: Vec<String> = mcc::mcb_iter_enums().into_iter().map(|(n, _)| n).collect();
 
     let data = json!({
-        "type": "file",
         "file": file,
-        "module_count": modules.len(),
-        "module_list": modules,
-        "component_count": components.len(),
-        "component_list": components,
-        "interface_count": interfaces.len(),
-        "interface_list": interfaces,
-        "enum_count": enums.len(),
-        "enum_list": enums,
+        format!("module_list({})", modules.len()): modules,
+        format!("component_list({})", components.len()): components,
+        format!("interface_list({})", interfaces.len()): interfaces,
+        format!("enum_list({})", enums.len()): enums,
     });
     output(&data, args)
 }

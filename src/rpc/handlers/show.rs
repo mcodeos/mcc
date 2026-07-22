@@ -385,15 +385,10 @@ pub fn handle_show_all(_params: Option<Value>) -> RpcResult {
     let enums = crate::mcb_iter_enums();
 
     Ok(json!({
-        "type": "all",
-        "component_count": comps.len(),
-        "component_list": comps.iter().map(|(n,_)| n).collect::<Vec<_>>(),
-        "module_count": mods.len(),
-        "module_list": mods.iter().map(|(n,_)| n).collect::<Vec<_>>(),
-        "interface_count": ifaces.len(),
-        "interface_list": ifaces.iter().map(|(n,_)| n).collect::<Vec<_>>(),
-        "enum_count": enums.len(),
-        "enum_list": enums.iter().map(|(n,_)| n).collect::<Vec<_>>(),
+        format!("component_list({})", comps.len()): comps.iter().map(|(n,_)| n).collect::<Vec<_>>(),
+        format!("module_list({})", mods.len()): mods.iter().map(|(n,_)| n).collect::<Vec<_>>(),
+        format!("interface_list({})", ifaces.len()): ifaces.iter().map(|(n,_)| n).collect::<Vec<_>>(),
+        format!("enum_list({})", enums.len()): enums.iter().map(|(n,_)| n).collect::<Vec<_>>(),
     }))
 }
 
@@ -432,16 +427,11 @@ pub fn handle_show_file(params: Option<Value>) -> RpcResult {
     };
 
     Ok(json!({
-        "type": "file",
         "file": file,
-        "component_count": component_list.len(),
-        "component_list": component_list,
-        "module_count": module_list.len(),
-        "module_list": module_list,
-        "interface_count": interface_list.len(),
-        "interface_list": interface_list,
-        "enum_count": enum_list.len(),
-        "enum_list": enum_list,
+        format!("component_list({})", component_list.len()): component_list,
+        format!("module_list({})", module_list.len()): module_list,
+        format!("interface_list({})", interface_list.len()): interface_list,
+        format!("enum_list({})", enum_list.len()): enum_list,
     }))
 }
 

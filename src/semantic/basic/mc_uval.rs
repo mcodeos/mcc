@@ -42,6 +42,7 @@ pub enum McUnit {
     Bfield,
     Slew,
     Noise,
+    Charge,
 }
 
 #[derive(Clone, Debug)]
@@ -194,6 +195,7 @@ impl McUnitValue {
             MCAST_UVAL_BFIELD => parse_bfield_unit(&child_node, data_str),
             MCAST_UVAL_SLEW => parse_slew_unit(&child_node, data_str),
             MCAST_UVAL_NOISE => parse_noise_unit(&child_node, data_str),
+            MCAST_UVAL_CHARGE => parse_charge_unit(&child_node, data_str),
             _ => {
                 dlog_error(302, &child_node, "Invalid unit value type.");
                 None
@@ -246,6 +248,7 @@ impl McUnitValue {
             MCAST_UVAL_BFIELD => parse_bfield_unit(node, data),
             MCAST_UVAL_SLEW => parse_slew_unit(node, data),
             MCAST_UVAL_NOISE => parse_noise_unit(node, data),
+            MCAST_UVAL_CHARGE => parse_charge_unit(node, data),
             _ => None,
         }
     }
@@ -764,6 +767,7 @@ impl McUnit {
             McUnit::Bfield => "Tesla (T)",
             McUnit::Slew => "Volt per microsecond (V/μs)",
             McUnit::Noise => "Noise Density",
+            McUnit::Charge => "Ampere-hour (Ah)",
         }
     }
 
@@ -801,6 +805,7 @@ impl McUnit {
             MCAST_UNIT_BFIELD => Some(McUnit::Bfield),
             MCAST_UNIT_SLEW => Some(McUnit::Slew),
             MCAST_UNIT_NOISE => Some(McUnit::Noise),
+            MCAST_UNIT_CHARGE => Some(McUnit::Charge),
             _ => None,
         }
     }
@@ -841,6 +846,7 @@ impl std::fmt::Display for McUnit {
             McUnit::Bfield => write!(f, "T"),
             McUnit::Slew => write!(f, "V/μs"),
             McUnit::Noise => write!(f, "nV/√Hz"),
+            McUnit::Charge => write!(f, "Ah"),
         }
     }
 }
@@ -1183,6 +1189,32 @@ fn parse_noise_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
         plusminus: false,
         value,
         unit: McUnit::Noise,
+        at: None,
+    })
+}
+
+fn parse_charge_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
+    let (value, unit_str) = extract_value_and_unit(node, data)?;
+
+    let multiplier = match unit_str {
+        "Ah" => 1.0,
+        "mAh" => 1e-3,
+        "μAh" | "µAh" | "uAh" => 1e-6,
+        "nAh" => 1e-9,
+        "pAh" => 1e-12,
+        "kAh" => 1e3,
+        "MAh" => 1e6,
+        "GAh" => 1e9,
+        _ => {
+            dlog_error(1804, node, "Invalid charge unit.");
+            return None;
+        }
+    };
+
+    Some(McUnitValue {
+        plusminus: false,
+        value: value * multiplier,
+        unit: McUnit::Charge,
         at: None,
     })
 }

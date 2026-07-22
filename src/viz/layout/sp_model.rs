@@ -60,7 +60,11 @@ pub enum SpKind {
 
 impl SpTree {
     fn leaf(box_id: i64, name: String, a: usize, b: usize) -> SpTree {
-        SpTree { kind: SpKind::Leaf { box_id, name }, a, b }
+        SpTree {
+            kind: SpKind::Leaf { box_id, name },
+            a,
+            b,
+        }
     }
 
     /// Minimum box id among the leaves (deterministic tie-break key).
@@ -143,7 +147,10 @@ pub enum SpBail {
     /// An edge whose two ends coalesce to the same net (shorted component).
     SelfLoop { box_id: i64 },
     /// Reduction stuck: a node of degree >= 3 with no parallel pair remains.
-    NonSpBridge { stuck_net: usize, residual: Vec<i64> },
+    NonSpBridge {
+        stuck_net: usize,
+        residual: Vec<i64>,
+    },
 }
 
 impl std::fmt::Display for SpBail {
@@ -151,14 +158,28 @@ impl std::fmt::Display for SpBail {
         match self {
             SpBail::AnchorCount(n) => write!(f, "terminal box count = {n} (need exactly 2)"),
             SpBail::TerminalFanout { box_id, nets } => {
-                write!(f, "terminal #{box_id} touches {nets} net(s) (need exactly 1)")
+                write!(
+                    f,
+                    "terminal #{box_id} touches {nets} net(s) (need exactly 1)"
+                )
             }
             SpBail::PassiveNetCount { box_id, nets } => {
-                write!(f, "passive #{box_id} touches {nets} net(s) (need exactly 2)")
+                write!(
+                    f,
+                    "passive #{box_id} touches {nets} net(s) (need exactly 2)"
+                )
             }
-            SpBail::SelfLoop { box_id } => write!(f, "#{box_id} is a self-loop (both ends one net)"),
-            SpBail::NonSpBridge { stuck_net, residual } => {
-                write!(f, "non series-parallel: stuck at net {stuck_net}, residual edges {residual:?}")
+            SpBail::SelfLoop { box_id } => {
+                write!(f, "#{box_id} is a self-loop (both ends one net)")
+            }
+            SpBail::NonSpBridge {
+                stuck_net,
+                residual,
+            } => {
+                write!(
+                    f,
+                    "non series-parallel: stuck at net {stuck_net}, residual edges {residual:?}"
+                )
             }
         }
     }
@@ -208,7 +229,10 @@ pub fn build_sp_model(graph: &McVecGraph) -> Result<SpModel, SpBail> {
     let term_node = |id: i64| -> Result<usize, SpBail> {
         let nets = box_nets.get(&id).cloned().unwrap_or_default();
         if nets.len() != 1 {
-            return Err(SpBail::TerminalFanout { box_id: id, nets: nets.len() });
+            return Err(SpBail::TerminalFanout {
+                box_id: id,
+                nets: nets.len(),
+            });
         }
         Ok(nets[0])
     };
@@ -239,7 +263,10 @@ pub fn build_sp_model(graph: &McVecGraph) -> Result<SpModel, SpBail> {
         }
         let nets = box_nets.get(&b.id).cloned().unwrap_or_default();
         if nets.len() != 2 {
-            return Err(SpBail::PassiveNetCount { box_id: b.id, nets: nets.len() });
+            return Err(SpBail::PassiveNetCount {
+                box_id: b.id,
+                nets: nets.len(),
+            });
         }
         in_edges.push((b.id, b.display_label().to_string(), nets[0], nets[1]));
     }
@@ -247,7 +274,13 @@ pub fn build_sp_model(graph: &McVecGraph) -> Result<SpModel, SpBail> {
     // ── 3. Reduction (graph-agnostic core) ──────────────────────────────────
     let root = reduce(n_nets, &in_edges, left_node, right_node)?;
 
-    Ok(SpModel { root, left_node, right_node, left_box, right_box })
+    Ok(SpModel {
+        root,
+        left_node,
+        right_node,
+        left_box,
+        right_box,
+    })
 }
 
 // ============================================================================
@@ -300,7 +333,11 @@ fn reduce(
         .iter()
         .map(|(id, name, a, b)| {
             let (a, b) = orient(*a, *b);
-            WEdge { a, b, tree: SpTree::leaf(*id, name.clone(), a, b) }
+            WEdge {
+                a,
+                b,
+                tree: SpTree::leaf(*id, name.clone(), a, b),
+            }
         })
         .collect();
 
@@ -309,7 +346,9 @@ fn reduce(
     loop {
         // (1) self-loop (before parallel, so it can't masquerade as a doubled pair)
         if let Some(e) = edges.iter().find(|e| e.a == e.b) {
-            return Err(SpBail::SelfLoop { box_id: e.tree.min_id() });
+            return Err(SpBail::SelfLoop {
+                box_id: e.tree.min_id(),
+            });
         }
 
         // (2) parallel: lowest unordered pair carrying >= 2 edges (multi-edge absorbed at once)
@@ -327,7 +366,15 @@ fn reduce(
                 }
             }
             let mut edges2 = rest;
-            edges2.push(WEdge { a, b, tree: SpTree { kind: SpKind::Parallel(children), a, b } });
+            edges2.push(WEdge {
+                a,
+                b,
+                tree: SpTree {
+                    kind: SpKind::Parallel(children),
+                    a,
+                    b,
+                },
+            });
             edges = edges2;
             continue;
         }
@@ -355,7 +402,15 @@ fn reduce(
                     _ => children.push(t),
                 }
             }
-            edges.push(WEdge { a: na, b: nb, tree: SpTree { kind: SpKind::Series(children), a: na, b: nb } });
+            edges.push(WEdge {
+                a: na,
+                b: nb,
+                tree: SpTree {
+                    kind: SpKind::Series(children),
+                    a: na,
+                    b: nb,
+                },
+            });
             continue;
         }
 
@@ -375,7 +430,10 @@ fn reduce(
             .find(|&nd| edges.iter().filter(|e| e.a == nd || e.b == nd).count() >= 3)
             .unwrap_or(usize::MAX);
         let residual = edges.iter().map(|e| e.tree.min_id()).collect();
-        return Err(SpBail::NonSpBridge { stuck_net: stuck, residual });
+        return Err(SpBail::NonSpBridge {
+            stuck_net: stuck,
+            residual,
+        });
     }
 }
 

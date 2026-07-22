@@ -420,6 +420,27 @@ fn check_unit_arg_compat(unit_type: &str, arg: &str) -> Option<String> {
                 }
             }
         }
+        "Charge" => {
+            if is_quoted {
+                return Some(format!(
+                    "'{}' is a string, but the parameter expects charge capacity (e.g., 1000mAh, 2Ah).",
+                    arg
+                ));
+            }
+            if is_numeric && has_unit_suffix {
+                let suffix = arg
+                    .chars()
+                    .filter(|c| c.is_alphabetic() && *c != 'e' && *c != 'E')
+                    .collect::<String>()
+                    .to_lowercase();
+                if !suffix.ends_with("ah") && !suffix.contains("ah") {
+                    return Some(format!(
+                        "'{}' has suffix '{}' which doesn't look like charge capacity. Expected e.g., 1000mAh, 2Ah.",
+                        arg, suffix
+                    ));
+                }
+            }
+        }
         "Wat" => {
             if is_quoted {
                 return Some(format!(

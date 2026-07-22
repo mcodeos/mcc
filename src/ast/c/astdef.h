@@ -166,6 +166,7 @@
 #define MCAST_UVAL_BFIELD               225
 #define MCAST_UVAL_SLEW                 226
 #define MCAST_UVAL_NOISE                227
+#define MCAST_UVAL_CHARGE               228
 
 //. units
 #define MCAST_UNIT_INT                  301
@@ -200,6 +201,7 @@
 #define MCAST_UNIT_BFIELD               329
 #define MCAST_UNIT_SLEW                 330
 #define MCAST_UNIT_NOISE                331
+#define MCAST_UNIT_CHARGE               332
 
 
 //---------------------------
