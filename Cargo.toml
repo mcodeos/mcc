@@ -48,7 +48,6 @@ base64 = "0.22"
 sysinfo = "0.32"
 reqwest = { version = "0.12", features = ["json", "blocking"] }
 bytes = "1.0"
-mc-rpc-types = { path = "../mc-rpc-types" }
 
 [dev-dependencies]
 criterion = "0.5"
