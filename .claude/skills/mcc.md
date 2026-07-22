@@ -196,6 +196,11 @@ mcc show component --filter "name=RES*"
 
 # Dump everything (debug)
 mcc show dump.all
+
+# F12 goto-def debug: dump all def/ref + RefDefMap (local, no server needed)
+mcc show lapper path/to/file.mc                # F12_DIAG text
+mcc show lapper --lib mcode path/to/file.mc    # with library
+mcc show lapper path/to/file.mc -f json-pretty # JSON
 ```
 
 ```bash
@@ -203,6 +208,8 @@ mcc show dump.all
 mcc show labels --name main -F example.mc
 ```
 Show targets: `all`, `file`, `files`, `lapper`, `component`, `module`, `interface`, `enum`, `net`, `pins`, `ports`, `labels`, `instances`, `nets`, `attrs`, `funcs`, `params`, `roles`, `values`, `dump`
+
+> `show lapper` — see §6.6 for full debug workflow. Runs locally, outputs all symbol interval DEF/REF classifications and RefDefMap goto-def mappings.
 
 ---
 
@@ -778,30 +785,58 @@ cargo test
 ### 6.6 Lapper / RefDefMap Debug Dump
 
 ```bash
-# Start server + load project, then dump lapper + RefDefMap
-mcc start -d && sleep 3
-mcc show lapper /Users/dan/work/mo/mcd/projects/hbl/src/us513.mc > /tmp/us513_lap.txt 2>&1
+# Local mode (no server needed) — F12_DIAG text format (default)
+mcc show lapper path/to/file.mc
 
-# Or one-liner for any file:
-mcc show lapper /path/to/file.mc > /tmp/lap_dump.txt 2>&1
+# Load library first
+mcc show lapper --lib mcode path/to/file.mc
+
+# JSON output
+mcc show lapper path/to/file.mc -f json-pretty
+
+# Save to file (suppress AST tree noise)
+mcc show lapper path/to/file.mc 2>/dev/null > dump.txt
 ```
 
-Output JSON structure:
-- `lapper` — raw lapper entries (kind, id, start, stop, scope)
-- `local.declares` / `local.references` — DeclareId assignments
-- `ref_def_map.entries` — final ref→def mappings (ref_kind, ref_id, def_span, file_id)
-- `ref_def_map.kind_names` — 24 SymbolKind ordinal→name mapping
+**Text output sections:**
 
-Quick analysis:
+| Section | Content |
+|---------|---------|
+| `LAPPER ENTRIES` | All symbol intervals: kind, id, span, name, file |
+| `DECLARES` | name_to_declare_id entries: id, span, scope, name |
+| `REFERENCES` | inst_id_to_span entries: id, span, declare_id |
+| `DEF_MAP` | (def_kind, decl_id) → SourceLocation |
+| `REF_ENTRIES` | Pre-collected refs: (ref_kind, decl_id, span, name) |
+| `REF_DEF_MAP` | **Core**: Ref→Def resolution with kind_names legend |
+
+**Quick analysis:**
+
 ```bash
-python3 -c "
-import json
-with open('/tmp/lap_dump.txt') as f: d = json.load(f)
-kn = d['ref_def_map']['kind_names']
-from collections import Counter
-for k,c in sorted(Counter(kn[e['ref_kind']]+'->'+kn[e['def_kind']] for e in d['ref_def_map']['entries']).items()):
-    print(f'{k}: {c}')
-"
+# Count MAP entries by ref→def kind pair
+grep "F12_DIAG MAP:" dump.txt | sed 's/.*Ref(//;s/).*=> Def(/ -> /;s/,.*//' | sort | uniq -c | sort -rn
+
+# Check all ClassRef resolutions
+grep "Ref(ClassRef" dump.txt
+
+# Check all FuncParamRef resolutions
+grep "Ref(FuncParamRef" dump.txt
+```
+
+**Common debugging workflow:**
+
+```bash
+# 1. Without library — check local def/ref mappings
+mcc show lapper src/us513.mc 2>/dev/null | grep "^F12_DIAG MAP:"
+
+# 2. With library — check cross-file library class resolution
+mcc show lapper --lib mcode src/us513.mc 2>/dev/null | grep "^F12_DIAG MAP:"
+
+# 3. Drill into specific ref type
+mcc show lapper --lib mcode src/us513.mc 2>/dev/null | grep "Ref(ClassRef"
+
+# 4. Compare two runs
+diff <(mcc show lapper file.mc 2>/dev/null | grep MAP) \
+     <(mcc show lapper --lib mcode file.mc 2>/dev/null | grep MAP)
 ```
 
 ### 6.7 RPC-Based Debug Session

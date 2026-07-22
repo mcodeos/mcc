@@ -53,7 +53,7 @@ pub use crate::semantic::{
 };
 pub use db::diagnostic::errcodes;
 pub mod export;
-pub use ast::ast_semantic::{McSemSymbols, Span, SymbolType};
+pub use ast::ast_semantic::{McSemSymbols, Span, SymbolType, SymbolKind, SourceLocation, scope_from_ids, symbol_table_to_json};
 pub use ast::ast_token::{McSemToken, McSemTokens};
 pub use ast::c_macros::*;
 pub use ast::error::*;
@@ -321,6 +321,213 @@ pub fn mcc_get_modules_in_file(uri: &McURI) -> Vec<String> {
 
 pub fn debug_get_def(class_name: &McIds, uri: &McURI) {
     builder::mcb_debug_get_cmie(class_name, uri);
+}
+
+/// Dump all symbols for a file as JSON (matches the sem RPC response shape).
+/// Returns None if the file is not in the workspace.
+pub fn dump_symbols_json(uri: &McURI) -> Option<serde_json::Value> {
+    let binding = &crate::db::cmie::tables::WORKSPACE.mcodes;
+    let mcfile = binding.get(uri)?;
+    let sym = mcfile.symbols.lock().ok()?;
+    let json_data = crate::ast::ast_semantic::symbol_table_to_json(&sym, uri);
+    Some(serde_json::json!({
+        "file": uri.as_str(),
+        "lapper": json_data["lapper"],
+        "local": json_data["local"],
+        "ref_def_map": json_data["ref_def_map"],
+    }))
+}
+
+/// Dump all symbols (lapper, declares, refs, ref_def_map) for a file in F12_DIAG text format.
+/// Returns None if the file is not in the workspace.
+pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
+    let binding = &crate::db::cmie::tables::WORKSPACE.mcodes;
+    let mcfile = binding.get(uri)?;
+    let sym = mcfile.symbols.lock().ok()?;
+
+    let content = std::fs::read_to_string(std::path::Path::new(uri.as_str())).unwrap_or_default();
+    let file_uri = uri.as_str();
+    use crate::ast::ast_semantic::SymbolKind;
+
+    let mut out = String::new();
+
+    // ── 1. LAPPER entries ──────────────────────────────────────────────────
+    out.push_str("╔══════════════════════════════════════════════════════════════════╗\n");
+    out.push_str("║  LAPPER ENTRIES  (all symbol intervals)                         ║\n");
+    out.push_str("╚══════════════════════════════════════════════════════════════════╝\n");
+    for interval in sym.symbol_lapper.iter() {
+        let kind_u8 = interval.val.kind;
+        let id = interval.val.id;
+        let kind: SymbolKind = unsafe { std::mem::transmute(kind_u8) };
+        let kind_name = kind.kind_name();
+        let tag = if kind.is_ref() { "REF" } else { "DEF" };
+        let name = if interval.start < content.len() && interval.stop <= content.len() {
+            &content[interval.start..interval.stop]
+        } else {
+            "?"
+        };
+        out.push_str(&format!(
+            "F12_DIAG LAPPER_{tag:3}: kind={kind_name:14}({kind_u8:2}) id={id:5} span=[{start:5},{stop:5}] name='{name}' file={file}\n",
+            start = interval.start,
+            stop = interval.stop,
+            file = file_uri,
+        ));
+    }
+
+    // ── 2. DECLARES ───────────────────────────────────────────────────────
+    out.push_str("\n╔══════════════════════════════════════════════════════════════════╗\n");
+    out.push_str("║  DECLARES  (name_to_declare_id entries)                         ║\n");
+    out.push_str("╚══════════════════════════════════════════════════════════════════╝\n");
+    if sym.local_table.name_to_declare_id.is_empty() {
+        out.push_str("  (none)\n");
+    }
+    let mut declares: Vec<_> = sym.local_table.name_to_declare_id.iter().collect();
+    declares.sort_by_key(|((fid, _, _, _), (_, loc))| (*fid, loc.byte_start));
+    for ((fid, cid, fnid, name), (decl_id, loc)) in &declares {
+        let scope = crate::ast::ast_semantic::scope_from_ids(
+            &sym.container_table,
+            &sym.func_table,
+            *cid,
+            *fnid,
+        );
+        let file_name = sym.file_table.get(*fid as usize).map(|s| s.as_str()).unwrap_or("?");
+        out.push_str(&format!(
+            "F12_DIAG DECLARE: id={id:5} span=[{start:5},{end:5}] scope='{scope}' name='{name}' file={file}\n",
+            id = decl_id.raw(),
+            start = loc.byte_start,
+            end = loc.byte_end,
+            scope = scope,
+            name = name,
+            file = file_name,
+        ));
+    }
+
+    // ── 3. REFERENCES ─────────────────────────────────────────────────────
+    out.push_str("\n╔══════════════════════════════════════════════════════════════════╗\n");
+    out.push_str("║  REFERENCES  (inst_id_to_span entries)                          ║\n");
+    out.push_str("╚══════════════════════════════════════════════════════════════════╝\n");
+    if sym.local_table.inst_id_to_span.is_empty() {
+        out.push_str("  (none)\n");
+    }
+    let mut refs: Vec<_> = sym.local_table.inst_id_to_span.iter().collect();
+    refs.sort_by_key(|(_, span)| span.start);
+    for (ref_id, span) in &refs {
+        let declare_id = sym
+            .local_table
+            .inst_id_to_declare_inst
+            .get(ref_id)
+            .map(|d| d.raw());
+        let name = if span.start < content.len() && span.end <= content.len() {
+            &content[span.start..span.end]
+        } else {
+            "?"
+        };
+        out.push_str(&format!(
+            "F12_DIAG REFERENCE: id={id:5} span=[{start:5},{end:5}] declare_id={did:?} name='{name}' file={file}\n",
+            id = ref_id.raw(),
+            start = span.start,
+            end = span.end,
+            did = declare_id,
+            name = name,
+            file = file_uri,
+        ));
+    }
+
+    // ── 4. DEF_MAP (def lookups) ──────────────────────────────────────────
+    out.push_str("\n╔══════════════════════════════════════════════════════════════════╗\n");
+    out.push_str("║  DEF_MAP  (def_kind, decl_id) → SourceLocation                  ║\n");
+    out.push_str("╚══════════════════════════════════════════════════════════════════╝\n");
+    if sym.def_map.is_empty() {
+        out.push_str("  (none)\n");
+    }
+    let mut defs: Vec<_> = sym.def_map.iter().collect();
+    defs.sort_by_key(|((k, id), _)| (*k as u8, *id));
+    for ((def_kind, decl_id), loc) in &defs {
+        let file_name = sym.file_table.get(loc.file_id as usize).map(|s| s.as_str()).unwrap_or("?");
+        out.push_str(&format!(
+            "F12_DIAG DEF_MAP: kind={kind:14}({ku:2}) decl_id={did:5} span=[{start:5},{end:5}] container_id={cid} file={file}\n",
+            kind = def_kind.kind_name(),
+            ku = *def_kind as u8,
+            did = decl_id,
+            start = loc.byte_start,
+            end = loc.byte_end,
+            cid = loc.container_id,
+            file = file_name,
+        ));
+    }
+
+    // ── 5. REF_ENTRIES (pre-collected refs) ───────────────────────────────
+    out.push_str("\n╔══════════════════════════════════════════════════════════════════╗\n");
+    out.push_str("║  REF_ENTRIES  (ref_kind, decl_id, span)                         ║\n");
+    out.push_str("╚══════════════════════════════════════════════════════════════════╝\n");
+    if sym.ref_entries.is_empty() {
+        out.push_str("  (none)\n");
+    }
+    for (ref_kind, decl_id, start, end) in &sym.ref_entries {
+        let name = if *start < content.len() && *end <= content.len() {
+            &content[*start..*end]
+        } else {
+            "?"
+        };
+        out.push_str(&format!(
+            "F12_DIAG REF_ENTRY: kind={kind:14}({ku:2}) decl_id={did:5} span=[{start:5},{end:5}] name='{name}'\n",
+            kind = ref_kind.kind_name(),
+            ku = *ref_kind as u8,
+            did = decl_id,
+            start = start,
+            end = end,
+            name = name,
+        ));
+    }
+
+    // ── 6. REF_DEF_MAP ────────────────────────────────────────────────────
+    out.push_str("\n╔══════════════════════════════════════════════════════════════════╗\n");
+    out.push_str("║  REF_DEF_MAP  (ref→def resolution)                              ║\n");
+    out.push_str("╚══════════════════════════════════════════════════════════════════╝\n");
+    match &sym.ref_def_map {
+        None => out.push_str("  (none)\n"),
+        Some(map) => {
+            if map.entries.is_empty() {
+                out.push_str("  (empty)\n");
+            }
+            out.push_str(&format!("  files:     {:?}\n", map.files));
+            out.push_str(&format!("  containers:{:?}\n", map.containers));
+            let kind_names: Vec<&str> = (0u8..=24).map(|i| {
+                let k: SymbolKind = unsafe { std::mem::transmute(i) };
+                k.kind_name()
+            }).collect();
+            out.push_str(&format!("  kind_names:{:?}\n", kind_names));
+            out.push_str("  --- entries ---\n");
+            let mut entries: Vec<_> = map.entries.iter().collect();
+            entries.sort_by_key(|((rk, rid), _)| (*rk as u8, *rid));
+            for ((ref_kind, ref_id), entry) in &entries {
+                let def_file = map.files.get(entry.def_loc.file_id as usize)
+                    .map(|s| s.as_str()).unwrap_or("?");
+                let ref_name = sym.ref_entries.iter()
+                    .find(|(k, id, _, _)| *k as u8 == *ref_kind as u8 && *id == *ref_id)
+                    .and_then(|(_, _, s, e)| {
+                        if *s < content.len() && *e <= content.len() {
+                            Some(content[*s..*e].to_string())
+                        } else { None }
+                    })
+                    .unwrap_or_else(|| "?".to_string());
+                out.push_str(&format!(
+                    "F12_DIAG MAP: Ref({ref_kind}/{ref_ku}, id={ref_id:5}, name='{ref_name}') => Def({def_kind}/{def_ku}, span=[{start:5},{end:5}], file={def_file})\n",
+                    ref_kind = entry.ref_kind.kind_name(),
+                    ref_ku = *ref_kind as u8,
+                    ref_id = ref_id,
+                    ref_name = ref_name,
+                    def_kind = entry.def_kind.kind_name(),
+                    def_ku = entry.def_kind as u8,
+                    start = entry.def_loc.byte_start,
+                    end = entry.def_loc.byte_end,
+                    def_file = def_file,
+                ));
+            }
+        }
+    }
+
+    Some(out)
 }
 
 pub fn get_module_with_diagnostics(
