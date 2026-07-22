@@ -21,7 +21,7 @@ pub struct McParamDeclares {
     /// Filtered by `filter_port_spans()` after type inference.
     port_spans: HashMap<String, Vec<Range<usize>>>,
     /// Port reference spans from net lines (for LSP goto-definition)
-    port_ref_spans: Vec<(Range<usize>, String, String)>, // (span, port_name, scope)
+    net_ref_spans: Vec<(Range<usize>, String, String)>, // (span, port_name, scope)
 }
 
 impl McParamDeclares {
@@ -30,7 +30,7 @@ impl McParamDeclares {
             declares: Vec::new(),
             def_spans: HashMap::new(),
             port_spans: HashMap::new(),
-            port_ref_spans: Vec::new(),
+            net_ref_spans: Vec::new(),
         }
     }
 
@@ -224,7 +224,7 @@ impl McParamDeclares {
 
     /// Check if a name is a defined parameter (any category, for goto-def).
     pub fn is_defined(&self, name: &str) -> bool {
-        self.def_spans.contains_key(name)
+        self.def_spans.contains_key(name) || self.find(name).is_some()
     }
 
     /// Iterate all parameter ports with their spans (Category A only).
@@ -242,21 +242,16 @@ impl McParamDeclares {
     }
 
     /// Record a reference to this parameter (for LSP goto-def from body references).
-    /// Uses `def_spans` so ALL params (including B/C categories) support goto-def.
-    pub(crate) fn record_port_ref(&mut self, span: Range<usize>, port_name: &str, scope: &str) {
-        if let Some(spans) = self.def_spans.get_mut(port_name) {
-            if !spans
-                .iter()
-                .any(|s| s.start == span.start && s.end == span.end)
-            {
-                self.port_ref_spans
-                    .push((span, port_name.to_string(), scope.to_string()));
-            }
-        }
+    pub(crate) fn record_net_ref(&mut self, span: Range<usize>, port_name: &str, scope: &str) {
+        // ★ Accept all refs — not all params have def_spans entries (e.g. func params
+        //   registered via extract_func_param_spans). The lapper's lookup_declare_id
+        //   will resolve or skip unmatched refs.
+        self.net_ref_spans
+            .push((span, port_name.to_string(), scope.to_string()));
     }
 
-    pub fn iter_port_refs(&self) -> impl Iterator<Item = &(Range<usize>, String, String)> + '_ {
-        self.port_ref_spans.iter()
+    pub fn iter_net_refs(&self) -> impl Iterator<Item = &(Range<usize>, String, String)> + '_ {
+        self.net_ref_spans.iter()
     }
 
     /// Get parameter count
@@ -754,7 +749,7 @@ mod tests {
     }
 
     #[test]
-    fn test_record_port_ref_uses_def_spans() {
+    fn test_record_net_ref_uses_def_spans() {
         let mut params = McParamDeclares::new();
         params.store_def_span("rs", 0..2);
         params.declares.push(McParamDeclare {
@@ -767,8 +762,8 @@ mod tests {
         params.filter_port_spans();
 
         // Reference should still be recorded via def_spans
-        params.record_port_ref(50..52, "rs", "test");
-        assert_eq!(params.port_ref_spans.len(), 1);
-        assert_eq!(params.port_ref_spans[0].1, "rs");
+        params.record_net_ref(50..52, "rs", "test");
+        assert_eq!(params.net_ref_spans.len(), 1);
+        assert_eq!(params.net_ref_spans[0].1, "rs");
     }
 }

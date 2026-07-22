@@ -313,19 +313,15 @@ impl RefDefMap {
     }
 
     /// Add a name-index entry for a class definition under an alias.
-    pub fn add_name_alias(
-        &mut self,
-        file_uri: &McURI,
-        class_name: &str,
-        entry: RefDefEntry,
-    ) {
+    pub fn add_name_alias(&mut self, file_uri: &McURI, class_name: &str, entry: RefDefEntry) {
         self.name_index
             .insert((file_uri.to_string(), class_name.to_string()), entry);
     }
 
     /// Lookup by name in the Use table (P3/P4/P5).
     pub fn get_by_name(&self, file_uri: &str, class_name: &str) -> Option<&RefDefEntry> {
-        self.name_index.get(&(file_uri.to_string(), class_name.to_string()))
+        self.name_index
+            .get(&(file_uri.to_string(), class_name.to_string()))
     }
 
     /// ★ §15.2: Look up all refs for a given def.

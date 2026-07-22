@@ -99,5 +99,12 @@ pub fn lookup_declare_id(
         }
     }
 
+    // P3: name-only fallback for func params registered with zero scope ids
+    for ((_fid, _cid, _fnid, n), (id, _)) in local.name_to_declare_id.iter() {
+        if n == name {
+            return Some(*id);
+        }
+    }
+
     None
 }

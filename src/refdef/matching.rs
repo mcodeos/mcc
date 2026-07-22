@@ -53,8 +53,8 @@ pub fn fill_refdef_layer2(
                 SymbolKind::RoleDef,
                 SymbolKind::DefineDef,
                 SymbolKind::AttrDef,
-                SymbolKind::BusDef,       // ★ R7: bus refs may resolve via FuncParamRef
-                SymbolKind::UnknownDef,   // ★ R7: untyped params
+                SymbolKind::BusDef, // ★ R7: bus refs may resolve via FuncParamRef
+                SymbolKind::UnknownDef, // ★ R7: untyped params
             ],
             SymbolKind::PinNameRef => &[SymbolKind::PinNameDef],
             SymbolKind::PinIdRef => &[SymbolKind::PinIdDef],
@@ -284,8 +284,11 @@ pub fn fill_refdef_layer2(
                         ref_kind: SymbolKind::ClassDef,
                         ref_id: 0,
                         def_loc: SourceLocation {
-                            file_id: fid, container_id: cid, func_id: 0,
-                            byte_start: def_start as u32, byte_end: def_stop as u32,
+                            file_id: fid,
+                            container_id: cid,
+                            func_id: 0,
+                            byte_start: def_start as u32,
+                            byte_end: def_stop as u32,
                         },
                         def_kind: SymbolKind::BusDef,
                         cmie_kind: CmieKind::UNKNOWN,

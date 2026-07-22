@@ -48,9 +48,9 @@ impl McSemSymbols {
             ref_def_map: None,
             def_map: HashMap::new(),
             ref_entries: Vec::new(),
-            file_table: Vec::new(),
-            container_table: Vec::new(),
-            func_table: Vec::new(),
+            file_table: vec![String::new()],
+            container_table: vec![String::new()],
+            func_table: vec![String::new()],
             // (my_components removed)
         }
     }

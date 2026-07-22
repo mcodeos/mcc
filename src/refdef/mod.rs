@@ -8,11 +8,11 @@
 //! ref→def matching, and query APIs previously scattered across
 //! `ast/ast_semantic.rs` and `db/infra/mc_code.rs`.
 
-pub mod types;
-pub mod register;
-pub mod matching;
 pub mod collect;
+pub mod matching;
 pub mod query;
+pub mod register;
+pub mod types;
 
 // Re-export all type definitions for convenience
 pub use types::*;

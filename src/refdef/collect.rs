@@ -6,8 +6,8 @@
 //!
 //! Extracted from `db/infra/mc_code.rs` (see design doc §16).
 
-use crate::ast::ast_semantic::{DeclareId, LocalSymbolTable};
 use crate::ast::ast_node::AstNode;
+use crate::ast::ast_semantic::{DeclareId, LocalSymbolTable};
 use crate::refdef::register::{lookup_declare_id, scope_path_from_scope_str};
 use crate::McURI;
 
@@ -90,7 +90,10 @@ pub fn collect_funccall_arg_refs(
 ///   PinIdDef → PinIdRef, PinIfaceDef → PinIfaceRef, ParamDef → FuncParamRef,
 ///   PortDef → PortRef, InstDef → InstRef, fallback → FuncParamRef
 pub fn resolve_arg_ref_kind(
-    def_map: &std::collections::HashMap<(crate::refdef::SymbolKind, u32), crate::refdef::SourceLocation>,
+    def_map: &std::collections::HashMap<
+        (crate::refdef::SymbolKind, u32),
+        crate::refdef::SourceLocation,
+    >,
     decl_id: crate::ast::ast_semantic::DeclareId,
 ) -> crate::refdef::SymbolKind {
     use crate::refdef::SymbolKind;

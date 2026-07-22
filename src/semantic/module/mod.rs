@@ -148,7 +148,7 @@ impl McModule {
                             }
                             // Collect port reference spans before parsing the net
                             let scope = self.name.to_string();
-                            Self::collect_port_refs_in_node(
+                            Self::collect_net_refs_in_node(
                                 &subnode,
                                 &mut self.insts,
                                 &mut self.params,
@@ -157,7 +157,7 @@ impl McModule {
                             match McPhrase::new(&subnode, self) {
                                 Some(net) => {
                                     // Store definition spans + LSP lapper entries for inline ports
-                                    Self::collect_port_def_spans_in_net(
+                                    Self::collect_net_def_spans(
                                         &subnode,
                                         &mut self.insts,
                                         &self.uri,
@@ -617,12 +617,7 @@ impl McModule {
     /// known port names (both from body insts and params), and record their spans for LSP goto-definition.
     /// Walk AST nodes in a net phrase and store definition spans + LSP lapper
     /// entries for any identifier that becomes an inline port instance.
-    fn collect_port_def_spans_in_net(
-        node: &AstNode,
-        insts: &mut McInstances,
-        uri: &McURI,
-        scope: &str,
-    ) {
+    fn collect_net_def_spans(node: &AstNode, insts: &mut McInstances, uri: &McURI, scope: &str) {
         match node.get_type() {
             MCAST_ID | MCAST_IDA | MCAST_IDS | MCAST_SQUARE_VEC | MCAST_OPD_SQUARE_VEC
             | MCAST_OPD_CURLY => {
@@ -651,7 +646,7 @@ impl McModule {
         if let Some(sub) = node.get_sub_node() {
             let mut cur = sub;
             loop {
-                Self::collect_port_def_spans_in_net(&cur, insts, uri, scope);
+                Self::collect_net_def_spans(&cur, insts, uri, scope);
                 match cur.get_next() {
                     Some(next) => cur = next,
                     None => break,
@@ -660,7 +655,7 @@ impl McModule {
         }
     }
 
-    fn collect_port_refs_in_node(
+    pub(crate) fn collect_net_refs_in_node(
         node: &AstNode,
         insts: &mut McInstances,
         params: &mut McParamDeclares,
@@ -687,12 +682,12 @@ impl McModule {
                         insts.resolve_idx(&text)
                     };
                     if let Some(ref key) = matched_key {
-                        insts.record_port_ref(span, key, scope);
+                        insts.record_net_ref(span, key, scope);
                     } else if params.is_defined(base) {
-                        params.record_port_ref(span, base, scope);
+                        params.record_net_ref(span, base, scope);
+                    } else {
+                        insts.record_net_ref(span, base, scope);
                     }
-                    // Note: no else-branch diagnostic here — leaf nodes may be
-                    // class refs or instance refs resolved elsewhere.
                 }
             }
             // ★ SQUARE_VEC / OPD_SQUARE_VEC (e.g. [VDD_3V3,GND]):
@@ -722,9 +717,9 @@ impl McModule {
                             member_span.start, member_span.end
                         );
                         if in_insts {
-                            insts.record_port_ref(member_span, &name, scope);
+                            insts.record_net_ref(member_span, &name, scope);
                         } else if in_params {
-                            params.record_port_ref(member_span, &name, scope);
+                            params.record_net_ref(member_span, &name, scope);
                         }
                     }
                     current = phrase_node.get_next();
@@ -745,9 +740,9 @@ impl McModule {
                                     insts.resolve_idx(&text)
                                 };
                             if let Some(ref key) = matched_key {
-                                insts.record_port_ref(span, key, scope);
+                                insts.record_net_ref(span, key, scope);
                             } else if params.is_defined(&text) {
-                                params.record_port_ref(span, &text, scope);
+                                params.record_net_ref(span, &text, scope);
                             }
                         }
                     }
@@ -759,7 +754,7 @@ impl McModule {
         if let Some(sub) = node.get_sub_node() {
             let mut current = sub;
             loop {
-                Self::collect_port_refs_in_node(&current, insts, params, scope);
+                Self::collect_net_refs_in_node(&current, insts, params, scope);
                 match current.get_next() {
                     Some(next) => current = next,
                     None => break,
