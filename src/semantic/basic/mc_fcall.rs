@@ -50,6 +50,7 @@ impl McFuncCall {
         //   CAP(10uF)          → { name: "CAP" }                              — class, no instance
         //   CAP.CER(10uF)      → { instance: "CAP", name: "CER" }             — dotted class
         //   uC.i2c(0x36)       → { instance: "uC", name: "i2c" }              — method call
+        //   mic(V3V3)          → { name: "mic" }                              — instance constructor (has no instance child, but name IS a known instance)
         //   RES(10kΩ).Pullup() → { instance: opd_fcall, name: "Pullup" }      — chained method call
         // Distinction: if `instance` segment is a known instance (find_inst),
         // it's a method call → skip. Otherwise it's a class → register.
@@ -84,14 +85,20 @@ impl McFuncCall {
                     _ => {}
                 }
             }
-            // Method call: has instance AND either (a) instance is a known name
-            // in scope, or (b) instance is a nested expression (e.g. RES(10kΩ).Pullup)
+            // Method call: has instance AND either (a) instance is known name
+            // in scope, or (b) instance is nested (e.g. RES(10kΩ).Pullup)
             let is_method_call = has_instance
                 && (inst_name
                     .as_ref()
                     .is_some_and(|n| context.find_inst(n).is_some())
                     || inst_name.is_none());
-            if !is_method_call {
+            // Instance constructor: no instance child but name IS known instance
+            // (e.g. mic(V3V3) — name="mic" is a declared instance)
+            let is_instance_constructor = !has_instance
+                && class_name
+                    .as_ref()
+                    .is_some_and(|(n, _)| context.find_inst(n).is_some());
+            if !is_method_call && !is_instance_constructor {
                 if let Some((name, span)) = class_name {
                     let full_name = match inst_name {
                         Some(inst) => format!("{inst}.{name}"),
