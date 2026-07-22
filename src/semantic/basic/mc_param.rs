@@ -128,38 +128,16 @@ impl McParamValue {
                 None
             }
 
-            // Net expressions (e.g. a - b, a + b, a -> b)
-            MCAST_OPD_MINUS | MCAST_OPD_PLUS | MCAST_OPD_RIGHTARROW | MCAST_OPD_LEFTARROW => {
+            // Net/arithmetic expressions
+            MCAST_OPD_MINUS | MCAST_OPD_PLUS | MCAST_OPD_RIGHTARROW | MCAST_OPD_LEFTARROW
+            | MCAST_OPD_MULTI | MCAST_OPD_DIVID => {
                 McPhrase::new(node, context).map(|p| McParamValue::Phrase(Box::new(p)))
             }
 
-            /*
-            // Function call
+            // Nested function call as argument value
             MCAST_OPD_FCALL => {
-                McParamFuncCall::new(node).map(|fc| McParamValue::FuncCall(Box::new(fc)))
+                McPhrase::new(node, context).map(|p| McParamValue::Phrase(Box::new(p)))
             }
-
-            // Arithmetic expressions (e.g. rows*cols, rows+1, cols-2)
-            MCAST_OPD_PLUS | MCAST_OPD_MINUS | MCAST_OPD_MULTI | MCAST_OPD_DIVID => {
-                // For arithmetic expressions, we need to first parse the left and right operands
-                if let Some(left) = node.get_sub_node() {
-                    if let Some(right) = left.get_next() {
-                        let left_value = McParamValue::new(&left)?;
-                        let right_value = McParamValue::new(&right)?;
-
-                        // Temporarily use SquareVec to represent arithmetic expressions; consider adding a dedicated expression type later
-                        Some(McParamValue::Opdc(McOpd::SquareVec(vec![
-                            McOpd::Id(format!("{:?}", node.get_type())),
-                            left_value.into_opdc()?,
-                            right_value.into_opdc()?,
-                        ])))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            } */
             _ => None,
         }
     }
