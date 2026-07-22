@@ -1244,6 +1244,9 @@ impl McInstances {
                 && expanded_names.len() >= 2;
             let names_to_create: Vec<String> = if should_expand {
                 expanded_names
+            } else if inst_ids.is_square_only() && expanded_names.len() >= 2 {
+                // ★ [VDD_3V3, GND] — square-only vector: expand individual members
+                expanded_names
             } else {
                 vec![inst_str.clone()]
             };
@@ -1268,25 +1271,20 @@ impl McInstances {
                     ..((ids_node.get_pos() + ids_node.get_len()) as usize);
                 self.store_port_span(inst_name_ref, inst_span.clone());
                 let scope = self.scope.as_deref();
-                let decl_id =
-                    crate::db::cmie::tables::WORKSPACE
-                        .mcodes
-                        .get(uri)
-                        .and_then(|mcode| {
-                            mcode.symbols.lock().ok().map(|mut sem| {
-                                sem.local_table.add_declare_with_name(
-                                    uri,
-                                    crate::ast::ast_semantic::SourceLocation::from_span(&inst_span),
-                                    Some(inst_name.clone()),
-                                    scope,
-                                )
-                            })
-                        });
-                if let Some(id) = decl_id {
-                    tracing::info!(target: "crate::lsp", "Registered instance decl: {} at {:?} -> id={:?}", inst_name, inst_span, id);
-                } else {
-                    tracing::warn!(target: "crate::lsp", "Failed to register instance decl: {}", inst_name);
-                }
+                // ★ Try WORKSPACE first, fall back to direct register_def
+                let _ = crate::db::cmie::tables::WORKSPACE
+                    .mcodes
+                    .get(uri)
+                    .and_then(|mcode| {
+                        mcode.symbols.lock().ok().map(|mut sem| {
+                            sem.local_table.add_declare_with_name(
+                                uri,
+                                crate::ast::ast_semantic::SourceLocation::from_span(&inst_span),
+                                Some(inst_name.clone()),
+                                scope,
+                            )
+                        })
+                    });
 
                 // Check for NC parameter
                 // MCAST_INSTANCE structure: instance_id (MCAST_PARAMS)?

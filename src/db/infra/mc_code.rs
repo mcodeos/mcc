@@ -1914,13 +1914,11 @@ impl McCode {
                 let local_ref_count = sem.local_table.inst_id_to_span.len();
                 tracing::info!(target: "mcc::lsp", "create_lapper: {} decls, {} local_refs, lapper len={}", decl_count, local_ref_count, symbol_lapper.len());
 
+                Self::lapper_func_define_role(&self.uri, &self.ast, &mut sem, &mut symbol_lapper);
                 Self::lapper_function_params(&self.uri, &mut sem, &mut symbol_lapper);
                 Self::lapper_component_defs(&self.uri, &mut sem, &mut symbol_lapper);
                 Self::lapper_enum_refs(&self.uri, &self.ast, &mut sem, &mut symbol_lapper);
-                Self::lapper_func_define_role(&self.uri, &self.ast, &mut sem, &mut symbol_lapper);
                 Self::lapper_second_pass_and_dedup(&mut sem, &mut symbol_lapper);
-                // ★ Post-pass: re-process func net refs now that params are registered
-                Self::lapper_func_net_refs_post(&self.uri, &mut sem, &mut symbol_lapper);
 
                 sem.symbol_lapper = symbol_lapper;
             }
@@ -2010,6 +2008,14 @@ impl McCode {
         for entry in crate::db::cmie::tables::WORKSPACE.interfaces.iter() {
             if entry.key().uri.as_str() == uri.as_str() {
                 collect(&entry.value().params, &mut param_types);
+            }
+        }
+        // Func params (nested inside modules)
+        for entry in crate::db::cmie::tables::WORKSPACE.modules.iter() {
+            if entry.key().uri.as_str() == uri.as_str() {
+                for func in entry.value().funcs.iter() {
+                    collect(&func.params, &mut param_types);
+                }
             }
         }
 
@@ -2621,6 +2627,26 @@ impl McCode {
                     stop: span.end,
                     val: SymbolType::new(SymbolKind::PortDef, u32::from(d)),
                 });
+            }
+            // ★ Square-vec member defs — register port_spans entries
+            // not covered by iter_ports_with_span (IOType::None members).
+            for (name, spans) in m.insts.port_spans() {
+                for span in spans {
+                    let (d, _) = crate::refdef::register::register_def(
+                        sem,
+                        uri,
+                        &mod_ident2,
+                        None,
+                        name,
+                        span.clone(),
+                        SymbolKind::LabelDef,
+                    );
+                    symbol_lapper.insert(Interval {
+                        start: span.start,
+                        stop: span.end,
+                        val: SymbolType::new(SymbolKind::LabelDef, u32::from(d)),
+                    });
+                }
             }
             for (span, port_name, scope) in m.insts.iter_net_refs() {
                 let sp = crate::refdef::register::scope_path_from_scope_str(&uri, scope);
@@ -3274,12 +3300,12 @@ impl McCode {
                                 func_name.as_deref(),
                                 &pname,
                                 pspan.clone(),
-                                SymbolKind::ParamDef,
+                                SymbolKind::UnknownDef,
                             );
                             symbol_lapper.insert(Interval {
                                 start: pspan.start,
                                 stop: pspan.end,
-                                val: SymbolType::new(SymbolKind::ParamDef, u32::from(d)),
+                                val: SymbolType::new(SymbolKind::UnknownDef, u32::from(d)),
                             });
                         }
                     }
@@ -3453,60 +3479,6 @@ impl McCode {
     }
 
     /// ★ Post-pass: re-process func net refs after all defs are registered.
-    fn lapper_func_net_refs_post(
-        uri: &McURI,
-        sem: &mut McSemSymbols,
-        symbol_lapper: &mut SymbolRangeLapper,
-    ) {
-        let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-        for entry in modules.iter() {
-            if entry.key().uri.as_str() != uri.as_str() {
-                continue;
-            }
-            let m = entry.value();
-            for func in m.funcs.iter() {
-                for (span, port_name, scope) in func.params.iter_net_refs() {
-                    let sp = crate::refdef::register::scope_path_from_scope_str(uri, scope);
-                    let decl_id = crate::refdef::register::lookup_declare_id(
-                        &sem.local_table,
-                        port_name,
-                        &sp,
-                    );
-                    if let Some(decl_id) = decl_id {
-                        symbol_lapper.insert(Interval {
-                            start: span.start,
-                            stop: span.end,
-                            val: SymbolType::new(SymbolKind::LabelRef, u32::from(decl_id)),
-                        });
-                        sem.ref_entries.push((
-                            SymbolKind::LabelRef,
-                            u32::from(decl_id),
-                            span.start,
-                            span.end,
-                        ));
-                    }
-                }
-                for (span, port_name, scope) in func.insts.iter_net_refs() {
-                    let sp = crate::refdef::register::scope_path_from_scope_str(uri, scope);
-                    let decl_id = crate::refdef::register::lookup_declare_id(
-                        &sem.local_table,
-                        port_name,
-                        &sp,
-                    );
-                    if let Some(decl_id) = decl_id {
-                        let ref_kind = Self::resolve_net_ref_kind(port_name, &func.insts);
-                        symbol_lapper.insert(Interval {
-                            start: span.start,
-                            stop: span.end,
-                            val: SymbolType::new(ref_kind, u32::from(decl_id)),
-                        });
-                        sem.ref_entries
-                            .push((ref_kind, u32::from(decl_id), span.start, span.end));
-                    }
-                }
-            }
-        }
-    }
 
     fn lapper_second_pass_and_dedup(sem: &mut McSemSymbols, symbol_lapper: &mut SymbolRangeLapper) {
         for (inst_id, span) in sem.local_table.inst_id_to_span.iter() {
