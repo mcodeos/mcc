@@ -53,6 +53,7 @@ pub use crate::semantic::{
 };
 pub use db::diagnostic::errcodes;
 pub mod export;
+pub mod refdef;
 pub use ast::ast_semantic::{
     scope_from_ids, symbol_table_to_json, McSemSymbols, SourceLocation, Span, SymbolKind,
     SymbolType,
@@ -503,7 +504,7 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
             }
             out.push_str(&format!("  files:     {:?}\n", map.files));
             out.push_str(&format!("  containers:{:?}\n", map.containers));
-            let kind_names: Vec<&str> = (0u8..=24)
+            let kind_names: Vec<&str> = (0u8..=27)
                 .map(|i| {
                     let k: SymbolKind = unsafe { std::mem::transmute(i) };
                     k.kind_name()

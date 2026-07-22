@@ -1361,350 +1361,69 @@ impl McCode {
 
     /// Public wrapper for RPC handlers.
     pub fn scope_path_from_scope_str_public(uri: &McURI, scope: &str) -> crate::ScopePath {
-        Self::scope_path_from_scope_str(uri, scope)
+        crate::refdef::register::scope_path_from_scope_str(uri, scope)
     }
 
-    /// Build a ScopePath from a scope string and file URI.
-    /// "US513" → module,  "US513.i2c" → func-in-module,  "" → file-level.
-    fn scope_path_from_scope_str(uri: &McURI, scope: &str) -> crate::ScopePath {
-        if scope.is_empty() {
-            crate::ScopePath::file_level(uri)
-        } else if let Some(dot_pos) = scope.rfind('.') {
-            let container = &scope[..dot_pos];
-            let func = &scope[dot_pos + 1..];
-            crate::ScopePath::func_in_module(uri, container, func)
-        } else {
-            crate::ScopePath::module(uri, scope)
-        }
-    }
 
-    fn register_def(
-        sem: &mut crate::ast::ast_semantic::McSemSymbols,
-        uri: &McURI,
-        container: &str,
-        func: Option<&str>,
-        name: &str,
-        span: std::ops::Range<usize>,
-        def_kind: crate::ast::ast_semantic::SymbolKind,
-    ) -> (
-        crate::ast::ast_semantic::DeclareId,
-        crate::ast::ast_semantic::SourceLocation,
-    ) {
-        let file_id = crate::ast::ast_semantic::intern(&mut sem.file_table, uri.as_str());
-        let container_id = if container.is_empty() {
-            0
-        } else {
-            crate::ast::ast_semantic::intern(&mut sem.container_table, container)
-        };
-        let func_id = func
-            .filter(|f| !f.is_empty())
-            .map(|f| crate::ast::ast_semantic::intern(&mut sem.func_table, f))
-            .unwrap_or(0);
-        let scope = match func {
-            Some(f) if !f.is_empty() => format!("{container}.{f}"),
-            _ => container.to_string(),
-        };
-        let loc = crate::ast::ast_semantic::SourceLocation {
-            file_id,
-            container_id,
-            func_id,
-            byte_start: span.start as u32,
-            byte_end: span.end as u32,
-        };
-        let decl_id =
-            sem.local_table
-                .add_declare_with_name(uri, loc, Some(name.to_string()), Some(&scope));
-        sem.def_map.insert((def_kind, decl_id.raw()), loc);
-        (decl_id, loc)
-    }
 
-    /// Resolve a name to its DeclareId within a container scope.
-    ///
-    /// ## Lookup priority (higher shadows lower):
-    ///   P1: current func scope — func params, func body labels
-    ///   P2: current container  — module/component/interface/enum internal defs
-    ///
-    /// Internal defs (ports, instances, labels, funcs) are container-scoped
-    /// and do NOT leak to file-level or cross-file visibility (§3.2.2).
-    /// There is intentionally NO P3/P4/P5 fallback — those levels are for
-    /// CMIE class names (component/module/interface/enum/define) resolved
-    /// via `mcb_get_cmie`, not for port/instance refs.
-    fn lookup_declare_id(
-        local: &crate::ast::ast_semantic::LocalSymbolTable,
-        name: &str,
-        scope_path: &crate::ScopePath,
-    ) -> Option<crate::ast::ast_semantic::DeclareId> {
-        let ref_scope = scope_path.scope_key();
 
-        // P1: exact scope match — scope identified by scope string via scope_index
-        if let Some((id, _)) = local.lookup_by_scope_name(&ref_scope, name) {
-            return Some(id);
-        }
-
-        // P2: container-level match — when inside a func, fall back to
-        //   the parent container (module/component) scope
-        if scope_path.func.is_some() {
-            let container_scope = &scope_path.container.name;
-            if let Some((id, _)) = local.lookup_by_scope_name(container_scope, name) {
-                return Some(id);
+    fn param_def_kind(
+        param: Option<&crate::semantic::basic::mc_paramd::McParamDeclare>,
+    ) -> SymbolKind {
+        match param {
+            Some(p) if p.param_type.kind
+                == crate::semantic::basic::mc_param_type::McParamTypeKind::Unknown =>
+            {
+                SymbolKind::UnknownDef
             }
+            _ => SymbolKind::ParamDef,
         }
-
-        None
     }
 
-    /// Recursively scan funcall argument nodes for port refs (SQUARE_VEC members,
-    /// IDs, etc.) and return (span, DeclareId) pairs for InstanceRef lapper entries.
-    fn collect_funccall_arg_refs(
-        arg_node: &AstNode,
-        local_table: &crate::ast::ast_semantic::LocalSymbolTable,
-        file_uri: &McURI,
-        enclosing: &str,
-    ) -> Vec<(std::ops::Range<usize>, DeclareId)> {
-        use crate::ast::c_macros::{
-            MCAST_ID, MCAST_IDA, MCAST_IDS, MCAST_OPD_SQUARE_VEC, MCAST_SQUARE_VEC,
-        };
-        let mut result = Vec::new();
-        let ntype = arg_node.get_type();
-        match ntype {
-            MCAST_SQUARE_VEC | MCAST_OPD_SQUARE_VEC => {
-                // Iterate members: [VDD_3V3, GND] → VDD_3V3, GND
-                let mut cur = arg_node.get_sub_node();
-                while let Some(member) = cur {
-                    let ids_node = member.get_sub_node().unwrap_or_else(|| member.clone());
-                    if let Some(ids) = crate::semantic::basic::mc_ids::McIds::new(&ids_node) {
-                        let name = ids.to_string();
-                        let span = (ids_node.get_pos() as usize)
-                            ..((ids_node.get_pos() + ids_node.get_len()) as usize);
-                        let sp = Self::scope_path_from_scope_str(file_uri, enclosing);
-                        let decl_id = Self::lookup_declare_id(local_table, &name, &sp);
-                        tracing::info!(target: "mcc::lsp",
-                            "FCALL_ARG_REF: member='{name}' span=[{},{}] enclosing='{enclosing}' decl_id={}",
-                            span.start, span.end,
-                            decl_id.map(|d| u32::from(d) as i64).unwrap_or(-1)
-                        );
-                        if let Some(did) = decl_id {
-                            result.push((span, did));
+    /// ★ §4.3 #22-#26: Resolve correct ref kind for a port ref, dispatching
+    /// inst.member patterns (e.g. uC.PA1 → PinNameRef, cap4.1 → PinIdRef).
+    fn resolve_port_ref_kind(
+        port_name: &str,
+        insts: &crate::semantic::mc_inst::McInstances,
+    ) -> SymbolKind {
+        // Check for inst.member pattern (dot-separated)
+        if let Some(dot_pos) = port_name.find('.') {
+            let base = &port_name[..dot_pos];
+            let member = &port_name[dot_pos + 1..];
+
+            // Look up the base instance
+            if let Some((_iotype, inst)) = insts.insts().get(base) {
+                match inst {
+                    crate::semantic::mc_inst::McInstance::Component(comp) => {
+                        // ★ Priority: pin name > pin id > sub-component
+                        if comp.base.pins.names_to_id.contains_key(member) {
+                            return SymbolKind::PinNameRef;
+                        }
+                        if member.chars().all(|c| c.is_ascii_digit()) {
+                            return SymbolKind::PinIdRef;
+                        }
+                        // Sub-component or sub-instance declared inside the component
+                        if comp.base.insts.contains(member) {
+                            return SymbolKind::InstRef;
                         }
                     }
-                    cur = member.get_next();
-                }
-            }
-            MCAST_ID | MCAST_IDA | MCAST_IDS => {
-                if let Some(ids) = crate::semantic::basic::mc_ids::McIds::new(arg_node) {
-                    let name = ids.to_string();
-                    let span = (arg_node.get_pos() as usize)
-                        ..((arg_node.get_pos() + arg_node.get_len()) as usize);
-                    let sp = Self::scope_path_from_scope_str(file_uri, enclosing);
-                    let decl_id = Self::lookup_declare_id(local_table, &name, &sp);
-                    if let Some(did) = decl_id {
-                        result.push((span, did));
+                    crate::semantic::mc_inst::McInstance::Module(_m) => {
+                        return SymbolKind::InstRef;
                     }
-                }
-            }
-            _ => {
-                // Recurse into children
-                if let Some(sub) = arg_node.get_sub_node() {
-                    let mut cur = Some(sub);
-                    while let Some(child) = cur {
-                        let mut child_refs = Self::collect_funccall_arg_refs(
-                            &child,
-                            local_table,
-                            file_uri,
-                            enclosing,
-                        );
-                        result.append(&mut child_refs);
-                        cur = child.get_next();
+                    crate::semantic::mc_inst::McInstance::Bus(_) => {
+                        return SymbolKind::BusRef;
                     }
-                }
-            }
-        }
-        result
-    }
-
-    /// Build RefDefMap Layer 2 inline from the freshly-built lapper.
-    /// Matches InstanceRef/LabelRef/FunctionRef/etc. to their defs via shared DeclareId.
-    /// Called at end of create_lapper() — no separate lapper re-scan.
-    fn fill_refdef_layer2(
-        map: &mut crate::ast::ast_semantic::RefDefMap,
-        scope_map: &std::collections::HashMap<(usize, usize), String>,
-        def_map_src: &std::collections::HashMap<
-            (SymbolKind, u32),
-            crate::ast::ast_semantic::SourceLocation,
-        >,
-        ref_entries: &[(SymbolKind, u32, usize, usize)],
-        file_uri: &McURI,
-    ) {
-        use crate::ast::ast_semantic::{RefDefEntry, SymbolKind};
-
-        // ★ A3: Use pre-built def_map from register_def instead of scanning lapper
-        let def_map: std::collections::HashMap<(SymbolKind, u32), (usize, usize)> = def_map_src
-            .iter()
-            .map(|(k, loc)| (*k, (loc.byte_start as usize, loc.byte_end as usize)))
-            .collect();
-
-        // ★ A3: Match refs from pre-collected ref_entries instead of scanning lapper
-        for &(ref_kind, decl_id, ref_start, ref_stop) in ref_entries {
-            let candidate_defs: &[SymbolKind] = match ref_kind {
-                SymbolKind::InstRef => &[SymbolKind::InstDef],
-                SymbolKind::PortRef => &[SymbolKind::PortDef, SymbolKind::ParamDef],
-                SymbolKind::LabelRef => &[SymbolKind::LabelDef],
-                SymbolKind::FuncRef => &[SymbolKind::FuncDef],
-                // FuncParamRef is the catch-all for funcall arguments whose
-                // actual type (PinNameRef, LabelRef, InstRef, etc.) isn't
-                // determined at lapper time.  Map to whatever def matches
-                // the shared DeclareId in def_map.
-                SymbolKind::FuncParamRef => &[
-                    SymbolKind::ParamDef,
-                    SymbolKind::PinNameDef,
-                    SymbolKind::PinIdDef,
-                    SymbolKind::PinIfaceDef,
-                    SymbolKind::PortDef,
-                    SymbolKind::LabelDef,
-                    SymbolKind::InstDef,
-                    SymbolKind::FuncDef,
-                    SymbolKind::ClassDef,
-                    SymbolKind::EnumDef,
-                    SymbolKind::EnumValDef,
-                    SymbolKind::RoleDef,
-                    SymbolKind::DefineDef,
-                    SymbolKind::AttrDef,
-                ],
-                SymbolKind::PinNameRef => &[SymbolKind::PinNameDef],
-                SymbolKind::PinIdRef => &[SymbolKind::PinIdDef],
-                SymbolKind::PinIfaceRef => &[SymbolKind::PinIfaceDef],
-                SymbolKind::EnumRef => &[SymbolKind::EnumDef],
-                SymbolKind::EnumValRef => &[SymbolKind::EnumValDef],
-                SymbolKind::ClassRef => &[SymbolKind::ClassDef, SymbolKind::ClassRef],
-                _ => &[],
-            };
-            // Try each candidate def kind
-            let mut def_match: Option<(usize, usize, SymbolKind)> = None;
-            for &dk in candidate_defs {
-                if let Some(&(ds, de)) = def_map.get(&(dk, decl_id)) {
-                    def_match = Some((ds, de, dk));
-                    break;
-                }
-            }
-            if let Some((def_start, def_stop, def_kind)) = def_match {
-                if def_start == ref_start && def_stop == ref_stop {
-                    continue; // self-ref skip
-                }
-                let fid = map.intern_file(file_uri);
-                let scope = scope_map
-                    .get(&(ref_start, ref_stop))
-                    .cloned()
-                    .unwrap_or_default();
-                let cid = map.intern_container(&scope);
-                map.insert(
-                    ref_kind,
-                    decl_id,
-                    RefDefEntry {
-                        ref_kind,
-                        ref_id: decl_id,
-                        def_loc: SourceLocation {
-                            file_id: fid as u32,
-                            container_id: cid,
-                            func_id: 0,
-                            byte_start: def_start as u32,
-                            byte_end: def_stop as u32,
-                        },
-                        def_kind,
-                        cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
-                    },
-                );
-            }
-        }
-
-        // ── PortRef generation (§3.2.2 Rule 1) ──
-        // ★ A3: Use pre-collected ref_entries instead of lapper scan
-        let fid = map.intern_file(file_uri);
-        let cid = map.intern_container("");
-        for &(ref_kind, decl_id, ref_start, ref_stop) in ref_entries {
-            if ref_kind != SymbolKind::InstRef {
-                continue;
-            }
-            if let Some(&(def_start, def_stop)) = def_map.get(&(SymbolKind::PortDef, decl_id)) {
-                if def_start == ref_start && def_stop == ref_stop {
-                    continue;
-                }
-                if map.entries.contains_key(&(SymbolKind::PortRef, decl_id)) {
-                    continue;
-                }
-                map.entries.remove(&(SymbolKind::InstRef, decl_id));
-                map.insert(
-                    SymbolKind::PortRef,
-                    decl_id,
-                    RefDefEntry {
-                        ref_kind: SymbolKind::ClassDef,
-                        ref_id: 0,
-                        def_loc: SourceLocation {
-                            file_id: fid,
-                            container_id: cid,
-                            func_id: 0,
-                            byte_start: def_start as u32,
-                            byte_end: def_stop as u32,
-                        },
-                        def_kind: SymbolKind::PortDef,
-                        cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
-                    },
-                );
-            }
-        }
-
-        // ── LabelRef generation ──
-        // ★ A3: Use def_map + ref_entries instead of lapper scans
-        let mut port_to_label: std::collections::HashMap<u32, (u32, (usize, usize))> =
-            std::collections::HashMap::new();
-        {
-            // Build pos→label mapping from LabelDef entries in def_map
-            let mut pos_to_label: std::collections::HashMap<(usize, usize), u32> =
-                std::collections::HashMap::new();
-            for ((kind, lid), (def_start, def_stop)) in def_map.iter() {
-                if *kind == SymbolKind::LabelDef {
-                    pos_to_label.insert((*def_start, *def_stop), *lid);
-                }
-            }
-            // Cross-reference PortDef at same position → LabelDef
-            for ((kind, pid), (def_start, def_stop)) in def_map.iter() {
-                if *kind == SymbolKind::PortDef {
-                    if let Some(&lid) = pos_to_label.get(&(*def_start, *def_stop)) {
-                        port_to_label.insert(*pid, (lid, (*def_start, *def_stop)));
+                    crate::semantic::mc_inst::McInstance::Interface(iface) => {
+                        if iface.base.pins.names_to_id.contains_key(member) {
+                            return SymbolKind::PinNameRef;
+                        }
                     }
+                    _ => {}
                 }
             }
         }
-        if !port_to_label.is_empty() {
-            let fid = map.intern_file(file_uri);
-            let cid = map.intern_container("");
-            for &(ref_kind, decl_id, _ref_start, _ref_stop) in ref_entries {
-                if ref_kind != SymbolKind::PortRef {
-                    continue;
-                }
-                if let Some(&(lid, (def_start, def_stop))) = port_to_label.get(&decl_id) {
-                    if map.entries.contains_key(&(SymbolKind::LabelRef, lid)) {
-                        continue;
-                    }
-                    map.insert(
-                        SymbolKind::LabelRef,
-                        lid,
-                        RefDefEntry {
-                            ref_kind: SymbolKind::ClassDef,
-                            ref_id: 0,
-                            def_loc: SourceLocation {
-                                file_id: fid,
-                                container_id: cid,
-                                func_id: 0,
-                                byte_start: def_start as u32,
-                                byte_end: def_stop as u32,
-                            },
-                            def_kind: SymbolKind::LabelDef,
-                            cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
-                        },
-                    );
-                }
-            }
-        }
+        // Default: plain port ref
+        SymbolKind::PortRef
     }
 
     /// Build RefDefMap from semantic tables.
@@ -2237,7 +1956,7 @@ impl McCode {
             });
         if let Ok(mut sem) = self.symbols.lock() {
             if let Some(ref mut map) = sem.ref_def_map {
-                Self::fill_refdef_layer2(
+                crate::refdef::matching::fill_refdef_layer2(
                     map,
                     &scope_snapshot,
                     &def_map_snapshot,
@@ -2558,7 +2277,7 @@ impl McCode {
                     | crate::semantic::mc_inst::McInstance::Module(_) => {
                         if let Some(spans) = m.insts.port_spans().get(inst_name) {
                             for span in spans {
-                                let (d, _) = Self::register_def(
+                                let (d, _) = crate::refdef::register::register_def(
                                     sem,
                                     uri,
                                     &mod_ident,
@@ -2622,20 +2341,21 @@ impl McCode {
                     std::collections::HashMap::new();
                 let iface_ident = iface.name.to_string();
                 for (name, span) in iface.params.iter_defs_with_span() {
-                    let (d, _) = Self::register_def(
+                    let def_kind = Self::param_def_kind(iface.params.find(name));
+                    let (d, _) = crate::refdef::register::register_def(
                         &mut *sem,
                         &uri,
                         &iface_ident,
                         None,
                         name,
                         span.clone(),
-                        SymbolKind::PortDef,
+                        def_kind,
                     );
                     param_decl_ids.insert(name.to_string(), d);
                     symbol_lapper.insert(Interval {
                         start: span.start,
                         stop: span.end,
-                        val: SymbolType::new(SymbolKind::PortDef, u32::from(d)),
+                        val: SymbolType::new(def_kind, u32::from(d)),
                     });
                 }
                 for attr in iface.attrs.iter() {
@@ -2655,8 +2375,8 @@ impl McCode {
                     }
                 }
                 for (span, port_name, scope) in iface.params.iter_port_refs() {
-                    let sp = Self::scope_path_from_scope_str(&uri, scope);
-                    let decl_id = Self::lookup_declare_id(&sem.local_table, port_name, &sp);
+                    let sp = crate::refdef::register::scope_path_from_scope_str(&uri, scope);
+                    let decl_id = crate::refdef::register::lookup_declare_id(&sem.local_table, port_name, &sp);
                     if let Some(decl_id) = decl_id {
                         symbol_lapper.insert(Interval {
                             start: span.start,
@@ -2686,20 +2406,21 @@ impl McCode {
                 let mut param_decl_ids: std::collections::HashMap<String, DeclareId> =
                     std::collections::HashMap::new();
                 for (name, span) in iface.params.iter_defs_with_span() {
-                    let (d, _) = Self::register_def(
+                    let def_kind = Self::param_def_kind(iface.params.find(name));
+                    let (d, _) = crate::refdef::register::register_def(
                         &mut *sem,
                         &uri,
                         &iface_name_g,
                         None,
                         name,
                         span.clone(),
-                        SymbolKind::PortDef,
+                        def_kind,
                     );
                     param_decl_ids.insert(name.to_string(), d);
                     symbol_lapper.insert(Interval {
                         start: span.start,
                         stop: span.end,
-                        val: SymbolType::new(SymbolKind::PortDef, u32::from(d)),
+                        val: SymbolType::new(def_kind, u32::from(d)),
                     });
                 }
                 for attr in iface.attrs.iter() {
@@ -2719,8 +2440,8 @@ impl McCode {
                     }
                 }
                 for (span, port_name, scope) in iface.params.iter_port_refs() {
-                    let sp = Self::scope_path_from_scope_str(&uri, scope);
-                    let decl_id = Self::lookup_declare_id(&sem.local_table, port_name, &sp);
+                    let sp = crate::refdef::register::scope_path_from_scope_str(&uri, scope);
+                    let decl_id = crate::refdef::register::lookup_declare_id(&sem.local_table, port_name, &sp);
                     if let Some(decl_id) = decl_id {
                         symbol_lapper.insert(Interval {
                             start: span.start,
@@ -2765,25 +2486,27 @@ impl McCode {
             );
             let mod_ident = entry.key().ident.to_string();
             for (name, span) in m.params.iter_defs_with_span() {
-                let (d, _) = Self::register_def(
+                // ★ Rule 6: untyped params → UnknownDef, typed → ParamDef
+                let def_kind = Self::param_def_kind(m.params.find(name));
+                let (d, _) = crate::refdef::register::register_def(
                     &mut *sem,
                     &uri,
                     &mod_ident,
                     None,
                     name,
                     span.clone(),
-                    SymbolKind::PortDef,
+                    def_kind,
                 );
                 symbol_lapper.insert(Interval {
                     start: span.start,
                     stop: span.end,
-                    val: SymbolType::new(SymbolKind::PortDef, u32::from(d)),
+                    val: SymbolType::new(def_kind, u32::from(d)),
                 });
             }
 
             let mod_ident2 = entry.key().ident.to_string();
             for (name, _iotype, span) in m.insts.iter_ports_with_span() {
-                let (d, _) = Self::register_def(
+                let (d, _) = crate::refdef::register::register_def(
                     &mut *sem,
                     &uri,
                     &mod_ident2,
@@ -2799,16 +2522,18 @@ impl McCode {
                 });
             }
             for (span, port_name, scope) in m.insts.iter_port_refs() {
-                let sp = Self::scope_path_from_scope_str(&uri, scope);
-                let decl_id = Self::lookup_declare_id(&sem.local_table, port_name, &sp);
+                let sp = crate::refdef::register::scope_path_from_scope_str(&uri, scope);
+                let decl_id = crate::refdef::register::lookup_declare_id(&sem.local_table, port_name, &sp);
                 if let Some(decl_id) = decl_id {
+                    // ★ §4.3 #22-#26: Dispatch inst.member refs to correct type
+                    let ref_kind = Self::resolve_port_ref_kind(port_name, &m.insts);
                     symbol_lapper.insert(Interval {
                         start: span.start,
                         stop: span.end,
-                        val: SymbolType::new(SymbolKind::PortRef, u32::from(decl_id)),
+                        val: SymbolType::new(ref_kind, u32::from(decl_id)),
                     });
                     sem.ref_entries.push((
-                        SymbolKind::PortRef,
+                        ref_kind,
                         u32::from(decl_id),
                         span.start,
                         span.end,
@@ -2816,8 +2541,8 @@ impl McCode {
                 }
             }
             for (span, port_name, scope) in m.params.iter_port_refs() {
-                let sp = Self::scope_path_from_scope_str(&uri, scope);
-                let decl_id = Self::lookup_declare_id(&sem.local_table, port_name, &sp);
+                let sp = crate::refdef::register::scope_path_from_scope_str(&uri, scope);
+                let decl_id = crate::refdef::register::lookup_declare_id(&sem.local_table, port_name, &sp);
                 if let Some(decl_id) = decl_id {
                     symbol_lapper.insert(Interval {
                         start: span.start,
@@ -2834,7 +2559,7 @@ impl McCode {
             }
             let mod_ident_label = entry.key().ident.to_string();
             for (name, _label_kind, span) in m.insts.iter_labels_with_span() {
-                let (d, _) = Self::register_def(
+                let (d, _) = crate::refdef::register::register_def(
                     sem,
                     uri,
                     &mod_ident_label,
@@ -2848,6 +2573,29 @@ impl McCode {
                     stop: span.end,
                     val: SymbolType::new(SymbolKind::LabelDef, u32::from(d)),
                 });
+            }
+            // ★ §3.2.4 #5: Register bus definitions (e.g. power{VCC,GND}, MIC{P,N})
+            for (inst_name, (_iotype, inst)) in m.insts.insts() {
+                if let crate::semantic::mc_inst::McInstance::Bus(_) = inst {
+                    if let Some(spans) = m.insts.port_spans().get(inst_name) {
+                        for span in spans {
+                            let (d, _) = crate::refdef::register::register_def(
+                                sem,
+                                uri,
+                                &mod_ident_label,
+                                None,
+                                inst_name,
+                                span.clone(),
+                                SymbolKind::BusDef,
+                            );
+                            symbol_lapper.insert(Interval {
+                                start: span.start,
+                                stop: span.end,
+                                val: SymbolType::new(SymbolKind::BusDef, u32::from(d)),
+                            });
+                        }
+                    }
+                }
             }
         }
     }
@@ -2866,8 +2614,8 @@ impl McCode {
             for func in m.funcs.iter() {
                 let fscope = func.name.to_string();
                 for (span, port_name, scope) in func.params.iter_port_refs() {
-                    let sp = Self::scope_path_from_scope_str(&uri, scope);
-                    let decl_id = Self::lookup_declare_id(&sem.local_table, port_name, &sp);
+                    let sp = crate::refdef::register::scope_path_from_scope_str(&uri, scope);
+                    let decl_id = crate::refdef::register::lookup_declare_id(&sem.local_table, port_name, &sp);
                     if let Some(decl_id) = decl_id {
                         symbol_lapper.insert(Interval {
                             start: span.start,
@@ -2884,7 +2632,7 @@ impl McCode {
                 }
                 let func_scope = func.insts.scope.clone().unwrap_or_else(|| fscope.clone());
                 for (name, _label_kind, span) in func.insts.iter_labels_with_span() {
-                    let (d, _) = Self::register_def(
+                    let (d, _) = crate::refdef::register::register_def(
                         sem,
                         uri,
                         &func_scope,
@@ -2929,23 +2677,24 @@ impl McCode {
             .collect();
         for (comp_ident, comp, _comp_uri) in &all_comps {
             for (name, span) in comp.params.iter_defs_with_span() {
-                let (d, _) = Self::register_def(
+                let def_kind = Self::param_def_kind(comp.params.find(name));
+                let (d, _) = crate::refdef::register::register_def(
                     &mut *sem,
                     &uri,
                     comp_ident,
                     None,
                     name,
                     span.clone(),
-                    SymbolKind::PortDef,
+                    def_kind,
                 );
                 symbol_lapper.insert(Interval {
                     start: span.start,
                     stop: span.end,
-                    val: SymbolType::new(SymbolKind::PortDef, u32::from(d)),
+                    val: SymbolType::new(def_kind, u32::from(d)),
                 });
             }
             for (pin_name, pin_span) in Self::extract_pin_name_spans(comp) {
-                let (d, _) = Self::register_def(
+                let (d, _) = crate::refdef::register::register_def(
                     &mut *sem,
                     &uri,
                     comp_ident,
@@ -2961,7 +2710,7 @@ impl McCode {
                 });
             }
             for (pin_id, id_span) in Self::extract_pin_id_spans(comp) {
-                let (d, _) = Self::register_def(
+                let (d, _) = crate::refdef::register::register_def(
                     &mut *sem,
                     &uri,
                     comp_ident,
@@ -2977,7 +2726,7 @@ impl McCode {
                 });
             }
             for (iface, if_span) in Self::extract_pin_iface_spans(comp) {
-                let (d, _) = Self::register_def(
+                let (d, _) = crate::refdef::register::register_def(
                     &mut *sem,
                     &uri,
                     comp_ident,
@@ -3006,8 +2755,8 @@ impl McCode {
                 });
             }
             for (span, port_name, scope) in comp.params.iter_port_refs() {
-                let sp = Self::scope_path_from_scope_str(&uri, scope);
-                let decl_id = Self::lookup_declare_id(&sem.local_table, port_name, &sp);
+                let sp = crate::refdef::register::scope_path_from_scope_str(&uri, scope);
+                let decl_id = crate::refdef::register::lookup_declare_id(&sem.local_table, port_name, &sp);
                 if let Some(decl_id) = decl_id {
                     symbol_lapper.insert(Interval {
                         start: span.start,
@@ -3354,7 +3103,7 @@ impl McCode {
                         (Some(m), Some(f)) => Some(format!("{m}.{f}")),
                         _ => func_name.clone(),
                     };
-                    let (d, _) = Self::register_def(
+                    let (d, _) = crate::refdef::register::register_def(
                         &mut *sem,
                         &uri,
                         enclosing.as_deref().unwrap_or(""),
@@ -3378,7 +3127,7 @@ impl McCode {
                                 .unwrap_or_default()
                         });
                         for (pname, pspan) in Self::extract_func_param_spans(&params_node) {
-                            let (d, _) = Self::register_def(
+                            let (d, _) = crate::refdef::register::register_def(
                                 &mut *sem,
                                 &uri,
                                 enclosing.as_deref().unwrap_or(""),
@@ -3390,7 +3139,7 @@ impl McCode {
                             symbol_lapper.insert(Interval {
                                 start: pspan.start,
                                 stop: pspan.end,
-                                val: SymbolType::new(SymbolKind::PortDef, u32::from(d)),
+                                val: SymbolType::new(SymbolKind::ParamDef, u32::from(d)),
                             });
                         }
                     }
@@ -3409,7 +3158,7 @@ impl McCode {
                         (name_node.get_pos() + name_node.get_len()) as usize,
                     );
                     let enclosing = find_container(span.0).unwrap_or_default();
-                    let (d, _) = Self::register_def(
+                    let (d, _) = crate::refdef::register::register_def(
                         sem,
                         uri,
                         &enclosing,
@@ -3431,7 +3180,7 @@ impl McCode {
                         (name_node.get_pos() + name_node.get_len()) as usize,
                     );
                     let enclosing = find_container(span.0).unwrap_or_default();
-                    let (d, _) = Self::register_def(
+                    let (d, _) = crate::refdef::register::register_def(
                         sem,
                         uri,
                         &enclosing,
@@ -3539,21 +3288,22 @@ impl McCode {
                         ));
                     }
                     if let Some(enclosing) = find_container(span.0) {
-                        let refs = Self::collect_funccall_arg_refs(
+                        let refs = crate::refdef::collect::collect_funccall_arg_refs(
                             node,
                             &sem.local_table,
                             &uri,
                             &enclosing,
                         );
                         for (span, did) in refs {
-                            // ★ §15.1: FuncParam refs — arguments reference function parameters
+                            // ★ §4.3: Dispatch ref kind based on def type (not catch-all FuncParamRef)
+                            let ref_kind = crate::refdef::collect::resolve_arg_ref_kind(&sem.def_map, did);
                             symbol_lapper.insert(Interval {
                                 start: span.start,
                                 stop: span.end,
-                                val: SymbolType::new(SymbolKind::FuncParamRef, u32::from(did)),
+                                val: SymbolType::new(ref_kind, u32::from(did)),
                             });
                             sem.ref_entries.push((
-                                SymbolKind::FuncParamRef,
+                                ref_kind,
                                 u32::from(did),
                                 span.start,
                                 span.end,
