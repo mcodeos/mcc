@@ -433,7 +433,7 @@ impl AstNode {
             }
 
             // Unit value types — e.g. 5V, 100mA, 2.2uH (data nodes)
-            t if (MCAST_UVAL_VOLT..=MCAST_UVAL_NOISE).contains(&t) => {
+            t if (MCAST_UVAL_VOLT..=MCAST_UVAL_CHARGE).contains(&t) => {
                 self.data_as_cstr()?.to_str().ok().map(|s| s.to_string())
             }
 

@@ -68,8 +68,26 @@ pub fn apply_sp_model(graph: &mut McVecGraph, m: &SpModel) {
     // consistently instead of inheriting the generic satellite size.
     let (term_w, term_h) = terminal_size(graph, m.left_box, m.right_box);
     let mid_y = MARGIN + (root_h - 1.0) / 2.0 * ROW_H;
-    place_terminal(graph, m.left_box, m.left_node, EntrySide::Right, 0.0, mid_y, term_w, term_h);
-    place_terminal(graph, m.right_box, m.right_node, EntrySide::Left, root_w, mid_y, term_w, term_h);
+    place_terminal(
+        graph,
+        m.left_box,
+        m.left_node,
+        EntrySide::Right,
+        0.0,
+        mid_y,
+        term_w,
+        term_h,
+    );
+    place_terminal(
+        graph,
+        m.right_box,
+        m.right_node,
+        EntrySide::Left,
+        root_w,
+        mid_y,
+        term_w,
+        term_h,
+    );
 
     // ── ★ wiring: emit rails + taps + leads directly into net.route ─────────
     // Every same-node pin already shares a grid column, so the rail is a vertical
@@ -88,7 +106,9 @@ fn terminal_size(graph: &McVecGraph, a: i64, b: i64) -> (f64, f64) {
     const MIN_W: f64 = COL_W * 1.1;
     let get = |id: i64| graph.boxes.iter().find(|x| x.id == id);
     let pins = |id: i64| -> usize {
-        get(id).map(|x| x.pins.len().max(x.entry_points.len()).max(x.pin_count)).unwrap_or(0)
+        get(id)
+            .map(|x| x.pins.len().max(x.entry_points.len()).max(x.pin_count))
+            .unwrap_or(0)
     };
     let cur_w = |id: i64| get(id).map(|x| x.w).unwrap_or(0.0);
     let cur_h = |id: i64| get(id).map(|x| x.h).unwrap_or(0.0);
@@ -114,7 +134,11 @@ fn place(t: &SpTree, x0: f64, y0: f64, out: &mut Vec<GridPlacement>) {
     let (_w, h) = t.size();
     match &t.kind {
         SpKind::Leaf { box_id, .. } => {
-            out.push(GridPlacement { box_id: *box_id, x_slot: x0, y_row: y0 });
+            out.push(GridPlacement {
+                box_id: *box_id,
+                x_slot: x0,
+                y_row: y0,
+            });
         }
         SpKind::Series(cs) => {
             // children left→right; each vertically centered in the parent's h band
@@ -143,9 +167,7 @@ fn span_of(t: &SpTree, box_id: i64) -> Option<(usize, usize)> {
     match &t.kind {
         SpKind::Leaf { box_id: id, .. } if *id == box_id => Some((t.a, t.b)),
         SpKind::Leaf { .. } => None,
-        SpKind::Series(cs) | SpKind::Parallel(cs) => {
-            cs.iter().find_map(|c| span_of(c, box_id))
-        }
+        SpKind::Series(cs) | SpKind::Parallel(cs) => cs.iter().find_map(|c| span_of(c, box_id)),
     }
 }
 
@@ -284,7 +306,11 @@ fn place_terminal(
     let mut facing_keys: Vec<String> = Vec::new();
     let mut far_keys: Vec<String> = Vec::new();
     for ep in &b.entry_points {
-        let dst = if Some(ep.pin_id) == pin { &mut facing_keys } else { &mut far_keys };
+        let dst = if Some(ep.pin_id) == pin {
+            &mut facing_keys
+        } else {
+            &mut far_keys
+        };
         dst.push(ep.pin_name.clone());
         dst.push(ep.pin_id.to_string());
     }
@@ -367,32 +393,51 @@ fn emit_sp_routes(graph: &mut McVecGraph, m: &SpModel, grid: &[GridPlacement], r
         // passives: left pin on node a (col = x_slot), right pin on node b (col = x_slot+1)
         for gp in grid {
             owned.insert(gp.box_id);
-            let Some((a, b)) = span_of(&m.root, gp.box_id) else { continue };
+            let Some((a, b)) = span_of(&m.root, gp.box_id) else {
+                continue;
+            };
             let Some(bo) = bx(gp.box_id) else { continue };
             if let Some(pid) = pin_on_net(graph, gp.box_id, a) {
                 if let Some(p) = pin_pixel(bo, pid) {
-                    per_net.entry(a).or_default().push(Tap { px: p.x, py: p.y, col: gp.x_slot });
+                    per_net.entry(a).or_default().push(Tap {
+                        px: p.x,
+                        py: p.y,
+                        col: gp.x_slot,
+                    });
                 }
             }
             if let Some(pid) = pin_on_net(graph, gp.box_id, b) {
                 if let Some(p) = pin_pixel(bo, pid) {
-                    per_net.entry(b).or_default().push(Tap { px: p.x, py: p.y, col: gp.x_slot + 1.0 });
+                    per_net.entry(b).or_default().push(Tap {
+                        px: p.x,
+                        py: p.y,
+                        col: gp.x_slot + 1.0,
+                    });
                 }
             }
         }
 
         // terminals: connecting pin on its node (col = 0 / root_w)
-        for &(bid, node, col) in &[(m.left_box, m.left_node, 0.0), (m.right_box, m.right_node, root_w)] {
+        for &(bid, node, col) in &[
+            (m.left_box, m.left_node, 0.0),
+            (m.right_box, m.right_node, root_w),
+        ] {
             if let (Some(bo), Some(pid)) = (bx(bid), pin_on_net(graph, bid, node)) {
                 if let Some(p) = pin_pixel(bo, pid) {
-                    per_net.entry(node).or_default().push(Tap { px: p.x, py: p.y, col });
+                    per_net.entry(node).or_default().push(Tap {
+                        px: p.x,
+                        py: p.y,
+                        col,
+                    });
                 }
             }
         }
 
         let mut out = Vec::new();
         for (ni, taps) in per_net {
-            let Some(net) = graph.nets.get(ni) else { continue };
+            let Some(net) = graph.nets.get(ni) else {
+                continue;
+            };
             // only own a net if every endpoint box is SP-placed or a terminal
             if !net.endpoints.iter().all(|e| owned.contains(&e.box_id)) || taps.len() < 2 {
                 continue;
@@ -457,24 +502,52 @@ mod tests {
     fn term(id: i64, name: &str, outputs: usize) -> McVecBox {
         let mut io = IoSummary::new();
         io.outputs = outputs;
-        McVecBox::new_v2(id, name.into(), "".into(), BoxKind::TwoPin, Symbol::Ic, None, None, 1, io)
+        McVecBox::new_v2(
+            id,
+            name.into(),
+            "".into(),
+            BoxKind::TwoPin,
+            Symbol::Ic,
+            None,
+            None,
+            1,
+            io,
+        )
     }
     fn res(id: i64, name: &str) -> McVecBox {
         McVecBox::new_v2(
-            id, name.into(), "RES".into(), BoxKind::TwoPin, Symbol::Resistor,
-            Some(name.into()), None, 2, IoSummary::new(),
+            id,
+            name.into(),
+            "RES".into(),
+            BoxKind::TwoPin,
+            Symbol::Resistor,
+            Some(name.into()),
+            None,
+            2,
+            IoSummary::new(),
         )
     }
     fn cap(id: i64, name: &str) -> McVecBox {
         McVecBox::new_v2(
-            id, name.into(), "CAP".into(), BoxKind::TwoPin, Symbol::Capacitor,
-            Some(name.into()), None, 2, IoSummary::new(),
+            id,
+            name.into(),
+            "CAP".into(),
+            BoxKind::TwoPin,
+            Symbol::Capacitor,
+            Some(name.into()),
+            None,
+            2,
+            IoSummary::new(),
         )
     }
     fn net(nid: i64, name: &str, eps: &[(i64, i64)]) -> VizNet {
         VizNet::new(
-            nid, name.into(), NetKind::Signal,
-            eps.iter().map(|&(b, p)| EndpointRef::new(b, p, &p.to_string())).collect(),
+            nid,
+            name.into(),
+            NetKind::Signal,
+            eps.iter()
+                .map(|&(b, p)| EndpointRef::new(b, p, &p.to_string()))
+                .collect(),
         )
     }
 
@@ -495,7 +568,8 @@ mod tests {
         // pin ids are arbitrary but distinct per box; (box, pin)
         g.nets.push(net(0, "N1", &[(101, 6), (1, 11), (3, 31)])); // u1.6, R1.1, R3.1
         g.nets.push(net(1, "N2", &[(1, 12), (2, 21)])); //           R1.2, C2.1
-        g.nets.push(net(2, "N3", &[(2, 22), (102, 6), (5, 52), (6, 62)])); // C2.2,u2.6,C5.2,R6.2
+        g.nets
+            .push(net(2, "N3", &[(2, 22), (102, 6), (5, 52), (6, 62)])); // C2.2,u2.6,C5.2,R6.2
         g.nets.push(net(3, "N4", &[(3, 32), (4, 41), (6, 61)])); //  R3.2, R4.1, R6.1
         g.nets.push(net(4, "N5", &[(4, 42), (5, 51)])); //           R4.2, C5.1
         g
@@ -549,7 +623,10 @@ mod tests {
                 .collect();
             let span = rows.iter().cloned().fold(f64::MIN, f64::max)
                 - rows.iter().cloned().fold(f64::MAX, f64::min);
-            assert!(span.abs() < 1.0, "net {ni} should need no riser (single row)");
+            assert!(
+                span.abs() < 1.0,
+                "net {ni} should need no riser (single row)"
+            );
         }
     }
 
@@ -581,10 +658,30 @@ mod tests {
         // PLUS several unconnected physical pins, all clustered on the block side.
         let u2 = g.boxes.iter_mut().find(|b| b.id == 102).unwrap();
         u2.entry_points = vec![
-            EntryPoint { pin_id: 6, pin_name: "IND".into(), side: EntrySide::Left, offset: 0.5 },
-            EntryPoint { pin_id: 11, pin_name: "OUTD".into(), side: EntrySide::Left, offset: 0.5 },
-            EntryPoint { pin_id: 12, pin_name: "OUTC".into(), side: EntrySide::Left, offset: 0.5 },
-            EntryPoint { pin_id: 13, pin_name: "OUTB".into(), side: EntrySide::Left, offset: 0.5 },
+            EntryPoint {
+                pin_id: 6,
+                pin_name: "IND".into(),
+                side: EntrySide::Left,
+                offset: 0.5,
+            },
+            EntryPoint {
+                pin_id: 11,
+                pin_name: "OUTD".into(),
+                side: EntrySide::Left,
+                offset: 0.5,
+            },
+            EntryPoint {
+                pin_id: 12,
+                pin_name: "OUTC".into(),
+                side: EntrySide::Left,
+                offset: 0.5,
+            },
+            EntryPoint {
+                pin_id: 13,
+                pin_name: "OUTB".into(),
+                side: EntrySide::Left,
+                offset: 0.5,
+            },
         ];
 
         let m = build_sp_model(&g).unwrap();
@@ -594,9 +691,18 @@ mod tests {
         // connecting pin (6) faces the block (Left); every other pin goes to the far edge (Right)
         for ep in &u2.entry_points {
             if ep.pin_id == 6 {
-                assert_eq!(ep.side, EntrySide::Left, "connecting pin must face the block");
+                assert_eq!(
+                    ep.side,
+                    EntrySide::Left,
+                    "connecting pin must face the block"
+                );
             } else {
-                assert_eq!(ep.side, EntrySide::Right, "pin {} must go to the far edge", ep.pin_id);
+                assert_eq!(
+                    ep.side,
+                    EntrySide::Right,
+                    "pin {} must go to the far edge",
+                    ep.pin_id
+                );
             }
         }
         // far-edge pins are spread (no two share an offset)
@@ -608,12 +714,19 @@ mod tests {
             .collect();
         offs.sort_by(|a, b| a.partial_cmp(b).unwrap());
         for w in offs.windows(2) {
-            assert!((w[1] - w[0]).abs() > 1e-6, "far-edge offsets must be distinct");
+            assert!(
+                (w[1] - w[0]).abs() > 1e-6,
+                "far-edge offsets must be distinct"
+            );
         }
         // and the left terminal (u1) is symmetric: connecting pin on the Right
         let u1 = g.boxes.iter().find(|b| b.id == 101).unwrap();
         let conn = u1.entry_points.iter().find(|e| e.pin_id == 6).unwrap();
-        assert_eq!(conn.side, EntrySide::Right, "u1 connecting pin must face the block");
+        assert_eq!(
+            conn.side,
+            EntrySide::Right,
+            "u1 connecting pin must face the block"
+        );
     }
 
     #[test]
@@ -625,9 +738,9 @@ mod tests {
         // a net has a vertical rail iff it carries a segment with equal x, differing y
         let has_rail = |ni: usize| {
             g.nets[ni].route.as_ref().map_or(false, |r| {
-                r.segments.iter().any(|s| {
-                    (s.from.x - s.to.x).abs() < 1e-6 && (s.from.y - s.to.y).abs() > 1e-6
-                })
+                r.segments
+                    .iter()
+                    .any(|s| (s.from.x - s.to.x).abs() < 1e-6 && (s.from.y - s.to.y).abs() > 1e-6)
             })
         };
         // horizontal leads (equal y, differing x)
@@ -635,7 +748,9 @@ mod tests {
             g.nets[ni].route.as_ref().map_or(0, |r| {
                 r.segments
                     .iter()
-                    .filter(|s| (s.from.y - s.to.y).abs() < 1e-6 && (s.from.x - s.to.x).abs() > 1e-6)
+                    .filter(|s| {
+                        (s.from.y - s.to.y).abs() < 1e-6 && (s.from.x - s.to.x).abs() > 1e-6
+                    })
                     .count()
             })
         };

@@ -41,12 +41,12 @@ use super::entry_points::{
 };
 use super::ladder_model::LadderModel;
 use super::ladder_place::{apply_ladder_model, LadderGeometry};
-use super::sp_model::try_build_sp_model;
-use super::sp_place::apply_sp_model as apply_sp;
 use super::normalize::{compute_canvas, normalize_positions, CANVAS_MARGIN};
 use super::optimize::PlaceOptimizer;
 use super::rails::{explode_power_rails_to_flags, is_rail_box};
 use super::size::{assign_default_sizes, recompute_sizes_with_pin_count};
+use super::sp_model::try_build_sp_model;
+use super::sp_place::apply_sp_model as apply_sp;
 use crate::viz::layout_model::SchematicLayoutModel;
 use crate::viz::traits::Layouter;
 

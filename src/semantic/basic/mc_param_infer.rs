@@ -215,6 +215,9 @@ fn spec_key_to_unit(key: &str) -> Option<McParamTypeKind> {
         "frequency" | "freq" | "f" => Some(McParamTypeKind::UnitValue { unit: McUnit::Hz }),
         "temperature" | "temp" | "t" => Some(McParamTypeKind::UnitValue { unit: McUnit::Temp }),
         "power" | "p" => Some(McParamTypeKind::UnitValue { unit: McUnit::Wat }),
+        "charge" | "capacity" => Some(McParamTypeKind::UnitValue {
+            unit: McUnit::Charge,
+        }),
         "tolerance" | "accuracy" => Some(McParamTypeKind::UnitValue {
             unit: McUnit::Percent,
         }),

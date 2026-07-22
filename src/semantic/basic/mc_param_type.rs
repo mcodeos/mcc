@@ -246,7 +246,8 @@ impl McParamType {
             | McUnit::Flux
             | McUnit::Bfield
             | McUnit::Slew
-            | McUnit::Noise => {
+            | McUnit::Noise
+            | McUnit::Charge => {
                 if default_val.is_some() {
                     Self {
                         kind: McParamTypeKind::UnitValueDefault {

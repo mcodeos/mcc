@@ -212,9 +212,8 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
             ($def_uri:expr, $def_span:expr) => {
                 let def_uri_str = ($def_uri).to_string();
                 let def_span_range = ($def_span);
-                let class_id = register_lib_class_in_global_table(
-                    &def_uri_str, &name_str, &def_span_range,
-                );
+                let class_id =
+                    register_lib_class_in_global_table(&def_uri_str, &name_str, &def_span_range);
                 result = Some((class_id, def_uri_str, def_span_range));
             };
         }
