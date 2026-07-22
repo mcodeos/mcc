@@ -53,8 +53,8 @@ fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
         ShowTarget::All => Some(("show.all", json!({}))),
         ShowTarget::File => Some(("show.file", json!({ "file": args.name }))),
         ShowTarget::Files => Some(("show.files", json!({}))),
-        ShowTarget::Lapper => {
-            // local-only: read file, call internal sem, dump lapper
+        ShowTarget::Lapper | ShowTarget::Ast => {
+            // local-only: read file, call internal sem, dump lapper / AST tree
             return None;
         }
 
@@ -137,6 +137,7 @@ fn run_local(args: &ShowArgs) -> Result<()> {
         ShowTarget::File => show_file(args),
         ShowTarget::Files => show_files(args),
         ShowTarget::Lapper => show_lapper(args),
+        ShowTarget::Ast => show_ast(args),
         ShowTarget::Component => match name {
             None => list_kind(Kind::Component, args),
             Some(n) => show_component(n, args),
@@ -354,6 +355,29 @@ fn show_all(args: &ShowArgs) -> Result<()> {
         format!("enum_list({})", enums.len()): enums,
     });
     output(&data, args)
+}
+
+fn show_ast(args: &ShowArgs) -> Result<()> {
+    let file_path = require_name(args);
+    let path = Path::new(file_path);
+    if !path.exists() {
+        anyhow::bail!("file not found: {}", file_path);
+    }
+    let uri_str = path
+        .canonicalize()
+        .unwrap_or_else(|_| path.to_path_buf())
+        .to_string_lossy()
+        .to_string();
+    let mc_uri = McURI::from(uri_str.as_str());
+    // Enable AST tree output (MCC_LOG_VISIT) from C engine
+    if let Ok(mut trace) = mcc::get_runtime_trace().write() {
+        trace.visit = Some(true);
+    }
+    mcc::set_trace_stdout_suppressed(false);
+    // Reset AST visit flag so tree is printed for this invocation
+    mcc::mcb_reset_ast_visit_flag();
+    mcc::mcc_load_project(&mc_uri);
+    Ok(())
 }
 
 fn show_lapper(args: &ShowArgs) -> Result<()> {
