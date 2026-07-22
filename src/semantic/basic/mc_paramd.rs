@@ -78,6 +78,7 @@ impl McParamDeclares {
                                 self.store_def_span(&name, name_span);
                             }
                             self.declares.push(paramd);
+                            continue;
                         }
                     }
                     MCAST_SQUARE_VEC => {
