@@ -37,7 +37,11 @@ pub fn goto_def(map: &RefDefMap, ref_kind: SymbolKind, ref_id: u32) -> Option<Go
 
 /// Name-based lookup: find a definition by (file_uri, class_name).
 /// Used for cross-file Use-table resolution (P3/P4/P5 priority).
-pub fn goto_def_by_name(map: &RefDefMap, file_uri: &str, class_name: &str) -> Option<GotoDefResult> {
+pub fn goto_def_by_name(
+    map: &RefDefMap,
+    file_uri: &str,
+    class_name: &str,
+) -> Option<GotoDefResult> {
     map.get_by_name(file_uri, class_name).map(|entry| {
         let file_uri = map
             .files
@@ -70,9 +74,7 @@ pub fn lookup(map: &RefDefMap, ref_kind: SymbolKind, ref_id: u32) -> Option<&Ref
 }
 
 /// Iterate all entries in the RefDefMap for diagnostic/debug purposes.
-pub fn iter_entries(
-    map: &RefDefMap,
-) -> impl Iterator<Item = (&(SymbolKind, u32), &RefDefEntry)> {
+pub fn iter_entries(map: &RefDefMap) -> impl Iterator<Item = (&(SymbolKind, u32), &RefDefEntry)> {
     map.entries.iter()
 }
 

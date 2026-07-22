@@ -311,7 +311,7 @@ impl McComponent {
                     if matched {
                         let span =
                             (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
-                        params.record_port_ref(span, &text, scope);
+                        params.record_net_ref(span, &text, scope);
                     }
                 }
             }
@@ -327,7 +327,7 @@ impl McComponent {
                             if matched {
                                 let span = (sub.get_pos() as usize)
                                     ..((sub.get_pos() + sub.get_len()) as usize);
-                                params.record_port_ref(span, &text, scope);
+                                params.record_net_ref(span, &text, scope);
                             }
                         }
                     }

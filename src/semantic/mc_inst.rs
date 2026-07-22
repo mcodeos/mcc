@@ -255,7 +255,7 @@ pub struct McInstances {
     /// Port spans for LSP goto-definition (name -> span ranges, multiple for DOT patterns)
     port_spans: HashMap<String, Vec<Range<usize>>>,
     /// LSP: spans in module body that reference port definitions (span, port_name)
-    port_ref_spans: Vec<(Range<usize>, String, String)>, // (span, port_name, scope)
+    net_ref_spans: Vec<(Range<usize>, String, String)>, // (span, port_name, scope)
     /// ★ LSP: Enclosing scope name (module/component/function name)
     pub(crate) scope: Option<String>,
     /// Label kind registry: tracks whether a label is Explicit (declared) or Inline (net phrase).
@@ -267,7 +267,7 @@ impl McInstances {
         Self {
             insts: BTreeMap::new(),
             port_spans: HashMap::new(),
-            port_ref_spans: Vec::new(),
+            net_ref_spans: Vec::new(),
             scope: None,
             label_kinds: HashMap::new(),
         }
@@ -448,13 +448,13 @@ impl McInstances {
     }
 
     /// Record a net-line reference to a port definition (for LSP goto-definition)
-    pub(crate) fn record_port_ref(&mut self, span: Range<usize>, port_name: &str, scope: &str) {
-        self.port_ref_spans
+    pub(crate) fn record_net_ref(&mut self, span: Range<usize>, port_name: &str, scope: &str) {
+        self.net_ref_spans
             .push((span, port_name.to_string(), scope.to_string()));
     }
 
-    pub fn iter_port_refs(&self) -> impl Iterator<Item = &(Range<usize>, String, String)> {
-        self.port_ref_spans.iter()
+    pub fn iter_net_refs(&self) -> impl Iterator<Item = &(Range<usize>, String, String)> {
+        self.net_ref_spans.iter()
     }
 
     /// Find a name within comma-separated text and return its byte span

@@ -117,7 +117,7 @@ fn check_label_refs(acc: &mut CheckAccumulator) {
         }
 
         // Check port refs: each ref should point to a known name
-        for (_span, port_name, _scope) in m.insts.iter_port_refs() {
+        for (_span, port_name, _scope) in m.insts.iter_net_refs() {
             if port_name.starts_with('@') {
                 continue; // Anonymous instances are self-defining
             }

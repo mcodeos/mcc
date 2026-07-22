@@ -422,6 +422,20 @@ impl McFunction {
                                 continue;
                             }
 
+                            // ★ LSP: Record net refs for identifiers in func body
+                            {
+                                let scope = self
+                                    .insts
+                                    .scope
+                                    .clone()
+                                    .unwrap_or_else(|| self.name.to_string());
+                                crate::semantic::module::McModule::collect_net_refs_in_node(
+                                    &subnode,
+                                    &mut self.insts,
+                                    &mut self.params,
+                                    &scope,
+                                );
+                            }
                             match McPhrase::new(&subnode, &mut wrapper) {
                                 Some(net) => {
                                     self.lines.push(net);

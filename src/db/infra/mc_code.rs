@@ -1364,15 +1364,13 @@ impl McCode {
         crate::refdef::register::scope_path_from_scope_str(uri, scope)
     }
 
-
-
-
     fn param_def_kind(
         param: Option<&crate::semantic::basic::mc_paramd::McParamDeclare>,
     ) -> SymbolKind {
         match param {
-            Some(p) if p.param_type.kind
-                == crate::semantic::basic::mc_param_type::McParamTypeKind::Unknown =>
+            Some(p)
+                if p.param_type.kind
+                    == crate::semantic::basic::mc_param_type::McParamTypeKind::Unknown =>
             {
                 SymbolKind::UnknownDef
             }
@@ -1382,7 +1380,7 @@ impl McCode {
 
     /// ★ §4.3 #22-#26: Resolve correct ref kind for a port ref, dispatching
     /// inst.member patterns (e.g. uC.PA1 → PinNameRef, cap4.1 → PinIdRef).
-    fn resolve_port_ref_kind(
+    fn resolve_net_ref_kind(
         port_name: &str,
         insts: &crate::semantic::mc_inst::McInstances,
     ) -> SymbolKind {
@@ -1921,6 +1919,8 @@ impl McCode {
                 Self::lapper_enum_refs(&self.uri, &self.ast, &mut sem, &mut symbol_lapper);
                 Self::lapper_func_define_role(&self.uri, &self.ast, &mut sem, &mut symbol_lapper);
                 Self::lapper_second_pass_and_dedup(&mut sem, &mut symbol_lapper);
+                // ★ Post-pass: re-process func net refs now that params are registered
+                Self::lapper_func_net_refs_post(&self.uri, &mut sem, &mut symbol_lapper);
 
                 sem.symbol_lapper = symbol_lapper;
             }
@@ -1969,6 +1969,93 @@ impl McCode {
                     &ref_entries_snapshot,
                     &self.uri,
                 );
+                // ★ §3.5.4: Upgrade UnknownDef → inferred type
+                Self::upgrade_unknown_defs(map, &self.uri);
+            }
+        }
+    }
+
+    /// ★ §3.5.4: Upgrade UnknownDef entries based on param type inference.
+    fn upgrade_unknown_defs(map: &mut crate::ast::ast_semantic::RefDefMap, uri: &McURI) {
+        use crate::refdef::types::SymbolKind;
+        use crate::semantic::basic::mc_param_type::McParamTypeKind;
+
+        // Collect (name → McParamTypeKind) from all containers for this URI
+        let mut param_types: std::collections::HashMap<String, McParamTypeKind> =
+            std::collections::HashMap::new();
+
+        let collect =
+            |params: &crate::semantic::basic::mc_paramd::McParamDeclares,
+             acc: &mut std::collections::HashMap<String, McParamTypeKind>| {
+                for (name, _span) in params.iter_defs_with_span() {
+                    if let Some(decl) = params.find(name) {
+                        acc.insert(name.to_string(), decl.param_type.kind.clone());
+                    }
+                }
+            };
+
+        // Modules
+        for entry in crate::db::cmie::tables::WORKSPACE.modules.iter() {
+            if entry.key().uri.as_str() == uri.as_str() {
+                collect(&entry.value().params, &mut param_types);
+            }
+        }
+        // Components
+        for entry in crate::db::cmie::tables::WORKSPACE.components.iter() {
+            if entry.key().uri.as_str() == uri.as_str() {
+                collect(&entry.value().params, &mut param_types);
+            }
+        }
+        // Interfaces
+        for entry in crate::db::cmie::tables::WORKSPACE.interfaces.iter() {
+            if entry.key().uri.as_str() == uri.as_str() {
+                collect(&entry.value().params, &mut param_types);
+            }
+        }
+
+        if param_types.is_empty() {
+            return;
+        }
+
+        // McParamTypeKind → SymbolKind mapping
+        let kind_map = |k: &McParamTypeKind| -> SymbolKind {
+            match k {
+                McParamTypeKind::Label | McParamTypeKind::Idx => SymbolKind::LabelDef,
+                McParamTypeKind::Interface { .. }
+                | McParamTypeKind::InterfaceWithRole { .. }
+                | McParamTypeKind::ComponentInstance { .. } => SymbolKind::PortDef,
+                McParamTypeKind::Unknown => SymbolKind::UnknownDef,
+                _ => SymbolKind::ParamDef,
+            }
+        };
+
+        // Find and upgrade UnknownDef entries
+        let mut upgrades: Vec<((SymbolKind, u32), SymbolKind)> = Vec::new();
+        for ((kind, ref_id), entry) in &map.entries {
+            if entry.def_kind != SymbolKind::UnknownDef {
+                continue;
+            }
+            for (name, pt_kind) in &param_types {
+                let new_kind = kind_map(pt_kind);
+                if new_kind == SymbolKind::UnknownDef {
+                    continue;
+                }
+                // Check if this param's def_loc matches the entry's def_loc
+                if let Some(name_entry) = map.name_index.get(&(uri.to_string(), name.to_string())) {
+                    if name_entry.def_loc.byte_start == entry.def_loc.byte_start
+                        && name_entry.def_loc.byte_end == entry.def_loc.byte_end
+                    {
+                        upgrades.push(((*kind, *ref_id), new_kind));
+                        break;
+                    }
+                }
+            }
+        }
+
+        for ((old_kind, ref_id), new_kind) in upgrades {
+            if let Some(mut entry) = map.entries.remove(&(old_kind, ref_id)) {
+                entry.def_kind = new_kind;
+                map.insert(new_kind, ref_id, entry);
             }
         }
     }
@@ -2380,9 +2467,13 @@ impl McCode {
                         }
                     }
                 }
-                for (span, port_name, scope) in iface.params.iter_port_refs() {
+                for (span, port_name, scope) in iface.params.iter_net_refs() {
                     let sp = crate::refdef::register::scope_path_from_scope_str(&uri, scope);
-                    let decl_id = crate::refdef::register::lookup_declare_id(&sem.local_table, port_name, &sp);
+                    let decl_id = crate::refdef::register::lookup_declare_id(
+                        &sem.local_table,
+                        port_name,
+                        &sp,
+                    );
                     if let Some(decl_id) = decl_id {
                         symbol_lapper.insert(Interval {
                             start: span.start,
@@ -2445,9 +2536,13 @@ impl McCode {
                         }
                     }
                 }
-                for (span, port_name, scope) in iface.params.iter_port_refs() {
+                for (span, port_name, scope) in iface.params.iter_net_refs() {
                     let sp = crate::refdef::register::scope_path_from_scope_str(&uri, scope);
-                    let decl_id = crate::refdef::register::lookup_declare_id(&sem.local_table, port_name, &sp);
+                    let decl_id = crate::refdef::register::lookup_declare_id(
+                        &sem.local_table,
+                        port_name,
+                        &sp,
+                    );
                     if let Some(decl_id) = decl_id {
                         symbol_lapper.insert(Interval {
                             start: span.start,
@@ -2527,28 +2622,26 @@ impl McCode {
                     val: SymbolType::new(SymbolKind::PortDef, u32::from(d)),
                 });
             }
-            for (span, port_name, scope) in m.insts.iter_port_refs() {
+            for (span, port_name, scope) in m.insts.iter_net_refs() {
                 let sp = crate::refdef::register::scope_path_from_scope_str(&uri, scope);
-                let decl_id = crate::refdef::register::lookup_declare_id(&sem.local_table, port_name, &sp);
+                let decl_id =
+                    crate::refdef::register::lookup_declare_id(&sem.local_table, port_name, &sp);
                 if let Some(decl_id) = decl_id {
                     // ★ §4.3 #22-#26: Dispatch inst.member refs to correct type
-                    let ref_kind = Self::resolve_port_ref_kind(port_name, &m.insts);
+                    let ref_kind = Self::resolve_net_ref_kind(port_name, &m.insts);
                     symbol_lapper.insert(Interval {
                         start: span.start,
                         stop: span.end,
                         val: SymbolType::new(ref_kind, u32::from(decl_id)),
                     });
-                    sem.ref_entries.push((
-                        ref_kind,
-                        u32::from(decl_id),
-                        span.start,
-                        span.end,
-                    ));
+                    sem.ref_entries
+                        .push((ref_kind, u32::from(decl_id), span.start, span.end));
                 }
             }
-            for (span, port_name, scope) in m.params.iter_port_refs() {
+            for (span, port_name, scope) in m.params.iter_net_refs() {
                 let sp = crate::refdef::register::scope_path_from_scope_str(&uri, scope);
-                let decl_id = crate::refdef::register::lookup_declare_id(&sem.local_table, port_name, &sp);
+                let decl_id =
+                    crate::refdef::register::lookup_declare_id(&sem.local_table, port_name, &sp);
                 if let Some(decl_id) = decl_id {
                     symbol_lapper.insert(Interval {
                         start: span.start,
@@ -2619,21 +2712,61 @@ impl McCode {
             }
             for func in m.funcs.iter() {
                 let fscope = func.name.to_string();
-                for (span, port_name, scope) in func.params.iter_port_refs() {
+                for (span, port_name, scope) in func.params.iter_net_refs() {
                     let sp = crate::refdef::register::scope_path_from_scope_str(&uri, scope);
-                    let decl_id = crate::refdef::register::lookup_declare_id(&sem.local_table, port_name, &sp);
+                    let decl_id = crate::refdef::register::lookup_declare_id(
+                        &sem.local_table,
+                        port_name,
+                        &sp,
+                    );
                     if let Some(decl_id) = decl_id {
                         symbol_lapper.insert(Interval {
                             start: span.start,
                             stop: span.end,
-                            val: SymbolType::new(SymbolKind::InstRef, u32::from(decl_id)),
+                            val: SymbolType::new(SymbolKind::LabelRef, u32::from(decl_id)),
                         });
                         sem.ref_entries.push((
-                            SymbolKind::InstRef,
+                            SymbolKind::LabelRef,
                             u32::from(decl_id),
                             span.start,
                             span.end,
                         ));
+                    }
+                }
+                for (span, port_name, scope) in func.insts.iter_net_refs() {
+                    let sp = crate::refdef::register::scope_path_from_scope_str(&uri, scope);
+                    let decl_id = crate::refdef::register::lookup_declare_id(
+                        &sem.local_table,
+                        port_name,
+                        &sp,
+                    );
+                    if let Some(decl_id) = decl_id {
+                        let ref_kind = Self::resolve_net_ref_kind(port_name, &func.insts);
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::new(ref_kind, u32::from(decl_id)),
+                        });
+                        sem.ref_entries
+                            .push((ref_kind, u32::from(decl_id), span.start, span.end));
+                    }
+                }
+                for (span, port_name, scope) in func.insts.iter_net_refs() {
+                    let sp = crate::refdef::register::scope_path_from_scope_str(&uri, scope);
+                    let decl_id = crate::refdef::register::lookup_declare_id(
+                        &sem.local_table,
+                        port_name,
+                        &sp,
+                    );
+                    if let Some(decl_id) = decl_id {
+                        let ref_kind = Self::resolve_net_ref_kind(port_name, &func.insts);
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::new(ref_kind, u32::from(decl_id)),
+                        });
+                        sem.ref_entries
+                            .push((ref_kind, u32::from(decl_id), span.start, span.end));
                     }
                 }
                 let func_scope = func.insts.scope.clone().unwrap_or_else(|| fscope.clone());
@@ -2760,9 +2893,10 @@ impl McCode {
                     val: SymbolType::new(SymbolKind::AttrDef, u32::from(sdecl_id)),
                 });
             }
-            for (span, port_name, scope) in comp.params.iter_port_refs() {
+            for (span, port_name, scope) in comp.params.iter_net_refs() {
                 let sp = crate::refdef::register::scope_path_from_scope_str(&uri, scope);
-                let decl_id = crate::refdef::register::lookup_declare_id(&sem.local_table, port_name, &sp);
+                let decl_id =
+                    crate::refdef::register::lookup_declare_id(&sem.local_table, port_name, &sp);
                 if let Some(decl_id) = decl_id {
                     symbol_lapper.insert(Interval {
                         start: span.start,
@@ -2804,7 +2938,7 @@ impl McCode {
                 .into_iter()
                 .map(|(n, _)| n)
                 .collect();
-            for (span, port_name, _scope) in comp.insts.iter_port_refs() {
+            for (span, port_name, _scope) in comp.insts.iter_net_refs() {
                 if pin_names.contains(port_name) {
                     if let Some(decl_id) =
                         sem.local_table.lookup_by_scope_name(&comp_ident, port_name)
@@ -3302,19 +3436,72 @@ impl McCode {
                         );
                         for (span, did) in refs {
                             // ★ §4.3: Dispatch ref kind based on def type (not catch-all FuncParamRef)
-                            let ref_kind = crate::refdef::collect::resolve_arg_ref_kind(&sem.def_map, did);
+                            let ref_kind =
+                                crate::refdef::collect::resolve_arg_ref_kind(&sem.def_map, did);
                             symbol_lapper.insert(Interval {
                                 start: span.start,
                                 stop: span.end,
                                 val: SymbolType::new(ref_kind, u32::from(did)),
                             });
-                            sem.ref_entries.push((
-                                ref_kind,
-                                u32::from(did),
-                                span.start,
-                                span.end,
-                            ));
+                            sem.ref_entries
+                                .push((ref_kind, u32::from(did), span.start, span.end));
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    /// ★ Post-pass: re-process func net refs after all defs are registered.
+    fn lapper_func_net_refs_post(
+        uri: &McURI,
+        sem: &mut McSemSymbols,
+        symbol_lapper: &mut SymbolRangeLapper,
+    ) {
+        let modules = &crate::db::cmie::tables::WORKSPACE.modules;
+        for entry in modules.iter() {
+            if entry.key().uri.as_str() != uri.as_str() {
+                continue;
+            }
+            let m = entry.value();
+            for func in m.funcs.iter() {
+                for (span, port_name, scope) in func.params.iter_net_refs() {
+                    let sp = crate::refdef::register::scope_path_from_scope_str(uri, scope);
+                    let decl_id = crate::refdef::register::lookup_declare_id(
+                        &sem.local_table,
+                        port_name,
+                        &sp,
+                    );
+                    if let Some(decl_id) = decl_id {
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::new(SymbolKind::LabelRef, u32::from(decl_id)),
+                        });
+                        sem.ref_entries.push((
+                            SymbolKind::LabelRef,
+                            u32::from(decl_id),
+                            span.start,
+                            span.end,
+                        ));
+                    }
+                }
+                for (span, port_name, scope) in func.insts.iter_net_refs() {
+                    let sp = crate::refdef::register::scope_path_from_scope_str(uri, scope);
+                    let decl_id = crate::refdef::register::lookup_declare_id(
+                        &sem.local_table,
+                        port_name,
+                        &sp,
+                    );
+                    if let Some(decl_id) = decl_id {
+                        let ref_kind = Self::resolve_net_ref_kind(port_name, &func.insts);
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::new(ref_kind, u32::from(decl_id)),
+                        });
+                        sem.ref_entries
+                            .push((ref_kind, u32::from(decl_id), span.start, span.end));
                     }
                 }
             }

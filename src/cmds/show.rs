@@ -938,7 +938,7 @@ fn dump_module(name: &str, module: &mcc::McModule) -> Value {
     // LSP goto-def data: port reference positions in net lines
     let refs: Vec<Value> = module
         .params
-        .iter_port_refs()
+        .iter_net_refs()
         .map(|(span, name, scope)| json!({"name": name, "scope": scope, "span": {"start": span.start, "end": span.end}}))
         .collect();
 
