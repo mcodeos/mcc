@@ -240,4 +240,58 @@ pub fn fill_refdef_layer2(
             }
         }
     }
+
+    // ── LabelDef→BusDef upgrade (§3.2.4 #6) ──
+    // When upgrade_label_to_bus promotes a Label to Bus, both LabelDef and
+    // BusDef exist at the same position. Upgrade LabelRef→LabelDef to BusRef→BusDef.
+    let mut label_to_bus: HashMap<u32, (u32, (usize, usize))> = HashMap::new();
+    {
+        let mut pos_to_bus: HashMap<(usize, usize), u32> = HashMap::new();
+        for ((kind, bid), (def_start, def_stop)) in def_map.iter() {
+            if *kind == SymbolKind::BusDef {
+                pos_to_bus.insert((*def_start, *def_stop), *bid);
+            }
+        }
+        for ((kind, lid), (def_start, def_stop)) in def_map.iter() {
+            if *kind == SymbolKind::LabelDef {
+                if let Some(&bid) = pos_to_bus.get(&(*def_start, *def_stop)) {
+                    label_to_bus.insert(*lid, (bid, (*def_start, *def_stop)));
+                }
+            }
+        }
+    }
+    if !label_to_bus.is_empty() {
+        let mut upgrades: Vec<(u32, u32, usize, usize)> = Vec::new();
+        for &(ref_kind, decl_id, _ref_start, _ref_stop) in ref_entries {
+            if ref_kind != SymbolKind::LabelRef && ref_kind != SymbolKind::PortRef {
+                continue;
+            }
+            if let Some(&(bid, (def_start, def_stop))) = label_to_bus.get(&decl_id) {
+                upgrades.push((decl_id, bid, def_start, def_stop));
+            }
+        }
+        if !upgrades.is_empty() {
+            let fid = map.intern_file(file_uri);
+            let cid = map.intern_container("");
+            for (_old_lid, bid, def_start, def_stop) in upgrades {
+                if map.entries.contains_key(&(SymbolKind::BusRef, bid)) {
+                    continue;
+                }
+                map.insert(
+                    SymbolKind::BusRef,
+                    bid,
+                    RefDefEntry {
+                        ref_kind: SymbolKind::ClassDef,
+                        ref_id: 0,
+                        def_loc: SourceLocation {
+                            file_id: fid, container_id: cid, func_id: 0,
+                            byte_start: def_start as u32, byte_end: def_stop as u32,
+                        },
+                        def_kind: SymbolKind::BusDef,
+                        cmie_kind: CmieKind::UNKNOWN,
+                    },
+                );
+            }
+        }
+    }
 }
