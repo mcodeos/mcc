@@ -6,12 +6,4 @@ Cargo.lock
 *.pdb
 **/mutants.out*/
 .DS_Store
-projects
-circuit.html
-prompt
-mcode
-unitest
-fix.MD
-mcd
-plan
-test
+.claude/settings.json
