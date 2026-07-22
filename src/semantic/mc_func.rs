@@ -292,6 +292,8 @@ pub struct McFunction {
     pub called_time: u32,
     anon_counter: usize,
     uri: Option<crate::McURI>,
+    /// Source span in the definition file. Set by [`new`] from the AST node.
+    pub span: Option<std::ops::Range<usize>>,
 }
 
 impl McFunction {
@@ -300,16 +302,22 @@ impl McFunction {
         // |- MCAST_NAME - MCAST_PARAM (option) - MCAST_BODY
         let subnodes = node.get_sub_node().expect(MISSING_SUBNODE);
 
-        //1. new
+        //1. new — span from the function name (MCAST_NAME → MCAST_IDS), not the whole node
+        let name_node = subnodes
+            .iter()
+            .find(|x: &AstNode| x.is_type(MCAST_NAME))
+            .expect(MISSING_SUBNODE);
+        let ids_node = name_node.get_sub_node().expect(MISSING_SUBNODE);
+        // ids_node (MCAST_IDS) has the actual name span; MCAST_NAME covers the whole function
+        let func_span =
+            (ids_node.get_pos() as usize)..((ids_node.get_pos() + ids_node.get_len()) as usize);
+            "[MCF-NEW] func={} ids_node.pos={} len={} span={:?}",
+            McIds::new(&ids_node).map(|i| i.to_string()).unwrap_or_default(),
+            ids_node.get_pos(),
+            ids_node.get_len(),
+            func_span
         let mut ret = Self {
-            name: McIds::new(
-                &subnodes
-                    .iter()
-                    .find(|x: &AstNode| x.is_type(MCAST_NAME))
-                    .expect(MISSING_SUBNODE)
-                    .get_sub_node() // ids
-                    .expect(MISSING_SUBNODE),
-            )?,
+            name: McIds::new(&ids_node)?,
             params: McParamDeclares::new(),
             returns: McFuncReturn::Implicit,
             insts: McInstances::new(),
@@ -317,6 +325,7 @@ impl McFunction {
             called_time: 0,
             anon_counter: 1,
             uri: None,
+            span: Some(func_span),
         };
 
         //2. param
@@ -434,7 +443,6 @@ impl McFunction {
                                     &mut self.insts,
                                     &mut self.params,
                                     &scope,
-                                );
                             }
                             match McPhrase::new(&subnode, &mut wrapper) {
                                 Some(net) => {
@@ -456,7 +464,6 @@ impl McFunction {
                                         &format!(
                                             "Connection line dropped (McPhrase::new returned None): `{line_txt}`"
                                         ),
-                                    );
                                 }
                             }
                         } else {
@@ -487,7 +494,6 @@ impl McFunction {
                 body,
                 &mut self.params,
                 &func_name,
-            );
             let diags = self.params.finalize(Some(body), &func_name);
             for d in &diags {
                 crate::mcc_log_global_diag(d);
@@ -535,7 +541,6 @@ impl McFunction {
                 body_node,
                 "Multiple `return` statements are not allowed; \
                  a function may have at most one return.",
-            );
             return;
         }
 
@@ -575,7 +580,6 @@ impl McFunction {
                     1307,
                     body_node,
                     "Invalid `return` expression: expected `this` or a label/bus.",
-                );
             }
         }
     }

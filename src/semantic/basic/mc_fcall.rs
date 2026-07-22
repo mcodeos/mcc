@@ -45,6 +45,8 @@ pub struct McFuncCall {
 impl McFuncCall {
     /// Parse function call from AST node
     pub fn parse(node: &AstNode, context: &mut dyn HasFindInst) -> Option<McPhrase> {
+        // ★ Diagnostic log
+        let node_str = node.to_string().unwrap_or_default();
         // ★ Register class_ref for F12 goto-def on inline constructors.
         // opd_fcall AST forms:
         //   CAP(10uF)          → { name: "CAP" }                              — class, no instance
@@ -105,6 +107,37 @@ impl McFuncCall {
                         None => name,
                     };
                     mcb_register_declare_class(context.uri(), &full_name, span);
+                }
+            } else if is_method_call && inst_name.is_none() {
+                // ★ Chained call: RES(100kΩ).Pullup() — register inner class name
+                for child in subnodes.iter() {
+                    if child.get_type() == MCAST_INSTANCE {
+                        if let Some(inner) = child.get_sub_node() {
+                            let fcall_node = if inner.get_type() == MCAST_OPD {
+                                inner.get_sub_node()
+                            } else {
+                                Some(inner)
+                            };
+                            if let Some(fc) = fcall_node {
+                                for fc_child in fc.iter() {
+                                    if fc_child.get_type() == MCAST_NAME {
+                                        if let Some(ids_node) = fc_child.get_sub_node() {
+                                            if let Some(ids) = McIds::new(&ids_node) {
+                                                let span = (ids_node.get_pos() as usize)
+                                                    ..((ids_node.get_pos() + ids_node.get_len())
+                                                        as usize);
+                                                    ids.to_string(), span, context.uri()
+                                                mcb_register_declare_class(
+                                                    context.uri(),
+                                                    &ids.to_string(),
+                                                    span,
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -519,7 +552,6 @@ impl McFuncCall {
                                                     &anon_name,
                                                     comp_def,
                                                     instance_params.clone(),
-                                                );
                                                 if let Some(phrase) =
                                                     context.add_component(anon_name, component)
                                                 {
@@ -539,7 +571,6 @@ impl McFuncCall {
                                             {
                                                 let iface = Mc2Interface::new_with_str(
                                                     &anon_name, iface_def,
-                                                );
                                                 let inst = McInstance::Interface(Arc::new(iface));
                                                 caller = Some(Box::new(McPhrase::from(inst)));
                                             }
@@ -568,18 +599,14 @@ impl McFuncCall {
                     if let Some(sub0) = node.get_sub_node() {
                         let nm = sub0.to_string().unwrap_or_default();
                         if nm.contains("res") || nm.contains("cap") || nm.contains("dio") {
-                            eprintln!("[INST-DIAG] Direct child nodes of MCAST_INSTANCE '{nm}':");
                             for ch in sub0.iter() {
                                 let gk: Vec<u16> = ch
                                     .get_sub_node()
                                     .map(|g| g.iter().map(|x| x.get_type()).collect())
                                     .unwrap_or_default();
-                                eprintln!(
-                                    "[INST-DIAG]   type={} str='{}' grandchild types={:?}",
                                     ch.get_type(),
                                     ch.to_string().unwrap_or_default(),
                                     gk
-                                );
                             }
                         }
                     }
@@ -610,7 +637,6 @@ impl McFuncCall {
                                             &anon_name,
                                             comp_def,
                                             instance_params.clone(),
-                                        );
                                         if let Some(phrase) =
                                             context.add_component(anon_name, component)
                                         {
@@ -762,15 +788,12 @@ impl McFuncCall {
                                                         let left = caller.as_ref().map_or_else(
                                                             || vec![McBus::new("undefined.in")],
                                                             |phrase| phrase.get_left(),
-                                                        );
                                                         let right = caller.as_ref().map_or_else(
                                                             || vec![McBus::new("undefined.out")],
                                                             |phrase| phrase.get_right(),
-                                                        );
                                                         // chain validity: previous link must return `this`
                                                         Self::check_chain_validity(
                                                             &caller, &name, node, context,
-                                                        );
                                                         return Some(McPhrase::FuncCall(
                                                             McFuncCall {
                                                                 id: 0,
@@ -838,7 +861,6 @@ impl McFuncCall {
                                             1301,
                                             node,
                                             "Missing function name in function call",
-                                        );
                                         return None;
                                     }
                                 }
@@ -848,7 +870,6 @@ impl McFuncCall {
                                     1301,
                                     node,
                                     "Missing function name in function call (seq context)",
-                                );
                                 return None;
                             }
                             _ => {
@@ -863,7 +884,6 @@ impl McFuncCall {
                                         1301,
                                         node,
                                         "Missing function name in function call",
-                                    );
                                     return None;
                                 }
                             }
@@ -917,7 +937,6 @@ impl McFuncCall {
                                 1301,
                                 node,
                                 "Missing function name in function call (seq context)",
-                            );
                             return None;
                         }
                         _ => {
@@ -1000,7 +1019,6 @@ impl McFuncCall {
                                     &inst_name,
                                     comp_def.clone(),
                                     params.clone(),
-                                )
                             };
                             context.add_component(inst_name.clone(), mc2_comp.clone());
                             return Some(McPhrase::Endpoint(McEndpoint::Single(
@@ -1117,7 +1135,6 @@ impl McFuncCall {
                  bus/label (endpoint), not `this`. Only functions that return \
                  `this` can be chained.",
             ),
-        );
     }
 
     /// Walk a phrase down through chained `FuncCall`s to find the root

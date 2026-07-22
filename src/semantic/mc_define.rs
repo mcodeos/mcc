@@ -21,15 +21,14 @@ impl McDefineDef {
         let subnodes = node.get_sub_node().expect(MISSING_SUBNODE);
 
         // 1. Create basic structure
+        let ids_node = subnodes
+            .iter()
+            .find(|x| x.is_type(MCAST_NAME))
+            .expect(MISSING_SUBNODE)
+            .get_sub_node() // ids
+            .expect(MISSING_SUBNODE);
         let mut ret = Self {
-            name: McIds::new(
-                &subnodes
-                    .iter()
-                    .find(|x| x.is_type(MCAST_NAME))
-                    .expect(MISSING_SUBNODE)
-                    .get_sub_node() // ids
-                    .expect(MISSING_SUBNODE),
-            )?,
+            name: McIds::new(&ids_node)?,
             attrs: McAttributes::new(),
             body: subnodes
                 .iter()
@@ -37,8 +36,8 @@ impl McDefineDef {
                 .expect(MISSING_SUBNODE),
             uri: uri.clone(),
             span: crate::ast::ast_semantic::Span {
-                start: node.get_pos() as usize,
-                end: (node.get_pos() + node.get_len()) as usize,
+                start: ids_node.get_pos() as usize,
+                end: (ids_node.get_pos() + ids_node.get_len()) as usize,
             },
         };
 

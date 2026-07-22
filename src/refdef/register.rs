@@ -38,6 +38,8 @@ pub fn register_def(
     def_kind: SymbolKind,
 ) -> (DeclareId, SourceLocation) {
     let file_id = intern(&mut sem.file_table, uri.as_str());
+        "[REGISTER-DEF] uri={uri} file_id={file_id} kind={def_kind:?} name='{name}' span={:?}",
+        span
     let container_id = if container.is_empty() {
         0
     } else {

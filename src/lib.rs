@@ -21,6 +21,7 @@ pub(crate) mod build;
 pub(crate) mod builder;
 pub mod cli;
 pub(crate) mod db;
+pub(crate) mod debug_log;
 pub(crate) mod instant;
 pub(crate) mod lsp;
 pub(crate) mod query;
