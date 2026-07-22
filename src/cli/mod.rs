@@ -365,6 +365,8 @@ pub enum ShowTarget {
     Net,
     /// Dump LSP lapper intervals for a file (semantic tokens + symbols)
     Lapper,
+    /// Print AST tree for a file
+    Ast,
 
     // ── Entity internals drill-down (<name> = owning entity, required) ──────
     /// Pins of a component / interface
