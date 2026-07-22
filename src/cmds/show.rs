@@ -14,6 +14,7 @@ use crate::cmds::filter;
 use crate::output::compact;
 use anyhow::{Context, Result};
 use mcc::cli::{rpcclient::RpcClient, OutputFormat, ShowArgs, ShowTarget};
+use mcc::McURI;
 use serde_json::{json, Map, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -366,22 +367,56 @@ fn show_lapper(args: &ShowArgs) -> Result<()> {
     if !path.exists() {
         anyhow::bail!("file not found: {}", file_path);
     }
-    let content =
-        std::fs::read_to_string(path).with_context(|| format!("failed to read {}", file_path))?;
-    let uri = path
+    let uri_str = path
         .canonicalize()
         .unwrap_or_else(|_| path.to_path_buf())
         .to_string_lossy()
         .to_string();
+    let mc_uri = McURI::from(uri_str.as_str());
 
-    let c = RpcClient::probe().context("no mcc server running")?;
-    let result = c.call("sem", json!({"uri": uri, "content": content}))?;
+    // Suppress AST tree printing during parsing
+    mcc::set_trace_stdout_suppressed(true);
+
+    // prepare() already called mcc_load_project. If the file is already loaded,
+    // dump symbols directly. Otherwise, load and parse first.
+    let is_text = matches!(args.format, OutputFormat::Text);
+    if is_text {
+        if let Some(text) = mcc::dump_symbols_f12_text(&mc_uri) {
+            print!("{text}");
+            return Ok(());
+        }
+    } else {
+        if let Some(json_val) = mcc::dump_symbols_json(&mc_uri) {
+            println!("{}", serde_json::to_string_pretty(&json_val)?);
+            return Ok(());
+        }
+    }
+
+    // Not loaded yet — load project and try again
+    mcc::mcc_load_project(&mc_uri);
+    if is_text {
+        if let Some(text) = mcc::dump_symbols_f12_text(&mc_uri) {
+            print!("{text}");
+            return Ok(());
+        }
+    } else {
+        if let Some(json_val) = mcc::dump_symbols_json(&mc_uri) {
+            println!("{}", serde_json::to_string_pretty(&json_val)?);
+            return Ok(());
+        }
+    }
+
+    // Fallback: send to RPC server
+    let content =
+        std::fs::read_to_string(path).with_context(|| format!("failed to read {}", file_path))?;
+    let c = RpcClient::probe().context("no mcc server running and file not in local workspace")?;
+    let result = c.call("sem", json!({"uri": uri_str, "content": content}))?;
     let symbols = &result["symbols"];
 
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
-            "file": uri,
+            "file": uri_str,
             "lapper": symbols["lapper"],
             "local": symbols["local"],
             "ref_def_map": symbols["ref_def_map"],

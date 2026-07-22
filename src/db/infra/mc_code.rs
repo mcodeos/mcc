@@ -696,8 +696,12 @@ impl McCode {
                         self.spacenames.insert(key.clone(), value.clone());
                     }
                 }
-                // Mark the current file's pass1 as complete (dependent components are already registered in parse_pass1_types above)
-                self.pass1_complete = true;
+                // ★ Fix: Do NOT mark pass1_complete here. The current file's own
+                // components/modules haven't been registered via parse_pass1_types yet
+                // — only the dependency's components are loaded. Setting this flag
+                // early prevents mcb_add_recursive from calling parse_pass1_types on
+                // this file, which means its classes never enter gt.class_name_to_id
+                // and all ClassRef→ClassDef goto-def mappings break.
             }
 
             match mcuse.impt_ids {
@@ -1555,7 +1559,7 @@ impl McCode {
                 SymbolKind::PortRef => &[SymbolKind::PortDef, SymbolKind::ParamDef],
                 SymbolKind::LabelRef => &[SymbolKind::LabelDef],
                 SymbolKind::FuncRef => &[SymbolKind::FuncDef],
-                SymbolKind::FuncParamRef => &[SymbolKind::ParamDef],
+                SymbolKind::FuncParamRef => &[SymbolKind::ParamDef, SymbolKind::PinNameDef, SymbolKind::PortDef, SymbolKind::LabelDef],
                 SymbolKind::PinNameRef => &[SymbolKind::PinNameDef],
                 SymbolKind::PinIdRef => &[SymbolKind::PinIdDef],
                 SymbolKind::PinIfaceRef => &[SymbolKind::PinIfaceDef],
@@ -1731,52 +1735,46 @@ impl McCode {
             // ── Layer 1: ID chain ──
 
             // 1a. class_ref (ReferenceId) → class_def
-            for (ref_id, class_id) in &gt.declare_id_to_class_id {
-                if let Some((def_uri, span)) = gt.class_id_to_span.get(class_id) {
-                    let fid = map.intern_file(def_uri);
-                    let cid = map.intern_container("");
-                    map.insert(
-                        SymbolKind::ClassRef,
-                        u32::from(*ref_id),
-                        RefDefEntry {
-                            ref_kind: SymbolKind::ClassDef,
-                            ref_id: 0,
-                            def_loc: SourceLocation {
-                                file_id: fid,
-                                container_id: cid,
-                                func_id: 0,
-                                byte_start: span.start as u32,
-                                byte_end: span.end as u32,
+            // ★ Fix: iterate span_to_declare_class_id filtered by current URI,
+            // then resolve ref_id → class_id → class_span. Previously iterated
+            // ALL declare_id_to_class_id entries (from ALL loaded files), which
+            // leaked stale entries (e.g. library CAP refs with class_id=0) into
+            // the current file's MAP, causing incorrect goto-def jumps.
+            for ((loop_uri, _span), ref_id) in gt.span_to_declare_class_id.iter() {
+                if loop_uri != _uri {
+                    continue;
+                }
+                if let Some(class_id) = gt.declare_id_to_class_id.get(ref_id) {
+                    if let Some((def_uri, span)) = gt.class_id_to_span.get(class_id) {
+                        let fid = map.intern_file(def_uri);
+                        let cid = map.intern_container("");
+                        map.insert(
+                            SymbolKind::ClassRef,
+                            u32::from(*ref_id),
+                            RefDefEntry {
+                                ref_kind: SymbolKind::ClassDef,
+                                ref_id: 0,
+                                def_loc: SourceLocation {
+                                    file_id: fid,
+                                    container_id: cid,
+                                    func_id: 0,
+                                    byte_start: span.start as u32,
+                                    byte_end: span.end as u32,
+                                },
+                                def_kind: SymbolKind::ClassDef,
+                                cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
                             },
-                            def_kind: SymbolKind::ClassDef,
-                            cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
-                        },
-                    );
+                        );
+                    }
                 }
             }
 
-            // 1b. class_ref (DeclareId / ClassRef variant) → class_def
-            for (class_id, (def_uri, span)) in &gt.class_id_to_span {
-                let fid = map.intern_file(def_uri);
-                let cid = map.intern_container("");
-                map.insert(
-                    SymbolKind::ClassRef,
-                    u32::from(*class_id),
-                    RefDefEntry {
-                        ref_kind: SymbolKind::ClassDef,
-                        ref_id: 0,
-                        def_loc: SourceLocation {
-                            file_id: fid,
-                            container_id: cid,
-                            func_id: 0,
-                            byte_start: span.start as u32,
-                            byte_end: span.end as u32,
-                        },
-                        def_kind: SymbolKind::ClassDef,
-                        cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
-                    },
-                );
-            }
+            // 1b (REMOVED): class_id → def mapping. ClassRef in lapper uses
+            // ReferenceId (from span_to_declare_class_id), not DeclareId
+            // (class_id). This section created ClassRef entries keyed by
+            // class_id, which collides with ReferenceId space (both start at 0)
+            // and produces incorrect goto-def jumps. Layer 1a above correctly
+            // resolves ClassRef (ReferenceId) → class_id → def_span.
 
             // 1c. cross-file class ref targets (cached from create_lapper, §8.2)
             for (ref_id, def_uri, span) in &self.cross_file_targets {
@@ -2241,6 +2239,151 @@ impl McCode {
     }
 
     pub fn pass2(&mut self) {}
+
+    /// Re-resolve a class reference at a given span in the source file.
+    /// Used when the class couldn't be resolved during parsing (sentinel entry
+    /// with class_id=0) — at lapper creation time all dependency files have
+    /// been parsed, so we can search workspace + global library tables.
+    /// If found, ensures the class is registered in `gt` and returns the real
+    /// (class_id, target_uri, target_span). Returns None if still unresolved.
+    fn resolve_class_ref_at_span(
+        ref_uri: &McURI,
+        ref_span: &std::ops::Range<usize>,
+        gt: &mut crate::ast::ast_semantic::GlobalSymbolTable,
+        _sem: &McSemSymbols,
+    ) -> Option<(
+        DeclareId,
+        McURI,
+        std::ops::Range<usize>,
+    )> {
+        // Read the file content to extract the class name from the reference span
+        let content =
+            std::fs::read_to_string(std::path::Path::new(ref_uri.as_str())).ok()?;
+        let class_name = content.get(ref_span.start..ref_span.end)?;
+
+        // Trim constructor args (e.g., "CAP(1uF" → "CAP", "RES(0Ω" → "RES")
+        let clean_name: String = class_name
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '.')
+            .collect();
+        if clean_name.is_empty() {
+            return None;
+        }
+
+        // Helper: find or register a class in the global table
+        let mut ensure_class_id = |def_uri: &McURI, def_span: &std::ops::Range<usize>| -> DeclareId {
+            // Check if already registered
+            for ((uri, name), &cid) in gt.class_name_to_id.iter() {
+                if name == &clean_name && uri == def_uri {
+                    return cid;
+                }
+            }
+            // Register now
+            gt.add_class(def_uri, &clean_name, def_span.clone())
+        };
+
+        // ── Search workspace tables ───────────────────────────────────────
+        let tables = &crate::db::cmie::tables::WORKSPACE;
+        for entry in tables.components.iter() {
+            if entry.key().ident.to_string() == clean_name {
+                let def_uri = entry.key().uri.clone();
+                let def_span = entry.value().span.clone();
+                let cid = ensure_class_id(&def_uri, &def_span);
+                return Some((cid, def_uri, def_span));
+            }
+        }
+        for entry in tables.modules.iter() {
+            if entry.key().ident.to_string() == clean_name {
+                let def_uri = entry.key().uri.clone();
+                let def_span = entry.value().span.clone();
+                let cid = ensure_class_id(&def_uri, &def_span);
+                return Some((cid, def_uri, def_span));
+            }
+        }
+        for entry in tables.interfaces.iter() {
+            if entry.key().ident.to_string() == clean_name {
+                let def_uri = entry.key().uri.clone();
+                let def_span = entry.value().span.clone();
+                let cid = ensure_class_id(&def_uri, &def_span);
+                return Some((cid, def_uri, def_span));
+            }
+        }
+        for entry in tables.enums.iter() {
+            if entry.key().ident.to_string() == clean_name {
+                let def_uri = entry.key().uri.clone();
+                let s = entry.value().span;
+                let def_span = s[0] as usize..s[1] as usize;
+                let cid = ensure_class_id(&def_uri, &def_span);
+                return Some((cid, def_uri, def_span));
+            }
+        }
+
+        // ── Search global::mcc_* system library tables ───────────────────
+        for entry in crate::db::infra::global::mcc_components.iter() {
+            if entry.key().ident.to_string() == clean_name {
+                let def_uri = entry.key().uri.clone();
+                let def_span = entry.value().span.clone();
+                let cid = ensure_class_id(&def_uri, &def_span);
+                return Some((cid, def_uri, def_span));
+            }
+        }
+        for entry in crate::db::infra::global::mcc_modules.iter() {
+            if entry.key().ident.to_string() == clean_name {
+                let def_uri = entry.key().uri.clone();
+                let def_span = entry.value().span.clone();
+                let cid = ensure_class_id(&def_uri, &def_span);
+                return Some((cid, def_uri, def_span));
+            }
+        }
+        for entry in crate::db::infra::global::mcc_interfaces.iter() {
+            if entry.key().ident.to_string() == clean_name {
+                let def_uri = entry.key().uri.clone();
+                let def_span = entry.value().span.clone();
+                let cid = ensure_class_id(&def_uri, &def_span);
+                return Some((cid, def_uri, def_span));
+            }
+        }
+        for entry in crate::db::infra::global::mcc_enums.iter() {
+            if entry.key().ident.to_string() == clean_name {
+                let def_uri = entry.key().uri.clone();
+                let s = entry.value().span;
+                let def_span = s[0] as usize..s[1] as usize;
+                let cid = ensure_class_id(&def_uri, &def_span);
+                return Some((cid, def_uri, def_span));
+            }
+        }
+
+        // ── Search the current global table (gt parameter) ────────────────
+        // The current file's classes are registered here via add_global_class
+        // during parse_pass1_types. This catches classes defined in the SAME
+        // file whose ref needs resolution (e.g. MCU.US513_20_F in us513.mc).
+        for ((file_uri, name), &cid) in gt.class_name_to_id.iter() {
+            if name == &clean_name {
+                if let Some((_, tspan)) = gt.class_id_to_span.get(&cid) {
+                    return Some((cid, file_uri.clone(), tspan.clone()));
+                }
+            }
+        }
+
+        // ── Search gt.class_name_to_id across all other loaded files ──────
+        let binding = &crate::db::cmie::tables::WORKSPACE.mcodes;
+        for entry in binding.iter() {
+            if let Ok(sem) = entry.value().symbols.lock() {
+                if let Ok(file_gt) = sem.global_table.lock() {
+                    for ((file_uri, name), &cid) in file_gt.class_name_to_id.iter() {
+                        if name == &clean_name {
+                            if let Some((_, tspan)) = file_gt.class_id_to_span.get(&cid) {
+                                return Some((cid, file_uri.clone(), tspan.clone()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
     fn lapper_global_classes(
         uri: &McURI,
         cross_file_targets: &mut Vec<(
@@ -2262,11 +2405,26 @@ impl McCode {
 
                 for clsid in &clsids {
                     if let Some((_uri, span)) = gt.class_id_to_span.get(clsid) {
+                        let id = u32::from(*clsid);
                         symbol_lapper.insert(Interval {
                             start: span.start,
                             stop: span.end,
-                            val: SymbolType::new(SymbolKind::ClassDef, u32::from(*clsid)),
+                            val: SymbolType::new(SymbolKind::ClassDef, id),
                         });
+                        // ★ Fix: register ClassDef in def_map so fill_refdef_layer2
+                        // can resolve ClassRef → ClassDef lookups. Without this,
+                        // ClassRef entries in ref_entries never find their def.
+                        let file_id =
+                            crate::ast::ast_semantic::intern(&mut sem.file_table, uri.as_str());
+                        sem.def_map.insert(
+                            (SymbolKind::ClassDef, id),
+                            crate::ast::ast_semantic::SourceLocation::new(
+                                file_id,
+                                0,
+                                span.start as u32,
+                                span.end as u32,
+                            ),
+                        );
                     }
                 }
 
@@ -2278,8 +2436,31 @@ impl McCode {
                         .unwrap();
                     tracing::info!(target: "mcc::lsp", "  create_lapper: lsp.declare_class_refs for '{}' = {} entries", uri, decl_refs.get(uri).map(|v| v.len()).unwrap_or(0));
                     if let Some(refs) = decl_refs.remove(uri) {
-                        for (decl_span, _class_id, target_uri, target_span) in refs {
-                            let refid = gt.add_declare_class(&uri, decl_span.clone(), _class_id);
+                        for (decl_span, mut class_id, mut target_uri, mut target_span) in refs {
+                            // ★ Fix: Re-resolve sentinel entries (class_id=0, target_uri="")
+                            // at lapper creation time when all dependency files have been
+                            // parsed and their classes are registered in global/workspace tables.
+                            // ★ class_id=0 is always a sentinel collision because
+                            // multiple classes may get DeclareId(0) from different
+                            // library files (each file's gt assigns sequential IDs
+                            // starting from 0). class_id=0 can never be reliably
+                            // resolved via class_id_to_span.
+                            if class_id == DeclareId::default() {
+                                if let Some(resolved) = Self::resolve_class_ref_at_span(
+                                    uri, &decl_span, &mut gt, &sem,
+                                ) {
+                                    class_id = resolved.0;
+                                    target_uri = resolved.1;
+                                    target_span = resolved.2;
+                                } else {
+                                    // ★ Fix: Skip entries that can't be re-resolved.
+                                    // Sentinel class_id=0 would map to whatever class got
+                                    // DeclareId(0) in the global table, creating incorrect
+                                    // goto-def jumps (e.g. CAP→MCU.US513_20_F).
+                                    continue;
+                                }
+                            }
+                            let refid = gt.add_declare_class(&uri, decl_span.clone(), class_id);
                             cross_file_targets.push((refid, target_uri, target_span));
                         }
                     }
@@ -2292,9 +2473,17 @@ impl McCode {
                             stop: span.end,
                             val: SymbolType::new(SymbolKind::ClassRef, u32::from(*refid)),
                         });
+                        // ★ Fix: use class_id (DeclareId) in ref_entries, not refid (ReferenceId).
+                        // This ensures def_map lookup in fill_refdef_layer2 finds the ClassDef
+                        // entry that was registered with class_id above.
+                        let class_id = gt
+                            .declare_id_to_class_id
+                            .get(refid)
+                            .copied()
+                            .unwrap_or(DeclareId::new(0));
                         sem.ref_entries.push((
                             SymbolKind::ClassRef,
-                            u32::from(*refid),
+                            u32::from(class_id),
                             span.start,
                             span.end,
                         ));
@@ -2306,11 +2495,24 @@ impl McCode {
                         continue;
                     }
                     if let Some((_u, span)) = gt.enum_class_id_to_span.get(class_id) {
+                        let id = u32::from(*class_id);
                         symbol_lapper.insert(Interval {
                             start: span.start,
                             stop: span.end,
-                            val: SymbolType::new(SymbolKind::ClassDef, u32::from(*class_id)),
+                            val: SymbolType::new(SymbolKind::ClassDef, id),
                         });
+                        // ★ Fix: register enum ClassDef in def_map
+                        let file_id =
+                            crate::ast::ast_semantic::intern(&mut sem.file_table, uri.as_str());
+                        sem.def_map.insert(
+                            (SymbolKind::ClassDef, id),
+                            crate::ast::ast_semantic::SourceLocation::new(
+                                file_id,
+                                0,
+                                span.start as u32,
+                                span.end as u32,
+                            ),
+                        );
                     }
                 }
                 for (value_id, (loop_uri, span)) in gt.enum_value_id_to_span.iter() {

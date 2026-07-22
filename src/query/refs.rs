@@ -84,6 +84,39 @@ pub fn mcb_get_refs(name: &str) -> Vec<(String, String, Span)> {
     results
 }
 
+/// Register a system library class in the global table, returning its DeclareId.
+/// If already registered, returns the existing id; otherwise calls `add_class`.
+fn register_lib_class_in_global_table(
+    def_uri: &str,
+    class_name: &str,
+    def_span: &std::ops::Range<usize>,
+) -> DeclareId {
+    // Try to find it in any loaded file's global table first
+    let binding = &workspace::WORKSPACE.mcodes;
+    for entry in binding.iter() {
+        if let Ok(sem) = entry.value().symbols.lock() {
+            if let Ok(gt) = sem.global_table.lock() {
+                // Check if already registered by (uri, name)
+                let mc_uri = McURI::from(def_uri);
+                if let Some(&cid) = gt.class_name_to_id.get(&(mc_uri, class_name.to_string())) {
+                    return cid;
+                }
+            }
+        }
+    }
+    // Not found — register it in the first available file's global table
+    for entry in binding.iter() {
+        if let Ok(sem) = entry.value().symbols.lock() {
+            if let Ok(mut gt) = sem.global_table.lock() {
+                let mc_uri = McURI::from(def_uri);
+                return gt.add_class(&mc_uri, &class_name.to_string(), def_span.clone());
+            }
+        }
+    }
+    // Fallback: return default (shouldn't happen if workspace has at least one file)
+    DeclareId::default()
+}
+
 // === pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) { ===
 /// 🆕 Register a class reference for goto-definition
 ///
@@ -164,28 +197,74 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
         from_mcodes
     };
 
-    // Step 2.5: Search system library tables for mcode classes (CAP, RES, etc.)
+    // Step 2.5: Search workspace tables (project-level) and system library tables
+    // for classes that may not be in the global table yet (e.g. because the
+    // defining file hasn't been parsed when this reference is encountered).
+    // ★ Fix: Register found classes in the global table to get a real DeclareId
+    // instead of using DeclareId::default(). Without this, all library class
+    // refs map to class_id=0 with invalid def spans in Layer 1.
     let from_syslibs: Option<(DeclareId, String, Span)> = if class_info.is_none() {
         let name_str = class_name.to_string();
         let mut result = None;
-        for entry in global::mcc_components.iter() {
+
+        // Helper macro to reduce repetition
+        macro_rules! try_register {
+            ($def_uri:expr, $def_span:expr) => {
+                let def_uri_str = ($def_uri).to_string();
+                let def_span_range = ($def_span);
+                let class_id = register_lib_class_in_global_table(
+                    &def_uri_str, &name_str, &def_span_range,
+                );
+                result = Some((class_id, def_uri_str, def_span_range));
+            };
+        }
+
+        // 2.5a: Search workspace tables first (project-level definitions from `use` directives)
+        for entry in workspace::WORKSPACE.components.iter() {
             if entry.key().ident.to_string() == name_str {
-                result = Some((
-                    DeclareId::default(),
-                    entry.key().uri.clone(),
-                    entry.value().span.clone(),
-                ));
+                try_register!(entry.key().uri, entry.value().span.clone());
                 break;
+            }
+        }
+        if result.is_none() {
+            for entry in workspace::WORKSPACE.modules.iter() {
+                if entry.key().ident.to_string() == name_str {
+                    try_register!(entry.key().uri, entry.value().span.clone());
+                    break;
+                }
+            }
+        }
+        if result.is_none() {
+            for entry in workspace::WORKSPACE.interfaces.iter() {
+                if entry.key().ident.to_string() == name_str {
+                    try_register!(entry.key().uri, entry.value().span.clone());
+                    break;
+                }
+            }
+        }
+        if result.is_none() {
+            for entry in workspace::WORKSPACE.enums.iter() {
+                if entry.key().ident.to_string() == name_str {
+                    let s = entry.value().span;
+                    try_register!(entry.key().uri, s[0] as usize..s[1] as usize);
+                    break;
+                }
+            }
+        }
+
+        // 2.5b: Search system library tables (global::mcc_*) — classes from loaded libraries
+        if result.is_none() {
+            for entry in global::mcc_components.iter() {
+                if entry.key().ident.to_string() == name_str {
+                    try_register!(entry.key().uri, entry.value().span.clone());
+                    break;
+                }
             }
         }
         if result.is_none() {
             for entry in global::mcc_modules.iter() {
                 if entry.key().ident.to_string() == name_str {
-                    result = Some((
-                        DeclareId::default(),
-                        entry.key().uri.clone(),
-                        entry.value().span.clone(),
-                    ));
+                    try_register!(entry.key().uri, entry.value().span.clone());
                     break;
                 }
             }
@@ -193,11 +272,7 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
         if result.is_none() {
             for entry in global::mcc_interfaces.iter() {
                 if entry.key().ident.to_string() == name_str {
-                    result = Some((
-                        DeclareId::default(),
-                        entry.key().uri.clone(),
-                        entry.value().span.clone(),
-                    ));
+                    try_register!(entry.key().uri, entry.value().span.clone());
                     break;
                 }
             }
@@ -206,11 +281,7 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
             for entry in global::mcc_enums.iter() {
                 if entry.key().ident.to_string() == name_str {
                     let s = entry.value().span;
-                    result = Some((
-                        DeclareId::default(),
-                        entry.key().uri.clone(),
-                        s[0] as usize..s[1] as usize,
-                    ));
+                    try_register!(entry.key().uri, s[0] as usize..s[1] as usize);
                     break;
                 }
             }
