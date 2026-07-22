@@ -2,6 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+use crate::ast::ast_semantic::SymbolKind;
 use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
 use crate::query::lookup::{find_component_uri, mcb_find_module_uri};
@@ -65,7 +66,6 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
             name = %name_str,
             uri = %uri,
             "reentrant call detected, falling back to name-only lookup"
-        );
         return find_by_name_in_project_tables(class_name);
     }
     struct CmieGuard(String);
@@ -81,8 +81,16 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     // §6.3: ID-based ClassRef lookup via name_to_declare_id (all scopes).
     // §5:   Name-based fallback via Use table (P3→P4→P5 priority).
     // ═══════════════════════════════════════════════════════════════
-    if let Some(mcfile) = workspace::WORKSPACE.mcodes.get(uri) {
-        if let Ok(sym) = mcfile.symbols.lock() {
+    let mcfile = workspace::WORKSPACE.mcodes.get(uri);
+    if mcfile.is_none() {
+    }
+    if let Some(mcfile) = mcfile {
+        let sym_lock = mcfile.symbols.lock();
+        if sym_lock.is_err() {
+        }
+        if let Ok(sym) = sym_lock {
+            if sym.ref_def_map.is_none() {
+            }
             if let Some(ref map) = sym.ref_def_map {
                 // §6.3: search all scopes in name_to_declare_id for ClassRef entries
                 let decl_id = sym
@@ -91,15 +99,22 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
                     .iter()
                     .find(|((_fid, _cid, _fnid, name), _)| name.as_str() == name_str)
                     .map(|(_, (id, _))| *id);
+                if let Some(did) = decl_id {
+                }
                 let id_hit = decl_id.and_then(|did| {
                     map.get(
                         crate::ast::ast_semantic::SymbolKind::ClassRef,
                         u32::from(did),
-                    )
                 });
                 // §5: name-based Use table lookup
-                let entry = id_hit.or_else(|| map.get_by_name(uri, &name_str));
+                let entry = id_hit.or_else(|| {
+                    let by_name = map.get_by_name(uri, &name_str);
+                    if by_name.is_some() {
+                    }
+                    by_name
+                });
                 if let Some(entry) = entry {
+                        entry.def_loc, entry.cmie_kind
                     let def_uri = map
                         .files
                         .get(entry.def_loc.file_id as usize)
@@ -119,7 +134,13 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     }
 
     // RefDefMap miss or not yet built: fall back to old name-only search
-    find_by_name_in_project_tables(class_name)
+    let result = find_by_name_in_project_tables(class_name);
+        if result.is_some() {
+            "FOUND"
+        } else {
+            "NOT FOUND"
+        }
+    result
 }
 
 pub(crate) fn mcb_get_cmie_with_uri(class_name: &McIds, uri: &McURI) -> Option<(McCMIE, McURI)> {
@@ -131,4 +152,41 @@ pub(crate) fn mcb_get_cmie_with_uri(class_name: &McIds, uri: &McURI) -> Option<(
         McCMIE::Enum(_) => uri.clone(),
     };
     Some((cmie, source_uri))
+}
+
+/// Resolve a member access on a CMIE instance via the class definition.
+///
+/// `mcb_get_cmie` handles P3→P4→P5 class lookup — same-file and cross-file
+/// are treated identically. Returns the definition location and the appropriate
+/// Ref SymbolKind. The caller creates a local Def via `register_def` and uses
+/// the resulting DeclareId for Layer 2 Ref→Def matching.
+///
+/// e.g., `RES(10kΩ).Pullup(...)` → class="RES", member="Pullup"
+///       → returns (res.mc, pullup_span_in_res_mc, FuncRef)
+pub(crate) fn resolve_cmie_member(
+    class_name: &str,
+    member_name: &str,
+    from_uri: &McURI,
+) -> Option<(McURI, std::ops::Range<usize>, SymbolKind)> {
+    let ids = McIds::from(class_name);
+    let cmie = mcb_get_cmie(&ids, from_uri)?;
+
+    match &cmie {
+        McCMIE::Component(comp) => {
+            if let Some(func) = comp.funcs.find(member_name) {
+                let span = func.span.clone()?;
+                    span, comp.uri
+                return Some((comp.uri.clone(), span, SymbolKind::FuncRef));
+            }
+        }
+        McCMIE::Module(mod_def) => {
+            if let Some(func) = mod_def.funcs.find(member_name) {
+                let span = func.span.clone()?;
+                return Some((mod_def.uri.clone(), span, SymbolKind::FuncRef));
+            }
+        }
+        // TODO: Interface ports, Enum values
+        _ => {}
+    }
+    None
 }

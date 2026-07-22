@@ -33,9 +33,10 @@ impl McInterface {
         let subnodes = node.get_sub_node()?;
         let body_node = subnodes.iter().find(|x| x.is_type(MCAST_BODY))?;
         let name_node = subnodes.iter().find(|x| x.is_type(MCAST_NAME))?;
-        // ★ LSP: Use node's position and length for span
-        let start = node.get_pos() as usize;
-        let end = start + node.get_len() as usize;
+        // ★ LSP: Span from the interface name (MCAST_NAME → MCAST_IDS)
+        let ids_node = name_node.get_sub_node()?;
+        let start = ids_node.get_pos() as usize;
+        let end = start + ids_node.get_len() as usize;
         let span = crate::ast::ast_semantic::Span { start, end };
 
         let mut ret = Self {

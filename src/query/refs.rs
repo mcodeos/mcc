@@ -139,7 +139,6 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
                     None
                 }
             },
-        );
 
         // Second try: different URI (fallback for cross-file references)
         let other_uri_result = if same_uri_result.is_none() {
@@ -151,7 +150,6 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
                         None
                     }
                 },
-            )
         } else {
             None
         };
@@ -292,6 +290,8 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
     let class_info = class_info.or(from_syslibs);
 
     // Step 3: Store in workspace-level table
+        span,
+        class_info.is_some()
     if let Some((class_id, target_uri, target_span)) = class_info {
         let span_clone = span.clone();
         let uri_str = uri.to_string();
@@ -310,7 +310,6 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) {
             (span.end - span.start) as u32,
             &format!("class '{}' not found", class_name),
             &[],
-        );
         // ★ LSP: Even without cross-file resolution, register the class-name
         // span as a declare_class entry in the lapper.  This lets mcext's
         // F12 handler pick it up and resolve via project index.

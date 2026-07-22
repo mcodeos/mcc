@@ -19,12 +19,13 @@ pub fn fill_refdef_layer2(
     def_map_src: &HashMap<(SymbolKind, u32), SourceLocation>,
     ref_entries: &[(SymbolKind, u32, usize, usize)],
     file_uri: &McURI,
+    file_table: &[String],
 ) {
-    // ★ A3: Use pre-built def_map from register_def instead of scanning lapper
-    let def_map: HashMap<(SymbolKind, u32), (usize, usize)> = def_map_src
-        .iter()
-        .map(|(k, loc)| (*k, (loc.byte_start as usize, loc.byte_end as usize)))
-        .collect();
+    // ★ Preserve original SourceLocation (including file_id for cross-file defs).
+    // Old code mapped to (usize, usize) which dropped file_id and always used
+    // file_uri — this broke cross-file FuncDef registered via register_def.
+    let def_map: HashMap<(SymbolKind, u32), &SourceLocation> =
+        def_map_src.iter().map(|(k, loc)| (*k, loc)).collect();
 
     // ★ A3: Match refs from pre-collected ref_entries instead of scanning lapper
     for &(ref_kind, decl_id, ref_start, ref_stop) in ref_entries {
@@ -65,18 +66,35 @@ pub fn fill_refdef_layer2(
             _ => &[],
         };
         // Try each candidate def kind
-        let mut def_match: Option<(usize, usize, SymbolKind)> = None;
+        let mut def_match: Option<(&SourceLocation, SymbolKind)> = None;
         for &dk in candidate_defs {
-            if let Some(&(ds, de)) = def_map.get(&(dk, decl_id)) {
-                def_match = Some((ds, de, dk));
+            if let Some(loc) = def_map.get(&(dk, decl_id)) {
+                def_match = Some((loc, dk));
                 break;
             }
         }
-        if let Some((def_start, def_stop, def_kind)) = def_match {
+        if let Some((loc, def_kind)) = def_match {
+            let def_start = loc.byte_start as usize;
+            let def_stop = loc.byte_end as usize;
             if def_start == ref_start && def_stop == ref_stop {
                 continue; // self-ref skip
             }
-            let fid = map.intern_file(file_uri);
+            // Use original file_id from SourceLocation for cross-file defs.
+            // Falls back to current file_uri if file_id is 0 (same-file).
+            let fid = if loc.file_id != 0 {
+                let idx = loc.file_id as usize;
+                    "[FILL-L2] cross-file: loc.file_id={} idx={idx} file_table_len={}",
+                    loc.file_id,
+                    file_table.len()
+                if idx < file_table.len() {
+                    let def_uri_str = &file_table[idx];
+                    map.intern_file(&McURI::from(def_uri_str.as_str()))
+                } else {
+                    map.intern_file(file_uri)
+                }
+            } else {
+                map.intern_file(file_uri)
+            };
             let scope = scope_map
                 .get(&(ref_start, ref_stop))
                 .cloned()
@@ -98,7 +116,6 @@ pub fn fill_refdef_layer2(
                     def_kind,
                     cmie_kind: CmieKind::UNKNOWN,
                 },
-            );
         }
     }
 
@@ -110,7 +127,9 @@ pub fn fill_refdef_layer2(
         if ref_kind != SymbolKind::InstRef {
             continue;
         }
-        if let Some(&(def_start, def_stop)) = def_map.get(&(SymbolKind::PortDef, decl_id)) {
+        if let Some(loc) = def_map.get(&(SymbolKind::PortDef, decl_id)) {
+            let def_start = loc.byte_start as usize;
+            let def_stop = loc.byte_end as usize;
             if def_start == ref_start && def_stop == ref_stop {
                 continue;
             }
@@ -134,7 +153,6 @@ pub fn fill_refdef_layer2(
                     def_kind: SymbolKind::PortDef,
                     cmie_kind: CmieKind::UNKNOWN,
                 },
-            );
         }
     }
 
@@ -144,16 +162,20 @@ pub fn fill_refdef_layer2(
     {
         // Build pos→label mapping from LabelDef entries in def_map
         let mut pos_to_label: HashMap<(usize, usize), u32> = HashMap::new();
-        for ((kind, lid), (def_start, def_stop)) in def_map.iter() {
+        for ((kind, lid), loc) in def_map.iter() {
             if *kind == SymbolKind::LabelDef {
-                pos_to_label.insert((*def_start, *def_stop), *lid);
+                let ds = loc.byte_start as usize;
+                let de = loc.byte_end as usize;
+                pos_to_label.insert((ds, de), *lid);
             }
         }
         // Cross-reference PortDef at same position → LabelDef
-        for ((kind, pid), (def_start, def_stop)) in def_map.iter() {
+        for ((kind, pid), loc) in def_map.iter() {
             if *kind == SymbolKind::PortDef {
-                if let Some(&lid) = pos_to_label.get(&(*def_start, *def_stop)) {
-                    port_to_label.insert(*pid, (lid, (*def_start, *def_stop)));
+                let ds = loc.byte_start as usize;
+                let de = loc.byte_end as usize;
+                if let Some(&lid) = pos_to_label.get(&(ds, de)) {
+                    port_to_label.insert(*pid, (lid, (ds, de)));
                 }
             }
         }
@@ -185,7 +207,6 @@ pub fn fill_refdef_layer2(
                         def_kind: SymbolKind::LabelDef,
                         cmie_kind: CmieKind::UNKNOWN,
                     },
-                );
             }
         }
     }
@@ -196,15 +217,19 @@ pub fn fill_refdef_layer2(
     let mut port_to_bus: HashMap<u32, (u32, (usize, usize))> = HashMap::new();
     {
         let mut pos_to_bus: HashMap<(usize, usize), u32> = HashMap::new();
-        for ((kind, bid), (def_start, def_stop)) in def_map.iter() {
+        for ((kind, bid), loc) in def_map.iter() {
             if *kind == SymbolKind::BusDef {
-                pos_to_bus.insert((*def_start, *def_stop), *bid);
+                let ds = loc.byte_start as usize;
+                let de = loc.byte_end as usize;
+                pos_to_bus.insert((ds, de), *bid);
             }
         }
-        for ((kind, pid), (def_start, def_stop)) in def_map.iter() {
+        for ((kind, pid), loc) in def_map.iter() {
             if *kind == SymbolKind::PortDef {
-                if let Some(&bid) = pos_to_bus.get(&(*def_start, *def_stop)) {
-                    port_to_bus.insert(*pid, (bid, (*def_start, *def_stop)));
+                let ds = loc.byte_start as usize;
+                let de = loc.byte_end as usize;
+                if let Some(&bid) = pos_to_bus.get(&(ds, de)) {
+                    port_to_bus.insert(*pid, (bid, (ds, de)));
                 }
             }
         }
@@ -236,7 +261,6 @@ pub fn fill_refdef_layer2(
                         def_kind: SymbolKind::BusDef,
                         cmie_kind: CmieKind::UNKNOWN,
                     },
-                );
             }
         }
     }
@@ -247,15 +271,19 @@ pub fn fill_refdef_layer2(
     let mut label_to_bus: HashMap<u32, (u32, (usize, usize))> = HashMap::new();
     {
         let mut pos_to_bus: HashMap<(usize, usize), u32> = HashMap::new();
-        for ((kind, bid), (def_start, def_stop)) in def_map.iter() {
+        for ((kind, bid), loc) in def_map.iter() {
             if *kind == SymbolKind::BusDef {
-                pos_to_bus.insert((*def_start, *def_stop), *bid);
+                let ds = loc.byte_start as usize;
+                let de = loc.byte_end as usize;
+                pos_to_bus.insert((ds, de), *bid);
             }
         }
-        for ((kind, lid), (def_start, def_stop)) in def_map.iter() {
+        for ((kind, lid), loc) in def_map.iter() {
             if *kind == SymbolKind::LabelDef {
-                if let Some(&bid) = pos_to_bus.get(&(*def_start, *def_stop)) {
-                    label_to_bus.insert(*lid, (bid, (*def_start, *def_stop)));
+                let ds = loc.byte_start as usize;
+                let de = loc.byte_end as usize;
+                if let Some(&bid) = pos_to_bus.get(&(ds, de)) {
+                    label_to_bus.insert(*lid, (bid, (ds, de)));
                 }
             }
         }
@@ -293,7 +321,6 @@ pub fn fill_refdef_layer2(
                         def_kind: SymbolKind::BusDef,
                         cmie_kind: CmieKind::UNKNOWN,
                     },
-                );
             }
         }
     }

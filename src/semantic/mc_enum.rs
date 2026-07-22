@@ -89,9 +89,9 @@ impl McEnumDef {
             Vec::new()
         };
 
-        // Class span = the entire `enum PKG { ... }` head (parent MCK_ENUM node)
-        let class_start = node.get_pos();
-        let class_end = class_start.saturating_add(node.get_len());
+        // Class span = the enum name (MCAST_IDS), not the entire node
+        let class_start = name_ids.get_pos();
+        let class_end = class_start.saturating_add(name_ids.get_len());
 
         //3. Create enum definition
         Some(Self {

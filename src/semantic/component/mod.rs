@@ -78,8 +78,11 @@ impl McComponent {
                 .get_sub_node()?,
         )?;
 
-        let start = node.get_pos() as usize;
-        let end = start + node.get_len() as usize;
+        // Span from the component name (MCAST_NAME → MCAST_IDS), not the whole node
+        let name_node = subnodes.iter().find(|x| x.is_type(MCAST_NAME))?;
+        let ids_node = name_node.get_sub_node()?;
+        let start = ids_node.get_pos() as usize;
+        let end = start + ids_node.get_len() as usize;
         let mut new_comp = Self {
             name: comp_name.clone(),
             params: McParamDeclares::new(),
