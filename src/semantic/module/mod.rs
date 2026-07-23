@@ -141,8 +141,6 @@ impl McModule {
         if let Some(clauses) = body.get_sub_node() {
             for clause in clauses.iter() {
                 let ct = clause.get_type();
-                    self.uri,
-                    clause.to_string().unwrap_or_default()
                 match ct {
                     MCAST_NET_PORTS => {
                         self.insts.parse(&clause, &self.uri);
@@ -161,6 +159,7 @@ impl McModule {
                                 &mut self.insts,
                                 &mut self.params,
                                 &scope,
+                            );
                             match McPhrase::new(&subnode, self) {
                                 Some(net) => {
                                     // Store definition spans + LSP lapper entries for inline ports
@@ -169,6 +168,7 @@ impl McModule {
                                         &mut self.insts,
                                         &self.uri,
                                         &self.name.to_string(),
+                                    );
                                     self.lines.push(net);
                                 }
                                 None => {
@@ -197,6 +197,7 @@ impl McModule {
                             801,
                             &clause,
                             "Module does not support PINS directly. Use in/out/io declarations.",
+                        );
                     }
                     _ => {
                         dlog_error(1402, &clause, "Unexpected clause type in module body");
@@ -265,6 +266,7 @@ impl McModule {
                             port_name, mod_name
                         ),
                         &[],
+                    );
                 }
             }
         }
@@ -639,6 +641,7 @@ impl McModule {
                                     crate::ast::ast_semantic::SourceLocation::from_span(&span),
                                     Some(key),
                                     Some(scope),
+                                );
                             }
                         }
                     }
@@ -703,6 +706,7 @@ impl McModule {
                     node.get_type(),
                     node.get_pos(),
                     node.get_len()
+                );
                 let mut current = node.get_sub_node();
                 while let Some(phrase_node) = current {
                     let ids_node = phrase_node
@@ -717,6 +721,7 @@ impl McModule {
                         tracing::info!(
                             "SQUARE_VEC_REF member='{name}' span=[{},{}] in_insts={in_insts} in_params={in_params} scope='{scope}'",
                             member_span.start, member_span.end
+                        );
                         if in_insts {
                             insts.record_net_ref(member_span, &name, scope);
                         } else if in_params {
@@ -898,6 +903,7 @@ impl std::fmt::Display for McModule {
                         s.trim_start_matches("Component:").to_string(),
                         "Component".to_string(),
                         0,
+                    )
                 }
                 McInstance::Module(_) => {
                     let s = inst.to_string();
@@ -905,6 +911,7 @@ impl std::fmt::Display for McModule {
                         s.trim_start_matches("Module:").to_string(),
                         "Module".to_string(),
                         0,
+                    )
                 }
                 McInstance::Label(_) => {
                     let s = inst.to_string();
@@ -912,6 +919,7 @@ impl std::fmt::Display for McModule {
                         s.trim_start_matches("L:").to_string(),
                         "Label".to_string(),
                         2,
+                    )
                 }
                 McInstance::Interface(_) => (inst.to_string(), "Interface".to_string(), 1),
                 McInstance::Bus(_) => (inst.to_string(), "Bus".to_string(), 3),

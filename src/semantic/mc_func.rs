@@ -311,11 +311,6 @@ impl McFunction {
         // ids_node (MCAST_IDS) has the actual name span; MCAST_NAME covers the whole function
         let func_span =
             (ids_node.get_pos() as usize)..((ids_node.get_pos() + ids_node.get_len()) as usize);
-            "[MCF-NEW] func={} ids_node.pos={} len={} span={:?}",
-            McIds::new(&ids_node).map(|i| i.to_string()).unwrap_or_default(),
-            ids_node.get_pos(),
-            ids_node.get_len(),
-            func_span
         let mut ret = Self {
             name: McIds::new(&ids_node)?,
             params: McParamDeclares::new(),
@@ -443,6 +438,7 @@ impl McFunction {
                                     &mut self.insts,
                                     &mut self.params,
                                     &scope,
+                                );
                             }
                             match McPhrase::new(&subnode, &mut wrapper) {
                                 Some(net) => {
@@ -464,6 +460,7 @@ impl McFunction {
                                         &format!(
                                             "Connection line dropped (McPhrase::new returned None): `{line_txt}`"
                                         ),
+                                    );
                                 }
                             }
                         } else {
@@ -494,6 +491,7 @@ impl McFunction {
                 body,
                 &mut self.params,
                 &func_name,
+            );
             let diags = self.params.finalize(Some(body), &func_name);
             for d in &diags {
                 crate::mcc_log_global_diag(d);
@@ -541,6 +539,7 @@ impl McFunction {
                 body_node,
                 "Multiple `return` statements are not allowed; \
                  a function may have at most one return.",
+            );
             return;
         }
 
@@ -580,6 +579,7 @@ impl McFunction {
                     1307,
                     body_node,
                     "Invalid `return` expression: expected `this` or a label/bus.",
+                );
             }
         }
     }

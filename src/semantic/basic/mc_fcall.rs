@@ -45,8 +45,6 @@ pub struct McFuncCall {
 impl McFuncCall {
     /// Parse function call from AST node
     pub fn parse(node: &AstNode, context: &mut dyn HasFindInst) -> Option<McPhrase> {
-        // ★ Diagnostic log
-        let node_str = node.to_string().unwrap_or_default();
         // ★ Register class_ref for F12 goto-def on inline constructors.
         // opd_fcall AST forms:
         //   CAP(10uF)          → { name: "CAP" }                              — class, no instance
@@ -126,11 +124,11 @@ impl McFuncCall {
                                                 let span = (ids_node.get_pos() as usize)
                                                     ..((ids_node.get_pos() + ids_node.get_len())
                                                         as usize);
-                                                    ids.to_string(), span, context.uri()
                                                 mcb_register_declare_class(
                                                     context.uri(),
                                                     &ids.to_string(),
                                                     span,
+                                                );
                                             }
                                         }
                                     }
@@ -552,6 +550,7 @@ impl McFuncCall {
                                                     &anon_name,
                                                     comp_def,
                                                     instance_params.clone(),
+                                                );
                                                 if let Some(phrase) =
                                                     context.add_component(anon_name, component)
                                                 {
@@ -571,6 +570,7 @@ impl McFuncCall {
                                             {
                                                 let iface = Mc2Interface::new_with_str(
                                                     &anon_name, iface_def,
+                                                );
                                                 let inst = McInstance::Interface(Arc::new(iface));
                                                 caller = Some(Box::new(McPhrase::from(inst)));
                                             }
@@ -595,21 +595,6 @@ impl McFuncCall {
                 MCAST_DECLARE => {}
 
                 MCAST_INSTANCE => {
-                    // ── [INST-DIAG] one-time: dump res/cap/dio inline instance node substructure ──
-                    if let Some(sub0) = node.get_sub_node() {
-                        let nm = sub0.to_string().unwrap_or_default();
-                        if nm.contains("res") || nm.contains("cap") || nm.contains("dio") {
-                            for ch in sub0.iter() {
-                                let gk: Vec<u16> = ch
-                                    .get_sub_node()
-                                    .map(|g| g.iter().map(|x| x.get_type()).collect())
-                                    .unwrap_or_default();
-                                    ch.get_type(),
-                                    ch.to_string().unwrap_or_default(),
-                                    gk
-                            }
-                        }
-                    }
                     // Handle MCAST_INSTANCE as caller for method calls like ldo.enable() or CAP(...).Cap(...)
                     if caller.is_none() {
                         if let Some(inner) = each.get_sub_node() {
@@ -637,6 +622,7 @@ impl McFuncCall {
                                             &anon_name,
                                             comp_def,
                                             instance_params.clone(),
+                                        );
                                         if let Some(phrase) =
                                             context.add_component(anon_name, component)
                                         {
@@ -788,12 +774,15 @@ impl McFuncCall {
                                                         let left = caller.as_ref().map_or_else(
                                                             || vec![McBus::new("undefined.in")],
                                                             |phrase| phrase.get_left(),
+                                                        );
                                                         let right = caller.as_ref().map_or_else(
                                                             || vec![McBus::new("undefined.out")],
                                                             |phrase| phrase.get_right(),
+                                                        );
                                                         // chain validity: previous link must return `this`
                                                         Self::check_chain_validity(
                                                             &caller, &name, node, context,
+                                                        );
                                                         return Some(McPhrase::FuncCall(
                                                             McFuncCall {
                                                                 id: 0,
@@ -861,6 +850,7 @@ impl McFuncCall {
                                             1301,
                                             node,
                                             "Missing function name in function call",
+                                        );
                                         return None;
                                     }
                                 }
@@ -870,6 +860,7 @@ impl McFuncCall {
                                     1301,
                                     node,
                                     "Missing function name in function call (seq context)",
+                                );
                                 return None;
                             }
                             _ => {
@@ -884,6 +875,7 @@ impl McFuncCall {
                                         1301,
                                         node,
                                         "Missing function name in function call",
+                                    );
                                     return None;
                                 }
                             }
@@ -937,6 +929,7 @@ impl McFuncCall {
                                 1301,
                                 node,
                                 "Missing function name in function call (seq context)",
+                            );
                             return None;
                         }
                         _ => {
@@ -1019,6 +1012,7 @@ impl McFuncCall {
                                     &inst_name,
                                     comp_def.clone(),
                                     params.clone(),
+                                )
                             };
                             context.add_component(inst_name.clone(), mc2_comp.clone());
                             return Some(McPhrase::Endpoint(McEndpoint::Single(
@@ -1135,6 +1129,7 @@ impl McFuncCall {
                  bus/label (endpoint), not `this`. Only functions that return \
                  `this` can be chained.",
             ),
+        );
     }
 
     /// Walk a phrase down through chained `FuncCall`s to find the root

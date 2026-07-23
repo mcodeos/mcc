@@ -292,11 +292,13 @@ impl McCode {
                         self.uri.clone(),
                         pos,
                         len,
+                    );
                     let diagnostic = crate::db::diagnostic::diagnostic::Diagnostic::new(
                         1000, // E1000: parse error
                         crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
                         location,
                         "syntax error".to_string(),
+                    );
                     workspace::WORKSPACE
                         .diagnostics
                         .lock()
@@ -367,11 +369,13 @@ impl McCode {
                         self.uri.clone(),
                         pos,
                         len,
+                    );
                     let diagnostic = crate::db::diagnostic::diagnostic::Diagnostic::new(
                         1000, // E1000: parse error
                         crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
                         location,
                         "syntax error".to_string(),
+                    );
                     workspace::WORKSPACE
                         .diagnostics
                         .lock()
@@ -526,6 +530,7 @@ impl McCode {
             crate::ast::c_bindings::mcc_load_from_string(
                 c_content.as_ptr() as *const i8,
                 content.len(),
+            )
         };
         if fcontent_ptr.is_null() {
             tracing::warn!(target: "mcc::code", uri = %self.uri, "mcc_load_from_string failed");
@@ -572,11 +577,13 @@ impl McCode {
                         self.uri.clone(),
                         pos,
                         len,
+                    );
                     let diagnostic = crate::db::diagnostic::diagnostic::Diagnostic::new(
                         1000, // E1000: parse error
                         crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
                         location,
                         "syntax error".to_string(),
+                    );
                     workspace::WORKSPACE
                         .diagnostics
                         .lock()
@@ -744,6 +751,7 @@ impl McCode {
                                 definition = %class,
                                 uri = %mcuse.uri,
                                 "use'd definition does not exist in target file"
+                            );
                         }
                     }
                 }
@@ -808,6 +816,7 @@ impl McCode {
                         self.spacenames.insert(
                             class_name.clone(),
                             McSpaceName::new(&class_name, self.uri.clone()),
+                        );
                         cmies.push(class_name);
                     }
                 }
@@ -908,6 +917,7 @@ impl McCode {
                                                 class_id,
                                                 idx as u32,
                                                 *vs..*ve,
+                                            );
                                         }
                                     }
 
@@ -1040,6 +1050,7 @@ impl McCode {
                             &comp_name_str,
                             comp_span,
                             crate::ContainerKind::Component,
+                        );
                     }
                 }
                 MCAST_ENUM => {
@@ -1128,6 +1139,7 @@ impl McCode {
                                     self.spacenames.insert(
                                         class_name_clone,
                                         McSpaceName::new(&class_name, self.uri.clone()),
+                                    );
                                 }
                             }
                         }
@@ -1302,6 +1314,7 @@ impl McCode {
             table.insert(
                 (uri.to_string(), kind, class_name.clone()),
                 (class_id, span),
+            );
         }
         result
     }
@@ -1476,6 +1489,7 @@ impl McCode {
                         &sem.func_table,
                         *cid,
                         *fnid,
+                    );
                     (u32::from(*did), scope)
                 })
                 .collect();
@@ -1512,6 +1526,7 @@ impl McCode {
                                 def_kind: SymbolKind::ClassDef,
                                 cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
                             },
+                        );
                     }
                 }
             }
@@ -1543,6 +1558,7 @@ impl McCode {
                         def_kind: SymbolKind::ClassDef,
                         cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
                     },
+                );
             }
 
             // 1d (REMOVED): instance_ref → def (via inst_id_to_declare_inst).
@@ -1612,6 +1628,7 @@ impl McCode {
                         def_kind: SymbolKind::EnumValDef,
                         cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
                     },
+                );
             }
 
             // 1f. enum class ref → enum class def (§1.3: P3 > P4 > P5).
@@ -1669,6 +1686,7 @@ impl McCode {
                         def_kind: SymbolKind::EnumDef,
                         cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
                     },
+                );
             }
         } // lock released here
 
@@ -1715,6 +1733,7 @@ impl McCode {
                     c.span.end,
                     SymbolKind::ClassDef,
                     CmieKind::Component as u8,
+                );
             }
             for entry in crate::db::infra::global::mcc_modules.iter() {
                 let m = entry.value();
@@ -1727,6 +1746,7 @@ impl McCode {
                     m.span.end,
                     SymbolKind::ClassDef,
                     CmieKind::Module as u8,
+                );
             }
             for entry in crate::db::infra::global::mcc_interfaces.iter() {
                 let i = entry.value();
@@ -1739,6 +1759,7 @@ impl McCode {
                     i.span.end,
                     SymbolKind::ClassDef,
                     CmieKind::Interface as u8,
+                );
             }
             for entry in crate::db::infra::global::mcc_enums.iter() {
                 let e = entry.value();
@@ -1751,6 +1772,7 @@ impl McCode {
                     e.span[1] as usize,
                     SymbolKind::EnumDef,
                     CmieKind::Enum as u8,
+                );
             }
 
             // P4: use chain (medium priority, overwrites P5)
@@ -1805,6 +1827,7 @@ impl McCode {
                                 map.name_index.insert(
                                     (self.uri.to_string(), name.to_string()),
                                     entry.clone(),
+                                );
                                 // ★ §5.1 use as alias: e.g. `use ./helper as h`
                                 if let Some(ref alias) = mc_use.as_id {
                                     let aliased = format!("{alias}.{name}");
@@ -1870,6 +1893,7 @@ impl McCode {
             "consolidate_ref_def_map: uri={} entries={} files={} containers={} names={}",
             self.uri, map.entries.len(), map.files.len(), map.containers.len(),
             map.name_index.len()
+        );
 
         // Write back to symbols
         if let Ok(mut sem) = self.symbols.lock() {
@@ -1904,6 +1928,7 @@ impl McCode {
                     &mut self.cross_file_targets,
                     &mut sem,
                     &mut symbol_lapper,
+                );
                 Self::lapper_instance_decls_and_refs(&self.uri, &mut sem, &mut symbol_lapper);
                 Self::lapper_interfaces(&self.uri, &mut sem, &mut symbol_lapper);
                 Self::lapper_module_ports(&self.uri, &mut sem, &mut symbol_lapper);
@@ -1982,6 +2007,7 @@ impl McCode {
                             &s.func_table,
                             *cid,
                             *fnid,
+                        );
                         ((loc.byte_start as usize, loc.byte_end as usize), scope)
                     })
                     .collect();
@@ -1992,6 +2018,7 @@ impl McCode {
                     std::collections::HashMap::new(),
                     std::collections::HashMap::new(),
                     Vec::new(),
+                )
             });
         if let Ok(mut sem) = self.symbols.lock() {
             let file_table = sem.file_table.clone(); // clone before mutable borrow
@@ -2003,6 +2030,7 @@ impl McCode {
                     &ref_entries_snapshot,
                     &self.uri,
                     &file_table,
+                );
                 // ★ §3.5.4: Upgrade UnknownDef → inferred type
                 Self::upgrade_unknown_defs(map, &self.uri);
             }
@@ -2129,8 +2157,6 @@ impl McCode {
             return None;
         }
 
-            ref_uri, ref_span
-
         // ★ Use mcb_get_cmie with five-layer priority (P1–P5) instead of
         // manual table-by-table searches. mcb_get_cmie already implements:
         //   P1: RefDefMap ID-based lookup (all scopes)
@@ -2140,7 +2166,6 @@ impl McCode {
         //   P5: find_by_name_in_project_tables (final fallback)
         let ids = crate::semantic::basic::mc_ids::McIds::from(clean_name.as_str());
         if let Some(cmie) = crate::db::cmie::cmie::mcb_get_cmie(&ids, ref_uri) {
-                std::mem::discriminant(&cmie)
             let (def_uri, def_span) = match &cmie {
                 crate::semantic::common::McCMIE::Component(c) => (c.uri.clone(), c.span.clone()),
                 crate::semantic::common::McCMIE::Module(m) => (m.uri.clone(), m.span.clone()),
@@ -2208,6 +2233,7 @@ impl McCode {
                                 span.start as u32,
                                 span.end as u32,
                             ),
+                        );
                     }
                 }
 
@@ -2220,7 +2246,6 @@ impl McCode {
                     tracing::info!(target: "mcc::lsp", "  create_lapper: lsp.declare_class_refs for '{}' = {} entries", uri, decl_refs.get(uri).map(|v| v.len()).unwrap_or(0));
                     if let Some(refs) = decl_refs.remove(uri) {
                         for (decl_span, mut class_id, mut target_uri, mut target_span) in refs {
-                                decl_span, class_id, target_span
                             // ★ Fix: Re-resolve sentinel entries (class_id=0, target_uri="")
                             // at lapper creation time when all dependency files have been
                             // parsed and their classes are registered in global/workspace tables.
@@ -2236,7 +2261,6 @@ impl McCode {
                                     class_id = resolved.0;
                                     target_uri = resolved.1;
                                     target_span = resolved.2;
-                                        class_id, target_span
                                 } else {
                                     // ★ Fix: Skip entries that can't be re-resolved.
                                     // Sentinel class_id=0 would map to whatever class got
@@ -2253,8 +2277,6 @@ impl McCode {
 
                 for ((loop_uri, span), refid) in gt.span_to_declare_class_id.iter() {
                     if loop_uri == uri {
-                            span,
-                            refid
                         symbol_lapper.insert(Interval {
                             start: span.start,
                             stop: span.end,
@@ -2299,6 +2321,7 @@ impl McCode {
                                 span.start as u32,
                                 span.end as u32,
                             ),
+                        );
                     }
                 }
                 for (value_id, (loop_uri, span)) in gt.enum_value_id_to_span.iter() {
@@ -2346,6 +2369,7 @@ impl McCode {
                                     inst_name,
                                     span.clone(),
                                     SymbolKind::InstDef,
+                                );
                                 symbol_lapper.insert(Interval {
                                     start: span.start,
                                     stop: span.end,
@@ -2406,6 +2430,7 @@ impl McCode {
                         name,
                         span.clone(),
                         def_kind,
+                    );
                     param_decl_ids.insert(name.to_string(), d);
                     symbol_lapper.insert(Interval {
                         start: span.start,
@@ -2435,6 +2460,7 @@ impl McCode {
                         &sem.local_table,
                         port_name,
                         &sp,
+                    );
                     if let Some(decl_id) = decl_id {
                         symbol_lapper.insert(Interval {
                             start: span.start,
@@ -2473,6 +2499,7 @@ impl McCode {
                         name,
                         span.clone(),
                         def_kind,
+                    );
                     param_decl_ids.insert(name.to_string(), d);
                     symbol_lapper.insert(Interval {
                         start: span.start,
@@ -2502,6 +2529,7 @@ impl McCode {
                         &sem.local_table,
                         port_name,
                         &sp,
+                    );
                     if let Some(decl_id) = decl_id {
                         symbol_lapper.insert(Interval {
                             start: span.start,
@@ -2532,12 +2560,14 @@ impl McCode {
                 target: "mcc::lsp",
                 "[LAPPER_DEBUG] Processing module params: {}",
                 entry.key().ident
+            );
             let param_def_count = m.params.iter_defs_with_span().count();
             tracing::debug!(
                 target: "mcc::lsp",
                 "[LAPPER_DEBUG] module={}, param_def_count={}",
                 entry.key().ident,
                 param_def_count
+            );
             let mod_ident = entry.key().ident.to_string();
             for (name, span) in m.params.iter_defs_with_span() {
                 // ★ Rule 6: untyped params → UnknownDef, typed → ParamDef
@@ -2550,6 +2580,7 @@ impl McCode {
                     name,
                     span.clone(),
                     def_kind,
+                );
                 symbol_lapper.insert(Interval {
                     start: span.start,
                     stop: span.end,
@@ -2567,6 +2598,7 @@ impl McCode {
                     name,
                     span.clone(),
                     SymbolKind::PortDef,
+                );
                 symbol_lapper.insert(Interval {
                     start: span.start,
                     stop: span.end,
@@ -2585,6 +2617,7 @@ impl McCode {
                         name,
                         span.clone(),
                         SymbolKind::LabelDef,
+                    );
                     symbol_lapper.insert(Interval {
                         start: span.start,
                         stop: span.end,
@@ -2636,6 +2669,7 @@ impl McCode {
                     name,
                     span.clone(),
                     SymbolKind::LabelDef,
+                );
                 symbol_lapper.insert(Interval {
                     start: span.start,
                     stop: span.end,
@@ -2655,6 +2689,7 @@ impl McCode {
                                 inst_name,
                                 span.clone(),
                                 SymbolKind::BusDef,
+                            );
                             symbol_lapper.insert(Interval {
                                 start: span.start,
                                 stop: span.end,
@@ -2686,6 +2721,7 @@ impl McCode {
                         &sem.local_table,
                         port_name,
                         &sp,
+                    );
                     if let Some(decl_id) = decl_id {
                         symbol_lapper.insert(Interval {
                             start: span.start,
@@ -2706,6 +2742,7 @@ impl McCode {
                         &sem.local_table,
                         port_name,
                         &sp,
+                    );
                     if let Some(decl_id) = decl_id {
                         let ref_kind = Self::resolve_net_ref_kind(port_name, &func.insts);
                         symbol_lapper.insert(Interval {
@@ -2723,6 +2760,7 @@ impl McCode {
                         &sem.local_table,
                         port_name,
                         &sp,
+                    );
                     if let Some(decl_id) = decl_id {
                         let ref_kind = Self::resolve_net_ref_kind(port_name, &func.insts);
                         symbol_lapper.insert(Interval {
@@ -2744,6 +2782,7 @@ impl McCode {
                         name,
                         span.clone(),
                         SymbolKind::LabelDef,
+                    );
                     symbol_lapper.insert(Interval {
                         start: span.start,
                         stop: span.end,
@@ -2763,12 +2802,14 @@ impl McCode {
                     e.key().ident.to_string(),
                     e.value().clone(),
                     e.key().uri.to_string(),
+                )
             })
             .chain(global::mcc_components.iter().map(|e| {
                 (
                     e.key().ident.to_string(),
                     e.value().clone(),
                     e.key().uri.to_string(),
+                )
             }))
             .filter(|(_, _, comp_uri)| comp_uri == uri.as_str())
             .collect();
@@ -2783,6 +2824,7 @@ impl McCode {
                     name,
                     span.clone(),
                     def_kind,
+                );
                 symbol_lapper.insert(Interval {
                     start: span.start,
                     stop: span.end,
@@ -2798,6 +2840,7 @@ impl McCode {
                     &pin_name,
                     pin_span.clone(),
                     SymbolKind::PinNameDef,
+                );
                 symbol_lapper.insert(Interval {
                     start: pin_span.start,
                     stop: pin_span.end,
@@ -2813,6 +2856,7 @@ impl McCode {
                     &pin_id,
                     id_span.clone(),
                     SymbolKind::PinIdDef,
+                );
                 symbol_lapper.insert(Interval {
                     start: id_span.start,
                     stop: id_span.end,
@@ -2828,6 +2872,7 @@ impl McCode {
                     &iface,
                     if_span.clone(),
                     SymbolKind::PinIfaceDef,
+                );
                 symbol_lapper.insert(Interval {
                     start: if_span.start,
                     stop: if_span.end,
@@ -2840,6 +2885,7 @@ impl McCode {
                     SourceLocation::from_span(&key_span),
                     Some(key_name.clone()),
                     Some(comp_ident),
+                );
                 symbol_lapper.insert(Interval {
                     start: key_span.start,
                     stop: key_span.end,
@@ -2871,6 +2917,7 @@ impl McCode {
                     SourceLocation::from_span(&span),
                     Some(name.to_string()),
                     Some(&comp_ident_label),
+                );
                 symbol_lapper.insert(Interval {
                     start: span.start,
                     stop: span.end,
@@ -3007,6 +3054,7 @@ impl McCode {
                                 .or_else(|| {
                                     gt.enum_class_name_to_id.iter().find_map(
                                         |((_uri, name), cid)| (name == &base_name).then_some(*cid),
+                                    )
                                 })
                                 .unwrap_or_default()
                         }
@@ -3176,10 +3224,12 @@ impl McCode {
                     (
                         ids.get_pos() as usize,
                         (ids.get_pos() + ids.get_len()) as usize,
+                    )
                 } else if let Some(name_node) = node.get_sub_node() {
                     (
                         name_node.get_pos() as usize,
                         (name_node.get_pos() + name_node.get_len()) as usize,
+                    )
                 } else {
                     continue;
                 };
@@ -3200,6 +3250,7 @@ impl McCode {
                         func_name.as_deref().unwrap_or("?"),
                         span.0..span.1,
                         SymbolKind::FuncDef,
+                    );
                     symbol_lapper.insert(Interval {
                         start: span.0,
                         stop: span.1,
@@ -3223,6 +3274,7 @@ impl McCode {
                                 &pname,
                                 pspan.clone(),
                                 SymbolKind::UnknownDef,
+                            );
                             symbol_lapper.insert(Interval {
                                 start: pspan.start,
                                 stop: pspan.end,
@@ -3243,6 +3295,7 @@ impl McCode {
                     let span = (
                         name_node.get_pos() as usize,
                         (name_node.get_pos() + name_node.get_len()) as usize,
+                    );
                     let enclosing = find_container(span.0).unwrap_or_default();
                     let (d, _) = crate::refdef::register::register_def(
                         sem,
@@ -3252,6 +3305,7 @@ impl McCode {
                         "",
                         span.0..span.1,
                         SymbolKind::DefineDef,
+                    );
                     symbol_lapper.insert(Interval {
                         start: span.0,
                         stop: span.1,
@@ -3263,6 +3317,7 @@ impl McCode {
                     let span = (
                         name_node.get_pos() as usize,
                         (name_node.get_pos() + name_node.get_len()) as usize,
+                    );
                     let enclosing = find_container(span.0).unwrap_or_default();
                     let (d, _) = crate::refdef::register::register_def(
                         sem,
@@ -3272,6 +3327,7 @@ impl McCode {
                         "",
                         span.0..span.1,
                         SymbolKind::RoleDef,
+                    );
                     symbol_lapper.insert(Interval {
                         start: span.0,
                         stop: span.1,
@@ -3297,6 +3353,7 @@ impl McCode {
                     let span = (
                         ids_node.get_pos() as usize,
                         (ids_node.get_pos() + ids_node.get_len()) as usize,
+                    );
                     let has_instance = sub
                         .as_ref()
                         .map(|s| s.get_type() == MCAST_INSTANCE)
@@ -3304,8 +3361,6 @@ impl McCode {
                     let func_name = crate::semantic::basic::mc_ids::McIds::new(&ids_node)
                         .map(|ids| ids.to_string());
                     if has_instance {
-                            func_name,
-                            span
                         // ★ Fix: only create FuncRef if the function is found in
                         // name_to_declare_id. Don't fall back to add_declare_with_name
                         // (which produces a random ID that never matches RefDefMap,
@@ -3340,8 +3395,6 @@ impl McCode {
                                 span.1,
                             ));
                         } else {
-                                func_name
-                                sub.as_ref().map(|s| s.get_type()).unwrap_or(0)
                             if let Some(class_name) = Self::extract_class_name(&sub) {
                                 // P3-P5: CMIE member lookup via mcb_get_cmie
                                 if let Some(method_name) =
@@ -3352,8 +3405,8 @@ impl McCode {
                                             &class_name,
                                             &method_name,
                                             uri,
+                                        )
                                     {
-                                        def_span, ref_kind
                                         let enclosing = find_container(span.0).unwrap_or_default();
                                         let (decl_id, _loc) = crate::refdef::register::register_def(
                                             sem,
@@ -3363,6 +3416,7 @@ impl McCode {
                                             &method_name,
                                             def_span,
                                             SymbolKind::FuncDef,
+                                        );
                                         symbol_lapper.insert(Interval {
                                             start: span.0,
                                             stop: span.1,
@@ -3374,6 +3428,15 @@ impl McCode {
                                             span.0,
                                             span.1,
                                         ));
+                                    } else {
+                                        dlog_error(
+                                            1501,
+                                            node,
+                                            &format!(
+                                                "function '{}' not found in class '{}'",
+                                                method_name, class_name
+                                            ),
+                                        );
                                     }
                                 }
                             }
@@ -3393,6 +3456,7 @@ impl McCode {
                             &sem.local_table,
                             &uri,
                             &enclosing,
+                        );
                         for (span, did) in refs {
                             // ★ §4.3: Dispatch ref kind based on def type (not catch-all FuncParamRef)
                             let ref_kind =
@@ -3425,16 +3489,10 @@ impl McCode {
         }
         // MCAST_INSTANCE wraps the inner FCall (e.g. RES(100kΩ)).
         let inner_fcall = s.get_sub_node()?;
-            inner_fcall.get_type(),
-            inner_fcall.to_string()
         // inner_fcall.get_sub_node() for a bare OPD_FCALL returns MCAST_NAME(21).
         // MCAST_NAME wraps MCAST_IDS(3) — need another get_sub_node().
         let name_node = inner_fcall.get_sub_node()?;
-            name_node.get_type(),
-            name_node.to_string()
         let ids_node = name_node.get_sub_node()?;
-            ids_node.get_type(),
-            ids_node.to_string()
         let ids = McIds::new(&ids_node)?;
         Some(ids.to_string())
     }
