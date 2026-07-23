@@ -7,7 +7,7 @@
 use super::{
     CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub struct PortInstanceCheck;
 
@@ -102,35 +102,32 @@ fn check_undefined_net_refs(mod_name: &str, m: &crate::McModule, acc: &mut Check
     if super::is_test_file(&uri) {
         return;
     }
-    for phrase in &m.lines {
-        let text = format!("{}", phrase);
-        for word in text.split_whitespace() {
-            let clean = word.trim_matches(|c: char| {
-                !c.is_alphanumeric() && c != '_' && c != '.' && c != '[' && c != ']'
+    let mut known: HashSet<String> = m.insts.iter_instance_names().cloned().collect();
+    known.extend(m.params.names());
+
+    for (span, name, _) in m.insts.iter_net_refs() {
+        if name.starts_with('@') {
+            continue;
+        }
+        let ids = crate::McIds::from(name.as_str());
+        let expanded = ids.expand();
+        let found = if expanded.is_empty() {
+            known.contains(name)
+        } else {
+            expanded.iter().any(|candidate| known.contains(candidate))
+        };
+        if !found {
+            acc.push(CheckResult {
+                check_name: "port-instance",
+                severity: CheckSeverity::Warning,
+                uri: Some(uri.clone()),
+                span: Some(span.clone()),
+                message: format!(
+                    "Module '{}' references '{}' which is not a declared port or instance.",
+                    mod_name, name
+                ),
+                code: 2403,
             });
-            if clean.is_empty() || clean.len() == 1 {
-                continue;
-            }
-            if clean.starts_with('"') || clean.starts_with('\'') {
-                continue;
-            }
-            // Check if it's a known port/instance
-            if !m.insts.contains(clean)
-                && m.insts.resolve_idx(clean).is_none()
-                && !m.params.is_defined(clean)
-            {
-                acc.push(CheckResult {
-                    check_name: "port-instance",
-                    severity: CheckSeverity::Warning,
-                    uri: Some(uri.clone()),
-                    span: span_for(m, clean),
-                    message: format!(
-                        "Module '{}' references '{}' which is not a declared port or instance.",
-                        mod_name, clean
-                    ),
-                    code: 2403,
-                });
-            }
         }
     }
 }

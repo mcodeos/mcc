@@ -1,4 +1,4 @@
-/// Extra checks: H3, I1, I3, J2, J3, N5, N6, U1, U4, U5
+/// Extra checks: H3, I1, I3, J3, N5, N6, U1, U4, U5
 use super::{
     CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
 };
@@ -56,42 +56,6 @@ impl ValidationCheck for ExtraCheck {
                             message: format!("Port '{}' shadows a library CMIE name.", port_name),
                             code: 2203,
                         });
-                    }
-                }
-            }
-        }
-
-        // J2: UPPERCASE instance names (should be lowercase)
-        {
-            let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-            for entry in modules.iter() {
-                let uri = entry.key().uri.to_string();
-                if super::is_test_file(&uri) {
-                    continue;
-                }
-                let m = entry.value();
-                let mod_span_j2 = Some(m.span.start..m.span.end);
-                for name in m.insts.iter_instance_names() {
-                    if name.len() <= 2 {
-                        continue;
-                    } // skip short names like "A", "X6"
-                    if name
-                        .chars()
-                        .all(|c| c.is_uppercase() || c.is_ascii_digit() || c == '_')
-                    {
-                        if name.chars().any(|c| c.is_uppercase()) && !name.contains('_') {
-                            acc.push(CheckResult {
-                                check_name: "extra",
-                                severity: CheckSeverity::Info,
-                                uri: Some(uri.clone()),
-                                span: mod_span_j2.clone(),
-                                message: format!(
-                                    "Instance '{}' is all-uppercase (convention: lower_snake).",
-                                    name
-                                ),
-                                code: 2202,
-                            });
-                        }
                     }
                 }
             }
@@ -439,18 +403,8 @@ fn check_empty_defines(acc: &mut CheckAccumulator) {
     }
 }
 
-/// D2: instance class name not found in workspace component/interfaces tables.
+/// D2: unresolved instance class name.
 fn check_instance_class_found(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
-    let mut known: HashSet<String> = HashSet::new();
-    for e in comps.iter() {
-        known.insert(e.key().ident.to_string());
-    }
-    for e in ifaces.iter() {
-        known.insert(e.key().ident.to_string());
-    }
-
     let modules = &crate::db::cmie::tables::WORKSPACE.modules;
     for entry in modules.iter() {
         let uri = entry.key().uri.to_string();
@@ -458,26 +412,19 @@ fn check_instance_class_found(acc: &mut CheckAccumulator) {
             continue;
         }
         let m = entry.value();
-        for name in m.insts.iter_instance_names() {
-            // Skip labels, buses, anon ports
-            if name.starts_with('@') || name.starts_with('[') || name.len() <= 1 {
-                continue;
-            }
-            if !known.contains(name) {
-                // Check if it looks like a class name (uppercase start)
-                if name.chars().next().map_or(false, |c| c.is_uppercase()) {
-                    acc.push(CheckResult {
-                        check_name: "extra",
-                        severity: CheckSeverity::Warning,
-                        uri: Some(uri.clone()),
-                        span: Some(m.span.start..m.span.end),
-                        message: format!(
-                            "Instance '{}' references class that is not loaded.",
-                            name
-                        ),
-                        code: 2606,
-                    });
-                }
+        for (name, (_, inst)) in m.insts.insts() {
+            if let crate::McInstance::Unresolved { class_name } = inst {
+                acc.push(CheckResult {
+                    check_name: "extra",
+                    severity: CheckSeverity::Warning,
+                    uri: Some(uri.clone()),
+                    span: Some(m.span.start..m.span.end),
+                    message: format!(
+                        "Instance '{}' references class '{}' that is not loaded.",
+                        name, class_name
+                    ),
+                    code: 2606,
+                });
             }
         }
     }
