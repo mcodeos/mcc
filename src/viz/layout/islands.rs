@@ -197,8 +197,8 @@ impl Band {
 
 /// A bipartite graph: terminals ↔ bands.
 /// Each band connects exactly two terminals; each terminal may connect to
-/// multiple bands. This graph is used to select a **center** terminal and
-/// split the remaining terminals into left/right sides for stacking.
+/// multiple bands. This graph is used to derive a **linear order** of terminals
+/// along the x-axis, then place bands in the gaps between adjacent terminals.
 struct TerminalGraph {
     /// terminal box_id → indices of bands connected to it
     incident: std::collections::BTreeMap<i64, Vec<usize>>,
@@ -206,17 +206,114 @@ struct TerminalGraph {
     ends: Vec<(i64, i64)>,
 }
 
-fn build_terminal_graph(bands: &[Band]) -> TerminalGraph {
-    let mut incident: std::collections::BTreeMap<i64, Vec<usize>> =
-        std::collections::BTreeMap::new();
-    let mut ends: Vec<(i64, i64)> = Vec::with_capacity(bands.len());
-    for (i, band) in bands.iter().enumerate() {
-        let (a, b) = band.terminal_boxes();
-        incident.entry(a).or_default().push(i);
-        incident.entry(b).or_default().push(i);
-        ends.push((a, b));
+impl TerminalGraph {
+    fn any_node(&self) -> i64 {
+        *self.incident.keys().next().unwrap()
     }
-    TerminalGraph { incident, ends }
+
+    /// Neighbour terminals of `t` (the other end of each band incident to `t`).
+    fn adjacent(&self, t: i64) -> Vec<i64> {
+        let mut neighbours: Vec<i64> = Vec::new();
+        if let Some(indices) = self.incident.get(&t) {
+            for &bi in indices {
+                let (a, b) = self.ends[bi];
+                neighbours.push(if a == t { b } else { a });
+            }
+        }
+        neighbours.sort_unstable();
+        neighbours.dedup();
+        neighbours
+    }
+
+    /// BFS: find the terminal farthest from `start`.
+    fn bfs_farthest(&self, start: i64) -> i64 {
+        let mut dist: HashMap<i64, usize> = HashMap::new();
+        let mut queue: std::collections::VecDeque<i64> = std::collections::VecDeque::new();
+        dist.insert(start, 0);
+        queue.push_back(start);
+        let mut farthest = start;
+        while let Some(t) = queue.pop_front() {
+            let d = dist[&t];
+            for n in self.adjacent(t) {
+                if !dist.contains_key(&n) {
+                    dist.insert(n, d + 1);
+                    queue.push_back(n);
+                    if d + 1 > dist[&farthest] {
+                        farthest = n;
+                    }
+                }
+            }
+        }
+        farthest
+    }
+
+    /// BFS: return the shortest path `a → … → b` as a vector.
+    fn path_between(&self, a: i64, b: i64) -> Vec<i64> {
+        let mut parent: HashMap<i64, i64> = HashMap::new();
+        let mut queue: std::collections::VecDeque<i64> = std::collections::VecDeque::new();
+        parent.insert(a, a);
+        queue.push_back(a);
+        'bfs: while let Some(t) = queue.pop_front() {
+            for n in self.adjacent(t) {
+                if !parent.contains_key(&n) {
+                    parent.insert(n, t);
+                    queue.push_back(n);
+                    if n == b {
+                        break 'bfs;
+                    }
+                }
+            }
+        }
+        let mut path = Vec::new();
+        let mut cur = b;
+        while cur != a {
+            path.push(cur);
+            cur = parent[&cur];
+        }
+        path.push(a);
+        path.reverse();
+        path
+    }
+
+    /// ★ Derive a left-to-right linear order of terminals.
+    ///
+    /// 1. Double BFS to find the diameter path (the main chain).
+    /// 2. Branch nodes (degree > 2 forks) are inserted next to their anchor
+    ///    on the chain.
+    ///
+    /// Star / two-terminal are degenerate cases — byte-identical to the old
+    /// centre-based layout. Chain (3+ terminals) is the new supported shape.
+    fn linear_order(&self) -> Vec<i64> {
+        let start = self.any_node();
+        let a = self.bfs_farthest(start);
+        let b = self.bfs_farthest(a);
+        let mut order = self.path_between(a, b);
+
+        // Insert branch nodes adjacent to their anchor on the chain
+        let order_set: HashSet<i64> = order.iter().copied().collect();
+        let mut branches: Vec<i64> = self
+            .incident
+            .keys()
+            .filter(|t| !order_set.contains(t))
+            .copied()
+            .collect();
+        branches.sort_unstable(); // deterministic
+
+        for t in branches {
+            if let Some(anchor) = self
+                .adjacent(t)
+                .iter()
+                .find(|n| order_set.contains(n))
+                .copied()
+            {
+                let at = order.iter().position(|x| *x == anchor).unwrap();
+                // Insert to the right of the anchor
+                order.insert(at + 1, t);
+            }
+        }
+
+        order
+    }
 }
 
 /// Build a TerminalGraph from raw terminal pairs (before models are built).
@@ -247,82 +344,19 @@ fn build_terminal_graph_from_pairs(
     TerminalGraph { incident, ends }
 }
 
-/// Given an island's terminal pair (a, b) and the TerminalGraph's side assignment,
+/// Given an island's terminal pair (a, b) and the terminal chain order,
 /// return the correct (left_box, right_box) ordering.
 ///
-/// Rule:
-/// - island on left side of center  → left_box = neighbor, right_box = center
-/// - island on right side of center → left_box = center,  right_box = neighbor
-fn ordered_terminals(
-    island_idx: usize,
-    a: i64,
-    b: i64,
-    center: i64,
-    left_side: &[(i64, Vec<usize>)],
-) -> (i64, i64) {
-    let neighbor = if a == center { b } else { a };
-    let on_left = left_side
-        .iter()
-        .any(|(_, indices)| indices.contains(&island_idx));
-    if on_left {
-        (neighbor, center)
+/// Left = earlier in the chain, right = later. This naturally handles
+/// 2-terminal, star, and chain topologies without special cases.
+fn ordered_terminals_by_chain(a: i64, b: i64, order: &[i64]) -> (i64, i64) {
+    let pos_a = order.iter().position(|&t| t == a).unwrap();
+    let pos_b = order.iter().position(|&t| t == b).unwrap();
+    if pos_a < pos_b {
+        (a, b)
     } else {
-        (center, neighbor)
+        (b, a)
     }
-}
-
-/// Split the terminal graph's neighbours into left/right sides relative to the
-/// centre terminal. Uses a simple heuristic:
-/// - 1 neighbour → right side (preserves legacy two-terminal layout)
-/// - 2 neighbours → one on each side, larger (by band count) on the right
-/// - 3+ neighbours → greedy balance (minimise height difference)
-///
-/// Returns `(left_side, right_side)` where each side is a list of
-/// `(terminal_id, band_indices)` sorted by band count descending.
-fn split_sides(
-    tg: &TerminalGraph,
-    center: i64,
-) -> (Vec<(i64, Vec<usize>)>, Vec<(i64, Vec<usize>)>) {
-    let mut neighbours: Vec<(i64, usize)> = tg
-        .incident
-        .iter()
-        .filter(|(&k, _)| k != center)
-        .map(|(k, v)| (*k, v.len()))
-        .collect();
-
-    let mut left_side: Vec<(i64, Vec<usize>)> = Vec::new();
-    let mut right_side: Vec<(i64, Vec<usize>)> = Vec::new();
-
-    match neighbours.len() {
-        0 => {}
-        1 => {
-            let (tid, _) = neighbours[0];
-            right_side.push((tid, tg.incident[&tid].clone()));
-        }
-        2 => {
-            // Sort by band count descending — larger goes to right
-            neighbours.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
-            left_side.push((neighbours[1].0, tg.incident[&neighbours[1].0].clone()));
-            right_side.push((neighbours[0].0, tg.incident[&neighbours[0].0].clone()));
-        }
-        _ => {
-            // Greedy balance: assign each neighbour to the side with fewer total bands
-            neighbours.sort_by_key(|(_, n)| std::cmp::Reverse(*n));
-            let mut left_count = 0usize;
-            let mut right_count = 0usize;
-            for (tid, n) in neighbours {
-                if left_count <= right_count {
-                    left_side.push((tid, tg.incident[&tid].clone()));
-                    left_count += n;
-                } else {
-                    right_side.push((tid, tg.incident[&tid].clone()));
-                    right_count += n;
-                }
-            }
-        }
-    }
-
-    (left_side, right_side)
 }
 
 // ============================================================================
@@ -474,21 +508,18 @@ pub fn decompose(graph: &McVecGraph) -> Decomposition {
 // ★ apply_islands — 将分解结果落成几何（Phase 2: band 装配）
 // ============================================================================
 
-/// Try to apply island-based layout. Returns `true` if **all** islands were claimed
-/// and placed. Returns `false` if any island could not be claimed — the caller should
-/// fall back to the old whole-graph SP/ladder dispatch.
+/// Try to apply island-based layout. Returns `true` if **at least one** island was
+/// claimed and placed (per-island claiming). Successful islands are locked with
+/// `geom_locked = true`; failed islands are left for the fallback (L2/L3/L4).
 ///
 /// ## Algorithm
-/// 1. Phase A: For each island, build a model (SP or Ladder). Direct bands are also
-///    collected as bands.
+/// 1. Phase A: For each island, build a model (SP or Ladder). Track which succeed.
 ///    - Stubs are logged only (pendant branches, decoupling caps).
-///    - MultiPort islands → not claimed → causes fallback.
-/// 2. Phase B: Collect all bands, compute shared x_right from max columns.
-/// 3. Phase C: Stack bands vertically, place passives relative to each band's origin.
-///    - Models use `apply_*_model_at` — never touch terminals.
-/// 4. Phase D: Collect all terminal pins from all bands, place terminals once globally.
-///    - `distribute_terminal_pins` sees the full set → connected pins face the block,
-///      unconnected pins go to the far edge.
+///    - MultiPort islands → not claimed.
+/// 2. Phase 0.5: Rebuild terminal graph from **successful** pairs + direct bands,
+///    derive the chain order.
+/// 3. Phase B: Collect bands from successful models + direct bands.
+/// 4. Phase C+D: Chain-based layout — stack bands in gaps, place terminals once.
 ///
 /// Every early return and every placement failure logs exactly what went wrong.
 pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
@@ -497,69 +528,53 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
         return false;
     }
 
-    // ── Phase 0.5: collect terminal pairs, build TerminalGraph ─────────────
-    //    This must happen BEFORE Phase A so every island's (left_box, right_box)
-    //    is determined by the terminal graph, not by id sort.
-    let (_tg, center, left_side, _right_side) = {
+    // ── Phase 0.5: initial terminal graph from ALL pairs (for chain-based
+    //    ordering during model building). Rebuilt later from successful pairs only.
+    let initial_order = {
         let box_by_id: HashMap<i64, &crate::vector::graph::McVecBox> =
             graph.boxes.iter().map(|b| (b.id, b)).collect();
 
-        // Collect terminal pairs from islands (unordered)
-        let mut island_pairs: Vec<(usize, i64, i64)> = Vec::new();
+        let mut pairs: Vec<(usize, i64, i64)> = Vec::new();
         for (i, isl) in d.islands.iter().enumerate() {
             let kind = classify(graph, isl, &box_by_id);
             match kind {
                 IslandKind::Sp | IslandKind::Ladder { .. } => {
                     if let Some(pair) = find_terminals(graph, isl, &box_by_id) {
-                        island_pairs.push((i, pair.0, pair.1));
+                        pairs.push((i, pair.0, pair.1));
                     }
                 }
                 _ => {}
             }
         }
 
-        let tg = build_terminal_graph_from_pairs(&island_pairs, &d.direct_bands);
+        let tg = build_terminal_graph_from_pairs(&pairs, &d.direct_bands);
 
-        // Log
+        // Log terminal graph
         for (&tid, indices) in &tg.incident {
             let name = box_label(&box_by_id, tid);
             crate::vlog!("[islands] terminal graph: {}(deg={})", name, indices.len());
         }
 
-        let center = tg
-            .incident
-            .iter()
-            .max_by_key(|(_, v)| v.len())
-            .map(|(k, _)| *k)
-            .unwrap();
-        let center_name = box_label(&box_by_id, center);
-        crate::vlog!("[islands]   center={}", center_name);
+        let order = tg.linear_order();
+        let names: Vec<String> = order.iter().map(|&t| box_label(&box_by_id, t)).collect();
+        crate::vlog!("[islands] terminal chain: {}", names.join(" — "));
 
-        let (left_side, right_side) = split_sides(&tg, center);
-
-        for (tid, indices) in &left_side {
-            let name = box_label(&box_by_id, *tid);
-            crate::vlog!("[islands]   left  side: {} | bands {:?}", name, indices);
-        }
-        for (tid, indices) in &right_side {
-            let name = box_label(&box_by_id, *tid);
-            crate::vlog!("[islands]   right side: {} | bands {:?}", name, indices);
-        }
-
-        (tg, center, left_side, right_side)
+        order
     }; // box_by_id dropped
 
-    let mut all_claimed = true;
+    // ★ Per-island claiming: track which island indices were successfully claimed.
+    let mut claimed: HashSet<usize> = HashSet::new();
     let mut sp_models: Vec<(SpModel, usize)> = Vec::new();
     let mut ladder_models: Vec<(LadderModel, usize)> = Vec::new();
 
-    // ── Phase A: build models with side-determined ordering ────────────────
-    let box_owned: HashMap<i64, String> = {
+    // ── Phase A: build models with chain-determined ordering ────────────────
+    {
         let box_by_id: HashMap<i64, &crate::vector::graph::McVecBox> =
             graph.boxes.iter().map(|b| (b.id, b)).collect();
 
         for (i, isl) in d.islands.iter().enumerate() {
             let kind = classify(graph, isl, &box_by_id);
+            let isl_boxes = boundary_boxes(graph, isl, &box_by_id);
             match kind {
                 IslandKind::Stub => {
                     crate::vlog!(
@@ -569,7 +584,6 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
                     );
                 }
                 IslandKind::MultiPort => {
-                    let b_boxes = boundary_boxes(graph, isl, &box_by_id);
                     let b_labels: Vec<String> = isl
                         .boundaries
                         .iter()
@@ -577,12 +591,11 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
                         .collect();
                     crate::vlog!(
                         "[islands] island#{i} is MultiPort ({} boundary_boxes: {:?}, {} boundary_nets: {:?}) — not claimed, falling back",
-                        b_boxes.len(),
-                        b_boxes,
+                        isl_boxes.len(),
+                        isl_boxes,
                         b_labels.len(),
                         b_labels
                     );
-                    all_claimed = false;
                 }
                 IslandKind::Sp => {
                     let (a, b) = match find_terminals(graph, isl, &box_by_id) {
@@ -591,13 +604,18 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
                             crate::vlog!(
                                 "[islands] island#{i} (Sp): cannot find 2 terminal boxes — not claimed"
                             );
-                            all_claimed = false;
                             continue;
                         }
                     };
 
-                    // ★ Ordering by TerminalGraph, not by id sort
-                    let (left_box, right_box) = ordered_terminals(i, a, b, center, &left_side);
+                    // ★ Ordering by chain, not by id sort
+                    let (left_box, right_box) = ordered_terminals_by_chain(a, b, &initial_order);
+
+                    // ★ Debug assertion: terminals must belong to this island
+                    debug_assert!(
+                        isl_boxes.contains(&left_box) && isl_boxes.contains(&right_box),
+                        "island#{i}: 给模型的端子 ({left_box}, {right_box}) 不是这个岛的边界盒 {isl_boxes:?}"
+                    );
 
                     let passive_boxes: Vec<i64> =
                         isl.edges.iter().map(|(id, _, _, _)| *id).collect();
@@ -624,12 +642,12 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
                                 model.root.expr()
                             );
                             sp_models.push((model, i));
+                            claimed.insert(i);
                         }
                         Err(e) => {
                             crate::vlog!(
                                 "[islands] island#{i}: SP bail — {e} — not claimed, falling back"
                             );
-                            all_claimed = false;
                         }
                     }
                 }
@@ -640,13 +658,18 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
                             crate::vlog!(
                                 "[islands] island#{i} (Ladder): cannot find 2 terminal boxes — not claimed"
                             );
-                            all_claimed = false;
                             continue;
                         }
                     };
 
-                    // ★ Ordering by TerminalGraph, not by id sort
-                    let (left_box, right_box) = ordered_terminals(i, a, b, center, &left_side);
+                    // ★ Ordering by chain, not by id sort
+                    let (left_box, right_box) = ordered_terminals_by_chain(a, b, &initial_order);
+
+                    // ★ Debug assertion: terminals must belong to this island
+                    debug_assert!(
+                        isl_boxes.contains(&left_box) && isl_boxes.contains(&right_box),
+                        "island#{i}: 给模型的端子 ({left_box}, {right_box}) 不是这个岛的边界盒 {isl_boxes:?}"
+                    );
 
                     let left_name = box_label(&box_by_id, left_box);
                     let right_name = box_label(&box_by_id, right_box);
@@ -666,39 +689,89 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
                                 model.n_cols
                             );
                             ladder_models.push((model, i));
+                            claimed.insert(i);
                         }
                         Err(e) => {
                             crate::vlog!(
                                 "[islands] island#{i}: ladder bail — {e} — not claimed, falling back"
                             );
-                            all_claimed = false;
                         }
                     }
                 }
             }
         }
+    } // ★ box_by_id dropped here — mutable borrow is now safe
 
-        // Build a label map before dropping box_by_id
-        graph
-            .boxes
-            .iter()
-            .map(|b| (b.id, b.display_label().to_string()))
-            .collect()
-    }; // ★ box_by_id dropped here — mutable borrow is now safe
+    // ── Log coverage before any geometry changes ────────────────────────────
+    let total = d.islands.len();
+    let n_claimed = claimed.len();
+    let fallback = total - n_claimed;
+    let coverage_pct = if total > 0 {
+        n_claimed as f64 / total as f64 * 100.0
+    } else {
+        0.0
+    };
+    crate::vlog!(
+        "[islands] LAYOUT-MODEL: islands={total} claimed={n_claimed} fallback={fallback} coverage={coverage_pct:.0}%"
+    );
+    // ★ Store coverage for the fidelity gate (read by compute_fidelity in select.rs)
+    graph.islands_claimed = n_claimed;
+    graph.islands_total = total;
 
-    if !all_claimed {
-        crate::vlog!(
-            "[islands] not all islands claimed ({}/{} succeeded) — falling back to whole-graph models",
-            sp_models.len() + ladder_models.len(),
-            d.islands.len()
-        );
+    if claimed.is_empty() && d.direct_bands.is_empty() {
+        crate::vlog!("[islands] no islands claimed — falling back to whole-graph models");
         return false;
     }
 
-    // ── Phase B: collect bands from models + direct bands ────────────────────
+    // ── Phase 0.5b: rebuild terminal graph from ★successful★ pairs only ────
+    //    This ensures the chain only includes terminals that actually have bands,
+    //    so failed islands' terminals are left unlocked for the fallback.
+    let (order, box_owned) = {
+        let box_by_id: HashMap<i64, &crate::vector::graph::McVecBox> =
+            graph.boxes.iter().map(|b| (b.id, b)).collect();
+
+        let mut pairs: Vec<(usize, i64, i64)> = Vec::new();
+        for (i, isl) in d.islands.iter().enumerate() {
+            if !claimed.contains(&i) {
+                continue;
+            }
+            let kind = classify(graph, isl, &box_by_id);
+            match kind {
+                IslandKind::Sp | IslandKind::Ladder { .. } => {
+                    if let Some(pair) = find_terminals(graph, isl, &box_by_id) {
+                        pairs.push((i, pair.0, pair.1));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let tg = build_terminal_graph_from_pairs(&pairs, &d.direct_bands);
+
+        let order = tg.linear_order();
+        let names: Vec<String> = order.iter().map(|&t| box_label(&box_by_id, t)).collect();
+        crate::vlog!(
+            "[islands] claimed terminal chain ({} terminals): {}",
+            names.len(),
+            names.join(" — ")
+        );
+
+        let box_owned: HashMap<i64, String> = graph
+            .boxes
+            .iter()
+            .map(|b| (b.id, b.display_label().to_string()))
+            .collect();
+
+        (order, box_owned)
+    }; // box_by_id dropped
+
+    // ── Phase B: collect bands from successful models + direct bands ────────
     let mut bands: Vec<Band> = Vec::new();
 
     for (model, i) in sp_models {
+        if !claimed.contains(&i) {
+            continue;
+        }
         crate::vlog!("[islands] band SP island#{i}: size={:?}", model.size());
         bands.push(Band::Sp {
             model,
@@ -706,6 +779,9 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
         });
     }
     for (model, i) in ladder_models {
+        if !claimed.contains(&i) {
+            continue;
+        }
         crate::vlog!("[islands] band Ladder island#{i}: size={:?}", model.size());
         bands.push(Band::Ladder {
             model,
@@ -721,7 +797,6 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
             .get(&db.right_box)
             .cloned()
             .unwrap_or_else(|| "?".into());
-        // Find the terminal pins for this direct band
         let net = &graph.nets[db.net];
         let left_pin = net
             .endpoints
@@ -756,22 +831,8 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
         return false;
     }
 
-    // ── Build TerminalGraph ──────────────────────────────────────────────────
-    let tg = build_terminal_graph(&bands);
-
-    // Log the terminal graph
-    for (&tid, indices) in &tg.incident {
-        let name = box_owned.get(&tid).cloned().unwrap_or_else(|| "?".into());
-        crate::vlog!("[islands] terminal graph: {}(deg={})", name, indices.len());
-    }
-
-    if tg.incident.len() == 2 {
-        // Two-terminal case: all bands share the same pair → legacy layout
-        apply_two_terminal_layout(graph, &bands, &box_owned)
-    } else {
-        // Multi-terminal case: use centre-based layout
-        apply_multi_terminal_layout(graph, &bands, &tg, &box_owned)
-    }
+    // ── Phase C+D: chain-based layout ────────────────────────────────────────
+    apply_chain_layout(graph, &bands, &order, &box_owned)
 }
 
 /// Collect the boundary boxes for an island — the non-passive, non-rail boxes
@@ -858,171 +919,7 @@ fn find_terminals(
 }
 
 // ============================================================================
-// ★ Phase D helpers — terminal placement (called once globally)
-// ============================================================================
-
-/// Compute the shared terminal size for the band assembly.
-///
-/// Uses the maximum of pin-count-based height and stack height so the terminal
-/// box is tall enough for all connected pins spread across the band stack.
-fn band_terminal_size(graph: &McVecGraph, a: i64, b: i64, stack_h: f64) -> (f64, f64) {
-    const PIN_PITCH: f64 = 28.0;
-    const PAD: f64 = 26.0;
-    const MIN_W: f64 = COL_W * 1.1;
-    let get = |id: i64| graph.boxes.iter().find(|x| x.id == id);
-    let pins = |id: i64| -> usize {
-        get(id)
-            .map(|x| x.pins.len().max(x.entry_points.len()).max(x.pin_count))
-            .unwrap_or(0)
-    };
-    let cur_w = |id: i64| get(id).map(|x| x.w).unwrap_or(0.0);
-    let cur_h = |id: i64| get(id).map(|x| x.h).unwrap_or(0.0);
-    let n = pins(a).max(pins(b));
-    let h = ((n as f64) * PIN_PITCH + PAD)
-        .max(stack_h + PAD)
-        .max(cur_h(a))
-        .max(cur_h(b));
-    let w = MIN_W.max(cur_w(a)).max(cur_w(b));
-    (w, h)
-}
-
-/// Place a terminal box with all connected pins facing the block, unconnected
-/// pins on the far edge. Called once per terminal in Phase D.
-fn place_terminal_box(
-    graph: &mut McVecGraph,
-    box_id: i64,
-    x: f64,
-    y: f64,
-    w: f64,
-    h: f64,
-    facing: EntrySide,
-    connected: &[(i64, f64)],
-) {
-    let Some(b) = graph.boxes.iter_mut().find(|b| b.id == box_id) else {
-        return;
-    };
-    b.x = x;
-    b.y = y;
-    b.w = w;
-    b.h = h;
-
-    // Ensure all connected pins have entry points
-    for &(pin_id, _) in connected {
-        // Only assert when pins are populated (they may be empty in tests)
-        debug_assert!(
-            b.pins.is_empty() || b.pins.iter().any(|p| p.id == pin_id),
-            "pin {pin_id} 不属于 box#{} —— 端子配对错了",
-            b.id
-        );
-        if !b.entry_points.iter().any(|e| e.pin_id == pin_id) {
-            b.entry_points.push(EntryPoint {
-                pin_id,
-                pin_name: pin_id.to_string(),
-                side: facing.clone(),
-                offset: 0.5,
-            });
-        }
-    }
-
-    // Compute offsets: (ay - b.y) / b.h for each pin
-    let pinned: Vec<(i64, f64)> = connected
-        .iter()
-        .map(|&(pin_id, ay)| (pin_id, ((ay - y) / h).clamp(0.02, 0.98)))
-        .collect();
-
-    distribute_terminal_pins(b, facing, &pinned);
-    b.geom_locked = true;
-}
-
-// ============================================================================
-// ★ Two-terminal layout — legacy behaviour (all bands share one terminal pair)
-// ============================================================================
-
-/// Simple two-terminal layout: bands are stacked between the left and right
-/// terminal. This is the original Phase C+D logic, extracted so the
-/// multi-terminal path can reuse the same stacking primitives.
-fn apply_two_terminal_layout(
-    graph: &mut McVecGraph,
-    bands: &[Band],
-    box_owned: &HashMap<i64, String>,
-) -> bool {
-    let max_width_px = bands
-        .iter()
-        .map(|b| b.extent_px(graph).0)
-        .fold(0.0f64, f64::max);
-    let x_right = MARGIN + max_width_px;
-
-    // Compute y positions, using per-band row_h for pin offsets
-    let mut y = MARGIN;
-    let mut band_ys: Vec<f64> = Vec::new();
-    for band in bands {
-        band_ys.push(y);
-        let (_, band_h) = band.extent_px(graph);
-        crate::vlog!("[islands] band y0={:.0} h={:.0}", y, band_h);
-        y += band_h + BAND_GAP;
-    }
-    let stack_h = y - BAND_GAP - MARGIN;
-
-    // Place passives (no terminals)
-    for (band, &y0) in bands.iter().zip(band_ys.iter()) {
-        let origin = Point::new(MARGIN, y0);
-        band.place_passives(graph, origin, x_right);
-    }
-
-    // Collect terminal pins
-    let (l_box, r_box) = bands[0].terminal_boxes();
-    let mut left_pins: Vec<(i64, f64)> = Vec::new();
-    let mut right_pins: Vec<(i64, f64)> = Vec::new();
-    for (band, &y0) in bands.iter().zip(band_ys.iter()) {
-        let row_h = band.row_h(graph);
-        let (lp, rp) = band.terminal_pins();
-        for (k, p) in lp.iter().enumerate() {
-            left_pins.push((*p, y0 + (k as f64 + 0.5) * row_h));
-        }
-        for (k, p) in rp.iter().enumerate() {
-            right_pins.push((*p, y0 + (k as f64 + 0.5) * row_h));
-        }
-    }
-
-    let (tw, th) = band_terminal_size(graph, l_box, r_box, stack_h);
-
-    place_terminal_box(
-        graph,
-        l_box,
-        MARGIN - TERM_GAP - tw,
-        MARGIN,
-        tw,
-        th,
-        EntrySide::Right,
-        &left_pins,
-    );
-    place_terminal_box(
-        graph,
-        r_box,
-        x_right + TERM_GAP,
-        MARGIN,
-        tw,
-        th,
-        EntrySide::Left,
-        &right_pins,
-    );
-
-    let l_name = box_owned.get(&l_box).cloned().unwrap_or_else(|| "?".into());
-    let r_name = box_owned.get(&r_box).cloned().unwrap_or_else(|| "?".into());
-    crate::vlog!(
-        "[islands] ✓ {} band(s) stacked, terminals {}~{} placed once ({} left pins, {} right pins, stack_h={:.0})",
-        bands.len(),
-        l_name,
-        r_name,
-        left_pins.len(),
-        right_pins.len(),
-        stack_h
-    );
-    true
-}
-
-// ============================================================================
-// ★ Multi-terminal layout — centre-based with terminal graph
+// ★ Chain-based layout — unified Phase C+D for any number of terminals
 // ============================================================================
 
 /// Compute the preferred width (w) for a terminal box.
@@ -1058,17 +955,17 @@ fn terminal_height(graph: &McVecGraph, id: i64, stack_h: f64) -> f64 {
         .max(cur_h)
 }
 
-/// Place the centre terminal: connected pins on both Left and Right sides.
-/// Unconnected pins go to the side with fewer connected pins.
-fn place_center_terminal(
+/// Place a terminal box with connected pins on the given side, unconnected
+/// pins on the far edge. Called once per terminal in Phase D.
+fn place_terminal_box(
     graph: &mut McVecGraph,
     box_id: i64,
     x: f64,
     y: f64,
     w: f64,
     h: f64,
-    left_pins: &[(i64, f64)],
-    right_pins: &[(i64, f64)],
+    facing: EntrySide,
+    connected: &[(i64, f64)],
 ) {
     let Some(b) = graph.boxes.iter_mut().find(|b| b.id == box_id) else {
         return;
@@ -1078,9 +975,7 @@ fn place_center_terminal(
     b.w = w;
     b.h = h;
 
-    // Ensure all connected pins have entry points
-    for &(pin_id, _) in left_pins.iter().chain(right_pins.iter()) {
-        // Only assert when pins are populated (they may be empty in tests)
+    for &(pin_id, _) in connected {
         debug_assert!(
             b.pins.is_empty() || b.pins.iter().any(|p| p.id == pin_id),
             "pin {pin_id} 不属于 box#{} —— 端子配对错了",
@@ -1090,80 +985,146 @@ fn place_center_terminal(
             b.entry_points.push(EntryPoint {
                 pin_id,
                 pin_name: pin_id.to_string(),
-                side: EntrySide::Right,
+                side: facing.clone(),
                 offset: 0.5,
             });
         }
     }
 
-    // Left-side pins → EntrySide::Left
-    for &(pin_id, ay) in left_pins {
-        if let Some(ep) = b.entry_points.iter_mut().find(|e| e.pin_id == pin_id) {
-            ep.side = EntrySide::Left;
-            ep.offset = ((ay - y) / h).clamp(0.02, 0.98);
-        }
-    }
-
-    // Right-side pins → EntrySide::Right
-    for &(pin_id, ay) in right_pins {
-        if let Some(ep) = b.entry_points.iter_mut().find(|e| e.pin_id == pin_id) {
-            ep.side = EntrySide::Right;
-            ep.offset = ((ay - y) / h).clamp(0.02, 0.98);
-        }
-    }
-
-    // Unconnected pins → side with fewer connected pins
-    let far_side = if left_pins.len() <= right_pins.len() {
-        EntrySide::Left
-    } else {
-        EntrySide::Right
-    };
-    let mut far_idx: Vec<usize> = Vec::new();
-    let connected_set: std::collections::HashSet<i64> = left_pins
+    let pinned: Vec<(i64, f64)> = connected
         .iter()
-        .chain(right_pins.iter())
-        .map(|(p, _)| *p)
+        .map(|&(pin_id, ay)| (pin_id, ((ay - y) / h).clamp(0.02, 0.98)))
         .collect();
-    for (i, ep) in b.entry_points.iter_mut().enumerate() {
-        if !connected_set.contains(&ep.pin_id) {
-            ep.side = far_side.clone();
-            far_idx.push(i);
-        }
-    }
-    let n = far_idx.len();
-    for (k, &i) in far_idx.iter().enumerate() {
-        b.entry_points[i].offset = (k as f64 + 1.0) / (n as f64 + 1.0);
-    }
 
+    distribute_terminal_pins(b, facing, &pinned);
     b.geom_locked = true;
 }
 
-/// Stack a set of bands on one side, place passives, return pin positions
-/// keyed by terminal box. The bands are placed at `origin_x` and stacked
-/// vertically starting at `MARGIN`.
+/// ★ Unified chain-based layout.
 ///
-/// Returns `(stack_h, max_width, terminal_pins)` where `terminal_pins` is
-/// `BTreeMap<terminal_id, Vec<(pin_id, y_abs)>>`.
-fn stack_side_bands(
+/// Terminals are placed left-to-right along the x-axis in `order`.
+/// Bands are grouped into gaps between adjacent terminals, stacked vertically
+/// within each gap, and placed between their two terminals.
+///
+/// This naturally handles:
+/// - 2 terminals → 1 gap (degenerate, same as old two-terminal layout)
+/// - 3 terminals star → 2 gaps (degenerate, same as old centre-based layout)
+/// - N terminals chain → N-1 gaps (the new supported shape)
+fn apply_chain_layout(
     graph: &mut McVecGraph,
     bands: &[Band],
-    side: &[(i64, Vec<usize>)],
-    origin_x: f64,
-) -> (f64, f64, std::collections::BTreeMap<i64, Vec<(i64, f64)>>) {
-    let mut y = MARGIN;
-    let mut max_width = 0.0f64;
-    let mut terminal_pins: std::collections::BTreeMap<i64, Vec<(i64, f64)>> =
-        std::collections::BTreeMap::new();
+    order: &[i64],
+    box_owned: &HashMap<i64, String>,
+) -> bool {
+    let n = order.len();
+    if n < 2 {
+        crate::vlog!("[islands] chain layout needs >= 2 terminals, got {n}");
+        return false;
+    }
 
-    for (_tid, band_indices) in side {
-        for &bi in band_indices {
+    // ── Build gap → band mapping ───────────────────────────────────────────
+    let pos: HashMap<i64, usize> = order.iter().enumerate().map(|(i, &t)| (t, i)).collect();
+    let mut gaps: Vec<Vec<usize>> = vec![Vec::new(); n - 1];
+    for (bi, band) in bands.iter().enumerate() {
+        let (t0, t1) = band.terminal_boxes();
+        let Some(&i0) = pos.get(&t0) else {
+            crate::vlog!(
+                "[islands] band {bi}: terminal {t0} not in chain order {:?} — skipping",
+                order
+            );
+            continue;
+        };
+        let Some(&i1) = pos.get(&t1) else {
+            crate::vlog!(
+                "[islands] band {bi}: terminal {t1} not in chain order {:?} — skipping",
+                order
+            );
+            continue;
+        };
+        let g = i0.min(i1);
+        if (i1 as i64 - i0 as i64).abs() != 1 {
+            crate::vlog!("[islands] band {bi}: 端子 ({t0}, {t1}) 在链上不相邻（gap={g}）— 跳过",);
+            continue;
+        }
+        gaps[g].push(bi);
+    }
+
+    // ── Log gaps ───────────────────────────────────────────────────────────
+    for (g, gap_bands) in gaps.iter().enumerate() {
+        let l_name = box_owned
+            .get(&order[g])
+            .cloned()
+            .unwrap_or_else(|| "?".into());
+        let r_name = box_owned
+            .get(&order[g + 1])
+            .cloned()
+            .unwrap_or_else(|| "?".into());
+        let band_list: Vec<usize> = gap_bands.iter().copied().collect();
+        let mut max_w = 0.0f64;
+        let mut total_h = 0.0f64;
+        for &bi in gap_bands {
+            let (bw, bh) = bands[bi].extent_px(graph);
+            max_w = max_w.max(bw);
+            total_h += bh;
+        }
+        if !gap_bands.is_empty() {
+            total_h += (gap_bands.len() - 1) as f64 * BAND_GAP;
+        }
+        crate::vlog!(
+            "[islands]   gap{g} {l_name}~{r_name}: bands {band_list:?} w={max_w:.0} h={total_h:.0}"
+        );
+    }
+
+    // ── Compute terminal widths ────────────────────────────────────────────
+    let tw: Vec<f64> = order.iter().map(|&t| terminal_width(graph, t)).collect();
+
+    // ── Compute gap widths (max band width in each gap) ────────────────────
+    let gap_w: Vec<f64> = gaps
+        .iter()
+        .map(|gb| {
+            if gb.is_empty() {
+                0.0
+            } else {
+                gb.iter()
+                    .map(|&bi| bands[bi].extent_px(graph).0)
+                    .fold(0.0f64, f64::max)
+            }
+        })
+        .collect();
+
+    // ── Compute x positions ────────────────────────────────────────────────
+    //    terminal[i] at x, then gap[i], then terminal[i+1], ...
+    let mut term_x: Vec<f64> = vec![0.0; n];
+    let mut gap_x0: Vec<f64> = vec![0.0; n - 1];
+    let mut x = MARGIN;
+    for i in 0..n {
+        term_x[i] = x;
+        x += tw[i];
+        if i < n - 1 {
+            x += TERM_GAP;
+            gap_x0[i] = x;
+            x += gap_w[i] + TERM_GAP;
+        }
+    }
+
+    // ── Place passives: stack bands in each gap ────────────────────────────
+    //    gap_pins: for each gap, BTreeMap<terminal_id, Vec<(pin_id, y_abs)>>
+    let mut gap_pins: Vec<std::collections::BTreeMap<i64, Vec<(i64, f64)>>> =
+        vec![std::collections::BTreeMap::new(); n - 1];
+    let mut gap_h: Vec<f64> = vec![0.0; n - 1];
+
+    for (g, gap_bands) in gaps.iter().enumerate() {
+        if gap_bands.is_empty() {
+            continue;
+        }
+        let mut y = MARGIN;
+        for &bi in gap_bands {
             let band = &bands[bi];
             let (bw, bh) = band.extent_px(graph);
-            max_width = max_width.max(bw);
 
             // Place passives
-            let origin = Point::new(origin_x, y);
-            band.place_passives(graph, origin, origin_x + bw);
+            let origin = Point::new(gap_x0[g], y);
+            band.place_passives(graph, origin, gap_x0[g] + bw);
 
             // Collect pin positions
             let row_h = band.row_h(graph);
@@ -1171,175 +1132,182 @@ fn stack_side_bands(
             let (lp, rp) = band.terminal_pins();
 
             for (k, p) in lp.iter().enumerate() {
-                terminal_pins
+                gap_pins[g]
                     .entry(left_term)
                     .or_default()
                     .push((*p, y + (k as f64 + 0.5) * row_h));
             }
             for (k, p) in rp.iter().enumerate() {
-                terminal_pins
+                gap_pins[g]
                     .entry(right_term)
                     .or_default()
                     .push((*p, y + (k as f64 + 0.5) * row_h));
             }
 
-            crate::vlog!("[islands]   side band y0={:.0} h={:.0}", y, bh);
+            crate::vlog!("[islands]   gap{g} band y0={:.0} h={:.0}", y, bh);
             y += bh + BAND_GAP;
+        }
+        gap_h[g] = y - BAND_GAP - MARGIN;
+    }
+
+    // ── Place terminals ────────────────────────────────────────────────────
+    for (i, &tid) in order.iter().enumerate() {
+        // Left gap pins (gap i-1, right terminal of that gap)
+        let left_pins: Vec<(i64, f64)> = if i > 0 {
+            gap_pins[i - 1].get(&tid).cloned().unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        // Right gap pins (gap i, left terminal of that gap)
+        let right_pins: Vec<(i64, f64)> = if i < n - 1 {
+            gap_pins[i].get(&tid).cloned().unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+
+        let left_h = if i > 0 { gap_h[i - 1] } else { 0.0 };
+        let right_h = if i < n - 1 { gap_h[i] } else { 0.0 };
+        let th = terminal_height(graph, tid, left_h.max(right_h));
+
+        let t_name = box_owned.get(&tid).cloned().unwrap_or_else(|| "?".into());
+
+        if left_pins.is_empty() && right_pins.is_empty() {
+            // Terminal with no band connections — just place it
+            let Some(b) = graph.boxes.iter_mut().find(|b| b.id == tid) else {
+                continue;
+            };
+            b.x = term_x[i];
+            b.y = MARGIN;
+            b.w = tw[i];
+            b.h = th;
+            b.geom_locked = true;
+            crate::vlog!(
+                "[islands]   placed terminal {} at x={:.0} (no bands)",
+                t_name,
+                term_x[i]
+            );
+            continue;
+        }
+
+        if left_pins.is_empty() {
+            // Leftmost terminal: only right gap pins, face Right
+            place_terminal_box(
+                graph,
+                tid,
+                term_x[i],
+                MARGIN,
+                tw[i],
+                th,
+                EntrySide::Right,
+                &right_pins,
+            );
+            crate::vlog!(
+                "[islands]   placed leftmost terminal {} at x={:.0} h={:.0} ({} right pins)",
+                t_name,
+                term_x[i],
+                th,
+                right_pins.len()
+            );
+        } else if right_pins.is_empty() {
+            // Rightmost terminal: only left gap pins, face Left
+            place_terminal_box(
+                graph,
+                tid,
+                term_x[i],
+                MARGIN,
+                tw[i],
+                th,
+                EntrySide::Left,
+                &left_pins,
+            );
+            crate::vlog!(
+                "[islands]   placed rightmost terminal {} at x={:.0} h={:.0} ({} left pins)",
+                t_name,
+                term_x[i],
+                th,
+                left_pins.len()
+            );
+        } else {
+            // Middle terminal: pins on both sides
+            let Some(b) = graph.boxes.iter_mut().find(|b| b.id == tid) else {
+                continue;
+            };
+            b.x = term_x[i];
+            b.y = MARGIN;
+            b.w = tw[i];
+            b.h = th;
+
+            for &(pin_id, _) in left_pins.iter().chain(right_pins.iter()) {
+                debug_assert!(
+                    b.pins.is_empty() || b.pins.iter().any(|p| p.id == pin_id),
+                    "pin {pin_id} 不属于 box#{} —— 端子配对错了",
+                    b.id
+                );
+                if !b.entry_points.iter().any(|e| e.pin_id == pin_id) {
+                    b.entry_points.push(EntryPoint {
+                        pin_id,
+                        pin_name: pin_id.to_string(),
+                        side: EntrySide::Right,
+                        offset: 0.5,
+                    });
+                }
+            }
+
+            // Left gap pins → EntrySide::Left
+            for &(pin_id, ay) in &left_pins {
+                if let Some(ep) = b.entry_points.iter_mut().find(|e| e.pin_id == pin_id) {
+                    ep.side = EntrySide::Left;
+                    ep.offset = ((ay - MARGIN) / th).clamp(0.02, 0.98);
+                }
+            }
+            // Right gap pins → EntrySide::Right
+            for &(pin_id, ay) in &right_pins {
+                if let Some(ep) = b.entry_points.iter_mut().find(|e| e.pin_id == pin_id) {
+                    ep.side = EntrySide::Right;
+                    ep.offset = ((ay - MARGIN) / th).clamp(0.02, 0.98);
+                }
+            }
+
+            // Unconnected pins → side with fewer connected pins
+            let far_side = if left_pins.len() <= right_pins.len() {
+                EntrySide::Left
+            } else {
+                EntrySide::Right
+            };
+            let connected_set: HashSet<i64> = left_pins
+                .iter()
+                .chain(right_pins.iter())
+                .map(|(p, _)| *p)
+                .collect();
+            let mut far_idx: Vec<usize> = Vec::new();
+            for (j, ep) in b.entry_points.iter_mut().enumerate() {
+                if !connected_set.contains(&ep.pin_id) {
+                    ep.side = far_side.clone();
+                    far_idx.push(j);
+                }
+            }
+            let nf = far_idx.len();
+            for (k, &j) in far_idx.iter().enumerate() {
+                b.entry_points[j].offset = (k as f64 + 1.0) / (nf as f64 + 1.0);
+            }
+
+            b.geom_locked = true;
+            crate::vlog!(
+                "[islands]   placed middle terminal {} at x={:.0} h={:.0} ({} left + {} right pins)",
+                t_name,
+                term_x[i],
+                th,
+                left_pins.len(),
+                right_pins.len()
+            );
         }
     }
 
-    let stack_h = if y > MARGIN {
-        y - BAND_GAP - MARGIN
-    } else {
-        0.0
-    };
-
-    (stack_h, max_width, terminal_pins)
-}
-
-/// Multi-terminal layout: select a centre terminal, split neighbours into
-/// left/right sides, stack each side independently, then place all terminals.
-fn apply_multi_terminal_layout(
-    graph: &mut McVecGraph,
-    bands: &[Band],
-    tg: &TerminalGraph,
-    box_owned: &HashMap<i64, String>,
-) -> bool {
-    // ── Select centre ────────────────────────────────────────────────────────
-    let center = tg
-        .incident
-        .iter()
-        .max_by_key(|(_, v)| v.len())
-        .map(|(k, _)| *k)
-        .unwrap();
-    let center_name = box_owned
-        .get(&center)
-        .cloned()
-        .unwrap_or_else(|| "?".into());
-    crate::vlog!("[islands]   center={}", center_name);
-
-    // ── Split sides ──────────────────────────────────────────────────────────
-    let (left_side, right_side) = split_sides(tg, center);
-
-    for (tid, indices) in &left_side {
-        let name = box_owned.get(tid).cloned().unwrap_or_else(|| "?".into());
-        crate::vlog!("[islands]   left  side: {} | bands {:?}", name, indices);
-    }
-    for (tid, indices) in &right_side {
-        let name = box_owned.get(tid).cloned().unwrap_or_else(|| "?".into());
-        crate::vlog!("[islands]   right side: {} | bands {:?}", name, indices);
-    }
-
-    // ── Compute terminal widths (for x positioning) ──────────────────────────
-    let tw_center = terminal_width(graph, center);
-
-    // ── Left side: stack bands, place passives ───────────────────────────────
-    let (left_h, left_w, left_pins) = if left_side.is_empty() {
-        (0.0f64, 0.0f64, std::collections::BTreeMap::new())
-    } else {
-        let left_terminal = left_side[0].0;
-        let tw_left = terminal_width(graph, left_terminal);
-        let lx0 = MARGIN + tw_left + TERM_GAP;
-        let (lh, lw, lp) = stack_side_bands(graph, bands, &left_side, lx0);
-        crate::vlog!("[islands]   left  side: w={:.0} h={:.0}", lw, lh);
-        (lh, lw, lp)
-    };
-
-    // ── Centre x position ────────────────────────────────────────────────────
-    let center_x = if left_side.is_empty() {
-        MARGIN
-    } else {
-        let left_terminal = left_side[0].0;
-        let tw_left = terminal_width(graph, left_terminal);
-        MARGIN + tw_left + TERM_GAP + left_w + TERM_GAP
-    };
-
-    // ── Right side: stack bands, place passives ──────────────────────────────
-    let rx0 = center_x + tw_center + TERM_GAP;
-    let (right_h, right_w, right_pins) = if right_side.is_empty() {
-        (0.0f64, 0.0f64, std::collections::BTreeMap::new())
-    } else {
-        let (rh, rw, rp) = stack_side_bands(graph, bands, &right_side, rx0);
-        crate::vlog!("[islands]   right side: w={:.0} h={:.0}", rw, rh);
-        (rh, rw, rp)
-    };
-
-    // ── Place centre terminal ────────────────────────────────────────────────
-    let center_h = terminal_height(graph, center, left_h.max(right_h));
-    let center_y = MARGIN;
-
-    // Collect centre pins: left-side pins + right-side pins
-    let center_left_pins: Vec<(i64, f64)> = left_pins.get(&center).cloned().unwrap_or_default();
-    let center_right_pins: Vec<(i64, f64)> = right_pins.get(&center).cloned().unwrap_or_default();
-
-    place_center_terminal(
-        graph,
-        center,
-        center_x,
-        center_y,
-        tw_center,
-        center_h,
-        &center_left_pins,
-        &center_right_pins,
-    );
-
-    // ── Place left-side terminals ────────────────────────────────────────────
-    for (tid, _indices) in &left_side {
-        let tw = terminal_width(graph, *tid);
-        let th = terminal_height(graph, *tid, left_h);
-        let pins: Vec<(i64, f64)> = left_pins.get(tid).cloned().unwrap_or_default();
-        let left_name = box_owned.get(tid).cloned().unwrap_or_else(|| "?".into());
-        place_terminal_box(
-            graph,
-            *tid,
-            MARGIN,
-            MARGIN,
-            tw,
-            th,
-            EntrySide::Right, // face the centre
-            &pins,
-        );
-        crate::vlog!(
-            "[islands]   placed left terminal {} at x={:.0} h={:.0} ({} pins)",
-            left_name,
-            MARGIN,
-            th,
-            pins.len()
-        );
-    }
-
-    // ── Place right-side terminals ───────────────────────────────────────────
-    for (tid, _indices) in &right_side {
-        let tw = terminal_width(graph, *tid);
-        let th = terminal_height(graph, *tid, right_h);
-        let pins: Vec<(i64, f64)> = right_pins.get(tid).cloned().unwrap_or_default();
-        let right_name = box_owned.get(tid).cloned().unwrap_or_else(|| "?".into());
-        let rx = rx0 + right_w + TERM_GAP;
-        place_terminal_box(
-            graph,
-            *tid,
-            rx,
-            MARGIN,
-            tw,
-            th,
-            EntrySide::Left, // face the centre
-            &pins,
-        );
-        crate::vlog!(
-            "[islands]   placed right terminal {} at x={:.0} h={:.0} ({} pins)",
-            right_name,
-            rx,
-            th,
-            pins.len()
-        );
-    }
-
     crate::vlog!(
-        "[islands] ✓ multi-terminal layout: center={} (h={:.0}), left_h={:.0}, right_h={:.0}",
-        center_name,
-        center_h,
-        left_h,
-        right_h
+        "[islands] ✓ chain layout: {} terminals, {} gaps, {} band(s)",
+        n,
+        n - 1,
+        bands.len()
     );
     true
 }

@@ -53,6 +53,10 @@ pub struct McVecGraph {
     /// the device) instead of TrunkTap (shared trunk). Set by the layouter:
     /// sub-layer = true, top layer = false (top-layer routing behavior unchanged).
     pub fanout_star: bool,
+    /// ★ Layout coverage tracking: number of islands claimed by islands decomposition.
+    /// Set by `islands::apply_islands`, read by `compute_fidelity` for the gate.
+    pub islands_claimed: usize,
+    pub islands_total: usize,
 }
 
 impl McVecGraph {
@@ -66,6 +70,8 @@ impl McVecGraph {
             nets: vec![],
             sub_graphs: vec![],
             fanout_star: false,
+            islands_claimed: 0,
+            islands_total: 0,
         }
     }
 
