@@ -22,7 +22,8 @@ use crate::{
     ast::c_macros::*,
     semantic::basic::mc_bus::{McBus, McList},
     semantic::basic::mc_ids::McIds,
-    semantic::basic::mc_param::McParamValue,
+    semantic::basic::mc_param::{McParamBindings, McParamValue},
+    semantic::basic::mc_paramd::McParamDeclareKind,
     semantic::mc_inst::McInst,
     semantic::mc_inst::McInstance,
     semantic::mc_inst::McInstances,
@@ -496,9 +497,71 @@ impl Mc2Component {
         }
     }
 
+    fn integer_param_bindings(&self, bindings: &McParamBindings) -> Vec<(String, i64)> {
+        let mut values = Vec::new();
+
+        for binding in bindings.iter() {
+            if let Some((name, value)) = binding.as_int_binding() {
+                values.push((name, value));
+                continue;
+            }
+
+            if let McParamDeclareKind::UValue(uval) = &binding.declare.kind {
+                let name = uval.name.get_primary_name().unwrap_or_default();
+                if let Some(McParamValue::Int(value)) = &binding.value {
+                    values.push((name, value.value));
+                } else if let Some(default) = &uval.default {
+                    if let Ok(value) = default.parse::<i64>() {
+                        values.push((name, value));
+                    }
+                }
+            }
+        }
+
+        values
+    }
+
+    fn pins_contain(pins: &McPins, id: &str, integer_bindings: &[(String, i64)]) -> bool {
+        pins.find_pin(id).is_some()
+            || pins
+                .resolve_dynamic_pins(integer_bindings)
+                .iter()
+                .any(|(pin_id, pin_name, _)| pin_id.to_string() == id || pin_name == id)
+    }
+
+    /// Resolve a pin against the concrete component instance, including the
+    /// active conditional pin branch and parameter-dependent pin ranges.
+    pub(crate) fn find_pin(&self, id: &str) -> Option<String> {
+        if self.base.pins.find_pin(id).is_some() {
+            return Some(id.to_string());
+        }
+
+        let bindings = McParamBindings::bind_quiet(&self.base.params, &self.params).ok()?;
+        let integer_bindings = self.integer_param_bindings(&bindings);
+        if Self::pins_contain(&self.base.pins, id, &integer_bindings) {
+            return Some(id.to_string());
+        }
+
+        let eval_params = bindings.to_params_for_eval();
+        for conditional in &self.base.cond_pins {
+            let active = conditional
+                .if_blocks
+                .iter()
+                .find(|(condition, _)| McConds::check_condition(condition, &eval_params))
+                .map(|(_, pins)| pins)
+                .or(conditional.else_pins.as_ref());
+
+            if active.is_some_and(|pins| Self::pins_contain(pins, id, &integer_bindings)) {
+                return Some(id.to_string());
+            }
+        }
+
+        None
+    }
+
     /// Find the externally-exposed interface named id
     pub fn find_port(&self, id: &str) -> Option<McPhrase> {
-        if let Some(found) = self.base.pins.find_pin(id) {
+        if let Some(found) = self.find_pin(id) {
             let full_name = format!("{}.{}", self.name, found);
             return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
                 McInstance::Bus(McBus::new(&full_name)),

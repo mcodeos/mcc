@@ -595,15 +595,7 @@ pub(crate) fn instance_to_json(inst: &crate::MccProjectTree) -> Value {
                 .pins
                 .keys()
                 .map(|pin_id| {
-                    // Get pin name from component definition
-                    let pin_name = c
-                        .def
-                        .pins
-                        .pins
-                        .get(pin_id)
-                        .and_then(|p| p.names.first())
-                        .cloned()
-                        .unwrap_or_else(|| pin_id.clone());
+                    let pin_name = c.pin_name(pin_id).unwrap_or_else(|| pin_id.clone());
                     json!({
                         "id":   pin_id.clone(),
                         "name": pin_name,

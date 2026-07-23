@@ -232,7 +232,7 @@ fn validate_component_pin_ref(
     let mut invalid_members: Vec<String> = Vec::new();
 
     for member in members {
-        if valid_pin_names.contains(&member) {
+        if comp.find_pin(member).is_some() {
             valid_members.push(member.clone());
         } else if member == "NC" {
             valid_members.push(member.clone());

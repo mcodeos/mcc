@@ -347,7 +347,7 @@ impl McPhrase {
                                         if let Some(McInstance::Component(c)) =
                                             context.find_inst(base)
                                         {
-                                            if c.base.pins.find_pin(&rest).is_none() {
+                                            if c.find_pin(&rest).is_none() {
                                                 dlog_error(
                                                     1802,
                                                     &subnode,
@@ -448,7 +448,7 @@ impl McPhrase {
                                 // Base instance found - check if it's a Component
                                 if let Some(McInstance::Component(c)) = base_inst_opt {
                                     // E1802: Check if the member is a valid pin in the component
-                                    if c.base.pins.find_pin(member).is_none() {
+                                    if c.find_pin(member).is_none() {
                                         dlog_error(
                                             1802,
                                             node,
@@ -821,7 +821,7 @@ impl McPhrase {
                                 // E1802: pin not found in component
                                 if right.len() == 1 {
                                     let member = &right[0];
-                                    if !c.base.pins.find_pin(member).is_some() {
+                                    if c.find_pin(member).is_none() {
                                         dlog_error(
                                             1802,
                                             node,
@@ -1915,7 +1915,7 @@ impl McPhrase {
                 // Combined name matching (e.g. ["VOUT", "Vout"] → "VOUT.Vout")
                 if member_names.len() > 1 {
                     let combined = member_names.join(".");
-                    if let Some(found) = c.base.pins.find_pin(&combined) {
+                    if let Some(found) = c.find_pin(&combined) {
                         return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
                             McInstance::Bus(McBus::new(&format!("{inst_name}.{found}"))),
                         ))));
@@ -1930,9 +1930,7 @@ impl McPhrase {
                 // the latter triggers Interface sub-pin auto-expansion, causing VOUT.Vout and
                 // VOUT.GND to be injected simultaneously, leading to a short circuit.
                 if member_names.len() >= 2 {
-                    let all_hit = member_names
-                        .iter()
-                        .all(|id| c.base.pins.find_pin(id).is_some());
+                    let all_hit = member_names.iter().all(|id| c.find_pin(id).is_some());
                     if all_hit {
                         return Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
                             McInstance::Bus(McBus::new_with_members(
@@ -1947,7 +1945,7 @@ impl McPhrase {
                 let mut result: Vec<McPhrase> = member_names
                     .iter()
                     .filter_map(|id| {
-                        c.base.pins.find_pin(id).map(|found| {
+                        c.find_pin(id).map(|found| {
                             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
                                 McInstance::Bus(McBus::new(&format!("{inst_name}.{found}"))),
                             )))

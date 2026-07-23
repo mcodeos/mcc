@@ -694,14 +694,7 @@ fn instance_to_node(inst: &mcc::MccProjectTree) -> InstanceNode {
                 .pins
                 .iter()
                 .map(|(pin_id, _net_point)| {
-                    let pin_name = c
-                        .def
-                        .pins
-                        .pins
-                        .get(pin_id)
-                        .and_then(|p| p.names.first())
-                        .cloned()
-                        .unwrap_or_else(|| pin_id.clone());
+                    let pin_name = c.pin_name(pin_id).unwrap_or_else(|| pin_id.clone());
                     PinInfo {
                         id: pin_id.clone(),
                         name: pin_name,
