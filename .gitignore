@@ -7,3 +7,14 @@ Cargo.lock
 **/mutants.out*/
 .DS_Store
 .claude/settings.json
+
+
+projects
+circuit.html
+prompt
+mcode
+unitest
+fix.MD
+mcd
+plan
+test
