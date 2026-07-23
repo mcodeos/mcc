@@ -231,6 +231,10 @@ pub struct SpModel {
     /// Terminal boxes (drawn as side anchors by `sp_place`).
     pub left_box: i64,
     pub right_box: i64,
+    /// The pin on `left_box` that connects to `left_node`.
+    pub left_pin: i64,
+    /// The pin on `right_box` that connects to `right_node`.
+    pub right_pin: i64,
     /// Pendant branches pruned out of the reduction, in prune order.
     pub stubs: Vec<SpStub>,
 }
@@ -243,6 +247,17 @@ impl SpModel {
             ids.extend(s.tree.leaf_ids());
         }
         ids
+    }
+
+    /// Grid size: (cols, rows) in grid units. Pure query, no geometry.
+    pub fn size(&self) -> (f64, f64) {
+        self.root.size()
+    }
+
+    /// Terminal pins this band uses: (left_pins, right_pins), ordered top→bottom.
+    /// SP has exactly one pin per terminal.
+    pub fn terminal_pins(&self) -> (Vec<i64>, Vec<i64>) {
+        (vec![self.left_pin], vec![self.right_pin])
     }
 }
 
@@ -357,12 +372,28 @@ pub fn build_sp_tree(graph: &McVecGraph, sub: &SubNet) -> Result<SpModel, SpBail
         order_parallel(&mut s.tree, false);
     }
 
+    // Find the terminal pin ids
+    let left_pin = graph
+        .nets
+        .get(left_node)
+        .and_then(|net| net.endpoints.iter().find(|e| e.box_id == left_box))
+        .map(|e| e.pin_id)
+        .unwrap_or(-1);
+    let right_pin = graph
+        .nets
+        .get(right_node)
+        .and_then(|net| net.endpoints.iter().find(|e| e.box_id == right_box))
+        .map(|e| e.pin_id)
+        .unwrap_or(-1);
+
     Ok(SpModel {
         root,
         left_node,
         right_node,
         left_box,
         right_box,
+        left_pin,
+        right_pin,
         stubs,
     })
 }

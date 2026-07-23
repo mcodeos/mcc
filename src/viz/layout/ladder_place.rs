@@ -39,7 +39,7 @@
 use std::collections::HashMap;
 
 use crate::vector::graph::boxdef::PinLayout;
-use crate::vector::graph::{EntryPoint, EntrySide, McVecGraph};
+use crate::vector::graph::{EntryPoint, EntrySide, McVecGraph, Point};
 
 use super::entry_points::distribute_terminal_pins;
 use super::ladder_model::LadderModel;
@@ -79,53 +79,34 @@ pub struct LadderGeometry {
 // Entry
 // ============================================================================
 
-/// Place every box the model describes. Returns the geometry it committed to.
-pub fn apply_ladder_model(graph: &mut McVecGraph, m: &LadderModel) -> Option<LadderGeometry> {
+/// Place passives only (no anchors). Used by island band assembly so each band's
+/// passives are placed relative to the band's origin, leaving anchor placement
+/// to a single global pass (Phase D).
+pub fn apply_ladder_model_at(
+    graph: &mut McVecGraph,
+    m: &LadderModel,
+    origin: Point,
+    _x_right: f64,
+) -> Option<LadderGeometry> {
     // ── 0. Everything we need to read, read before we start mutating ─────────
     let plan = Plan::build(graph, m)?;
 
     // ── 1. Lanes ─────────────────────────────────────────────────────────────
     let lane_span = m.n_lanes.saturating_sub(1) as f64 * LANE_SEP;
     let anchor_h = plan.anchor_h_now.max(lane_span + 2.0 * ANCHOR_PAD);
-    let center_y = MARGIN + anchor_h / 2.0;
+    let center_y = origin.y + anchor_h / 2.0;
     let lane_y: Vec<f64> = (0..m.n_lanes)
         .map(|l| center_y - lane_span / 2.0 + l as f64 * LANE_SEP)
         .collect();
 
     // ── 2. Columns ───────────────────────────────────────────────────────────
-    //   A column must fit half a series box + half a bridge box + clearance on each
-    //   side, otherwise the bridge lands on top of its neighbouring resistor —
-    //   exactly the collision the old even-spacing produced.
     let col_step = (plan.elem_w + plan.bridge_w + 2.0 * COL_GAP).max(SLOT_MIN);
-    let inner_left = MARGIN + plan.left_w + ANCHOR_GAP;
+    let inner_left = origin.x + plan.left_w + ANCHOR_GAP;
     let col_x: Vec<f64> = (0..m.n_cols)
         .map(|c| inner_left + c as f64 * col_step)
         .collect();
-    let right_x = col_x.last().copied().unwrap_or(inner_left) + ANCHOR_GAP;
 
-    // ── 3. Anchors ───────────────────────────────────────────────────────────
-    place_anchor(
-        graph,
-        m.left,
-        MARGIN,
-        MARGIN,
-        anchor_h,
-        EntrySide::Right,
-        &plan.left_lane_pin,
-        &lane_y,
-    );
-    place_anchor(
-        graph,
-        m.right,
-        right_x,
-        MARGIN,
-        anchor_h,
-        EntrySide::Left,
-        &plan.right_lane_pin,
-        &lane_y,
-    );
-
-    // ── 4. Series elements: on their lane, between two columns ───────────────
+    // ── 3. Series elements: on their lane, between two columns ───────────────
     for s in &m.series {
         let cx = (col_x[s.from_col] + col_x[s.to_col]) / 2.0;
         let cy = lane_y[s.lane];
@@ -144,7 +125,7 @@ pub fn apply_ladder_model(graph: &mut McVecGraph, m: &LadderModel) -> Option<Lad
         );
     }
 
-    // ── 5. Bridges: on their column, across two lanes ────────────────────────
+    // ── 4. Bridges: on their column, across two lanes ────────────────────────
     for b in &m.bridges {
         let cx = col_x[b.col];
         let cy = (lane_y[b.lane_a] + lane_y[b.lane_b]) / 2.0;
@@ -182,6 +163,39 @@ pub fn apply_ladder_model(graph: &mut McVecGraph, m: &LadderModel) -> Option<Lad
         geo.anchor_h,
         geo.col_step
     );
+    Some(geo)
+}
+
+/// Place every box the model describes. Returns the geometry it committed to.
+/// This is now a wrapper around `apply_ladder_model_at` + anchor placement.
+pub fn apply_ladder_model(graph: &mut McVecGraph, m: &LadderModel) -> Option<LadderGeometry> {
+    let origin = Point::new(MARGIN, MARGIN);
+    let geo = apply_ladder_model_at(graph, m, origin, 0.0)?;
+
+    // ── Anchors ───────────────────────────────────────────────────────────
+    let right_x = geo.col_x.last().copied().unwrap_or(origin.x) + ANCHOR_GAP;
+
+    place_anchor(
+        graph,
+        m.left,
+        MARGIN,
+        MARGIN,
+        geo.anchor_h,
+        EntrySide::Right,
+        &m.lane_pin,
+        &geo.lane_y,
+    );
+    place_anchor(
+        graph,
+        m.right,
+        right_x,
+        MARGIN,
+        geo.anchor_h,
+        EntrySide::Left,
+        &m.right_lane_pin,
+        &geo.lane_y,
+    );
+
     Some(geo)
 }
 
