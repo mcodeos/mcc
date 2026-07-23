@@ -224,9 +224,13 @@ impl McComponent {
                         // parse the blocks now and store for later evaluation
 
                         // ── Conditional pins ──
+                        // Branch-local McPins stores only the conditional delta, but
+                        // `pins +=` validation still needs the component's base context.
+                        let has_base_pins = pins.has_base_pins;
                         let mut if_pin_blocks = Vec::new();
                         for cond in &conds_obj.if_blocks {
                             let mut block_pins = McPins::new();
+                            block_pins.has_base_pins = has_base_pins;
                             let block_type = cond.block.get_type();
                             if block_type == MCAST_ATTRIBUTE_PIN
                                 || block_type == MCAST_ATTRIBUTE_PINADD
@@ -237,6 +241,7 @@ impl McComponent {
                         }
                         let else_pins = conds_obj.else_block.as_ref().map(|block| {
                             let mut block_pins = McPins::new();
+                            block_pins.has_base_pins = has_base_pins;
                             let block_type = block.get_type();
                             if block_type == MCAST_ATTRIBUTE_PIN
                                 || block_type == MCAST_ATTRIBUTE_PINADD
