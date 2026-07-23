@@ -22,11 +22,14 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::vector::graph::McVecGraph;
+use crate::vector::graph::{EntryPoint, EntrySide, McVecGraph, Point};
 
+use super::entry_points::distribute_terminal_pins;
+use super::ladder_model::LadderModel;
+use super::ladder_place::apply_ladder_model_at;
 use super::rails::is_rail_box;
 use super::sp_model::{build_sp_tree, SpModel, SubNet};
-use super::sp_place::apply_sp_model;
+use super::sp_place::apply_sp_model_at;
 
 // ============================================================================
 // Island model
@@ -75,6 +78,85 @@ pub struct DirectBand {
 pub struct Decomposition {
     pub islands: Vec<Island>,
     pub direct_bands: Vec<DirectBand>,
+}
+
+// ============================================================================
+// ★ Band assembly — Phase B/C/D
+// ============================================================================
+
+/// A band that can be stacked vertically in the island assembly.
+/// Each band owns its passives and reports its terminal pins, but never
+/// places terminals — that's done once globally in Phase D.
+enum Band {
+    Sp {
+        model: SpModel,
+        island_idx: usize,
+    },
+    Ladder {
+        model: LadderModel,
+        island_idx: usize,
+    },
+    Direct {
+        db: DirectBand,
+        left_pin: i64,
+        right_pin: i64,
+    },
+}
+
+/// Grid → pixel constants. Shared with sp_place; ladder uses its own internally.
+const COL_W: f64 = 120.0;
+const ROW_H: f64 = 80.0;
+const MARGIN: f64 = 60.0;
+const TERM_GAP: f64 = COL_W * 0.4;
+const BAND_GAP: f64 = 60.0;
+
+impl Band {
+    /// Grid size: (cols, rows). Pure query, no geometry.
+    fn size(&self) -> (f64, f64) {
+        match self {
+            Band::Sp { model, .. } => model.size(),
+            Band::Ladder { model, .. } => model.size(),
+            Band::Direct { .. } => (1.0, 1.0), // 1 col, 1 row
+        }
+    }
+
+    /// Terminal pins this band uses: (left_pins, right_pins), ordered top→bottom.
+    fn terminal_pins(&self) -> (Vec<i64>, Vec<i64>) {
+        match self {
+            Band::Sp { model, .. } => model.terminal_pins(),
+            Band::Ladder { model, .. } => model.terminal_pins(),
+            Band::Direct {
+                left_pin,
+                right_pin,
+                ..
+            } => (vec![*left_pin], vec![*right_pin]),
+        }
+    }
+
+    /// The two terminal boxes this band connects to.
+    fn terminal_boxes(&self) -> (i64, i64) {
+        match self {
+            Band::Sp { model, .. } => (model.left_box, model.right_box),
+            Band::Ladder { model, .. } => (model.left, model.right),
+            Band::Direct { db, .. } => (db.left_box, db.right_box),
+        }
+    }
+
+    /// Place passives only (no terminals). Each band's passives are placed
+    /// relative to the band's origin.
+    fn place_passives(&self, graph: &mut McVecGraph, origin: Point, x_right: f64) {
+        match self {
+            Band::Sp { model, .. } => {
+                apply_sp_model_at(graph, model, origin, x_right);
+            }
+            Band::Ladder { model, .. } => {
+                apply_ladder_model_at(graph, model, origin, x_right);
+            }
+            Band::Direct { .. } => {
+                // Direct band has no passives to place — it's just a wire
+            }
+        }
+    }
 }
 
 // ============================================================================
@@ -231,11 +313,16 @@ pub fn decompose(graph: &McVecGraph) -> Decomposition {
 /// fall back to the old whole-graph SP/ladder dispatch.
 ///
 /// ## Algorithm
-/// 1. For each Sp island: find terminal boxes → build SubNet → try `build_sp_tree`
-/// 2. For each Ladder island: find terminal boxes → build SubNet → try `build_ladder_model_on`
-/// 3. Direct bands are logged but not placed (routing is handled by trunk_tap)
-/// 4. Stubs are logged only (pendant branches, decoupling caps)
-/// 5. MultiPort islands → not claimed → causes fallback
+/// 1. Phase A: For each island, build a model (SP or Ladder). Direct bands are also
+///    collected as bands.
+///    - Stubs are logged only (pendant branches, decoupling caps).
+///    - MultiPort islands → not claimed → causes fallback.
+/// 2. Phase B: Collect all bands, compute shared x_right from max columns.
+/// 3. Phase C: Stack bands vertically, place passives relative to each band's origin.
+///    - Models use `apply_*_model_at` — never touch terminals.
+/// 4. Phase D: Collect all terminal pins from all bands, place terminals once globally.
+///    - `distribute_terminal_pins` sees the full set → connected pins face the block,
+///      unconnected pins go to the far edge.
 ///
 /// Every early return and every placement failure logs exactly what went wrong.
 pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
@@ -246,7 +333,7 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
 
     let mut all_claimed = true;
     let mut sp_models: Vec<(SpModel, usize)> = Vec::new();
-    let mut ladder_models: Vec<(super::ladder_model::LadderModel, usize)> = Vec::new();
+    let mut ladder_models: Vec<(LadderModel, usize)> = Vec::new();
 
     // ── Phase A: try to build a model for every Sp / Ladder island ─────────
     //    Build box_by_id inside a block so it's dropped before Phase B's
@@ -385,17 +472,23 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
         return false;
     }
 
-    // ── Phase B: apply all models ──────────────────────────────────────────
-    for (model, i) in &sp_models {
-        crate::vlog!("[islands] applying SP model for island#{i}");
-        apply_sp_model(graph, model);
-    }
-    for (model, i) in &ladder_models {
-        crate::vlog!("[islands] applying ladder model for island#{i}");
-        super::ladder_place::apply_ladder_model(graph, model);
-    }
+    // ── Phase B: collect bands from models + direct bands ────────────────────
+    let mut bands: Vec<Band> = Vec::new();
 
-    // ── Direct bands: log only, routing is handled by trunk_tap ────────────
+    for (model, i) in sp_models {
+        crate::vlog!("[islands] band SP island#{i}: size={:?}", model.size());
+        bands.push(Band::Sp {
+            model,
+            island_idx: i,
+        });
+    }
+    for (model, i) in ladder_models {
+        crate::vlog!("[islands] band Ladder island#{i}: size={:?}", model.size());
+        bands.push(Band::Ladder {
+            model,
+            island_idx: i,
+        });
+    }
     for db in &d.direct_bands {
         let left_name = box_owned
             .get(&db.left_box)
@@ -405,19 +498,115 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
             .get(&db.right_box)
             .cloned()
             .unwrap_or_else(|| "?".into());
+        // Find the terminal pins for this direct band
+        let net = &graph.nets[db.net];
+        let left_pin = net
+            .endpoints
+            .iter()
+            .find(|e| e.box_id == db.left_box)
+            .map(|e| e.pin_id)
+            .unwrap_or(-1);
+        let right_pin = net
+            .endpoints
+            .iter()
+            .find(|e| e.box_id == db.right_box)
+            .map(|e| e.pin_id)
+            .unwrap_or(-1);
         crate::vlog!(
-            "[islands] direct band net[{}] '{}' : {} ~ {} — log only, routing by trunk_tap",
+            "[islands] band Direct net[{}] '{}' : {}~{} — pins ({}, {})",
             db.net,
-            graph.nets[db.net].name,
+            net.name,
             left_name,
-            right_name
+            right_name,
+            left_pin,
+            right_pin
         );
+        bands.push(Band::Direct {
+            db: db.clone(),
+            left_pin,
+            right_pin,
+        });
     }
 
+    if bands.is_empty() {
+        crate::vlog!("[islands] no bands to place");
+        return false;
+    }
+
+    // ── Phase C: stack bands vertically, place passives ──────────────────────
+    let max_cols = bands.iter().map(|b| b.size().0 as usize).max().unwrap_or(1);
+    let x_right = MARGIN + max_cols as f64 * COL_W;
+
+    // Compute y positions first, then place passives
+    let mut y = MARGIN;
+    let mut band_ys: Vec<f64> = Vec::new();
+    for band in &bands {
+        band_ys.push(y);
+        let (_, rows) = band.size();
+        let band_h = rows * ROW_H;
+        crate::vlog!(
+            "[islands] band y0={:.0} h={:.0} rows={:.0}",
+            y,
+            band_h,
+            rows
+        );
+        y += band_h + BAND_GAP;
+    }
+    let stack_h = y - BAND_GAP - MARGIN;
+
+    // Place passives (no terminals)
+    for (band, &y0) in bands.iter().zip(band_ys.iter()) {
+        let origin = Point::new(MARGIN, y0);
+        band.place_passives(graph, origin, x_right);
+    }
+
+    // ── Phase D: collect all terminal pins, place terminals once ─────────────
+    let (l_box, r_box) = bands[0].terminal_boxes();
+    let mut left_pins: Vec<(i64, f64)> = Vec::new();
+    let mut right_pins: Vec<(i64, f64)> = Vec::new();
+    for (band, &y0) in bands.iter().zip(band_ys.iter()) {
+        let (lp, rp) = band.terminal_pins();
+        for (k, p) in lp.iter().enumerate() {
+            left_pins.push((*p, y0 + (k as f64 + 0.5) * ROW_H));
+        }
+        for (k, p) in rp.iter().enumerate() {
+            right_pins.push((*p, y0 + (k as f64 + 0.5) * ROW_H));
+        }
+    }
+
+    let (tw, th) = band_terminal_size(graph, l_box, r_box, stack_h);
+
+    place_terminal_box(
+        graph,
+        l_box,
+        MARGIN - TERM_GAP - tw,
+        MARGIN,
+        tw,
+        th,
+        EntrySide::Right,
+        &left_pins,
+    );
+    place_terminal_box(
+        graph,
+        r_box,
+        x_right + TERM_GAP,
+        MARGIN,
+        tw,
+        th,
+        EntrySide::Left,
+        &right_pins,
+    );
+
+    let l_name = box_owned.get(&l_box).cloned().unwrap_or_else(|| "?".into());
+    let r_name = box_owned.get(&r_box).cloned().unwrap_or_else(|| "?".into());
     crate::vlog!(
-        "[islands] ✓ all {} island(s) claimed and applied, {} direct band(s) logged",
-        d.islands.len(),
-        d.direct_bands.len()
+        "[islands] ✓ {} band(s) stacked, terminals {}~{} placed once ({} left pins, {} right pins, stack_h={:.0})",
+        bands.len(),
+        l_name,
+        r_name,
+        left_pins.len(),
+        right_pins.len(),
+        stack_h
     );
     true
 }
@@ -501,6 +690,77 @@ fn find_terminals(
         );
         None
     }
+}
+
+// ============================================================================
+// ★ Phase D helpers — terminal placement (called once globally)
+// ============================================================================
+
+/// Compute the shared terminal size for the band assembly.
+///
+/// Uses the maximum of pin-count-based height and stack height so the terminal
+/// box is tall enough for all connected pins spread across the band stack.
+fn band_terminal_size(graph: &McVecGraph, a: i64, b: i64, stack_h: f64) -> (f64, f64) {
+    const PIN_PITCH: f64 = 28.0;
+    const PAD: f64 = 26.0;
+    const MIN_W: f64 = COL_W * 1.1;
+    let get = |id: i64| graph.boxes.iter().find(|x| x.id == id);
+    let pins = |id: i64| -> usize {
+        get(id)
+            .map(|x| x.pins.len().max(x.entry_points.len()).max(x.pin_count))
+            .unwrap_or(0)
+    };
+    let cur_w = |id: i64| get(id).map(|x| x.w).unwrap_or(0.0);
+    let cur_h = |id: i64| get(id).map(|x| x.h).unwrap_or(0.0);
+    let n = pins(a).max(pins(b));
+    let h = ((n as f64) * PIN_PITCH + PAD)
+        .max(stack_h + PAD)
+        .max(cur_h(a))
+        .max(cur_h(b));
+    let w = MIN_W.max(cur_w(a)).max(cur_w(b));
+    (w, h)
+}
+
+/// Place a terminal box with all connected pins facing the block, unconnected
+/// pins on the far edge. Called once per terminal in Phase D.
+fn place_terminal_box(
+    graph: &mut McVecGraph,
+    box_id: i64,
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    facing: EntrySide,
+    connected: &[(i64, f64)],
+) {
+    let Some(b) = graph.boxes.iter_mut().find(|b| b.id == box_id) else {
+        return;
+    };
+    b.x = x;
+    b.y = y;
+    b.w = w;
+    b.h = h;
+
+    // Ensure all connected pins have entry points
+    for &(pin_id, _) in connected {
+        if !b.entry_points.iter().any(|e| e.pin_id == pin_id) {
+            b.entry_points.push(EntryPoint {
+                pin_id,
+                pin_name: pin_id.to_string(),
+                side: facing.clone(),
+                offset: 0.5,
+            });
+        }
+    }
+
+    // Compute offsets: (ay - b.y) / b.h for each pin
+    let pinned: Vec<(i64, f64)> = connected
+        .iter()
+        .map(|&(pin_id, ay)| (pin_id, ((ay - y) / h).clamp(0.02, 0.98)))
+        .collect();
+
+    distribute_terminal_pins(b, facing, &pinned);
+    b.geom_locked = true;
 }
 
 /// Log the decomposition for human review (Phase 1 — no geometry yet).

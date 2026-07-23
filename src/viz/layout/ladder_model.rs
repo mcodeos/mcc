@@ -123,6 +123,8 @@ pub struct LadderModel {
     /// `lane_pin[l]` = the left anchor's pin_id that seeds lane `l`, ascending.
     /// Phase B uses this to decide which lane gets which y.
     pub lane_pin: Vec<i64>,
+    /// `right_lane_pin[l]` = the right anchor's pin_id on lane `l`, ascending.
+    pub right_lane_pin: Vec<i64>,
     /// Sorted by `(lane, from_col, box_id)`.
     pub series: Vec<SeriesSlot>,
     /// Sorted by `(col, lane_a, box_id)`.
@@ -138,6 +140,17 @@ impl LadderModel {
             .iter()
             .map(|s| s.box_id)
             .chain(self.bridges.iter().map(|b| b.box_id))
+    }
+
+    /// Grid size: (cols, lanes) in grid units. Pure query, no geometry.
+    pub fn size(&self) -> (f64, f64) {
+        (self.n_cols as f64, self.n_lanes as f64)
+    }
+
+    /// Terminal pins this band uses: (left_pins, right_pins), ordered top→bottom.
+    /// Both are lane-ordered (lane 0 first).
+    pub fn terminal_pins(&self) -> (Vec<i64>, Vec<i64>) {
+        (self.lane_pin.clone(), self.right_lane_pin.clone())
     }
 }
 
@@ -597,12 +610,24 @@ fn build_ladder_core(
         })
         .collect();
 
+    // Right anchor pins per lane, recovered from net_col
+    let mut right_lane_pin: Vec<i64> = vec![-1; n_lanes];
+    for net in &graph.nets {
+        let Some(&(lane, _)) = net_col.get(&net.nid) else {
+            continue;
+        };
+        if let Some(e) = net.endpoints.iter().find(|e| e.box_id == right) {
+            right_lane_pin[lane] = e.pin_id;
+        }
+    }
+
     Ok(LadderModel {
         left,
         right,
         n_lanes,
         n_cols,
         lane_pin: seeds.iter().map(|&(p, _)| p).collect(),
+        right_lane_pin,
         series,
         bridges,
         net_col,

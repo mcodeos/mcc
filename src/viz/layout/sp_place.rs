@@ -48,27 +48,33 @@ pub struct GridPlacement {
 // Public entry
 // ============================================================================
 
-pub fn apply_sp_model(graph: &mut McVecGraph, m: &SpModel) {
+/// Place passives only (no terminals, no routes). Used by island band assembly
+/// so each band's passives are placed relative to the band's origin, leaving
+/// terminal placement and route emission to a single global pass (Phase D).
+pub fn apply_sp_model_at(graph: &mut McVecGraph, m: &SpModel, origin: Point, _x_right: f64) {
     let grid = place_grid(&m.root);
-    let (root_w, root_h) = m.root.size();
+    let (_, root_h) = m.root.size();
 
     // ── place the passive edges ─────────────────────────────────────────────
     for gp in &grid {
-        // node identity: the leaf spans (a, b); a is its left node, b its right.
         let (na, nb) = span_of(&m.root, gp.box_id).expect("leaf must have a span");
-        write_passive(graph, gp, na, nb);
+        write_passive_at(graph, gp, na, nb, origin);
     }
 
-    // ── place the two terminal anchors, each oriented to FACE the block ──────
-    // This is the fix for the "u1.6→u2.6 not shown / messy" render: the terminal's
-    // connecting pin must sit on the edge facing the block, or the router snakes the
-    // wire around the IC and lands it on the wrong (near-side) pins.
-    //   left terminal  → its pin on the RIGHT edge, box left of the left rail (col 0)
-    //   right terminal → its pin on the LEFT  edge, box right of the right rail (col root_w)
-    //
-    // ★ Both terminals get the SAME size, driven by the larger pin count, so u2 is not
-    // drawn tiny next to u1. SP owns the boundary ICs' geometry here, so it sizes them
-    // consistently instead of inheriting the generic satellite size.
+    // ── stubs ────────────────────────────────────────────────────────────────
+    place_stubs_at(graph, m, &grid, root_h, origin);
+}
+
+/// Full SP placement: passives, terminals, stubs, and routes. This is the
+/// original entry point, now a wrapper around `apply_sp_model_at` + terminals.
+pub fn apply_sp_model(graph: &mut McVecGraph, m: &SpModel) {
+    let (root_w, root_h) = m.root.size();
+    let x_right = MARGIN + root_w * COL_W;
+    let origin = Point::new(MARGIN, MARGIN);
+
+    apply_sp_model_at(graph, m, origin, x_right);
+
+    // ── place the two terminal anchors ──────────────────────────────────────
     let (term_w, term_h) = terminal_size(graph, m.left_box, m.right_box);
     let mid_y = MARGIN + (root_h - 1.0) / 2.0 * ROW_H;
     place_terminal(
@@ -92,19 +98,8 @@ pub fn apply_sp_model(graph: &mut McVecGraph, m: &SpModel) {
         term_h,
     );
 
-    // ── ★ 悬挂支路（去耦电容到 GND、测试点…）：竖直挂在附着节点的列下方 ──────
-    // sp_model 把它们从归约里剪出来放进 m.stubs（否则度=1 的节点会卡死归约）。
-    // 这里只给几何 + 两把锁；它们的网络里含有非 SP 盒子（flag），
-    // emit_sp_routes 的 owned 判据会自动放行给通用路由器。
-    place_stubs(graph, m, &grid, root_h);
-
-    // ── ★ wiring: emit rails + taps + leads directly into net.route ─────────
-    // Every same-node pin already shares a grid column, so the rail is a vertical
-    // line at that column and each pin taps in horizontally (short branches tap
-    // across as leads). Emitting here — instead of leaving it to the generic
-    // router — is what removes the over-the-top / snaking wires. The router is
-    // told to skip any net that already carries a route (see the flow patch).
-    emit_sp_routes(graph, m, &grid, root_w);
+    // ── wiring ────────────────────────────────────────────────────────────────
+    emit_sp_routes(graph, m, &place_grid(&m.root), root_w);
 }
 
 /// A common size for both terminal ICs so u1 and u2 render at the same scale.
@@ -184,14 +179,20 @@ fn span_of(t: &SpTree, box_id: i64) -> Option<(usize, usize)> {
 // Writers
 // ============================================================================
 
-fn write_passive(graph: &mut McVecGraph, gp: &GridPlacement, na: usize, nb: usize) {
+fn write_passive_at(
+    graph: &mut McVecGraph,
+    gp: &GridPlacement,
+    na: usize,
+    nb: usize,
+    origin: Point,
+) {
     // pin ids on each node BEFORE the mutable borrow
     let left_pin = pin_on_net(graph, gp.box_id, na);
     let right_pin = pin_on_net(graph, gp.box_id, nb);
 
     let center_col = gp.x_slot + 0.5;
-    let cx = MARGIN + center_col * COL_W;
-    let cy = MARGIN + gp.y_row * ROW_H;
+    let cx = origin.x + center_col * COL_W;
+    let cy = origin.y + gp.y_row * ROW_H;
 
     let Some(b) = graph.boxes.iter_mut().find(|b| b.id == gp.box_id) else {
         return;
@@ -330,7 +331,13 @@ fn node_columns(m: &SpModel, grid: &[GridPlacement], root_w: f64) -> HashMap<usi
 }
 
 /// 把每条 stub 的叶子从附着节点往下竖着码放（元件转置：w/h 互换，引脚走 Top/Bottom）。
-fn place_stubs(graph: &mut McVecGraph, m: &SpModel, grid: &[GridPlacement], root_h: f64) {
+fn place_stubs_at(
+    graph: &mut McVecGraph,
+    m: &SpModel,
+    grid: &[GridPlacement],
+    root_h: f64,
+    origin: Point,
+) {
     if m.stubs.is_empty() {
         return;
     }
@@ -338,13 +345,13 @@ fn place_stubs(graph: &mut McVecGraph, m: &SpModel, grid: &[GridPlacement], root
     let cols = node_columns(m, grid, root_w);
     for s in &m.stubs {
         let col = *cols.get(&s.node).unwrap_or(&0.0);
-        let cx = MARGIN + col * COL_W;
+        let cx = origin.x + col * COL_W;
         for (k, box_id) in s.tree.leaf_ids().into_iter().enumerate() {
             let (na, nb) = match span_of(&s.tree, box_id) {
                 Some(sp) => sp,
                 None => continue,
             };
-            let cy = MARGIN + (root_h + 0.5 + k as f64) * ROW_H;
+            let cy = origin.y + (root_h + 0.5 + k as f64) * ROW_H;
             write_passive_vertical(graph, box_id, cx, cy, na, nb);
         }
     }
