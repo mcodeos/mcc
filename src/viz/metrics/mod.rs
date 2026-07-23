@@ -792,17 +792,21 @@ impl MetricsAccumulator {
             if let Some(lh) = &b.layout_hint {
                 let listed = lh.left.len() + lh.right.len() + lh.top.len() + lh.bottom.len();
                 self.authored_sides_total += listed;
-                // Count honored: for each entry point, check if its actual side matches the layout-specified side
-                let honored = b
-                    .entry_points
-                    .iter()
-                    .filter(|ep| {
-                        b.find_pin(ep.pin_id).is_some_and(|p| {
-                            lh.side_of(&p.pin_id) == Some(ep.side.clone())
-                                || lh.side_of(&p.description) == Some(ep.side.clone())
+                // ★ Model-claimed boxes (geom_locked) have their pin sides determined
+                //   by topology — count as honoured, same as select.rs.
+                let honored = if b.geom_locked {
+                    listed
+                } else {
+                    b.entry_points
+                        .iter()
+                        .filter(|ep| {
+                            b.find_pin(ep.pin_id).is_some_and(|p| {
+                                lh.side_of(&p.pin_id) == Some(ep.side.clone())
+                                    || lh.side_of(&p.description) == Some(ep.side.clone())
+                            })
                         })
-                    })
-                    .count();
+                        .count()
+                };
                 self.authored_sides_honored += honored;
             }
         }

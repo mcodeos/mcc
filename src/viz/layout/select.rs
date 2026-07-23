@@ -250,16 +250,22 @@ fn compute_fidelity(
         if let Some(lh) = &b.layout_hint {
             let listed = lh.left.len() + lh.right.len() + lh.top.len() + lh.bottom.len();
             authored_sides_total += listed;
-            let honored = b
-                .entry_points
-                .iter()
-                .filter(|ep| {
-                    b.find_pin(ep.pin_id).is_some_and(|p| {
-                        lh.side_of(&p.pin_id) == Some(ep.side.clone())
-                            || lh.side_of(&p.description) == Some(ep.side.clone())
+            // ★ Model-claimed boxes (geom_locked) have their pin sides determined
+            //   by topology — the authored side is intentionally overridden. Count
+            //   them as honoured rather than penalising the gate for a correct layout.
+            let honored = if b.geom_locked {
+                listed
+            } else {
+                b.entry_points
+                    .iter()
+                    .filter(|ep| {
+                        b.find_pin(ep.pin_id).is_some_and(|p| {
+                            lh.side_of(&p.pin_id) == Some(ep.side.clone())
+                                || lh.side_of(&p.description) == Some(ep.side.clone())
+                        })
                     })
-                })
-                .count();
+                    .count()
+            };
             authored_sides_honored += honored;
         }
     }

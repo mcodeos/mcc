@@ -219,6 +219,58 @@ fn build_terminal_graph(bands: &[Band]) -> TerminalGraph {
     TerminalGraph { incident, ends }
 }
 
+/// Build a TerminalGraph from raw terminal pairs (before models are built).
+/// `island_pairs` are `(island_idx, term_a, term_b)` from `find_terminals`.
+/// Direct bands are offset by `island_pairs.len()` to avoid index collision.
+fn build_terminal_graph_from_pairs(
+    island_pairs: &[(usize, i64, i64)],
+    direct_bands: &[DirectBand],
+) -> TerminalGraph {
+    let mut incident: std::collections::BTreeMap<i64, Vec<usize>> =
+        std::collections::BTreeMap::new();
+    let mut ends: Vec<(i64, i64)> = Vec::with_capacity(island_pairs.len() + direct_bands.len());
+
+    for &(i, a, b) in island_pairs {
+        incident.entry(a).or_default().push(i);
+        incident.entry(b).or_default().push(i);
+        ends.push((a, b));
+    }
+
+    let offset = island_pairs.len();
+    for (i, db) in direct_bands.iter().enumerate() {
+        let bi = offset + i;
+        incident.entry(db.left_box).or_default().push(bi);
+        incident.entry(db.right_box).or_default().push(bi);
+        ends.push((db.left_box, db.right_box));
+    }
+
+    TerminalGraph { incident, ends }
+}
+
+/// Given an island's terminal pair (a, b) and the TerminalGraph's side assignment,
+/// return the correct (left_box, right_box) ordering.
+///
+/// Rule:
+/// - island on left side of center  → left_box = neighbor, right_box = center
+/// - island on right side of center → left_box = center,  right_box = neighbor
+fn ordered_terminals(
+    island_idx: usize,
+    a: i64,
+    b: i64,
+    center: i64,
+    left_side: &[(i64, Vec<usize>)],
+) -> (i64, i64) {
+    let neighbor = if a == center { b } else { a };
+    let on_left = left_side
+        .iter()
+        .any(|(_, indices)| indices.contains(&island_idx));
+    if on_left {
+        (neighbor, center)
+    } else {
+        (center, neighbor)
+    }
+}
+
 /// Split the terminal graph's neighbours into left/right sides relative to the
 /// centre terminal. Uses a simple heuristic:
 /// - 1 neighbour → right side (preserves legacy two-terminal layout)
@@ -445,13 +497,63 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
         return false;
     }
 
+    // ── Phase 0.5: collect terminal pairs, build TerminalGraph ─────────────
+    //    This must happen BEFORE Phase A so every island's (left_box, right_box)
+    //    is determined by the terminal graph, not by id sort.
+    let (_tg, center, left_side, _right_side) = {
+        let box_by_id: HashMap<i64, &crate::vector::graph::McVecBox> =
+            graph.boxes.iter().map(|b| (b.id, b)).collect();
+
+        // Collect terminal pairs from islands (unordered)
+        let mut island_pairs: Vec<(usize, i64, i64)> = Vec::new();
+        for (i, isl) in d.islands.iter().enumerate() {
+            let kind = classify(graph, isl, &box_by_id);
+            match kind {
+                IslandKind::Sp | IslandKind::Ladder { .. } => {
+                    if let Some(pair) = find_terminals(graph, isl, &box_by_id) {
+                        island_pairs.push((i, pair.0, pair.1));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let tg = build_terminal_graph_from_pairs(&island_pairs, &d.direct_bands);
+
+        // Log
+        for (&tid, indices) in &tg.incident {
+            let name = box_label(&box_by_id, tid);
+            crate::vlog!("[islands] terminal graph: {}(deg={})", name, indices.len());
+        }
+
+        let center = tg
+            .incident
+            .iter()
+            .max_by_key(|(_, v)| v.len())
+            .map(|(k, _)| *k)
+            .unwrap();
+        let center_name = box_label(&box_by_id, center);
+        crate::vlog!("[islands]   center={}", center_name);
+
+        let (left_side, right_side) = split_sides(&tg, center);
+
+        for (tid, indices) in &left_side {
+            let name = box_label(&box_by_id, *tid);
+            crate::vlog!("[islands]   left  side: {} | bands {:?}", name, indices);
+        }
+        for (tid, indices) in &right_side {
+            let name = box_label(&box_by_id, *tid);
+            crate::vlog!("[islands]   right side: {} | bands {:?}", name, indices);
+        }
+
+        (tg, center, left_side, right_side)
+    }; // box_by_id dropped
+
     let mut all_claimed = true;
     let mut sp_models: Vec<(SpModel, usize)> = Vec::new();
     let mut ladder_models: Vec<(LadderModel, usize)> = Vec::new();
 
-    // ── Phase A: try to build a model for every Sp / Ladder island ─────────
-    //    Build box_by_id inside a block so it's dropped before Phase B's
-    //    mutable borrow of graph.
+    // ── Phase A: build models with side-determined ordering ────────────────
     let box_owned: HashMap<i64, String> = {
         let box_by_id: HashMap<i64, &crate::vector::graph::McVecBox> =
             graph.boxes.iter().map(|b| (b.id, b)).collect();
@@ -483,16 +585,19 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
                     all_claimed = false;
                 }
                 IslandKind::Sp => {
-                    let (left_box, right_box) = match find_terminals(graph, isl, &box_by_id) {
+                    let (a, b) = match find_terminals(graph, isl, &box_by_id) {
                         Some(pair) => pair,
                         None => {
                             crate::vlog!(
-                                    "[islands] island#{i} (Sp): cannot find 2 terminal boxes — not claimed"
-                                );
+                                "[islands] island#{i} (Sp): cannot find 2 terminal boxes — not claimed"
+                            );
                             all_claimed = false;
                             continue;
                         }
                     };
+
+                    // ★ Ordering by TerminalGraph, not by id sort
+                    let (left_box, right_box) = ordered_terminals(i, a, b, center, &left_side);
 
                     let passive_boxes: Vec<i64> =
                         isl.edges.iter().map(|(id, _, _, _)| *id).collect();
@@ -501,6 +606,7 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
                         passive_boxes,
                         left_box,
                         right_box,
+                        orientation_fixed: true,
                     };
 
                     let left_name = box_label(&box_by_id, left_box);
@@ -528,16 +634,19 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
                     }
                 }
                 IslandKind::Ladder { lanes } => {
-                    let (left_box, right_box) = match find_terminals(graph, isl, &box_by_id) {
+                    let (a, b) = match find_terminals(graph, isl, &box_by_id) {
                         Some(pair) => pair,
                         None => {
                             crate::vlog!(
-                                    "[islands] island#{i} (Ladder): cannot find 2 terminal boxes — not claimed"
-                                );
+                                "[islands] island#{i} (Ladder): cannot find 2 terminal boxes — not claimed"
+                            );
                             all_claimed = false;
                             continue;
                         }
                     };
+
+                    // ★ Ordering by TerminalGraph, not by id sort
+                    let (left_box, right_box) = ordered_terminals(i, a, b, center, &left_side);
 
                     let left_name = box_label(&box_by_id, left_box);
                     let right_name = box_label(&box_by_id, right_box);
