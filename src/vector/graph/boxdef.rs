@@ -434,6 +434,16 @@ impl McVecBox {
         self.id < 0 || self.kind == BoxKind::SubModule
     }
 
+    /// 这个无源器件的几何还没主 —— 只有它为真，兜底 pass 才可以动。
+    ///
+    /// `geom_locked` 才是"这个盒子的几何已有主"的真正语义，
+    /// `visual_role` 是渲染意图，两件事不该合用一个字段。
+    /// 三个 passive pass 的 filter 统一用这个谓词。
+    #[inline]
+    pub fn is_unowned_passive(&self) -> bool {
+        self.is_two_pin_passive() && !self.geom_locked && self.visual_role.is_none()
+    }
+
     /// ★ P01: display label (prefer designator, fall back to name)
     pub fn display_label(&self) -> &str {
         self.designator.as_deref().unwrap_or(&self.name)

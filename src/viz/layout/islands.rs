@@ -109,14 +109,25 @@ const ROW_H: f64 = 80.0;
 const MARGIN: f64 = 60.0;
 const TERM_GAP: f64 = COL_W * 0.4;
 const BAND_GAP: f64 = 60.0;
+/// Conservative column width for ladder bands (col_step ≥ SLOT_MIN=180,
+/// typical = (110+82+32).max(180) = 224).
+const LADDER_COL_W: f64 = 224.0;
 
 impl Band {
-    /// Grid size: (cols, rows). Pure query, no geometry.
-    fn size(&self) -> (f64, f64) {
+    /// Pixel extent: (width_px, height_px). Bands are stacked by height,
+    /// and `x_right` is computed from the max width.
+    /// SP: cols×COL_W; Ladder: cols×LADDER_COL_W; Direct: COL_W.
+    fn extent_px(&self) -> (f64, f64) {
         match self {
-            Band::Sp { model, .. } => model.size(),
-            Band::Ladder { model, .. } => model.size(),
-            Band::Direct { .. } => (1.0, 1.0), // 1 col, 1 row
+            Band::Sp { model, .. } => {
+                let (cols, rows) = model.size();
+                (cols * COL_W, rows * ROW_H)
+            }
+            Band::Ladder { model, .. } => {
+                let (cols, rows) = model.size();
+                (cols * LADDER_COL_W, rows * ROW_H)
+            }
+            Band::Direct { .. } => (COL_W, ROW_H),
         }
     }
 
@@ -534,22 +545,16 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
     }
 
     // ── Phase C: stack bands vertically, place passives ──────────────────────
-    let max_cols = bands.iter().map(|b| b.size().0 as usize).max().unwrap_or(1);
-    let x_right = MARGIN + max_cols as f64 * COL_W;
+    let max_width_px = bands.iter().map(|b| b.extent_px().0).fold(0.0f64, f64::max);
+    let x_right = MARGIN + max_width_px;
 
     // Compute y positions first, then place passives
     let mut y = MARGIN;
     let mut band_ys: Vec<f64> = Vec::new();
     for band in &bands {
         band_ys.push(y);
-        let (_, rows) = band.size();
-        let band_h = rows * ROW_H;
-        crate::vlog!(
-            "[islands] band y0={:.0} h={:.0} rows={:.0}",
-            y,
-            band_h,
-            rows
-        );
+        let (_, band_h) = band.extent_px();
+        crate::vlog!("[islands] band y0={:.0} h={:.0}", y, band_h);
         y += band_h + BAND_GAP;
     }
     let stack_h = y - BAND_GAP - MARGIN;
