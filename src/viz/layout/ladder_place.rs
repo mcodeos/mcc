@@ -39,6 +39,7 @@
 use std::collections::HashMap;
 
 use crate::vector::graph::boxdef::PinLayout;
+use crate::vector::graph::boxdef::VisualRole;
 use crate::vector::graph::{EntryPoint, EntrySide, McVecGraph, Point};
 
 use super::entry_points::distribute_terminal_pins;
@@ -50,10 +51,6 @@ use super::ladder_model::LadderModel;
 
 /// Canvas margin: left anchor's x, and every anchor's y.
 const MARGIN: f64 = 100.0;
-/// Vertical distance between adjacent lane baselines.
-const LANE_SEP: f64 = 150.0;
-/// Room kept between the outermost lane and the anchor box's top/bottom edge.
-const ANCHOR_PAD: f64 = 36.0;
 /// Horizontal clearance between a series box and the neighbouring bridge box.
 const COL_GAP: f64 = 16.0;
 /// Column pitch floor (keeps short ladders from looking cramped).
@@ -79,6 +76,9 @@ pub struct LadderGeometry {
 // Entry
 // ============================================================================
 
+/// Vertical spacing between lanes within a band. Must match islands::ROW_H.
+const ROW_H: f64 = 80.0;
+
 /// Place passives only (no anchors). Used by island band assembly so each band's
 /// passives are placed relative to the band's origin, leaving anchor placement
 /// to a single global pass (Phase D).
@@ -91,12 +91,9 @@ pub fn apply_ladder_model_at(
     // ── 0. Everything we need to read, read before we start mutating ─────────
     let plan = Plan::build(graph, m)?;
 
-    // ── 1. Lanes ─────────────────────────────────────────────────────────────
-    let lane_span = m.n_lanes.saturating_sub(1) as f64 * LANE_SEP;
-    let anchor_h = plan.anchor_h_now.max(lane_span + 2.0 * ANCHOR_PAD);
-    let center_y = origin.y + anchor_h / 2.0;
+    // ── 1. Lanes: spread evenly within the band's height, spacing = ROW_H ────
     let lane_y: Vec<f64> = (0..m.n_lanes)
-        .map(|l| center_y - lane_span / 2.0 + l as f64 * LANE_SEP)
+        .map(|k| origin.y + (k as f64 + 0.5) * ROW_H)
         .collect();
 
     // ── 2. Columns ───────────────────────────────────────────────────────────
@@ -122,6 +119,7 @@ pub fn apply_ladder_model_at(
             plan.elem_h,
             (left_pin, EntrySide::Left),
             (right_pin, EntrySide::Right),
+            VisualRole::SeriesInline,
         );
     }
 
@@ -141,13 +139,14 @@ pub fn apply_ladder_model_at(
             plan.bridge_h,
             (top_pin, EntrySide::Top),
             (bot_pin, EntrySide::Bottom),
+            VisualRole::BridgePassive,
         );
     }
 
     let geo = LadderGeometry {
         lane_y,
         col_x,
-        anchor_h,
+        anchor_h: m.n_lanes as f64 * ROW_H,
         col_step,
     };
     crate::vlog!(
@@ -390,8 +389,8 @@ fn place_anchor(
 }
 
 /// A ladder passive: centred at `(cx, cy)`, sized `w x h`, with exactly two pins on
-/// the two given sides. `visual_role` is left untouched — the model read it, the
-/// renderer and the routers still need it.
+/// the two given sides. `visual_role` is set explicitly so the three passive passes
+/// can skip it (both locks: `geom_locked` + `visual_role`).
 #[allow(clippy::too_many_arguments)]
 fn place_two_pin(
     graph: &mut McVecGraph,
@@ -402,6 +401,7 @@ fn place_two_pin(
     h: f64,
     a: (i64, EntrySide),
     b_side: (i64, EntrySide),
+    role: VisualRole,
 ) {
     let Some(b) = graph.boxes.iter_mut().find(|b| b.id == id) else {
         return;
@@ -458,6 +458,7 @@ fn place_two_pin(
     put(&a_side, a_name, a_pin);
     put(&b_sd, b_name, b_pin);
     b.set_layout_hint(hint);
+    b.visual_role = Some(role);
     b.geom_locked = true;
 }
 
