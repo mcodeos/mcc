@@ -287,6 +287,17 @@ impl McModuleInst {
         &self.buses
     }
 
+    /// Return this module's union-find merged nets in deterministic name order.
+    pub fn sorted_nets(&self) -> Vec<(&str, &[NetPoint])> {
+        let mut nets: Vec<(&str, &[NetPoint])> = self
+            .nets
+            .iter()
+            .map(|(name, points)| (name.as_str(), points.as_slice()))
+            .collect();
+        nets.sort_by(|a, b| a.0.cmp(b.0));
+        nets
+    }
+
     // ========================================================================
     // ID counter / naming (small utilities reused across multiple module files)
     // ========================================================================

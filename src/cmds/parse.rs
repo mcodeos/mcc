@@ -751,30 +751,17 @@ fn walk_connections(inst: &mcc::MccProjectTree, out: &mut Vec<ConnectionEntry>) 
 }
 
 fn extract_nets(inst: &mcc::MccProjectTree) -> Vec<NetEntry> {
-    use std::collections::BTreeMap;
-    let mut by_name: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    walk_nets(inst, &mut by_name);
-    by_name
-        .into_iter()
-        .map(|(name, points)| NetEntry { name, points })
-        .collect()
+    let mut nets = Vec::new();
+    walk_nets(inst, &mut nets);
+    nets
 }
 
-fn walk_nets(
-    inst: &mcc::MccProjectTree,
-    out: &mut std::collections::BTreeMap<String, Vec<String>>,
-) {
-    for conn in &inst.connections {
-        let net_name = conn
-            .net_name
-            .clone()
-            .unwrap_or_else(|| format!("__net_{}", conn.id));
-        let entry = out.entry(net_name).or_default();
-        for p in &conn.points {
-            if !entry.contains(&p.path) {
-                entry.push(p.path.clone());
-            }
-        }
+fn walk_nets(inst: &mcc::MccProjectTree, out: &mut Vec<NetEntry>) {
+    for (name, points) in inst.sorted_nets() {
+        out.push(NetEntry {
+            name: name.to_string(),
+            points: points.iter().map(|point| point.path.clone()).collect(),
+        });
     }
     for sub in &inst.sub_modules {
         walk_nets(sub, out);

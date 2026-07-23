@@ -622,27 +622,18 @@ pub(crate) fn instance_to_json(inst: &crate::MccProjectTree) -> Value {
 }
 
 pub(crate) fn extract_nets(inst: &crate::MccProjectTree) -> Vec<Value> {
-    use std::collections::BTreeMap;
-    let mut by_name: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    walk_nets(inst, &mut by_name);
-    by_name
-        .into_iter()
-        .map(|(name, points)| json!({ "name": name, "points": points }))
-        .collect()
+    let mut nets = Vec::new();
+    walk_nets(inst, &mut nets);
+    nets
 }
 
-pub(crate) fn walk_nets(inst: &crate::MccProjectTree, by_name: &mut BTreeMap<String, Vec<String>>) {
-    for conn in &inst.connections {
-        let key = conn.net_name.clone().unwrap_or_default();
-        let entry = by_name.entry(key).or_default();
-        for p in &conn.points {
-            if !entry.contains(&p.path) {
-                entry.push(p.path.clone());
-            }
-        }
+pub(crate) fn walk_nets(inst: &crate::MccProjectTree, out: &mut Vec<Value>) {
+    for (name, points) in inst.sorted_nets() {
+        let points: Vec<String> = points.iter().map(|point| point.path.clone()).collect();
+        out.push(json!({ "name": name, "points": points }));
     }
     for sub in &inst.sub_modules {
-        walk_nets(sub, by_name);
+        walk_nets(sub, out);
     }
 }
 

@@ -16,15 +16,12 @@
 //! The latter three are already displayed separately in `Components` / `Sub-modules` and other sections,
 //! repeating them as "??:" in Ports section is redundant and misleading. New version filters them directly.
 //!
-//! ### 2) print_nets — Aggregate from connections, no longer depends on inst.nets
-//! Pass2 currently doesn't populate `inst.nets`, causing old print_nets to always go to empty branch.
-//! But `inst.connections` is complete and valid — the same `net_name` appears in multiple
-//! connections, collecting all their points and deduplicating gives the actual
-//! coverage of that net. New version calculates directly from connections, no need to wait for Pass2 to change implementation.
+//! ### 2) print_nets — Report the merged Pass 2 net table
+//! Connections remain the source-level segments, while `inst.nets` is the
+//! union-find result used for electrical network reporting.
 
 use mcc::cli::PinSortMode;
 use mcc::{IOType, McEndpoint, McInstance, McInstanceRef, McPhrase, MccProjectTree};
-use std::collections::BTreeMap;
 
 // ============================================================================
 // Print Line members (McPhrase detailed structure) — same as old version
@@ -370,91 +367,19 @@ pub fn print_connections(inst: &MccProjectTree, depth: usize) {
 }
 
 // ============================================================================
-// Print Nets (REWRITTEN) — aggregate from connections
+// Print Nets — use the union-find merged Pass 2 net table
 // ============================================================================
-//
-// Approach:
-//   One "net" = union of *all points* from all connections with same net_name.
-//   Iterate inst.connections once, collect with BTreeMap<net_name, Vec<point_label>>,
-//   each point label internally formatted as "owner.last_segment" by (owner, path),
-//   deduplicate, so whether Pass2 populated inst.nets or not, we get correct net view.
 
 pub fn print_nets(inst: &MccProjectTree, depth: usize) {
     let indent = "  ".repeat(depth);
-
-    // ── Aggregate ──
-    let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
-
-    for conn in &inst.connections {
-        let net_name = conn
-            .net_name
-            .clone()
-            .unwrap_or_else(|| format!("__net_{}", conn.id));
-
-        // ── Iter-9 (bugfix_report error 11) ────────────────────────────
-        // Skip pure NC nets. NC means "not connected" (rules doc §11.4), shouldn't appear as electrical
-        // net. Corresponding connections like `NC : CAP_3.2 - NC`, net
-        // name is just "NC".
-        if net_name == "NC" {
-            continue;
-        }
-
-        let bucket = nets.entry(net_name).or_default();
-
-        for p in &conn.points {
-            // ── Iter-9: skip NC nodes (even if NC points mixed in non-NC-named nets) ──
-            if p.path == "NC" {
-                continue;
-            }
-            let label = if let Some(ref owner) = p.owner {
-                let last = p.path.split('.').last().unwrap_or(&p.path);
-                format!("{}.{}", owner, last)
-            } else {
-                p.path.clone()
-            };
-            // Deduplicate (same pin appearing in multiple connections only counts once)
-            if !bucket.contains(&label) {
-                bucket.push(label);
-            }
-        }
-    }
-
-    // ── Iter-9 (bugfix_report error 13): merge duplicate points ──
-    //
-    // Multiple connections have identical endpoints, but net_name each falls to `__net_{id}`
-    // auto-numbering (different ids) and displayed as multiple independent nets. modldo module's
-    // `vin -> ldo.VIN => CAP(...).Cap(_)` chaining + closure syntax causes same
-    // connection to be instantiated twice (__net_1 and __net_3 have identical endpoints). Here at display layer
-    // deduplicate by "sorted endpoint set signature", nets with identical endpoint sets only keep the first
-    // (first by BTreeMap lexicographic order).
-    {
-        use std::collections::HashSet;
-        let mut canonical: BTreeMap<String, Vec<String>> = BTreeMap::new();
-        let mut seen_signatures: HashSet<Vec<String>> = HashSet::new();
-        for (name, points) in nets.into_iter() {
-            // Skip empty nets or (after NC filtering) degenerate to single-point nets
-            if points.len() < 2 {
-                // Still preserve stub display semantics: skip 0 points, keep 1 point (will be printed as
-                // (stub) marker below). But only keep if path hasn't appeared before.
-                if points.is_empty() {
-                    continue;
-                }
-            }
-            let mut signature = points.clone();
-            signature.sort();
-            if seen_signatures.insert(signature) {
-                canonical.insert(name, points);
-            }
-        }
-        nets = canonical;
-    }
+    let nets = inst.sorted_nets();
 
     // ── Print ──
     if nets.is_empty() {
         println!("{}Module: {} (no nets)", indent, inst.name);
     } else {
         // Distinguish two net types: actual multi-terminal (>=2 points) and stub (1 point)
-        let multi_count = nets.values().filter(|pts| pts.len() >= 2).count();
+        let multi_count = nets.iter().filter(|(_, points)| points.len() >= 2).count();
         let stub_count = nets.len() - multi_count;
         println!(
             "{}Module: {} ({} nets: {} connected, {} stub) [from {} connections]",
@@ -465,15 +390,16 @@ pub fn print_nets(inst: &MccProjectTree, depth: usize) {
             stub_count,
             inst.connections.len()
         );
-        for (net_name, points) in &nets {
+        for (net_name, points) in nets {
             let marker = if points.len() < 2 { " (stub)" } else { "" };
+            let labels: Vec<&str> = points.iter().map(|point| point.path.as_str()).collect();
             println!(
                 "{}  {} ({} pts){} : {}",
                 indent,
                 net_name,
                 points.len(),
                 marker,
-                points.join(" ~ ")
+                labels.join(" ~ ")
             );
         }
     }
@@ -504,15 +430,7 @@ pub fn print_net_summary(inst: &MccProjectTree) {
         *total_modules += 1;
         *total_conn += inst.connections.len();
 
-        let mut local_nets: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-
         for conn in &inst.connections {
-            let net_name = conn
-                .net_name
-                .clone()
-                .unwrap_or_else(|| format!("__net_{}", conn.id));
-            local_nets.insert(net_name);
-
             // Check for duplicate paths within same connection (early signal of Pass2 data anomaly)
             let mut seen: std::collections::HashSet<&String> = std::collections::HashSet::new();
             for p in &conn.points {
@@ -522,7 +440,7 @@ pub fn print_net_summary(inst: &MccProjectTree) {
             }
         }
 
-        *total_nets += local_nets.len();
+        *total_nets += inst.nets.len();
 
         for sub in &inst.sub_modules {
             walk(sub, total_conn, total_nets, total_modules, suspicious_dup);
