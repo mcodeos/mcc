@@ -277,6 +277,10 @@ pub struct SubNet {
     pub left_box: i64,
     /// The right terminal box ID.
     pub right_box: i64,
+    /// ★ When true, the caller has already determined left/right ordering
+    /// (e.g. via TerminalGraph). The model must not reorder based on
+    /// io_summary.outputs.
+    pub orientation_fixed: bool,
 }
 
 /// Build the SP model from a [`SubNet`] — a subset of nets and boxes.
@@ -309,6 +313,8 @@ pub fn build_sp_tree(graph: &McVecGraph, sub: &SubNet) -> Result<SpModel, SpBail
     let n1 = term_node(sub.right_box)?;
 
     // left = more outputs (source); tie-break on lower id (deterministic)
+    // ★ When orientation_fixed is true, the caller (e.g. TerminalGraph) has
+    //   already determined left/right — skip the outputs-based reorder.
     let out_of = |id: i64| -> usize {
         graph
             .boxes
@@ -318,7 +324,7 @@ pub fn build_sp_tree(graph: &McVecGraph, sub: &SubNet) -> Result<SpModel, SpBail
             .unwrap_or(0)
     };
     let ((left_box, left_node), (right_box, right_node)) =
-        if out_of(sub.left_box) >= out_of(sub.right_box) {
+        if sub.orientation_fixed || out_of(sub.left_box) >= out_of(sub.right_box) {
             ((sub.left_box, n0), (sub.right_box, n1))
         } else {
             ((sub.right_box, n1), (sub.left_box, n0))
@@ -536,6 +542,7 @@ pub fn build_sp_model(graph: &McVecGraph) -> Result<SpModel, SpBail> {
         passive_boxes,
         left_box: terminals[0],
         right_box: terminals[1],
+        orientation_fixed: false,
     };
 
     build_sp_tree(graph, &sub)
