@@ -68,6 +68,10 @@ pub fn dump_layout(graph: &McVecGraph, layouter_name: &str, canvas: (f64, f64)) 
         for j in (i + 1)..graph.boxes.len() {
             let a = &graph.boxes[i];
             let b = &graph.boxes[j];
+            // 容器/边框盒天然框住子盒，不算碰撞。
+            if a.is_container_box() || b.is_container_box() {
+                continue;
+            }
             let x_overlap = a.x < b.x + b.w && b.x < a.x + a.w;
             let y_overlap = a.y < b.y + b.h && b.y < a.y + a.h;
             if x_overlap && y_overlap {

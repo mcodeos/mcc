@@ -120,10 +120,7 @@ impl SpTree {
         match &self.kind {
             SpKind::Leaf { order, .. } => *order,
             SpKind::Series(cs) | SpKind::Parallel(cs) => {
-                cs.iter()
-                    .map(|c| c.min_order())
-                    .min()
-                    .unwrap_or(usize::MAX)
+                cs.iter().map(|c| c.min_order()).min().unwrap_or(usize::MAX)
             }
         }
     }
@@ -249,6 +246,127 @@ impl SpModel {
     }
 }
 
+// ============================================================================
+// ★ SubNet: a subset of the full graph for island-based SP model building
+// ============================================================================
+
+/// A subset of the full graph, used by `islands` to build SP models from a
+/// specific island instead of the whole graph.
+#[derive(Debug, Clone)]
+pub struct SubNet {
+    /// The net indices (nodes) in this sub-network.
+    pub nodes: Vec<usize>,
+    /// The box IDs of passive components in this sub-network.
+    pub passive_boxes: Vec<i64>,
+    /// The left terminal box ID.
+    pub left_box: i64,
+    /// The right terminal box ID.
+    pub right_box: i64,
+}
+
+/// Build the SP model from a [`SubNet`] — a subset of nets and boxes.
+///
+/// Unlike [`build_sp_model`] which scans the whole graph, this only considers
+/// the specified nets and passives. The `reduce` core already operates purely on
+/// net indices + edges, so it's graph-agnostic.
+pub fn build_sp_tree(graph: &McVecGraph, sub: &SubNet) -> Result<SpModel, SpBail> {
+    let node_set: HashSet<usize> = sub.nodes.iter().copied().collect();
+    let passive_set: HashSet<i64> = sub.passive_boxes.iter().copied().collect();
+    let box_nets = box_net_index(graph);
+
+    // Each terminal must touch exactly one net in the subset
+    let term_node = |id: i64| -> Result<usize, SpBail> {
+        let nets = box_nets.get(&id).cloned().unwrap_or_default();
+        let in_sub: Vec<usize> = nets.into_iter().filter(|n| node_set.contains(n)).collect();
+        if in_sub.len() != 1 {
+            crate::vlog!(
+                "[sp-tree] terminal #{id} touches {} net(s) in sub — bailing",
+                in_sub.len()
+            );
+            return Err(SpBail::TerminalFanout {
+                box_id: id,
+                nets: in_sub.len(),
+            });
+        }
+        Ok(in_sub[0])
+    };
+    let n0 = term_node(sub.left_box)?;
+    let n1 = term_node(sub.right_box)?;
+
+    // left = more outputs (source); tie-break on lower id (deterministic)
+    let out_of = |id: i64| -> usize {
+        graph
+            .boxes
+            .iter()
+            .find(|b| b.id == id)
+            .map(|b| b.io_summary.outputs)
+            .unwrap_or(0)
+    };
+    let ((left_box, left_node), (right_box, right_node)) =
+        if out_of(sub.left_box) >= out_of(sub.right_box) {
+            ((sub.left_box, n0), (sub.right_box, n1))
+        } else {
+            ((sub.right_box, n1), (sub.left_box, n0))
+        };
+
+    // Edges: only passives in the subset
+    let mut in_edges: Vec<(i64, String, usize, usize, usize)> = Vec::new();
+    for (bi, b) in graph.boxes.iter().enumerate() {
+        if !b.is_two_pin_passive() || !passive_set.contains(&b.id) {
+            continue;
+        }
+        let nets = box_nets.get(&b.id).cloned().unwrap_or_default();
+        let in_sub: Vec<usize> = nets.into_iter().filter(|n| node_set.contains(n)).collect();
+        if in_sub.len() == 1 {
+            crate::vlog!("[sp-tree] passive #{} is a self-loop within sub", b.id);
+            return Err(SpBail::SelfLoop { box_id: b.id });
+        }
+        if in_sub.len() != 2 {
+            crate::vlog!(
+                "[sp-tree] passive #{} touches {} net(s) in sub — bailing",
+                b.id,
+                in_sub.len()
+            );
+            return Err(SpBail::PassiveNetCount {
+                box_id: b.id,
+                nets: in_sub.len(),
+            });
+        }
+        in_edges.push((
+            b.id,
+            b.display_label().to_string(),
+            in_sub[0],
+            in_sub[1],
+            bi,
+        ));
+    }
+
+    if in_edges.is_empty() {
+        crate::vlog!("[sp-tree] no edges between terminals — disconnected");
+        return Err(SpBail::Disconnected {
+            left: left_node,
+            right: right_node,
+        });
+    }
+
+    let (mut root, mut stubs) = reduce(graph.nets.len(), &in_edges, left_node, right_node)?;
+    orient_tree(&mut root, left_node, right_node);
+    order_parallel(&mut root, true);
+    for s in &mut stubs {
+        orient_tree(&mut s.tree, s.node, s.dangling);
+        order_parallel(&mut s.tree, false);
+    }
+
+    Ok(SpModel {
+        root,
+        left_node,
+        right_node,
+        left_box,
+        right_box,
+        stubs,
+    })
+}
+
 #[derive(Debug, Clone)]
 pub enum SpBail {
     /// Not exactly two non-rail, non-passive terminal boxes.
@@ -349,7 +467,10 @@ pub fn try_build_sp_model(graph: &McVecGraph) -> Option<SpModel> {
     }
 }
 
-/// Build the SP model from the net list. Pure; never touches geometry.
+/// Build the SP model from the whole net list. Pure; never touches geometry.
+///
+/// This is now a thin wrapper that builds a [`SubNet`] covering the whole graph
+/// and delegates to [`build_sp_tree`], keeping the reduction logic in one place.
 pub fn build_sp_model(graph: &McVecGraph) -> Result<SpModel, SpBail> {
     let n_nets = graph.nets.len();
     if n_nets == 0 {
@@ -358,7 +479,6 @@ pub fn build_sp_model(graph: &McVecGraph) -> Result<SpModel, SpBail> {
     let box_nets = box_net_index(graph);
 
     // ── 1. Terminals: the non-rail, non-two-pin-passive boxes (exactly 2) ────
-    //    (NOTE: no ">= 2 nets" clause — SP terminals are single connection points.)
     let mut terminals: Vec<i64> = graph
         .boxes
         .iter()
@@ -371,82 +491,23 @@ pub fn build_sp_model(graph: &McVecGraph) -> Result<SpModel, SpBail> {
         return Err(SpBail::AnchorCount(terminals.len()));
     }
 
-    // each terminal box must touch exactly one net → that net is its terminal node
-    let term_node = |id: i64| -> Result<usize, SpBail> {
-        let nets = box_nets.get(&id).cloned().unwrap_or_default();
-        if nets.len() != 1 {
-            return Err(SpBail::TerminalFanout {
-                box_id: id,
-                nets: nets.len(),
-            });
-        }
-        Ok(nets[0])
+    let passive_boxes: Vec<i64> = graph
+        .boxes
+        .iter()
+        .filter(|b| b.is_two_pin_passive())
+        .map(|b| b.id)
+        .collect();
+
+    let nodes: Vec<usize> = (0..n_nets).collect();
+
+    let sub = SubNet {
+        nodes,
+        passive_boxes,
+        left_box: terminals[0],
+        right_box: terminals[1],
     };
-    let n0 = term_node(terminals[0])?;
-    let n1 = term_node(terminals[1])?;
 
-    // left = more outputs (source); tie-break on lower id (deterministic)
-    let out_of = |id: i64| -> usize {
-        graph
-            .boxes
-            .iter()
-            .find(|b| b.id == id)
-            .map(|b| b.io_summary.outputs)
-            .unwrap_or(0)
-    };
-    let ((left_box, left_node), (right_box, right_node)) =
-        if out_of(terminals[0]) >= out_of(terminals[1]) {
-            ((terminals[0], n0), (terminals[1], n1))
-        } else {
-            ((terminals[1], n1), (terminals[0], n0))
-        };
-
-    // ── 2. Edges: every 2-pin passive spans exactly two nets ─────────────────
-    let mut in_edges: Vec<(i64, String, usize, usize, usize)> = Vec::new(); // + order
-    for (bi, b) in graph.boxes.iter().enumerate() {
-        if !b.is_two_pin_passive() {
-            continue;
-        }
-        let nets = box_nets.get(&b.id).cloned().unwrap_or_default();
-        // A shorted passive has *both* pins on one node, so it reads as "touches 1 net".
-        // Name it for what it is instead of hiding it behind a count mismatch.
-        if nets.len() == 1 {
-            return Err(SpBail::SelfLoop { box_id: b.id });
-        }
-        if nets.len() != 2 {
-            return Err(SpBail::PassiveNetCount {
-                box_id: b.id,
-                nets: nets.len(),
-            });
-        }
-        in_edges.push((
-            b.id,
-            b.display_label().to_string(),
-            nets[0],
-            nets[1],
-            bi,
-        ));
-    }
-
-    // ── 3. Reduction (graph-agnostic core) ──────────────────────────────────
-    let (mut root, mut stubs) = reduce(n_nets, &in_edges, left_node, right_node)?;
-
-    // ── 4. Orientation + ordering (pure tree passes, in this order) ─────────
-    orient_tree(&mut root, left_node, right_node);
-    order_parallel(&mut root, true);
-    for s in &mut stubs {
-        orient_tree(&mut s.tree, s.node, s.dangling);
-        order_parallel(&mut s.tree, false);
-    }
-
-    Ok(SpModel {
-        root,
-        left_node,
-        right_node,
-        left_box,
-        right_box,
-        stubs,
-    })
+    build_sp_tree(graph, &sub)
 }
 
 // ============================================================================
@@ -958,7 +1019,8 @@ mod tests {
         g.nets.push(net(2, "__net_2", &[(4, 41), (6, 61), (3, 32)]));
         g.nets
             .push(net(3, "__net_3", &[(5, 52), (6, 62), (2, 22), (102, 6)]));
-        g.nets.push(net(4, "__net_4", &[(1, 11), (3, 31), (101, 6)]));
+        g.nets
+            .push(net(4, "__net_4", &[(1, 11), (3, 31), (101, 6)]));
         g
     }
 

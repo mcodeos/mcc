@@ -41,6 +41,7 @@ use std::collections::HashMap;
 use crate::vector::graph::boxdef::PinLayout;
 use crate::vector::graph::{EntryPoint, EntrySide, McVecGraph};
 
+use super::entry_points::distribute_terminal_pins;
 use super::ladder_model::LadderModel;
 
 // ============================================================================
@@ -365,25 +366,12 @@ fn place_anchor(
     b.x = x;
     b.y = y;
     b.h = h;
-
-    let mut names: Vec<String> = Vec::new();
-    for ep in &mut b.entry_points {
-        ep.side = side.clone();
-        if let Some(lane) = lane_pin.iter().position(|&p| p == ep.pin_id) {
-            // offset is derived from the lane, never the other way round
-            ep.offset = ((lane_y[lane] - y) / h).clamp(0.02, 0.98);
-        }
-        names.push(ep.pin_name.clone());
-        names.push(ep.pin_id.to_string());
-    }
-    let mut hint = PinLayout::default();
-    match side {
-        EntrySide::Right => hint.right = names,
-        EntrySide::Left => hint.left = names,
-        EntrySide::Top => hint.top = names,
-        EntrySide::Bottom => hint.bottom = names,
-    }
-    b.set_layout_hint(hint);
+    let connected: Vec<(i64, f64)> = lane_pin
+        .iter()
+        .zip(lane_y.iter())
+        .map(|(&p, &ly)| (p, (ly - y) / h))
+        .collect();
+    distribute_terminal_pins(b, side, &connected);
     b.geom_locked = true;
 }
 

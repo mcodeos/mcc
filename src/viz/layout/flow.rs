@@ -434,14 +434,25 @@ impl Layouter for FlowLayouter {
         super::pin_place::pin_place_pipeline(graph, Some(root_id), true, self.hub_keep_semantic);
         probe_degenerate_boxes(graph, "after pin_place");
 
-        // ★ 确定性摆位，pin_place 之后做最后写者。SP 先手：命中即抢先落两把锁
-        // (geom_locked + SeriesInline)，之后 select.rs 的三个 passive pass 全跳过。
-        // 纯 SP 树 → SP 命中，ladder 若被调也会 NoBridge bail（互补）。
-        // 桥式网孔 → SP 判 NonSpBridge bail → ladder 接手。两者皆 bail → 通用 flow 兜底。
-        if let Some(sp) = try_build_sp_model(graph) {
-            apply_sp(graph, &sp);
-        } else if let Some(m) = super::ladder_model::try_build_ladder_model(graph) {
-            apply_ladder_model(graph, &m);
+        // ★ 四级确定性摆位 dispatch，pin_place 之后做最后写者。
+        //
+        // L1: islands 分解 → 每个岛按拓扑分类（SP / ladder / direct / stub），
+        //     要求**每个岛都被认领**才落几何。判据比 L2 严，多结构图的首选。
+        // L2: 整图 SP（旧路径）—— 纯 SP 树命中即抢先落两把锁
+        //     (geom_locked + SeriesInline)。
+        // L3: 整图 ladder（旧路径）—— 桥式网孔，SP 判 NonSpBridge bail 后接手。
+        // L4: 通用 flow 兜底（select.rs 的三个 passive pass）。
+        //
+        // 保留旧 SP/ladder 分支是有意的：islands 的判据更严（要求每个岛都被认领），
+        // 单结构图两边结果一致。
+        let decomp = super::islands::decompose(graph);
+        if !super::islands::apply_islands(graph, &decomp) {
+            // L1 未覆盖全图 → 退回旧路径
+            if let Some(sp) = try_build_sp_model(graph) {
+                apply_sp(graph, &sp);
+            } else if let Some(m) = super::ladder_model::try_build_ladder_model(graph) {
+                apply_ladder_model(graph, &m);
+            }
         }
 
         // ── 相位 5 · Post：几何保持的移动，pin_place 之后安全 ──

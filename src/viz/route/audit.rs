@@ -56,8 +56,8 @@ pub fn audit_collisions(graph: &McVecGraph) -> CollisionReport {
         for j in (i + 1)..boxes.len() {
             let a = &boxes[i];
             let b = &boxes[j];
-            // 容器/边框盒（负 id）天然框住子盒，不算碰撞。
-            if a.id < 0 || b.id < 0 {
+            // 容器/边框盒天然框住子盒，不算碰撞。
+            if a.is_container_box() || b.is_container_box() {
                 continue;
             }
             if rects_overlap(a.x, a.y, a.w, a.h, b.x, b.y, b.w, b.h, BOX_INFLATE) {
@@ -82,6 +82,12 @@ pub fn audit_collisions(graph: &McVecGraph) -> CollisionReport {
         let ep_ids: Vec<i64> = net.endpoints.iter().map(|e| e.box_id).collect();
         for seg in &route.segments {
             for b in boxes {
+                // ★ 与 box-box 循环保持一致：容器/边框盒天然框住所有子盒和连线，
+                //   不算碰撞。缺这一句时 `main`(id=-1001) 会把每一段线都记成一次
+                //   wire_box —— 实测 segments=83 → wire_box=85，其中 83 个是假阳性。
+                if b.is_container_box() {
+                    continue;
+                }
                 if ep_ids.contains(&b.id) {
                     continue;
                 }
@@ -150,9 +156,12 @@ pub fn net_has_conflict(graph: &McVecGraph, net_index: usize) -> bool {
     };
     let ep_ids: Vec<i64> = net.endpoints.iter().map(|e| e.box_id).collect();
 
-    // Pass-through box (excluding own endpoint boxes)
+    // Pass-through box (excluding own endpoint boxes and container boxes)
     for seg in &route.segments {
         for b in &graph.boxes {
+            if b.is_container_box() {
+                continue;
+            }
             if ep_ids.contains(&b.id) {
                 continue;
             }

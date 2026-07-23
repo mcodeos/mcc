@@ -256,30 +256,70 @@ pub fn build_ladder_model(graph: &McVecGraph) -> Result<LadderModel, LadderBail>
     if anchors.len() != 2 {
         return Err(LadderBail::AnchorCount(anchors.len()));
     }
-    let out_of = |id: i64| -> usize {
-        graph
-            .boxes
-            .iter()
-            .find(|b| b.id == id)
-            .map(|b| b.io_summary.outputs)
-            .unwrap_or(0)
-    };
-    // Source drives the lanes left-to-right. Ties break on the lower id, so the
-    // model is deterministic even when neither anchor carries direction.
-    let (left, right) = if out_of(anchors[0]) >= out_of(anchors[1]) {
-        (anchors[0], anchors[1])
-    } else {
-        (anchors[1], anchors[0])
-    };
+    let (left, right) = pick_left_right(graph, &anchors);
 
-    // ── 2. Elements: every 2-pin passive is an edge between exactly 2 nets ───
-    let mut series_edges: Vec<(i64, usize, usize)> = Vec::new(); // (box, net_a, net_b)
+    build_ladder_core(graph, left, right, None, &box_nets)
+}
+
+/// Build the ladder model from a **subset** of the graph — an island with
+/// exactly two terminal boxes. The caller (islands) provides the anchors and
+/// the island's net/edge membership.
+///
+/// Everything inside `build_ladder_core` (union-find, BFS, rank, slots) is the
+/// same as the whole-graph path — the subset filtering only affects which nets
+/// and passives are considered.
+pub fn build_ladder_model_on(
+    graph: &McVecGraph,
+    left_box: i64,
+    right_box: i64,
+    isl: &crate::viz::layout::islands::Island,
+) -> Result<LadderModel, LadderBail> {
+    let node_set: HashSet<usize> = isl.nodes.iter().copied().collect();
+    let edge_set: HashSet<i64> = isl.edges.iter().map(|(id, _, _, _)| *id).collect();
+    let box_nets = box_net_index(graph);
+
+    build_ladder_core(
+        graph,
+        left_box,
+        right_box,
+        Some((&node_set, &edge_set)),
+        &box_nets,
+    )
+}
+
+/// Core ladder builder, shared by whole-graph and island paths.
+///
+/// When `subset` is `Some((nodes, edges))`, only nets in `nodes` and passives
+/// in `edges` are considered. When `None`, the whole graph is used.
+fn build_ladder_core(
+    graph: &McVecGraph,
+    left: i64,
+    right: i64,
+    subset: Option<(&HashSet<usize>, &HashSet<i64>)>,
+    box_nets: &HashMap<i64, Vec<usize>>,
+) -> Result<LadderModel, LadderBail> {
+    let n_nets = graph.nets.len();
+    let node_set = subset.map(|(n, _)| n);
+    let edge_set = subset.map(|(_, e)| e);
+
+    // ── 2. Elements: every 2-pin passive in scope is an edge ────────────────
+    let mut series_edges: Vec<(i64, usize, usize)> = Vec::new();
     let mut bridge_edges: Vec<(i64, usize, usize)> = Vec::new();
     for b in &graph.boxes {
         if !b.is_two_pin_passive() {
             continue;
         }
+        if let Some(es) = edge_set {
+            if !es.contains(&b.id) {
+                continue;
+            }
+        }
         let nets = box_nets.get(&b.id).cloned().unwrap_or_default();
+        let nets: Vec<usize> = if let Some(ns) = node_set {
+            nets.into_iter().filter(|n| ns.contains(n)).collect()
+        } else {
+            nets
+        };
         if nets.len() != 2 {
             return Err(LadderBail::PassiveNetCount {
                 box_id: b.id,
@@ -297,7 +337,6 @@ pub fn build_ladder_model(graph: &McVecGraph) -> Result<LadderModel, LadderBail>
     }
 
     // ── 3. Union-find: each bridge proves its two nets are one column ────────
-    //    (this is the "closing bracket": CAP2 proves net_1 ≡ net_4)
     let mut dsu = Dsu::new(n_nets);
     for &(_, a, b) in &bridge_edges {
         dsu.union(a, b);
@@ -305,13 +344,17 @@ pub fn build_ladder_model(graph: &McVecGraph) -> Result<LadderModel, LadderBail>
     let class_of: Vec<usize> = (0..n_nets).map(|i| dsu.find(i)).collect();
 
     // ── 4. Lanes + BFS distance, walking SERIES edges only ──────────────────
-    //    Seeds = the left anchor's nets, ordered by pin id -> lane index.
     let mut seeds: Vec<(i64, usize)> = box_nets
         .get(&left)
         .cloned()
         .unwrap_or_default()
         .into_iter()
         .filter_map(|ni| {
+            if let Some(ns) = node_set {
+                if !ns.contains(&ni) {
+                    return None;
+                }
+            }
             graph.nets[ni]
                 .endpoints
                 .iter()
@@ -323,7 +366,7 @@ pub fn build_ladder_model(graph: &McVecGraph) -> Result<LadderModel, LadderBail>
     seeds.dedup_by_key(|(_, ni)| *ni);
     let n_lanes = seeds.len();
 
-    let mut series_of_net: HashMap<usize, Vec<(i64, usize)>> = HashMap::new(); // net -> [(box, other)]
+    let mut series_of_net: HashMap<usize, Vec<(i64, usize)>> = HashMap::new();
     for &(bid, a, b) in &series_edges {
         series_of_net.entry(a).or_default().push((bid, b));
         series_of_net.entry(b).or_default().push((bid, a));
@@ -339,12 +382,10 @@ pub fn build_ladder_model(graph: &McVecGraph) -> Result<LadderModel, LadderBail>
             let d = dist_of[&n];
             for &(bid, other) in series_of_net.get(&n).into_iter().flatten() {
                 match lane_of.get(&other).copied() {
-                    // Reached a net another lane already owns -> a series element
-                    // ties two lanes together. Not a ladder.
                     Some(l) if l != lane => {
                         return Err(LadderBail::SeriesCrossesLane { box_id: bid })
                     }
-                    Some(_) => continue, // the net we came from, or a loop (caught by the DAG check)
+                    Some(_) => continue,
                     None => {
                         lane_of.insert(other, lane);
                         dist_of.insert(other, d + 1);
@@ -354,7 +395,13 @@ pub fn build_ladder_model(graph: &McVecGraph) -> Result<LadderModel, LadderBail>
             }
         }
     }
+    // Only check reachability for nets in the subset
     for ni in 0..n_nets {
+        if let Some(ns) = node_set {
+            if !ns.contains(&ni) {
+                continue;
+            }
+        }
         if !lane_of.contains_key(&ni) {
             return Err(LadderBail::UnreachableNet {
                 nid: graph.nets[ni].nid,
@@ -382,16 +429,17 @@ pub fn build_ladder_model(graph: &McVecGraph) -> Result<LadderModel, LadderBail>
 
     let mut adj: Vec<Vec<usize>> = vec![Vec::new(); k];
     let mut indeg: Vec<usize> = vec![0; k];
-    // (box, from_net, to_net, from_class_idx, to_class_idx)
     let mut oriented: Vec<(i64, usize, usize, usize, usize)> = Vec::new();
     for &(bid, a, b) in &series_edges {
         let (from, to) = match dist_of[&a].cmp(&dist_of[&b]) {
             Ordering::Less => (a, b),
             Ordering::Greater => (b, a),
-            // Equidistant from the source -> the lane is not a simple chain.
             Ordering::Equal => return Err(LadderBail::Cycle),
         };
-        let (cu, cv) = (idx_of[&class_of[from]], idx_of[&class_of[to]]);
+        let (cu, cv) = match (idx_of.get(&class_of[from]), idx_of.get(&class_of[to])) {
+            (Some(&u), Some(&v)) => (u, v),
+            _ => continue, // skip edges whose classes aren't in the subset
+        };
         if cu == cv {
             return Err(LadderBail::SelfLoop { box_id: bid });
         }
@@ -400,8 +448,7 @@ pub fn build_ladder_model(graph: &McVecGraph) -> Result<LadderModel, LadderBail>
         oriented.push((bid, from, to, cu, cv));
     }
 
-    // ── 7. Longest-path rank (Kahn). Parallel edges are fine: C1->C2 appears
-    //       twice (RES3 and RES4) and both decrements land. ──────────────────
+    // ── 7. Longest-path rank (Kahn) ─────────────────────────────────────────
     let mut rank: Vec<usize> = vec![0; k];
     let mut indeg_work = indeg.clone();
     let mut q: VecDeque<usize> = (0..k).filter(|&i| indeg_work[i] == 0).collect();
@@ -422,8 +469,19 @@ pub fn build_ladder_model(graph: &McVecGraph) -> Result<LadderModel, LadderBail>
     }
 
     // ── 8. Right-align the sinks so both lanes end on the same column ───────
-    //    Raising a sink is always safe: it has no outgoing edge to violate.
-    let right_nets = box_nets.get(&right).cloned().unwrap_or_default();
+    let right_nets: Vec<usize> = box_nets
+        .get(&right)
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|ni| {
+            if let Some(ns) = node_set {
+                ns.contains(ni)
+            } else {
+                true
+            }
+        })
+        .collect();
     {
         let mut lanes_seen: HashSet<Lane> = HashSet::new();
         for &ni in &right_nets {
@@ -445,14 +503,15 @@ pub fn build_ladder_model(graph: &McVecGraph) -> Result<LadderModel, LadderBail>
     }
     let max_rank = rank.iter().copied().max().unwrap_or(0);
     for &ni in &right_nets {
-        let ci = idx_of[&class_of[ni]];
-        if adj[ci].is_empty() && rank[ci] < max_rank {
-            crate::vlog!(
-                "[ladder-model] right-align: net {} col {} -> {max_rank}",
-                graph.nets[ni].nid,
-                rank[ci]
-            );
-            rank[ci] = max_rank;
+        if let Some(&ci) = idx_of.get(&class_of[ni]) {
+            if adj[ci].is_empty() && rank[ci] < max_rank {
+                crate::vlog!(
+                    "[ladder-model] right-align: net {} col {} -> {max_rank}",
+                    graph.nets[ni].nid,
+                    rank[ci]
+                );
+                rank[ci] = max_rank;
+            }
         }
     }
     let n_cols = max_rank + 1;
@@ -505,25 +564,35 @@ pub fn build_ladder_model(graph: &McVecGraph) -> Result<LadderModel, LadderBail>
         bocc.insert((b.col, b.lane_a, b.lane_b), b.box_id);
     }
 
-    // ── 10. Nothing foreign on the lanes ────────────────────────────────────
-    let mut known: HashSet<i64> = HashSet::new();
-    known.insert(left);
-    known.insert(right);
-    known.extend(series.iter().map(|s| s.box_id));
-    known.extend(bridges.iter().map(|b| b.box_id));
-    for net in &graph.nets {
-        for e in &net.endpoints {
-            if !known.contains(&e.box_id) {
-                return Err(LadderBail::ForeignBox { box_id: e.box_id });
+    // ── 10. Nothing foreign on the lanes (only for whole-graph path) ─────────
+    //    For island path, boxes outside the island are irrelevant.
+    if subset.is_none() {
+        let mut known: HashSet<i64> = HashSet::new();
+        known.insert(left);
+        known.insert(right);
+        known.extend(series.iter().map(|s| s.box_id));
+        known.extend(bridges.iter().map(|b| b.box_id));
+        for net in &graph.nets {
+            for e in &net.endpoints {
+                if !known.contains(&e.box_id) {
+                    return Err(LadderBail::ForeignBox { box_id: e.box_id });
+                }
             }
         }
     }
 
     let net_col: HashMap<i64, (Lane, Col)> = (0..n_nets)
+        .filter(|ni| {
+            if let Some(ns) = node_set {
+                ns.contains(ni)
+            } else {
+                true
+            }
+        })
         .map(|ni| {
             (
                 graph.nets[ni].nid,
-                (lane_of[&ni], rank[idx_of[&class_of[ni]]]),
+                (lane_of[&ni], rank[*idx_of.get(&class_of[ni]).unwrap_or(&0)]),
             )
         })
         .collect();
@@ -538,6 +607,23 @@ pub fn build_ladder_model(graph: &McVecGraph) -> Result<LadderModel, LadderBail>
         bridges,
         net_col,
     })
+}
+
+fn pick_left_right(graph: &McVecGraph, anchors: &[i64]) -> (i64, i64) {
+    let out_of = |id: i64| -> usize {
+        graph
+            .boxes
+            .iter()
+            .find(|b| b.id == id)
+            .map(|b| b.io_summary.outputs)
+            .unwrap_or(0)
+    };
+    let (left, right) = if out_of(anchors[0]) >= out_of(anchors[1]) {
+        (anchors[0], anchors[1])
+    } else {
+        (anchors[1], anchors[0])
+    };
+    (left, right)
 }
 
 // ============================================================================

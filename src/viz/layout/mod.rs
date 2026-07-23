@@ -28,6 +28,7 @@ pub mod entry_points;
 pub mod flow;
 pub mod grid;
 pub mod hierarchical;
+pub mod islands;
 pub mod ladder_model;
 pub mod ladder_place;
 pub mod layered;

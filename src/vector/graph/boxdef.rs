@@ -426,6 +426,14 @@ impl McVecBox {
         self.symbol.is_two_pin_passive()
     }
 
+    /// 容器/边框盒：只提供视觉边框，不参与任何碰撞判定。
+    /// 负 id 的盒子（如 `main` id=-1001）是 SubModule 的容器边框，
+    /// 天然框住所有子盒和连线，不算碰撞。
+    #[inline]
+    pub fn is_container_box(&self) -> bool {
+        self.id < 0 || self.kind == BoxKind::SubModule
+    }
+
     /// ★ P01: display label (prefer designator, fall back to name)
     pub fn display_label(&self) -> &str {
         self.designator.as_deref().unwrap_or(&self.name)
