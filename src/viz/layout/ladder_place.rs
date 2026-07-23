@@ -78,6 +78,8 @@ pub struct LadderGeometry {
 
 /// Vertical spacing between lanes within a band. Must match islands::ROW_H.
 const ROW_H: f64 = 80.0;
+/// Minimum vertical clearance between two passive elements in adjacent lanes.
+const PASSIVE_GAP: f64 = 8.0;
 
 /// Place passives only (no anchors). Used by island band assembly so each band's
 /// passives are placed relative to the band's origin, leaving anchor placement
@@ -91,9 +93,10 @@ pub fn apply_ladder_model_at(
     // ── 0. Everything we need to read, read before we start mutating ─────────
     let plan = Plan::build(graph, m)?;
 
-    // ── 1. Lanes: spread evenly within the band's height, spacing = ROW_H ────
+    // ── 1. Lanes: spread evenly within the band's height ──────────────────────
+    let row_h = ROW_H.max(plan.elem_h + PASSIVE_GAP);
     let lane_y: Vec<f64> = (0..m.n_lanes)
-        .map(|k| origin.y + (k as f64 + 0.5) * ROW_H)
+        .map(|k| origin.y + (k as f64 + 0.5) * row_h)
         .collect();
 
     // ── 2. Columns ───────────────────────────────────────────────────────────
@@ -146,7 +149,7 @@ pub fn apply_ladder_model_at(
     let geo = LadderGeometry {
         lane_y,
         col_x,
-        anchor_h: m.n_lanes as f64 * ROW_H,
+        anchor_h: m.n_lanes as f64 * row_h,
         col_step,
     };
     crate::vlog!(
