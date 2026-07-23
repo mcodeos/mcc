@@ -22,6 +22,7 @@
 //! - [`grid::GridLayouter`] —— simple grid (debug / alternative)
 
 pub mod chain;
+pub mod coalesce;
 pub mod components;
 pub mod entry_points;
 pub mod flow;

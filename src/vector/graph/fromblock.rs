@@ -1045,7 +1045,11 @@ fn build_mc_vec_graph_inner(
     //
     // Keep multi-endpoint topology directly, no longer split into "pairwise" pairs.
     // Before P03, this simultaneously filled `graph.edges` (binary) and `graph.nets`, P03 cut the former.
-    graph.nets = generate_viznets_from_block(block, &point_to_box, table);
+    graph.nets = generate_viznets_from_block(block, &point_to_box, table, &graph.boxes);
+
+    // ★ 节点守恒探针：建图不得改变电气事实。
+    // block 侧的每个网络，其端点集合必须原样出现在某一条 VizNet 里。
+    probe_node_conservation(block, &graph.nets, &point_to_box);
 
     crate::velog!(
         "[graph] Phase 3 done: {} VizNet(s) generated (hyperedge model)",
@@ -1096,8 +1100,26 @@ fn generate_viznets_from_block(
     block: &McVecBlock,
     point_to_box: &HashMap<u32, u32>,
     table: &InstTable,
+    boxes: &[McVecBox],
 ) -> Vec<VizNet> {
     let mut out = Vec::with_capacity(block.nets.len());
+
+    // ★ 分立二端无源器件的盒子集合。总线永远不会从一颗 R/C 中间穿过去，
+    //   所以"网络碰到了无源器件"是"这不是总线"的可靠信号。
+    //   （同一判据见 rails.rs:331 的网络标签化守卫。）
+    let passive_boxes: std::collections::HashSet<i64> = boxes
+        .iter()
+        .filter(|b| b.is_two_pin_passive())
+        .map(|b| b.id)
+        .collect();
+    let touches_passive = |ids: &[i64]| -> bool {
+        ids.iter().any(|pid| {
+            point_to_box
+                .get(&(*pid as u32))
+                .map(|&b| passive_boxes.contains(&(b as i64)))
+                .unwrap_or(false)
+        })
+    };
 
     // Endpoint construction helper (from point_id get box / pin name / io / pin number).
     let make_endpoint = |pid: i64| -> Option<EndpointRef> {
@@ -1106,13 +1128,6 @@ fn generate_viznets_from_block(
         }
         let u = pid as u32;
         let box_id = point_to_box.get(&u).map(|&bid| bid as i64)?;
-        // —— TEMP DIAG ——
-        if let Some(e) = table.get_entry(u) {
-            eprintln!(
-                "[PTB] pid={u} path='{}' parent={:?} -> box_id={box_id} (kind={:?})",
-                e.path, e.parent_id, e.kind
-            );
-        }
         let (pin_name, io_type, pin_number) = match table.get_entry(u) {
             Some(e) => {
                 let n = extract_last_segment(&e.path);
@@ -1170,7 +1185,10 @@ fn generate_viznets_from_block(
                         .get_entry(port_pid as u32)
                         .map(|e| matches!(e.kind, InstKind::Port | InstKind::Bus))
                         .unwrap_or(false);
-                    if is_busport && !matches!(kind0, NetKind::Power | NetKind::Ground) {
+                    if is_busport
+                        && !matches!(kind0, NetKind::Power | NetKind::Ground)
+                        && !touches_passive(&net.all_point_ids())
+                    {
                         let port_box = point_to_box.get(&(port_pid as u32)).map(|&b| b as i64);
                         // Port's signal members (in declaration order), filter out power/ground names
                         let members: Vec<i64> = table
@@ -1233,7 +1251,23 @@ fn generate_viznets_from_block(
         //   this branch -> doesn't affect main graph; only true "both sides expanded to n pins" gets split. Power/ground not split.
         if let ConnectionType::NtoN(n) = net.connection_type() {
             let kind0 = naming::classify_net(&net.name);
-            if n > 1 && net.nets.len() == 2 && !matches!(kind0, NetKind::Power | NetKind::Ground) {
+            // ★ FIX：`connection_type()` 只比较两组的**长度**（net.rs:87），而这两组是
+            // 网络合并的副产物 —— 由多条连接并成的等电位点，端点恰好凑成 [n, n] 时会被
+            // 误判成 n 位总线。实测：`@CAP5.2 ~ @RES6.2 ~ @CAP2.2 ~ u2.6` 这个 4 点节点
+            // 被劈成 `@CAP2.2~@RES6.2` 和 `@CAP5.2~u2.6` 两条互不相连的网络 ——
+            // 节点不存在了，这是电气事实被改写，不是排版偏好。
+            // 判据：真总线不会穿过分立二端无源器件。
+            if touches_passive(&net.all_point_ids()) {
+                crate::velog!(
+                    "[graph] ⚠ net '{}' 形状像 NtoN({}) 但接到了二端无源器件 → 不拆，\
+                     保留为一个等电位节点",
+                    net.name,
+                    n
+                );
+            } else if n > 1
+                && net.nets.len() == 2
+                && !matches!(kind0, NetKind::Power | NetKind::Ground)
+            {
                 let group_a: Vec<i64> = net.nets[0].iter().copied().collect();
                 let group_b: Vec<i64> = net.nets[1].iter().copied().collect();
                 if group_a.len() == n && group_b.len() == n {
@@ -1332,6 +1366,35 @@ fn generate_viznets_from_block(
     }
 
     out
+}
+
+// ============================================================================
+// ★ 节点守恒探针：建图不得改变电气事实
+// ============================================================================
+
+/// block 侧的每个网络，其端点集合必须原样出现在某一条 VizNet 里；
+/// 拆分只允许发生在**真总线**上，并且必须被显式记录。
+fn probe_node_conservation(
+    block: &McVecBlock,
+    nets: &[VizNet],
+    _point_to_box: &HashMap<u32, u32>,
+) {
+    for bn in &block.nets {
+        let pts: std::collections::HashSet<i64> = bn.all_point_ids().into_iter().collect();
+        let covered = nets.iter().any(|vn| {
+            let vp: std::collections::HashSet<i64> =
+                vn.endpoints.iter().map(|e| e.pin_id).collect();
+            pts.is_subset(&vp)
+        });
+        if !covered {
+            crate::velog!(
+                "[graph] ✗ NODE SPLIT: block net '{}' ({} pts) 没有任何一条 VizNet 完整承载 \
+                 —— 等电位点被拆散，下游所有拓扑模型都会读到错的图",
+                bn.name,
+                pts.len()
+            );
+        }
+    }
 }
 
 // ============================================================================

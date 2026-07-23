@@ -22,6 +22,8 @@
 use crate::vector::graph::boxdef::{PinLayout, VisualRole};
 use crate::vector::graph::{EntryPoint, EntrySide, McVecBox, McVecGraph, Point, Route, Segment};
 
+use std::collections::HashMap;
+
 use super::sp_model::{SpKind, SpModel, SpTree};
 
 // Grid → pixel. Kept close to the flow layout scale; tune to match the rest.
@@ -88,6 +90,12 @@ pub fn apply_sp_model(graph: &mut McVecGraph, m: &SpModel) {
         term_w,
         term_h,
     );
+
+    // ── ★ 悬挂支路（去耦电容到 GND、测试点…）：竖直挂在附着节点的列下方 ──────
+    // sp_model 把它们从归约里剪出来放进 m.stubs（否则度=1 的节点会卡死归约）。
+    // 这里只给几何 + 两把锁；它们的网络里含有非 SP 盒子（flag），
+    // emit_sp_routes 的 owned 判据会自动放行给通用路由器。
+    place_stubs(graph, m, &grid, root_h);
 
     // ── ★ wiring: emit rails + taps + leads directly into net.route ─────────
     // Every same-node pin already shares a grid column, so the rail is a vertical
@@ -352,6 +360,98 @@ fn pin_on_net(graph: &McVecGraph, box_id: i64, ni: usize) -> Option<i64> {
         .map(|e| e.pin_id)
 }
 
+/// 节点 → 它的栅格列。与 `build_rail_route` 的取法一致（取该节点所有 tap 的最大列），
+/// 这样 stub 挂下来的竖线正好落在该节点的轨上。
+fn node_columns(m: &SpModel, grid: &[GridPlacement], root_w: f64) -> HashMap<usize, f64> {
+    let mut out: HashMap<usize, f64> = HashMap::new();
+    let mut put = |node: usize, col: f64| {
+        let e = out.entry(node).or_insert(col);
+        if col > *e {
+            *e = col;
+        }
+    };
+    for gp in grid {
+        if let Some((a, b)) = span_of(&m.root, gp.box_id) {
+            put(a, gp.x_slot);
+            put(b, gp.x_slot + 1.0);
+        }
+    }
+    put(m.left_node, 0.0);
+    put(m.right_node, root_w);
+    out
+}
+
+/// 把每条 stub 的叶子从附着节点往下竖着码放（元件转置：w/h 互换，引脚走 Top/Bottom）。
+fn place_stubs(graph: &mut McVecGraph, m: &SpModel, grid: &[GridPlacement], root_h: f64) {
+    if m.stubs.is_empty() {
+        return;
+    }
+    let (root_w, _) = m.root.size();
+    let cols = node_columns(m, grid, root_w);
+    for s in &m.stubs {
+        let col = *cols.get(&s.node).unwrap_or(&0.0);
+        let cx = MARGIN + col * COL_W;
+        for (k, box_id) in s.tree.leaf_ids().into_iter().enumerate() {
+            let (na, nb) = match span_of(&s.tree, box_id) {
+                Some(sp) => sp,
+                None => continue,
+            };
+            let cy = MARGIN + (root_h + 0.5 + k as f64) * ROW_H;
+            write_passive_vertical(graph, box_id, cx, cy, na, nb);
+        }
+    }
+}
+
+/// 竖直摆放一个二端无源器件：a 侧引脚朝上（靠近附着节点），b 侧朝下。
+fn write_passive_vertical(
+    graph: &mut McVecGraph,
+    box_id: i64,
+    cx: f64,
+    cy: f64,
+    na: usize,
+    nb: usize,
+) {
+    let top_pin = pin_on_net(graph, box_id, na);
+    let bot_pin = pin_on_net(graph, box_id, nb);
+    let Some(b) = graph.boxes.iter_mut().find(|b| b.id == box_id) else {
+        return;
+    };
+    b.w = BODY_H; // 转置
+    b.h = BODY_W;
+    b.x = cx - b.w / 2.0;
+    b.y = cy - b.h / 2.0;
+    for ep in &mut b.entry_points {
+        if Some(ep.pin_id) == top_pin {
+            ep.side = EntrySide::Top;
+            ep.offset = 0.5;
+        } else if Some(ep.pin_id) == bot_pin {
+            ep.side = EntrySide::Bottom;
+            ep.offset = 0.5;
+        }
+    }
+    if b.entry_points.is_empty() {
+        if let Some(p) = top_pin {
+            b.entry_points.push(EntryPoint {
+                pin_id: p,
+                pin_name: p.to_string(),
+                side: EntrySide::Top,
+                offset: 0.5,
+            });
+        }
+        if let Some(p) = bot_pin {
+            b.entry_points.push(EntryPoint {
+                pin_id: p,
+                pin_name: p.to_string(),
+                side: EntrySide::Bottom,
+                offset: 0.5,
+            });
+        }
+    }
+    // ★ 两把锁，与主干元件一致
+    b.visual_role = Some(VisualRole::SeriesInline);
+    b.geom_locked = true;
+}
+
 // ============================================================================
 // Wiring — emit rails / taps / leads directly into net.route
 // ============================================================================
@@ -478,9 +578,28 @@ fn build_rail_route(taps: &[Tap]) -> Route {
             });
         }
     }
+    // ★ junction 只标 T 形接点：tap 落在轨的**内部**才算三线交汇；
+    // 轨最上/最下那两个 tap 是拐角，打点是错的。
     if taps.len() >= 3 {
+        let mut ys: Vec<f64> = Vec::new();
+        let push_unique = |ys: &mut Vec<f64>, y: f64| {
+            if !ys.iter().any(|k| (k - y).abs() < EPS) {
+                ys.push(y);
+            }
+        };
         for t in taps {
-            route.junctions.push(Point::new(rail_x, t.py));
+            if t.py - y_top > EPS && y_bot - t.py > EPS {
+                push_unique(&mut ys, t.py);
+            }
+        }
+        // 轨端点上若同时有 >=2 个 tap（左右两侧同时接入），那一端也是真接点
+        for y in [y_top, y_bot] {
+            if taps.iter().filter(|t| (t.py - y).abs() < EPS).count() >= 2 {
+                push_unique(&mut ys, y);
+            }
+        }
+        for y in ys {
+            route.junctions.push(Point::new(rail_x, y));
         }
     }
     route
@@ -767,5 +886,125 @@ mod tests {
         assert!(!has_rail(4), "N5 no rail");
         // N3 has the two leads (C2 row0, R6 row2) plus C5's tap → several horizontal segments
         assert!(n_leads(2) >= 2, "N3 should carry the C2 + R6 leads");
+    }
+
+    /// ★ 抓 P1-a：坐标测试看不见朝向错误。
+    #[test]
+    fn golden_entry_sides_follow_electrical_order() {
+        let mut g = golden();
+        let m = build_sp_model(&g).unwrap();
+        apply_sp_model(&mut g, &m);
+        // C5(id 5) 的 N5 侧(pin 51) 必须在 Left，N3 侧(pin 52) 在 Right
+        let c5 = g.boxes.iter().find(|b| b.id == 5).unwrap();
+        let side = |pid: i64| {
+            c5.entry_points
+                .iter()
+                .find(|e| e.pin_id == pid)
+                .map(|e| e.side.clone())
+        };
+        assert_eq!(side(51), Some(EntrySide::Left), "C5.1 (N5) 在左");
+        assert_eq!(side(52), Some(EntrySide::Right), "C5.2 (N3) 在右");
+    }
+
+    /// ★ 抓 P1-b：几何归一化后线还贴在引脚上。
+    #[test]
+    fn sp_routes_survive_renormalize() {
+        let mut g = golden();
+        let m = build_sp_model(&g).unwrap();
+        apply_sp_model(&mut g, &m);
+        crate::viz::layout::normalize::normalize_positions(&mut g);
+
+        // 每条 SP 网络的每个 tap 端点仍与对应 pin 像素重合
+        for (ni, net) in g.nets.iter().enumerate() {
+            let Some(route) = net.route.as_ref() else {
+                continue;
+            };
+            for e in &net.endpoints {
+                let Some(bx) = g.boxes.iter().find(|b| b.id == e.box_id) else {
+                    continue;
+                };
+                let Some(p) = pin_pixel(bx, e.pin_id) else {
+                    continue;
+                };
+                let hit = route.segments.iter().any(|s| {
+                    (s.from.x - p.x).abs() < 1e-6 && (s.from.y - p.y).abs() < 1e-6
+                        || (s.to.x - p.x).abs() < 1e-6 && (s.to.y - p.y).abs() < 1e-6
+                });
+                assert!(
+                    hit,
+                    "net {ni} 的 route 没接到 box#{} pin {}",
+                    e.box_id, e.pin_id
+                );
+            }
+        }
+    }
+
+    /// ★ 抓 P2-c：拐角不该有实心点。
+    #[test]
+    fn junctions_are_interior_only() {
+        let mut g = golden();
+        let m = build_sp_model(&g).unwrap();
+        apply_sp_model(&mut g, &m);
+        for (ni, net) in g.nets.iter().enumerate() {
+            let Some(r) = net.route.as_ref() else {
+                continue;
+            };
+            let ys: Vec<f64> = r.segments.iter().flat_map(|s| [s.from.y, s.to.y]).collect();
+            let (top, bot) = (
+                ys.iter().cloned().fold(f64::MAX, f64::min),
+                ys.iter().cloned().fold(f64::MIN, f64::max),
+            );
+            for j in &r.junctions {
+                assert!(
+                    j.y > top + 1e-6 && j.y < bot - 1e-6,
+                    "net {ni}: junction {:?} 落在轨端（拐角）",
+                    j
+                );
+            }
+            // 同一个点只画一个实心点
+            for (i, a) in r.junctions.iter().enumerate() {
+                for b in r.junctions.iter().skip(i + 1) {
+                    assert!(
+                        (a.x - b.x).abs() > 1e-6 || (a.y - b.y).abs() > 1e-6,
+                        "net {ni}: 重复 junction {a:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// dump 顺序：__net_0=B, __net_1=E, __net_2=D, __net_3=C(右端子), __net_4=A(左端子)
+    fn real_netlist() -> McVecGraph {
+        let mut g = McVecGraph::new(1, "main".into());
+        g.boxes.push(res(1, "R1"));
+        g.boxes.push(cap(2, "C2"));
+        g.boxes.push(res(3, "R3"));
+        g.boxes.push(res(4, "R4"));
+        g.boxes.push(cap(5, "C5"));
+        g.boxes.push(res(6, "R6"));
+        g.boxes.push(term(101, "u1", 1));
+        g.boxes.push(term(102, "u2", 0));
+        g.nets.push(net(0, "__net_0", &[(1, 12), (2, 21)]));
+        g.nets.push(net(1, "__net_1", &[(4, 42), (5, 51)]));
+        g.nets.push(net(2, "__net_2", &[(4, 41), (6, 61), (3, 32)]));
+        g.nets
+            .push(net(3, "__net_3", &[(5, 52), (6, 62), (2, 22), (102, 6)]));
+        g.nets.push(net(4, "__net_4", &[(1, 11), (3, 31), (101, 6)]));
+        g
+    }
+
+    /// ★ 节点下标顺序无关：真实 dump 顺序与 fixture 不同，但坐标完全一致。
+    #[test]
+    fn real_netlist_reproduces_golden_coordinates() {
+        let g = real_netlist();
+        let m = build_sp_model(&g).unwrap();
+        let grid = place_grid(&m.root);
+        let at = |id: i64| grid.iter().find(|g| g.box_id == id).unwrap();
+        assert_eq!((at(1).x_slot, at(1).y_row), (0.0, 0.0));
+        assert_eq!((at(2).x_slot, at(2).y_row), (1.0, 0.0));
+        assert_eq!((at(3).x_slot, at(3).y_row), (0.0, 1.5));
+        assert_eq!((at(4).x_slot, at(4).y_row), (1.0, 1.0));
+        assert_eq!((at(5).x_slot, at(5).y_row), (2.0, 1.0));
+        assert_eq!((at(6).x_slot, at(6).y_row), (1.0, 2.0));
     }
 }

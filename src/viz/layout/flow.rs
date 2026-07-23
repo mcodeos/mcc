@@ -131,6 +131,13 @@ impl FlowLayouter {
     ///
     /// 写：graph.fanout 相关的合成/拆分结构、盒子初始尺寸、coarse entry_points。
     fn phase_prepare(&self, graph: &mut McVecGraph) {
+        // ★ 先把"一条连接一条 net"归约成"一个等电位点一条 net"。
+        // 整个布局栈（sp_model / ladder_model / chain / trunk_tap）都假设 net == 节点，
+        // 但 visit.rs 那条 builder 通路对匿名器件引脚不做跨 net 合并（FIX-B 只认
+        // InstKind::Pin）。不先做这一步，SP 会在 golden 上报 PassiveNetCount{nets:3}。
+        // 必须在 explode_power_rails_to_flags 之前跑：那之后 rail 已经炸成 per-consumer
+        // flag，coalesce 会跳过 flag 端点，两者互不干扰。
+        super::coalesce::coalesce_equipotential_nets(graph);
         explode_power_rails_to_flags(graph);
         promote_synthetic_pins(graph);
         split_shared_pins(graph);
