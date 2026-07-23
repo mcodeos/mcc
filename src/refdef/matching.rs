@@ -83,9 +83,6 @@ pub fn fill_refdef_layer2(
             // Falls back to current file_uri if file_id is 0 (same-file).
             let fid = if loc.file_id != 0 {
                 let idx = loc.file_id as usize;
-                    "[FILL-L2] cross-file: loc.file_id={} idx={idx} file_table_len={}",
-                    loc.file_id,
-                    file_table.len()
                 if idx < file_table.len() {
                     let def_uri_str = &file_table[idx];
                     map.intern_file(&McURI::from(def_uri_str.as_str()))
@@ -116,6 +113,7 @@ pub fn fill_refdef_layer2(
                     def_kind,
                     cmie_kind: CmieKind::UNKNOWN,
                 },
+            );
         }
     }
 
@@ -153,6 +151,7 @@ pub fn fill_refdef_layer2(
                     def_kind: SymbolKind::PortDef,
                     cmie_kind: CmieKind::UNKNOWN,
                 },
+            );
         }
     }
 
@@ -207,6 +206,7 @@ pub fn fill_refdef_layer2(
                         def_kind: SymbolKind::LabelDef,
                         cmie_kind: CmieKind::UNKNOWN,
                     },
+                );
             }
         }
     }
@@ -261,6 +261,7 @@ pub fn fill_refdef_layer2(
                         def_kind: SymbolKind::BusDef,
                         cmie_kind: CmieKind::UNKNOWN,
                     },
+                );
             }
         }
     }
@@ -321,6 +322,7 @@ pub fn fill_refdef_layer2(
                         def_kind: SymbolKind::BusDef,
                         cmie_kind: CmieKind::UNKNOWN,
                     },
+                );
             }
         }
     }

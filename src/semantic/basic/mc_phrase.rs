@@ -126,11 +126,8 @@ impl McPhrase {
         use McPhrase::*;
         let scope = context.scope_name();
         let node_type = node.get_type();
-        let node_name = format!("{}", node_type);
-        let node_str = node.to_string();
-            node_name,
-            node_str,
-            context.uri()
+        let _node_name = format!("{}", node_type);
+        let _node_str = node.to_string();
         match node_type {
             MCAST_OPD_USCORE => Some(McPhrase::Lead),
 
@@ -175,6 +172,7 @@ impl McPhrase {
                                         span,
                                         decl_id,
                                         scope.as_deref(),
+                                    );
                                 }
                                 Some(ident.into())
                             } else if ids.is_curly_bracket() {
@@ -199,12 +197,14 @@ impl McPhrase {
                                                 context.uri(),
                                                 &bus_info.unwrap().0,
                                                 scope.as_deref(),
+                                            )
                                         {
                                             mcb_register_instance_ref(
                                                 context.uri(),
                                                 span,
                                                 decl_id,
                                                 scope.as_deref(),
+                                            );
                                         }
                                     }
                                     // TODO for comp_member
@@ -233,6 +233,7 @@ impl McPhrase {
                                             &component,
                                             &interface,
                                             members.clone(),
+                                        )
                                     } else {
                                         None
                                     };
@@ -250,6 +251,7 @@ impl McPhrase {
                                             &format!(
                                                 "Interface '{interface}.{full_name}' not found in component '{component}'"
                                             ),
+                                        );
                                     } else {
                                         dlog_error(
                                             1702,
@@ -257,6 +259,7 @@ impl McPhrase {
                                             &format!(
                                                 "Component '{component}' not found for interface '{component}.{interface}'"
                                             ),
+                                        );
                                     }
                                     return None;
                                 } else {
@@ -264,6 +267,7 @@ impl McPhrase {
                                         context
                                             .add_label(ids.to_string())
                                             .unwrap_or_else(|| McPhrase::label(ids.to_string())),
+                                    );
                                 }
                             } else if ids.is_square_bracket() {
                                 if let Some((name, members)) = ids.as_bus() {
@@ -316,6 +320,7 @@ impl McPhrase {
                                                             ids.to_string(),
                                                             expanded_name
                                                         ),
+                                                    );
                                                 }
                                             }
                                         }
@@ -350,6 +355,7 @@ impl McPhrase {
                                                         "Pin '{}' not found in component '{}'",
                                                         rest, base
                                                     ),
+                                                );
                                                 return None;
                                             }
                                         }
@@ -361,12 +367,14 @@ impl McPhrase {
                                                 context.uri(),
                                                 base,
                                                 scope.as_deref(),
+                                            )
                                         {
                                             mcb_register_instance_ref(
                                                 context.uri(),
                                                 span,
                                                 decl_id,
                                                 scope.as_deref(),
+                                            );
                                         }
                                         context.upgrade_label_to_bus(base);
                                         if let Some(McPhrase::Endpoint(McEndpoint::Single(
@@ -426,6 +434,7 @@ impl McPhrase {
                                 span,
                                 decl_id,
                                 scope.as_deref(),
+                            );
                         }
                         Some(ident.into())
                     } else {
@@ -447,6 +456,7 @@ impl McPhrase {
                                                 "Pin '{}' not found in component '{}'",
                                                 member, base
                                             ),
+                                        );
                                         return None;
                                     }
                                 }
@@ -463,6 +473,7 @@ impl McPhrase {
                                         span,
                                         decl_id,
                                         scope.as_deref(),
+                                    );
                                 }
                                 context.upgrade_label_to_bus(base);
                                 if let Some(McPhrase::Endpoint(McEndpoint::Single(
@@ -550,6 +561,7 @@ impl McPhrase {
                                             context.add_bus(
                                                 base.to_string(),
                                                 vec![member.to_string()],
+                                            );
                                         } else {
                                             context.upgrade_label_to_bus(base);
                                             if let Some(McPhrase::Endpoint(McEndpoint::Single(
@@ -635,6 +647,7 @@ impl McPhrase {
                                                 if let Some(v) =
                                                     crate::semantic::basic::mc_param::McParamValue::new(
                                                         &p, context,
+                                                    )
                                                 {
                                                     params.push(v);
                                                 }
@@ -816,6 +829,7 @@ impl McPhrase {
                                                 "Pin '{}' not found in component '{}'",
                                                 member, inst_name
                                             ),
+                                        );
                                         return None;
                                     }
                                 }
@@ -835,6 +849,7 @@ impl McPhrase {
                                         "Pin '{}' not found in component '{}'",
                                         member, inst_name
                                     ),
+                                );
                                 return None;
                             }
                         }
@@ -859,6 +874,7 @@ impl McPhrase {
                                                 "Port '{}' not found in module '{}'",
                                                 member, inst_name
                                             ),
+                                        );
                                         return None;
                                     }
                                 }
@@ -878,6 +894,7 @@ impl McPhrase {
                                         "Port '{}' not found in module '{}'",
                                         member, inst_name
                                     ),
+                                );
                                 return None;
                             }
                         }
@@ -984,6 +1001,7 @@ impl McPhrase {
                                         ids.to_string(),
                                         expanded_name
                                     ),
+                                );
                             }
                         }
                     }
@@ -1127,6 +1145,7 @@ impl McPhrase {
                                     &format!(
                                         "CURLY_MN: '{name}' definition not found, using label fallback"
                                     ),
+                                );
                                 return Some(McPhrase::Endpoint(McEndpoint::Node {
                                     input: left_members
                                         .iter()
@@ -1442,6 +1461,7 @@ impl McPhrase {
                     1003,
                     node,
                     "Failed to parse MCAST_INSTANCE in expression context",
+                );
                 None
             }
 
@@ -1465,6 +1485,7 @@ impl McPhrase {
                                     span,
                                     decl_id,
                                     scope.as_deref(),
+                                );
                             }
                             return Some(inst.into());
                         }
@@ -1506,6 +1527,7 @@ impl McPhrase {
                         node.get_type(),
                         node.get_type()
                     ),
+                );
                 None
             }
         }
@@ -2272,6 +2294,7 @@ impl McPhrase {
                     dlog_trace(
                         1175,
                         &format!("Member '{member_name}' not found in interface"),
+                    );
                     return None;
                 }
             }
@@ -2500,6 +2523,7 @@ impl std::fmt::Display for McPhrase {
                                 base: McInstance::Bus(_),
                                 ..
                             })
+                        )
                     } else {
                         false
                     }
@@ -2584,6 +2608,7 @@ fn check_ambiguous_precedence(node: &AstNode, loc_node: &AstNode) {
                  and spans {leaf_count} components (>2). Consider adding explicit parentheses \
                  (Group) to clarify the intended grouping."
             ),
+        );
     }
 }
 
@@ -2706,6 +2731,7 @@ fn infer_shape_and_upgrade(
                         left_match: rhs_lm,
                         right_match: rhs_rm,
                     }),
+                )
             } else {
                 dlog_trace(1220, "Groups with different branch counts cannot connect");
                 (
@@ -2719,6 +2745,7 @@ fn infer_shape_and_upgrade(
                         left_match: false,
                         right_match: false,
                     }),
+                )
             }
         }
 
@@ -2747,6 +2774,7 @@ fn infer_shape_and_upgrade(
                     right_match,
                 }),
                 rhs,
+            )
         }
 
         (
@@ -2774,6 +2802,7 @@ fn infer_shape_and_upgrade(
                     left_match,
                     right_match,
                 }),
+            )
         }
 
         (

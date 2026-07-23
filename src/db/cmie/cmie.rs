@@ -66,6 +66,7 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
             name = %name_str,
             uri = %uri,
             "reentrant call detected, falling back to name-only lookup"
+        );
         return find_by_name_in_project_tables(class_name);
     }
     struct CmieGuard(String);
@@ -81,16 +82,8 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     // §6.3: ID-based ClassRef lookup via name_to_declare_id (all scopes).
     // §5:   Name-based fallback via Use table (P3→P4→P5 priority).
     // ═══════════════════════════════════════════════════════════════
-    let mcfile = workspace::WORKSPACE.mcodes.get(uri);
-    if mcfile.is_none() {
-    }
-    if let Some(mcfile) = mcfile {
-        let sym_lock = mcfile.symbols.lock();
-        if sym_lock.is_err() {
-        }
-        if let Ok(sym) = sym_lock {
-            if sym.ref_def_map.is_none() {
-            }
+    if let Some(mcfile) = workspace::WORKSPACE.mcodes.get(uri) {
+        if let Ok(sym) = mcfile.symbols.lock() {
             if let Some(ref map) = sym.ref_def_map {
                 // §6.3: search all scopes in name_to_declare_id for ClassRef entries
                 let decl_id = sym
@@ -99,22 +92,15 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
                     .iter()
                     .find(|((_fid, _cid, _fnid, name), _)| name.as_str() == name_str)
                     .map(|(_, (id, _))| *id);
-                if let Some(did) = decl_id {
-                }
                 let id_hit = decl_id.and_then(|did| {
                     map.get(
                         crate::ast::ast_semantic::SymbolKind::ClassRef,
                         u32::from(did),
+                    )
                 });
                 // §5: name-based Use table lookup
-                let entry = id_hit.or_else(|| {
-                    let by_name = map.get_by_name(uri, &name_str);
-                    if by_name.is_some() {
-                    }
-                    by_name
-                });
+                let entry = id_hit.or_else(|| map.get_by_name(uri, &name_str));
                 if let Some(entry) = entry {
-                        entry.def_loc, entry.cmie_kind
                     let def_uri = map
                         .files
                         .get(entry.def_loc.file_id as usize)
@@ -134,13 +120,7 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     }
 
     // RefDefMap miss or not yet built: fall back to old name-only search
-    let result = find_by_name_in_project_tables(class_name);
-        if result.is_some() {
-            "FOUND"
-        } else {
-            "NOT FOUND"
-        }
-    result
+    find_by_name_in_project_tables(class_name)
 }
 
 pub(crate) fn mcb_get_cmie_with_uri(class_name: &McIds, uri: &McURI) -> Option<(McCMIE, McURI)> {
@@ -175,7 +155,6 @@ pub(crate) fn resolve_cmie_member(
         McCMIE::Component(comp) => {
             if let Some(func) = comp.funcs.find(member_name) {
                 let span = func.span.clone()?;
-                    span, comp.uri
                 return Some((comp.uri.clone(), span, SymbolKind::FuncRef));
             }
         }
