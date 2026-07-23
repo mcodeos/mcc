@@ -18,7 +18,7 @@ use std::collections::HashMap;
 
 use crate::instant::insttab::{InstEntry, InstKind, InstTable};
 
-use super::super::model::{ConnectionType, McVecBlock};
+use super::super::model::{ConnectionType, McVecBlock, McVecNet};
 use super::boxdef::{BoxPin, CustomSymbol, IoSummary, McVecBox, PinLayout, VisualRole};
 use super::detect::{
     compute_io, detect_kind, detect_symbol, extract_designator, extract_last_segment,
@@ -1121,6 +1121,26 @@ fn generate_viznets_from_block(
         })
     };
 
+    /// 这个 net 真的是总线吗？—— `connection_type()` 只看形状，形状是网络合并的副产物，
+    /// 单独使用一定会把等电位点误判成总线。已知的两个坑：
+    ///   * fromblock.rs:1252 拆网络（节点被拆散）
+    ///   * fromblock.rs:1360 定 kind（节点被画成粗干线）
+    fn is_real_bus(
+        net: &McVecNet,
+        kind: &NetKind,
+        touches_passive: &dyn Fn(&[i64]) -> bool,
+    ) -> Option<usize> {
+        if let ConnectionType::NtoN(n) = net.connection_type() {
+            if n > 1
+                && !matches!(kind, NetKind::Power | NetKind::Ground)
+                && !touches_passive(&net.all_point_ids())
+            {
+                return Some(n);
+            }
+        }
+        None
+    }
+
     // Endpoint construction helper (from point_id get box / pin name / io / pin number).
     let make_endpoint = |pid: i64| -> Option<EndpointRef> {
         if pid < 0 {
@@ -1249,25 +1269,15 @@ fn generate_viznets_from_block(
         //   connects into a 2-point Signal net, each goes its own orthogonal line, no more merged trunk.
         //   Note: collapsed ports (1 pin -> n flags) in main graph are Broadcast(n), not NtoN, so don't enter
         //   this branch -> doesn't affect main graph; only true "both sides expanded to n pins" gets split. Power/ground not split.
-        if let ConnectionType::NtoN(n) = net.connection_type() {
+        if let ConnectionType::NtoN(_n) = net.connection_type() {
             let kind0 = naming::classify_net(&net.name);
             // ★ FIX：`connection_type()` 只比较两组的**长度**（net.rs:87），而这两组是
             // 网络合并的副产物 —— 由多条连接并成的等电位点，端点恰好凑成 [n, n] 时会被
             // 误判成 n 位总线。实测：`@CAP5.2 ~ @RES6.2 ~ @CAP2.2 ~ u2.6` 这个 4 点节点
             // 被劈成 `@CAP2.2~@RES6.2` 和 `@CAP5.2~u2.6` 两条互不相连的网络 ——
             // 节点不存在了，这是电气事实被改写，不是排版偏好。
-            // 判据：真总线不会穿过分立二端无源器件。
-            if touches_passive(&net.all_point_ids()) {
-                crate::velog!(
-                    "[graph] ⚠ net '{}' 形状像 NtoN({}) 但接到了二端无源器件 → 不拆，\
-                     保留为一个等电位节点",
-                    net.name,
-                    n
-                );
-            } else if n > 1
-                && net.nets.len() == 2
-                && !matches!(kind0, NetKind::Power | NetKind::Ground)
-            {
+            // 判据：真总线不会穿过分立二端无源器件（见 is_real_bus()）。
+            if let Some(n) = is_real_bus(net, &kind0, &touches_passive) {
                 let group_a: Vec<i64> = net.nets[0].iter().copied().collect();
                 let group_b: Vec<i64> = net.nets[1].iter().copied().collect();
                 if group_a.len() == n && group_b.len() == n {
@@ -1352,14 +1362,16 @@ fn generate_viznets_from_block(
         //
         // ── ★ P1-4 ────────────────────────────────────────────────────────
         // But **power/ground are never upgraded**: V3V3/GND's fan-out (one power feeds N chips)
-        // is physically still power, not a bus. Old code unconditionally upgraded causing "V3V3 [2]"
-        // brown thick trunk + `[n]` label suffix anomaly, while pushing router to BusBundleRouter
-        // to draw as bus trunk. After fix, power/ground continue to StarRouter, maintaining red
-        // thin line + triangle symbol.
-        if let ConnectionType::NtoN(n) = net.connection_type() {
-            if n > 1 && !matches!(kind, NetKind::Power | NetKind::Ground) {
-                kind = NetKind::Bus(n);
-            }
+        // is physically still power, not a bus.
+        //
+        // ── ★ iter 7 ──────────────────────────────────────────────────────
+        // 与上面的拆分分支同一条守卫：`connection_type()` 只比较两组的长度，
+        // 合并出来的等电位点凑成 [n,n] 就会被误判成 n 位总线。这里误判的后果不是
+        // 拆网络，而是 kind=Bus(n) → dispatch.rs:241 无条件走 BusBundle → 一个
+        // 4 端点的节点被画成棕色粗干线 + 抽头（实测 __net_4）。
+        // 判据同样是：真总线不会穿过分立二端无源器件（见 is_real_bus()）。
+        if let Some(n) = is_real_bus(net, &kind, &touches_passive) {
+            kind = NetKind::Bus(n);
         }
 
         out.push(VizNet::new(net.nid, net.name.clone(), kind, endpoints));
@@ -1374,11 +1386,7 @@ fn generate_viznets_from_block(
 
 /// block 侧的每个网络，其端点集合必须原样出现在某一条 VizNet 里；
 /// 拆分只允许发生在**真总线**上，并且必须被显式记录。
-fn probe_node_conservation(
-    block: &McVecBlock,
-    nets: &[VizNet],
-    _point_to_box: &HashMap<u32, u32>,
-) {
+fn probe_node_conservation(block: &McVecBlock, nets: &[VizNet], _point_to_box: &HashMap<u32, u32>) {
     for bn in &block.nets {
         let pts: std::collections::HashSet<i64> = bn.all_point_ids().into_iter().collect();
         let covered = nets.iter().any(|vn| {

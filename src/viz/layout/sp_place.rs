@@ -19,11 +19,12 @@
 //! Risers/leads are NOT drawn here — same-node pins are placed on a shared column
 //! and the router (TrunkTap) grows the vertical rail / horizontal lead itself.
 
-use crate::vector::graph::boxdef::{PinLayout, VisualRole};
+use crate::vector::graph::boxdef::VisualRole;
 use crate::vector::graph::{EntryPoint, EntrySide, McVecBox, McVecGraph, Point, Route, Segment};
 
 use std::collections::HashMap;
 
+use super::entry_points::distribute_terminal_pins;
 use super::sp_model::{SpKind, SpModel, SpTree};
 
 // Grid → pixel. Kept close to the flow layout scale; tune to match the rest.
@@ -277,9 +278,8 @@ fn place_terminal(
 
     // ── pin distribution ────────────────────────────────────────────────────
     // Connecting pin faces the block (`facing`); EVERY other pin goes to the far
-    // edge (`opp`) and is spread evenly so nothing overlaps. Without this, the
-    // coarse pass leaves all of u2's pins clustered on the block side.
-    let opp = opposite(&facing);
+    // edge and is spread evenly so nothing overlaps. This is now a shared function
+    // with ladder_place so both models get the same bug-fix.
 
     // make sure the connecting pin actually has an entry point
     if let Some(pin_id) = pin {
@@ -292,61 +292,9 @@ fn place_terminal(
             });
         }
     }
-
-    // 1. assign sides
-    let mut far: Vec<usize> = Vec::new();
-    for (i, ep) in b.entry_points.iter_mut().enumerate() {
-        if Some(ep.pin_id) == pin {
-            ep.side = facing.clone();
-            ep.offset = 0.5;
-        } else {
-            ep.side = opp.clone();
-            far.push(i);
-        }
-    }
-    // 2. spread the far-edge pins evenly along that edge
-    let n = far.len();
-    for (k, &i) in far.iter().enumerate() {
-        b.entry_points[i].offset = ((k as f64) + 1.0) / ((n as f64) + 1.0);
-    }
-
-    // 3. freeze the arrangement via layout_hint so nothing downstream re-classifies it
-    let mut facing_keys: Vec<String> = Vec::new();
-    let mut far_keys: Vec<String> = Vec::new();
-    for ep in &b.entry_points {
-        let dst = if Some(ep.pin_id) == pin {
-            &mut facing_keys
-        } else {
-            &mut far_keys
-        };
-        dst.push(ep.pin_name.clone());
-        dst.push(ep.pin_id.to_string());
-    }
-    let mut hint = PinLayout::default();
-    match facing {
-        EntrySide::Right => {
-            hint.right = facing_keys;
-            hint.left = far_keys;
-        }
-        EntrySide::Left => {
-            hint.left = facing_keys;
-            hint.right = far_keys;
-        }
-        _ => {}
-    }
-    b.set_layout_hint(hint);
+    distribute_terminal_pins(b, facing, &[(pin.unwrap_or(0), 0.5)]);
 
     b.geom_locked = true;
-}
-
-/// The opposite edge (Left↔Right, Top↔Bottom).
-fn opposite(s: &EntrySide) -> EntrySide {
-    match s {
-        EntrySide::Left => EntrySide::Right,
-        EntrySide::Right => EntrySide::Left,
-        EntrySide::Top => EntrySide::Bottom,
-        EntrySide::Bottom => EntrySide::Top,
-    }
 }
 
 /// The pin_id of `box_id` that sits on net index `ni` (if any).
@@ -539,7 +487,19 @@ fn emit_sp_routes(graph: &mut McVecGraph, m: &SpModel, grid: &[GridPlacement], r
                 continue;
             };
             // only own a net if every endpoint box is SP-placed or a terminal
-            if !net.endpoints.iter().all(|e| owned.contains(&e.box_id)) || taps.len() < 2 {
+            let unowned: Vec<i64> = net
+                .endpoints
+                .iter()
+                .map(|e| e.box_id)
+                .filter(|b| !owned.contains(b))
+                .collect();
+            if !unowned.is_empty() || taps.len() < 2 {
+                crate::vlog!(
+                    "[sp-route] net[{ni}] '{}' 未认领：unowned={:?} taps={}",
+                    net.name,
+                    unowned,
+                    taps.len()
+                );
                 continue;
             }
             out.push((ni, build_rail_route(&taps)));
@@ -989,7 +949,8 @@ mod tests {
         g.nets.push(net(2, "__net_2", &[(4, 41), (6, 61), (3, 32)]));
         g.nets
             .push(net(3, "__net_3", &[(5, 52), (6, 62), (2, 22), (102, 6)]));
-        g.nets.push(net(4, "__net_4", &[(1, 11), (3, 31), (101, 6)]));
+        g.nets
+            .push(net(4, "__net_4", &[(1, 11), (3, 31), (101, 6)]));
         g
     }
 

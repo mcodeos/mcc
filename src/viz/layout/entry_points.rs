@@ -67,7 +67,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::vector::graph::boxdef::BoxPin;
+use crate::vector::graph::boxdef::{BoxPin, PinLayout};
 use crate::vector::graph::netdef::IoDirection;
 use crate::vector::graph::{BoxKind, EntryPoint, EntrySide, McVecBox, McVecGraph};
 
@@ -1305,6 +1305,106 @@ fn push_side(out: &mut Vec<EntryPoint>, pins: &[&(i64, String)], side: EntrySide
             side: side.clone(),
             offset,
         });
+    }
+}
+
+// ============================================================================
+// ★ 端子引脚分配（共用）：SP 和 ladder 都调这一条
+// ============================================================================
+
+/// The opposite edge (Left↔Right, Top↔Bottom).
+pub fn opposite(s: &EntrySide) -> EntrySide {
+    match s {
+        EntrySide::Left => EntrySide::Right,
+        EntrySide::Right => EntrySide::Left,
+        EntrySide::Top => EntrySide::Bottom,
+        EntrySide::Bottom => EntrySide::Top,
+    }
+}
+
+/// 端子 IC 的引脚分配：接线引脚朝向电路，其余**全部**甩到对侧并均匀铺开。
+///
+/// `connected` = [(pin_id, offset 0..1)]，顺序即上下序：
+///   * SP 端子只有一根线 → `&[(pin, 0.5)]`
+///   * ladder 锚点有 n 条 lane → `lane_pin` 与 `lane_y` 换算成 offset
+pub fn distribute_terminal_pins(b: &mut McVecBox, facing: EntrySide, connected: &[(i64, f64)]) {
+    let far = opposite(&facing);
+    let mut far_idx: Vec<usize> = Vec::new();
+
+    // 1. 分侧
+    for (i, ep) in b.entry_points.iter_mut().enumerate() {
+        match connected.iter().find(|(p, _)| *p == ep.pin_id) {
+            Some((_, off)) => {
+                ep.side = facing.clone();
+                ep.offset = off.clamp(0.02, 0.98);
+            }
+            None => {
+                ep.side = far.clone();
+                far_idx.push(i);
+            }
+        }
+    }
+    // 2. 对侧均匀铺开 —— 这一步缺了就会叠字
+    let n = far_idx.len();
+    for (k, &i) in far_idx.iter().enumerate() {
+        b.entry_points[i].offset = (k as f64 + 1.0) / (n as f64 + 1.0);
+    }
+    // 3. 冻结进 layout_hint，防止下游重新分类
+    let (mut f_keys, mut r_keys) = (Vec::new(), Vec::new());
+    for ep in &b.entry_points {
+        let dst = if connected.iter().any(|(p, _)| *p == ep.pin_id) {
+            &mut f_keys
+        } else {
+            &mut r_keys
+        };
+        dst.push(ep.pin_name.clone());
+        dst.push(ep.pin_id.to_string());
+    }
+    let mut hint = PinLayout::default();
+    match facing {
+        EntrySide::Right => {
+            hint.right = f_keys;
+            hint.left = r_keys;
+        }
+        EntrySide::Left => {
+            hint.left = f_keys;
+            hint.right = r_keys;
+        }
+        EntrySide::Top => {
+            hint.top = f_keys;
+            hint.bottom = r_keys;
+        }
+        EntrySide::Bottom => {
+            hint.bottom = f_keys;
+            hint.top = r_keys;
+        }
+    }
+    b.set_layout_hint(hint);
+}
+
+/// 同一条边上不允许有两个引脚共享 offset —— 叠字的根因。
+pub fn assert_no_pin_overlap(b: &McVecBox) {
+    for side in [
+        EntrySide::Left,
+        EntrySide::Right,
+        EntrySide::Top,
+        EntrySide::Bottom,
+    ] {
+        let mut offs: Vec<f64> = b
+            .entry_points
+            .iter()
+            .filter(|e| e.side == side)
+            .map(|e| e.offset)
+            .collect();
+        offs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        for w in offs.windows(2) {
+            assert!(
+                (w[1] - w[0]).abs() > 1e-6,
+                "box#{} {:?} 边上引脚重叠",
+                b.id,
+                side
+            );
+        }
     }
 }
 

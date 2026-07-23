@@ -8,7 +8,7 @@
 //! `assign_entry_points_refine`, `align_hub_to_spokes`, `order_pins_by_neighbor`,
 //! `enforce_unique_offsets`) with a single ordered pipeline:
 //!
-//!   desired_side(A) → straighten_facing_pairs(B) → order_within_side(C) → enforce_unique_offsets
+//!   desired_side(A) → order_pins_per_side(B) → straighten_facing_pairs(C) → enforce_unique_offsets
 //!
 //! The key insight: pin side should be decided by **connectivity first, semantics
 //! as fallback** (not the reverse).  Hub pins are no longer exempt — they face
@@ -18,13 +18,12 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::vector::graph::boxdef::{EntryPoint, EntrySide};
-use crate::vector::graph::netdef::IoDirection;
 use crate::vector::graph::McVecGraph;
 
 use super::entry_points::{
-    collect_box_centers, collect_box_rects, collect_pin_io_types, collect_pin_neighbors,
-    enforce_unique_offsets, normalize_offsets_per_side, open_perpendicular_side, path_blocked,
-    pick_side_by_direction, sides_warrant_switch,
+    collect_box_centers, collect_box_rects, collect_pin_neighbors, enforce_unique_offsets,
+    normalize_offsets_per_side, open_perpendicular_side, path_blocked, pick_side_by_direction,
+    sides_warrant_switch,
 };
 use super::flow::pin_abs;
 use super::rails::is_rail_box;
@@ -54,10 +53,11 @@ pub fn pin_place_pipeline(
     // A: Connectivity-first desired side
     desired_side_pass(graph, hub_id, hub_keep_semantic, lr_only);
 
-    // C: Order within side (crossing-minimizing) — runs FIRST so relative order is set
-    order_within_side(graph);
+    // B: Order pins per side — sorts connected pins by target coords, then unconnected by pin_id,
+    //    and evenly distributes offsets. Runs FIRST so relative order is set.
+    order_pins_per_side(graph);
 
-    // B: Straighten facing pairs — overrides offsets for straight wires
+    // C: Straighten facing pairs — overrides offsets for straight wires
     straighten_facing_pairs(graph);
 
     // D: Hub↔spoke alignment (PR-A — folded in from the former flow::align_hub_to_spokes).
@@ -174,7 +174,6 @@ fn desired_side_pass(
     hub_keep_semantic: bool,
     lr_only: bool,
 ) {
-    let pin_io = collect_pin_io_types(graph);
     let pin_neighbors = collect_pin_neighbors(graph);
     let box_centers = collect_box_centers(graph);
     let box_rects = collect_box_rects(graph);
@@ -211,16 +210,48 @@ fn desired_side_pass(
         let bcy = b.y + b.h / 2.0;
         let mut moved = 0usize; // per-box counter
 
+        // ── ★ iter 7: pre-pass —— 统计每条边上"有连接"的引脚数（含 authored 引脚），
+        //     用于决定未连接引脚甩到哪条边。 ─────────────────────────────────────
+        let mut side_counts: HashMap<EntrySide, usize> = HashMap::new();
+        for ep in &b.entry_points {
+            let nbrs = pin_neighbors
+                .get(&(b.id, ep.pin_id))
+                .map(|v| v.as_slice())
+                .unwrap_or(&[]);
+            let (_, _, n) = nbrs
+                .iter()
+                .filter_map(|nid| box_centers.get(nid))
+                .fold((0.0f64, 0.0f64, 0usize), |(sx, sy, k), &(x, y)| {
+                    (sx + x, sy + y, k + 1)
+                });
+            let is_connected = n > 0
+                || authored.contains(&ep.pin_name)
+                || authored.contains(&ep.pin_id.to_string());
+            if is_connected {
+                *side_counts.entry(ep.side.clone()).or_default() += 1;
+            }
+        }
+        let all_sides = if lr_only {
+            vec![EntrySide::Left, EntrySide::Right]
+        } else {
+            vec![
+                EntrySide::Left,
+                EntrySide::Right,
+                EntrySide::Top,
+                EntrySide::Bottom,
+            ]
+        };
+        let least_side = all_sides
+            .iter()
+            .min_by_key(|s| side_counts.get(s).copied().unwrap_or(0))
+            .cloned()
+            .unwrap_or(EntrySide::Left);
+
         for ep in &mut b.entry_points {
             // Freeze authored pins — match by pin-name string OR pin_id
             if authored.contains(&ep.pin_name) || authored.contains(&ep.pin_id.to_string()) {
                 continue;
             }
-
-            let io = pin_io
-                .get(&(b.id, ep.pin_id))
-                .copied()
-                .unwrap_or(IoDirection::Unknown);
 
             let nbrs = pin_neighbors
                 .get(&(b.id, ep.pin_id))
@@ -236,10 +267,10 @@ fn desired_side_pass(
                 });
 
             if n == 0 {
-                // No core neighbours → fall back to semantic side
-                let target = semantic_default_side(io);
-                if target != ep.side {
-                    ep.side = target;
+                // ★ iter 7: 未连接引脚甩到连接引脚最少的那条边（两个元件时就是主方向的对侧；
+                // 三四个元件时自动退化成"最空的那条边"），不再走语义默认。
+                if least_side != ep.side {
+                    ep.side = least_side.clone();
                     moved += 1;
                 }
                 continue;
@@ -305,15 +336,6 @@ fn desired_side_pass(
         total_reassigned,
         graph.boxes.len()
     );
-}
-
-/// Fallback side when a pin has no core neighbours.
-fn semantic_default_side(io: IoDirection) -> EntrySide {
-    match io {
-        IoDirection::Input => EntrySide::Left,
-        IoDirection::Output => EntrySide::Right,
-        _ => EntrySide::Left, // Passive/Power/Unknown default to Left
-    }
 }
 
 // ============================================================================
@@ -441,12 +463,60 @@ fn find_entry_mut(graph: &mut McVecGraph, box_id: i64, pin_id: i64) -> Option<&m
 }
 
 // ============================================================================
-// C · Order within side (crossing-minimizing)
+// C · Order pins per side (crossing-minimizing + unconnected pins included)
 // ============================================================================
 
-/// For each box, order pins on each side by the Y (or X) of their neighbour's
-/// position, minimising in-bundle crossings.
-fn order_within_side(graph: &mut McVecGraph) {
+/// 定完边之后，按"目标位置"重排每条边上的引脚并均匀分配 offset。
+/// 消两件事：同边重叠（offset 撞车）、跨线交叉（顺序颠倒）。
+///
+/// ★ iter 7: 与旧 `order_within_side` 的区别 —— 未连接引脚也纳入排序
+/// （排在连接引脚之后，按原始 pin_id 排序），避免未连接引脚被遗漏导致 offset 未分配。
+fn order_pins_per_side(graph: &mut McVecGraph) {
+    let targets = collect_pin_targets(graph);
+
+    for b in &mut graph.boxes {
+        if is_rail_box(b) {
+            continue;
+        }
+        for side in [
+            EntrySide::Left,
+            EntrySide::Right,
+            EntrySide::Top,
+            EntrySide::Bottom,
+        ] {
+            let mut idx: Vec<usize> = (0..b.entry_points.len())
+                .filter(|&i| b.entry_points[i].side == side)
+                .collect();
+            if idx.is_empty() {
+                continue;
+            }
+            let horiz = matches!(side, EntrySide::Left | EntrySide::Right);
+            idx.sort_by(|&i, &j| {
+                let key = |k: usize| {
+                    targets
+                        .get(&(b.id, b.entry_points[k].pin_id))
+                        .map(|&(x, y)| if horiz { y } else { x })
+                };
+                match (key(i), key(j)) {
+                    // 有连接的排在前面，按目标坐标升序 → 不交叉
+                    (Some(a), Some(c)) => a.partial_cmp(&c).unwrap_or(std::cmp::Ordering::Equal),
+                    (Some(_), None) => std::cmp::Ordering::Less,
+                    (None, Some(_)) => std::cmp::Ordering::Greater,
+                    // 都没连接：保持原始 pin 序，稳定
+                    (None, None) => b.entry_points[i].pin_id.cmp(&b.entry_points[j].pin_id),
+                }
+            });
+            let cnt = idx.len();
+            for (k, &i) in idx.iter().enumerate() {
+                b.entry_points[i].offset = (k as f64 + 1.0) / (cnt as f64 + 1.0);
+            }
+        }
+    }
+}
+
+/// 收集每个引脚的对端质心坐标 (box_id, pin_id) → (x, y)。
+/// 无连接的引脚不在 map 中。
+fn collect_pin_targets(graph: &McVecGraph) -> HashMap<(i64, i64), (f64, f64)> {
     let flag_ids: HashSet<i64> = graph
         .boxes
         .iter()
@@ -460,7 +530,6 @@ fn order_within_side(graph: &mut McVecGraph) {
         .map(|b| (b.id, (b.x + b.w / 2.0, b.y + b.h / 2.0)))
         .collect();
 
-    // (box_id, pin_id) → neighbour position
     let mut target: HashMap<(i64, i64), (f64, f64)> = HashMap::new();
     for net in &graph.nets {
         let cores: Vec<&crate::vector::graph::EndpointRef> = net
@@ -490,52 +559,7 @@ fn order_within_side(graph: &mut McVecGraph) {
             }
         }
     }
-
-    for b in &mut graph.boxes {
-        if flag_ids.contains(&b.id) {
-            continue;
-        }
-        for side in [
-            EntrySide::Top,
-            EntrySide::Bottom,
-            EntrySide::Left,
-            EntrySide::Right,
-        ] {
-            let mut indices: Vec<(usize, f64)> = b
-                .entry_points
-                .iter()
-                .enumerate()
-                .filter(|(_, ep)| ep.side == side)
-                .filter_map(|(i, ep)| {
-                    target.get(&(b.id, ep.pin_id)).map(|&(tx, ty)| {
-                        let key = match side {
-                            EntrySide::Top | EntrySide::Bottom => tx,
-                            EntrySide::Left | EntrySide::Right => ty,
-                        };
-                        (i, key)
-                    })
-                })
-                .collect();
-
-            if indices.len() < 2 {
-                continue;
-            }
-
-            // Sort by target position with stable tie-break (index) for determinism
-            indices.sort_by(|a, b| {
-                a.1.partial_cmp(&b.1)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-                    .then_with(|| a.0.cmp(&b.0))
-            });
-
-            // Redistribute offsets evenly
-            let n = indices.len();
-            let spacing = 1.0 / (n as f64 + 1.0);
-            for (rank, (idx, _)) in indices.iter().enumerate() {
-                b.entry_points[*idx].offset = spacing * (rank as f64 + 1.0);
-            }
-        }
-    }
+    target
 }
 
 // ============================================================================
@@ -779,7 +803,7 @@ mod tests {
         graph.nets.push(net_mid);
         graph.nets.push(net_bot);
 
-        order_within_side(&mut graph);
+        order_pins_per_side(&mut graph);
 
         let ic = graph.boxes.iter().find(|b| b.id == 1).unwrap();
         let offsets: Vec<f64> = ic
