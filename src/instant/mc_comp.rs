@@ -497,6 +497,38 @@ impl McComponentInst {
         bindings
     }
 
+    /// Resolve an instance-specific pin alias to its physical pin ID.
+    pub(crate) fn find_conditional_pin_id(&self, name: &str) -> Option<String> {
+        let mut hits: Vec<String> = self
+            .cond_pin_names
+            .iter()
+            .filter_map(|(pin_id, names)| {
+                names
+                    .iter()
+                    .any(|alias| alias == name)
+                    .then(|| pin_id.clone())
+            })
+            .collect();
+        hits.sort();
+        hits.dedup();
+        (hits.len() == 1).then(|| hits.remove(0))
+    }
+
+    /// Return the preferred user-facing name for a physical pin.
+    pub fn pin_name(&self, pin_id: &str) -> Option<String> {
+        self.cond_pin_names
+            .get(pin_id)
+            .and_then(|names| names.first())
+            .or_else(|| {
+                self.def
+                    .pins
+                    .pins
+                    .get(pin_id)
+                    .and_then(|pin| pin.names.first())
+            })
+            .cloned()
+    }
+
     /// Get a pin by ID
     pub fn get_pin(&self, pin_id: &str) -> Option<&NetPoint> {
         self.pins.get(pin_id)

@@ -1451,6 +1451,12 @@ impl McModuleInst {
         }
         let last = member.rsplit('.').next().unwrap_or(member);
 
+        // Conditional and parameter-dependent aliases live on the concrete
+        // instance rather than in the component definition's static pin map.
+        let resolved_instance_pin = comp
+            .find_conditional_pin_id(member)
+            .or_else(|| comp.find_conditional_pin_id(last));
+
         // 1. names_to_id direct Single lookup (dotted full name "VOUT.Vout"/"IN.P" or bare name "VDD"/"FB")
         let direct = comp
             .def
@@ -1463,7 +1469,7 @@ impl McModuleInst {
                 _ => None,
             });
 
-        let pid = if let Some(id) = direct {
+        let pid = if let Some(id) = resolved_instance_pin.or(direct) {
             id
         } else {
             // 2. bare-alias fallback: curly-bus members (VOUT{Vout,GND}) only register
