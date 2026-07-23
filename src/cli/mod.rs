@@ -189,6 +189,11 @@ pub struct ParseArgs {
     /// * For --tree / --ast means report output path
     #[arg(long, short = 'o', value_name = "FILE")]
     pub output: Option<String>,
+
+    /// Only output dlog diagnostics (errors and warnings), skip all other output.
+    /// Each line: file:line:col: level[code]: message
+    #[arg(long)]
+    pub dlog: bool,
 }
 
 // ============================================================================

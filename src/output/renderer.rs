@@ -47,7 +47,7 @@ pub fn for_format_with_sort(format: OutputFormat, sort: PinSortMode) -> Box<dyn 
     }
 }
 
-struct SilentRenderer;
+pub struct SilentRenderer;
 
 impl OutputRenderer for SilentRenderer {
     fn pass1_header(&self, _: &str) {}

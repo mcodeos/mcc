@@ -43,17 +43,19 @@ use std::path::Path;
 // ============================================================================
 
 pub fn run(args: &ParseArgs) -> Result<()> {
-    // ── 0. RPC takes priority (server mode) ──
-    if let Some(client) = RpcClient::probe() {
-        let params = json!({
-            "entry": args.target.clone(),
-            "top":   args.top.clone(),
-            "code":  args.code.clone(),
-            "libs":  args.lib.clone(),
-        });
-        let result = client.call("parse", params)?;
-        println!("{}", serde_json::to_string_pretty(&result)?);
-        return Ok(());
+    // ── 0. RPC takes priority (server mode), but --dlog always runs locally ──
+    if !args.dlog {
+        if let Some(client) = RpcClient::probe() {
+            let params = json!({
+                "entry": args.target.clone(),
+                "top":   args.top.clone(),
+                "code":  args.code.clone(),
+                "libs":  args.lib.clone(),
+            });
+            let result = client.call("parse", params)?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
+            return Ok(());
+        }
     }
 
     // ── 0.5. Local mode initialization (don't load library by default), then explicitly load via --lib ──
@@ -95,7 +97,11 @@ pub fn run(args: &ParseArgs) -> Result<()> {
 
     // ── 2. Stage selection ──
     let stages = Stages::from_args(args);
-    let renderer = renderer::for_format_with_sort(args.format, args.sort);
+    let renderer: Box<dyn renderer::OutputRenderer> = if args.dlog {
+        Box::new(renderer::SilentRenderer)
+    } else {
+        renderer::for_format_with_sort(args.format, args.sort)
+    };
 
     // ── 3. ResultBuilder initialization ──
     let ws_ref = {
@@ -125,6 +131,10 @@ pub fn run(args: &ParseArgs) -> Result<()> {
         None => {
             // Even if top module not found, pass0 is already snapshotted in step 3.5, directly finish.
             // Text mode will render pass0 section (including C parser errors) + summary.
+            if args.dlog {
+                print_dlog_diagnostics();
+                return Ok(());
+            }
             let env = Envelope::ok(builder.finish());
             output::emit_envelope(
                 &env,
@@ -266,7 +276,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                             renderer.instances(&first_inst, 0);
                             renderer.connections(&first_inst, 0);
                             renderer.nets(&first_inst, 0);
-                            if args.format == mcc::cli::OutputFormat::Text {
+                            if args.format == mcc::cli::OutputFormat::Text && !args.dlog {
                                 builder.print_diagnostics_summary();
                             }
                             renderer.net_summary(&first_inst);
@@ -306,7 +316,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                     builder.set_pass2(pass2);
 
                     // Print diagnostics before Net Summary
-                    if args.format == mcc::cli::OutputFormat::Text {
+                    if args.format == mcc::cli::OutputFormat::Text && !args.dlog {
                         builder.print_diagnostics_summary();
                     }
                     renderer.net_summary(&inst);
@@ -445,6 +455,12 @@ pub fn run(args: &ParseArgs) -> Result<()> {
     }
 
     // ── 10. Final output ──
+    // --dlog: only print dlog error/warning diagnostics, skip normal output
+    if args.dlog {
+        print_dlog_diagnostics();
+        return Ok(());
+    }
+
     let env = Envelope::ok(builder.finish());
     let target = args.output.as_deref().map(Path::new);
 
@@ -456,6 +472,37 @@ pub fn run(args: &ParseArgs) -> Result<()> {
 
     output::emit_envelope(&env, args.format, envelope_target, true)?;
     Ok(())
+}
+
+/// Print only dlog error and warning diagnostics to stdout.
+/// Format: `file:line:col: level[code]: message`
+fn print_dlog_diagnostics() {
+    let all = mcc::mcc_diagnose_all();
+    for d in &all {
+        match d.level {
+            mcc::DiagnosticLevel::Error | mcc::DiagnosticLevel::Warning => {
+                println!(
+                    "{}:{}:{}: {}[E{:04}]: {}",
+                    d.loc.uri.as_str(),
+                    d.loc.row,
+                    d.loc.col,
+                    level_str(d.level),
+                    d.code,
+                    d.msg
+                );
+            }
+            _ => {}
+        }
+    }
+}
+
+fn level_str(level: mcc::DiagnosticLevel) -> &'static str {
+    match level {
+        mcc::DiagnosticLevel::Error => "error",
+        mcc::DiagnosticLevel::Warning => "warning",
+        mcc::DiagnosticLevel::Info => "info",
+        mcc::DiagnosticLevel::Hint => "hint",
+    }
 }
 
 // ============================================================================
@@ -1076,6 +1123,10 @@ fn endpoint_label(ep: &McEndpoint) -> String {
 // ============================================================================
 
 fn emit_error(args: &ParseArgs, err: RpcError) -> Result<()> {
+    if args.dlog {
+        print_dlog_diagnostics();
+        return Ok(());
+    }
     if args.format.is_structured() {
         let env = Envelope::err(err);
         output::emit_envelope(

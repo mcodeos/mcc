@@ -170,6 +170,12 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
     if matches!(result_format, Some(f) if f != OutputFormat::Text) {
         mcc::set_trace_stdout_suppressed(true);
     }
+    // --dlog: suppress engine trace so only dlog diagnostics appear on stdout
+    if let Some(Command::Parse(ref args)) = &cli.command {
+        if args.dlog {
+            mcc::set_trace_stdout_suppressed(true);
+        }
+    }
 
     match cli.command {
         Some(Command::Parse(args)) => {
