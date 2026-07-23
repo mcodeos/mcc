@@ -112,19 +112,100 @@ fn run_single(
     graph
 }
 
-/// PR-1 fidelity gate.
+/// PR-1 fidelity gate — three-tier structure.
 ///
-/// Dimension 1 (electrical correctness) is the veto: any violation is logged as a
-/// `✗ VETO` line so a regression surfaces immediately instead of hiding. Dimensions
-/// 2–7 are logged as a report card. The graph is always returned — with a single
-/// layouter there is nothing to swap to; the gate's job here is *visibility*.
+/// **Tier 1 · CORRECTNESS** — hard veto. Electrical correctness only:
+/// nets, pins, bus bits. Any violation is a hard error that must be fixed.
+///
+/// **Tier 2 · QUALITY** — ratchet. Collisions, coverage, wire quality.
+/// These are logged as warnings; they don't block the gate but signal
+/// that the layout quality has regressed.
+///
+/// **Tier 3 · INFO** — never fails. Authored pin sides (only for
+/// non-model-claimed boxes), symmetry, engineer-style metrics. Purely
+/// informational.
 fn fidelity_gate(
     layer: &str,
     layouter: &str,
     fidelity: &FidelityReport,
     readability: &ReadabilityScore,
 ) {
-    // Report card (dimensions 2–7): always logged.
+    // ── Tier 1 · CORRECTNESS — hard veto ──────────────────────────────────
+    if !fidelity.is_correct() {
+        if fidelity.nets_dropped > 0 || fidelity.nets_partial > 0 {
+            crate::vlog!(
+                "[layout-gate] ✗ VETO layer '{}': nets dropped={} partial={} of {} — lines missing",
+                layer,
+                fidelity.nets_dropped,
+                fidelity.nets_partial,
+                fidelity.nets_total
+            );
+        }
+        if fidelity.pins_rendered < fidelity.pins_total {
+            crate::vlog!(
+                "[layout-gate] ✗ VETO layer '{}': pins rendered {}/{} — some pins unconnected",
+                layer,
+                fidelity.pins_rendered,
+                fidelity.pins_total
+            );
+        }
+        if fidelity.bus_bits_paired_ok < fidelity.bus_bits_total {
+            crate::vlog!(
+                "[layout-gate] ✗ VETO layer '{}': bus bits paired {}/{} — bit-order mismatch",
+                layer,
+                fidelity.bus_bits_paired_ok,
+                fidelity.bus_bits_total
+            );
+        }
+        crate::vlog!(
+            "[layout-gate] ✗✗✗ layer '{}' CORRECTNESS FAILED — cannot proceed",
+            layer
+        );
+        return;
+    }
+
+    crate::vlog!("[layout-gate] layer '{}' Tier 1 CORRECTNESS ✓", layer);
+
+    // ── Tier 2 · QUALITY — ratchet ────────────────────────────────────────
+    let mut tier2_ok = true;
+    if fidelity.box_box > 0 || fidelity.wire_box > 0 {
+        crate::vlog!(
+            "[layout-gate] ⚠ QUALITY layer '{}': collisions box_box={} wire_box={}",
+            layer,
+            fidelity.box_box,
+            fidelity.wire_box
+        );
+        tier2_ok = false;
+    }
+    if fidelity.coverage_pct() < 100.0 {
+        crate::vlog!(
+            "[layout-gate] ⚠ QUALITY layer '{}': LAYOUT-MODEL coverage={:.0}% (claimed {}/{})",
+            layer,
+            fidelity.coverage_pct(),
+            fidelity.islands_claimed,
+            fidelity.islands_total
+        );
+        tier2_ok = false;
+    }
+    if tier2_ok {
+        crate::vlog!("[layout-gate] layer '{}' Tier 2 QUALITY ✓", layer);
+    }
+
+    // ── Tier 3 · INFO — never fails, only prints ─────────────────────────
+    // Authored pin sides: only meaningful for non-model-claimed boxes.
+    // Model-claimed boxes (geom_locked) intentionally override authored sides
+    // for topological correctness — not a quality issue.
+    if fidelity.authored_sides_total > 0
+        && fidelity.authored_sides_honored < fidelity.authored_sides_total
+    {
+        crate::vlog!(
+            "[layout-gate] ℹ layer '{}': authored pin sides honored {}/{}",
+            layer,
+            fidelity.authored_sides_honored,
+            fidelity.authored_sides_total
+        );
+    }
+
     crate::vlog!(
         "[layout-gate] layer '{}' ({}) report: wire_wire={} wirelen={:.1} bends={} off_grid={:.1} symmetry={:.1} idiom={:.1}",
         layer,
@@ -136,55 +217,6 @@ fn fidelity_gate(
         readability.symmetry_penalty,
         readability.idiom_violation,
     );
-
-    if fidelity.is_perfect() {
-        crate::vlog!("[layout-gate] layer '{}' fidelity OK (veto passed)", layer);
-        return;
-    }
-
-    // Dimension 1 — veto violations, surfaced individually so the cause is obvious.
-    if fidelity.nets_dropped > 0 || fidelity.nets_partial > 0 {
-        crate::vlog!(
-            "[layout-gate] ✗ VETO layer '{}': nets dropped={} partial={} of {} — lines missing",
-            layer,
-            fidelity.nets_dropped,
-            fidelity.nets_partial,
-            fidelity.nets_total
-        );
-    }
-    if fidelity.pins_rendered < fidelity.pins_total {
-        crate::vlog!(
-            "[layout-gate] ✗ VETO layer '{}': pins rendered {}/{} — some pins unconnected",
-            layer,
-            fidelity.pins_rendered,
-            fidelity.pins_total
-        );
-    }
-    if fidelity.bus_bits_paired_ok < fidelity.bus_bits_total {
-        crate::vlog!(
-            "[layout-gate] ✗ VETO layer '{}': bus bits paired {}/{} — bit-order mismatch",
-            layer,
-            fidelity.bus_bits_paired_ok,
-            fidelity.bus_bits_total
-        );
-    }
-    if fidelity.box_box > 0 || fidelity.wire_box > 0 {
-        crate::vlog!(
-            "[layout-gate] ✗ VETO layer '{}': collisions box_box={} wire_box={}",
-            layer,
-            fidelity.box_box,
-            fidelity.wire_box
-        );
-    }
-    // Authored pin-side honoring is a soft signal (dimension 6), not an electrical veto.
-    if fidelity.authored_sides_honored < fidelity.authored_sides_total {
-        crate::vlog!(
-            "[layout-gate] ⚠ layer '{}': authored pin sides honored {}/{}",
-            layer,
-            fidelity.authored_sides_honored,
-            fidelity.authored_sides_total
-        );
-    }
 }
 
 /// Compute ReadabilityScore from a routed graph and its collision report.
@@ -288,6 +320,9 @@ fn compute_fidelity(
         authored_sides_honored,
         box_box: col.box_box,
         wire_box: col.wire_box,
+        // ★ Layout coverage: read from graph (set by islands::apply_islands)
+        islands_claimed: graph.islands_claimed,
+        islands_total: graph.islands_total,
     }
 }
 

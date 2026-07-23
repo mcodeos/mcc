@@ -34,30 +34,66 @@ pub struct FidelityReport {
     pub authored_sides_honored: usize,
     pub box_box: usize,
     pub wire_box: usize,
+    /// ★ Layout model coverage: islands claimed / total.
+    /// Set from graph.islands_claimed / graph.islands_total.
+    pub islands_claimed: usize,
+    pub islands_total: usize,
 }
 
 impl FidelityReport {
-    /// Hard gate: all electrical dimensions green.
-    pub fn is_perfect(&self) -> bool {
+    /// Tier 1 · CORRECTNESS — hard gate: electrical correctness only.
+    /// Nets, pins, bus bits must be perfect. Collisions and coverage are
+    /// Tier 2 (quality ratchet), NOT Tier 1.
+    pub fn is_correct(&self) -> bool {
         self.nets_dropped == 0
             && self.nets_partial == 0
             && self.pins_rendered == self.pins_total
             && self.bus_bits_paired_ok == self.bus_bits_total
-            && self.authored_sides_honored == self.authored_sides_total
-            && self.box_box == 0
-            && self.wire_box == 0
+    }
+
+    /// ★ Legacy: Tier 1 + Tier 2 combined. Kept for backward compat;
+    ///    new code should use `is_correct()` for the hard gate and
+    ///    `quality_ok()` for the ratchet.
+    pub fn is_perfect(&self) -> bool {
+        self.is_correct() && self.box_box == 0 && self.wire_box == 0
+    }
+
+    /// Tier 2 · QUALITY — ratchet gate: collisions + coverage.
+    /// Returns false if any quality metric is non-zero.
+    pub fn has_quality_issues(&self) -> bool {
+        self.box_box > 0 || self.wire_box > 0
+    }
+
+    /// ★ Layout coverage percentage (0–100).
+    pub fn coverage_pct(&self) -> f64 {
+        if self.islands_total > 0 {
+            self.islands_claimed as f64 / self.islands_total as f64 * 100.0
+        } else {
+            0.0
+        }
     }
 
     pub fn report_line(&self) -> String {
         format!(
             "[metrics] FIDELITY: nets {}/{} rendered ({} dropped, {} partial), \
-             pins {}/{}, bus-bits {}/{}, authored-sides {}/{}, box_box={}, wire_box={}  -> PERFECT? {}",
-            self.nets_rendered, self.nets_total, self.nets_dropped, self.nets_partial,
-            self.pins_rendered, self.pins_total,
-            self.bus_bits_paired_ok, self.bus_bits_total,
-            self.authored_sides_honored, self.authored_sides_total,
-            self.box_box, self.wire_box,
-            self.is_perfect()
+             pins {}/{}, bus-bits {}/{}, authored-sides {}/{}, box_box={}, wire_box={}, \
+             islands={}/{} coverage={:.0}% -> CORRECT? {}",
+            self.nets_rendered,
+            self.nets_total,
+            self.nets_dropped,
+            self.nets_partial,
+            self.pins_rendered,
+            self.pins_total,
+            self.bus_bits_paired_ok,
+            self.bus_bits_total,
+            self.authored_sides_honored,
+            self.authored_sides_total,
+            self.box_box,
+            self.wire_box,
+            self.islands_claimed,
+            self.islands_total,
+            self.coverage_pct(),
+            self.is_correct()
         )
     }
 }
@@ -932,6 +968,8 @@ impl MetricsAccumulator {
             authored_sides_honored: self.authored_sides_honored,
             box_box: collisions.box_box,
             wire_box: collisions.wire_box,
+            islands_claimed: 0,
+            islands_total: 0,
         };
         let readability = ReadabilityScore {
             wire_wire: collisions.wire_wire,
