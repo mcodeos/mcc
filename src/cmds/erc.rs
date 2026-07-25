@@ -32,7 +32,7 @@ pub fn run(args: &ErcArgs) -> Result<()> {
 fn run_local(args: &ErcArgs) -> Result<()> {
     mcc::mcc_init_no_lib();
     if !args.lib.is_empty() {
-        manifest::load_libs(&args.lib);
+        manifest::load_default_libs(&args.lib);
     }
 
     if let Some(t) = &args.target {

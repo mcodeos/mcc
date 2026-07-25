@@ -28,7 +28,7 @@ pub fn run(args: &RefsArgs) -> Result<()> {
 fn run_local(args: &RefsArgs) -> Result<()> {
     mcc::mcc_init_no_lib();
     if !args.lib.is_empty() {
-        crate::cmds::manifest::load_libs(&args.lib);
+        crate::cmds::manifest::load_default_libs(&args.lib);
     }
     if let Some(f) = &args.file {
         let uri = mcc::McURI::from(f.as_str());

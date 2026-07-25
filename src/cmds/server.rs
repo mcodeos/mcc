@@ -215,7 +215,7 @@ pub fn run_server_internal(host: &str, port: u16, libs: &[String]) -> Result<()>
     // caused enum PKG (and other system symbols) to be missing for LSP gotodef.
     mcc::mcc_init();
     if !libs.is_empty() {
-        crate::cmds::manifest::load_libs(libs);
+        crate::cmds::manifest::load_default_libs(libs);
     }
 
     // Initialize logging to file (env var set by run_start)

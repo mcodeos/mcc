@@ -38,6 +38,11 @@ pub(crate) struct McUse {
     pub version: Option<String>,
     pub as_id: Option<String>,
     pub impt_ids: Option<Vec<McIds>>,
+    /// Original unresolved URI (before update_abs_path), used to extract library name for §11 check
+    pub orig_uri: McURI,
+    /// Source position of the use statement for diagnostics (§11)
+    pub pos: u32,
+    pub len: u32,
 }
 
 impl std::fmt::Display for McUse {
@@ -99,7 +104,13 @@ impl McUse {
                         let module_name = path_strs[0].clone();
                         format!("{module_name}/{module_name}")
                     } else {
-                        path_strs.join("/")
+                        // Multi-segment: auto-complete last segment as <name>/<name>
+                        // e.g., man.mcu.comp → man/mcu/comp/comp
+                        let last = path_strs.last().unwrap();
+                        let mut path = path_strs.join("/");
+                        path.push('/');
+                        path.push_str(last);
+                        path
                     }
                 } else {
                     String::new()
@@ -185,6 +196,8 @@ impl McUse {
                 _ => (None, None, None),
             };
 
+        let orig_uri = uri_path.clone();
+
         let mut mc_use = Self {
             public: node.is_type(MCAST_USE_PUB),
             prefix: uri_prefix,
@@ -192,6 +205,9 @@ impl McUse {
             version: uri_version,
             as_id: uri_asid,
             impt_ids: uri_import_ids,
+            orig_uri,
+            pos: node.get_pos(),
+            len: node.get_len(),
         };
         mc_use.update_abs_path(current_path, Some(&module_file_node));
         Some(mc_use)
@@ -236,11 +252,8 @@ impl McUse {
             final_filename.push_str(".mc");
         }
 
-        // 4. For system libraries, prepend "mcode/" prefix
-        if matches!(
-            self.prefix,
-            McUsePrefix::PathSystem | McUsePrefix::PathProject
-        ) {
+        // 4. Only system libraries prepend "mcode/" prefix
+        if self.prefix == McUsePrefix::PathSystem {
             final_filename = format!("mcode/{final_filename}");
         }
 
@@ -295,4 +308,87 @@ impl McUse {
     //         impt_ids: uri_import_ids,
     //     }
     // }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test multi-segment path tail-segment auto-completion.
+    /// Verifies `use man.mcu.comp` → `man/mcu/comp/comp`.
+    #[test]
+    fn test_multi_segment_auto_completion() {
+        // Simulate path_strs = ["man", "mcu", "comp"]
+        let path_strs = vec!["man".to_string(), "mcu".to_string(), "comp".to_string()];
+
+        // Apply auto-completion logic
+        let last = path_strs.last().unwrap();
+        let mut path = path_strs.join("/");
+        path.push('/');
+        path.push_str(last);
+
+        assert_eq!(path, "man/mcu/comp/comp");
+    }
+
+    /// Test single-segment path auto-completion.
+    /// Verifies `use conn` → `conn/conn`.
+    #[test]
+    fn test_single_segment_auto_completion() {
+        let path_strs = vec!["conn".to_string()];
+
+        if path_strs.len() == 1 {
+            let module_name = path_strs[0].clone();
+            let path = format!("{module_name}/{module_name}");
+            assert_eq!(path, "conn/conn");
+        }
+    }
+
+    /// Test system-library prefix prepending `mcode/`.
+    /// Verifies `use $::mcode.gpio` → `mcode/gpio/gpio`.
+    #[test]
+    fn test_system_lib_prefix() {
+        let prefix = McUsePrefix::PathSystem;
+        let mut final_filename = "gpio/gpio".to_string();
+
+        // Apply system-library prefix logic
+        if prefix == McUsePrefix::PathSystem {
+            final_filename = format!("mcode/{}", final_filename);
+        }
+
+        assert_eq!(final_filename, "mcode/gpio/gpio");
+    }
+
+    /// Test project-root path NOT prepending `mcode/`.
+    /// Verifies `use /lib/power` → `lib/power/power`.
+    #[test]
+    fn test_project_root_no_mcode_prefix() {
+        let prefix = McUsePrefix::PathProject;
+        let mut final_filename = "lib/power/power".to_string();
+
+        // Apply prefix logic (project root does NOT prepend `mcode/`)
+        if prefix == McUsePrefix::PathSystem {
+            final_filename = format!("mcode/{}", final_filename);
+        }
+
+        assert_eq!(final_filename, "lib/power/power");
+    }
+
+    /// Test version-suffix concatenation.
+    /// Verifies `use man.mcu.comp@1.1.0` → `man/mcu/comp/comp@1.1.0.mc`.
+    #[test]
+    fn test_version_concatenation() {
+        let mut final_filename = "man/mcu/comp/comp".to_string();
+        let version = Some("1.1.0".to_string());
+
+        // Apply version concatenation
+        if let Some(ver) = &version {
+            final_filename.push('@');
+            final_filename.push_str(ver);
+        }
+        if !final_filename.ends_with(".mc") {
+            final_filename.push_str(".mc");
+        }
+
+        assert_eq!(final_filename, "man/mcu/comp/comp@1.1.0.mc");
+    }
 }

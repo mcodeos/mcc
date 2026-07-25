@@ -38,13 +38,13 @@ use crate::ast::ast_semantic::{
 use crate::ast::ast_token::McSemTokens;
 use crate::ast::error::message::MISSING_SUBNODE;
 use crate::db::cmie::tables as workspace;
-use crate::db::diagnostic::diagnostic::dlog_error;
+use crate::db::diagnostic::diagnostic::{dlog_error, dlog_error_at, dlog_warning_at};
 use crate::db::infra::global;
-use crate::db::infra::mc_use::McUse;
+use crate::db::infra::mc_use::{McUse, McUsePrefix};
 use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
 use crate::{ast::ast_node::AstNode, ast::c_macros::*, semantic::common::McCMIE};
-use crate::{current_uri, McComponent, McIds, McModule, McSpaceName, McURI};
+use crate::{current_uri, mcb_loaded_libs, McComponent, McIds, McModule, McSpaceName, McURI};
 use core::panic;
 use line_index::LineIndex;
 use rust_lapper::Interval;
@@ -647,6 +647,9 @@ impl McCode {
         //2. load spacenames from use targets
         let mut uses_stack = Vec::<McUse>::new();
         let mut visited_uses = HashSet::<String>::new();
+        // §14: track (module_name, (orig_uri, exported_symbols)) for conflict detection
+        let mut seen_modules: std::collections::HashMap<String, (String, HashSet<McIds>)> =
+            std::collections::HashMap::new();
         self.uselist
             .iter()
             .for_each(|mu| uses_stack.push(mu.clone()));
@@ -661,6 +664,23 @@ impl McCode {
                 .unwrap_or_else(|_| mcuse.uri.clone());
             if !visited_uses.insert(canonical_use_uri.clone()) {
                 continue;
+            }
+
+            // §11: check that unprefixed (system/third-party) use targets
+            // are declared in project.toml [dependencies] or loaded via global config.
+            if mcuse.prefix == McUsePrefix::PathSystem {
+                let lib_name = mcuse.orig_uri.split('/').next().unwrap_or("");
+                if !lib_name.is_empty() && !mcb_loaded_libs().contains(&lib_name.to_string()) {
+                    dlog_warning_at(
+                        800,
+                        mcuse.pos,
+                        mcuse.len,
+                        &format!(
+                            "use of undeclared dependency '{}': add it to project.toml [dependencies] or load via --lib",
+                            lib_name
+                        ),
+                    );
+                }
             }
 
             // (1). load ast
@@ -689,6 +709,36 @@ impl McCode {
 
             // (2). load idx from current file
             let cmie_list = mcfile.parse_cmie_names();
+
+            // §14: detect symbol conflicts when two unprefixed uses share the same module name
+            if mcuse.prefix == McUsePrefix::PathSystem {
+                let module_name = mcuse.orig_uri.split('/').last().unwrap_or("");
+                if !module_name.is_empty() {
+                    if let Some((prev_uri, prev_symbols)) = seen_modules.get(module_name) {
+                        if prev_uri != &mcuse.orig_uri {
+                            let current_symbols: HashSet<McIds> = cmie_list.iter().cloned().collect();
+                            let overlap: Vec<_> = prev_symbols.intersection(&current_symbols).collect();
+                            if !overlap.is_empty() {
+                                let names: Vec<String> = overlap.iter().map(|s| s.to_string()).collect();
+                                dlog_error_at(
+                                    801,
+                                    mcuse.pos,
+                                    mcuse.len,
+                                    &format!(
+                                        "symbol conflict in module '{}': {} collides with previous use from '{}'. Use 'as' alias to disambiguate",
+                                        module_name, names.join(", "), prev_uri
+                                    ),
+                                );
+                            }
+                        }
+                    } else {
+                        seen_modules.insert(
+                            module_name.to_string(),
+                            (mcuse.orig_uri.clone(), cmie_list.iter().cloned().collect()),
+                        );
+                    }
+                }
+            }
 
             // (2.5) ★ Step 3: ensure CMIE definitions are registered to the global table
             // If spacenames and uselist already exist, reuse them directly

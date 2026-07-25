@@ -44,7 +44,7 @@ pub fn run(args: &ExtractArgs) -> Result<()> {
     mcc::mcc_init_no_lib();
 
     // Local mode also loads --lib (the other half of Fix 2)
-    manifest::load_libs(&args.lib);
+    manifest::load_default_libs(&args.lib);
 
     // components / interfaces operate on already-loaded libraries; no file required
     match args.target {

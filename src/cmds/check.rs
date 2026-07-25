@@ -51,7 +51,7 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
     }
 
     mcc::mcc_init_no_lib();
-    manifest::load_libs(&args.lib);
+    manifest::load_default_libs(&args.lib);
 
     let _uri: McURI = if let Some(t) = &args.target {
         let p = Path::new(t);
