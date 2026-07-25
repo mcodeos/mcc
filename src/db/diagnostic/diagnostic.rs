@@ -83,11 +83,15 @@ impl DiagnosticLevel {
 impl Location {
     pub fn new(file: McURI, pos: Position, len: u32) -> Self {
         // Try to get line and column from the file's line index
-        let (line, column) = workspace::WORKSPACE
-            .mcodes
-            .get(&file)
-            .map(|mcfile| mcfile.pos_to_line_col(pos))
-            .unwrap_or((1, 1));
+        let (line, column) = match workspace::WORKSPACE.mcodes.get(&file) {
+            Some(mcfile) => mcfile.pos_to_line_col(pos),
+            None => {
+                // Fallback: the file may have been temporarily removed from
+                // `mcodes` during parsing (see pass1.rs `mcb_parse_all_modules`).
+                // Check the thread-local line index stack.
+                crate::db::infra::context::lookup_line_col(&file, pos).unwrap_or((1, 1))
+            }
+        };
 
         // Compute end position (pos + len) for proper span highlighting
         let (end_line, end_column) = if len > 0 {

@@ -330,6 +330,52 @@ impl McPins {
                                 }
                             }
                         }
+                        // ★ Also record spans using the registered key (inst_id) for
+                        // interface bindings like `I2C0::I2C(Master)`, where the
+                        // `names_to_id` key differs from the raw pin-name string.
+                        // The option_nodes parallel array gives the precise AST node
+                        // for each option (including alternatives after `|`).
+                        if let Some(names) = &pinnames {
+                            for (opt, opt_node) in
+                                names.options.iter().zip(names.option_nodes.iter())
+                            {
+                                let span = (opt_node.get_pos() as usize)
+                                    ..((opt_node.get_pos() + opt_node.get_len()) as usize);
+                                match opt {
+                                    McPinPort::Interface(iface) => {
+                                        // For bus-form interface names (e.g.
+                                        // `VIN{Vin, GND}::DC(...)`), `names_to_id`
+                                        // is keyed by the bus name (`VIN`), not the
+                                        // full interface name. Mirror that here.
+                                        let key = if iface.name.is_bus() {
+                                            iface
+                                                .name
+                                                .as_bus()
+                                                .map(|(busname, _)| busname)
+                                                .unwrap_or_else(|| iface.name.to_string())
+                                        } else {
+                                            iface.name.to_string()
+                                        };
+                                        self.pin_name_spans.insert(key, span);
+                                    }
+                                    McPinPort::Bus(bus) => {
+                                        self.pin_name_spans.insert(bus.name.clone(), span);
+                                    }
+                                    McPinPort::List(name, _) => {
+                                        self.pin_name_spans.insert(name.clone(), span);
+                                    }
+                                    McPinPort::Single(name) => {
+                                        // Only insert if not already present (raw
+                                        // pin-name loop above may have stored a
+                                        // different key form).
+                                        self.pin_name_spans
+                                            .entry(name.clone())
+                                            .or_insert(span);
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
                         if let Some(names) = &pinnames {
                             pin_name_has_param_ref = names.has_param_ref();
                         }

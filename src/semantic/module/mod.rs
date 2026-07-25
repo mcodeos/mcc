@@ -30,6 +30,9 @@ pub struct McModule {
     pub params: McParamDeclares,
     pub insts: McInstances,
     pub lines: Vec<McPhrase>,
+    /// Source span for each connection line in `lines` (parallel array).
+    /// Used for diagnostic position reporting during instantiation.
+    pub line_spans: Vec<crate::ast::ast_semantic::Span>,
     pub funcs: McFunctions,
     pub uri: McURI,
     /// Source span for LSP goto-definition (byte range in `uri`).
@@ -68,6 +71,7 @@ impl McModule {
                 funcs: McFunctions::new(),
                 insts: McInstances::new(),
                 lines: Vec::new(),
+                line_spans: Vec::new(),
                 uri: uri.clone(),
                 span: crate::ast::ast_semantic::Span { start, end },
                 anon_counter: 1,
@@ -169,6 +173,13 @@ impl McModule {
                                         &self.uri,
                                         &self.name.to_string(),
                                     );
+                                    // Track source span for diagnostic position reporting
+                                    let line_start = subnode.get_pos() as usize;
+                                    let line_end = line_start + subnode.get_len() as usize;
+                                    self.line_spans.push(crate::ast::ast_semantic::Span {
+                                        start: line_start,
+                                        end: line_end,
+                                    });
                                     self.lines.push(net);
                                 }
                                 None => {
@@ -596,6 +607,10 @@ impl HasFindInst for McModule {
         let name = format!("@{}{}", classname, self.anon_counter);
         self.anon_counter += 1;
         name
+    }
+
+    fn store_inst_span(&mut self, name: &str, span: std::ops::Range<usize>) {
+        self.insts.store_port_span(name, span);
     }
 
     fn upgrade_label_to_bus(&mut self, name: &str) -> bool {

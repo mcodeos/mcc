@@ -537,6 +537,13 @@ impl McFuncCall {
                                             let class_name_str = class_name.to_string();
 
                                             let anon_name = context.gen_anon_name(&class_name_str);
+                                            // Store the source span so diagnostics on this
+                                            // anonymous instance point at its usage position.
+                                            let inst_span = (caller_node.get_pos() as usize)
+                                                ..((caller_node.get_pos()
+                                                    + caller_node.get_len())
+                                                    as usize);
+                                            context.store_inst_span(&anon_name, inst_span);
 
                                             // Check for NC parameter using instance_params
                                             let _is_nc = instance_params
@@ -609,6 +616,10 @@ impl McFuncCall {
                                     // Second try: it's a class definition, create anonymous instance
                                     let ids = McIds::from(inst_name.as_str());
                                     let anon_name = context.gen_anon_name(&inst_name);
+                                    // Store the source span for diagnostics on this anonymous instance.
+                                    let inst_span = (each.get_pos() as usize)
+                                        ..((each.get_pos() + each.get_len()) as usize);
+                                    context.store_inst_span(&anon_name, inst_span);
 
                                     // Check for NC parameter
                                     let _is_nc = instance_params
@@ -679,6 +690,10 @@ impl McFuncCall {
                                         }
                                     } else {
                                         let anon_name = context.gen_anon_name(class_name);
+                                        // Store the source span for diagnostics on this anonymous instance.
+                                        let inst_span = (each.get_pos() as usize)
+                                            ..((each.get_pos() + each.get_len()) as usize);
+                                        context.store_inst_span(&anon_name, inst_span);
 
                                         // Check for NC parameter
                                         let is_nc = instance_params
@@ -713,6 +728,10 @@ impl McFuncCall {
                                     }
                                 } else {
                                     let anon_name = context.gen_anon_name(class_name);
+                                    // Store the source span for diagnostics on this anonymous instance.
+                                    let inst_span = (each.get_pos() as usize)
+                                        ..((each.get_pos() + each.get_len()) as usize);
+                                    context.store_inst_span(&anon_name, inst_span);
 
                                     // Check for NC parameter
                                     let is_nc = instance_params
@@ -1002,6 +1021,10 @@ impl McFuncCall {
                         // fall through to the FuncCall construction below, letting pass2's auto_name
                         // in `instantiate_component_construction` generate the actual @RES1/@CAP1 names.
                         if !inst_name.is_empty() {
+                            // Store the source span for diagnostics on this anonymous instance.
+                            let inst_span = (node.get_pos() as usize)
+                                ..((node.get_pos() + node.get_len()) as usize);
+                            context.store_inst_span(&inst_name, inst_span);
                             // Check for NC parameter
                             let is_nc = params.iter().any(|p| matches!(p, McParamValue::NC(_)));
                             // ── Iter-7.4 (with diag) ───────────────────────
@@ -1025,6 +1048,10 @@ impl McFuncCall {
                         let inst_name = context.gen_anon_name(&func_name.to_string());
                         // Same as Iter-3.E: only take the Endpoint branch when inst_name is non-empty
                         if !inst_name.is_empty() {
+                            // Store the source span for diagnostics on this anonymous instance.
+                            let inst_span = (node.get_pos() as usize)
+                                ..((node.get_pos() + node.get_len()) as usize);
+                            context.store_inst_span(&inst_name, inst_span);
                             let mc2_mod = Mc2Module::new(&inst_name, mod_def.clone());
                             context.add_module(inst_name.clone(), mc2_mod);
                             return Some(McPhrase::Endpoint(McEndpoint::Single(

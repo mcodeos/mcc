@@ -98,6 +98,12 @@ pub trait HasFindInst {
     fn parse_declare(&mut self, node: &AstNode) -> Vec<McInstance>;
     fn gen_anon_name(&mut self, classname: &str) -> String;
 
+    /// Record the source span for an already-created instance.
+    /// Used so diagnostics on anonymous instances (e.g. `@CAP2`) can point at
+    /// the actual usage position instead of the enclosing module start.
+    /// Default implementation is a no-op for contexts that don't track spans.
+    fn store_inst_span(&mut self, _name: &str, _span: std::ops::Range<usize>) {}
+
     /// Look up a user-defined function in the surrounding scope and report
     /// its return kind. Used by [`McFuncCall`] to validate method chains.
     ///
@@ -214,6 +220,10 @@ impl<'a> HasFindInst for FuncBodyContext<'a> {
 
     fn gen_anon_name(&mut self, classname: &str) -> String {
         self.parent.gen_anon_name(classname)
+    }
+
+    fn store_inst_span(&mut self, name: &str, span: std::ops::Range<usize>) {
+        self.parent.store_inst_span(name, span)
     }
 
     fn find_func_return(&self, name: &str) -> Option<McFuncReturn> {
@@ -801,6 +811,10 @@ impl HasFindInst for McFunction {
         let name = format!("@{}{}", safe, self.anon_counter);
         self.anon_counter += 1;
         name
+    }
+
+    fn store_inst_span(&mut self, name: &str, span: std::ops::Range<usize>) {
+        self.insts.store_port_span(name, span);
     }
 
     fn scope_name(&self) -> Option<String> {

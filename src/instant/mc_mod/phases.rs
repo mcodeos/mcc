@@ -396,6 +396,7 @@ impl McModuleInst {
 
     pub(super) fn instantiate_lines_resilient(&mut self) {
         let lines = self.def.lines.clone();
+        let line_spans = self.def.line_spans.clone();
         for (_i, _l) in lines.iter().enumerate() {}
         for (idx, line) in lines.iter().enumerate() {
             // ── Iter-6.S4.3 ──────────────────────────────────────────────
@@ -433,11 +434,17 @@ impl McModuleInst {
             // connections) are in other fields of self, not in auto_inst_map, unaffected by clear.
             self.auto_inst_map.clear();
 
+            // ★ Set current line span for diagnostic position reporting.
+            //   Used as fallback when NetPoint.src_pos is unavailable (e.g., E2003/E2005).
+            self.current_line_span = line_spans.get(idx).cloned();
+
             if let Err(e) = self.process_line(line) {
                 // ★ Single connection line failure doesn't interrupt, record diagnostics then continue processing subsequent lines
                 self.record_warning(910, format!("Connection line #{idx} failed: {e}"));
             }
         }
+        // Clear after loop to avoid stale span leaking into post-line checks
+        self.current_line_span = None;
 
         // ── P2-C2: After all body lines processed, project accumulated bus members to bare ports ──
         // Must be after lines (at this point self.buses includes usage members like MIC{P,N}/SPI{...});

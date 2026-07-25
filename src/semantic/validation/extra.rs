@@ -183,9 +183,16 @@ fn check_interface_pin_counts(acc: &mut CheckAccumulator) {
                 // Count how many physical pins are bound to this interface name
                 let bound_count = phys_pins.iter().filter(|n| n.as_str() == pin_name).count();
                 if bound_count < iface_pin_count {
+                    // Use the specific pin name span when available; fall back to comp span.
+                    let span = comp
+                        .pins
+                        .pin_name_spans
+                        .get(pin_name)
+                        .cloned()
+                        .unwrap_or_else(|| comp.span.start..comp.span.end);
                     acc.push(CheckResult {
                         check_name: "extra", severity: CheckSeverity::Warning,
-                        uri: Some(uri.clone()), span: Some(comp.span.start..comp.span.end),
+                        uri: Some(uri.clone()), span: Some(span),
                         message: format!(
                             "Interface '{}' expects {} pins but only {} physical pins bound as '{}'.",
                             iface_name, iface_pin_count, bound_count, pin_name
