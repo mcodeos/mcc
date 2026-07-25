@@ -716,10 +716,13 @@ impl McCode {
                 if !module_name.is_empty() {
                     if let Some((prev_uri, prev_symbols)) = seen_modules.get(module_name) {
                         if prev_uri != &mcuse.orig_uri {
-                            let current_symbols: HashSet<McIds> = cmie_list.iter().cloned().collect();
-                            let overlap: Vec<_> = prev_symbols.intersection(&current_symbols).collect();
+                            let current_symbols: HashSet<McIds> =
+                                cmie_list.iter().cloned().collect();
+                            let overlap: Vec<_> =
+                                prev_symbols.intersection(&current_symbols).collect();
                             if !overlap.is_empty() {
-                                let names: Vec<String> = overlap.iter().map(|s| s.to_string()).collect();
+                                let names: Vec<String> =
+                                    overlap.iter().map(|s| s.to_string()).collect();
                                 dlog_error_at(
                                     801,
                                     mcuse.pos,

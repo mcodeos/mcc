@@ -65,27 +65,24 @@ pub fn run(args: &ParseArgs) -> Result<()> {
     // Load libraries from all config sources: global config + project config + manifest + CLI --lib.
     // Without this, local-mode parse can't see mcode's interfaces and emits spurious
     // E1304 / E2702 warnings for every `X::Interface(...)` reference.
-    let project_root = args
-        .target
-        .as_deref()
-        .and_then(|t| {
-            let p = Path::new(t);
-            // Walk up the directory tree to find the project root
-            // (the directory containing project.toml).
-            let mut current: Option<&Path> = if p.is_dir() { Some(p) } else { p.parent() };
-            while let Some(dir) = current {
-                if dir.join("project.toml").exists() {
-                    return Some(dir.to_path_buf());
-                }
-                current = dir.parent();
+    let project_root = args.target.as_deref().and_then(|t| {
+        let p = Path::new(t);
+        // Walk up the directory tree to find the project root
+        // (the directory containing project.toml).
+        let mut current: Option<&Path> = if p.is_dir() { Some(p) } else { p.parent() };
+        while let Some(dir) = current {
+            if dir.join("project.toml").exists() {
+                return Some(dir.to_path_buf());
             }
-            // Fallback: use the original heuristic (dir or parent of file).
-            if p.is_dir() {
-                Some(p.to_path_buf())
-            } else {
-                p.parent().map(|p| p.to_path_buf())
-            }
-        });
+            current = dir.parent();
+        }
+        // Fallback: use the original heuristic (dir or parent of file).
+        if p.is_dir() {
+            Some(p.to_path_buf())
+        } else {
+            p.parent().map(|p| p.to_path_buf())
+        }
+    });
     manifest::load_libs(&manifest::collect_libs(project_root.as_deref(), &args.lib));
 
     // ── 0.6. Pass 0 snapshot: lib load + C parser error attribution ──

@@ -13,15 +13,7 @@ use std::process::Command;
 fn run_mcc_parse(source: &str) -> Value {
     let output = Command::new(env!("CARGO_BIN_EXE_mcc"))
         .args([
-            "parse",
-            "--code",
-            source,
-            "--pass1",
-            "--pass2",
-            "--top",
-            "main",
-            "-f",
-            "json",
+            "parse", "--code", source, "--pass1", "--pass2", "--top", "main", "-f", "json",
         ])
         .output()
         .expect("run JSON parse");
@@ -56,10 +48,7 @@ module main {
         codes.contains(&800),
         "expected E800 in pass0 diagnostics, got codes: {codes:?}\nfull: {diags:#?}"
     );
-    let e800 = diags
-        .iter()
-        .find(|d| d["code"] == 800)
-        .expect("E800 entry");
+    let e800 = diags.iter().find(|d| d["code"] == 800).expect("E800 entry");
     let msg = e800["message"].as_str().unwrap_or_default();
     assert!(
         msg.contains("nonexistent") && msg.contains("undeclared"),
