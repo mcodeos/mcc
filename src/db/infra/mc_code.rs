@@ -747,10 +747,14 @@ impl McCode {
             // If spacenames and uselist already exist, reuse them directly
             if has_existing {
                 // Reuse existing spacenames (clone only when actually needed)
-                if let Some(existing) = workspace::WORKSPACE.mcodes.get(&canonical_use_uri) {
-                    for (key, value) in existing.spacenames.iter() {
-                        if !self.spacenames.contains_key(key) {
-                            self.spacenames.insert(key.clone(), value.clone());
+                // Only cascade for default imports without aliases;
+                // named imports and aliased imports must not leak symbols (§6.2 / §6.3).
+                if mcuse.impt_ids.is_none() && mcuse.as_id.is_none() {
+                    if let Some(existing) = workspace::WORKSPACE.mcodes.get(&canonical_use_uri) {
+                        for (key, value) in existing.spacenames.iter() {
+                            if !self.spacenames.contains_key(key) {
+                                self.spacenames.insert(key.clone(), value.clone());
+                            }
                         }
                     }
                 }
@@ -773,9 +777,12 @@ impl McCode {
                 // (created via McCode::new()) has an EMPTY symbol table.
                 // Solution: let mcb_add_recursive() handle all workspace insertion.
                 // Only copy spacenames to self for use resolution.
-                for (key, value) in &mcfile.spacenames {
-                    if !self.spacenames.contains_key(key) {
-                        self.spacenames.insert(key.clone(), value.clone());
+                // Only cascade for default imports without aliases (§6.2 / §6.3).
+                if mcuse.impt_ids.is_none() && mcuse.as_id.is_none() {
+                    for (key, value) in &mcfile.spacenames {
+                        if !self.spacenames.contains_key(key) {
+                            self.spacenames.insert(key.clone(), value.clone());
+                        }
                     }
                 }
                 // ★ Fix: Do NOT mark pass1_complete here. The current file's own
@@ -786,33 +793,60 @@ impl McCode {
                 // and all ClassRef→ClassDef goto-def mappings break.
             }
 
+            let is_default_import = mcuse.impt_ids.is_none();
+            let has_alias = mcuse.as_id.is_some();
+
+            // §6.3: when `as <alias>` is present, the first CMIE is registered
+            // under the alias name; remaining CMIEs keep their original names.
+            // The McSpaceName stores the original ident so that member resolution
+            // can find the correct CMIE definition in the component/module tables.
             match mcuse.impt_ids {
                 None => {
-                    for cmie in cmie_list {
+                    for (i, cmie) in cmie_list.iter().enumerate() {
+                        let key = if has_alias && i == 0 {
+                            // Safety: has_alias guarantees as_id is Some
+                            McIds::from(mcuse.as_id.as_ref().unwrap().as_str())
+                        } else {
+                            cmie.clone()
+                        };
                         self.spacenames
-                            .insert(cmie.clone(), McSpaceName::new(&cmie, mcuse.uri.clone()));
+                            .insert(key, McSpaceName::new(cmie, mcuse.uri.clone()));
                     }
                 }
                 Some(classes) => {
-                    for class in classes {
-                        if cmie_list.contains(&class) {
+                    for (i, class) in classes.iter().enumerate() {
+                        if cmie_list.contains(class) {
+                            let key = if has_alias && i == 0 {
+                                // Safety: has_alias guarantees as_id is Some
+                                McIds::from(mcuse.as_id.as_ref().unwrap().as_str())
+                            } else {
+                                class.clone()
+                            };
                             self.spacenames
-                                .insert(class.clone(), McSpaceName::new(&class, mcuse.uri.clone()));
+                                .insert(key, McSpaceName::new(class, mcuse.uri.clone()));
                         } else {
-                            tracing::warn!(
-                                target: "mcc::code",
-                                definition = %class,
-                                uri = %mcuse.uri,
-                                "use'd definition does not exist in target file"
+                            dlog_warning_at(
+                                804,
+                                mcuse.pos,
+                                mcuse.len,
+                                &format!(
+                                    "imported symbol '{}' not found in '{}'",
+                                    class, mcuse.orig_uri
+                                ),
                             );
                         }
                     }
                 }
             }
 
-            for (key, value) in &mcfile.spacenames {
-                if !self.spacenames.contains_key(key) {
-                    self.spacenames.insert(key.clone(), value.clone());
+            // Cascade the dependency's spacenames — only for default imports
+            // without aliases (§6.2 / §6.3). Aliased imports and named imports
+            // must not leak symbols under their original names.
+            if is_default_import && !has_alias {
+                for (key, value) in &mcfile.spacenames {
+                    if !self.spacenames.contains_key(key) {
+                        self.spacenames.insert(key.clone(), value.clone());
+                    }
                 }
             }
 

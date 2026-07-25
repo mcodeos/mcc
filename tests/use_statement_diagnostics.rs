@@ -108,3 +108,46 @@ module main {
         "expected at least one diagnostic for the conflicting use statements, got none"
     );
 }
+
+/// §6.3: `as` alias should register the module under the alias name
+/// without triggering E2002 (alias collision with itself).
+/// The test also verifies that the original module name is NOT leaked
+/// into the importing file's spacenames.
+#[test]
+fn alias_registers_spacename_without_collision() {
+    // Run `mcc parse` on the alias_user.mc corpus file with --dlog
+    // (--dlog bypasses RPC, which may have a stale PID file)
+    let corpus = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/corpus");
+    let alias_user = corpus.join("alias_user.mc");
+    let output = Command::new(env!("CARGO_BIN_EXE_mcc"))
+        .args([
+            "parse",
+            alias_user.to_str().expect("alias_user.mc path"),
+            "--pass1",
+            "--pass2",
+            "--top",
+            "main",
+            "-f",
+            "json",
+            "--dlog",
+        ])
+        .env("MCC_SYSTEM_ROOT", std::env::current_dir().unwrap().parent().unwrap())
+        .output()
+        .expect("run JSON parse on alias_user.mc");
+    assert!(
+        output.status.success(),
+        "mcc parse failed: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    // With --dlog, output is text diagnostics on stdout. E2002 must NOT appear.
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("E2002"),
+        "E2002 should not appear for a valid `as` alias. stdout:\n{stdout}"
+    );
+    assert!(
+        !stdout.contains("collides with an existing name"),
+        "alias collision message should not appear. stdout:\n{stdout}"
+    );
+}

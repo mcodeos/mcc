@@ -53,10 +53,6 @@ impl ValidationCheck for ImportsCheck {
             let self_uri = entry.key();
             let mcode = entry.value();
 
-            // Collect this file's top-level names (from spacenames + its own definitions)
-            // for K2 alias collision detection
-            let local_names = build_local_name_set(&mcode.spacenames);
-
             for mcu in &mcode.uselist {
                 // ── K1: Self-import ──
                 if !super::is_test_file(self_uri) && mcu.uri == *self_uri {
@@ -71,10 +67,12 @@ impl ValidationCheck for ImportsCheck {
                 }
 
                 // ── K2: `as` alias collision ──
+                // Only check against registered CMIE names (all_cmie_names), not
+                // against local spacenames (local_names), because the spacename
+                // entry was just created by this same `use as` statement, which
+                // would produce a false "collides with itself" diagnostic.
                 if let Some(ref alias) = mcu.as_id {
-                    if local_names.contains(alias.as_str())
-                        || all_cmie_names.contains(alias.as_str())
-                    {
+                    if all_cmie_names.contains(alias.as_str()) {
                         acc.push(CheckResult {
                             check_name: "imports",
                             severity: CheckSeverity::Error,
