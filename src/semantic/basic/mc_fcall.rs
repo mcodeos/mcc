@@ -540,8 +540,7 @@ impl McFuncCall {
                                             // Store the source span so diagnostics on this
                                             // anonymous instance point at its usage position.
                                             let inst_span = (caller_node.get_pos() as usize)
-                                                ..((caller_node.get_pos()
-                                                    + caller_node.get_len())
+                                                ..((caller_node.get_pos() + caller_node.get_len())
                                                     as usize);
                                             context.store_inst_span(&anon_name, inst_span);
 

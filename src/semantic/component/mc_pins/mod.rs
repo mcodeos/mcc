@@ -368,9 +368,7 @@ impl McPins {
                                         // Only insert if not already present (raw
                                         // pin-name loop above may have stored a
                                         // different key form).
-                                        self.pin_name_spans
-                                            .entry(name.clone())
-                                            .or_insert(span);
+                                        self.pin_name_spans.entry(name.clone()).or_insert(span);
                                     }
                                     _ => {}
                                 }

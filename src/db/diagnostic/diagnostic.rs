@@ -387,14 +387,7 @@ pub fn dlog_warning_at(code: u32, pos: Position, len: u32, msg: &str) {
         len = len,
         "{msg}"
     );
-    diagnostic_log(
-        code,
-        DiagnosticLevel::Warning,
-        pos,
-        len,
-        msg,
-        &[],
-    );
+    diagnostic_log(code, DiagnosticLevel::Warning, pos, len, msg, &[]);
 }
 /// Emit an error diagnostic using raw position/length (no AstNode).
 /// Used for deferred validation (e.g., symbol conflict detection in parse_nsp §14).
@@ -406,14 +399,7 @@ pub fn dlog_error_at(code: u32, pos: Position, len: u32, msg: &str) {
         len = len,
         "{msg}"
     );
-    diagnostic_log(
-        code,
-        DiagnosticLevel::Error,
-        pos,
-        len,
-        msg,
-        &[],
-    );
+    diagnostic_log(code, DiagnosticLevel::Error, pos, len, msg, &[]);
 }
 pub fn dlog_info(code: u32, node: &AstNode, msg: &str) {
     let full_msg = format!("node={} {}", node.get_type(), msg);
