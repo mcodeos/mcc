@@ -30,7 +30,7 @@ pub fn run(args: &ConvertArgs) -> Result<()> {
 
 fn run_local(args: &ConvertArgs) -> Result<()> {
     mcc::mcc_init_no_lib();
-    manifest::load_default_libs(&args.lib);
+    manifest::load_libs(&manifest::collect_libs(None, &args.lib));
 
     let path = Path::new(&args.file);
     let uri = if path.is_absolute() {
