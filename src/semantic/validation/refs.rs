@@ -117,7 +117,7 @@ fn check_label_refs(acc: &mut CheckAccumulator) {
         }
 
         // Check port refs: each ref should point to a known name
-        for (_span, port_name, _scope) in m.insts.iter_net_refs() {
+        for (span, port_name, _scope) in m.insts.iter_net_refs() {
             if port_name.starts_with('@') {
                 continue; // Anonymous instances are self-defining
             }
@@ -133,7 +133,7 @@ fn check_label_refs(acc: &mut CheckAccumulator) {
                     check_name: "ref-integrity",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.clone()),
-                    span: Some(m.span.start..m.span.end),
+                    span: Some(span.clone()),
                     message: format!(
                         "Reference '{}' in module '{}' may not be defined in any visible scope.",
                         port_name, mod_name

@@ -10,8 +10,7 @@
 //! - `create_connection`            —— Generic N×M connection generation (1:1 / 1:N / N:1 / truncation)
 
 use super::McModuleInst;
-use crate::ast::ast_node::AstNode;
-use crate::db::diagnostic::diagnostic::dlog_error;
+use crate::db::diagnostic::diagnostic::{diagnostic_log, DiagnosticLevel};
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_phrase::McPhrase;
@@ -200,15 +199,23 @@ impl McModuleInst {
             let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
             for p in left_points.iter().chain(right_points.iter()) {
                 if !seen.insert(&p.path) {
-                    dlog_error(
-                        2003,
-                        &AstNode::new(std::ptr::null_mut()),
-                        &format!(
-                            "MERGED_SHORT: duplicate path '{}' in connection. \
-                             A bracket expansion may contain duplicate entries causing signal merging.",
-                            p.path
-                        ),
+                    // Use the NetPoint's src_pos for accurate error location;
+                    // fall back to the current connection line's span, then the
+                    // module definition's span start, so the diagnostic points
+                    // near the actual source rather than (1,1).
+                    let fallback = self
+                        .current_line_span
+                        .as_ref()
+                        .map(|s| s.start as i32)
+                        .unwrap_or(self.def.span.start as i32);
+                    let pos = p.src_pos.unwrap_or(fallback) as u32;
+                    let len = p.path.len() as u32;
+                    let msg = format!(
+                        "node=0 MERGED_SHORT: duplicate path '{}' in connection. \
+                         A bracket expansion may contain duplicate entries causing signal merging.",
+                        p.path
                     );
+                    diagnostic_log(2003, DiagnosticLevel::Error, pos, len, &msg, &[]);
                     break;
                 }
             }
@@ -230,15 +237,27 @@ impl McModuleInst {
                 }
                 if !mismatches.is_empty() && mismatches.len() == left_size {
                     BUS_BITS_MISMATCHED.store(left_size, std::sync::atomic::Ordering::Relaxed);
-                    dlog_error(
-                        2005,
-                        &AstNode::new(std::ptr::null_mut()),
-                        &format!(
-                            "BUS_ORDER_MISMATCH: all {} pairs have mismatched member names: [{}]. \
-                             This may indicate bus member order misalignment between the two sides.",
-                            left_size, mismatches.join(", ")
-                        ),
+                    // Use the first left point's src_pos for error location;
+                    // fall back to the current line's span, then the module's.
+                    let fallback = self
+                        .current_line_span
+                        .as_ref()
+                        .map(|s| s.start as i32)
+                        .unwrap_or(self.def.span.start as i32);
+                    let pos = left_points
+                        .first()
+                        .and_then(|p| p.src_pos)
+                        .unwrap_or(fallback) as u32;
+                    let len = left_points
+                        .first()
+                        .map(|p| p.path.len() as u32)
+                        .unwrap_or(0);
+                    let msg = format!(
+                        "node=0 BUS_ORDER_MISMATCH: all {} pairs have mismatched member names: [{}]. \
+                         This may indicate bus member order misalignment between the two sides.",
+                        left_size, mismatches.join(", ")
                     );
+                    diagnostic_log(2005, DiagnosticLevel::Error, pos, len, &msg, &[]);
                 }
             }
             for (l, r) in left_points.into_iter().zip(right_points.into_iter()) {

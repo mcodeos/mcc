@@ -107,6 +107,11 @@ pub struct McModuleInst {
 
     /// ★ M11.3: set of component instance names that are Transposed (bridge passive)
     pub(super) bridge_passive_names: HashSet<String>,
+
+    /// Current connection line's source span (for diagnostic position reporting).
+    /// Updated when processing each top-level connection line in `instantiate_lines_resilient`.
+    /// Used as fallback when NetPoint.src_pos is unavailable.
+    pub(super) current_line_span: Option<crate::ast::ast_semantic::Span>,
 }
 
 impl McModuleInst {
@@ -143,6 +148,7 @@ impl McModuleInst {
             auto_inst_map: HashMap::new(),
             diagnostics: Vec::new(),
             bridge_passive_names: HashSet::new(),
+            current_line_span: None,
         }
     }
 
@@ -174,6 +180,7 @@ impl McModuleInst {
             auto_inst_map: HashMap::new(),
             diagnostics: Vec::new(),
             bridge_passive_names: HashSet::new(),
+            current_line_span: None,
         })
     }
 

@@ -76,7 +76,16 @@ pub fn mcb_parse_all_modules() {
 
         if let Some(mut mcfile) = mcfile_opt {
             crate::current_uri::set(&uri);
+            // ★ The file was removed from `mcodes` during parsing, so diagnostic
+            //   emission (e.g., E2008) cannot look up its `LineIndex` there.
+            //   Push the line index onto the thread-local stack as a fallback.
+            if let Some(ref line_index) = mcfile.line_index {
+                crate::db::infra::context::push_line_index(uri.clone(), line_index.clone());
+            }
             mcfile.parse_pass1_modules();
+            if mcfile.line_index.is_some() {
+                crate::db::infra::context::pop_line_index();
+            }
             workspace::WORKSPACE.mcodes.insert(uri, mcfile);
         }
     }

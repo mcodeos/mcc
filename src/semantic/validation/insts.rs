@@ -57,6 +57,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
 
         // Walk each instance in the module's symbol table
         for (inst_name, (_iotype, instance)) in m.insts.iter_with_iotype() {
+            let span = instance_span(m, inst_name);
             match instance {
                 crate::McInstance::Component(c2) => {
                     let class_name = c2.name.to_string();
@@ -68,7 +69,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                             check_name: "insts",
                             severity: CheckSeverity::Warning,
                             uri: Some(uri.clone()),
-                            span: Some(m.span.start..m.span.end),
+                            span,
                             message: format!(
                                 "Instance '{}' of component '{}' passes {} args, but '{}' declares {} param(s).",
                                 inst_name, class_name, call_arg_count, class_name, def_param_count
@@ -88,7 +89,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                                 check_name: "insts",
                                 severity: CheckSeverity::Warning,
                                 uri: Some(uri.clone()),
-                                span: Some(m.span.start..m.span.end),
+                                span,
                                 message: format!(
                                     "Instance '{}' of component '{}' passes {} args, but '{}' requires at least {} ({} total, {} optional).",
                                     inst_name, class_name, call_arg_count, class_name, required,
@@ -109,7 +110,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                             check_name: "insts",
                             severity: CheckSeverity::Warning,
                             uri: Some(uri.clone()),
-                            span: Some(m.span.start..m.span.end),
+                            span,
                             message: format!(
                                 "Instance '{}' of module '{}' passes {} args, but '{}' declares {} param(s).",
                                 inst_name, class_name, call_arg_count, class_name, def_param_count
@@ -128,7 +129,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                                 check_name: "insts",
                                 severity: CheckSeverity::Warning,
                                 uri: Some(uri.clone()),
-                                span: Some(m.span.start..m.span.end),
+                                span,
                                 message: format!(
                                     "Instance '{}' of module '{}' passes {} args, but '{}' requires at least {} ({} total, {} optional).",
                                     inst_name, class_name, call_arg_count, class_name, required,
@@ -149,7 +150,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                             check_name: "insts",
                             severity: CheckSeverity::Warning,
                             uri: Some(uri.clone()),
-                            span: Some(m.span.start..m.span.end),
+                            span,
                             message: format!(
                                 "Instance '{}' of interface '{}' passes {} args, but '{}' declares {} param(s).",
                                 inst_name, class_name, call_arg_count, class_name, def_param_count
@@ -168,7 +169,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                                 check_name: "insts",
                                 severity: CheckSeverity::Warning,
                                 uri: Some(uri.clone()),
-                                span: Some(m.span.start..m.span.end),
+                                span,
                                 message: format!(
                                     "Instance '{}' of interface '{}' passes {} args, but '{}' requires at least {} ({} total, {} optional).",
                                     inst_name, class_name, call_arg_count, class_name, required,
@@ -183,6 +184,18 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
             }
         }
     }
+}
+
+/// Look up the declaration span for an instance name within a module.
+/// Falls back to the module's start span when no specific span is recorded
+/// (e.g. for anonymous or synthesized instances).
+fn instance_span(m: &crate::McModule, inst_name: &str) -> Option<std::ops::Range<usize>> {
+    if let Some(spans) = m.insts.port_spans().get(inst_name) {
+        if let Some(s) = spans.first() {
+            return Some(s.clone());
+        }
+    }
+    Some(m.span.start..m.span.end)
 }
 
 // ============================================================================
