@@ -110,13 +110,13 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
     // ── 0. Initialize system root (same as parse command) ──
     mcc::mcc_set_system_root(std::path::Path::new(""));
-    manifest::load_default_libs(&args.lib);
+    let project_root: PathBuf = resolve_project_root(args);
+    manifest::load_libs(&manifest::collect_libs(Some(&project_root), &args.lib));
 
     // ── 0.5. Pass 0 snapshot: lib load + manifest + project load phase diagnostics ──
     builder.set_pass0(crate::cmds::parse::public_collect_pass0());
 
     // ── 1. manifest parsing ──
-    let project_root: PathBuf = resolve_project_root(args);
     tracing::debug!(target: "mcc::build", project_root = ?project_root, "resolved project root");
 
     let (entry_uri, top_name) = match manifest::build_from_manifest(

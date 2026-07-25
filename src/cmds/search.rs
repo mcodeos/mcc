@@ -71,7 +71,7 @@ fn rpc_mapping(args: &SearchArgs) -> Option<(&'static str, Value)> {
 fn run_local(args: &SearchArgs) -> Result<()> {
     mcc::mcc_init_no_lib();
     if !args.lib.is_empty() {
-        manifest::load_default_libs(&args.lib);
+        manifest::load_libs(&manifest::collect_libs(None, &args.lib));
     }
     // Optional target load — required for `--kind instance --top <NAME>` so the
     // named module is in scope for this CLI invocation (workspace is per-process).

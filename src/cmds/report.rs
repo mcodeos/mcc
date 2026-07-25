@@ -26,7 +26,7 @@ pub fn run(args: &ReportArgs) -> Result<()> {
 
 fn run_local(args: &ReportArgs) -> Result<()> {
     mcc::mcc_init_no_lib();
-    manifest::load_default_libs(&args.lib);
+    manifest::load_libs(&manifest::collect_libs(None, &args.lib));
 
     if let Some(t) = &args.target {
         let p = Path::new(t);

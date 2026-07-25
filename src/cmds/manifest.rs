@@ -216,11 +216,6 @@ pub fn load_libs(lib_names: &[String]) {
     }
 }
 
-/// Convenience: load global config libs + CLI libs (legacy behavior).
-pub fn load_default_libs(cli_libs: &[String]) {
-    load_libs(&collect_libs(None, cli_libs));
-}
-
 /// Load a single library by name or path.
 fn load_lib_by_name(lib_name: &str) {
     let system_root = mcc::mcb_get_system_root();
