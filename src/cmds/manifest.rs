@@ -181,19 +181,44 @@ pub fn build_from_manifest(
     Ok((entry_uri, top_name))
 }
 
-/// Load libraries by CLI --lib specified list and config.
-/// Also loads libraries specified in libs.load config (mcc.yaml / project.toml).
-pub fn load_libs(lib_names: &[String]) {
-    // First, load libraries from config (if not already loaded)
-    let config_libs = mcc::get_libs_load_list(None);
-    for lib_name in &config_libs {
-        load_lib_by_name(lib_name);
+/// Collect library names from all config sources, with deduplication.
+///
+/// Sources (in order):
+/// 1. Global user config (~/.mcode/config/mcc.yaml)  → [libs].load
+/// 2. Project project.toml                            → [config.libs].load (legacy)
+/// 3. Project project.toml                            → [dependencies]       (manifest)
+/// 4. CLI --lib
+pub fn collect_libs(project_root: Option<&Path>, cli_libs: &[String]) -> Vec<String> {
+    let mut libs = mcc::get_libs_load_list(project_root);
+    if let Some(root) = project_root {
+        if let Some(path) = Manifest::find_in(root) {
+            if let Ok(manifest) = Manifest::load(&path) {
+                for dep in manifest.dependencies.keys() {
+                    if !libs.contains(dep) {
+                        libs.push(dep.clone());
+                    }
+                }
+            }
+        }
     }
+    for l in cli_libs {
+        if !libs.contains(l) {
+            libs.push(l.clone());
+        }
+    }
+    libs
+}
 
-    // Then load CLI-specified libraries (may override config)
+/// Load exactly the given library names. No automatic global config loading.
+pub fn load_libs(lib_names: &[String]) {
     for lib_name in lib_names {
         load_lib_by_name(lib_name);
     }
+}
+
+/// Convenience: load global config libs + CLI libs (legacy behavior).
+pub fn load_default_libs(cli_libs: &[String]) {
+    load_libs(&collect_libs(None, cli_libs));
 }
 
 /// Load a single library by name or path.

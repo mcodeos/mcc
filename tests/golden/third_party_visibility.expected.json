@@ -1,0 +1,53 @@
+{
+  "diagnostics": [
+    {
+      "code": 1601,
+      "location": {
+        "column": 13,
+        "file": "/Users/dan/work/mo/mcc/tests/corpus/third_party_visibility.mc",
+        "len": 4,
+        "line": 8,
+        "pos": 334
+      },
+      "message": "class 'init' not found",
+      "phase": "pass0",
+      "severity": "error"
+    },
+    {
+      "code": 1401,
+      "location": {
+        "column": 13,
+        "file": "/Users/dan/work/mo/mcc/tests/corpus/third_party_visibility.mc",
+        "len": 4,
+        "line": 8,
+        "pos": 334
+      },
+      "message": "node=28 unresolved class 'init' \u2014 library not loaded?",
+      "phase": "pass0",
+      "severity": "warning"
+    },
+    {
+      "code": 2606,
+      "location": {
+        "column": 8,
+        "file": "/Users/dan/work/mo/mcc/tests/corpus/third_party_visibility.mc",
+        "len": 4,
+        "line": 5,
+        "pos": 169
+      },
+      "message": "Instance 'TI_MCU' references class 'init' that is not loaded.",
+      "phase": "pass0",
+      "severity": "warning"
+    }
+  ],
+  "summary": {
+    "component_count": 0,
+    "elapsed_ms": 0,
+    "errors": 1,
+    "instance_count": 1,
+    "interface_count": 0,
+    "module_count": 1,
+    "net_count": 0,
+    "warnings": 2
+  }
+}

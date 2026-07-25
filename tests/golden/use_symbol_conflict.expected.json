@@ -1,0 +1,40 @@
+{
+  "diagnostics": [
+    {
+      "code": 1000,
+      "location": {
+        "column": 1,
+        "file": "/Users/dan/work/mo/mcc/tests/corpus/use_symbol_conflict.mc",
+        "len": 3,
+        "line": 1,
+        "pos": 193
+      },
+      "message": "syntax error",
+      "phase": "pass0",
+      "severity": "error"
+    },
+    {
+      "code": 3009,
+      "location": {
+        "column": 8,
+        "file": "/Users/dan/work/mo/mcc/tests/corpus/use_symbol_conflict.mc",
+        "len": 4,
+        "line": 4,
+        "pos": 83
+      },
+      "message": "Module 'main' has no params, instances, net lines, or functions. Is this a stub?",
+      "phase": "pass0",
+      "severity": "warning"
+    }
+  ],
+  "summary": {
+    "component_count": 0,
+    "elapsed_ms": 0,
+    "errors": 1,
+    "instance_count": 1,
+    "interface_count": 0,
+    "module_count": 1,
+    "net_count": 0,
+    "warnings": 1
+  }
+}

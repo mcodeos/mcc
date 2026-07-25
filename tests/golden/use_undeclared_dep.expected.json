@@ -1,0 +1,92 @@
+{
+  "diagnostics": [
+    {
+      "code": 403,
+      "location": {
+        "column": 1,
+        "file": "/Users/dan/work/mo/mcc/tests/corpus/use_undeclared_dep.mc",
+        "len": 19,
+        "line": 1,
+        "pos": 167
+      },
+      "message": "node=103 use target not found: /Users/dan/work/mo/mcode/nonexistent/lib/lib@1.0.mc",
+      "phase": "pass0",
+      "severity": "warning"
+    },
+    {
+      "code": 800,
+      "location": {
+        "column": 1,
+        "file": "/Users/dan/work/mo/mcc/tests/corpus/use_undeclared_dep.mc",
+        "len": 19,
+        "line": 1,
+        "pos": 167
+      },
+      "message": "use of undeclared dependency 'nonexistent': add it to project.toml [dependencies] or load via --lib",
+      "phase": "pass0",
+      "severity": "warning"
+    },
+    {
+      "code": 1601,
+      "location": {
+        "column": 9,
+        "file": "/Users/dan/work/mo/mcc/tests/corpus/use_undeclared_dep.mc",
+        "len": 4,
+        "line": 8,
+        "pos": 210
+      },
+      "message": "class 'init' not found",
+      "phase": "pass0",
+      "severity": "error"
+    },
+    {
+      "code": 1401,
+      "location": {
+        "column": 9,
+        "file": "/Users/dan/work/mo/mcc/tests/corpus/use_undeclared_dep.mc",
+        "len": 4,
+        "line": 8,
+        "pos": 210
+      },
+      "message": "node=28 unresolved class 'init' \u2014 library not loaded?",
+      "phase": "pass0",
+      "severity": "warning"
+    },
+    {
+      "code": 2003,
+      "location": {
+        "column": 8,
+        "file": "/Users/dan/work/mo/mcc/tests/corpus/use_undeclared_dep.mc",
+        "len": 4,
+        "line": 7,
+        "pos": 195
+      },
+      "message": "'use nonexistent/lib/lib' \u2014 versioned file not found. The target may not exist.",
+      "phase": "pass0",
+      "severity": "error"
+    },
+    {
+      "code": 2606,
+      "location": {
+        "column": 8,
+        "file": "/Users/dan/work/mo/mcc/tests/corpus/use_undeclared_dep.mc",
+        "len": 4,
+        "line": 7,
+        "pos": 195
+      },
+      "message": "Instance 'U1' references class 'init' that is not loaded.",
+      "phase": "pass0",
+      "severity": "warning"
+    }
+  ],
+  "summary": {
+    "component_count": 0,
+    "elapsed_ms": 0,
+    "errors": 2,
+    "instance_count": 1,
+    "interface_count": 0,
+    "module_count": 1,
+    "net_count": 0,
+    "warnings": 4
+  }
+}

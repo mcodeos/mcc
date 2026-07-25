@@ -328,11 +328,4 @@ pub(crate) fn remove_defines(uri: &McURI) {
     for space_name in to_remove {
         global::mcc_enums.remove(&space_name);
     }
-
-    // Clear diagnostics for this file so they don't accumulate across edits
-    workspace::WORKSPACE
-        .diagnostics
-        .lock()
-        .unwrap()
-        .clear_file(uri);
 }

@@ -140,23 +140,55 @@ fn check_name_collision(acc: &mut CheckAccumulator) {
 ///   - Pin interface bindings in components
 ///   - Declare class expressions in component params
 fn check_missing_cmie(acc: &mut CheckAccumulator) {
-    // Build the known set of all CMIE names
+    // Build the known set of all CMIE names.
+    //
+    // ★ System library definitions (mcode etc., loaded with is_system_lib=true)
+    //   are stored in the GLOBAL tables (mcc_components / mcc_interfaces / etc.),
+    //   while user-project definitions live in WORKSPACE.*. Both must be
+    //   included, otherwise the validation would emit false "not loaded"
+    //   warnings for every system lib name referenced from user code.
     let mut known: HashSet<String> = HashSet::new();
     {
+        // Components: workspace + global
         let comps = &crate::db::cmie::tables::WORKSPACE.components;
         for e in comps.iter() {
             known.insert(e.key().ident.to_string());
         }
-    }
-    {
-        let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
-        for e in ifaces.iter() {
+        let global_comps = &crate::db::infra::global::mcc_components;
+        for e in global_comps.iter() {
             known.insert(e.key().ident.to_string());
         }
     }
     {
+        // Modules: workspace + global
+        let mods = &crate::db::cmie::tables::WORKSPACE.modules;
+        for e in mods.iter() {
+            known.insert(e.key().ident.to_string());
+        }
+        let global_mods = &crate::db::infra::global::mcc_modules;
+        for e in global_mods.iter() {
+            known.insert(e.key().ident.to_string());
+        }
+    }
+    {
+        // Interfaces: workspace + global
+        let ifaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
+        for e in ifaces.iter() {
+            known.insert(e.key().ident.to_string());
+        }
+        let global_ifaces = &crate::db::infra::global::mcc_interfaces;
+        for e in global_ifaces.iter() {
+            known.insert(e.key().ident.to_string());
+        }
+    }
+    {
+        // Enums: workspace + global
         let enums = &crate::db::cmie::tables::WORKSPACE.enums;
         for e in enums.iter() {
+            known.insert(e.key().ident.to_string());
+        }
+        let global_enums = &crate::db::infra::global::mcc_enums;
+        for e in global_enums.iter() {
             known.insert(e.key().ident.to_string());
         }
     }
@@ -172,13 +204,23 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
             let comp = entry.value();
             for (_pin_name, port) in &comp.pins.names_to_id {
                 if let crate::semantic::component::mc_pins::McPinPort::Interface(iface) = port {
-                    let iface_name = iface.name.to_string();
+                    // ★ Use base_name() (the actual interface class name, e.g. "GPIO"),
+                    //   not iface.name (which is the instance name and may contain
+                    //   bus/list brackets like "GPIO[3, 4]").
+                    let iface_name = iface.base_name();
                     if !known.contains(&iface_name) {
+                        // Use pin_name_spans for accurate position
+                        let span = comp
+                            .pins
+                            .pin_name_spans
+                            .get(_pin_name)
+                            .cloned()
+                            .unwrap_or_else(|| comp.span.start..comp.span.end);
                         acc.push(CheckResult {
                             check_name: "defs",
                             severity: CheckSeverity::Warning,
                             uri: Some(uri.clone()),
-                            span: Some(comp.span.start..comp.span.end),
+                            span: Some(span),
                             message: format!(
                                 "Component '{}' binds to interface '{}' which is not loaded.",
                                 entry.key().ident,

@@ -724,12 +724,7 @@ pub(crate) fn find_in_project_tables(space_name: &McSpaceName) -> Option<McCMIE>
 // === fn find_by_name_in_project_tables(class_name: &McIds) -> Option<McCMIE> { ===
 /// Look up directly in the global table by name (ignoring URI)
 pub(crate) fn find_by_name_in_project_tables(class_name: &McIds) -> Option<McCMIE> {
-    // eprintln!(
-    //     "[DIAG find_by_name_in_project_tables] searching name='{}'",
-    //     class_name.to_string()
-    // );
     let name_str = class_name.to_string();
-
     // Check components (exact match)
     for entry in workspace::WORKSPACE.components.iter() {
         let ident_str = entry.key().ident.to_string();

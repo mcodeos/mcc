@@ -188,7 +188,7 @@ fn prepare(args: &ShowArgs) {
     mcc::mcc_set_system_root(Path::new(""));
 
     if !args.lib.is_empty() {
-        crate::cmds::manifest::load_libs(&args.lib);
+        crate::cmds::manifest::load_default_libs(&args.lib);
     }
 
     // File target keeps the path in <name>; all others use `-F/--file`.

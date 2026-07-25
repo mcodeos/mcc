@@ -59,7 +59,7 @@ fn rpc_mapping(args: &QueryArgs) -> Option<(&'static str, Value)> {
 fn run_local(args: &QueryArgs) -> Result<()> {
     mcc::mcc_init_no_lib();
     if !args.lib.is_empty() {
-        manifest::load_libs(&args.lib);
+        manifest::load_default_libs(&args.lib);
     }
     if let Some(target) = &args.target {
         let path = Path::new(target);

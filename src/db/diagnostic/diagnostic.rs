@@ -312,12 +312,6 @@ pub fn diagnostic_log(
     msg: &str,
     args: &[&dyn std::fmt::Display],
 ) {
-    // DEBUG: log pos=0 diagnostics to track down the source
-    if pos == 0 && len > 100 {
-        tracing::info!(target: "mcc::diagnostic", 
-            "pos=0 diag: code={} len={} msg={}", 
-            code, len, msg);
-    }
     let new_diagnostic = Diagnostic::new(
         code,
         level,
@@ -380,6 +374,44 @@ pub fn dlog_warning(code: u32, node: &AstNode, msg: &str) {
         node.get_pos(),
         node.get_len(),
         &full_msg,
+        &[],
+    );
+}
+/// Emit a warning diagnostic using raw position/length (no AstNode).
+/// Used when the AST node is unavailable (e.g., deferred validation in parse_nsp §11).
+pub fn dlog_warning_at(code: u32, pos: Position, len: u32, msg: &str) {
+    tracing::debug!(
+        target: "mcc::diagnostic",
+        code = code,
+        pos = pos,
+        len = len,
+        "{msg}"
+    );
+    diagnostic_log(
+        code,
+        DiagnosticLevel::Warning,
+        pos,
+        len,
+        msg,
+        &[],
+    );
+}
+/// Emit an error diagnostic using raw position/length (no AstNode).
+/// Used for deferred validation (e.g., symbol conflict detection in parse_nsp §14).
+pub fn dlog_error_at(code: u32, pos: Position, len: u32, msg: &str) {
+    tracing::debug!(
+        target: "mcc::diagnostic",
+        code = code,
+        pos = pos,
+        len = len,
+        "{msg}"
+    );
+    diagnostic_log(
+        code,
+        DiagnosticLevel::Error,
+        pos,
+        len,
+        msg,
         &[],
     );
 }

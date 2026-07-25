@@ -34,10 +34,11 @@ run_one() {
     filtered=$(echo "$output" | python3 -c "
 import json, sys
 data = json.load(sys.stdin)
-# Keep diagnostics and summary, drop workspace (volatile)
+# JSON-RPC envelope: diagnostics live in result.pass0, summary in result.summary.
+result = data.get('result', {}) or {}
 out = {
-    'diagnostics': data.get('diagnostics', []),
-    'summary': data.get('summary', {}),
+    'diagnostics': result.get('pass0', {}).get('diagnostics', []),
+    'summary': result.get('summary', {}),
 }
 print(json.dumps(out, indent=2, sort_keys=True))
 " 2>/dev/null) || {

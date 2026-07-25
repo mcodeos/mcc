@@ -146,6 +146,32 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
 
     let symbol_count = lib_entry.spacenames.len();
 
+    // §15: For non-mcode libraries, remove symbols from global/workspace tables.
+    // mcode is the only exception that gets global auto-visibility.
+    // Third-party libs should only be visible via explicit `use $::name`.
+    if name != "mcode" {
+        let uris: HashSet<String> = lib_entry
+            .spacenames
+            .values()
+            .map(|sn| sn.uri.clone())
+            .collect();
+        remove_by_uris(&global::mcc_components, &uris);
+        remove_by_uris(&global::mcc_interfaces, &uris);
+        remove_by_uris(&global::mcc_enums, &uris);
+        remove_by_uris(&global::mcc_defines, &uris);
+        remove_by_uris(&workspace::WORKSPACE.modules, &uris);
+        remove_by_uris(&workspace::WORKSPACE.components, &uris);
+        remove_by_uris(&workspace::WORKSPACE.interfaces, &uris);
+        remove_by_uris(&workspace::WORKSPACE.enums, &uris);
+        remove_by_uris(&workspace::WORKSPACE.defines, &uris);
+        info!(
+            target: "mcc::lib",
+            name = name,
+            uris_removed = uris.len(),
+            "removed from global tables (use-only visibility)"
+        );
+    }
+
     // Replace blib with new one
     mcc_blibs.insert(name.to_string(), lib_entry);
 
