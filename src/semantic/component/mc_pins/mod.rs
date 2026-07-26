@@ -2208,10 +2208,10 @@ pub(crate) fn derive_interface_subnames(inst_name: &McIds, iface_pins: &[String]
     }
     if inst_name.is_list() {
         if let Some(members) = inst_name.list_members() {
-            // If this is a pure Square form (e.g. [1:2] without an Ida prefix),
-            // the members are numeric pin ranges and should use iface_pins as names
-            if inst_name.segments.len() == 1 {
-                // Pure Square: use interface pin names directly
+            // If all members are pure numeric (e.g. [1:2]), use the interface
+            // pin names from the interface definition. Otherwise, use the
+            // user-specified names (e.g. [VDD, GND]).
+            if !members.is_empty() && members.iter().all(|m| m.parse::<i64>().is_ok()) {
                 return iface_pins.to_vec();
             }
             return members;
