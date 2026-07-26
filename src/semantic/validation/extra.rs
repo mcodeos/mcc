@@ -180,8 +180,26 @@ fn check_interface_pin_counts(acc: &mut CheckAccumulator) {
                 // Check each physical pin binding
                 let phys_pins: Vec<&String> =
                     comp.pins.pin_id_to_names.values().flatten().collect();
-                // Count how many physical pins are bound to this interface name
-                let bound_count = phys_pins.iter().filter(|n| n.as_str() == pin_name).count();
+                // Count how many physical pins are bound to this interface name.
+                // Interface members are stored as "I2C0.SCL", "I2C0.SDA" in
+                // pin_id_to_names, so we match both exact and dot-prefixed forms.
+                // For list-form names like [VDD, GND], match the list members.
+                let bound_count = if iface.name.is_list() {
+                    if let Some(members) = iface.name.list_members() {
+                        phys_pins
+                            .iter()
+                            .filter(|n| members.contains(&n.to_string()))
+                            .count()
+                    } else {
+                        0
+                    }
+                } else {
+                    let dot_prefix = format!("{}.", pin_name);
+                    phys_pins
+                        .iter()
+                        .filter(|n| n.as_str() == pin_name || n.as_str().starts_with(&dot_prefix))
+                        .count()
+                };
                 if bound_count < iface_pin_count {
                     // Use the specific pin name span when available; fall back to comp span.
                     let span = comp

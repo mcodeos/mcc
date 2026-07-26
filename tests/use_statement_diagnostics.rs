@@ -131,7 +131,10 @@ fn alias_registers_spacename_without_collision() {
             "json",
             "--dlog",
         ])
-        .env("MCC_SYSTEM_ROOT", std::env::current_dir().unwrap().parent().unwrap())
+        .env(
+            "MCC_SYSTEM_ROOT",
+            std::env::current_dir().unwrap().parent().unwrap(),
+        )
         .output()
         .expect("run JSON parse on alias_user.mc");
     assert!(
