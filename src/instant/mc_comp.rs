@@ -12,6 +12,7 @@ use crate::semantic::basic::mc_expr::McExpression;
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
 use crate::semantic::basic::mc_paramd::McParamDeclareKind;
 use crate::semantic::common::IOType;
+use crate::semantic::component::mc_pins::McPinPort;
 use crate::semantic::component::McComponent;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -922,6 +923,25 @@ impl McComponentInst {
         }
 
         Some(pid_with_name.into_iter().map(|(_, pid)| pid).collect())
+    }
+
+    /// Look up the interface params (e.g. `DC(3.3V)`) for a pin function name.
+    ///
+    /// For function names like `DC.VDD`, splits on the last dot to get the
+    /// interface name (`DC`) and looks it up in `names_to_id`.
+    /// Returns the interface params if found.
+    pub fn lookup_interface_params(&self, pin_func_name: &str) -> Option<&[McParamValue]> {
+        // Split "DC.VDD" → ("DC", "VDD"), "VDD" → no split
+        let iface_name = if let Some(dot) = pin_func_name.rfind('.') {
+            &pin_func_name[..dot]
+        } else {
+            return None;
+        };
+        let port = self.def.pins.names_to_id.get(iface_name)?;
+        match port {
+            McPinPort::Interface(iface) => Some(&iface.params),
+            _ => None,
+        }
     }
 }
 
