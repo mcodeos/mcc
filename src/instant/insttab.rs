@@ -15,8 +15,9 @@
 //! ```
 
 use super::mc_mod::McModuleInst;
+use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::common::IOType;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 // ============================================================================
 // InstKind - Instance entry type
@@ -72,6 +73,90 @@ impl InstKind {
 }
 
 // ============================================================================
+// MemberRole / MemberInfo — pin role for net merging and rail checks
+// ============================================================================
+
+/// Electrical role of a pin / interface member
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MemberRole {
+    Power,
+    Ground,
+    Signal,
+}
+
+impl std::fmt::Display for MemberRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MemberRole::Power => write!(f, "Power"),
+            MemberRole::Ground => write!(f, "Ground"),
+            MemberRole::Signal => write!(f, "Signal"),
+        }
+    }
+}
+
+/// Voltage value extracted from interface params (e.g. `DC(3.3V)` → 3.3 V)
+#[derive(Debug, Clone, PartialEq)]
+pub struct Volt {
+    pub value: f64,
+}
+
+impl std::fmt::Display for Volt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:.1}V", self.value)
+    }
+}
+
+/// Role + optional voltage for a pin / interface member
+#[derive(Debug, Clone)]
+pub struct MemberInfo {
+    pub role: MemberRole,
+    pub voltage: Option<Volt>,
+}
+
+impl MemberInfo {
+    pub fn new(role: MemberRole, voltage: Option<Volt>) -> Self {
+        Self { role, voltage }
+    }
+}
+
+/// Infer MemberRole from IOType and leaf name.
+///
+/// Returns `(role, inferred)` where `inferred == true` means the role was
+/// determined by name heuristic rather than explicit qualifier.
+pub fn infer_member_role(
+    leaf_name: &str,
+    io_type: &IOType,
+    is_ground: fn(&str) -> bool,
+    is_supply: fn(&str) -> bool,
+) -> (MemberRole, bool) {
+    // (a) explicit qualifier: ps → Power
+    if matches!(io_type, IOType::Power) {
+        return (MemberRole::Power, false);
+    }
+    // (b) fallback heuristic: name-based
+    if is_ground(leaf_name) {
+        return (MemberRole::Ground, true);
+    }
+    if is_supply(leaf_name) {
+        return (MemberRole::Power, true);
+    }
+    // (c) default
+    (MemberRole::Signal, false)
+}
+
+/// Extract voltage from interface params (first UValue param with Volt unit).
+pub fn extract_voltage_from_params(params: &[McParamValue]) -> Option<Volt> {
+    for p in params {
+        if let McParamValue::UValue(uv) = p {
+            if matches!(uv.unit(), crate::semantic::basic::mc_uval::McUnit::Volt) {
+                return Some(Volt { value: uv.value() });
+            }
+        }
+    }
+    None
+}
+
+// ============================================================================
 // InstEntry - Single instance record
 // ============================================================================
 
@@ -96,6 +181,8 @@ pub struct InstEntry {
     pub def_uri: String,
     /// ★ P5: Unified source location (file_id/container_id/func_id/span).
     pub src_loc: Option<crate::ast::ast_semantic::SourceLocation>,
+    /// ★ Member role and voltage (for interface members / power pins)
+    pub member_info: Option<MemberInfo>,
 }
 
 impl InstEntry {
@@ -182,6 +269,8 @@ impl InstTable {
     pub fn from_module_inst(inst: &McModuleInst, start_id: u32) -> Self {
         let mut table = InstTable::new(start_id);
         table.flatten_module(inst, "", None);
+        table.infer_and_set_member_roles();
+        table.merge_ground_nets();
         table
     }
 
@@ -285,6 +374,7 @@ impl InstTable {
             src_pos,
             def_uri,
             src_loc: None,
+            member_info: None,
         };
 
         self.entries.insert(id, entry);
@@ -411,6 +501,98 @@ impl InstTable {
     /// Return total network count
     pub fn net_count(&self) -> usize {
         self.nets.len()
+    }
+
+    // ====================================================================
+    // Ground net merging (裁决⑥)
+    // ====================================================================
+
+    /// Infer and set member roles for all entries based on leaf name and IOType.
+    ///
+    /// Called after all modules are flattened. Only sets member_info for entries
+    /// whose leaf name suggests a Power or Ground role.
+    pub fn infer_and_set_member_roles(&mut self) {
+        for entry in self.entries.values_mut() {
+            // Only infer roles for Labels, Ports, Pins — not Modules or Components
+            if !matches!(entry.kind, InstKind::Label | InstKind::Port | InstKind::Pin) {
+                continue;
+            }
+            let leaf = leaf_name(&entry.path);
+            let (role, _inferred) = infer_member_role(leaf, &entry.io_type, is_ground_name, is_supply_name);
+            if !matches!(role, MemberRole::Signal) {
+                entry.member_info = Some(MemberInfo::new(role, None));
+            }
+        }
+    }
+
+    /// Merge all Ground-member nets into a single global GND net.
+    ///
+    /// ★ The merge key is `MemberRole::Ground` — NOT interface type, NOT
+    ///   leaf name string comparison, NOT the entire interface instance.
+    ///   Power members are NEVER merged here.
+    pub fn merge_ground_nets(&mut self) {
+        // Collect all point IDs that are Ground members
+        let ground_points: Vec<u32> = self
+            .entries
+            .values()
+            .filter(|e| {
+                e.member_info
+                    .as_ref()
+                    .is_some_and(|mi| mi.role == MemberRole::Ground)
+            })
+            .map(|e| e.id)
+            .collect();
+
+        if ground_points.len() < 2 {
+            return;
+        }
+
+        // Find all nets that contain any Ground points
+        let mut ground_nets: BTreeSet<u32> = BTreeSet::new();
+        for &pid in &ground_points {
+            if let Some(&net_id) = self.point_to_net.get(&pid) {
+                ground_nets.insert(net_id);
+            }
+        }
+
+        if ground_nets.len() < 2 {
+            return; // already unified
+        }
+
+        // Pick the first net as the target GND net
+        let net_ids: Vec<u32> = ground_nets.into_iter().collect();
+        let target_net_id = net_ids[0];
+        let target_name = "GND".to_string();
+
+        // Merge all other Ground nets into the target
+        let mut all_points: Vec<u32> = Vec::new();
+        for &net_id in &net_ids {
+            if let Some(net) = self.nets.get(&net_id) {
+                all_points.extend_from_slice(&net.points);
+            }
+        }
+        all_points.sort();
+        all_points.dedup();
+
+        // Update point_to_net for all points
+        for &pid in &all_points {
+            self.point_to_net.insert(pid, target_net_id);
+        }
+
+        // Update the target net
+        self.nets.insert(
+            target_net_id,
+            NetEntry {
+                id: target_net_id,
+                name: target_name,
+                points: all_points,
+            },
+        );
+
+        // Remove the old merged nets
+        for &net_id in &net_ids[1..] {
+            self.nets.remove(&net_id);
+        }
     }
 
     // ====================================================================
@@ -835,6 +1017,52 @@ impl InstTable {
             eprintln!("  ── Total: {} nets ──", self.nets.len());
         }
     }
+}
+
+// ============================================================================
+// Helper: leaf name / name-based role inference
+// ============================================================================
+
+/// Get the last segment of a path: `"main.mic.MIC/P"` → `"P"`
+fn leaf_name(path: &str) -> &str {
+    let a = path.rsplit('.').next().unwrap_or(path);
+    a.rsplit('/').next().unwrap_or(a)
+}
+
+/// Whether the name looks like ground
+fn is_ground_name(s: &str) -> bool {
+    let u = s.to_uppercase();
+    matches!(
+        u.as_str(),
+        "GND" | "AGND" | "DGND" | "PGND" | "VSS" | "GROUND" | "EARTH"
+    )
+}
+
+/// Whether the name looks like a power supply (not ground)
+fn is_supply_name(s: &str) -> bool {
+    let u = s.to_uppercase();
+    if is_ground_name(&u) {
+        return false;
+    }
+    const EXACT: &[&str] = &[
+        "VCC", "VDD", "VBUS", "VPP", "AVDD", "DVDD", "POWER_SYS", "VBAT", "VIN", "VOUT",
+    ];
+    if EXACT.contains(&u.as_str()) {
+        return true;
+    }
+    if ["VCC", "VDD", "AVDD", "DVDD", "VBUS", "VBAT"]
+        .iter()
+        .any(|p| u.starts_with(p))
+    {
+        return true;
+    }
+    // 3V3 / 5V0 / 1V2 / V3V3 / V5V patterns
+    let bytes = u.as_bytes();
+    let digits = bytes.iter().filter(|b| b.is_ascii_digit()).count();
+    if u.contains('V') && digits >= 1 {
+        return true;
+    }
+    false
 }
 
 // ============================================================================

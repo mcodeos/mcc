@@ -625,19 +625,7 @@ fn check_r03_r04_r06(table: &InstTable, idx: &Index, rep: &mut Report) {
             }
         }
 
-        // ── R03：电源域冲突 ──
-        let distinct_supplies = supplies.len();
-        if distinct_supplies >= 2 {
-            push(
-                rep,
-                "R03",
-                module.clone(),
-                format!(
-                    "网 `{}` (net#{}) 同时含多个电源域: {:?}",
-                    net.name, net.id, supplies
-                ),
-            );
-        }
+        // ── R03：电源-地短路（ERROR） ──
         if !supplies.is_empty() && !grounds.is_empty() {
             push(
                 rep,
@@ -646,6 +634,20 @@ fn check_r03_r04_r06(table: &InstTable, idx: &Index, rep: &mut Report) {
                 format!(
                     "网 `{}` (net#{}) 电源与地同网: {:?} + {:?} —— 短路",
                     net.name, net.id, supplies, grounds
+                ),
+            );
+        }
+
+        // ── R03a：电源域别名共存（INFO） ──
+        let distinct_supplies = supplies.len();
+        if distinct_supplies >= 2 {
+            push(
+                rep,
+                "R03a",
+                module.clone(),
+                format!(
+                    "网 `{}` (net#{}) 同时含多个电源域: {:?} —— 若这些名字代表不同电压则为短路",
+                    net.name, net.id, supplies
                 ),
             );
         }
