@@ -1113,7 +1113,7 @@ fn phrase_to_tree_json(p: &McPhrase, max_depth: usize, cur: usize) -> serde_json
     };
 
     match p {
-        McPhrase::Series(ps) => json!({
+        McPhrase::Series(ps, _) => json!({
             "kind": "Series",
             "label": format!("{} items", ps.len()),
             "children": recurse(ps),

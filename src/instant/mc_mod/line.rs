@@ -17,7 +17,7 @@ use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::basic::mc_opd::McOpd;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
-use crate::semantic::common::IOType;
+use crate::semantic::common::{ConnDir, IOType};
 use crate::semantic::mc_inst::McInstance;
 
 // ── M11.4: lane item for position-aware bridge pin collection ──
@@ -33,6 +33,13 @@ impl McModuleInst {
         // assign_phrase_ids was defined but never called, causing all FuncCall.id
         // to remain 0. Since auto_inst_map is keyed by member_key(f.id), all
         // FuncCalls shared key=0, overwriting each other's entries.
+
+        // ★ M-1'-A: extract direction from the source phrase before flattening
+        let dir = match &phrase {
+            McPhrase::Series(_, d) => *d,
+            _ => ConnDir::Undirected,
+        };
+
         let mut phrase = phrase.clone();
         Self::assign_phrase_ids(&mut phrase, &mut self.next_phrase_id);
         let members = self.phrase_to_members(&phrase);
@@ -57,7 +64,7 @@ impl McModuleInst {
         // wiring below; lines without shunt fall through to original adjacency loop → zero impact on existing paths.
         let shunt: Vec<bool> = members.iter().map(Self::is_chain_cap_shunt).collect();
         if shunt.iter().any(|&s| s) {
-            self.wire_chain_with_shunts(&members, &shunt);
+            self.wire_chain_with_shunts(&members, &shunt, dir);
             return Ok(());
         }
 
@@ -70,7 +77,7 @@ impl McModuleInst {
             .iter()
             .any(|m| Self::member_contains_lead(m) || matches!(m, McPhrase::Transposed(_)));
         if needs_lane_by_lane {
-            return self.wire_chain_lane_by_lane(&members);
+            return self.wire_chain_lane_by_lane(&members, dir);
         }
 
         // handle adjacent member connections — per-pair fault-tolerant
@@ -78,7 +85,7 @@ impl McModuleInst {
             let left_member = &members[i];
             let right_member = &members[i + 1];
 
-            if let Err(e) = self.try_connect_adjacent(left_member, right_member) {
+            if let Err(e) = self.try_connect_adjacent(left_member, right_member, dir) {
                 self.record_warning(
                     912,
                     format!(
@@ -151,7 +158,7 @@ impl McModuleInst {
     ///      wire_builtin_twopin `targets.is_empty()` branch).
     ///
     /// This way decoupling cap is truly "bridging rails", no longer treated as series element double-connecting pin2 to short.
-    fn wire_chain_with_shunts(&mut self, members: &[McPhrase], shunt: &[bool]) {
+    fn wire_chain_with_shunts(&mut self, members: &[McPhrase], shunt: &[bool], dir: ConnDir) {
         // 1. non-shunt members serialized by adjacency (skip shunt, pass-through)
         let non_shunt: Vec<&McPhrase> = members
             .iter()
@@ -180,7 +187,7 @@ impl McModuleInst {
             //     raw_rp.iter().map(|p| p.path.clone()).collect::<Vec<_>>());
             let lp = self.shunt_chain_points(pair[0], true);
             let rp = self.shunt_chain_points(pair[1], false);
-            if let Err(e) = self.create_connection(lp, rp) {
+            if let Err(e) = self.create_connection(lp, rp, dir) {
                 self.record_warning(
                     912,
                     format!("Pass-through across `.Cap(_)` shunt failed: {e}"),
@@ -239,7 +246,7 @@ impl McModuleInst {
                 );
                 continue;
             }
-            if let Err(e) = self.create_connection(pin1, vec![rail]) {
+            if let Err(e) = self.create_connection(pin1, vec![rail], dir) {
                 self.record_warning(913, format!("`.Cap(_)` shunt pin1 → rail failed: {e}"));
             }
         }
@@ -295,7 +302,11 @@ impl McModuleInst {
     // Example: [a.P, a.N] -> [RES, _] -> CAP' -> [RES, RES] -> [b.P, b.N]
     //   Lane 0: a.P → RES.1 → RES.2 → b.P, CAP.1 on RES.2~RES net
     //   Lane 1: a.N → RES → b.N, CAP.2 on a.N~RES net
-    fn wire_chain_lane_by_lane(&mut self, members: &[McPhrase]) -> Result<(), InstError> {
+    fn wire_chain_lane_by_lane(
+        &mut self,
+        members: &[McPhrase],
+        dir: ConnDir,
+    ) -> Result<(), InstError> {
         let num_lanes = members
             .iter()
             .map(|m| self.member_lane_width(m))
@@ -379,7 +390,11 @@ impl McModuleInst {
                     let id = self.next_conn_id();
                     self.connections.push(ConnectionInst::new(id, all_pts));
                 } else {
-                    self.create_connection(vec![left_pts[0].clone()], vec![right_pts[0].clone()])?;
+                    self.create_connection(
+                        vec![left_pts[0].clone()],
+                        vec![right_pts[0].clone()],
+                        dir,
+                    )?;
                 }
             }
         }
@@ -507,7 +522,7 @@ impl McModuleInst {
     /// Series is recursively expanded to individual member McPhrases
     pub(super) fn phrase_to_members(&self, phrase: &McPhrase) -> Vec<McPhrase> {
         match phrase {
-            McPhrase::Series(phrases) => {
+            McPhrase::Series(phrases, _) => {
                 // ── P1-B ────────────────────────────────────────────────
                 // Don't flatten Multiple inside Series into chain — that would
                 // turn `MIC{P,N} -> cap[4:5] -> uC.ADC{P,N}` "both ends N-wide,
@@ -1021,6 +1036,7 @@ impl McModuleInst {
         &mut self,
         left_member: &McPhrase,
         right_member: &McPhrase,
+        dir: ConnDir,
     ) -> Result<(), InstError> {
         // ── P1-diag: detailed adjacent wiring diagnostic ─────────────────────────────────
         let _l_kind = match left_member {
@@ -1081,10 +1097,10 @@ impl McModuleInst {
                     .take(n)
                     .zip(right_points.into_iter().take(n))
                 {
-                    self.create_connection(vec![l], vec![r])?;
+                    self.create_connection(vec![l], vec![r], dir)?;
                 }
             } else {
-                self.create_connection(left_points, right_points)?;
+                self.create_connection(left_points, right_points, dir)?;
             }
         }
         Ok(())
@@ -1168,7 +1184,7 @@ impl McModuleInst {
                 McPhrase::Closure(_) => "Closure".to_string(),
                 McPhrase::Lead => "Lead".to_string(),
                 McPhrase::Member(_, _) => "Member".to_string(),
-                McPhrase::Series(_) => "Series".to_string(),
+                McPhrase::Series(_, _) => "Series".to_string(),
             };
             // ── Use the same rule as try_connect_adjacent to get endpoints ───────────
             // i.e. call self.get_left_points / get_right_points (top-level version,
@@ -1246,7 +1262,7 @@ impl McModuleInst {
                     McPhrase::Multiple(v) => format!("Multiple({})", v.len()),
                     McPhrase::Group(g) => format!("Group({})", g.opds.len()),
                     McPhrase::Transposed(_) => "Transposed".to_string(),
-                    McPhrase::Series(v) => format!("Series({})", v.len()),
+                    McPhrase::Series(v, _) => format!("Series({})", v.len()),
                     McPhrase::Closure(_) => "Closure".to_string(),
                     McPhrase::Lead => "Lead".to_string(),
                     McPhrase::Member(_, _) => "Member".to_string(),
@@ -1472,7 +1488,11 @@ impl McModuleInst {
         }
     }
 
-    fn process_series_branch_inplace(&mut self, elems: &[McPhrase]) -> Result<(), InstError> {
+    fn process_series_branch_inplace(
+        &mut self,
+        elems: &[McPhrase],
+        dir: ConnDir,
+    ) -> Result<(), InstError> {
         // 1) In-place instantiate each element (FuncCall registers in auto_inst_map on the original pointer)
         for e in elems {
             self.process_member_internal(e)?;
@@ -1483,7 +1503,7 @@ impl McModuleInst {
             let rn = self.normalize_branch_elem(&elems[k + 1]);
             let lref: &McPhrase = ln.as_ref().unwrap_or(&elems[k]);
             let rref: &McPhrase = rn.as_ref().unwrap_or(&elems[k + 1]);
-            if let Err(err) = self.try_connect_adjacent(lref, rref) {
+            if let Err(err) = self.try_connect_adjacent(lref, rref, dir) {
                 self.record_warning(
                     912,
                     format!(
@@ -1523,7 +1543,7 @@ impl McModuleInst {
                 // calls that would trigger the stub mechanism.
                 for line in lines {
                     match line {
-                        McPhrase::Series(elems) => {
+                        McPhrase::Series(elems, d) => {
                             // ── BUG4 fix (same as Group handler) ────────────────
                             // Originally process_line(clone) → FuncCall in Series
                             // is instantiated on the cloned pointer; but outer
@@ -1534,7 +1554,7 @@ impl McModuleInst {
                             //  where opds[0] is Series([RES_3, lpa.VO1]) this form.)
                             // Changed to in-place instantiate each element + internal
                             // adjacency (Label upgrade), keep FuncCall original pointer.
-                            self.process_series_branch_inplace(elems)?;
+                            self.process_series_branch_inplace(elems, *d)?;
                         }
                         McPhrase::Parallel(_) => {
                             self.process_line(line)?;
@@ -1597,11 +1617,11 @@ impl McModuleInst {
                 // must hit, getting the real @?TYPE_n pins.
                 for p in &g.opds {
                     match p {
-                        McPhrase::Series(elems) => {
+                        McPhrase::Series(elems, d) => {
                             // BUG4: in-place processing + Label upgrade
                             // (fix the unconnected GND in `(CAP+RES)->GND`,
                             // the internal series in `VBUS->USB_VBUS`).
-                            self.process_series_branch_inplace(elems)?;
+                            self.process_series_branch_inplace(elems, *d)?;
                         }
                         _ => {
                             self.process_member_internal(p)?;
@@ -1619,8 +1639,8 @@ impl McModuleInst {
                 // Fix: in-place process, keeping the original pointer (same
                 // pattern as the caller chain dispatch at line 1380-1393).
                 match inner.as_ref() {
-                    McPhrase::Series(elems) => {
-                        self.process_series_branch_inplace(elems)?;
+                    McPhrase::Series(elems, d) => {
+                        self.process_series_branch_inplace(elems, *d)?;
                     }
                     McPhrase::FuncCall(_)
                     | McPhrase::Endpoint(_)
@@ -2384,7 +2404,7 @@ impl McModuleInst {
                     self.process_member_internal(p)?;
                 }
             }
-            McPhrase::Series(_) => {}
+            McPhrase::Series(_, _) => {}
             // ── Iter-12.1c: recursively process Member's inner phrase ──────────────
             //
             // Original code: `McPhrase::Member(_, _) => {}` (no-op)
@@ -2418,7 +2438,7 @@ impl McModuleInst {
                     Self::assign_phrase_ids(caller, next_id);
                 }
             }
-            McPhrase::Series(elems) | McPhrase::Parallel(elems) | McPhrase::Multiple(elems) => {
+            McPhrase::Series(elems, _) | McPhrase::Parallel(elems) | McPhrase::Multiple(elems) => {
                 for p in elems {
                     Self::assign_phrase_ids(p, next_id);
                 }
@@ -2486,7 +2506,7 @@ impl McModuleInst {
                 _ => None,
             },
             // Series[Endpoint] fallback: parser occasionally wraps a single instance in Series
-            McPhrase::Series(phrases) if phrases.len() == 1 => {
+            McPhrase::Series(phrases, _) if phrases.len() == 1 => {
                 Self::extract_caller_inst_name(&phrases[0])
             }
             // ── Iter-6.S2 ────────────────────────────────────────────────

@@ -626,7 +626,7 @@ pub struct NodeElementInfo {
 /// Convert McPhrase to LineInfo
 fn phrase_to_info(phrase: &McPhrase) -> LineInfo {
     match phrase {
-        McPhrase::Series(phrases) => {
+        McPhrase::Series(phrases, _) => {
             // Combine all phrases' members into one LineInfo
             let mut all_members = Vec::new();
             for p in phrases {
@@ -803,7 +803,7 @@ fn print_member_info_indent(member: &LineMemberInfo, indent: usize, idx: usize) 
 /// Print members of an McPhrase
 fn print_phrase_members(phrase: &McPhrase, indent: usize) {
     match phrase {
-        McPhrase::Series(phrases) => {
+        McPhrase::Series(phrases, _) => {
             for (j, p) in phrases.iter().enumerate() {
                 print_phrase_members(p, indent);
                 if j < phrases.len() - 1 {

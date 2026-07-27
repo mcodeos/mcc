@@ -38,10 +38,20 @@ use super::report::{
 };
 use crate::db::diagnostic::diagnostic::{diagnostic_log, DiagnosticLevel};
 
-use super::super::model::netshape::{LaneRef, PairDir};
+use super::super::model::netshape::{LaneRef, PairDir, ShapeStats};
 use super::connection::{merge_pairs_to_vecnet, ConnPair, NetGroupMap};
 use super::debug;
 use super::resolve::resolve_netpoint_v2;
+use crate::semantic::common::ConnDir;
+
+/// 将源码连接符方向映射为 PairDir
+fn conn_dir_to_pair_dir(d: ConnDir) -> PairDir {
+    match d {
+        ConnDir::LtoR => PairDir::LtoR,
+        ConnDir::RtoL => PairDir::RtoL,
+        ConnDir::Undirected => PairDir::Undirected,
+    }
+}
 
 // ============================================================================
 // McVecBuilder
@@ -61,6 +71,8 @@ pub struct McVecBuilder<'a> {
     report: BuilderReport,
     /// ★ NEW P02: Error tolerance strategy
     mode: BuildMode,
+    /// ★ M-1'-A: Shape coverage statistics
+    shape_stats: ShapeStats,
 }
 
 impl<'a> McVecBuilder<'a> {
@@ -71,6 +83,7 @@ impl<'a> McVecBuilder<'a> {
             net_id_counter: 0,
             report: BuilderReport::new(),
             mode: BuildMode::Tolerant,
+            shape_stats: ShapeStats::default(),
         }
     }
 
@@ -90,6 +103,14 @@ impl<'a> McVecBuilder<'a> {
         &self.report
     }
 
+    /// ★ M-1'-A: Log shape coverage statistics using ShapeStats::render format
+    fn log_shape_stats(&self) {
+        let rendered = self.shape_stats.render();
+        if !rendered.is_empty() {
+            eprint!("{}", rendered);
+        }
+    }
+
     /// Entry (compat): Build complete `McVecBlock` tree from top-level `McModuleInst`
     ///
     /// **Behavior**:
@@ -100,6 +121,8 @@ impl<'a> McVecBuilder<'a> {
         let block = self.convert_module(root, "");
         // Print summary once at end of build by default
         self.report.print_summary();
+        // ★ M-1'-A: Log shape coverage statistics
+        self.log_shape_stats();
         block
     }
 
@@ -111,6 +134,8 @@ impl<'a> McVecBuilder<'a> {
     pub fn try_build(&mut self, root: &McModuleInst) -> Result<McVecBlock, BuilderError> {
         let block = self.convert_module(root, "");
         self.report.print_summary();
+        // ★ M-1'-A: Log shape coverage statistics
+        self.log_shape_stats();
 
         match self.mode {
             BuildMode::Tolerant => Ok(block),
@@ -192,6 +217,11 @@ impl<'a> McVecBuilder<'a> {
 
         // 3. Build McVecNet from connections
         block.nets = self.build_nets_from_connections(inst, &my_path);
+
+        // ★ M-1'-A: Collect ShapeStats for this module's nets
+        for net in &block.nets {
+            self.shape_stats.observe(&net.name, net.shape.as_ref());
+        }
 
         // 4. Recursively process sub-modules
         if !inst.sub_modules.is_empty() {
@@ -539,7 +569,7 @@ impl<'a> McVecBuilder<'a> {
                             pair[0],
                             pair[1],
                             LaneRef::new(k as u16, member_name_for_lane.clone()),
-                            PairDir::Undirected,
+                            conn_dir_to_pair_dir(conn.dir),
                         ));
                     }
                 }
@@ -606,7 +636,11 @@ impl<'a> McVecBuilder<'a> {
                         let seg_name = segment_net_name(inst_table, &net_name, &seg, k);
                         let group = net_groups.entry(seg_name).or_default();
                         for pair in seg.windows(2) {
-                            group.push(ConnPair::plain(pair[0], pair[1]));
+                            group.push(ConnPair::plain_with_dir(
+                                pair[0],
+                                pair[1],
+                                conn_dir_to_pair_dir(conn.dir),
+                            ));
                         }
                     }
                 } else {
@@ -617,7 +651,11 @@ impl<'a> McVecBuilder<'a> {
                         .collect();
                     let group = net_groups.entry(net_name).or_default();
                     for pair in all_ids.windows(2) {
-                        group.push(ConnPair::plain(pair[0], pair[1]));
+                        group.push(ConnPair::plain_with_dir(
+                            pair[0],
+                            pair[1],
+                            conn_dir_to_pair_dir(conn.dir),
+                        ));
                     }
                 }
             }

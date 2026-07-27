@@ -29,7 +29,7 @@ use mcc::{IOType, McEndpoint, McInstance, McInstanceRef, McPhrase, MccProjectTre
 
 pub fn print_phrase_members(phrase: &McPhrase, prefix: &str) {
     match phrase {
-        McPhrase::Series(phrases) => {
+        McPhrase::Series(phrases, _) => {
             for (i, p) in phrases.iter().enumerate() {
                 if i > 0 {
                     println!("{}    |", prefix);

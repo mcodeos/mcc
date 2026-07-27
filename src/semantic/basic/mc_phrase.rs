@@ -8,7 +8,7 @@ use super::super::{
     basic::mc_endpoint::{McEndpoint, McInstanceRef},
     basic::mc_fcall::McFuncCall,
     basic::mc_group::McGroup,
-    common::{IOType, McCMIE},
+    common::{ConnDir, IOType, McCMIE},
     component::Mc2Component,
     mc_func::HasFindInst,
     mc_inst::McInstance,
@@ -43,7 +43,7 @@ use std::sync::Arc;
 pub enum McPhrase {
     Lead,
     Endpoint(McEndpoint),
-    Series(Vec<McPhrase>),
+    Series(Vec<McPhrase>, ConnDir),
     Parallel(Vec<McPhrase>),
     Multiple(Vec<McPhrase>),
     Group(McGroup),
@@ -84,14 +84,14 @@ impl McPhrase {
         let mut flat = Vec::new();
         for p in phrases {
             match p {
-                McPhrase::Series(items) => flat.extend(items),
+                McPhrase::Series(items, _) => flat.extend(items),
                 other => flat.push(other),
             }
         }
         match flat.len() {
-            0 => McPhrase::Series(vec![]),
+            0 => McPhrase::Series(vec![], ConnDir::Undirected),
             1 => flat.into_iter().next().unwrap(),
-            _ => McPhrase::Series(flat),
+            _ => McPhrase::Series(flat, ConnDir::Undirected),
         }
     }
 
@@ -1176,9 +1176,9 @@ impl McPhrase {
             MCAST_OPD_APOST => {
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
                 match McPhrase::new(&opd1_node, context)? {
-                    McPhrase::Series(phrases) => {
-                        Some(McPhrase::Transposed(Box::new(McPhrase::Series(phrases))))
-                    }
+                    McPhrase::Series(phrases, _) => Some(McPhrase::Transposed(Box::new(
+                        McPhrase::Series(phrases, ConnDir::Undirected),
+                    ))),
                     McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
                         base: McInstance::Bus(_),
                         ..
@@ -1199,14 +1199,14 @@ impl McPhrase {
             MCAST_OPD_CARET => {
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
                 match McPhrase::new(&opd1_node, context)? {
-                    McPhrase::Series(ref mut phrases) => {
+                    McPhrase::Series(ref mut phrases, _) => {
                         phrases.reverse();
-                        Some(McPhrase::Series(phrases.clone()))
+                        Some(McPhrase::Series(phrases.clone(), ConnDir::Undirected))
                     }
                     opd1 => {
                         let mut phrases = vec![opd1];
                         phrases.reverse();
-                        Some(McPhrase::Series(phrases))
+                        Some(McPhrase::Series(phrases, ConnDir::Undirected))
                     }
                 }
             }
@@ -1243,30 +1243,32 @@ impl McPhrase {
 
                 use McPhrase::*;
                 match (opd1, opd2) {
-                    (opd1 @ Transposed(_), opd2 @ Transposed(_)) => Some(Series(vec![opd1, opd2])),
+                    (opd1 @ Transposed(_), opd2 @ Transposed(_)) => {
+                        Some(Series(vec![opd1, opd2], ConnDir::Undirected))
+                    }
                     (opd1 @ Transposed(_), opd2) => {
                         if opd2.get_left().iter().map(|e| e.size()).sum::<usize>() != 2 {
                             dlog_error(1102, node, "Transposed connection size mismatch");
                             return None;
                         }
                         let mut ret_line_members = vec![opd1];
-                        if let Series(line) = opd2 {
+                        if let Series(line, _) = opd2 {
                             ret_line_members.extend(line);
                         } else {
                             ret_line_members.push(opd2);
                         }
-                        Some(Series(ret_line_members))
+                        Some(Series(ret_line_members, ConnDir::Undirected))
                     }
                     (opd1, opd2 @ Transposed(_)) => {
                         if opd1.get_right().iter().map(|e| e.size()).sum::<usize>() != 2 {
                             dlog_error(1153, node, "Transposed connection size mismatch");
                             return None;
                         }
-                        if let Series(mut line) = opd1 {
+                        if let Series(mut line, _) = opd1 {
                             line.push(opd2);
-                            Some(Series(line))
+                            Some(Series(line, ConnDir::Undirected))
                         } else {
-                            Some(Series(vec![opd1, opd2]))
+                            Some(Series(vec![opd1, opd2], ConnDir::Undirected))
                         }
                     }
                     (opd1, opd2) => {
@@ -1302,15 +1304,15 @@ impl McPhrase {
                 }
 
                 let mut ret_line: Vec<McPhrase> = match opd1 {
-                    Series(line) => line,
+                    Series(line, _) => line,
                     _ => vec![opd1],
                 };
 
                 match opd2 {
-                    Series(line2) => ret_line.extend(line2),
+                    Series(line2, _) => ret_line.extend(line2),
                     _ => ret_line.push(opd2),
                 }
-                Some(Series(ret_line))
+                Some(Series(ret_line, ConnDir::Undirected))
             }
 
             MCAST_OPD_RIGHTARROW => {
@@ -1339,7 +1341,7 @@ impl McPhrase {
 
                 // ret_line: Vec<McPhrase> representing the accumulated line
                 let mut ret_line: Vec<McPhrase> = match opd1 {
-                    Series(phrases) => phrases,
+                    Series(phrases, _) => phrases,
                     _ => vec![opd1],
                 };
                 // Set right side of ret_line as output
@@ -1349,7 +1351,7 @@ impl McPhrase {
 
                 // line2: the second operand
                 let mut line2 = match opd2 {
-                    Series(phrases) => phrases,
+                    Series(phrases, _) => phrases,
                     _ => vec![opd2],
                 };
                 // Set left side of line2 as input
@@ -1358,7 +1360,7 @@ impl McPhrase {
                 }
 
                 ret_line.extend(line2);
-                Some(Series(ret_line))
+                Some(Series(ret_line, ConnDir::LtoR))
             }
 
             MCAST_OPD_LEFTARROW => {
@@ -1382,7 +1384,7 @@ impl McPhrase {
 
                 // opd2 is source, its right is output
                 let mut ret_line: Vec<McPhrase> = match opd2 {
-                    Series(phrases) => phrases,
+                    Series(phrases, _) => phrases,
                     _ => vec![opd2],
                 };
                 if let Some(last) = ret_line.last_mut() {
@@ -1391,7 +1393,7 @@ impl McPhrase {
 
                 // opd1 is the target, its left side is input
                 let mut line1: Vec<McPhrase> = match opd1 {
-                    Series(phrases) => phrases,
+                    Series(phrases, _) => phrases,
                     _ => vec![opd1],
                 };
                 if let Some(first) = line1.first_mut() {
@@ -1400,7 +1402,7 @@ impl McPhrase {
 
                 // Connection: opd2 -> opd1
                 ret_line.extend(line1);
-                Some(Series(ret_line))
+                Some(Series(ret_line, ConnDir::RtoL))
             }
 
             // When MCAST_INSTANCE appears in an expression context (usually as a child node of MCAST_OPD
@@ -1646,7 +1648,7 @@ impl McPhrase {
                 }
             }
             McPhrase::Group(ref g) => g.get_left(),
-            McPhrase::Series(ref phrases) => {
+            McPhrase::Series(ref phrases, _) => {
                 if phrases.is_empty() {
                     vec![McBus::new("<error:empty_seq>")]
                 } else {
@@ -1767,7 +1769,7 @@ impl McPhrase {
             }
             McPhrase::Closure(ref c) => c.right.clone(),
             McPhrase::Group(ref g) => g.get_right(),
-            McPhrase::Series(ref phrases) => {
+            McPhrase::Series(ref phrases, _) => {
                 if phrases.is_empty() {
                     vec![McBus::new("<error:empty_seq>")]
                 } else {
@@ -1789,7 +1791,7 @@ impl McPhrase {
     /// Set the left side as input
     pub(crate) fn set_left_in(&mut self) {
         match self {
-            McPhrase::Series(ref mut phrases) => {
+            McPhrase::Series(ref mut phrases, _) => {
                 // Series: set the first phrase's left side as input
                 if let Some(first) = phrases.first_mut() {
                     first.set_left_in();
@@ -1828,7 +1830,7 @@ impl McPhrase {
     /// Set the right side as output
     pub(crate) fn set_right_out(&mut self) {
         match self {
-            McPhrase::Series(ref mut phrases) => {
+            McPhrase::Series(ref mut phrases, _) => {
                 // Series: set the last phrase's right side as output
                 if let Some(last) = phrases.last_mut() {
                     last.set_right_out();
@@ -1867,7 +1869,7 @@ impl McPhrase {
     /// Reverse the connection direction
     pub(crate) fn reverse(&mut self) {
         match self {
-            McPhrase::Series(ref mut phrases) => phrases.reverse(),
+            McPhrase::Series(ref mut phrases, _) => phrases.reverse(),
             McPhrase::Transposed(ref mut inner) => {
                 inner.reverse();
             }
@@ -2189,7 +2191,7 @@ impl McPhrase {
                     .map(|x| x.dot_or_curly(member_names))
                     .collect::<Option<Vec<_>>>()?,
             )),
-            McPhrase::Series(_) => {
+            McPhrase::Series(_, _) => {
                 dlog_trace(1168, "Dot operator does not apply for Series");
                 None
             }
@@ -2439,7 +2441,7 @@ fn needs_paren_for_priority(phrase: &McPhrase) -> bool {
         McPhrase::Parallel(_) => true,
         McPhrase::Transposed(_) => true,
         McPhrase::Multiple(_) => true,
-        McPhrase::Series(phrases) => {
+        McPhrase::Series(phrases, _) => {
             if phrases.is_empty() {
                 false
             } else {
@@ -2486,7 +2488,7 @@ impl std::fmt::Display for McPhrase {
                 ..
             })) => write!(f, "{}", m.name),
             McPhrase::Endpoint(McEndpoint::Single(ref_)) => write!(f, "{ref_}"),
-            McPhrase::Series(phrases) => {
+            McPhrase::Series(phrases, _) => {
                 let items: Vec<String> = phrases.iter().map(format_series_item).collect();
                 write!(f, "{}", items.join(" -> "))
             }
@@ -2916,3 +2918,7 @@ impl<R: Into<McPhrase>> Shr<R> for McPhrase {
         McPhrase::series(vec![self, other.into()])
     }
 }
+
+// Note: Shr is used for the `->` operator in Rust code constructing McPhrase.
+// The `MCAST_OPD_RIGHTARROW` handler in `new()` is the primary path for parsing `->`
+// from source code and correctly uses ConnDir::LtoR.
