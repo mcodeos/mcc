@@ -15,8 +15,9 @@
 //! ```
 
 use super::mc_mod::McModuleInst;
+use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::common::IOType;
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 // ============================================================================
 // InstKind - Instance entry type
@@ -72,6 +73,90 @@ impl InstKind {
 }
 
 // ============================================================================
+// MemberRole / MemberInfo — pin role for net merging and rail checks
+// ============================================================================
+
+/// Electrical role of a pin / interface member
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MemberRole {
+    Power,
+    Ground,
+    Signal,
+}
+
+impl std::fmt::Display for MemberRole {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MemberRole::Power => write!(f, "Power"),
+            MemberRole::Ground => write!(f, "Ground"),
+            MemberRole::Signal => write!(f, "Signal"),
+        }
+    }
+}
+
+/// Voltage value extracted from interface params (e.g. `DC(3.3V)` → 3.3 V)
+#[derive(Debug, Clone, PartialEq)]
+pub struct Volt {
+    pub value: f64,
+}
+
+impl std::fmt::Display for Volt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:.1}V", self.value)
+    }
+}
+
+/// Role + optional voltage for a pin / interface member
+#[derive(Debug, Clone)]
+pub struct MemberInfo {
+    pub role: MemberRole,
+    pub voltage: Option<Volt>,
+}
+
+impl MemberInfo {
+    pub fn new(role: MemberRole, voltage: Option<Volt>) -> Self {
+        Self { role, voltage }
+    }
+}
+
+/// Infer MemberRole from IOType and leaf name.
+///
+/// Returns `(role, inferred)` where `inferred == true` means the role was
+/// determined by name heuristic rather than explicit qualifier.
+pub fn infer_member_role(
+    leaf_name: &str,
+    io_type: &IOType,
+    is_ground: fn(&str) -> bool,
+    is_supply: fn(&str) -> bool,
+) -> (MemberRole, bool) {
+    // (a) explicit qualifier: ps → Power
+    if matches!(io_type, IOType::Power) {
+        return (MemberRole::Power, false);
+    }
+    // (b) fallback heuristic: name-based
+    if is_ground(leaf_name) {
+        return (MemberRole::Ground, true);
+    }
+    if is_supply(leaf_name) {
+        return (MemberRole::Power, true);
+    }
+    // (c) default
+    (MemberRole::Signal, false)
+}
+
+/// Extract voltage from interface params (first UValue param with Volt unit).
+pub fn extract_voltage_from_params(params: &[McParamValue]) -> Option<Volt> {
+    for p in params {
+        if let McParamValue::UValue(uv) = p {
+            if matches!(uv.unit(), crate::semantic::basic::mc_uval::McUnit::Volt) {
+                return Some(Volt { value: uv.value() });
+            }
+        }
+    }
+    None
+}
+
+// ============================================================================
 // InstEntry - Single instance record
 // ============================================================================
 
@@ -96,6 +181,8 @@ pub struct InstEntry {
     pub def_uri: String,
     /// ★ P5: Unified source location (file_id/container_id/func_id/span).
     pub src_loc: Option<crate::ast::ast_semantic::SourceLocation>,
+    /// ★ Member role and voltage (for interface members / power pins)
+    pub member_info: Option<MemberInfo>,
 }
 
 impl InstEntry {
@@ -182,6 +269,7 @@ impl InstTable {
     pub fn from_module_inst(inst: &McModuleInst, start_id: u32) -> Self {
         let mut table = InstTable::new(start_id);
         table.flatten_module(inst, "", None);
+        table.merge_ground_nets();
         table
     }
 
@@ -285,6 +373,7 @@ impl InstTable {
             src_pos,
             def_uri,
             src_loc: None,
+            member_info: None,
         };
 
         self.entries.insert(id, entry);
@@ -414,6 +503,81 @@ impl InstTable {
     }
 
     // ====================================================================
+    // Ground net merging (裁决⑥)
+    // ====================================================================
+
+    /// Merge all Ground-member nets into a single global GND net.
+    ///
+    /// Called after all modules are flattened. Scans all Pin entries with
+    /// `MemberRole::Ground`, finds the nets they belong to, and merges them
+    /// into one net named "GND".
+    pub fn merge_ground_nets(&mut self) {
+        // Collect all point IDs that are Ground members
+        let ground_points: Vec<u32> = self
+            .entries
+            .values()
+            .filter(|e| {
+                e.kind == InstKind::Pin
+                    && e.member_info
+                        .as_ref()
+                        .is_some_and(|mi| mi.role == MemberRole::Ground)
+            })
+            .map(|e| e.id)
+            .collect();
+
+        if ground_points.len() < 2 {
+            return;
+        }
+
+        // Find all nets that contain any Ground points
+        let mut ground_nets: BTreeSet<u32> = BTreeSet::new();
+        for &pid in &ground_points {
+            if let Some(&net_id) = self.point_to_net.get(&pid) {
+                ground_nets.insert(net_id);
+            }
+        }
+
+        if ground_nets.len() < 2 {
+            return; // already unified
+        }
+
+        // Pick the first net as the target GND net
+        let net_ids: Vec<u32> = ground_nets.into_iter().collect();
+        let target_net_id = net_ids[0];
+        let target_name = "GND".to_string();
+
+        // Merge all other Ground nets into the target
+        let mut all_points: Vec<u32> = Vec::new();
+        for &net_id in &net_ids {
+            if let Some(net) = self.nets.get(&net_id) {
+                all_points.extend_from_slice(&net.points);
+            }
+        }
+        all_points.sort();
+        all_points.dedup();
+
+        // Update point_to_net for all points
+        for &pid in &all_points {
+            self.point_to_net.insert(pid, target_net_id);
+        }
+
+        // Update the target net
+        self.nets.insert(
+            target_net_id,
+            NetEntry {
+                id: target_net_id,
+                name: target_name,
+                points: all_points,
+            },
+        );
+
+        // Remove the old merged nets
+        for &net_id in &net_ids[1..] {
+            self.nets.remove(&net_id);
+        }
+    }
+
+    // ====================================================================
     // flatten traversal (Step 5)
     // ====================================================================
 
@@ -518,15 +682,42 @@ impl InstTable {
                         })
                         .cloned()
                         .unwrap_or_default();
-                    self.register(
+                    let pin_id = self.register(
                         pin_path,
                         InstKind::Pin,
                         Some(comp_id),
-                        pin_func_name,
+                        pin_func_name.clone(),
                         net_point.iotype.clone(),
                         net_point.src_pos,
                         inst.def_uri.to_string(),
                     );
+
+                    // Compute member_info for this pin
+                    let leaf_name = super::netcheck::leaf(&pin_func_name);
+                    let (role, inferred) = infer_member_role(
+                        leaf_name,
+                        &net_point.iotype,
+                        super::netcheck::is_ground_name,
+                        super::netcheck::is_supply_name,
+                    );
+                    let voltage = comp
+                        .lookup_interface_params(&pin_func_name)
+                        .and_then(|params| extract_voltage_from_params(params));
+                    // Ground members never get voltage from interface
+                    let voltage = if role == MemberRole::Ground {
+                        None
+                    } else {
+                        voltage
+                    };
+                    if inferred && role != MemberRole::Signal {
+                        eprintln!(
+                            "[ir] MEMBER_ROLE_INFERRED: {}.{} -> {} (由名字推断，建议在接口定义显式标注)",
+                            comp_path, pin_func_name, role
+                        );
+                    }
+                    if let Some(entry) = self.entries.get_mut(&pin_id) {
+                        entry.member_info = Some(MemberInfo::new(role, voltage));
+                    }
                 }
             }
         }
