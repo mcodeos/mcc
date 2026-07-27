@@ -12,7 +12,7 @@
 //! - `InstError`      - Instantiation Error
 //! - `NetTable`       - Network Table (union-find)
 
-use crate::semantic::common::IOType;
+use crate::semantic::common::{ConnDir, IOType};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Mutex;
@@ -144,6 +144,9 @@ pub struct ConnectionInst {
 
     /// Network name (first label owner or __net_N)
     pub net_name: Option<String>,
+
+    /// 源码连接符方向（来自 `->` / `-` / `+`）
+    pub dir: ConnDir,
 }
 
 impl ConnectionInst {
@@ -200,7 +203,14 @@ impl ConnectionInst {
             id,
             points,
             net_name,
+            dir: ConnDir::Undirected,
         }
+    }
+
+    /// 设置源码连接符方向
+    pub fn with_dir(mut self, dir: ConnDir) -> Self {
+        self.dir = dir;
+        self
     }
 
     /// Get effective net_name (first label owner or __net_N)

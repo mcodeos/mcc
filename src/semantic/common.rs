@@ -49,6 +49,23 @@ impl IOType {
     }
 }
 
+/// 源码连接符方向
+///
+/// 对应 mcrule.md §10.1：
+/// - `->` → [`ConnDir::LtoR`]
+/// - `<-` → [`ConnDir::RtoL`]（保留，尚未完全支持）
+/// - `-` / `+` → [`ConnDir::Undirected`]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ConnDir {
+    /// 左 -> 右
+    LtoR,
+    /// 右 -> 左
+    RtoL,
+    /// 无方向（`-` / `+`）
+    #[default]
+    Undirected,
+}
+
 pub enum McCMIE {
     Component(Arc<McComponent>),
     Module(Arc<McModule>),

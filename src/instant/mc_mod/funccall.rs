@@ -72,7 +72,7 @@ impl McModuleInst {
             .map(|c| match c {
                 McPhrase::FuncCall(_) => "FuncCall",
                 McPhrase::Endpoint(_) => "Endpoint",
-                McPhrase::Series(_) => "Series",
+                McPhrase::Series(_, _) => "Series",
                 McPhrase::Parallel(_) => "Parallel",
                 McPhrase::Group(_) => "Group",
                 McPhrase::Transposed(_) => "Transposed",

@@ -53,6 +53,17 @@ impl ConnPair {
         }
     }
 
+    /// 带方向的无 provenance 构造
+    pub(crate) fn plain_with_dir(left: i64, right: i64, dir: PairDir) -> Self {
+        Self {
+            left,
+            right,
+            lane: None,
+            dir,
+            via: None,
+        }
+    }
+
     /// 带 lane 的构造
     pub(crate) fn laned(left: i64, right: i64, lane: LaneRef, dir: PairDir) -> Self {
         Self {
@@ -87,13 +98,20 @@ pub(crate) fn merge_pairs_to_vecnet(nid: i64, net_name: String, pairs: &[ConnPai
         // 建不出来（lane 不完整）→ 落回下面的旧逻辑，不 panic
     }
 
+    let dir = majority_dir(pairs);
+
     // Only one connection pair: Degenerate to 1:1
     if pairs.len() == 1 {
-        return McVecNet::new(
+        let mut net = McVecNet::new(
             nid,
             net_name,
             vec![McVec::single(pairs[0].left), McVec::single(pairs[0].right)],
         );
+        net.shape = Some(NetShape {
+            dir,
+            ..Default::default()
+        });
+        return net;
     }
 
     // Count frequency of each ID
@@ -105,16 +123,39 @@ pub(crate) fn merge_pairs_to_vecnet(nid: i64, net_name: String, pairs: &[ConnPai
 
     let max_freq = freq.values().cloned().max().unwrap_or(0);
 
-    if max_freq > 1 {
+    let mut net = if max_freq > 1 {
         build_star_topology(nid, net_name, pairs, &freq, max_freq)
     } else {
         build_chain_topology(nid, net_name, pairs)
+    };
+
+    // ★ M-1'-A: Attach direction info to non-lane nets for ShapeStats coverage
+    if net.shape.is_none() {
+        net.shape = Some(NetShape {
+            dir,
+            ..Default::default()
+        });
     }
+
+    net
 }
 
 // ============================================================================
 // Lane-aware construction (补丁 3)
 // ============================================================================
+
+/// 从 pairs 中计算多数方向
+fn majority_dir(pairs: &[ConnPair]) -> PairDir {
+    let ltr = pairs.iter().filter(|p| p.dir == PairDir::LtoR).count();
+    let rtl = pairs.iter().filter(|p| p.dir == PairDir::RtoL).count();
+    if ltr > rtl {
+        PairDir::LtoR
+    } else if rtl > ltr {
+        PairDir::RtoL
+    } else {
+        PairDir::Undirected
+    }
+}
 
 /// 有 lane 信息时，直接按源码形状建组，不再靠频次猜。
 /// 返回 `None` 时安静地落回旧逻辑，不 panic。

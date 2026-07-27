@@ -296,7 +296,7 @@ impl McModuleInst {
                 }
             }
 
-            McPhrase::Series(phrases) => {
+            McPhrase::Series(phrases, _) => {
                 // P1-E2 companion: Parallel inner may nest Series (rare).
                 // `get_left_points` originally returned empty for Series, changed to return **first**
                 // sub phrase's left points (chain start), consistent with `_from_phrase`
@@ -680,7 +680,7 @@ impl McModuleInst {
                 }
             }
 
-            McPhrase::Series(phrases) => {
+            McPhrase::Series(phrases, _) => {
                 // P1-E2 companion: Series in get_right_points returns **last**
                 // sub phrase's right points (chain endpoint).
                 if let Some(last) = phrases.last() {
@@ -897,7 +897,7 @@ impl McModuleInst {
         phrase: &McPhrase,
     ) -> Result<Vec<NetPoint>, InstError> {
         match phrase {
-            McPhrase::Series(phrases) => {
+            McPhrase::Series(phrases, _) => {
                 // For a sequence, get left points from the first phrase
                 if let Some(first) = phrases.first() {
                     self.get_left_points_from_phrase(first)
@@ -943,7 +943,7 @@ impl McModuleInst {
         phrase: &McPhrase,
     ) -> Result<Vec<NetPoint>, InstError> {
         match phrase {
-            McPhrase::Series(phrases) => {
+            McPhrase::Series(phrases, _) => {
                 // For a sequence, get right points from the last phrase
                 if let Some(last) = phrases.last() {
                     self.get_right_points_from_phrase(last)

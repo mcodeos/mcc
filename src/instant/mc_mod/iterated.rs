@@ -112,7 +112,7 @@ impl McModuleInst {
             &items_owned
         } else {
             let phrases = match caller_phrase {
-                McPhrase::Series(phrases) => phrases,
+                McPhrase::Series(phrases, _) => phrases,
                 _ => {
                     // ── Iter-6.S5.2-diag ──
                     return Ok(None);

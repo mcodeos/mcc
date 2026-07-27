@@ -295,11 +295,12 @@ impl McModuleInst {
         this_name: Option<&str>,
     ) -> McPhrase {
         match phrase {
-            McPhrase::Series(phrases) => McPhrase::Series(
+            McPhrase::Series(phrases, d) => McPhrase::Series(
                 phrases
                     .iter()
                     .map(|p| Self::substitute_phrase(p, bindings, this_name))
                     .collect(),
+                *d,
             ),
             McPhrase::Parallel(phrases) => McPhrase::Parallel(
                 phrases

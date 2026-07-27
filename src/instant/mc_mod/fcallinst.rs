@@ -21,7 +21,7 @@ use crate::semantic::basic::mc_fcall::McFuncCall;
 use crate::semantic::basic::mc_group::McGroup;
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
 use crate::semantic::basic::mc_phrase::McPhrase;
-use crate::semantic::common::IOType;
+use crate::semantic::common::{ConnDir, IOType};
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_func::{McFuncReturn, McFunction};
 use crate::semantic::mc_inst::McInstance;
@@ -673,7 +673,7 @@ impl McModuleInst {
             }
             let boundary_name = format!("{inst_name}.{declared_port_name}");
             let right = self.expand_node_element(&McBus::new(&boundary_name));
-            self.create_connection(left, right)?;
+            self.create_connection(left, right, ConnDir::Undirected)?;
         }
         Ok(())
     }
@@ -839,11 +839,12 @@ impl McModuleInst {
         skip: &std::collections::HashSet<String>,
     ) -> McPhrase {
         match phrase {
-            McPhrase::Series(phrases) => McPhrase::Series(
+            McPhrase::Series(phrases, d) => McPhrase::Series(
                 phrases
                     .iter()
                     .map(|p| Self::prefix_instance_phrase_with_skip(p, inst_name, skip))
                     .collect(),
+                *d,
             ),
             McPhrase::Parallel(phrases) => McPhrase::Parallel(
                 phrases

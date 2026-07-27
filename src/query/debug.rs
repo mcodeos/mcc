@@ -129,7 +129,7 @@ pub(crate) fn print_phrase_internal(
     use crate::semantic::basic::mc_endpoint::McEndpoint;
     use crate::semantic::basic::mc_phrase::McPhrase;
     match phrase {
-        McPhrase::Series(phrases) => {
+        McPhrase::Series(phrases, _) => {
             if phrases.is_empty() {
                 println!("{prefix}(empty seq)");
                 return;

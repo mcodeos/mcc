@@ -14,6 +14,7 @@ use crate::db::diagnostic::diagnostic::{diagnostic_log, DiagnosticLevel};
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_phrase::McPhrase;
+use crate::semantic::common::ConnDir;
 
 /// D5 BUS_ORDER_MISMATCH: process-level count of mismatched bus bits.
 /// When all pairs in a bus connection have mismatched member names, D5 fires and
@@ -99,7 +100,7 @@ impl McModuleInst {
         // Check whether connection can be made
         if external_size == 1 {
             // Single point broadcasts to all branches
-            self.create_connection(external_points, group_points)?;
+            self.create_connection(external_points, group_points, ConnDir::Undirected)?;
         } else if external_size == branch_count {
             // External point count equals branch count, per-branch connection
             // This needs special handling: each external point connects to its corresponding branch
@@ -118,10 +119,10 @@ impl McModuleInst {
                     );
                 }
             }
-            self.create_connection(external_points, group_points)?;
+            self.create_connection(external_points, group_points, ConnDir::Undirected)?;
         } else if external_size == group_size {
             // Point counts match exactly, connect one-to-one
-            self.create_connection(external_points, group_points)?;
+            self.create_connection(external_points, group_points, ConnDir::Undirected)?;
         } else {
             // ★ Degraded to warning: connect as much as possible, truncate by min
             self.record_warning(
@@ -133,7 +134,7 @@ impl McModuleInst {
             let min_size = external_size.min(group_size);
             let ext_trunc: Vec<NetPoint> = external_points.into_iter().take(min_size).collect();
             let grp_trunc: Vec<NetPoint> = group_points.into_iter().take(min_size).collect();
-            self.create_connection(ext_trunc, grp_trunc)?;
+            self.create_connection(ext_trunc, grp_trunc, ConnDir::Undirected)?;
         }
 
         Ok(())
@@ -185,6 +186,7 @@ impl McModuleInst {
         &mut self,
         left_points: Vec<NetPoint>,
         right_points: Vec<NetPoint>,
+        dir: ConnDir,
     ) -> Result<(), InstError> {
         let left_size = left_points.len();
         let right_size = right_points.len();
@@ -261,7 +263,7 @@ impl McModuleInst {
                 }
             }
             for (l, r) in left_points.into_iter().zip(right_points.into_iter()) {
-                let conn = ConnectionInst::new(self.next_conn_id(), vec![l, r]);
+                let conn = ConnectionInst::new(self.next_conn_id(), vec![l, r]).with_dir(dir);
                 self.connections.push(conn);
             }
         } else if left_size == 1 {
@@ -275,12 +277,13 @@ impl McModuleInst {
             } else if let Some(expanded) = self.try_member_passthrough_scalar(&l, &right_points) {
                 // ── P2/A2: bare submodule port expanded by peer member then per-bit zip ──
                 for (le, r) in expanded.into_iter().zip(right_points.into_iter()) {
-                    let conn = ConnectionInst::new(self.next_conn_id(), vec![le, r]);
+                    let conn = ConnectionInst::new(self.next_conn_id(), vec![le, r]).with_dir(dir);
                     self.connections.push(conn);
                 }
             } else {
                 for r in right_points {
-                    let conn = ConnectionInst::new(self.next_conn_id(), vec![l.clone(), r]);
+                    let conn =
+                        ConnectionInst::new(self.next_conn_id(), vec![l.clone(), r]).with_dir(dir);
                     self.connections.push(conn);
                 }
             }
@@ -294,12 +297,13 @@ impl McModuleInst {
             } else if let Some(expanded) = self.try_member_passthrough_scalar(&r, &left_points) {
                 // ── P2/A2: same as above, scalar on the right ──
                 for (l, re) in left_points.into_iter().zip(expanded.into_iter()) {
-                    let conn = ConnectionInst::new(self.next_conn_id(), vec![l, re]);
+                    let conn = ConnectionInst::new(self.next_conn_id(), vec![l, re]).with_dir(dir);
                     self.connections.push(conn);
                 }
             } else {
                 for l in left_points {
-                    let conn = ConnectionInst::new(self.next_conn_id(), vec![l, r.clone()]);
+                    let conn =
+                        ConnectionInst::new(self.next_conn_id(), vec![l, r.clone()]).with_dir(dir);
                     self.connections.push(conn);
                 }
             }
@@ -320,7 +324,7 @@ impl McModuleInst {
                 .zip(right_points.into_iter())
                 .take(min_size)
             {
-                let conn = ConnectionInst::new(self.next_conn_id(), vec![l, r]);
+                let conn = ConnectionInst::new(self.next_conn_id(), vec![l, r]).with_dir(dir);
                 self.connections.push(conn);
             }
         }

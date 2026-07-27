@@ -13,6 +13,7 @@ use crate::ast::c_macros::*;
 use crate::db::context::DB;
 use crate::db::diagnostic::diagnostic::dlog_error;
 use crate::query::refs::mcb_register_declare_class;
+use crate::semantic::common::ConnDir;
 use crate::semantic::common::McCMIE;
 use crate::semantic::component::Mc2Component;
 use crate::semantic::context::resolve_cmie;
@@ -424,10 +425,10 @@ impl McFuncCall {
             };
 
             // Create Series: pre_param -> funcall
-            return Some(McPhrase::Series(vec![
-                pre_label,
-                McPhrase::FuncCall(outer_call),
-            ]));
+            return Some(McPhrase::Series(
+                vec![pre_label, McPhrase::FuncCall(outer_call)],
+                ConnDir::Undirected,
+            ));
         }
 
         // === Iter 2: detect DECLARE child node ===
@@ -873,7 +874,7 @@ impl McFuncCall {
                                     }
                                 }
                             },
-                            McPhrase::Series(_) => {
+                            McPhrase::Series(_, _) => {
                                 dlog_error(
                                     1301,
                                     node,
@@ -942,7 +943,7 @@ impl McFuncCall {
                                 return None;
                             }
                         },
-                        McPhrase::Series(_) => {
+                        McPhrase::Series(_, _) => {
                             dlog_error(
                                 1301,
                                 node,
