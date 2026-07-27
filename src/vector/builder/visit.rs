@@ -38,6 +38,7 @@ use super::report::{
 };
 use crate::db::diagnostic::diagnostic::{diagnostic_log, DiagnosticLevel};
 
+use super::super::model::netshape::{LaneRef, PairDir};
 use super::connection::{merge_pairs_to_vecnet, ConnPair, NetGroupMap};
 use super::debug;
 use super::resolve::resolve_netpoint_v2;
@@ -510,6 +511,7 @@ impl<'a> McVecBuilder<'a> {
                         .filter(|pr| pr.is_bracket && pr.ids.len() == max_w)
                         .find_map(|pr| pr.members.get(k).cloned().flatten());
 
+                    let member_name_for_lane = member_name_opt.clone();
                     let sub_net_name =
                         member_name_opt.unwrap_or_else(|| format!("{net_name}[{k}]"));
 
@@ -533,10 +535,12 @@ impl<'a> McVecBuilder<'a> {
 
                     let group = net_groups.entry(sub_net_name).or_default();
                     for pair in chain_ids.windows(2) {
-                        group.push(ConnPair {
-                            left: pair[0],
-                            right: pair[1],
-                        });
+                        group.push(ConnPair::laned(
+                            pair[0],
+                            pair[1],
+                            LaneRef::new(k as u16, member_name_for_lane.clone()),
+                            PairDir::Undirected,
+                        ));
                     }
                 }
             } else {
@@ -602,10 +606,7 @@ impl<'a> McVecBuilder<'a> {
                         let seg_name = segment_net_name(inst_table, &net_name, &seg, k);
                         let group = net_groups.entry(seg_name).or_default();
                         for pair in seg.windows(2) {
-                            group.push(ConnPair {
-                                left: pair[0],
-                                right: pair[1],
-                            });
+                            group.push(ConnPair::plain(pair[0], pair[1]));
                         }
                     }
                 } else {
@@ -616,10 +617,7 @@ impl<'a> McVecBuilder<'a> {
                         .collect();
                     let group = net_groups.entry(net_name).or_default();
                     for pair in all_ids.windows(2) {
-                        group.push(ConnPair {
-                            left: pair[0],
-                            right: pair[1],
-                        });
+                        group.push(ConnPair::plain(pair[0], pair[1]));
                     }
                 }
             }

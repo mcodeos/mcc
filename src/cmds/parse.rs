@@ -406,6 +406,9 @@ pub fn run(args: &ParseArgs) -> Result<()> {
 
                     mcc::vector::builder::reset_np_warn_count();
                     let vec_block = mcc::build_mc_vec(&inst, &table);
+                    // ★ netcheck: 网表体检
+                    let nc_report = mcc::instant::netcheck::run(&table);
+                    nc_report.print();
                     let graph = mcc::build_mc_vec_graph(&vec_block, &table);
                     let graph_box_count = graph.boxes.len();
                     let graph_edge_count = graph.edges.len();
@@ -981,6 +984,23 @@ fn run_viz(
         blocks = vec_block.blocks.len(),
         "McVecBlock"
     );
+
+    // ★ netcheck: 网表体检
+    let nc_report = mcc::instant::netcheck::run(&table);
+    nc_report.print();
+
+    // ★ 补丁2-1：打印未展开的向量引用详情（隔离后的完整清单）
+    let n_literal = mcc::instant::mc_net::LITERAL_POINTS.load(std::sync::atomic::Ordering::Relaxed);
+    if n_literal > 0 {
+        eprintln!(
+            "[netlist] R01 LITERAL-POINT: {} 个未展开的向量引用",
+            n_literal
+        );
+        let details = mcc::instant::mc_net::LITERAL_POINT_DETAILS.lock().unwrap();
+        for (path, _) in details.iter() {
+            eprintln!("[netlist]   → `{path}`");
+        }
+    }
 
     let graph = mcc::build_mc_vec_graph(&vec_block, &table);
     // PR-3C: capture count before render_with consumes graph

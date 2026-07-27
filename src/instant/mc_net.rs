@@ -15,6 +15,14 @@
 use crate::semantic::common::IOType;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::sync::Mutex;
+
+/// 未展开的向量引用计数（R01）。只统计不阻断，release 也生效。
+pub static LITERAL_POINTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// 未展开的向量引用详情：隔离后的 (原始路径, src_pos)
+pub static LITERAL_POINT_DETAILS: std::sync::LazyLock<Mutex<Vec<(String, Option<i32>)>>> =
+    std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
 
 // ============================================================================
 // NetPoint - Network Connection Point
@@ -43,9 +51,26 @@ pub struct NetPoint {
 
 impl NetPoint {
     /// Create a simple net point (port/label)
+    ///
+    /// ★ 补丁 2-1：字面量引用 → 隔离（quarantine），不 panic。
+    /// 检测到 `{` `[` `,` 时，把 path 替换为唯一的 `@_phantom_<N>`，
+    /// 原始路径记入 `LITERAL_POINT_DETAILS`，计数记入 `LITERAL_POINTS`。
+    /// 隔离点不会进入并查集合并（NetTable::add_connection 过滤），
+    /// 因此不会从 R01 扩散成 R06 巨网。
     pub fn new(path: &str, iotype: IOType) -> Self {
+        let actual_path = if path.contains(['{', '[', ',']) {
+            let n = LITERAL_POINTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let quarantine = format!("@_phantom_{n}");
+            LITERAL_POINT_DETAILS
+                .lock()
+                .unwrap()
+                .push((path.to_string(), None));
+            quarantine
+        } else {
+            path.to_string()
+        };
         Self {
-            path: path.to_string(),
+            path: actual_path,
             owner: None,
             iotype,
             src_pos: None,
@@ -54,8 +79,19 @@ impl NetPoint {
 
     /// Create a net point belonging to a component instance (pin/submodule port)   
     pub fn with_owner(path: &str, owner: &str, iotype: IOType) -> Self {
+        let actual_path = if path.contains(['{', '[', ',']) {
+            let n = LITERAL_POINTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let quarantine = format!("@_phantom_{n}");
+            LITERAL_POINT_DETAILS
+                .lock()
+                .unwrap()
+                .push((path.to_string(), None));
+            quarantine
+        } else {
+            path.to_string()
+        };
         Self {
-            path: path.to_string(),
+            path: actual_path,
             owner: Some(owner.to_string()),
             iotype,
             src_pos: None,
@@ -711,7 +747,12 @@ impl NetTable {
         }
 
         // ── Iter-9: NC filter ──
-        let kept: Vec<&NetPoint> = conn.points.iter().filter(|p| p.path != "NC").collect();
+        // ★ 补丁 2-1：同时过滤 @_phantom_ 隔离点，防止进入并查集合并
+        let kept: Vec<&NetPoint> = conn
+            .points
+            .iter()
+            .filter(|p| p.path != "NC" && !p.path.starts_with("@_phantom_"))
+            .collect();
 
         if kept.is_empty() {
             return;

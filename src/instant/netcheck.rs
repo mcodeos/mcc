@@ -1,0 +1,953 @@
+// Copyright (c) 2026 MCode
+//
+// Licensed under either of Apache License, Version 2.0 or MIT License at your option.
+
+//! # 网表体检（Tier 0 · NETLIST CORRECTNESS）
+//!
+//! **这个模块只读，不修改任何数据。** 它在 pass2 结束、进入 viz 之前跑一遍，
+//! 回答一个问题：*现在这份网表在电气上是对的吗？*
+//!
+//! 现有的 Tier 1 CORRECTNESS 检查的是「渲染完整性」（无 NaN / 不出画布 /
+//! 每条 net 都画出来了）——它对一份**电气错误**的网表是全绿的。
+//! 所以短路能长期存活。本模块补上这一层。
+//!
+//! ## 用法
+//!
+//! ```ignore
+//! let report = netcheck::run(&inst_table);
+//! report.print();                  // 打印表格
+//! if !report.is_clean() {
+//!     // CI 里可以在这里 fail
+//! }
+//! ```
+//!
+//! 想接 Pass1 的符号数做守恒检查（R10），传一张
+//! `module_path -> pass1 component count` 的表：
+//!
+//! ```ignore
+//! let report = netcheck::run_with_expectation(&inst_table, &expect);
+//! ```
+//!
+//! ## 规则一览
+//!
+//! | 规则 | 等级 | 含义 |
+//! |---|---|---|
+//! | R01 LITERAL_POINT      | ERROR | 端点 path 里有 `{` `[` `,` —— 向量引用没展开 |
+//! | R02 SHORT_PASSIVE      | ERROR | 二端器件两个脚落在同一张网 |
+//! | R03 SHORT_RAIL         | ERROR | 一张网里有两个不同的电源域名（含 VDD 与 GND 同网） |
+//! | R04 SHORT_LANE         | ERROR | 同一个总线的两个不同成员落在同一张网 |
+//! | R06 MEGANET            | WARN  | 非电源网点数过多且跨越器件过多 |
+//! | R07 GHOST_INSTANCE     | ERROR | 网里引用的器件，实例表里没有 |
+//! | R09 FLOATING_POWER_PIN | WARN  | 器件的电源 / 地管脚没有连接 |
+//! | R10 SYMBOL_CONSERVATION| ERROR | Pass2 器件数 < Pass1 符号表里的器件数（需外部传入期望值） |
+//! | R11 SPLIT_RAIL         | ERROR | 同一模块内同名电源网被拆成多张互不相连的网 |
+//! | R12 DANGLING_PORT      | INFO  | 端口网只有它自己一个点 |
+//!
+//! R05 UNRESOLVED 需要在解析器里埋计数器（见 `points.rs` 的改造），
+//! 不能只读推断，这里不实现。
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
+
+use super::insttab::{InstKind, InstTable};
+
+// ============================================================================
+// 配置常量
+// ============================================================================
+
+/// R06：非电源网超过这么多点就可疑
+const MEGANET_POINTS: usize = 8;
+/// R06：且跨越这么多个不同器件才算可疑（纯扇出的信号网不算）
+const MEGANET_OWNERS: usize = 3;
+
+// ============================================================================
+// 结果类型
+// ============================================================================
+
+/// 规则等级
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Level {
+    /// 只报告，不影响 gate
+    Info,
+    /// 可疑，不影响 gate（但趋势要向下）
+    Warn,
+    /// 网表是错的，gate 必须红
+    Error,
+}
+
+impl Level {
+    fn tag(self) -> &'static str {
+        match self {
+            Level::Info => "INFO ",
+            Level::Warn => "WARN ",
+            Level::Error => "ERROR",
+        }
+    }
+}
+
+/// 一条违规记录
+#[derive(Debug, Clone)]
+pub struct Finding {
+    /// 规则号，如 "R01"
+    pub rule: &'static str,
+    pub level: Level,
+    /// 所属模块路径（尽力而为，取不到时为空）
+    pub module: String,
+    /// 人类可读的一行描述
+    pub detail: String,
+}
+
+/// 体检报告
+#[derive(Debug, Default)]
+pub struct Report {
+    pub findings: Vec<Finding>,
+    /// 每条规则的命中数（含 0 的规则，便于出稳定表格）
+    pub counts: BTreeMap<&'static str, usize>,
+    /// 统计信息
+    pub total_nets: usize,
+    pub total_components: usize,
+    pub total_modules: usize,
+}
+
+impl Report {
+    /// 没有 ERROR 级别的违规
+    pub fn is_clean(&self) -> bool {
+        !self.findings.iter().any(|f| f.level == Level::Error)
+    }
+
+    pub fn error_count(&self) -> usize {
+        self.findings
+            .iter()
+            .filter(|f| f.level == Level::Error)
+            .count()
+    }
+
+    /// 渲染成表格字符串
+    pub fn render(&self) -> String {
+        let mut s = String::new();
+        let _ = writeln!(
+            s,
+            "┌ netcheck ─────────────────────────────────────────────────────────"
+        );
+        let _ = writeln!(
+            s,
+            "│ {} modules / {} components / {} nets",
+            self.total_modules, self.total_components, self.total_nets
+        );
+        let _ = writeln!(
+            s,
+            "├───────────────────────────────────────────────────────────────────"
+        );
+
+        for (rule, n) in &self.counts {
+            let lvl = rule_level(rule);
+            let mark = if *n == 0 {
+                "✓"
+            } else if lvl == Level::Error {
+                "✗"
+            } else {
+                "·"
+            };
+            let _ = writeln!(
+                s,
+                "│ {} {} {:<22} {:>4}",
+                mark,
+                lvl.tag(),
+                rule_name(rule),
+                n
+            );
+        }
+
+        if !self.findings.is_empty() {
+            let _ = writeln!(
+                s,
+                "├─ 明细 ────────────────────────────────────────────────────────────"
+            );
+            // 按 (module, rule) 排序，输出稳定
+            let mut sorted: Vec<&Finding> = self.findings.iter().collect();
+            sorted.sort_by(|a, b| {
+                (a.module.as_str(), a.rule, a.detail.as_str()).cmp(&(
+                    b.module.as_str(),
+                    b.rule,
+                    b.detail.as_str(),
+                ))
+            });
+            let mut cur_mod = String::from("\u{0}");
+            for f in sorted {
+                if f.module != cur_mod {
+                    cur_mod = f.module.clone();
+                    let name = if cur_mod.is_empty() {
+                        "<顶层/未归属>"
+                    } else {
+                        cur_mod.as_str()
+                    };
+                    let _ = writeln!(s, "│ ── {name}");
+                }
+                let _ = writeln!(s, "│   [{}] {}", f.rule, f.detail);
+            }
+        }
+
+        let _ = writeln!(
+            s,
+            "└─ {} error(s), {} warn(s) ─────────────────────────────────────────",
+            self.error_count(),
+            self.findings
+                .iter()
+                .filter(|f| f.level == Level::Warn)
+                .count()
+        );
+        s
+    }
+
+    pub fn print(&self) {
+        // 用 eprintln 而不是 velog，保证在任何日志配置下都能看到
+        eprint!("{}", self.render());
+    }
+}
+
+fn rule_level(rule: &str) -> Level {
+    match rule {
+        "R06" | "R09" => Level::Warn,
+        "R12" => Level::Info,
+        _ => Level::Error,
+    }
+}
+
+fn rule_name(rule: &str) -> &'static str {
+    match rule {
+        "R01" => "R01 LITERAL_POINT",
+        "R02" => "R02 SHORT_PASSIVE",
+        "R03" => "R03 SHORT_RAIL",
+        "R04" => "R04 SHORT_LANE",
+        "R06" => "R06 MEGANET",
+        "R07" => "R07 GHOST_INSTANCE",
+        "R09" => "R09 FLOATING_PWR_PIN",
+        "R10" => "R10 SYMBOL_CONSERV",
+        "R11" => "R11 SPLIT_RAIL",
+        "R12" => "R12 DANGLING_PORT",
+        _ => "?",
+    }
+}
+
+// ============================================================================
+// 入口
+// ============================================================================
+
+/// 跑全部规则（不含 R10，因为它需要 Pass1 的期望值）
+pub fn run(table: &InstTable) -> Report {
+    run_with_expectation(table, &BTreeMap::new())
+}
+
+/// 跑全部规则。
+///
+/// `pass1_expect`：`module 完整路径 -> Pass1 符号表里该模块的 Component 条目数`。
+/// 传空表则跳过 R10。
+pub fn run_with_expectation(table: &InstTable, pass1_expect: &BTreeMap<String, usize>) -> Report {
+    let mut rep = Report::default();
+
+    // 所有规则都登记一次，保证 0 命中的规则也出现在表里
+    for r in [
+        "R01", "R02", "R03", "R04", "R06", "R07", "R09", "R10", "R11", "R12",
+    ] {
+        rep.counts.insert(r, 0);
+    }
+
+    let idx = Index::build(table);
+
+    rep.total_nets = table.net_count();
+    rep.total_components = table.get_components().len();
+    rep.total_modules = table.get_modules().len();
+
+    check_r01_literal_point(table, &idx, &mut rep);
+    check_r02_short_passive(table, &idx, &mut rep);
+    check_r03_r04_r06(table, &idx, &mut rep);
+    check_r07_ghost(table, &idx, &mut rep);
+    check_r09_floating_power(table, &idx, &mut rep);
+    check_r10_conservation(table, &idx, pass1_expect, &mut rep);
+    check_r11_split_rail(table, &idx, &mut rep);
+    check_r12_dangling_port(table, &idx, &mut rep);
+
+    rep
+}
+
+// ============================================================================
+// 索引：把「点 -> 所属模块」等反复要用的映射预先算好
+// ============================================================================
+
+struct Index {
+    /// entry id -> 最近的 Module 祖先 id
+    nearest_module: BTreeMap<u32, u32>,
+    /// module id -> 路径
+    module_path: BTreeMap<u32, String>,
+    /// net id -> 归属模块路径（尽力而为）
+    net_module: BTreeMap<u32, String>,
+    /// entry id -> 拥有它的 Component id（自己是 Component 时就是自己）
+    owner_comp: BTreeMap<u32, u32>,
+}
+
+impl Index {
+    fn build(table: &InstTable) -> Self {
+        let mut nearest_module = BTreeMap::new();
+        let mut module_path = BTreeMap::new();
+        let mut owner_comp = BTreeMap::new();
+
+        for (id, e) in table.iter() {
+            if e.kind == InstKind::Module {
+                module_path.insert(*id, e.path.clone());
+            }
+        }
+
+        for (id, _) in table.iter() {
+            // 向上走找最近的 Module
+            let mut cur = table.get_entry(*id).and_then(|e| e.parent_id);
+            let mut guard = 0usize;
+            while let Some(p) = cur {
+                guard += 1;
+                if guard > 256 {
+                    break; // 防御环
+                }
+                match table.get_entry(p) {
+                    Some(pe) => {
+                        if pe.kind == InstKind::Module {
+                            nearest_module.insert(*id, p);
+                            break;
+                        }
+                        cur = pe.parent_id;
+                    }
+                    None => break,
+                }
+            }
+
+            // 向上走找最近的 Component
+            let mut cur = Some(*id);
+            let mut guard = 0usize;
+            while let Some(c) = cur {
+                guard += 1;
+                if guard > 256 {
+                    break;
+                }
+                match table.get_entry(c) {
+                    Some(ce) => {
+                        if ce.kind == InstKind::Component {
+                            owner_comp.insert(*id, c);
+                            break;
+                        }
+                        cur = ce.parent_id;
+                    }
+                    None => break,
+                }
+            }
+        }
+
+        // net 归属模块 = 所有点的最近模块里，路径最长的那个公共祖先
+        let mut net_module = BTreeMap::new();
+        for net in table.get_nets() {
+            let mut cands: Vec<&str> = Vec::new();
+            for p in &net.points {
+                if let Some(m) = nearest_module.get(p) {
+                    if let Some(path) = module_path.get(m) {
+                        cands.push(path.as_str());
+                    }
+                }
+            }
+            let m = common_module_prefix(&cands);
+            net_module.insert(net.id, m);
+        }
+
+        Index {
+            nearest_module,
+            module_path,
+            net_module,
+            owner_comp,
+        }
+    }
+
+    fn module_of_net(&self, net_id: u32) -> &str {
+        self.net_module
+            .get(&net_id)
+            .map(|s| s.as_str())
+            .unwrap_or("")
+    }
+
+    fn module_of_entry(&self, id: u32) -> &str {
+        self.nearest_module
+            .get(&id)
+            .and_then(|m| self.module_path.get(m))
+            .map(|s| s.as_str())
+            .unwrap_or("")
+    }
+}
+
+/// 取一组模块路径的最长公共前缀（按 `.` 分段）
+fn common_module_prefix(paths: &[&str]) -> String {
+    if paths.is_empty() {
+        return String::new();
+    }
+    let first: Vec<&str> = paths[0].split('.').collect();
+    let mut n = first.len();
+    for p in &paths[1..] {
+        let segs: Vec<&str> = p.split('.').collect();
+        let mut k = 0;
+        while k < n && k < segs.len() && first[k] == segs[k] {
+            k += 1;
+        }
+        n = k;
+    }
+    first[..n].join(".")
+}
+
+// ============================================================================
+// 字符串工具（自带，不依赖 viz 层，避免跨层耦合）
+// ============================================================================
+
+/// 取路径最后一段：`"main.mic.MIC/P"` -> `"P"`
+fn leaf(path: &str) -> &str {
+    let a = path.rsplit('.').next().unwrap_or(path);
+    a.rsplit('/').next().unwrap_or(a)
+}
+
+/// 去掉最后一段：`"main.modldo.ldo.1"` -> `Some("main.modldo.ldo")`
+fn owner_path(path: &str) -> Option<&str> {
+    // 先按 '/' 再按 '.'，取更靠后的那个分隔符
+    let dot = path.rfind('.');
+    let slash = path.rfind('/');
+    let cut = match (dot, slash) {
+        (Some(d), Some(s)) => Some(d.max(s)),
+        (Some(d), None) => Some(d),
+        (None, Some(s)) => Some(s),
+        (None, None) => None,
+    }?;
+    if cut == 0 {
+        None
+    } else {
+        Some(&path[..cut])
+    }
+}
+
+/// 名字看起来像地
+fn is_ground_name(s: &str) -> bool {
+    let u = leaf(s).to_uppercase();
+    matches!(
+        u.as_str(),
+        "GND" | "AGND" | "DGND" | "PGND" | "VSS" | "GROUND" | "EARTH"
+    )
+}
+
+/// 名字看起来像电源（不含地）
+fn is_supply_name(s: &str) -> bool {
+    let u = leaf(s).to_uppercase();
+    if is_ground_name(&u) {
+        return false;
+    }
+    const EXACT: &[&str] = &[
+        "VCC",
+        "VDD",
+        "VBUS",
+        "VPP",
+        "AVDD",
+        "DVDD",
+        "POWER_SYS",
+        "VBAT",
+        "VIN",
+        "VOUT",
+    ];
+    if EXACT.contains(&u.as_str()) {
+        return true;
+    }
+    if ["VCC", "VDD", "AVDD", "DVDD", "VBUS", "VBAT"]
+        .iter()
+        .any(|p| u.starts_with(p))
+    {
+        return true;
+    }
+    // 3V3 / 5V0 / 1V2 / V3V3 / V5V 这类
+    let bytes = u.as_bytes();
+    let digits = bytes.iter().filter(|b| b.is_ascii_digit()).count();
+    if u.contains('V') && digits >= 1 && u.len() <= 8 {
+        // 排除纯管脚名（VO1 / VO2 这类放大器输出）
+        if !u.starts_with("VO") {
+            return true;
+        }
+    }
+    false
+}
+
+/// 电源网的归一化身份，用于 R11（同名电源不该有两张网）
+fn rail_identity(s: &str) -> Option<String> {
+    let l = leaf(s);
+    if is_ground_name(l) {
+        return Some("GND".to_string());
+    }
+    if is_supply_name(l) {
+        return Some(l.to_uppercase());
+    }
+    None
+}
+
+// ============================================================================
+// R01 · 未展开的向量引用
+// ============================================================================
+
+fn check_r01_literal_point(table: &InstTable, idx: &Index, rep: &mut Report) {
+    // ★ 补丁 2-1：隔离后的字面量点已不在 InstTable 中，
+    // 直接从 LITERAL_POINT_DETAILS 读取完整清单。
+    let details = crate::instant::mc_net::LITERAL_POINT_DETAILS
+        .lock()
+        .unwrap();
+    for (path, _src_pos) in details.iter() {
+        push(
+            rep,
+            "R01",
+            String::new(),
+            format!("未展开的向量引用进入网表: `{path}`"),
+        );
+    }
+    if !details.is_empty() {
+        return; // 隔离后不需要再扫 InstTable
+    }
+
+    // 兜底：如果隔离没生效（比如 release 优化掉了），仍走旧路径
+    let mut seen: BTreeSet<u32> = BTreeSet::new();
+    for net in table.get_nets() {
+        for p in &net.points {
+            seen.insert(*p);
+        }
+    }
+
+    for id in seen {
+        let Some(e) = table.get_entry(id) else {
+            continue;
+        };
+        if e.path.contains('{') || e.path.contains('[') || e.path.contains(',') {
+            push(
+                rep,
+                "R01",
+                idx.module_of_entry(id).to_string(),
+                format!(
+                    "未展开的向量引用进入网表: `{}` (id={}, kind={})",
+                    e.path, e.id, e.kind
+                ),
+            );
+        }
+    }
+
+    // 网名里也不该有括号
+    for net in table.get_nets() {
+        if net.name.contains('{') || net.name.contains('[') || net.name.contains(',') {
+            push(
+                rep,
+                "R01",
+                idx.module_of_net(net.id).to_string(),
+                format!("网名含字面量括号: `{}` (net#{})", net.name, net.id),
+            );
+        }
+    }
+}
+
+// ============================================================================
+// R02 · 二端器件两脚同网
+// ============================================================================
+
+fn check_r02_short_passive(table: &InstTable, idx: &Index, rep: &mut Report) {
+    for comp in table.get_components() {
+        let pins = table.get_pins_of(comp.id);
+        if pins.len() != 2 {
+            continue;
+        }
+        let n0 = table.get_net_of(pins[0].id).map(|n| n.id);
+        let n1 = table.get_net_of(pins[1].id).map(|n| n.id);
+        if let (Some(a), Some(b)) = (n0, n1) {
+            if a == b {
+                let net_name = table.get_net(a).map(|n| n.name.clone()).unwrap_or_default();
+                push(
+                    rep,
+                    "R02",
+                    idx.module_of_entry(comp.id).to_string(),
+                    format!(
+                        "二端器件 `{}` ({}) 两脚都在网 `{}` (net#{}) —— 短路",
+                        comp.path, comp.class_name, net_name, a
+                    ),
+                );
+            }
+        }
+    }
+}
+
+// ============================================================================
+// R03 / R04 / R06 · 网内部的语义冲突
+// ============================================================================
+
+fn check_r03_r04_r06(table: &InstTable, idx: &Index, rep: &mut Report) {
+    for net in table.get_nets() {
+        let module = idx.module_of_net(net.id).to_string();
+
+        // ── 收集这张网里的信息 ──
+        let mut supplies: BTreeSet<String> = BTreeSet::new();
+        let mut grounds: BTreeSet<String> = BTreeSet::new();
+        // bus 前缀 -> 出现过的成员名集合
+        let mut bus_members: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+        let mut owners: BTreeSet<u32> = BTreeSet::new();
+        let mut has_rail = false;
+
+        for p in &net.points {
+            let Some(e) = table.get_entry(*p) else {
+                continue;
+            };
+            let l = leaf(&e.path);
+
+            if is_ground_name(l) {
+                grounds.insert(l.to_uppercase());
+                has_rail = true;
+            } else if is_supply_name(l) {
+                supplies.insert(l.to_uppercase());
+                has_rail = true;
+            }
+
+            // bus 成员：`X.MIC.P` 的前缀是 `X.MIC`，成员是 `P`
+            if let Some(op) = owner_path(&e.path) {
+                // 只有当 owner 本身是 Bus / Port / Interface 性质时才算 lane
+                // （Component 的管脚不算 —— R1.1 和 R1.2 同网由 R02 管）
+                let owner_is_bus = table
+                    .get_id_by_path(op)
+                    .and_then(|oid| table.get_entry(oid))
+                    .map(|oe| matches!(oe.kind, InstKind::Bus | InstKind::Port))
+                    .unwrap_or(false);
+                if owner_is_bus {
+                    bus_members
+                        .entry(op.to_string())
+                        .or_default()
+                        .insert(l.to_string());
+                }
+            }
+
+            if let Some(c) = idx.owner_comp.get(p) {
+                owners.insert(*c);
+            }
+        }
+
+        // ── R03：电源域冲突 ──
+        let distinct_supplies = supplies.len();
+        if distinct_supplies >= 2 {
+            push(
+                rep,
+                "R03",
+                module.clone(),
+                format!(
+                    "网 `{}` (net#{}) 同时含多个电源域: {:?}",
+                    net.name, net.id, supplies
+                ),
+            );
+        }
+        if !supplies.is_empty() && !grounds.is_empty() {
+            push(
+                rep,
+                "R03",
+                module.clone(),
+                format!(
+                    "网 `{}` (net#{}) 电源与地同网: {:?} + {:?} —— 短路",
+                    net.name, net.id, supplies, grounds
+                ),
+            );
+        }
+
+        // ── R04：同一总线的多个成员同网 ──
+        for (bus, members) in &bus_members {
+            if members.len() >= 2 {
+                push(
+                    rep,
+                    "R04",
+                    module.clone(),
+                    format!(
+                        "总线 `{}` 的 {} 个成员落在同一张网 `{}` (net#{}): {:?}",
+                        bus,
+                        members.len(),
+                        net.name,
+                        net.id,
+                        members
+                    ),
+                );
+            }
+        }
+
+        // ── R06：巨网 ──
+        if !has_rail && net.points.len() > MEGANET_POINTS && owners.len() > MEGANET_OWNERS {
+            push(
+                rep,
+                "R06",
+                module.clone(),
+                format!(
+                    "网 `{}` (net#{}) 有 {} 个点、跨 {} 个器件，非电源网不应这么大",
+                    net.name,
+                    net.id,
+                    net.points.len(),
+                    owners.len()
+                ),
+            );
+        }
+    }
+}
+
+// ============================================================================
+// R07 · 幽灵实例
+// ============================================================================
+
+fn check_r07_ghost(table: &InstTable, idx: &Index, rep: &mut Report) {
+    // 每个模块下，被网络引用到的 Component 集合
+    let mut referenced: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+
+    for net in table.get_nets() {
+        for p in &net.points {
+            let Some(e) = table.get_entry(*p) else {
+                continue;
+            };
+            // 只关心 Pin —— Pin 的父亲必须是一个已注册的 Component
+            if e.kind != InstKind::Pin {
+                continue;
+            }
+            let Some(op) = owner_path(&e.path) else {
+                continue;
+            };
+            let ok = table
+                .get_id_by_path(op)
+                .and_then(|oid| table.get_entry(oid))
+                .map(|oe| oe.kind == InstKind::Component)
+                .unwrap_or(false);
+            if !ok {
+                referenced
+                    .entry(idx.module_of_entry(*p).to_string())
+                    .or_default()
+                    .insert(op.to_string());
+            }
+        }
+    }
+
+    for (module, ghosts) in referenced {
+        for g in ghosts {
+            push(
+                rep,
+                "R07",
+                module.clone(),
+                format!("网络引用了未注册的器件 `{g}`"),
+            );
+        }
+    }
+}
+
+// ============================================================================
+// R09 · 悬空的电源 / 地管脚
+// ============================================================================
+
+fn check_r09_floating_power(table: &InstTable, idx: &Index, rep: &mut Report) {
+    for comp in table.get_components() {
+        for pin in table.get_pins_of(comp.id) {
+            let name = leaf(&pin.path);
+            // 管脚号形式（"1"/"2"）看不出语义，用 class_name 里的功能名兜一下
+            let fname = pin.class_name.trim();
+            let is_pwr = is_ground_name(name)
+                || is_supply_name(name)
+                || is_ground_name(fname)
+                || is_supply_name(fname);
+            if !is_pwr {
+                continue;
+            }
+            if table.get_net_of(pin.id).is_none() {
+                push(
+                    rep,
+                    "R09",
+                    idx.module_of_entry(comp.id).to_string(),
+                    format!(
+                        "器件 `{}` 的电源/地管脚 `{}` 未连接",
+                        comp.path,
+                        leaf(&pin.path)
+                    ),
+                );
+            }
+        }
+    }
+}
+
+// ============================================================================
+// R10 · 符号守恒（Pass1 有的，Pass2 必须也有）
+// ============================================================================
+
+fn check_r10_conservation(
+    table: &InstTable,
+    _idx: &Index,
+    expect: &BTreeMap<String, usize>,
+    rep: &mut Report,
+) {
+    if expect.is_empty() {
+        return;
+    }
+    // 统计每个模块下直属的 Component 数
+    let mut actual: BTreeMap<String, usize> = BTreeMap::new();
+    for m in table.get_modules() {
+        let n = table
+            .children_of(m.id)
+            .iter()
+            .filter(|e| e.kind == InstKind::Component)
+            .count();
+        actual.insert(m.path.clone(), n);
+    }
+
+    for (path, want) in expect {
+        let got = actual.get(path).copied().unwrap_or(0);
+        if got < *want {
+            push(
+                rep,
+                "R10",
+                path.clone(),
+                format!(
+                    "Pass1 符号表有 {want} 个器件，Pass2 只注册了 {got} 个 —— 少 {}",
+                    want - got
+                ),
+            );
+        }
+    }
+}
+
+// ============================================================================
+// R11 · 同名电源被拆成多张网
+// ============================================================================
+
+fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
+    // (模块, 电源身份) -> 该身份出现在哪些 net
+    let mut buckets: BTreeMap<(String, String), BTreeSet<u32>> = BTreeMap::new();
+
+    for net in table.get_nets() {
+        let module = idx.module_of_net(net.id).to_string();
+        let mut ids: BTreeSet<String> = BTreeSet::new();
+        for p in &net.points {
+            if let Some(e) = table.get_entry(*p) {
+                if let Some(rid) = rail_identity(&e.path) {
+                    ids.insert(rid);
+                }
+            }
+        }
+        for rid in ids {
+            buckets
+                .entry((module.clone(), rid))
+                .or_default()
+                .insert(net.id);
+        }
+    }
+
+    for ((module, rid), nets) in buckets {
+        if nets.len() >= 2 {
+            let names: Vec<String> = nets
+                .iter()
+                .filter_map(|n| table.get_net(*n).map(|e| format!("{}#{}", e.name, e.id)))
+                .collect();
+            push(
+                rep,
+                "R11",
+                module,
+                format!(
+                    "电源 `{}` 被拆成 {} 张互不相连的网: {}",
+                    rid,
+                    nets.len(),
+                    names.join(", ")
+                ),
+            );
+        }
+    }
+}
+
+// ============================================================================
+// R12 · 只有自己一个点的端口网
+// ============================================================================
+
+fn check_r12_dangling_port(table: &InstTable, idx: &Index, rep: &mut Report) {
+    for net in table.get_nets() {
+        if net.points.len() != 1 {
+            continue;
+        }
+        let Some(e) = table.get_entry(net.points[0]) else {
+            continue;
+        };
+        if !matches!(e.kind, InstKind::Port | InstKind::Bus) {
+            continue;
+        }
+        push(
+            rep,
+            "R12",
+            idx.module_of_net(net.id).to_string(),
+            format!("端口 `{}` 的网只有它自己（声明了但没接）", e.path),
+        );
+    }
+}
+
+// ============================================================================
+// 内部工具
+// ============================================================================
+
+fn push(rep: &mut Report, rule: &'static str, module: String, detail: String) {
+    *rep.counts.entry(rule).or_insert(0) += 1;
+    rep.findings.push(Finding {
+        rule,
+        level: rule_level(rule),
+        module,
+        detail,
+    });
+}
+
+// ============================================================================
+// 单元测试
+// ============================================================================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn leaf_works() {
+        assert_eq!(leaf("main.mic.MIC/P"), "P");
+        assert_eq!(leaf("main.modldo.ldo.1"), "1");
+        assert_eq!(leaf("GND"), "GND");
+        assert_eq!(leaf(""), "");
+    }
+
+    #[test]
+    fn owner_path_works() {
+        assert_eq!(owner_path("main.modldo.ldo.1"), Some("main.modldo.ldo"));
+        assert_eq!(owner_path("main.mic.MIC/P"), Some("main.mic.MIC"));
+        assert_eq!(owner_path("GND"), None);
+    }
+
+    #[test]
+    fn rail_names() {
+        assert!(is_ground_name("GND"));
+        assert!(is_ground_name("main.x.VSS"));
+        assert!(!is_ground_name("VDD"));
+
+        assert!(is_supply_name("VDD_3V3"));
+        assert!(is_supply_name("V3V3"));
+        assert!(is_supply_name("VCC_1V2"));
+        assert!(is_supply_name("POWER_SYS"));
+        // 放大器输出不算电源
+        assert!(!is_supply_name("VO1"));
+        assert!(!is_supply_name("VO2"));
+        // 信号名不算
+        assert!(!is_supply_name("DAC_OUT"));
+        assert!(!is_supply_name("SCLK"));
+    }
+
+    #[test]
+    fn rail_identity_merges_grounds() {
+        assert_eq!(rail_identity("main.x.GND").as_deref(), Some("GND"));
+        assert_eq!(rail_identity("main.x.VSS").as_deref(), Some("GND"));
+        assert_eq!(rail_identity("V3V3").as_deref(), Some("V3V3"));
+        assert_eq!(rail_identity("DAC_OUT"), None);
+    }
+
+    #[test]
+    fn common_prefix() {
+        assert_eq!(
+            common_module_prefix(&["main.modldo", "main.moddcdc"]),
+            "main"
+        );
+        assert_eq!(common_module_prefix(&["main.mic", "main.mic"]), "main.mic");
+        assert_eq!(common_module_prefix(&[]), "");
+        assert_eq!(common_module_prefix(&["main"]), "main");
+    }
+}

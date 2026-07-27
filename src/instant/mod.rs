@@ -6,4 +6,5 @@ pub(crate) mod insttab;
 pub(crate) mod mc_bus;
 pub(crate) mod mc_comp;
 pub(crate) mod mc_mod;
-pub(crate) mod mc_net;
+pub mod mc_net;
+pub mod netcheck;
