@@ -121,6 +121,8 @@ impl<'a> McVecBuilder<'a> {
         let block = self.convert_module(root, "");
         // Print summary once at end of build by default
         self.report.print_summary();
+        // ★ M-1'-A: Set total_nets from InstTable for correct coverage denominator
+        self.shape_stats.total_nets = self.inst_table.net_count();
         // ★ M-1'-A: Log shape coverage statistics
         self.log_shape_stats();
         block
@@ -134,6 +136,8 @@ impl<'a> McVecBuilder<'a> {
     pub fn try_build(&mut self, root: &McModuleInst) -> Result<McVecBlock, BuilderError> {
         let block = self.convert_module(root, "");
         self.report.print_summary();
+        // ★ M-1'-A: Set total_nets from InstTable for correct coverage denominator
+        self.shape_stats.total_nets = self.inst_table.net_count();
         // ★ M-1'-A: Log shape coverage statistics
         self.log_shape_stats();
 
