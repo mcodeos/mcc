@@ -240,9 +240,13 @@ impl fmt::Display for NetShape {
 ///
 /// **改造完成的判据不是「代码写完了」，是这张表里 `from_source` 占比 ≥ 90%。**
 /// 覆盖率低说明还有路径在走旧的推断分支，那些路径就是下一批要修的。
+///
+/// ★ v4: `coverage()` = `from_source / total_nets`（有 shape 的网数 / 网总数），
+/// 而非 `from_source / (from_source + inferred)`（那恒为 100%）。
 #[derive(Debug, Default, Clone)]
 pub struct ShapeStats {
     pub total: usize,
+    pub total_nets: usize,
     pub from_source: usize,
     pub inferred: usize,
     pub dir_ltr: usize,
@@ -280,19 +284,21 @@ impl ShapeStats {
     }
 
     pub fn coverage(&self) -> f64 {
-        if self.total == 0 {
+        if self.total_nets == 0 {
             return 1.0;
         }
-        self.from_source as f64 / self.total as f64
+        self.from_source as f64 / self.total_nets as f64
     }
 
     pub fn render(&self) -> String {
         let mut s = String::new();
         s.push_str(&format!(
-            "[vec] SHAPE: from_source={} inferred={} (coverage {:.0}%)\n",
+            "[vec] SHAPE: from_source={} inferred={} (coverage {:.0}% = {}/{})\n",
             self.from_source,
             self.inferred,
-            self.coverage() * 100.0
+            self.coverage() * 100.0,
+            self.from_source,
+            self.total_nets
         ));
         s.push_str(&format!(
             "[vec] DIR:   ltr={} rtl={} undirected={}\n",
@@ -359,6 +365,7 @@ mod tests {
             dir: PairDir::LtoR,
             ..Default::default()
         };
+        st.total_nets = 2;
         st.observe("a", Some(&s));
         st.observe("b", None);
         assert!((st.coverage() - 0.5).abs() < 1e-9);
