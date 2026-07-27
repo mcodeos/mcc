@@ -342,26 +342,6 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                         builder.print_diagnostics_summary();
                     }
                     renderer.net_summary(&inst);
-
-                    // ★ netcheck: 网表体检
-                    let nc_table = mcc::InstTable::from_module_inst(&inst, 1000);
-                    let expect = mcc::instant::netcheck::build_pass1_expectations(&nc_table);
-                    let nc_report =
-                        mcc::instant::netcheck::run_with_expectation(&nc_table, &expect);
-                    nc_report.print();
-                    // ★ R01: 未展开的向量引用详情
-                    let n_literal = mcc::instant::mc_net::LITERAL_POINTS
-                        .load(std::sync::atomic::Ordering::Relaxed);
-                    if n_literal > 0 {
-                        eprintln!(
-                            "[netlist] R01 LITERAL-POINT: {} 个未展开的向量引用",
-                            n_literal
-                        );
-                        let details = mcc::instant::mc_net::LITERAL_POINT_DETAILS.lock().unwrap();
-                        for (path, _) in details.iter() {
-                            eprintln!("[netlist]   → `{path}`");
-                        }
-                    }
                 }
                 Err(e) => {
                     renderer.pass2_failed(&format!("{}", e));
@@ -427,8 +407,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                     mcc::vector::builder::reset_np_warn_count();
                     let vec_block = mcc::build_mc_vec(&inst, &table);
                     // ★ netcheck: 网表体检
-                    let expect = mcc::instant::netcheck::build_pass1_expectations(&table);
-                    let nc_report = mcc::instant::netcheck::run_with_expectation(&table, &expect);
+                    let nc_report = mcc::instant::netcheck::run(&table);
                     nc_report.print();
                     let graph = mcc::build_mc_vec_graph(&vec_block, &table);
                     let graph_box_count = graph.boxes.len();
@@ -1007,8 +986,7 @@ fn run_viz(
     );
 
     // ★ netcheck: 网表体检
-    let expect = mcc::instant::netcheck::build_pass1_expectations(&table);
-    let nc_report = mcc::instant::netcheck::run_with_expectation(&table, &expect);
+    let nc_report = mcc::instant::netcheck::run(&table);
     nc_report.print();
 
     // ★ 补丁2-1：打印未展开的向量引用详情（隔离后的完整清单）

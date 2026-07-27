@@ -279,9 +279,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                         }
 
                         // ★ netcheck: 网表体检
-                        let expect = mcc::instant::netcheck::build_pass1_expectations(&mod_table);
-                        let nc_report =
-                            mcc::instant::netcheck::run_with_expectation(&mod_table, &expect);
+                        let nc_report = mcc::instant::netcheck::run(&mod_table);
                         nc_report.print();
                     }
                     Err(e) => {
@@ -351,8 +349,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             }
 
             // ★ netcheck: 网表体检（Tier 0 · NETLIST CORRECTNESS）
-            let expect = mcc::instant::netcheck::build_pass1_expectations(&table.1);
-            let nc_report = mcc::instant::netcheck::run_with_expectation(&table.1, &expect);
+            let nc_report = mcc::instant::netcheck::run(&table.1);
             nc_report.print();
 
             // ★ 补丁2-1：打印未展开的向量引用详情（隔离后的完整清单）
