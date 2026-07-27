@@ -518,7 +518,8 @@ impl InstTable {
                 continue;
             }
             let leaf = leaf_name(&entry.path);
-            let (role, _inferred) = infer_member_role(leaf, &entry.io_type, is_ground_name, is_supply_name);
+            let (role, _inferred) =
+                infer_member_role(leaf, &entry.io_type, is_ground_name, is_supply_name);
             if !matches!(role, MemberRole::Signal) {
                 entry.member_info = Some(MemberInfo::new(role, None));
             }
@@ -1045,7 +1046,16 @@ fn is_supply_name(s: &str) -> bool {
         return false;
     }
     const EXACT: &[&str] = &[
-        "VCC", "VDD", "VBUS", "VPP", "AVDD", "DVDD", "POWER_SYS", "VBAT", "VIN", "VOUT",
+        "VCC",
+        "VDD",
+        "VBUS",
+        "VPP",
+        "AVDD",
+        "DVDD",
+        "POWER_SYS",
+        "VBAT",
+        "VIN",
+        "VOUT",
     ];
     if EXACT.contains(&u.as_str()) {
         return true;
