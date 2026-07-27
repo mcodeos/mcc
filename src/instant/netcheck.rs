@@ -49,8 +49,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 
-use super::insttab::{InstKind, InstTable, MemberRole};
-use crate::{McCMIE, McIds, McInstance, McURI};
+use super::insttab::{InstKind, InstTable};
 
 // ============================================================================
 // 配置常量
@@ -208,8 +207,8 @@ impl Report {
 
 fn rule_level(rule: &str) -> Level {
     match rule {
-        "R03a" | "R12" => Level::Info,
         "R06" | "R09" => Level::Warn,
+        "R12" => Level::Info,
         _ => Level::Error,
     }
 }
@@ -219,11 +218,9 @@ fn rule_name(rule: &str) -> &'static str {
         "R01" => "R01 LITERAL_POINT",
         "R02" => "R02 SHORT_PASSIVE",
         "R03" => "R03 SHORT_RAIL",
-        "R03a" => "R03a RAIL_ALIAS",
         "R04" => "R04 SHORT_LANE",
         "R06" => "R06 MEGANET",
         "R07" => "R07 GHOST_INSTANCE",
-        "R08" => "R08 PHANTOM_PATH",
         "R09" => "R09 FLOATING_PWR_PIN",
         "R10" => "R10 SYMBOL_CONSERV",
         "R11" => "R11 SPLIT_RAIL",
@@ -241,50 +238,16 @@ pub fn run(table: &InstTable) -> Report {
     run_with_expectation(table, &BTreeMap::new())
 }
 
-/// 从 Pass1 符号表构造 R10 期望值。
-///
-/// 返回 `module_instance_path -> Component 名字集合` 的映射。
-/// key 用模块实例路径（如 `main.mcu513`）而不是类型名（如 `US513`）。
-pub fn build_pass1_expectations(table: &InstTable) -> BTreeMap<String, BTreeSet<String>> {
-    // Step 1: 从 Pass1 收集每个模块类型的 Component 名字集合
-    let mut pass1_names: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for (name, module_uri) in crate::mcb_iter_modules() {
-        let ident = McIds::from(name.as_str());
-        let uri = McURI::from(module_uri.as_str());
-        if let Some(McCMIE::Module(def)) = crate::get_def(&ident, &uri) {
-            let names: BTreeSet<String> = def
-                .insts
-                .iter()
-                .filter(|(_, inst)| matches!(inst, McInstance::Component(_)))
-                .map(|(n, _)| (*n).to_string())
-                .collect();
-            pass1_names.insert(name, names);
-        }
-    }
-
-    // Step 2: 把 Pass2 模块实例路径映射到 Pass1 期望值
-    let mut expect: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for m in table.get_modules() {
-        if let Some(names) = pass1_names.get(&m.class_name) {
-            expect.insert(m.path.clone(), names.clone());
-        }
-    }
-    expect
-}
-
 /// 跑全部规则。
 ///
-/// `pass1_expect`：`module 完整路径 -> Pass1 符号表里该模块的 Component 名字集合`。
+/// `pass1_expect`：`module 完整路径 -> Pass1 符号表里该模块的 Component 条目数`。
 /// 传空表则跳过 R10。
-pub fn run_with_expectation(
-    table: &InstTable,
-    pass1_expect: &BTreeMap<String, BTreeSet<String>>,
-) -> Report {
+pub fn run_with_expectation(table: &InstTable, pass1_expect: &BTreeMap<String, usize>) -> Report {
     let mut rep = Report::default();
 
     // 所有规则都登记一次，保证 0 命中的规则也出现在表里
     for r in [
-        "R01", "R02", "R03", "R03a", "R04", "R06", "R07", "R08", "R09", "R10", "R11", "R12",
+        "R01", "R02", "R03", "R04", "R06", "R07", "R09", "R10", "R11", "R12",
     ] {
         rep.counts.insert(r, 0);
     }
@@ -299,7 +262,6 @@ pub fn run_with_expectation(
     check_r02_short_passive(table, &idx, &mut rep);
     check_r03_r04_r06(table, &idx, &mut rep);
     check_r07_ghost(table, &idx, &mut rep);
-    check_r08_phantom_path(table, &idx, &mut rep);
     check_r09_floating_power(table, &idx, &mut rep);
     check_r10_conservation(table, &idx, pass1_expect, &mut rep);
     check_r11_split_rail(table, &idx, &mut rep);
@@ -439,7 +401,7 @@ fn common_module_prefix(paths: &[&str]) -> String {
 // ============================================================================
 
 /// 取路径最后一段：`"main.mic.MIC/P"` -> `"P"`
-pub(crate) fn leaf(path: &str) -> &str {
+fn leaf(path: &str) -> &str {
     let a = path.rsplit('.').next().unwrap_or(path);
     a.rsplit('/').next().unwrap_or(a)
 }
@@ -463,7 +425,7 @@ fn owner_path(path: &str) -> Option<&str> {
 }
 
 /// 名字看起来像地
-pub(crate) fn is_ground_name(s: &str) -> bool {
+fn is_ground_name(s: &str) -> bool {
     let u = leaf(s).to_uppercase();
     matches!(
         u.as_str(),
@@ -472,7 +434,7 @@ pub(crate) fn is_ground_name(s: &str) -> bool {
 }
 
 /// 名字看起来像电源（不含地）
-pub(crate) fn is_supply_name(s: &str) -> bool {
+fn is_supply_name(s: &str) -> bool {
     let u = leaf(s).to_uppercase();
     if is_ground_name(&u) {
         return false;
@@ -663,53 +625,19 @@ fn check_r03_r04_r06(table: &InstTable, idx: &Index, rep: &mut Report) {
             }
         }
 
-        // ── R03a：电源域别名共存（同一根线的不同本地名）──
-        // ── R03 ：电压域冲突（不同电压的 Power 成员同网）──
+        // ── R03：电源域冲突 ──
         let distinct_supplies = supplies.len();
-
-        // Collect voltages from Power members on this net
-        let mut voltages: BTreeSet<String> = BTreeSet::new();
-        for p in &net.points {
-            if let Some(e) = table.get_entry(*p) {
-                if let Some(ref mi) = e.member_info {
-                    if mi.role == MemberRole::Power {
-                        if let Some(ref v) = mi.voltage {
-                            voltages.insert(format!("{:.1}V", v.value));
-                        } else {
-                            voltages.insert("?V".to_string());
-                        }
-                    }
-                }
-            }
-        }
-
-        if voltages.len() >= 2 {
-            // True voltage domain conflict
-            let vlist: Vec<_> = voltages.iter().collect();
+        if distinct_supplies >= 2 {
             push(
                 rep,
                 "R03",
                 module.clone(),
                 format!(
-                    "电压域冲突: 网 `{}` (net#{}) 含 {} 个不同电压: {:?}",
-                    net.name,
-                    net.id,
-                    voltages.len(),
-                    vlist
-                ),
-            );
-        } else if distinct_supplies >= 2 {
-            push(
-                rep,
-                "R03a",
-                module.clone(),
-                format!(
-                    "rail 别名共存: {:?} —— 若这些名字代表不同电压则为短路，当前无电压信息，不判定",
-                    supplies
+                    "网 `{}` (net#{}) 同时含多个电源域: {:?}",
+                    net.name, net.id, supplies
                 ),
             );
         }
-        // ── R03：电源与地同网（真短路）──
         if !supplies.is_empty() && !grounds.is_empty() {
             push(
                 rep,
@@ -760,11 +688,11 @@ fn check_r03_r04_r06(table: &InstTable, idx: &Index, rep: &mut Report) {
 }
 
 // ============================================================================
-// R07 · 幽灵实例（owner 不在 InstTable 里）
+// R07 · 幽灵实例
 // ============================================================================
 
 fn check_r07_ghost(table: &InstTable, idx: &Index, rep: &mut Report) {
-    // 每个模块下，被网络引用到但 owner 不在 InstTable 里的实例路径
+    // 每个模块下，被网络引用到的 Component 集合
     let mut referenced: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
     for net in table.get_nets() {
@@ -772,23 +700,23 @@ fn check_r07_ghost(table: &InstTable, idx: &Index, rep: &mut Report) {
             let Some(e) = table.get_entry(*p) else {
                 continue;
             };
-            // 提取 owner 段（cap4.2 → cap4），检查 owner 是否在 entries 里
+            // 只关心 Pin —— Pin 的父亲必须是一个已注册的 Component
+            if e.kind != InstKind::Pin {
+                continue;
+            }
             let Some(op) = owner_path(&e.path) else {
                 continue;
             };
-            let owner_id = table.get_id_by_path(op);
-            let owner_entry = owner_id.and_then(|oid| table.get_entry(oid));
-            let owner_is_comp = owner_entry
-                .map(|e| matches!(e.kind, InstKind::Component))
+            let ok = table
+                .get_id_by_path(op)
+                .and_then(|oid| table.get_entry(oid))
+                .map(|oe| oe.kind == InstKind::Component)
                 .unwrap_or(false);
-            if !owner_is_comp {
-                let kind_note = owner_entry
-                    .map(|e| format!("（实际 kind={}）", e.kind))
-                    .unwrap_or_default();
+            if !ok {
                 referenced
                     .entry(idx.module_of_entry(*p).to_string())
                     .or_default()
-                    .insert(format!("{op}{kind_note}"));
+                    .insert(op.to_string());
             }
         }
     }
@@ -799,55 +727,8 @@ fn check_r07_ghost(table: &InstTable, idx: &Index, rep: &mut Report) {
                 rep,
                 "R07",
                 module.clone(),
-                format!("网络引用了未注册的实例 `{g}`"),
+                format!("网络引用了未注册的器件 `{g}`"),
             );
-        }
-    }
-}
-
-// ============================================================================
-// R08 · 虚路径（X.Y.in / X.Y.out 中间段无实例）
-// ============================================================================
-
-fn check_r08_phantom_path(table: &InstTable, idx: &Index, rep: &mut Report) {
-    let mut seen: BTreeSet<String> = BTreeSet::new();
-
-    for net in table.get_nets() {
-        for p in &net.points {
-            let Some(e) = table.get_entry(*p) else {
-                continue;
-            };
-            let path = &e.path;
-
-            // 检查是否以 .in 或 .out 结尾
-            let middle = if path.ends_with(".in") {
-                &path[..path.len() - 3]
-            } else if path.ends_with(".out") {
-                &path[..path.len() - 4]
-            } else {
-                continue;
-            };
-            if middle.is_empty() {
-                continue;
-            }
-            // 中间段是否存在且为 Component
-            let middle_entry = table
-                .get_id_by_path(middle)
-                .and_then(|oid| table.get_entry(oid));
-            let middle_is_comp = middle_entry
-                .map(|e| matches!(e.kind, InstKind::Component))
-                .unwrap_or(false);
-            if !middle_is_comp && seen.insert(middle.to_string()) {
-                let kind_note = middle_entry
-                    .map(|e| format!("（实际 kind={}）", e.kind))
-                    .unwrap_or_else(|| "（缺失）".to_string());
-                push(
-                    rep,
-                    "R08",
-                    idx.module_of_entry(*p).to_string(),
-                    format!("虚路径 `{path}` —— 中间段 `{middle}` 没有 Component 实例{kind_note}"),
-                );
-            }
         }
     }
 }
@@ -892,48 +773,35 @@ fn check_r09_floating_power(table: &InstTable, idx: &Index, rep: &mut Report) {
 fn check_r10_conservation(
     table: &InstTable,
     _idx: &Index,
-    expect: &BTreeMap<String, BTreeSet<String>>,
+    expect: &BTreeMap<String, usize>,
     rep: &mut Report,
 ) {
     if expect.is_empty() {
         return;
     }
-    // 统计每个模块下直属的 Component 名字集合（取 leaf）
-    let mut actual: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    // 统计每个模块下直属的 Component 数
+    let mut actual: BTreeMap<String, usize> = BTreeMap::new();
     for m in table.get_modules() {
-        let names: BTreeSet<String> = table
+        let n = table
             .children_of(m.id)
             .iter()
             .filter(|e| e.kind == InstKind::Component)
-            .map(|e| leaf(&e.path).to_string())
-            .collect();
-        actual.insert(m.path.clone(), names);
+            .count();
+        actual.insert(m.path.clone(), n);
     }
 
-    for (path, pass1_names) in expect {
-        let pass2_names = actual.get(path).cloned().unwrap_or_default();
-
-        let missing: BTreeSet<_> = pass1_names.difference(&pass2_names).collect();
-        let extra: BTreeSet<_> = pass2_names.difference(pass1_names).collect();
-
-        for name in &missing {
+    for (path, want) in expect {
+        let got = actual.get(path).copied().unwrap_or(0);
+        if got < *want {
             push(
                 rep,
                 "R10",
                 path.clone(),
-                format!("Pass1 有器件 `{name}`，Pass2 缺失"),
-            );
-        }
-        for name in &extra {
-            *rep.counts.entry("R10").or_insert(0) += 1;
-            rep.findings.push(Finding {
-                rule: "R10",
-                level: Level::Info,
-                module: path.clone(),
-                detail: format!(
-                    "Pass2 多出器件 `{name}` —— 疑似 func 展开产物，若非预期请核对该模块的 func 调用"
+                format!(
+                    "Pass1 符号表有 {want} 个器件，Pass2 只注册了 {got} 个 —— 少 {}",
+                    want - got
                 ),
-            });
+            );
         }
     }
 }
