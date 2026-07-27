@@ -207,8 +207,8 @@ impl Report {
 
 fn rule_level(rule: &str) -> Level {
     match rule {
+        "R03a" | "R12" => Level::Info,
         "R06" | "R09" => Level::Warn,
-        "R12" => Level::Info,
         _ => Level::Error,
     }
 }
@@ -218,9 +218,11 @@ fn rule_name(rule: &str) -> &'static str {
         "R01" => "R01 LITERAL_POINT",
         "R02" => "R02 SHORT_PASSIVE",
         "R03" => "R03 SHORT_RAIL",
+        "R03a" => "R03a RAIL_ALIAS",
         "R04" => "R04 SHORT_LANE",
         "R06" => "R06 MEGANET",
         "R07" => "R07 GHOST_INSTANCE",
+        "R08" => "R08 PHANTOM_PATH",
         "R09" => "R09 FLOATING_PWR_PIN",
         "R10" => "R10 SYMBOL_CONSERV",
         "R11" => "R11 SPLIT_RAIL",
@@ -247,7 +249,7 @@ pub fn run_with_expectation(table: &InstTable, pass1_expect: &BTreeMap<String, u
 
     // 所有规则都登记一次，保证 0 命中的规则也出现在表里
     for r in [
-        "R01", "R02", "R03", "R04", "R06", "R07", "R09", "R10", "R11", "R12",
+        "R01", "R02", "R03", "R03a", "R04", "R06", "R07", "R08", "R09", "R10", "R11", "R12",
     ] {
         rep.counts.insert(r, 0);
     }
@@ -262,6 +264,7 @@ pub fn run_with_expectation(table: &InstTable, pass1_expect: &BTreeMap<String, u
     check_r02_short_passive(table, &idx, &mut rep);
     check_r03_r04_r06(table, &idx, &mut rep);
     check_r07_ghost(table, &idx, &mut rep);
+    check_r08_phantom_path(table, &idx, &mut rep);
     check_r09_floating_power(table, &idx, &mut rep);
     check_r10_conservation(table, &idx, pass1_expect, &mut rep);
     check_r11_split_rail(table, &idx, &mut rep);
@@ -690,47 +693,143 @@ fn check_r03_r04_r06(table: &InstTable, idx: &Index, rep: &mut Report) {
 }
 
 // ============================================================================
-// R07 · 幽灵实例
+// R07 · 幽灵实例（两步筛选）
 // ============================================================================
 
 fn check_r07_ghost(table: &InstTable, idx: &Index, rep: &mut Report) {
-    // 每个模块下，被网络引用到的 Component 集合
-    let mut referenced: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    /// 叶子是否是纯数字管脚号（如 `cap4.2` → `2` ✓，`main.mic.dc.GND` → `GND` ✗）
+    fn is_numeric_pin_leaf(s: &str) -> bool {
+        !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())
+    }
+
+    let mut seen: BTreeSet<String> = BTreeSet::new();
 
     for net in table.get_nets() {
         for p in &net.points {
             let Some(e) = table.get_entry(*p) else {
                 continue;
             };
-            // 只关心 Pin —— Pin 的父亲必须是一个已注册的 Component
-            if e.kind != InstKind::Pin {
+            let leaf_name = leaf(&e.path);
+
+            // 第 1 步 · 筛端点：只处理叶子是纯数字管脚号的端点
+            if !is_numeric_pin_leaf(leaf_name) {
                 continue;
             }
-            let Some(op) = owner_path(&e.path) else {
-                continue;
+
+            // 第 2 步 · 查 owner
+            let owner = match owner_path(&e.path) {
+                Some(op) => op,
+                None => {
+                    // owner 缺失 → 幽灵
+                    let key = format!("R07:{}", e.path);
+                    if seen.insert(key) {
+                        push(
+                            rep,
+                            "R07",
+                            idx.module_of_entry(*p).to_string(),
+                            format!("幽灵实例: `{}` 的 owner 缺失", e.path),
+                        );
+                    }
+                    continue;
+                }
             };
-            let ok = table
-                .get_id_by_path(op)
-                .and_then(|oid| table.get_entry(oid))
-                .map(|oe| oe.kind == InstKind::Component)
-                .unwrap_or(false);
-            if !ok {
-                referenced
-                    .entry(idx.module_of_entry(*p).to_string())
-                    .or_default()
-                    .insert(op.to_string());
+
+            let owner_entry = table
+                .get_id_by_path(owner)
+                .and_then(|oid| table.get_entry(oid));
+
+            match owner_entry {
+                None => {
+                    // owner 不在 entries 中 → 幽灵
+                    let key = format!("R07:{}", e.path);
+                    if seen.insert(key) {
+                        push(
+                            rep,
+                            "R07",
+                            idx.module_of_entry(*p).to_string(),
+                            format!("幽灵实例: `{}` 的 owner `{}` 未注册", e.path, owner),
+                        );
+                    }
+                }
+                Some(oe) => {
+                    if oe.kind == InstKind::Label {
+                        // owner.kind == Label（priority-1 兜底）→ 幽灵
+                        let key = format!("R07:{}", e.path);
+                        if seen.insert(key) {
+                            push(
+                                rep,
+                                "R07",
+                                idx.module_of_entry(*p).to_string(),
+                                format!(
+                                    "幽灵实例: `{}` 的 owner `{}` 是 Label（未注册为 Component）",
+                                    e.path, owner
+                                ),
+                            );
+                        }
+                    }
+                    // owner.kind ∈ {Component, Module, Bus, Port} → 合法，不报
+                }
             }
         }
     }
+}
 
-    for (module, ghosts) in referenced {
-        for g in ghosts {
-            push(
-                rep,
-                "R07",
-                module.clone(),
-                format!("网络引用了未注册的器件 `{g}`"),
-            );
+// ============================================================================
+// R08 · 幻影路径（两步筛选）
+// ============================================================================
+
+fn check_r08_phantom_path(table: &InstTable, idx: &Index, rep: &mut Report) {
+    /// 叶子是否是纯数字管脚号
+    fn is_numeric_pin_leaf(s: &str) -> bool {
+        !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())
+    }
+
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+
+    for net in table.get_nets() {
+        for p in &net.points {
+            let Some(e) = table.get_entry(*p) else {
+                continue;
+            };
+            let leaf_name = leaf(&e.path);
+
+            // 第 1 步 · 筛端点：只处理叶子是纯数字管脚号的端点
+            if !is_numeric_pin_leaf(leaf_name) {
+                continue;
+            }
+
+            // 第 2 步 · 查 owner 路径中的中间段
+            // 对于路径 `X.Y.Z.N`（N 是管脚号），检查 `X.Y.Z` 是否存在
+            let owner = match owner_path(&e.path) {
+                Some(op) => op,
+                None => continue,
+            };
+
+            // 如果 owner 已注册（由 R07 处理），跳过
+            if table.get_id_by_path(owner).is_some() {
+                continue;
+            }
+
+            // owner 未注册，但检查上层是否存在
+            // 对于 `main.moddcdc.@IND3.1`，owner 是 `main.moddcdc.@IND3`
+            // 检查 `main.moddcdc` 是否存在
+            if let Some(grandparent) = owner_path(owner) {
+                if table.get_id_by_path(grandparent).is_some() {
+                    // 上层存在但中间段不存在 → 幻影路径
+                    let key = format!("R08:{}", owner);
+                    if seen.insert(key) {
+                        push(
+                            rep,
+                            "R08",
+                            idx.module_of_entry(*p).to_string(),
+                            format!(
+                                "幻影路径: `{}` 的中间段 `{}` 未注册（上层 `{}` 存在）",
+                                e.path, owner, grandparent
+                            ),
+                        );
+                    }
+                }
+            }
         }
     }
 }
@@ -781,6 +880,20 @@ fn check_r10_conservation(
     if expect.is_empty() {
         return;
     }
+
+    // ★ 防呆：若某模块的 pass1 期望集合 size < 2，打 WARN
+    // 这不是为了查电路，是为了让 R10 自己没在跑的时候能喊一声
+    for (path, want) in expect {
+        if *want < 2 {
+            push(
+                rep,
+                "R10",
+                path.clone(),
+                format!("R10 期望集合疑似塌陷: {path} 只有 {want} 个 Component，规则本轮无效",),
+            );
+        }
+    }
+
     // 统计每个模块下直属的 Component 数
     let mut actual: BTreeMap<String, usize> = BTreeMap::new();
     for m in table.get_modules() {
