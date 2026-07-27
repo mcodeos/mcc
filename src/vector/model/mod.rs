@@ -10,9 +10,11 @@
 
 pub mod block;
 pub mod net;
+pub mod netshape;
 pub mod vec;
 
 // Top-level exports, users can write `use crate::vector::model::McVec;`
 pub use block::McVecBlock;
 pub use net::{ConnectionType, McVecNet};
+pub use netshape::{GroupRole, LaneRef, NetShape, PairDir, ShapeStats};
 pub use vec::McVec;

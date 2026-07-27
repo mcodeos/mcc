@@ -60,12 +60,41 @@ pub struct McVecNet {
     pub name: String,
     /// Shape-aligned endpoint groups
     pub nets: Vec<McVec>,
+    /// ★ 源码里的形状。`None` = 没有 provenance，下游退回 `connection_type()`。
+    /// 绝不用启发式填充 —— 覆盖率由日志说话。
+    pub shape: Option<super::netshape::NetShape>,
 }
 
 impl McVecNet {
-    /// Create a new net
+    /// Create a new net (no provenance)
     pub fn new(nid: i64, name: String, nets: Vec<McVec>) -> Self {
-        Self { nid, name, nets }
+        Self {
+            nid,
+            name,
+            nets,
+            shape: None,
+        }
+    }
+
+    /// Create a new net with provenance
+    pub fn with_shape(
+        nid: i64,
+        name: String,
+        nets: Vec<McVec>,
+        shape: super::netshape::NetShape,
+    ) -> Self {
+        // 全空的 shape 存 None，不要制造「有 shape 但没信息」的中间态
+        let shape = if shape.is_informative() {
+            Some(shape)
+        } else {
+            None
+        };
+        Self {
+            nid,
+            name,
+            nets,
+            shape,
+        }
     }
 
     /// Determine the connection topology type
