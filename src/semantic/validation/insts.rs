@@ -62,7 +62,14 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                 crate::McInstance::Component(c2) => {
                     let class_name = c2.base.name.to_string();
                     let def_param_count = c2.base.params.len();
-                    let call_arg_count = c2.params.len();
+                    // Strip NC modifiers from the call arg count
+                    let call_arg_count = c2
+                        .params
+                        .iter()
+                        .filter(|p| {
+                            !matches!(p, crate::semantic::basic::mc_param::McParamValue::NC(_))
+                        })
+                        .count();
 
                     if call_arg_count > def_param_count {
                         acc.push(CheckResult {
@@ -77,12 +84,12 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                             code: 2801,
                         });
                     } else if call_arg_count < def_param_count {
-                        // Count required (non-default) params
+                        // Count required: only params that have NO unit type AND NO default value.
                         let required = c2
                             .base
                             .params
                             .iter()
-                            .filter(|d| !d.has_default_value())
+                            .filter(|d| !d.has_unit_type() && !d.has_default_value())
                             .count();
                         if call_arg_count < required {
                             acc.push(CheckResult {

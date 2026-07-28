@@ -103,6 +103,9 @@ fn run_rpc(c: &RpcClient, args: &BuildArgs) -> Result<BuildOutcome> {
 }
 
 fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
+    // Reset R05 counter before each build run
+    mcc::instant::reset_r05_counter();
+
     let renderer = renderer::for_format(args.format);
     let mut builder = ResultBuilder::start("mcc build").workspace(resolve_workspace_ref());
     let mut tracker = PhaseTracker::new();

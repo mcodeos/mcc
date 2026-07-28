@@ -36,15 +36,13 @@
 //! | R02 SHORT_PASSIVE      | ERROR | 二端器件两个脚落在同一张网 |
 //! | R03 SHORT_RAIL         | ERROR | 一张网里有两个不同的电源域名（含 VDD 与 GND 同网） |
 //! | R04 SHORT_LANE         | ERROR | 同一个总线的两个不同成员落在同一张网 |
+//! | R05 UNRESOLVED_UNIT    | ERROR | 单位类型实参无法认领任何形参槽位 |
 //! | R06 MEGANET            | WARN  | 非电源网点数过多且跨越器件过多 |
 //! | R07 GHOST_INSTANCE     | ERROR | 网里引用的器件，实例表里没有 |
 //! | R09 FLOATING_POWER_PIN | WARN  | 器件的电源 / 地管脚没有连接 |
 //! | R10 SYMBOL_CONSERVATION| ERROR | Pass2 器件数 < Pass1 符号表里的器件数（需外部传入期望值） |
 //! | R11 SPLIT_RAIL         | ERROR | 同一模块内同名电源网被拆成多张互不相连的网 |
 //! | R12 DANGLING_PORT      | INFO  | 端口网只有它自己一个点 |
-//!
-//! R05 UNRESOLVED 需要在解析器里埋计数器（见 `points.rs` 的改造），
-//! 不能只读推断，这里不实现。
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -220,6 +218,7 @@ fn rule_name(rule: &str) -> &'static str {
         "R03" => "R03 SHORT_RAIL",
         "R03a" => "R03a RAIL_ALIAS",
         "R04" => "R04 SHORT_LANE",
+        "R05" => "R05 UNRESOLVED_UNIT",
         "R06" => "R06 MEGANET",
         "R07" => "R07 GHOST_INSTANCE",
         "R08" => "R08 PHANTOM_PATH",
@@ -249,7 +248,7 @@ pub fn run_with_expectation(table: &InstTable, pass1_expect: &BTreeMap<String, u
 
     // 所有规则都登记一次，保证 0 命中的规则也出现在表里
     for r in [
-        "R01", "R02", "R03", "R03a", "R04", "R06", "R07", "R08", "R09", "R10", "R11", "R12",
+        "R01", "R02", "R03", "R03a", "R04", "R05", "R06", "R07", "R08", "R09", "R10", "R11", "R12",
     ] {
         rep.counts.insert(r, 0);
     }
@@ -263,6 +262,7 @@ pub fn run_with_expectation(table: &InstTable, pass1_expect: &BTreeMap<String, u
     check_r01_literal_point(table, &idx, &mut rep);
     check_r02_short_passive(table, &idx, &mut rep);
     check_r03_r04_r06(table, &idx, &mut rep);
+    check_r05_unresolved_unit(&mut rep);
     check_r07_ghost(table, &idx, &mut rep);
     check_r08_phantom_path(table, &idx, &mut rep);
     check_r09_floating_power(table, &idx, &mut rep);
@@ -1009,6 +1009,25 @@ fn push(rep: &mut Report, rule: &'static str, module: String, detail: String) {
 // ============================================================================
 // 单元测试
 // ============================================================================
+
+// R05 · UNRESOLVED_UNIT — 单位类型实参无法认领任何形参槽位
+// Counter is incremented during parameter binding in mc_param::bind_with_opts.
+fn check_r05_unresolved_unit(rep: &mut Report) {
+    let count = crate::semantic::basic::mc_param::R05_UNRESOLVED_UNIT
+        .load(std::sync::atomic::Ordering::Relaxed);
+    if count > 0 {
+        rep.counts.insert("R05", count);
+        rep.findings.push(Finding {
+            rule: "R05",
+            level: Level::Error,
+            module: String::new(),
+            detail: format!(
+                "{} unit-typed argument(s) could not claim any formal parameter slot",
+                count
+            ),
+        });
+    }
+}
 
 #[cfg(test)]
 mod tests {

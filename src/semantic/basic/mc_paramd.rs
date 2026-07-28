@@ -609,6 +609,28 @@ impl McParamDeclare {
         self.param_type.is_explicitly_typed()
     }
 
+    /// Check if this parameter has a physical unit type (Category B: UnitValue / UnitValueDefault).
+    /// Used for unit-based claiming in round 2 of parameter binding.
+    pub fn has_unit_type(&self) -> bool {
+        matches!(
+            self.param_type.kind,
+            crate::semantic::basic::mc_param_type::McParamTypeKind::UnitValue { .. }
+                | crate::semantic::basic::mc_param_type::McParamTypeKind::UnitValueDefault { .. }
+        )
+    }
+
+    /// Get the declared physical unit, if this parameter has a unit type.
+    pub fn get_declared_unit(&self) -> Option<&crate::semantic::basic::mc_uval::McUnit> {
+        match &self.param_type.kind {
+            crate::semantic::basic::mc_param_type::McParamTypeKind::UnitValue { unit }
+            | crate::semantic::basic::mc_param_type::McParamTypeKind::UnitValueDefault {
+                unit,
+                ..
+            } => Some(unit),
+            _ => None,
+        }
+    }
+
     /// Get the class/interface name if this is an interface-typed param (A3-A5).
     pub fn get_class_name(&self) -> Option<String> {
         match &self.param_type.kind {
