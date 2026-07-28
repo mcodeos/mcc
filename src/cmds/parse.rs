@@ -409,9 +409,6 @@ pub fn run(args: &ParseArgs) -> Result<()> {
 
                     mcc::vector::builder::reset_np_warn_count();
                     let vec_block = mcc::build_mc_vec(&inst, &table);
-                    // ★ netcheck: 网表体检
-                    let nc_report = mcc::instant::netcheck::run(&table);
-                    nc_report.print();
                     let graph = mcc::build_mc_vec_graph(&vec_block, &table);
                     let graph_box_count = graph.boxes.len();
                     let graph_edge_count = graph.edges.len();

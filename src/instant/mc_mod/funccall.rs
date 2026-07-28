@@ -739,7 +739,9 @@ impl McModuleInst {
             // class-name leaks; all anonymous components of the same class sharing
             // the same label would cause union-find short. Detect and filter these
             // ghost nodes.
-            if let Some((inst_part, suffix)) = e.name.split_once('.') {
+            // ★ P0.5-2 fix: use rsplit_once to handle multi-segment class names
+            //   (e.g. "DIO.ESD.in" → inst_part="DIO.ESD", suffix="in").
+            if let Some((inst_part, suffix)) = e.name.rsplit_once('.') {
                 if (suffix == "in" || suffix == "out")
                     && !inst_part.is_empty()
                     && inst_part
@@ -1028,7 +1030,8 @@ impl McModuleInst {
             }
             // Not a `<sub>.out` placeholder, go to original fallback
             // ── P0-4.B: filter class-name placeholder leak (mirror of left)─────────────
-            if let Some((inst_part, suffix)) = e.name.split_once('.') {
+            // ★ P0.5-2 fix: use rsplit_once to handle multi-segment class names.
+            if let Some((inst_part, suffix)) = e.name.rsplit_once('.') {
                 if (suffix == "in" || suffix == "out")
                     && !inst_part.is_empty()
                     && inst_part
