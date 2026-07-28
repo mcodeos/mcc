@@ -62,49 +62,63 @@ impl McConds {
         let mut if_blocks = Vec::new();
         let mut else_block = None;
 
-        let node_type = node.get_type();
-
-        if node_type == MCAST_COND_IF {
-            if let Some(cond) = Self::parse_cond_if(node) {
-                if_blocks.push(cond);
-            }
-        }
-
-        let Some(subnodes) = node.get_sub_node() else {
-            return Some(Self {
-                if_blocks,
-                else_block,
-            });
-        };
-
-        for child in subnodes.iter() {
-            let child_type = child.get_type();
-            match child_type {
-                MCAST_COND_IF => {
-                    if let Some(cond) = Self::parse_cond_if(&child) {
-                        if_blocks.push(cond);
-                    }
+        match node.get_type() {
+            MCAST_COND_IF => {
+                if let Some(cond) = Self::parse_cond_if(node) {
+                    if_blocks.push(cond);
                 }
-                MCAST_COND_ELSE => {
-                    if let Some((cond, block)) = Self::parse_cond_else_with_cond(&child) {
-                        if let Some(c) = cond {
-                            if_blocks.push(McCond {
-                                condition: c,
-                                block,
-                            });
-                        } else {
-                            else_block = Some(block);
-                        }
-                    }
-                }
-                _ => {}
             }
+            MCAST_COND_ELSE => {
+                Self::collect_else_branch(node, &mut if_blocks, &mut else_block);
+            }
+            _ => return None,
         }
+        Self::collect_nested_branches(node, &mut if_blocks, &mut else_block);
 
         Some(Self {
             if_blocks,
             else_block,
         })
+    }
+
+    fn collect_nested_branches(
+        node: &AstNode,
+        if_blocks: &mut Vec<McCond>,
+        else_block: &mut Option<AstNode>,
+    ) {
+        let Some(subnodes) = node.get_sub_node() else {
+            return;
+        };
+        for child in subnodes.iter() {
+            match child.get_type() {
+                MCAST_COND_IF => {
+                    if let Some(cond) = Self::parse_cond_if(&child) {
+                        if_blocks.push(cond);
+                    }
+                    Self::collect_nested_branches(&child, if_blocks, else_block);
+                }
+                MCAST_COND_ELSE => {
+                    Self::collect_else_branch(&child, if_blocks, else_block);
+                    Self::collect_nested_branches(&child, if_blocks, else_block);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn collect_else_branch(
+        node: &AstNode,
+        if_blocks: &mut Vec<McCond>,
+        else_block: &mut Option<AstNode>,
+    ) {
+        let Some((condition, block)) = Self::parse_cond_else_with_cond(node) else {
+            return;
+        };
+        if let Some(condition) = condition {
+            if_blocks.push(McCond { condition, block });
+        } else {
+            *else_block = Some(block);
+        }
     }
 
     fn parse_cond_if(node: &AstNode) -> Option<McCond> {
@@ -228,7 +242,7 @@ impl McConds {
                 .unwrap_or_else(|| cond_node.clone());
             Some((Some(condition), block))
         } else {
-            block_node.map(|block| (None, block))
+            block_node.or(else_if_block_node).map(|block| (None, block))
         }
     }
 

@@ -29,8 +29,7 @@ impl ValidationCheck for PortInstanceCheck {
             let m = entry.value();
             check_duplicate_ports(&mod_name, m, acc); // C2
             check_duplicate_instances(&mod_name, m, acc); // D1
-            check_undefined_net_refs(&mod_name, m, acc); // E2
-            check_param_inst_overlap(&mod_name, m, acc); // param+port naming overlap
+            check_param_inst_overlap(&mod_name, m, acc); // value-param + instance overlap
         }
     }
 }
@@ -58,13 +57,22 @@ fn check_duplicate_ports(mod_name: &str, m: &crate::McModule, acc: &mut CheckAcc
 }
 
 fn check_param_inst_overlap(mod_name: &str, m: &crate::McModule, acc: &mut CheckAccumulator) {
-    use std::collections::HashSet;
     let pn: HashSet<String> = m
         .params
         .iter()
+        .filter(|d| !d.is_port())
         .filter_map(|d| d.get_primary_name())
         .collect();
-    for n in m.insts.iter_instance_names() {
+    for (n, (_, inst)) in m.insts.iter_with_iotype() {
+        if !matches!(
+            inst,
+            crate::McInstance::Component(_)
+                | crate::McInstance::Module(_)
+                | crate::McInstance::Interface(_)
+                | crate::McInstance::Unresolved { .. }
+        ) {
+            continue;
+        }
         if pn.contains(n) {
             let span = span_for(m, n);
             acc.push(CheckResult {
@@ -72,7 +80,10 @@ fn check_param_inst_overlap(mod_name: &str, m: &crate::McModule, acc: &mut Check
                 severity: CheckSeverity::Warning,
                 uri: Some(m.uri.to_string()),
                 span,
-                message: format!("Name '{}' in '{}' is both a param and a port.", n, mod_name),
+                message: format!(
+                    "Name '{}' in '{}' is both a value parameter and an instance.",
+                    n, mod_name
+                ),
                 code: 2410,
             });
         }
@@ -96,55 +107,20 @@ fn span_for(m: &crate::McModule, name: &str) -> Option<std::ops::Range<usize>> {
     None
 }
 
-/// E2: net connections referencing identifiers not declared as ports/instances.
-fn check_undefined_net_refs(mod_name: &str, m: &crate::McModule, acc: &mut CheckAccumulator) {
-    let uri = m.uri.to_string();
-    if super::is_test_file(&uri) {
-        return;
-    }
-    let mut known: HashSet<String> = m.insts.iter_instance_names().cloned().collect();
-    known.extend(m.params.names());
-
-    for (span, name, _) in m.insts.iter_net_refs() {
-        if name.starts_with('@') {
-            continue;
-        }
-        let ids = crate::McIds::from(name.as_str());
-        let expanded = ids.expand();
-        let found = if expanded.is_empty() {
-            known.contains(name)
-        } else {
-            expanded.iter().any(|candidate| known.contains(candidate))
-        };
-        if !found {
-            acc.push(CheckResult {
-                check_name: "port-instance",
-                severity: CheckSeverity::Warning,
-                uri: Some(uri.clone()),
-                span: Some(span.clone()),
-                message: format!(
-                    "Module '{}' references '{}' which is not a declared port or instance.",
-                    mod_name, name
-                ),
-                code: 2403,
-            });
-        }
-    }
-}
-
 /// D1: Two instances with the same name in one module
 fn check_duplicate_instances(mod_name: &str, m: &crate::McModule, acc: &mut CheckAccumulator) {
-    // Module instances include both ports and component instances with overlapping namespaces
-    let mut inst_names: HashMap<String, usize> = HashMap::new();
-    for name in m.insts.iter_instance_names() {
-        *inst_names.entry(name.clone()).or_insert(0) += 1;
-    }
-    // Also check params for same-named entries
-    for name in m.params.names() {
-        *inst_names.entry(name).or_insert(0) += 1;
-    }
-    for (name, count) in &inst_names {
-        if *count > 1 {
+    for (name, (_, inst)) in m.insts.iter_with_iotype() {
+        if !matches!(
+            inst,
+            crate::McInstance::Component(_)
+                | crate::McInstance::Module(_)
+                | crate::McInstance::Interface(_)
+                | crate::McInstance::Unresolved { .. }
+        ) {
+            continue;
+        }
+        let count = m.insts.port_spans().get(name).map_or(0, std::vec::Vec::len);
+        if count > 1 {
             let span = span_for(m, name);
             acc.push(CheckResult {
                 check_name: "port-instance",
@@ -152,7 +128,7 @@ fn check_duplicate_instances(mod_name: &str, m: &crate::McModule, acc: &mut Chec
                 uri: Some(m.uri.to_string()),
                 span,
                 message: format!(
-                    "Name '{}' appears {} times in module '{}' (across ports, params, instances).",
+                    "Instance '{}' is declared {} times in module '{}'.",
                     name, count, mod_name
                 ),
                 code: 2401,

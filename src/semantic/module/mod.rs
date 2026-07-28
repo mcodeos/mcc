@@ -257,16 +257,16 @@ impl McModule {
                     }
                 }
                 let all_forms = self.insts.all_name_forms_for(port_name);
-                let real_count: usize = all_forms
-                    .iter()
-                    .map(|form| {
-                        crate::semantic::basic::mc_param_infer::collect_usages(form, body)
-                            .iter()
-                            .filter(|u| u.pos != span.start)
-                            .count()
-                    })
-                    .sum();
-                if real_count == 0 {
+                let has_recorded_ref = self
+                    .insts
+                    .iter_net_refs()
+                    .any(|(_, name, _)| all_forms.iter().any(|form| form == name));
+                let has_ast_usage = all_forms.iter().any(|form| {
+                    crate::semantic::basic::mc_param_infer::collect_usages(form, body)
+                        .iter()
+                        .any(|usage| usage.pos != span.start)
+                });
+                if !has_recorded_ref && !has_ast_usage {
                     crate::db::diagnostic::diagnostic::diagnostic_log(
                         1402,
                         crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
@@ -682,34 +682,10 @@ impl McModule {
         params: &mut McParamDeclares,
         scope: &str,
     ) {
-        // Check this node (only leaf identifier nodes for precise spans)
-        match node.get_type() {
-            MCAST_ID | MCAST_IDA | MCAST_IDS
-            // Curly-brace / square-vec expansions (MIC{P,N}, GPIO[1:2]):
-            // extract the base name and record as port ref.
-            | MCAST_OPD_CURLY | MCAST_OPD_CURLY_MN => {
-                if let Some(text) = node.to_string() {
-                    let span =
-                        (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
-                    // Extract base name before { or [
-                    let base = text
-                        .split(|c: char| c == '{' || c == '[')
-                        .next()
-                        .unwrap_or(&text);
-                    // Exact match first (DC2.VDD), then IDX-aware match (GPIO[1] → GPIO)
-                    let matched_key: Option<String> = if insts.port_spans().contains_key(base) {
-                        Some(base.to_string())
-                    } else {
-                        insts.resolve_idx(&text)
-                    };
-                    if let Some(ref key) = matched_key {
-                        insts.record_net_ref(span, key, scope);
-                    } else if params.is_defined(base) {
-                        params.record_net_ref(span, base, scope);
-                    } else {
-                        insts.record_net_ref(span, base, scope);
-                    }
-                }
+        let handled = match node.get_type() {
+            MCAST_ID | MCAST_IDA | MCAST_IDS | MCAST_OPD_CURLY | MCAST_OPD_CURLY_MN => {
+                Self::record_scoped_net_ref(node, insts, params, scope);
+                true
             }
             // ★ SQUARE_VEC / OPD_SQUARE_VEC (e.g. [VDD_3V3,GND]):
             //   text starts with `[` so split-by-`[` gives empty base.
@@ -745,34 +721,31 @@ impl McModule {
                     }
                     current = phrase_node.get_next();
                 }
+                true
             }
-            // MCAST_OPD wraps a simple operand — extract the inner identifier directly.
             MCAST_OPD => {
                 if let Some(sub) = node.get_sub_node() {
                     let inner_type = sub.get_type();
-                    if matches!(inner_type, MCAST_ID | MCAST_IDA | MCAST_IDS) {
-                        if let Some(text) = sub.to_string() {
-                            let span = (sub.get_pos() as usize)
-                                ..((sub.get_pos() + sub.get_len()) as usize);
-                            let matched_key: Option<String> =
-                                if insts.port_spans().contains_key(&text) {
-                                    Some(text.clone())
-                                } else {
-                                    insts.resolve_idx(&text)
-                                };
-                            if let Some(ref key) = matched_key {
-                                insts.record_net_ref(span, key, scope);
-                            } else if params.is_defined(&text) {
-                                params.record_net_ref(span, &text, scope);
-                            }
-                        }
+                    if matches!(
+                        inner_type,
+                        MCAST_ID | MCAST_IDA | MCAST_IDS | MCAST_OPD_CURLY | MCAST_OPD_CURLY_MN
+                    ) {
+                        Self::record_scoped_net_ref(&sub, insts, params, scope);
+                        true
+                    } else {
+                        false
                     }
+                } else {
+                    false
                 }
             }
-            _ => {}
-        }
-        // Walk sub-node chain (children)
-        if let Some(sub) = node.get_sub_node() {
+            _ => false,
+        };
+
+        if !handled {
+            let Some(sub) = node.get_sub_node() else {
+                return;
+            };
             let mut current = sub;
             loop {
                 Self::collect_net_refs_in_node(&current, insts, params, scope);
@@ -781,6 +754,45 @@ impl McModule {
                     None => break,
                 }
             }
+        }
+    }
+
+    fn record_scoped_net_ref(
+        node: &AstNode,
+        insts: &mut McInstances,
+        params: &mut McParamDeclares,
+        scope: &str,
+    ) {
+        let Some(text) = node.to_string() else {
+            return;
+        };
+        let ids = McIds::new(node);
+        let root = ids.as_ref().and_then(McIds::root_name).unwrap_or_else(|| {
+            text.split(|c: char| c == '.' || c == '{' || c == '[')
+                .next()
+                .unwrap_or(&text)
+                .to_string()
+        });
+        if root.is_empty() {
+            return;
+        }
+
+        let start = node.get_pos() as usize;
+        let span = start..(start + root.len().min(node.get_len() as usize));
+        let matched_key = if insts.contains(&root) {
+            Some(root.clone())
+        } else {
+            insts
+                .resolve_idx(&text)
+                .or_else(|| insts.resolve_idx(&root))
+        };
+
+        if let Some(key) = matched_key {
+            insts.record_net_ref(span, &key, scope);
+        } else if params.is_defined(&root) {
+            params.record_net_ref(span, &root, scope);
+        } else {
+            insts.record_net_ref(span, &root, scope);
         }
     }
 }

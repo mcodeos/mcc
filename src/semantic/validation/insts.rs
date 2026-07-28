@@ -60,7 +60,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
             let span = instance_span(m, inst_name);
             match instance {
                 crate::McInstance::Component(c2) => {
-                    let class_name = c2.name.to_string();
+                    let class_name = c2.base.name.to_string();
                     let def_param_count = c2.base.params.len();
                     let call_arg_count = c2.params.len();
 
@@ -101,8 +101,10 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                     }
                 }
                 crate::McInstance::Module(m2) => {
-                    let class_name = m2.name.to_string();
-                    let def_param_count = m2.base.params.len();
+                    let class_name = m2.base.name.to_string();
+                    let module_params: Vec<_> =
+                        m2.base.params.iter().filter(|d| !d.is_port()).collect();
+                    let def_param_count = module_params.len();
                     let call_arg_count = m2.args.len();
 
                     if call_arg_count > def_param_count {
@@ -118,9 +120,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                             code: 2801,
                         });
                     } else if call_arg_count < def_param_count {
-                        let required = m2
-                            .base
-                            .params
+                        let required = module_params
                             .iter()
                             .filter(|d| !d.has_default_value())
                             .count();
@@ -141,7 +141,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                     }
                 }
                 crate::McInstance::Interface(i2) => {
-                    let class_name = i2.name.to_string();
+                    let class_name = i2.base.name.to_string();
                     let def_param_count = i2.base.params.len();
                     let call_arg_count = i2.params.len();
 

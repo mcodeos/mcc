@@ -133,6 +133,20 @@ fn collect_usages_recursive(param_name: &str, node: &AstNode, usages: &mut Vec<U
                         });
                     }
                 }
+                MCAST_JUDGE_EQEQ
+                | MCAST_JUDGE_NOTEQ
+                | MCAST_JUDGE_LESSTHAN
+                | MCAST_JUDGE_GREATERTHAN
+                | MCAST_JUDGE_LESSEQTHAN
+                | MCAST_JUDGE_GREATEREQTHAN
+                | MCAST_JUDGE_IN => {
+                    if node_contains_name(&n, param_name) {
+                        usages.push(UsageSite {
+                            kind: UsageKind::Conditional,
+                            pos,
+                        });
+                    }
+                }
                 // Role keyword: `role Source { ... }` in body marks the `role`
                 // parameter as used.
                 MCAST_ROLE => {

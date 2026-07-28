@@ -361,7 +361,7 @@ impl McParamType {
                             || c.get_type() == MCAST_HEX
                             || c.get_type() == MCAST_FLOAT
                         {
-                            return Some(format!("{:?}", c));
+                            return c.to_string();
                         }
                         current = c.get_next();
                     }
