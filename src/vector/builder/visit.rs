@@ -111,6 +111,29 @@ impl<'a> McVecBuilder<'a> {
         }
     }
 
+    /// ★ M-1'-A: Collect unique nets from block tree (dedup by name),
+    /// observe each once, and set total_nets.
+    fn observe_block_nets(&mut self, block: &McVecBlock) {
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        self.observe_block_nets_recursive(block, &mut seen);
+        self.shape_stats.total_nets = seen.len();
+    }
+
+    fn observe_block_nets_recursive(
+        &mut self,
+        block: &McVecBlock,
+        seen: &mut std::collections::HashSet<String>,
+    ) {
+        for net in &block.nets {
+            if seen.insert(net.name.clone()) {
+                self.shape_stats.observe(&net.name, net.shape.as_ref());
+            }
+        }
+        for sub in &block.blocks {
+            self.observe_block_nets_recursive(sub, seen);
+        }
+    }
+
     /// Entry (compat): Build complete `McVecBlock` tree from top-level `McModuleInst`
     ///
     /// **Behavior**:
@@ -121,8 +144,13 @@ impl<'a> McVecBuilder<'a> {
         let block = self.convert_module(root, "");
         // Print summary once at end of build by default
         self.report.print_summary();
-        // ★ M-1'-A: Set total_nets from InstTable for correct coverage denominator
-        self.shape_stats.total_nets = self.inst_table.net_count();
+        // ★ M-1'-A: Collect unique nets from block tree, observe once per net
+        self.observe_block_nets(&block);
+        debug_assert_eq!(
+            self.shape_stats.total, self.shape_stats.total_nets,
+            "ShapeStats: total({}) != total_nets({}) — observe() mismatch",
+            self.shape_stats.total, self.shape_stats.total_nets
+        );
         // ★ M-1'-A: Log shape coverage statistics
         self.log_shape_stats();
         block
@@ -136,8 +164,13 @@ impl<'a> McVecBuilder<'a> {
     pub fn try_build(&mut self, root: &McModuleInst) -> Result<McVecBlock, BuilderError> {
         let block = self.convert_module(root, "");
         self.report.print_summary();
-        // ★ M-1'-A: Set total_nets from InstTable for correct coverage denominator
-        self.shape_stats.total_nets = self.inst_table.net_count();
+        // ★ M-1'-A: Collect unique nets from block tree, observe once per net
+        self.observe_block_nets(&block);
+        debug_assert_eq!(
+            self.shape_stats.total, self.shape_stats.total_nets,
+            "ShapeStats: total({}) != total_nets({}) — observe() mismatch",
+            self.shape_stats.total, self.shape_stats.total_nets
+        );
         // ★ M-1'-A: Log shape coverage statistics
         self.log_shape_stats();
 
@@ -221,11 +254,6 @@ impl<'a> McVecBuilder<'a> {
 
         // 3. Build McVecNet from connections
         block.nets = self.build_nets_from_connections(inst, &my_path);
-
-        // ★ M-1'-A: Collect ShapeStats for this module's nets
-        for net in &block.nets {
-            self.shape_stats.observe(&net.name, net.shape.as_ref());
-        }
 
         // 4. Recursively process sub-modules
         if !inst.sub_modules.is_empty() {

@@ -130,6 +130,7 @@ pub fn hash_route_geometry(graph: &McVecGraph) -> String {
 /// Hash idiom instances deterministically.
 pub fn hash_idiom_instances(instances: &[super::super::idiom::model::IdiomInstance]) -> String {
     let mut hasher = DefaultHasher::new();
+    "idiom".hash(&mut hasher);
     for inst in instances {
         (inst.kind as u8).hash(&mut hasher);
         inst.anchor_box_id.hash(&mut hasher);
@@ -149,6 +150,7 @@ pub fn hash_placement_constraints(
     constraints: &[super::super::idiom::model::PlacementConstraint],
 ) -> String {
     let mut hasher = DefaultHasher::new();
+    "constraint".hash(&mut hasher);
     for c in constraints {
         (c.kind as u8).hash(&mut hasher);
         c.target_box_id.hash(&mut hasher);
@@ -163,6 +165,7 @@ pub fn hash_placement_decisions(
     decisions: &[super::super::idiom::model::PlacementDecisionRecord],
 ) -> String {
     let mut hasher = DefaultHasher::new();
+    "decision".hash(&mut hasher);
     for d in decisions {
         (d.source_kind as u8).hash(&mut hasher);
         d.target_box_id.hash(&mut hasher);

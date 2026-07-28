@@ -504,16 +504,43 @@ fn check_r01_literal_point(table: &InstTable, idx: &Index, rep: &mut Report) {
     let details = crate::instant::mc_net::LITERAL_POINT_DETAILS
         .lock()
         .unwrap();
-    for (path, _src_pos) in details.iter() {
-        push(
-            rep,
-            "R01",
-            String::new(),
-            format!("未展开的向量引用进入网表: `{path}`"),
-        );
-    }
     if !details.is_empty() {
-        set_scanned(rep, "R01", details.len());
+        // ★ 去重：按 path 分桶，保留出现次数
+        let mut buckets: BTreeMap<&str, usize> = BTreeMap::new();
+        for (path, _) in details.iter() {
+            *buckets.entry(path.as_str()).or_insert(0) += 1;
+        }
+        let unique = buckets.len();
+        let total: usize = buckets.values().sum();
+        set_scanned(rep, "R01", total);
+
+        // 按出现次数降序排列
+        let mut sorted: Vec<(&str, usize)> = buckets.into_iter().collect();
+        sorted.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+
+        let items: Vec<String> = sorted
+            .iter()
+            .map(|(path, count)| {
+                if *count > 1 {
+                    format!("`{path}` ×{count}")
+                } else {
+                    format!("`{path}`")
+                }
+            })
+            .collect();
+        *rep.counts.entry("R01").or_insert(0) = unique;
+        rep.findings.push(Finding {
+            rule: "R01",
+            level: rule_level("R01"),
+            module: String::new(),
+            detail: format!(
+                "{} 个未展开的向量引用（{} 个唯一，{} 次出现）: {}",
+                total,
+                unique,
+                total,
+                items.join("  ")
+            ),
+        });
         return; // 隔离后不需要再扫 InstTable
     }
 
