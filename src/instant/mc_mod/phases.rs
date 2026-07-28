@@ -8,6 +8,7 @@
 //! - Phase 3: Declared instance instantiation (components / sub-modules / labels)
 //! - Phase 4: Connection line processing entry
 
+use super::FailedRecord;
 use super::McModuleInst;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{canonicalize_path, ConnectionInst, InstError, NetPoint, PortInst};
@@ -340,10 +341,22 @@ impl McModuleInst {
                         ) {
                             Ok(inst) => inst,
                             Err(e) => {
+                                let reason = format!("{:?}", e);
                                 eprintln!(
-                                    "[ERROR] Failed to instantiate component '{}': {:?}",
-                                    c.name, e
+                                    "[ERROR] Failed to instantiate component '{}' (class '{}'): {}",
+                                    c.name, c.base.name, reason
                                 );
+                                self.failed_classes.insert(c.base.name.to_string());
+                                self.failed_records.push(FailedRecord {
+                                    module: self.name.clone(),
+                                    src_line: self
+                                        .current_line_span
+                                        .as_ref()
+                                        .map(|s| s.start / 1000),
+                                    component_name: c.name.to_string(),
+                                    class_name: c.base.name.to_string(),
+                                    reason,
+                                });
                                 continue;
                             }
                         }

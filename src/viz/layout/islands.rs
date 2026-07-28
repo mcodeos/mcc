@@ -976,11 +976,14 @@ fn place_terminal_box(
     b.h = h;
 
     for &(pin_id, _) in connected {
-        debug_assert!(
-            b.pins.is_empty() || b.pins.iter().any(|p| p.id == pin_id),
-            "pin {pin_id} 不属于 box#{} —— 端子配对错了",
-            b.id
-        );
+        // G4: Upgrade from debug_assert to release-mode diagnostic.
+        if !b.pins.is_empty() && !b.pins.iter().any(|p| p.id == pin_id) {
+            eprintln!(
+                "[viz] GHOST_PIN: pin {pin_id} 不属于 box#{} (端子配对错误，可能来自失败的实例化)，跳过",
+                b.id
+            );
+            continue;
+        }
         if !b.entry_points.iter().any(|e| e.pin_id == pin_id) {
             b.entry_points.push(EntryPoint {
                 pin_id,
@@ -1238,11 +1241,16 @@ fn apply_chain_layout(
             b.h = th;
 
             for &(pin_id, _) in left_pins.iter().chain(right_pins.iter()) {
-                debug_assert!(
-                    b.pins.is_empty() || b.pins.iter().any(|p| p.id == pin_id),
-                    "pin {pin_id} 不属于 box#{} —— 端子配对错了",
-                    b.id
-                );
+                // G4: Upgrade from debug_assert to release-mode diagnostic.
+                // Ghost pins from failed instantiations must not cause a panic;
+                // instead, log and skip (hard veto).
+                if !b.pins.is_empty() && !b.pins.iter().any(|p| p.id == pin_id) {
+                    eprintln!(
+                        "[viz] GHOST_PIN: pin {pin_id} 不属于 box#{} (端子配对错误，可能来自失败的实例化)，跳过",
+                        b.id
+                    );
+                    continue;
+                }
                 if !b.entry_points.iter().any(|e| e.pin_id == pin_id) {
                     b.entry_points.push(EntryPoint {
                         pin_id,

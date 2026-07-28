@@ -11,6 +11,7 @@
 //! - `prefix_instance_line/phrase/node_element` —— Label prefixing in instance method bodies
 
 use super::funccall::FuncCallInst;
+use super::FailedRecord;
 use super::McModuleInst;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
@@ -72,7 +73,28 @@ impl McModuleInst {
         let inst_name = self.auto_name(&safe_type);
 
         // 2. Create the component instance with parameters
-        let inst = McComponentInst::with_params(&inst_name, comp_def, params)?;
+        let inst = match McComponentInst::with_params(&inst_name, comp_def.clone(), params) {
+            Ok(inst) => inst,
+            Err(e) => {
+                let reason = format!("{:?}", e);
+                eprintln!(
+                    "[ERROR] Failed to instantiate anonymous component '{}' (class '{}'): {}",
+                    inst_name, type_name, reason
+                );
+                self.failed_classes.insert(type_name.clone());
+                self.failed_records.push(FailedRecord {
+                    module: self.name.clone(),
+                    src_line: self.current_line_span.as_ref().map(|s| s.start / 1000),
+                    component_name: inst_name.clone(),
+                    class_name: type_name.clone(),
+                    reason: reason.clone(),
+                });
+                return Err(InstError::Other(format!(
+                    "Failed to instantiate '{}': {}",
+                    inst_name, reason
+                )));
+            }
+        };
 
         // ── Iter-3.E3 + P4 ───────────────────────────────────────────────
         // Filter out synthetic interface placeholders that mc_fcall.rs injects when
