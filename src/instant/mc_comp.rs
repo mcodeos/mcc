@@ -46,6 +46,9 @@ pub struct McComponentInst {
 
     /// NC (Not Connected) instance
     pub nc: bool,
+
+    /// Degraded instance (instantiation failed, created as placeholder to prevent dangling pins)
+    pub degraded: bool,
 }
 
 impl McComponentInst {
@@ -60,10 +63,26 @@ impl McComponentInst {
             cond_attrs: Vec::new(),
             resolved_attrs: Vec::new(),
             nc: false,
+            degraded: false,
         };
 
         inst.init_pins();
         inst
+    }
+
+    /// Create a degraded instance (instantiation failed, no pins)
+    pub fn degraded(name: &str, def: Arc<McComponent>) -> Self {
+        Self {
+            name: name.to_string(),
+            def,
+            params: McParamBindings::new(),
+            pins: HashMap::new(),
+            cond_pin_names: HashMap::new(),
+            cond_attrs: Vec::new(),
+            resolved_attrs: Vec::new(),
+            nc: false,
+            degraded: true,
+        }
     }
 
     /// Create a component instance with parameters
@@ -88,6 +107,7 @@ impl McComponentInst {
             cond_attrs: Vec::new(),
             resolved_attrs: Vec::new(),
             nc,
+            degraded: false,
         };
 
         inst.init_pins();
@@ -105,6 +125,7 @@ impl McComponentInst {
             cond_attrs: Vec::new(),
             resolved_attrs: Vec::new(),
             nc: true,
+            degraded: false,
         };
 
         inst.init_pins();

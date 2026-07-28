@@ -2,6 +2,8 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
+
 use super::mc_opd::McOpd;
 pub use super::mc_paramd::*;
 use crate::semantic::component::mc_attr::McAttribute;
@@ -15,6 +17,14 @@ use crate::{
     },
     McFloat, McIds, McInt,
 };
+
+/// Global counter for R05 UNRESOLVED: unit-typed arguments that cannot claim any formal slot.
+pub static R05_UNRESOLVED_UNIT: AtomicUsize = AtomicUsize::new(0);
+
+/// Reset the R05 counter (call before each build run).
+pub fn reset_r05_counter() {
+    R05_UNRESOLVED_UNIT.store(0, Ordering::Relaxed);
+}
 
 // ============================================================================
 // Parameter values (actual arguments)
@@ -532,36 +542,7 @@ impl McParamBindings {
         values: &[McParamValue],
         silent_extras: bool,
     ) -> Result<Self, ParamBindError> {
-        let mut bindings = Vec::new();
-
-        // ── Arity validation (M4) ──────────────────────────────────────
-        let arity = declares.arity();
-        let call_count = values.len();
-
-        // Check for too many arguments (strict error unless silent mode)
-        if call_count > arity.total && !silent_extras {
-            return Err(ParamBindError::TooManyArguments {
-                expected: arity.total,
-                got: call_count,
-            });
-        }
-
-        // Check for too few arguments (missing required)
-        if call_count < arity.required {
-            // Find which required params would be missing
-            let required_names: Vec<String> = declares
-                .iter()
-                .filter(|d| !d.has_default_value())
-                .filter_map(|d| d.get_primary_name())
-                .collect();
-            if call_count < required_names.len() {
-                return Err(ParamBindError::MissingRequired {
-                    name: required_names.get(call_count).cloned().unwrap_or_default(),
-                });
-            }
-        }
-
-        // Separate named parameters (Attribute type) and positional parameters
+        // ── Separate named parameters (Attribute type) and positional parameters ──
         let mut named_values: Vec<&McParamValue> = Vec::new();
         let mut positional_values: Vec<McParamValue> = Vec::new();
 
@@ -573,8 +554,51 @@ impl McParamBindings {
             }
         }
 
-        // ── Iter-3.G ────────────────────────────────────────────────────
-        // Set re-grouping heuristic
+        // ── Strip NC modifiers from positional values before arity check ──
+        // NC (Not Connected) is a modifier, not a positional argument.
+        let effective_pos: Vec<McParamValue> = positional_values
+            .iter()
+            .filter(|v| !matches!(v, McParamValue::NC(_)))
+            .cloned()
+            .collect();
+        let effective_count = effective_pos.len();
+
+        // ── New arity rule ─────────────────────────────────────────────────
+        // required: only params that have NO unit type AND NO default value.
+        // Unit-typed params without a matching arg → bind as `_` (unspecified), not an error.
+        let total = declares.iter().count();
+        let new_required = declares
+            .iter()
+            .filter(|d| !d.has_unit_type() && !d.has_default_value())
+            .count();
+
+        // Check for too many arguments (strict error unless silent mode)
+        if effective_count > total && !silent_extras {
+            return Err(ParamBindError::TooManyArguments {
+                expected: total,
+                got: effective_count,
+            });
+        }
+
+        // Check for too few arguments (missing required)
+        if effective_count < new_required {
+            let required_names: Vec<String> = declares
+                .iter()
+                .filter(|d| !d.has_unit_type() && !d.has_default_value())
+                .filter_map(|d| d.get_primary_name())
+                .collect();
+            if effective_count < required_names.len() {
+                return Err(ParamBindError::MissingRequired {
+                    name: required_names
+                        .get(effective_count)
+                        .cloned()
+                        .unwrap_or_default(),
+                });
+            }
+        }
+
+        // ── Iter-3.G: Set re-grouping heuristic (applied to effective positionals) ──
+        let mut positional_values = effective_pos;
         let decl_count = declares.iter().count();
         if decl_count > 0
             && positional_values.len() > decl_count
@@ -582,11 +606,6 @@ impl McParamBindings {
         {
             let group_size = positional_values.len() / decl_count;
             if group_size >= 2 {
-                // Check that all positionals are trivial types (not Set / Phrase / InlineAttrs)
-                // Identifier `VDD_3V3` parses to McParamValue::Ids, numeric literal to
-                // McParamValue::Int (not Integer), NC to McParamValue::NC(String).
-                // To be safe, use "non-complex" criterion: anything other than Set/Phrase/InlineAttrs
-                // is trivial, to avoid missing primitive variants not yet enumerated.
                 let all_simple = positional_values.iter().all(|v| {
                     !matches!(
                         v,
@@ -596,7 +615,6 @@ impl McParamBindings {
                     )
                 });
                 if all_simple {
-                    // Re-group: every group_size positionals combined into a Set
                     let regrouped: Vec<McParamValue> = positional_values
                         .chunks(group_size)
                         .map(|chunk| McParamValue::Set(chunk.to_vec()))
@@ -606,10 +624,13 @@ impl McParamBindings {
             }
         }
 
-        // Bind by position, named parameters take priority
-        let mut pos_idx = 0;
-        for declare in declares.iter() {
-            // 1. First check if there is a named parameter matching this formal parameter
+        // ── Three-round binding ────────────────────────────────────────────
+        let mut bindings: Vec<Option<McParamBinding>> = vec![None; total];
+        let mut slot_claimed: Vec<bool> = vec![false; total];
+        let mut pos_claimed: Vec<bool> = vec![false; positional_values.len()];
+
+        // ── Round 1: Named binding (keep existing logic) ────────────────────
+        for (di, declare) in declares.iter().enumerate() {
             let named_match = if let Some(param_name) = declare.get_primary_name() {
                 named_values
                     .iter()
@@ -620,82 +641,88 @@ impl McParamBindings {
                 None
             };
 
-            let value = if let Some(named_val) = named_match {
-                Some(named_val)
-            } else if pos_idx < positional_values.len() {
-                // 2. Otherwise bind by position
-                let val = positional_values[pos_idx].clone();
-                pos_idx += 1;
-                Some(val)
-            } else {
-                // 3. No actual argument, use default value (if any)
-                None
-            };
+            if let Some(named_val) = named_match {
+                bindings[di] = Some(McParamBinding::new(declare.clone(), Some(named_val)));
+                slot_claimed[di] = true;
+            }
+        }
 
-            // I3: NC misuse — NC should not replace electrically meaningful typed params
-            // E3: Unit dimension mismatch — passing value with wrong physical unit
-            if let Some(ref val) = &value {
-                if matches!(val, McParamValue::NC(_)) && declare.has_type_constraint() {
-                    if let Some(name) = declare.get_primary_name() {
-                        eprintln!("Warning: NC passed for typed parameter '{}'.", name);
+        // ── Round 2: Unit claiming ──────────────────────────────────────────
+        // For each positional arg with a unit, try to claim a formal slot
+        // whose declared unit matches the argument's unit.
+        for (pi, pos_val) in positional_values.iter().enumerate() {
+            if let McParamValue::UValue(uval) = pos_val {
+                let arg_unit = uval.unit();
+                let mut claimed = false;
+                for (di, declare) in declares.iter().enumerate() {
+                    if slot_claimed[di] {
+                        continue;
                     }
-                }
-                // E3: check UValue unit vs declared type
-                if let McParamValue::UValue(uval) = val {
-                    if let crate::semantic::basic::mc_paramd::McParamDeclareKind::UValue(
-                        ref decl_uv,
-                    ) = declare.kind
-                    {
-                        if &decl_uv.unit != uval.unit() {
-                            if let Some(name) = declare.get_primary_name() {
-                                eprintln!(
-                                    "Warning: Unit mismatch for '{}': declared {:?} but passed {:?} ({}).",
-                                    name, decl_uv.unit, uval.unit(), uval
-                                );
-                            }
+                    if let Some(decl_unit) = declare.get_declared_unit() {
+                        if decl_unit == arg_unit {
+                            bindings[di] =
+                                Some(McParamBinding::new(declare.clone(), Some(pos_val.clone())));
+                            slot_claimed[di] = true;
+                            pos_claimed[pi] = true;
+                            claimed = true;
+                            break;
                         }
                     }
                 }
-            }
-
-            bindings.push(McParamBinding::new(declare.clone(), value));
-        }
-
-        // ── Fill defaults for omitted optional params (M4) ───────────────
-        // After positional binding, check if any optional params (with defaults)
-        // were omitted. If so, create bindings with default values.
-        for declare in declares.iter() {
-            if declare.has_default_value() {
-                // Check if this param already has a binding
-                let already_bound = bindings
-                    .iter()
-                    .any(|b| b.declare.get_primary_name() == declare.get_primary_name());
-                if !already_bound {
-                    // Create binding with default value
-                    bindings.push(McParamBinding::new(declare.clone(), None));
+                if !claimed {
+                    // Unit-typed argument cannot claim any slot → diagnostic + R05
+                    R05_UNRESOLVED_UNIT.fetch_add(1, Ordering::Relaxed);
+                    eprintln!(
+                        "[R05] UNRESOLVED: unit {:?} value '{}' cannot claim any formal parameter slot.",
+                        arg_unit, uval
+                    );
                 }
             }
         }
 
-        // ── Extra positional arguments check ────────────────────────────
-        // MC has special calling convention like `X6.setup(NC)` to pass
-        // "NC as default not soldered" marker to `setup()` which has no formal params.
-        // If all extra args are NC → silent (convention call).
-        // Otherwise, if arity check already caught too-many, this won't trigger.
-        if pos_idx < positional_values.len() {
-            let extras = &positional_values[pos_idx..];
-            let all_nc = extras.iter().all(|v| matches!(v, McParamValue::NC(_)));
-            if !all_nc && !silent_extras && arity.total > 0 {
-                eprintln!(
-                    "Warning: extra {} positional argument(s) (expected {}, got {}); extras ignored.",
-                    positional_values.len() - pos_idx,
-                    arity.total,
-                    values.len()
-                );
+        // ── Round 3: Positional fallback ────────────────────────────────────
+        // Remaining unclaimed positional args (strings, enums, package names, etc.)
+        // fill remaining unclaimed slots in order.
+        let remaining_pos: Vec<(usize, &McParamValue)> = positional_values
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| !pos_claimed[*i])
+            .collect();
+        let mut rp_idx = 0;
+        for (di, declare) in declares.iter().enumerate() {
+            if slot_claimed[di] {
+                continue;
+            }
+            if rp_idx < remaining_pos.len() {
+                let (_pi, pos_val) = remaining_pos[rp_idx];
+                bindings[di] = Some(McParamBinding::new(declare.clone(), Some(pos_val.clone())));
+                slot_claimed[di] = true;
+                rp_idx += 1;
             }
         }
 
-        Ok(Self { bindings })
+        // ── Fill unclaimed slots ────────────────────────────────────────────
+        // Unclaimed slots with unit type → bind as `_` (unspecified), no error.
+        // Unclaimed slots with default → bind with default value.
+        // Unclaimed slots without default → bind as None (represents `_`).
+        let mut final_bindings = Vec::new();
+        for (di, declare) in declares.iter().enumerate() {
+            if let Some(binding) = bindings[di].take() {
+                final_bindings.push(binding);
+            } else {
+                // Slot not claimed by any round
+                if declare.has_default_value() {
+                    final_bindings.push(McParamBinding::new(declare.clone(), None));
+                } else {
+                    // Unit-typed or non-required: bind as `_` (unspecified)
+                    final_bindings.push(McParamBinding::new(declare.clone(), None));
+                }
+            }
+        }
+
+        Ok(Self {
+            bindings: final_bindings,
+        })
     }
 
     /// Find binding by parameter name
