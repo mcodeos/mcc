@@ -126,6 +126,9 @@ pub fn build_from_manifest(
     cli_top: Option<&str>,
     cli_entry: Option<&str>,
 ) -> Result<(String, String)> {
+    // Project-local resources, including SVG symbols, resolve from this root.
+    mcc::mcc_set_project_root(project_root);
+
     // 1. Try reading manifest
     let manifest = Manifest::find_in(project_root).and_then(|p| Manifest::load(&p).ok());
 

@@ -215,16 +215,20 @@ pub fn mcc_set_system_root(path: &Path) {
 pub fn mcc_set_project_root(path: &Path) {
     debug!(target: "mcc::sysinit", project_root = ?path);
     builder::mcb_set_project_root(path);
+    let report = vector::graph::custom_symbol::load_project_symbols(path);
+    vector::graph::custom_symbol::log_report(path, &report);
 }
 
 /// mcc interface
 pub fn mcc_init() {
+    vector::graph::custom_symbol::clear_project_symbols();
     builder::mcb_init();
     builder::mcb_init_system_lib();
 }
 
 /// mcc interface (don't load system library, optional at server startup)
 pub fn mcc_init_no_lib() {
+    vector::graph::custom_symbol::clear_project_symbols();
     builder::mcb_init();
 }
 
@@ -865,11 +869,21 @@ pub fn workspace_info() -> (String, String, String) {
 }
 
 pub fn workspace_create(id: &str, kind: WorkspaceKind, root: &std::path::Path) -> bool {
-    builder::workspace::WORKSPACE.create_and_switch(id.to_string(), kind, root.to_path_buf())
+    let created =
+        builder::workspace::WORKSPACE.create_and_switch(id.to_string(), kind, root.to_path_buf());
+    if created {
+        mcc_set_project_root(root);
+    }
+    created
 }
 
 pub fn workspace_switch(id: &str) -> bool {
-    builder::workspace::WORKSPACE.switch_to(id)
+    let switched = builder::workspace::WORKSPACE.switch_to(id);
+    if switched {
+        let root = builder::workspace::WORKSPACE.active_root();
+        mcc_set_project_root(&root);
+    }
+    switched
 }
 
 pub fn workspace_remove(id: &str) -> bool {
