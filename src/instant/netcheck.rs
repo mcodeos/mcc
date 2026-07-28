@@ -43,6 +43,7 @@
 //! | R10 SYMBOL_CONSERVATION| ERROR | Pass2 器件数 < Pass1 符号表里的器件数（需外部传入期望值） |
 //! | R11 SPLIT_RAIL         | ERROR | 同一模块内同名电源网被拆成多张互不相连的网 |
 //! | R12 DANGLING_PORT      | INFO  | 端口网只有它自己一个点 |
+//! | R14 ORPHAN_INSTANCE     | WARN  | 注册了但不在任何网里的实例 |
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -213,7 +214,7 @@ impl Report {
 fn rule_level(rule: &str) -> Level {
     match rule {
         "R03a" | "R12" => Level::Info,
-        "R06" | "R09" => Level::Warn,
+        "R06" | "R09" | "R14" => Level::Warn,
         _ => Level::Error,
     }
 }
@@ -233,6 +234,7 @@ fn rule_name(rule: &str) -> &'static str {
         "R10" => "R10 SYMBOL_CONSERV",
         "R11" => "R11 SPLIT_RAIL",
         "R12" => "R12 DANGLING_PORT",
+        "R14" => "R14 ORPHAN_INSTANCE",
         _ => "?",
     }
 }
@@ -256,6 +258,7 @@ pub fn run_with_expectation(table: &InstTable, pass1_expect: &BTreeMap<String, u
     // 所有规则都登记一次，保证 0 命中的规则也出现在表里
     for r in [
         "R01", "R02", "R03", "R03a", "R04", "R05", "R06", "R07", "R08", "R09", "R10", "R11", "R12",
+        "R14",
     ] {
         rep.counts.insert(r, 0);
     }
@@ -276,6 +279,7 @@ pub fn run_with_expectation(table: &InstTable, pass1_expect: &BTreeMap<String, u
     check_r10_conservation(table, &idx, pass1_expect, &mut rep);
     check_r11_split_rail(table, &idx, &mut rep);
     check_r12_dangling_port(table, &idx, &mut rep);
+    check_r14_orphan_instance(table, &idx, &mut rep);
 
     rep
 }
@@ -739,28 +743,23 @@ fn check_r03_r04_r06(table: &InstTable, idx: &Index, rep: &mut Report) {
 }
 
 // ============================================================================
-// R07 · 幽灵实例 —— 数字管脚端点的 owner 必须在模块的 Component 子节点里
+// R07 · 幽灵实例 —— 端点 owner 必须在模块的 Component/Module 子节点里
 // ============================================================================
 
 fn check_r07_ghost(table: &InstTable, idx: &Index, rep: &mut Report) {
-    /// 叶子是否是纯数字管脚号（如 `cap4.2` → `2` ✓，`main.mic.dc.GND` → `GND` ✗）
-    fn is_numeric_pin_leaf(s: &str) -> bool {
-        !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())
-    }
-
-    // 构建每个模块的直属 Component 集合
-    let mut module_components: BTreeMap<u32, BTreeSet<String>> = BTreeMap::new();
+    // 构建每个模块的直属 Component + Module 集合
+    let mut module_children: BTreeMap<u32, BTreeSet<String>> = BTreeMap::new();
     for m in table.get_modules() {
-        let comps: BTreeSet<String> = table
+        let children: BTreeSet<String> = table
             .children_of(m.id)
             .iter()
-            .filter(|e| e.kind == InstKind::Component)
+            .filter(|e| matches!(e.kind, InstKind::Component | InstKind::Module))
             .map(|e| e.path.clone())
             .collect();
-        module_components.insert(m.id, comps);
+        module_children.insert(m.id, children);
     }
 
-    // (module_id, owner_path) → 该 owner 引用的 pin 的组件名集合
+    // (module_id, owner_path) → 该 owner 引用的组件名集合
     let mut ghosts: BTreeMap<(u32, String), BTreeSet<String>> = BTreeMap::new();
     let mut scanned = 0usize;
 
@@ -769,30 +768,24 @@ fn check_r07_ghost(table: &InstTable, idx: &Index, rep: &mut Report) {
             let Some(e) = table.get_entry(*p) else {
                 continue;
             };
-            let leaf_name = leaf(&e.path);
 
-            // 第 1 步 · 筛端点：只处理叶子是纯数字管脚号的端点
-            if !is_numeric_pin_leaf(leaf_name) {
-                continue;
-            }
+            // 第 1 步 · 确定 owner：路径中最后一个点之前的部分，无点则为路径本身
+            let owner = owner_path(&e.path)
+                .map(|op| op.to_string())
+                .unwrap_or_else(|| leaf(&e.path).to_string());
+
             scanned += 1;
 
-            // 第 2 步 · 查 owner：owner 必须在所属模块的 Component 子节点里
-            let owner = match owner_path(&e.path) {
-                Some(op) => op.to_string(),
-                None => continue,
-            };
-
-            // 找到这个端点所属的最近模块
+            // 第 2 步 · 找到这个端点所属的最近模块
             let module_id = match idx.nearest_module.get(p) {
                 Some(m) => *m,
                 None => continue,
             };
 
-            // 检查 owner 是否在该模块的 Component 子节点中
-            let is_valid = module_components
+            // 第 3 步 · 检查 owner 是否在该模块的 Component/Module 子节点中
+            let is_valid = module_children
                 .get(&module_id)
-                .map(|comps| comps.contains(&owner))
+                .map(|children| children.contains(&owner))
                 .unwrap_or(false);
 
             if !is_valid {
@@ -1035,12 +1028,114 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
         }
     }
 
+    // ★ P0.5-4: 跨层端口 union —— 先通过端口连接关系合并父子模块的同 rail 网
+    //
+    // 问题：`main.moddcdc::GND` 和 `main::GND` 通过端口连接，
+    // 但 R11 按 net 分桶时看不到这层连接，会误报 SPLIT_RAIL。
+    //
+    // 方案：对每个模块，收集其端口导出的 rail_identity。
+    // 对每个父子模块对，如果子模块的端口导出某 rail_identity，
+    // 且父子模块都有该 rail_identity 的 net，则将这些 net union。
+    let mut uf: BTreeMap<u32, u32> = BTreeMap::new();
+    fn uf_find(uf: &mut BTreeMap<u32, u32>, x: u32) -> u32 {
+        let p = *uf.entry(x).or_insert(x);
+        if p == x {
+            x
+        } else {
+            let root = uf_find(uf, p);
+            uf.insert(x, root);
+            root
+        }
+    }
+    fn uf_union(uf: &mut BTreeMap<u32, u32>, a: u32, b: u32) {
+        let ra = uf_find(uf, a);
+        let rb = uf_find(uf, b);
+        if ra != rb {
+            uf.insert(ra, rb);
+        }
+    }
+
+    // 收集每个模块通过端口导出的 rail_identity
+    let mut module_port_rails: BTreeMap<u32, BTreeSet<String>> = BTreeMap::new();
+    for m in table.get_modules() {
+        for port in table.get_ports_of(m.id) {
+            if let Some(rid) = rail_identity(&port.path) {
+                module_port_rails.entry(m.id).or_default().insert(rid);
+            }
+        }
+    }
+
+    // 收集每个 net 所在的模块集合（通过 net 中点的 nearest_module）
+    let mut net_modules: BTreeMap<u32, BTreeSet<u32>> = BTreeMap::new();
+    for net in table.get_nets() {
+        let mut mods = BTreeSet::new();
+        for p in &net.points {
+            if let Some(m) = idx.nearest_module.get(p) {
+                mods.insert(*m);
+            }
+        }
+        if !mods.is_empty() {
+            net_modules.insert(net.id, mods);
+        }
+    }
+
+    // 对每个父子模块对，union 通过端口连接的同 rail 网
+    for m in table.get_modules() {
+        let parent_id = match table.get_entry(m.id).and_then(|e| e.parent_id) {
+            Some(pid) => pid,
+            None => continue,
+        };
+
+        if let Some(port_rails) = module_port_rails.get(&m.id) {
+            for rid in port_rails {
+                // 收集父模块中该 rail_identity 的 net
+                let mut parent_nets: Vec<u32> = Vec::new();
+                // 收集子模块中该 rail_identity 的 net
+                let mut child_nets: Vec<u32> = Vec::new();
+
+                for (nid, mods) in &net_modules {
+                    if let Some(net_set) = buckets.get(rid) {
+                        if !net_set.contains(nid) {
+                            continue;
+                        }
+                    } else {
+                        continue;
+                    }
+                    if mods.contains(&parent_id) {
+                        parent_nets.push(*nid);
+                    }
+                    if mods.contains(&m.id) {
+                        child_nets.push(*nid);
+                    }
+                }
+
+                // Union 父模块和子模块中同 rail 的 net
+                for &pn in &parent_nets {
+                    for &cn in &child_nets {
+                        uf_union(&mut uf, pn, cn);
+                    }
+                }
+            }
+        }
+    }
+
     set_scanned(rep, "R11", scanned);
 
+    // 对每个 rail_identity，按 union-find 根分组
     for (rid, nets) in buckets {
-        if nets.len() >= 2 {
-            let names: Vec<String> = nets
-                .iter()
+        let mut groups: BTreeSet<u32> = BTreeSet::new();
+        for nid in &nets {
+            groups.insert(uf_find(&mut uf, *nid));
+        }
+        if groups.len() >= 2 {
+            // 收集每组中的一个代表 net 用于报告
+            let mut group_repr: BTreeMap<u32, u32> = BTreeMap::new(); // root -> representative net_id
+            for nid in &nets {
+                let root = uf_find(&mut uf, *nid);
+                group_repr.entry(root).or_insert(*nid);
+            }
+            let names: Vec<String> = group_repr
+                .values()
                 .filter_map(|n| {
                     table.get_net(*n).map(|e| {
                         let m = idx.module_of_net(*n);
@@ -1059,7 +1154,7 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
                 format!(
                     "电源 `{}` 被拆成 {} 张互不相连的网: {}",
                     rid,
-                    nets.len(),
+                    groups.len(),
                     names.join(", ")
                 ),
             );
@@ -1088,6 +1183,59 @@ fn check_r12_dangling_port(table: &InstTable, idx: &Index, rep: &mut Report) {
             "R12",
             idx.module_of_net(net.id).to_string(),
             format!("端口 `{}` 的网只有它自己（声明了但没接）", e.path),
+        );
+    }
+}
+
+// ============================================================================
+// R14 · 孤例 —— 注册了 Component 但不在任何网里
+// ============================================================================
+
+fn check_r14_orphan_instance(table: &InstTable, idx: &Index, rep: &mut Report) {
+    // 收集所有在网里出现过的 Component owner（通过 net 中点的 owner_comp）
+    let mut wired_owners: BTreeSet<u32> = BTreeSet::new();
+    for net in table.get_nets() {
+        for p in &net.points {
+            if let Some(c) = idx.owner_comp.get(p) {
+                wired_owners.insert(*c);
+            }
+        }
+    }
+
+    let mut scanned = 0usize;
+    let mut orphans: BTreeMap<String, Vec<String>> = BTreeMap::new(); // module -> [comp_names]
+
+    for comp in table.get_components() {
+        scanned += 1;
+        if wired_owners.contains(&comp.id) {
+            continue;
+        }
+        let module = idx.module_of_entry(comp.id).to_string();
+        let mod_key = if module.is_empty() {
+            "<顶层>".to_string()
+        } else {
+            module
+        };
+        orphans
+            .entry(mod_key)
+            .or_default()
+            .push(leaf(&comp.path).to_string());
+    }
+
+    set_scanned(rep, "R14", scanned);
+
+    for (module, names) in &orphans {
+        let mut sorted = names.clone();
+        sorted.sort();
+        push(
+            rep,
+            "R14",
+            module.clone(),
+            format!(
+                "{} 个实例注册了但不在任何网里: {}",
+                sorted.len(),
+                sorted.join(", ")
+            ),
         );
     }
 }

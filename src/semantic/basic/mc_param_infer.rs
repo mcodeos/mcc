@@ -239,7 +239,7 @@ fn spec_key_to_unit(key: &str) -> Option<McParamTypeKind> {
         "length" | "width" | "height" | "len" => {
             Some(McParamTypeKind::UnitValue { unit: McUnit::Len })
         }
-        "partno" | "part" | "name" | "label" | "polarity" | "package" => {
+        "partno" | "part" | "name" | "label" | "polarity" | "package" | "rating" | "esd_rating" => {
             Some(McParamTypeKind::BasicString { default_val: None })
         }
         "quantity" | "count" | "pins" | "rows" | "cols" => {

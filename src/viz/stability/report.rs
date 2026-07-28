@@ -58,9 +58,11 @@ impl DeterminismReport {
         constraints: &[super::super::idiom::model::PlacementConstraint],
         decisions: &[super::super::idiom::model::PlacementDecisionRecord],
     ) -> Self {
-        self.idiom_instance_hash = hash::hash_idiom_instances(instances);
-        self.placement_constraint_hash = hash::hash_placement_constraints(constraints);
-        self.placement_decision_hash = hash::hash_placement_decisions(decisions);
+        // ★ 用 box_order_hash 作为前缀，确保即使空输入不同模块也产生不同 hash
+        let prefix = &self.box_order_hash;
+        self.idiom_instance_hash = hash::hash_idiom_instances(instances, prefix);
+        self.placement_constraint_hash = hash::hash_placement_constraints(constraints, prefix);
+        self.placement_decision_hash = hash::hash_placement_decisions(decisions, prefix);
         self
     }
 

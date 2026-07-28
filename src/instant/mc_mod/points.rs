@@ -1099,7 +1099,9 @@ impl McModuleInst {
         // if reaching here means CLASS is not existing instance/port/bus/component — it's class name leak.
         // all same-type anonymous components share same `CAP.in` label → union-find short.
         // solution: generate unique isolated endpoint (not registered as label), prevent cross-call merging.
-        if let Some((class_part, suffix)) = element.name.split_once('.') {
+        // ★ P0.5-2 fix: use rsplit_once to handle multi-segment class names
+        //   (e.g. "DIO.ESD.in" → class_part="DIO.ESD", suffix="in").
+        if let Some((class_part, suffix)) = element.name.rsplit_once('.') {
             if (suffix == "in" || suffix == "out")
                 && !class_part.is_empty()
                 && class_part

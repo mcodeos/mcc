@@ -283,10 +283,6 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                         if let Some(root_layer) = doc.root_layer() {
                             svgs.push((mod_name.clone(), root_layer.svg.clone()));
                         }
-
-                        // ★ netcheck: 网表体检
-                        let nc_report = mcc::instant::netcheck::run(&mod_table);
-                        nc_report.print();
                     }
                     Err(e) => {
                         eprintln!(
