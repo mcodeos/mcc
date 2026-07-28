@@ -112,6 +112,23 @@ pub struct McModuleInst {
     /// Updated when processing each top-level connection line in `instantiate_lines_resilient`.
     /// Used as fallback when NetPoint.src_pos is unavailable.
     pub(super) current_line_span: Option<crate::ast::ast_semantic::Span>,
+
+    /// Component class names whose instantiation failed (any instance of this class).
+    /// Used to skip lines that reference failed components.
+    pub(super) failed_classes: HashSet<String>,
+
+    /// Structured failure records for known_missing.md (G4 baseline).
+    pub(super) failed_records: Vec<FailedRecord>,
+}
+
+/// Structured record of a failed component instantiation.
+#[derive(Debug, Clone)]
+pub(crate) struct FailedRecord {
+    pub module: String,
+    pub src_line: Option<usize>,
+    pub component_name: String,
+    pub class_name: String,
+    pub reason: String,
 }
 
 impl McModuleInst {
@@ -149,6 +166,8 @@ impl McModuleInst {
             diagnostics: Vec::new(),
             bridge_passive_names: HashSet::new(),
             current_line_span: None,
+            failed_classes: HashSet::new(),
+            failed_records: Vec::new(),
         }
     }
 
@@ -181,6 +200,8 @@ impl McModuleInst {
             diagnostics: Vec::new(),
             bridge_passive_names: HashSet::new(),
             current_line_span: None,
+            failed_classes: HashSet::new(),
+            failed_records: Vec::new(),
         })
     }
 

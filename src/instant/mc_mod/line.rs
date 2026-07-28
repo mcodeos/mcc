@@ -19,6 +19,7 @@ use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{ConnDir, IOType};
 use crate::semantic::mc_inst::McInstance;
+use std::collections::HashSet;
 
 // ── M11.4: lane item for position-aware bridge pin collection ──
 enum LaneItem<'a> {
@@ -29,6 +30,19 @@ enum LaneItem<'a> {
 impl McModuleInst {
     /// Process connection line - accepts McPhrase
     pub(super) fn process_line(&mut self, phrase: &McPhrase) -> Result<(), InstError> {
+        // ── G4: Skip lines referencing failed components ──
+        // If any FuncCall in the phrase references a class whose instantiation
+        // previously failed, skip the entire line to avoid ghost pins.
+        if !self.failed_classes.is_empty()
+            && Self::phrase_contains_failed_class(phrase, &self.failed_classes)
+        {
+            self.record_warning(
+                910,
+                format!("Line references a component class whose instantiation failed; skipping entire line."),
+            );
+            return Ok(());
+        }
+
         // ── P0.4 follow-up: assign stable IDs before phrase_to_members clones ──
         // assign_phrase_ids was defined but never called, causing all FuncCall.id
         // to remain 0. Since auto_inst_map is keyed by member_key(f.id), all
@@ -2673,6 +2687,43 @@ impl McModuleInst {
         }
 
         None
+    }
+
+    /// Recursively scan a McPhrase for FuncCall nodes referencing a failed component class.
+    fn phrase_contains_failed_class(phrase: &McPhrase, failed: &HashSet<String>) -> bool {
+        match phrase {
+            McPhrase::FuncCall(fc) => {
+                let name = fc.func_name.to_string();
+                // Check both the full name and the base class name (strip after last '.')
+                if failed.contains(&name) {
+                    return true;
+                }
+                if let Some(base) = name.rsplit('.').next() {
+                    if failed.contains(base) {
+                        return true;
+                    }
+                }
+                // Also check caller
+                if let Some(ref caller) = fc.caller {
+                    if Self::phrase_contains_failed_class(caller, failed) {
+                        return true;
+                    }
+                }
+                false
+            }
+            McPhrase::Series(elems, _) | McPhrase::Parallel(elems) | McPhrase::Multiple(elems) => {
+                elems
+                    .iter()
+                    .any(|e| Self::phrase_contains_failed_class(e, failed))
+            }
+            McPhrase::Group(g) => g
+                .opds
+                .iter()
+                .any(|opd| Self::phrase_contains_failed_class(opd, failed)),
+            McPhrase::Transposed(inner) => Self::phrase_contains_failed_class(inner, failed),
+            McPhrase::Member(inner, _) => Self::phrase_contains_failed_class(inner, failed),
+            _ => false,
+        }
     }
 }
 

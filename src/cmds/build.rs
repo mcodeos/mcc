@@ -250,6 +250,9 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
         }
     };
 
+    // ── G4: Write known_missing.md baseline ──
+    mcc::InstTable::write_known_missing(&inst, "baseline/known_missing.md");
+
     // ── 4. Viz generation ──
     if args.viz {
         // Reuse should_render_all and modules_in_file computed earlier

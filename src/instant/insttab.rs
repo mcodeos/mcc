@@ -269,7 +269,6 @@ impl InstTable {
     pub fn from_module_inst(inst: &McModuleInst, start_id: u32) -> Self {
         let mut table = InstTable::new(start_id);
         table.flatten_module(inst, "", None);
-        table.infer_and_set_member_roles();
         table.merge_ground_nets();
         table
     }
@@ -507,26 +506,11 @@ impl InstTable {
     // Ground net merging (裁决⑥)
     // ====================================================================
 
-    /// Infer and set member roles for all entries based on leaf name and IOType.
-    ///
-    /// Called after all modules are flattened. Only sets member_info for entries
-    /// whose leaf name suggests a Power or Ground role.
-    pub fn infer_and_set_member_roles(&mut self) {
-        for entry in self.entries.values_mut() {
-            // Only infer roles for Labels, Ports, Pins — not Modules or Components
-            if !matches!(entry.kind, InstKind::Label | InstKind::Port | InstKind::Pin) {
-                continue;
-            }
-            let leaf = leaf_name(&entry.path);
-            let (role, _inferred) =
-                infer_member_role(leaf, &entry.io_type, is_ground_name, is_supply_name);
-            if !matches!(role, MemberRole::Signal) {
-                entry.member_info = Some(MemberInfo::new(role, None));
-            }
-        }
-    }
-
     /// Merge all Ground-member nets into a single global GND net.
+    ///
+    /// Called after all modules are flattened. Scans all entries with
+    /// `MemberRole::Ground`, finds the nets they belong to, and merges them
+    /// into one net named "GND".
     ///
     /// ★ The merge key is `MemberRole::Ground` — NOT interface type, NOT
     ///   leaf name string comparison, NOT the entire interface instance.
@@ -1018,61 +1002,63 @@ impl InstTable {
             eprintln!("  ── Total: {} nets ──", self.nets.len());
         }
     }
-}
 
-// ============================================================================
-// Helper: leaf name / name-based role inference
-// ============================================================================
+    /// Collect all failed component records from the module tree and write to known_missing.md.
+    pub fn write_known_missing(inst: &McModuleInst, output_path: &str) {
+        let mut all_records: Vec<&crate::instant::mc_mod::FailedRecord> = Vec::new();
+        Self::collect_failed_records(inst, &mut all_records);
 
-/// Get the last segment of a path: `"main.mic.MIC/P"` → `"P"`
-fn leaf_name(path: &str) -> &str {
-    let a = path.rsplit('.').next().unwrap_or(path);
-    a.rsplit('/').next().unwrap_or(a)
-}
+        if all_records.is_empty() {
+            return;
+        }
 
-/// Whether the name looks like ground
-fn is_ground_name(s: &str) -> bool {
-    let u = s.to_uppercase();
-    matches!(
-        u.as_str(),
-        "GND" | "AGND" | "DGND" | "PGND" | "VSS" | "GROUND" | "EARTH"
-    )
-}
+        let mut content = String::from("# Known Missing Components (G4 Baseline)\n\n");
+        content.push_str(
+            "Components that failed instantiation and were excluded from the netlist.\n\n",
+        );
+        content.push_str("| Module | Component | Class | Src Line | Reason |\n");
+        content.push_str("|--------|-----------|-------|----------|--------|\n");
 
-/// Whether the name looks like a power supply (not ground)
-fn is_supply_name(s: &str) -> bool {
-    let u = s.to_uppercase();
-    if is_ground_name(&u) {
-        return false;
+        for r in &all_records {
+            let line = r
+                .src_line
+                .map(|l| l.to_string())
+                .unwrap_or_else(|| "?".to_string());
+            content.push_str(&format!(
+                "| {} | {} | {} | {} | {} |\n",
+                r.module, r.component_name, r.class_name, line, r.reason
+            ));
+        }
+
+        content.push_str(&format!(
+            "\nTotal: {} failed instantiation(s)\n",
+            all_records.len()
+        ));
+
+        if let Some(parent) = std::path::Path::new(output_path).parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Err(e) = std::fs::write(output_path, &content) {
+            eprintln!("[G4] Failed to write known_missing.md: {}", e);
+        } else {
+            eprintln!(
+                "[G4] known_missing.md written with {} entries",
+                all_records.len()
+            );
+        }
     }
-    const EXACT: &[&str] = &[
-        "VCC",
-        "VDD",
-        "VBUS",
-        "VPP",
-        "AVDD",
-        "DVDD",
-        "POWER_SYS",
-        "VBAT",
-        "VIN",
-        "VOUT",
-    ];
-    if EXACT.contains(&u.as_str()) {
-        return true;
+
+    fn collect_failed_records<'a>(
+        inst: &'a McModuleInst,
+        out: &mut Vec<&'a crate::instant::mc_mod::FailedRecord>,
+    ) {
+        for r in &inst.failed_records {
+            out.push(r);
+        }
+        for sub in &inst.sub_modules {
+            Self::collect_failed_records(sub, out);
+        }
     }
-    if ["VCC", "VDD", "AVDD", "DVDD", "VBUS", "VBAT"]
-        .iter()
-        .any(|p| u.starts_with(p))
-    {
-        return true;
-    }
-    // 3V3 / 5V0 / 1V2 / V3V3 / V5V patterns
-    let bytes = u.as_bytes();
-    let digits = bytes.iter().filter(|b| b.is_ascii_digit()).count();
-    if u.contains('V') && digits >= 1 {
-        return true;
-    }
-    false
 }
 
 // ============================================================================
