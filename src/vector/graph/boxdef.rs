@@ -194,22 +194,31 @@ impl PinLayout {
 
 /// User-provided custom symbol (replaces system-provided R/C/L/D/IC etc. drawing).
 ///
-/// `svg_body` is an SVG fragment, drawn in the box's **own** reference frame (top-left 0,0,
-/// width×height b.w×b.h); at render time the whole thing is `translate`d to (b.x, b.y). Pin markers
-/// are still overlaid by `pin_render` per entry_points -- custom symbol is only responsible for
-/// "what the component itself looks like".
+/// `svg_body` is a validated SVG fragment with an explicit source `viewBox`. At render time it is
+/// scaled into the box while pin markers remain overlaid by `pin_render` per entry point. A custom
+/// symbol is only responsible for what the component body looks like.
 ///
 /// ## Source / Consumer
-/// - **Source** (reserved, to be wired later): user-uploaded symbol library -> hit by class_name ->
-///   `McVecBox::set_custom_symbol`. User didn't upload -> `custom_symbol` is `None`.
+/// - **Source**: project-local `symbols/manifest.toml` -> class-name match ->
+///   `McVecBox::set_custom_symbol`. Missing or invalid assets leave `custom_symbol` as `None`.
 /// - **Consumer** (in place): `shape::render_box` checks `custom_symbol` first, uses it if available,
 ///   otherwise falls back to system-provided symbol.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SvgViewBox {
+    pub min_x: f64,
+    pub min_y: f64,
+    pub width: f64,
+    pub height: f64,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct CustomSymbol {
     /// Source identifier (symbol library key / class_name), only for debugging / tracing, will be written to `data-symbol-source`.
     pub source: String,
     /// SVG fragment (without outer `<g>`; renderer wraps translate + data-id + pin overlay).
     pub svg_body: String,
+    /// Validated source viewBox used to scale the fragment into the component body.
+    pub view_box: SvgViewBox,
 }
 
 // ============================================================================

@@ -96,8 +96,7 @@ fn placeholder_pins(box_id: i64, pin_count: usize) -> Vec<BoxPin> {
         .collect()
 }
 
-/// ★ Unified wiring point for reserved interfaces ①+②. Today both resolvers return `None`
-/// -> doesn't change any rendering; fill in one function body each to activate.
+/// ★ Unified wiring point for component pin-layout and project SVG overrides.
 fn apply_reserved_overrides(b: &mut McVecBox) {
     let cls = b.class_name.clone();
     if let Some(layout) = component_pin_layout(&cls) {
@@ -134,14 +133,10 @@ fn component_pin_layout(class_name: &str) -> Option<PinLayout> {
     })
 }
 
-/// ★ Reserved interface ②: query user-uploaded custom symbols for this component class.
-/// **To be wired** -- currently returns None (uses system symbols).
-///
-/// Activate: use class_name to query user symbol library (the `HashMap<class_name, svg_body>`
-/// built at upload), if hit return `Some(CustomSymbol { source: class_name.into(), svg_body })`,
-/// if not uploaded return None.
-fn resolve_custom_symbol(_class_name: &str) -> Option<CustomSymbol> {
-    None
+/// ★ Project SVG interface: query the validated project-local symbol registry by class name.
+/// Missing, invalid, or undeclared symbols return `None` and keep the system renderer fallback.
+fn resolve_custom_symbol(class_name: &str) -> Option<CustomSymbol> {
+    super::custom_symbol::resolve_project_symbol(class_name)
 }
 
 /// Build a box from InstTable by id (shared by Phase 1 / Phase 1.5, avoids classification logic drift)

@@ -1,0 +1,5 @@
+schema_version = 1
+
+[[symbols]]
+class = "USB.MINI_B"
+file = "usb-mini-b.svg"

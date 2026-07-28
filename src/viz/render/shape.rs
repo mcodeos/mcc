@@ -51,9 +51,8 @@ pub trait BoxShape {
 ///
 /// `Symbol::Unknown` falls back to old shapes by `b.kind` (compatible with historical fixtures).
 pub fn render_box(b: &McVecBox) -> String {
-    // ★ Reserved interface ②: if the user has uploaded a custom symbol for this part, use it;
-    //   otherwise use the system one. Today the builder does not fill custom_symbol (always None)
-    //   → always the system symbol, behavior unchanged.
+    // Project-local symbols override the system body when the manifest provides a validated SVG.
+    // Missing or rejected assets retain the existing system-symbol behavior.
     if let Some(cs) = &b.custom_symbol {
         return render_custom_symbol(b, cs);
     }
@@ -83,13 +82,13 @@ pub fn render_box(b: &McVecBox) -> String {
     }
 }
 
-/// ★ Reserved interface ② consumer: translate the user custom symbol `svg_body` to the box
-/// position, then overlay the pins.
+/// ★ Reserved interface ② consumer: scale the validated custom symbol into the box, then
+/// overlay the pins.
 ///
-/// `svg_body` is drawn in the box's own reference frame (0,0 ~ b.w×b.h); this function does
-/// the overall translate to (b.x, b.y). The pin marker (stub + number + function name + IO
-/// arrow) is still drawn by `pin_render` based on entry_points, consistent with system
-/// symbols — the custom symbol only changes the "part body" appearance, not the pins.
+/// The source `viewBox` is mapped into the component body using SVG's `xMidYMid meet` behavior.
+/// The pin marker (stub + number + function name + IO arrow) is still drawn by `pin_render`
+/// based on entry_points, consistent with system symbols. The custom symbol only changes the
+/// component body, not electrical anchors.
 fn render_custom_symbol(b: &McVecBox, cs: &crate::vector::graph::boxdef::CustomSymbol) -> String {
     use super::pin_render::{render_pin, PinRenderOpts};
     let pins: String = b
@@ -99,13 +98,21 @@ fn render_custom_symbol(b: &McVecBox, cs: &crate::vector::graph::boxdef::CustomS
         .collect();
     format!(
         r##"  <g class="comp custom" data-id="{id}" data-symbol-source="{src}">
-    <g transform="translate({x:.1},{y:.1})">{body}</g>
+    <svg x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}"
+         viewBox="{vx:.3} {vy:.3} {vw:.3} {vh:.3}"
+         preserveAspectRatio="xMidYMid meet" overflow="hidden">{body}</svg>
 {pins}  </g>
 "##,
         id = b.id,
         src = escape_xml_attr(&cs.source),
         x = b.x,
         y = b.y,
+        w = b.w,
+        h = b.h,
+        vx = cs.view_box.min_x,
+        vy = cs.view_box.min_y,
+        vw = cs.view_box.width,
+        vh = cs.view_box.height,
         body = cs.svg_body,
         pins = pins,
     )
@@ -186,13 +193,20 @@ mod tests {
         b.set_custom_symbol(CustomSymbol {
             source: "MyR".into(),
             svg_body: r#"<rect class="my-sym" width="40" height="16"/>"#.into(),
+            view_box: crate::vector::graph::boxdef::SvgViewBox {
+                min_x: 0.0,
+                min_y: 0.0,
+                width: 40.0,
+                height: 16.0,
+            },
         });
         let svg = render_box(&b);
         // Goes through the custom symbol, no longer the system resistor zigzag
         assert!(svg.contains(r#"class="comp custom""#));
         assert!(svg.contains(r#"data-symbol-source="MyR""#));
         assert!(svg.contains(r#"class="my-sym""#));
-        assert!(svg.contains("translate(10.0,20.0)"));
+        assert!(svg.contains(r#"x="10.0" y="20.0" width="40.0" height="16.0""#));
+        assert!(svg.contains(r#"viewBox="0.000 0.000 40.000 16.000""#));
     }
 
     #[test]
@@ -208,6 +222,12 @@ mod tests {
         b.set_custom_symbol(CustomSymbol {
             source: r#"a"<&>"#.into(),
             svg_body: "<g/>".into(),
+            view_box: crate::vector::graph::boxdef::SvgViewBox {
+                min_x: 0.0,
+                min_y: 0.0,
+                width: 1.0,
+                height: 1.0,
+            },
         });
         let svg = render_box(&b);
         assert!(svg.contains("a&quot;&lt;&amp;&gt;"));

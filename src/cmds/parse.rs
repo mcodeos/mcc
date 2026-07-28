@@ -83,6 +83,9 @@ pub fn run(args: &ParseArgs) -> Result<()> {
             p.parent().map(|p| p.to_path_buf())
         }
     });
+    if let Some(root) = project_root.as_deref() {
+        mcc::mcc_set_project_root(root);
+    }
     manifest::load_libs(&manifest::collect_libs(project_root.as_deref(), &args.lib));
 
     // ── 0.6. Pass 0 snapshot: lib load + C parser error attribution ──
