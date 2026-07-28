@@ -237,11 +237,10 @@ fn check_param_type_mismatch(acc: &mut CheckAccumulator) {
         let m = entry.value();
 
         for (_inst_name, (_iotype, instance)) in m.insts.iter_with_iotype() {
-            let (class_name, args): (String, Vec<String>) = match instance {
-                crate::McInstance::Component(c2) => (
-                    c2.name.to_string(),
-                    c2.params.iter().map(|p| p.to_string()).collect(),
-                ),
+            let (class_name, args): (String, &[crate::McParamValue]) = match instance {
+                crate::McInstance::Component(c2) => {
+                    (c2.base.name.to_string(), c2.params.as_slice())
+                }
                 _ => continue,
             };
 
@@ -251,13 +250,13 @@ fn check_param_type_mismatch(acc: &mut CheckAccumulator) {
                         continue;
                     }
                     if let Some(arg) = args.get(*orig_idx) {
-                        let arg_clean = arg.trim();
+                        let arg_display = arg.to_string();
+                        let arg_clean = arg_display.trim();
                         if arg_clean.is_empty() || arg_clean == "_" {
                             continue; // placeholder — not an error
                         }
 
-                        // Check compatibility
-                        let mismatch = check_unit_arg_compat(unit_type, arg_clean);
+                        let mismatch = check_param_arg_compat(unit_type, arg);
                         if let Some(detail) = mismatch {
                             acc.push(CheckResult {
                                 check_name: "types",
@@ -292,199 +291,64 @@ fn param_type_to_unit_str(kind: &crate::semantic::basic::mc_param_type::McParamT
         McParamTypeKind::UnitValue { unit } | McParamTypeKind::UnitValueDefault { unit, .. } => {
             format!("{:?}", unit)
         }
-        McParamTypeKind::BasicInt { .. } | McParamTypeKind::BasicHex { .. } => "Int".to_string(),
+        McParamTypeKind::BasicInt { .. } => "Int".to_string(),
+        McParamTypeKind::BasicHex { .. } => "Hex".to_string(),
         McParamTypeKind::BasicFloat { .. } => "Float".to_string(),
         McParamTypeKind::BasicString { .. } => "String".to_string(),
         _ => String::new(),
     }
 }
 
-/// Heuristic check: does the argument value look compatible with the expected unit type?
-/// Returns Some(detail) if incompatible, None if OK or uncertain.
-fn check_unit_arg_compat(unit_type: &str, arg: &str) -> Option<String> {
-    // If arg is quoted, it's a string
-    let is_quoted = arg.starts_with('"') || arg.starts_with('\'');
-    // If arg looks numeric (with optional unit suffix)
-    let has_unit_suffix = arg
-        .chars()
-        .any(|c| c.is_alphabetic() && c != 'e' && c != 'E');
-    let is_numeric = arg.starts_with(|c: char| c.is_ascii_digit() || c == '.' || c == '-');
+/// Validate against the parsed argument variant instead of its display text.
+fn check_param_arg_compat(unit_type: &str, arg: &crate::McParamValue) -> Option<String> {
+    use crate::McParamValue;
 
+    let display = arg.to_string();
     match unit_type {
-        "String" => {
-            if !is_quoted && is_numeric {
-                return Some(format!(
-                    "'{}' looks like a number, but the parameter expects a String. \
-                     Consider quoting: \"{}\"",
-                    arg, arg
-                ));
+        "String" => match arg {
+            McParamValue::String(_) => None,
+            McParamValue::Int(_) | McParamValue::Hex(_) | McParamValue::Float(_) => Some(format!(
+                "'{}' is numeric, but the parameter expects a String.",
+                display
+            )),
+            _ => None,
+        },
+        "Int" => match arg {
+            McParamValue::String(_) => Some(format!(
+                "'{}' is a string, but the parameter expects an Int.",
+                display
+            )),
+            _ => None,
+        },
+        "Float" => match arg {
+            McParamValue::String(_) => Some(format!(
+                "'{}' is a string, but the parameter expects a Float.",
+                display
+            )),
+            _ => None,
+        },
+        "Hex" => match arg {
+            McParamValue::String(_) => Some(format!(
+                "'{}' is a string, but the parameter expects a Hex value.",
+                display
+            )),
+            _ => None,
+        },
+        expected_unit => match arg {
+            McParamValue::UValue(value) => {
+                let actual_unit = format!("{:?}", value.unit());
+                (actual_unit != expected_unit).then(|| {
+                    format!(
+                        "'{}' has unit {}, but the parameter expects {}.",
+                        display, actual_unit, expected_unit
+                    )
+                })
             }
-        }
-        "Int" | "Float" | "Hex" => {
-            if is_quoted {
-                return Some(format!(
-                    "'{}' is a quoted string, but the parameter expects {}.",
-                    arg, unit_type
-                ));
-            }
-            if !is_numeric && !arg.starts_with("UV.") {
-                return Some(format!(
-                    "'{}' does not look like a numeric value for an {} parameter.",
-                    arg, unit_type
-                ));
-            }
-        }
-        "Cap" => {
-            if is_quoted {
-                return Some(format!(
-                    "'{}' is a string, but the parameter expects a capacitance (e.g., 10uF, 100nF).",
-                    arg
-                ));
-            }
-            if is_numeric && has_unit_suffix {
-                let suffix = arg
-                    .chars()
-                    .filter(|c| c.is_alphabetic() && *c != 'e' && *c != 'E')
-                    .collect::<String>()
-                    .to_lowercase();
-                // Common capacitance suffixes
-                if !suffix.ends_with('f') && !suffix.starts_with('f') {
-                    return Some(format!(
-                        "'{}' has suffix '{}' which doesn't look like a capacitance unit. \
-                         Expected e.g., 10uF, 100nF, 1pF.",
-                        arg, suffix
-                    ));
-                }
-            }
-        }
-        "Volt" => {
-            if is_quoted {
-                return Some(format!(
-                    "'{}' is a string, but the parameter expects a voltage (e.g., 5V, 3.3V).",
-                    arg
-                ));
-            }
-            if is_numeric && has_unit_suffix {
-                let suffix = arg
-                    .chars()
-                    .filter(|c| c.is_alphabetic() && *c != 'e' && *c != 'E')
-                    .collect::<String>()
-                    .to_lowercase();
-                if suffix == "uf" || suffix == "nf" || suffix == "pf" || suffix.ends_with("f") {
-                    return Some(format!(
-                        "'{}' has capacitance suffix but parameter expects voltage (Volt).",
-                        arg
-                    ));
-                }
-            }
-        }
-        "Ohm" | "Res" => {
-            if is_quoted {
-                return Some(format!(
-                    "'{}' is a string, but the parameter expects a resistance (e.g., 10k, 100R).",
-                    arg
-                ));
-            }
-            if is_numeric && has_unit_suffix {
-                let suffix = arg
-                    .chars()
-                    .filter(|c| c.is_alphabetic() && *c != 'e' && *c != 'E')
-                    .collect::<String>()
-                    .to_lowercase();
-                if suffix == "v" || suffix == "a" || suffix == "uf" || suffix == "nf" {
-                    return Some(format!(
-                        "'{}' has non-resistance suffix. Parameter expects resistance (Ohm).",
-                        arg
-                    ));
-                }
-            }
-        }
-        "Amp" => {
-            if is_quoted {
-                return Some(format!(
-                    "'{}' is a string, but the parameter expects a current (e.g., 1A, 500mA).",
-                    arg
-                ));
-            }
-            if is_numeric && has_unit_suffix {
-                let suffix = arg
-                    .chars()
-                    .filter(|c| c.is_alphabetic() && *c != 'e' && *c != 'E')
-                    .collect::<String>()
-                    .to_lowercase();
-                if suffix == "v" || suffix == "uf" || suffix == "nf" {
-                    return Some(format!(
-                        "'{}' looks like a voltage/capacitance but parameter expects current (Amp).",
-                        arg
-                    ));
-                }
-            }
-        }
-        "Charge" => {
-            if is_quoted {
-                return Some(format!(
-                    "'{}' is a string, but the parameter expects charge capacity (e.g., 1000mAh, 2Ah).",
-                    arg
-                ));
-            }
-            if is_numeric && has_unit_suffix {
-                let suffix = arg
-                    .chars()
-                    .filter(|c| c.is_alphabetic() && *c != 'e' && *c != 'E')
-                    .collect::<String>()
-                    .to_lowercase();
-                if !suffix.ends_with("ah") && !suffix.contains("ah") {
-                    return Some(format!(
-                        "'{}' has suffix '{}' which doesn't look like charge capacity. Expected e.g., 1000mAh, 2Ah.",
-                        arg, suffix
-                    ));
-                }
-            }
-        }
-        "Wat" => {
-            if is_quoted {
-                return Some(format!(
-                    "'{}' is a string, but the parameter expects power (e.g., 1W, 500mW).",
-                    arg
-                ));
-            }
-            if is_numeric && has_unit_suffix {
-                let suffix = arg
-                    .chars()
-                    .filter(|c| c.is_alphabetic() && *c != 'e' && *c != 'E')
-                    .collect::<String>()
-                    .to_lowercase();
-                if suffix == "v" || suffix == "a" {
-                    return Some(format!(
-                        "'{}' looks like voltage/current but parameter expects power (Wat).",
-                        arg
-                    ));
-                }
-            }
-        }
-        "Hz" => {
-            if is_quoted {
-                return Some(format!(
-                    "'{}' is a string, but the parameter expects frequency (e.g., 10MHz, 1kHz).",
-                    arg
-                ));
-            }
-            if is_numeric && has_unit_suffix {
-                let suffix = arg
-                    .chars()
-                    .filter(|c| c.is_alphabetic() && *c != 'e' && *c != 'E')
-                    .collect::<String>()
-                    .to_lowercase();
-                if suffix == "v" || suffix == "uf" || suffix == "a" {
-                    return Some(format!(
-                        "'{}' looks like a non-frequency value but parameter expects Hz.",
-                        arg
-                    ));
-                }
-            }
-        }
-        _ => {} // Unknown or untyped — can't check
+            McParamValue::String(_) => Some(format!(
+                "'{}' is a string, but the parameter expects {}.",
+                display, expected_unit
+            )),
+            _ => None,
+        },
     }
-
-    None
 }

@@ -38,14 +38,13 @@ impl ValidationCheck for StyleCheck {
         // J1: Lowercase component names
         // J2: UPPERCASE instance names (deferred — needs inst scan in modules)
         // J3: Identifier shadows library name
-        // J4: Empty () on parameterless components
+        // J4: Empty () on parameterless components (deferred until source syntax is retained)
         // J5: Copy-pasted function bodies (deferred — AST comparison needed)
         // F1: Reserved name usage
         // F2: Naming convention (deferred — needs per-project config)
         // F3: Deprecated CMIE usage (deferred — needs deprecation metadata)
 
         check_lowercase_components(acc, &lib_names);
-        check_empty_parens(acc);
     }
 }
 
@@ -72,33 +71,6 @@ fn check_lowercase_components(acc: &mut CheckAccumulator, _lib_names: &HashSet<S
                     code: 2201,
                 });
             }
-        }
-    }
-}
-
-fn check_empty_parens(acc: &mut CheckAccumulator) {
-    // J4: components declared with () but no params
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let _comp = entry.value();
-        let name = entry.key().ident.to_string();
-        let uri = entry.key().uri.to_string();
-        if super::is_test_file(&uri) {
-            continue;
-        }
-        let comp = entry.value();
-        if comp.params.is_empty() {
-            acc.push(CheckResult {
-                check_name: "style",
-                severity: CheckSeverity::Info,
-                uri: Some(uri),
-                span: Some(comp.span.start..comp.span.end),
-                message: format!(
-                    "Component '{}' has no parameters. Consider removing empty ().",
-                    name
-                ),
-                code: 2204,
-            });
         }
     }
 }

@@ -25,7 +25,6 @@ impl ValidationCheck for RefIntegrityCheck {
         check_bare_params(acc); // I2
         check_spec_refs(acc); // I1
         check_comp_func_unused_params(acc); // B1 for component funcs
-        check_label_refs(acc); // I3: label refs not found
     }
 }
 
@@ -88,58 +87,6 @@ fn check_bare_params(acc: &mut CheckAccumulator) {
                         code: 2302,
                     });
                 }
-            }
-        }
-    }
-}
-
-/// I3: label references whose target definition cannot be found in any scope.
-///
-/// Iterates module net phrases and flags label/port names that appear in
-/// connection expressions but don't match any known instance or parameter.
-fn check_label_refs(acc: &mut CheckAccumulator) {
-    let modules = &crate::db::cmie::tables::WORKSPACE.modules;
-    for entry in modules.iter() {
-        let uri = entry.key().uri.to_string();
-        if super::is_test_file(&uri) {
-            continue;
-        }
-        let m = entry.value();
-        let mod_name = entry.key().ident.to_string();
-
-        // Collect all known names in this module's scope
-        let mut known: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for name in m.insts.iter_instance_names() {
-            known.insert(name.to_string());
-        }
-        for name in m.params.names() {
-            known.insert(name);
-        }
-
-        // Check port refs: each ref should point to a known name
-        for (span, port_name, _scope) in m.insts.iter_net_refs() {
-            if port_name.starts_with('@') {
-                continue; // Anonymous instances are self-defining
-            }
-            let ids = crate::semantic::basic::mc_ids::McIds::from(port_name.as_str());
-            let candidates = ids.expand();
-            let found = if candidates.is_empty() {
-                known.contains(port_name)
-            } else {
-                candidates.iter().any(|c| known.contains(c))
-            };
-            if !found {
-                acc.push(CheckResult {
-                    check_name: "ref-integrity",
-                    severity: CheckSeverity::Warning,
-                    uri: Some(uri.clone()),
-                    span: Some(span.clone()),
-                    message: format!(
-                        "Reference '{}' in module '{}' may not be defined in any visible scope.",
-                        port_name, mod_name
-                    ),
-                    code: 2310,
-                });
             }
         }
     }

@@ -91,7 +91,10 @@ fn check_iface_pin_completeness(acc: &mut CheckAccumulator) {
 
             // Only flag if some but not all pins are bound (completely unbound
             // is caught by other checks)
-            if !missing.is_empty() && !bound_iface_pins.is_empty() {
+            if bound_iface_pins.len() < iface_pins.len()
+                && !missing.is_empty()
+                && !bound_iface_pins.is_empty()
+            {
                 acc.push(CheckResult {
                     check_name: "interface",
                     severity: CheckSeverity::Warning,
@@ -309,8 +312,8 @@ fn check_deprecated_cmie_usage(acc: &mut CheckAccumulator) {
 
             for (_inst_name, (_iotype, instance)) in m.insts.iter_with_iotype() {
                 let class_name = match instance {
-                    crate::McInstance::Component(c2) => c2.name.to_string(),
-                    crate::McInstance::Interface(i2) => i2.name.to_string(),
+                    crate::McInstance::Component(c2) => c2.base.name.to_string(),
+                    crate::McInstance::Interface(i2) => i2.base.name.to_string(),
                     _ => continue,
                 };
 
@@ -403,9 +406,9 @@ fn check_module_member_refs(acc: &mut CheckAccumulator) {
             let mut map = std::collections::HashMap::new();
             for (iname, (_iotype, inst)) in m.insts.iter_with_iotype() {
                 let class = match inst {
-                    crate::McInstance::Component(c2) => Some(c2.name.to_string()),
-                    crate::McInstance::Interface(i2) => Some(i2.name.to_string()),
-                    crate::McInstance::Module(m2) => Some(m2.name.to_string()),
+                    crate::McInstance::Component(c2) => Some(c2.base.name.to_string()),
+                    crate::McInstance::Interface(i2) => Some(i2.base.name.to_string()),
+                    crate::McInstance::Module(m2) => Some(m2.base.name.to_string()),
                     _ => None,
                 };
                 if let Some(c) = class {
@@ -481,7 +484,10 @@ fn check_phrase_member_refs(
                 // rest may contain further dots (e.g. "VDD.something")
                 let port_name = rest.split('.').next().unwrap_or(rest).trim();
 
-                if first.is_empty() || port_name.is_empty() {
+                // Method calls are represented as FuncCall phrases, not member
+                // accesses. Their display form still contains a dot, so do not
+                // interpret `device.Configure(...)` as a component port.
+                if first.is_empty() || port_name.is_empty() || port_name.contains('(') {
                     continue;
                 }
 

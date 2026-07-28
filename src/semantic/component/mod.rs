@@ -193,7 +193,7 @@ impl McComponent {
         if let Some(body_subnodes) = body_node.get_sub_node() {
             for child in body_subnodes.iter() {
                 let child_type = child.get_type();
-                if child_type == MCAST_COND_IF || child_type == MCAST_COND_ELSE {
+                if child_type == MCAST_COND_IF {
                     if let Some(conds_obj) = McConds::new(&child) {
                         // Try to evaluate with default params first
                         if !default_params.is_empty() {
@@ -251,10 +251,15 @@ impl McComponent {
                             }
                             block_pins
                         });
-                        cond_pins.push(CondPins {
-                            if_blocks: if_pin_blocks,
-                            else_pins,
-                        });
+                        let has_conditional_pins =
+                            if_pin_blocks.iter().any(|(_, block)| block.count() > 0)
+                                || else_pins.as_ref().is_some_and(|block| block.count() > 0);
+                        if has_conditional_pins {
+                            cond_pins.push(CondPins {
+                                if_blocks: if_pin_blocks,
+                                else_pins,
+                            });
+                        }
 
                         // ── Conditional attributes ──
                         let mut if_attr_blocks = Vec::new();
@@ -290,10 +295,15 @@ impl McComponent {
                             }
                             block_attrs
                         });
-                        cond_attrs.push(CondAttrs {
-                            if_blocks: if_attr_blocks,
-                            else_attrs,
-                        });
+                        let has_conditional_attrs =
+                            if_attr_blocks.iter().any(|(_, block)| !block.is_empty())
+                                || else_attrs.as_ref().is_some_and(|block| !block.is_empty());
+                        if has_conditional_attrs {
+                            cond_attrs.push(CondAttrs {
+                                if_blocks: if_attr_blocks,
+                                else_attrs,
+                            });
+                        }
                     }
                 }
             }

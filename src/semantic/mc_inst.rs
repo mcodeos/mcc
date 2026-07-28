@@ -329,11 +329,15 @@ impl McInstances {
         self.insts
             .iter()
             .filter(|(_, (io_type, _))| {
-                // Labels are not ports — they have no IO direction
-                !matches!(io_type, IOType::Label)
+                !matches!(
+                    io_type,
+                    IOType::None | IOType::Return | IOType::NonCon | IOType::Label
+                )
             })
             .filter_map(|(name, (_, inst))| match inst {
-                McInstance::Component(_)
+                McInstance::Label(_)
+                | McInstance::BusRef { .. }
+                | McInstance::Component(_)
                 | McInstance::Module(_)
                 | McInstance::Unresolved { .. } => None,
                 _ => Some(name),
@@ -1341,6 +1345,11 @@ impl McInstances {
                                             instance_params.push(McParamValue::String(
                                                 McString::from(clean_val.as_str()),
                                             ));
+                                        }
+                                        MCAST_UVALUE => {
+                                            if let Some(uval) = McUnitValue::new(&sub) {
+                                                instance_params.push(McParamValue::UValue(uval));
+                                            }
                                         }
                                         MCAST_OPD_NC => {
                                             instance_params

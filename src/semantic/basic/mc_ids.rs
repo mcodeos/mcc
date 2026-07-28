@@ -913,6 +913,14 @@ impl McIds {
         }
     }
 
+    /// Return the root identifier of a possibly nested member path.
+    ///
+    /// `U_MCU.UART0.TX` resolves in module scope through `U_MCU`; the remaining
+    /// segments are members of that instance and are validated separately.
+    pub fn root_name(&self) -> Option<String> {
+        self.segments.first().map(ToString::to_string)
+    }
+
     /// Return all possible name forms that could appear at a usage site.
     /// For unused-parameter detection, check if ANY of these appear in the body.
     ///
