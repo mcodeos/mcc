@@ -101,6 +101,8 @@ pub struct Report {
     pub findings: Vec<Finding>,
     /// 每条规则的命中数（含 0 的规则，便于出稳定表格）
     pub counts: BTreeMap<&'static str, usize>,
+    /// 每条规则本轮扫描的对象数（0 表示规则未实际运行）
+    pub scanned: BTreeMap<&'static str, usize>,
     /// 统计信息
     pub total_nets: usize,
     pub total_components: usize,
@@ -139,20 +141,25 @@ impl Report {
 
         for (rule, n) in &self.counts {
             let lvl = rule_level(rule);
-            let mark = if *n == 0 {
+            let scanned = self.scanned.get(rule).copied().unwrap_or(0);
+            let mark = if scanned == 0 {
+                "·"
+            } else if *n == 0 {
                 "✓"
             } else if lvl == Level::Error {
                 "✗"
             } else {
                 "·"
             };
+            let status = if scanned == 0 { "SKIP" } else { "" };
             let _ = writeln!(
                 s,
-                "│ {} {} {:<22} {:>4}",
+                "│ {} {} {:<22} {:>4}  {}",
                 mark,
                 lvl.tag(),
                 rule_name(rule),
-                n
+                n,
+                status
             );
         }
 
@@ -506,6 +513,7 @@ fn check_r01_literal_point(table: &InstTable, idx: &Index, rep: &mut Report) {
         );
     }
     if !details.is_empty() {
+        set_scanned(rep, "R01", details.len());
         return; // 隔离后不需要再扫 InstTable
     }
 
@@ -517,10 +525,12 @@ fn check_r01_literal_point(table: &InstTable, idx: &Index, rep: &mut Report) {
         }
     }
 
+    let mut scanned = 0usize;
     for id in seen {
         let Some(e) = table.get_entry(id) else {
             continue;
         };
+        scanned += 1;
         if e.path.contains('{') || e.path.contains('[') || e.path.contains(',') {
             push(
                 rep,
@@ -545,6 +555,7 @@ fn check_r01_literal_point(table: &InstTable, idx: &Index, rep: &mut Report) {
             );
         }
     }
+    set_scanned(rep, "R01", scanned);
 }
 
 // ============================================================================
@@ -552,11 +563,13 @@ fn check_r01_literal_point(table: &InstTable, idx: &Index, rep: &mut Report) {
 // ============================================================================
 
 fn check_r02_short_passive(table: &InstTable, idx: &Index, rep: &mut Report) {
+    let mut scanned = 0usize;
     for comp in table.get_components() {
         let pins = table.get_pins_of(comp.id);
         if pins.len() != 2 {
             continue;
         }
+        scanned += 1;
         let n0 = table.get_net_of(pins[0].id).map(|n| n.id);
         let n1 = table.get_net_of(pins[1].id).map(|n| n.id);
         if let (Some(a), Some(b)) = (n0, n1) {
@@ -574,6 +587,7 @@ fn check_r02_short_passive(table: &InstTable, idx: &Index, rep: &mut Report) {
             }
         }
     }
+    set_scanned(rep, "R02", scanned);
 }
 
 // ============================================================================
@@ -581,6 +595,11 @@ fn check_r02_short_passive(table: &InstTable, idx: &Index, rep: &mut Report) {
 // ============================================================================
 
 fn check_r03_r04_r06(table: &InstTable, idx: &Index, rep: &mut Report) {
+    set_scanned(rep, "R03", table.net_count());
+    set_scanned(rep, "R03a", table.net_count());
+    set_scanned(rep, "R04", table.net_count());
+    set_scanned(rep, "R06", table.net_count());
+
     for net in table.get_nets() {
         let module = idx.module_of_net(net.id).to_string();
 
@@ -693,7 +712,7 @@ fn check_r03_r04_r06(table: &InstTable, idx: &Index, rep: &mut Report) {
 }
 
 // ============================================================================
-// R07 · 幽灵实例（两步筛选）
+// R07 · 幽灵实例 —— 数字管脚端点的 owner 必须在模块的 Component 子节点里
 // ============================================================================
 
 fn check_r07_ghost(table: &InstTable, idx: &Index, rep: &mut Report) {
@@ -702,7 +721,21 @@ fn check_r07_ghost(table: &InstTable, idx: &Index, rep: &mut Report) {
         !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())
     }
 
-    let mut seen: BTreeSet<String> = BTreeSet::new();
+    // 构建每个模块的直属 Component 集合
+    let mut module_components: BTreeMap<u32, BTreeSet<String>> = BTreeMap::new();
+    for m in table.get_modules() {
+        let comps: BTreeSet<String> = table
+            .children_of(m.id)
+            .iter()
+            .filter(|e| e.kind == InstKind::Component)
+            .map(|e| e.path.clone())
+            .collect();
+        module_components.insert(m.id, comps);
+    }
+
+    // (module_id, owner_path) → 该 owner 引用的 pin 的组件名集合
+    let mut ghosts: BTreeMap<(u32, String), BTreeSet<String>> = BTreeMap::new();
+    let mut scanned = 0usize;
 
     for net in table.get_nets() {
         for p in &net.points {
@@ -715,67 +748,72 @@ fn check_r07_ghost(table: &InstTable, idx: &Index, rep: &mut Report) {
             if !is_numeric_pin_leaf(leaf_name) {
                 continue;
             }
+            scanned += 1;
 
-            // 第 2 步 · 查 owner
+            // 第 2 步 · 查 owner：owner 必须在所属模块的 Component 子节点里
             let owner = match owner_path(&e.path) {
-                Some(op) => op,
-                None => {
-                    // owner 缺失 → 幽灵
-                    let key = format!("R07:{}", e.path);
-                    if seen.insert(key) {
-                        push(
-                            rep,
-                            "R07",
-                            idx.module_of_entry(*p).to_string(),
-                            format!("幽灵实例: `{}` 的 owner 缺失", e.path),
-                        );
-                    }
-                    continue;
-                }
+                Some(op) => op.to_string(),
+                None => continue,
             };
 
-            let owner_entry = table
-                .get_id_by_path(owner)
-                .and_then(|oid| table.get_entry(oid));
+            // 找到这个端点所属的最近模块
+            let module_id = match idx.nearest_module.get(p) {
+                Some(m) => *m,
+                None => continue,
+            };
 
-            match owner_entry {
-                None => {
-                    // owner 不在 entries 中 → 幽灵
-                    let key = format!("R07:{}", e.path);
-                    if seen.insert(key) {
-                        push(
-                            rep,
-                            "R07",
-                            idx.module_of_entry(*p).to_string(),
-                            format!("幽灵实例: `{}` 的 owner `{}` 未注册", e.path, owner),
-                        );
-                    }
-                }
-                Some(oe) => {
-                    if oe.kind == InstKind::Label {
-                        // owner.kind == Label（priority-1 兜底）→ 幽灵
-                        let key = format!("R07:{}", e.path);
-                        if seen.insert(key) {
-                            push(
-                                rep,
-                                "R07",
-                                idx.module_of_entry(*p).to_string(),
-                                format!(
-                                    "幽灵实例: `{}` 的 owner `{}` 是 Label（未注册为 Component）",
-                                    e.path, owner
-                                ),
-                            );
-                        }
-                    }
-                    // owner.kind ∈ {Component, Module, Bus, Port} → 合法，不报
-                }
+            // 检查 owner 是否在该模块的 Component 子节点中
+            let is_valid = module_components
+                .get(&module_id)
+                .map(|comps| comps.contains(&owner))
+                .unwrap_or(false);
+
+            if !is_valid {
+                // 提取组件名（owner 的最后一段）
+                let comp_name = leaf(&owner).to_string();
+                ghosts
+                    .entry((module_id, owner))
+                    .or_default()
+                    .insert(comp_name);
             }
         }
+    }
+
+    set_scanned(rep, "R07", scanned);
+
+    // 按模块汇总报告
+    let mut module_ghosts: BTreeMap<u32, BTreeSet<String>> = BTreeMap::new();
+    for ((module_id, _owner), comps) in &ghosts {
+        module_ghosts
+            .entry(*module_id)
+            .or_default()
+            .extend(comps.iter().cloned());
+    }
+
+    for (module_id, comps) in &module_ghosts {
+        let module_name = idx
+            .module_path
+            .get(module_id)
+            .map(|s| s.as_str())
+            .unwrap_or("?");
+        let mut names: Vec<&str> = comps.iter().map(|s| s.as_str()).collect();
+        names.sort();
+        push(
+            rep,
+            "R07",
+            module_name.to_string(),
+            format!(
+                "{} 引用了 {} 个未注册器件 — {}",
+                leaf(module_name),
+                comps.len(),
+                names.join(" ")
+            ),
+        );
     }
 }
 
 // ============================================================================
-// R08 · 幻影路径（两步筛选）
+// R08 · 幻影路径 —— 中间段必须是已注册实例，不能只是字符串
 // ============================================================================
 
 fn check_r08_phantom_path(table: &InstTable, idx: &Index, rep: &mut Report) {
@@ -785,6 +823,7 @@ fn check_r08_phantom_path(table: &InstTable, idx: &Index, rep: &mut Report) {
     }
 
     let mut seen: BTreeSet<String> = BTreeSet::new();
+    let mut scanned = 0usize;
 
     for net in table.get_nets() {
         for p in &net.points {
@@ -797,33 +836,41 @@ fn check_r08_phantom_path(table: &InstTable, idx: &Index, rep: &mut Report) {
             if !is_numeric_pin_leaf(leaf_name) {
                 continue;
             }
+            scanned += 1;
 
-            // 第 2 步 · 查 owner 路径中的中间段
-            // 对于路径 `X.Y.Z.N`（N 是管脚号），检查 `X.Y.Z` 是否存在
+            // 第 2 步 · 查中间段
             let owner = match owner_path(&e.path) {
                 Some(op) => op,
                 None => continue,
             };
 
-            // 如果 owner 已注册（由 R07 处理），跳过
-            if table.get_id_by_path(owner).is_some() {
+            // 中间段必须是已注册的 Component/Module 实例，不能只是字符串
+            let owner_is_proper = table
+                .get_id_by_path(owner)
+                .and_then(|oid| table.get_entry(oid))
+                .map(|oe| {
+                    matches!(
+                        oe.kind,
+                        InstKind::Component | InstKind::Module | InstKind::Port | InstKind::Bus
+                    )
+                })
+                .unwrap_or(false);
+
+            if owner_is_proper {
                 continue;
             }
 
-            // owner 未注册，但检查上层是否存在
-            // 对于 `main.moddcdc.@IND3.1`，owner 是 `main.moddcdc.@IND3`
-            // 检查 `main.moddcdc` 是否存在
+            // 中间段未注册或类型不对 → 检查上层是否存在
             if let Some(grandparent) = owner_path(owner) {
                 if table.get_id_by_path(grandparent).is_some() {
-                    // 上层存在但中间段不存在 → 幻影路径
-                    let key = format!("R08:{}", owner);
+                    let key = format!("R08:{owner}");
                     if seen.insert(key) {
                         push(
                             rep,
                             "R08",
                             idx.module_of_entry(*p).to_string(),
                             format!(
-                                "幻影路径: `{}` 的中间段 `{}` 未注册（上层 `{}` 存在）",
+                                "幻影路径: `{}` 的中间段 `{}` 未注册为实例（上层 `{}` 存在）",
                                 e.path, owner, grandparent
                             ),
                         );
@@ -832,6 +879,8 @@ fn check_r08_phantom_path(table: &InstTable, idx: &Index, rep: &mut Report) {
             }
         }
     }
+
+    set_scanned(rep, "R08", scanned);
 }
 
 // ============================================================================
@@ -839,6 +888,7 @@ fn check_r08_phantom_path(table: &InstTable, idx: &Index, rep: &mut Report) {
 // ============================================================================
 
 fn check_r09_floating_power(table: &InstTable, idx: &Index, rep: &mut Report) {
+    let mut scanned = 0usize;
     for comp in table.get_components() {
         for pin in table.get_pins_of(comp.id) {
             let name = leaf(&pin.path);
@@ -851,6 +901,7 @@ fn check_r09_floating_power(table: &InstTable, idx: &Index, rep: &mut Report) {
             if !is_pwr {
                 continue;
             }
+            scanned += 1;
             if table.get_net_of(pin.id).is_none() {
                 push(
                     rep,
@@ -865,6 +916,7 @@ fn check_r09_floating_power(table: &InstTable, idx: &Index, rep: &mut Report) {
             }
         }
     }
+    set_scanned(rep, "R09", scanned);
 }
 
 // ============================================================================
@@ -877,12 +929,19 @@ fn check_r10_conservation(
     expect: &BTreeMap<String, usize>,
     rep: &mut Report,
 ) {
+    // ★ 防呆：提前 return 之前先打 SKIP
     if expect.is_empty() {
+        note(
+            rep,
+            "R10",
+            "-".to_string(),
+            "R10 未接入 pass1 符号表，本轮规则无效".to_string(),
+        );
+        set_scanned(rep, "R10", 0);
         return;
     }
 
     // ★ 防呆：若某模块的 pass1 期望集合 size < 2，打 WARN
-    // 这不是为了查电路，是为了让 R10 自己没在跑的时候能喊一声
     for (path, want) in expect {
         if *want < 2 {
             push(
@@ -905,6 +964,8 @@ fn check_r10_conservation(
         actual.insert(m.path.clone(), n);
     }
 
+    set_scanned(rep, "R10", expect.len());
+
     for (path, want) in expect {
         let got = actual.get(path).copied().unwrap_or(0);
         if got < *want {
@@ -922,15 +983,15 @@ fn check_r10_conservation(
 }
 
 // ============================================================================
-// R11 · 同名电源被拆成多张网
+// R11 · 同名电源被拆成多张网（按 rail_identity 分桶）
 // ============================================================================
 
 fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
-    // (模块, 电源身份) -> 该身份出现在哪些 net
-    let mut buckets: BTreeMap<(String, String), BTreeSet<u32>> = BTreeMap::new();
+    // rail_identity → 该身份出现在哪些 net
+    let mut buckets: BTreeMap<String, BTreeSet<u32>> = BTreeMap::new();
+    let mut scanned = 0usize;
 
     for net in table.get_nets() {
-        let module = idx.module_of_net(net.id).to_string();
         let mut ids: BTreeSet<String> = BTreeSet::new();
         for p in &net.points {
             if let Some(e) = table.get_entry(*p) {
@@ -939,24 +1000,35 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
                 }
             }
         }
+        if !ids.is_empty() {
+            scanned += 1;
+        }
         for rid in ids {
-            buckets
-                .entry((module.clone(), rid))
-                .or_default()
-                .insert(net.id);
+            buckets.entry(rid).or_default().insert(net.id);
         }
     }
 
-    for ((module, rid), nets) in buckets {
+    set_scanned(rep, "R11", scanned);
+
+    for (rid, nets) in buckets {
         if nets.len() >= 2 {
             let names: Vec<String> = nets
                 .iter()
-                .filter_map(|n| table.get_net(*n).map(|e| format!("{}#{}", e.name, e.id)))
+                .filter_map(|n| {
+                    table.get_net(*n).map(|e| {
+                        let m = idx.module_of_net(*n);
+                        if m.is_empty() {
+                            format!("{}#{}", e.name, e.id)
+                        } else {
+                            format!("{}::{}#{}", m, e.name, e.id)
+                        }
+                    })
+                })
                 .collect();
             push(
                 rep,
                 "R11",
-                module,
+                String::new(),
                 format!(
                     "电源 `{}` 被拆成 {} 张互不相连的网: {}",
                     rid,
@@ -973,6 +1045,7 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
 // ============================================================================
 
 fn check_r12_dangling_port(table: &InstTable, idx: &Index, rep: &mut Report) {
+    set_scanned(rep, "R12", table.net_count());
     for net in table.get_nets() {
         if net.points.len() != 1 {
             continue;
@@ -1006,6 +1079,20 @@ fn push(rep: &mut Report, rule: &'static str, module: String, detail: String) {
     });
 }
 
+/// 添加一条不增加计数的备注（用于 SKIP 等状态说明），始终为 INFO 级别
+fn note(rep: &mut Report, rule: &'static str, module: String, detail: String) {
+    rep.findings.push(Finding {
+        rule,
+        level: Level::Info,
+        module,
+        detail,
+    });
+}
+
+fn set_scanned(rep: &mut Report, rule: &'static str, n: usize) {
+    rep.scanned.entry(rule).or_insert(n);
+}
+
 // ============================================================================
 // 单元测试
 // ============================================================================
@@ -1015,6 +1102,7 @@ fn push(rep: &mut Report, rule: &'static str, module: String, detail: String) {
 fn check_r05_unresolved_unit(rep: &mut Report) {
     let count = crate::semantic::basic::mc_param::R05_UNRESOLVED_UNIT
         .load(std::sync::atomic::Ordering::Relaxed);
+    set_scanned(rep, "R05", 1); // R05 is a global counter, always "running"
     if count > 0 {
         rep.counts.insert("R05", count);
         rep.findings.push(Finding {
