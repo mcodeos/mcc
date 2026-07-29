@@ -260,6 +260,13 @@ impl McModuleInst {
                     return Ok(FuncCallInst::PassThrough);
                 }
             }
+        } else {
+            // ★ P0.5-2: CMIE not found → class not loaded.
+            // Record as failed so that resolve_funccall_left/right_points
+            // return empty and prevent class-name fragments from entering nets.
+            let class_name = func_name.to_string();
+            self.failed_classes.insert(class_name);
+            return Ok(FuncCallInst::PassThrough);
         }
 
         // 2. User function (look up in current module's func table)
@@ -596,6 +603,15 @@ impl McModuleInst {
         member: &McPhrase,
         left: &[McBus],
     ) -> Result<Vec<NetPoint>, InstError> {
+        // ★ P0.5-2 hard gate: if the FuncCall's class failed to instantiate,
+        //   return empty to prevent class-name fragments from entering the netlist.
+        if let McPhrase::FuncCall(ref fc) = member {
+            let class_name = fc.func_name.to_string();
+            if self.failed_classes.contains(&class_name) {
+                return Ok(Vec::new());
+            }
+        }
+
         let key = Self::member_key(member);
         if let Some(inst_name) = self.auto_inst_map.get(&key).cloned() {
             // ── Iter-1.2 ────────────────────────────────────────────────
@@ -772,6 +788,15 @@ impl McModuleInst {
         member: &McPhrase,
         right: &[McBus],
     ) -> Result<Vec<NetPoint>, InstError> {
+        // ★ P0.5-2 hard gate: if the FuncCall's class failed to instantiate,
+        //   return empty to prevent class-name fragments from entering the netlist.
+        if let McPhrase::FuncCall(ref fc) = member {
+            let class_name = fc.func_name.to_string();
+            if self.failed_classes.contains(&class_name) {
+                return Ok(Vec::new());
+            }
+        }
+
         let key = Self::member_key(member);
         // ── P1-diag: print right element content ──────────────────────────────
         if let Some(inst_name) = self.auto_inst_map.get(&key).cloned() {

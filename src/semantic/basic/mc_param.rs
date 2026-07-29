@@ -554,14 +554,23 @@ impl McParamBindings {
             }
         }
 
-        // ── Strip NC modifiers from positional values before arity check ──
-        // NC (Not Connected) is a modifier, not a positional argument.
+        // ── Strip NC modifiers from positional values before binding ──
+        // NC (Not Connected) is a modifier, not a positional argument for binding,
+        // but it DOES consume a positional slot for arity counting.
         let effective_pos: Vec<McParamValue> = positional_values
             .iter()
             .filter(|v| !matches!(v, McParamValue::NC(_)))
             .cloned()
             .collect();
-        let effective_count = effective_pos.len();
+        let nc_count = positional_values
+            .iter()
+            .filter(|v| matches!(v, McParamValue::NC(_)))
+            .count();
+        // ★ P0.5-1 fix: NC values count toward arity so that
+        //   DIO.ESD("ESD9B5V-2/TR", NC) doesn't trigger MissingRequired{rating}.
+        //   NC is filtered out of effective_pos (not bound to any param),
+        //   and the corresponding declare slot is filled with `_` (unspecified).
+        let effective_count = effective_pos.len() + nc_count;
 
         // ── New arity rule ─────────────────────────────────────────────────
         // required: only params that have NO unit type AND NO default value.
