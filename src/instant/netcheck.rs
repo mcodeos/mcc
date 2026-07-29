@@ -743,22 +743,15 @@ fn check_r03_r04_r06(table: &InstTable, idx: &Index, rep: &mut Report) {
 }
 
 // ============================================================================
-// R07 · 幽灵实例 —— 端点 owner 必须在模块的 Component/Module 子节点里
+// R07 · 幽灵实例 —— 端点 owner 必须解析到 InstTable 中已注册的合法条目
 // ============================================================================
+//
+// 白名单：owner ∈ {Component, Module, Bus, Port} 合法
+// 解析不出任何 entry、或 entry 是裸类名残片 → 报
+//
+// 单测标本：speaker 的 `DIO`（类名残片，在 InstTable 里查不到）
 
 fn check_r07_ghost(table: &InstTable, idx: &Index, rep: &mut Report) {
-    // 构建每个模块的直属 Component + Module 集合
-    let mut module_children: BTreeMap<u32, BTreeSet<String>> = BTreeMap::new();
-    for m in table.get_modules() {
-        let children: BTreeSet<String> = table
-            .children_of(m.id)
-            .iter()
-            .filter(|e| matches!(e.kind, InstKind::Component | InstKind::Module))
-            .map(|e| e.path.clone())
-            .collect();
-        module_children.insert(m.id, children);
-    }
-
     // (module_id, owner_path) → 该 owner 引用的组件名集合
     let mut ghosts: BTreeMap<(u32, String), BTreeSet<String>> = BTreeMap::new();
     let mut scanned = 0usize;
@@ -782,10 +775,18 @@ fn check_r07_ghost(table: &InstTable, idx: &Index, rep: &mut Report) {
                 None => continue,
             };
 
-            // 第 3 步 · 检查 owner 是否在该模块的 Component/Module 子节点中
-            let is_valid = module_children
-                .get(&module_id)
-                .map(|children| children.contains(&owner))
+            // 第 3 步 · 按 InstKind 白名单检查 owner 是否合法
+            // owner ∈ {Component, Module, Bus, Port} → 合法
+            // owner 解析不出任何 entry → 类名残片（如 DIO）→ ghost
+            let is_valid = table
+                .get_id_by_path(&owner)
+                .and_then(|oid| table.get_entry(oid))
+                .map(|oe| {
+                    matches!(
+                        oe.kind,
+                        InstKind::Component | InstKind::Module | InstKind::Bus | InstKind::Port
+                    )
+                })
                 .unwrap_or(false);
 
             if !is_valid {
@@ -1056,11 +1057,34 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
     }
 
     // 收集每个模块通过端口导出的 rail_identity
+    // ★ 不仅查 Port，也查 Bus 的子成员和直接 Label —— 模块的电源参数
+    // 可能注册为 Label（如 main.GND）、Bus 子 Label（如 dc.GND）或 Port。
     let mut module_port_rails: BTreeMap<u32, BTreeSet<String>> = BTreeMap::new();
     for m in table.get_modules() {
+        // 1) 显式端口（Port）
         for port in table.get_ports_of(m.id) {
             if let Some(rid) = rail_identity(&port.path) {
                 module_port_rails.entry(m.id).or_default().insert(rid);
+            }
+        }
+        // 2) 模块直属的 Bus 子节点 → 其子 Label 的 rail_identity
+        //    例如 speaker 的 dc{VDD_3V3, GND} → Bus "dc" → Label "GND" / "VDD_3V3"
+        for child in table.children_of(m.id) {
+            match child.kind {
+                InstKind::Bus => {
+                    for grandchild in table.children_of(child.id) {
+                        if let Some(rid) = rail_identity(&grandchild.path) {
+                            module_port_rails.entry(m.id).or_default().insert(rid);
+                        }
+                    }
+                }
+                InstKind::Label => {
+                    // 3) 直接 Label 子节点（如 main.GND, main.mcu513.GND）
+                    if let Some(rid) = rail_identity(&child.path) {
+                        module_port_rails.entry(m.id).or_default().insert(rid);
+                    }
+                }
+                _ => {}
             }
         }
     }
