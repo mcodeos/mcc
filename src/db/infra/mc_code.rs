@@ -64,8 +64,14 @@ pub static AST_VISIT_DONE: AtomicBool = AtomicBool::new(false);
 // Re-entrancy guard for parse_pass1_types: prevents mcb_get_cmie's
 // on-demand parsing from re-entering parse_pass1_types for a file
 // that is already being parsed higher up the call stack.
+//
+// PARSING_MODULES is a separate guard for parse_pass1_modules, because
+// parse_pass1_types calls parse_pass1_modules internally. Sharing the
+// same guard caused parse_pass1_modules to always return early, leaving
+// modules_parsed=false permanently.
 thread_local! {
     static PARSING_PASS1: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+    static PARSING_MODULES: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
 }
 
 pub fn mcb_reset_ast_visit_flag() {
@@ -1302,15 +1308,15 @@ impl McCode {
     }
 
     pub fn parse_pass1_modules(&mut self) {
-        // Re-entrancy guard: same as parse_pass1_types — mcb_get_cmie's
-        // on-demand parsing can trigger parse_pass1_modules for a file
-        // that is already being parsed higher up the call stack.
-        let already_parsing = PARSING_PASS1.with(|s| !s.borrow_mut().insert(self.uri.clone()));
+        // Re-entrancy guard: separate from PARSING_PASS1 so that
+        // parse_pass1_types can call parse_pass1_modules internally
+        // without triggering the guard.
+        let already_parsing = PARSING_MODULES.with(|s| !s.borrow_mut().insert(self.uri.clone()));
         if already_parsing {
             return;
         }
         if self.modules_parsed && !self.use_table_dirty {
-            PARSING_PASS1.with(|s| s.borrow_mut().remove(&self.uri));
+            PARSING_MODULES.with(|s| s.borrow_mut().remove(&self.uri));
             return;
         }
         // ★ §7.6: Use table dirty — only rebuild RefDefMap/name_index,
@@ -1318,7 +1324,7 @@ impl McCode {
         if self.modules_parsed && self.use_table_dirty {
             self.create_lapper(); // includes inline Layer 2 + consolidate (Layer 1 + name_index)
             self.use_table_dirty = false;
-            PARSING_PASS1.with(|s| s.borrow_mut().remove(&self.uri));
+            PARSING_MODULES.with(|s| s.borrow_mut().remove(&self.uri));
             return;
         }
         self.modules_parsed = true;
@@ -1345,7 +1351,7 @@ impl McCode {
         // ★ Fix: Build the lapper after processing all modules.
         self.create_lapper(); // includes inline Layer 2 + consolidate_ref_def_map (Layer 1 + name_index)
         self.use_table_dirty = false;
-        // Keep URI in PARSING_PASS1 so mcb_parse_all_modules' second pass
+        // Keep URI in PARSING_MODULES so mcb_parse_all_modules' second pass
         // skips rebuild (which would clear name_to_declare_id and create
         // new DeclareIds, breaking FuncRef→FuncDef matching).
 
