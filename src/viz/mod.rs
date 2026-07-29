@@ -61,7 +61,8 @@ pub mod traits;
 
 /// R15: count of synthetic/ghost pins detected during viz processing.
 /// Incremented by islands.rs when a pin_id doesn't match any real pin in the box.
-pub static SYNTHETIC_PIN_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+pub static SYNTHETIC_PIN_COUNT: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
 
 // ============================================================================
 // Top-level re-exports

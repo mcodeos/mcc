@@ -311,10 +311,29 @@ fn render_layer_recursive(
     metrics.accumulate_layer(&graph, &rep, canvas);
 
     // ── M12: Determinism report (after route, before render) ──
+    // ★ P0.5-3c: 补上 idiom_hash / placement_hash —— 在 layout_best 之后
+    // 重新检测 idiom 实例和约束（只读操作），填充到 determinism 报告中。
     let det_report = {
         let mut r = crate::viz::stability::report::DeterminismReport::from_graph(&graph);
         r.graph_input_hash = crate::viz::stability::hash::hash_box_geometry(&graph);
         r.route_schedule_hash = crate::viz::stability::hash::canonical_hash(&graph.nets.len());
+        // 收集 protected boxes（geom_locked 的）
+        let protected: HashSet<i64> = graph
+            .boxes
+            .iter()
+            .filter(|b| b.geom_locked)
+            .map(|b| b.id)
+            .collect();
+        let idiom_instances = crate::viz::idiom::detect_placement_instances(&graph, &protected);
+        let constraints = crate::viz::idiom::generate_constraints(&idiom_instances);
+        let prefix = &r.box_order_hash;
+        r.idiom_instance_hash =
+            crate::viz::stability::hash::hash_idiom_instances(&idiom_instances, prefix);
+        r.placement_constraint_hash =
+            crate::viz::stability::hash::hash_placement_constraints(&constraints, prefix);
+        // placement_decision_hash 用 constraints hash 作为近似（实际 decisions
+        // 在 flow.rs 内计算，此处不可达；但顶层报告需要非空值）
+        r.placement_decision_hash = r.placement_constraint_hash.clone();
         r
     };
     metrics.accumulate_determinism(&det_report);

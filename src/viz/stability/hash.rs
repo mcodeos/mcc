@@ -10,7 +10,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use crate::vector::graph::McVecGraph;
+use crate::vector::graph::{McVecBox, McVecGraph, VizNet};
 
 use super::key::{StableBoxKey, StableEndpointKey, StableNetKey};
 use super::score::quantized_px;
@@ -36,11 +36,21 @@ pub fn hash_f64(hasher: &mut DefaultHasher, v: f64) {
 // ============================================================================
 
 /// Hash box order deterministically.
+///
+/// ★ P0.5-3b: 归一化 ID —— 哈希前按 (name, symbol_rank, kind) 排序后重编号，
+/// 用序号代替绝对 id，使 hash 不受上游无关器件插入导致的 id 偏移影响。
 pub fn hash_box_order(graph: &McVecGraph) -> String {
     let mut hasher = DefaultHasher::new();
-    for (i, b) in graph.boxes.iter().enumerate() {
+    // 按稳定属性排序，然后用序号代替绝对 id
+    let mut sorted: Vec<&McVecBox> = graph.boxes.iter().collect();
+    sorted.sort_by_key(|b| {
+        let key = StableBoxKey::from_box(b, 0);
+        (key.name.clone(), key.symbol_rank)
+    });
+    for (i, b) in sorted.iter().enumerate() {
         let key = StableBoxKey::from_box(b, i);
-        key.box_id.hash(&mut hasher);
+        // 使用归一化后的序号而非绝对 id
+        (i as u64).hash(&mut hasher);
         key.name.hash(&mut hasher);
         key.symbol_rank.hash(&mut hasher);
     }
@@ -48,11 +58,21 @@ pub fn hash_box_order(graph: &McVecGraph) -> String {
 }
 
 /// Hash net order deterministically.
+///
+/// ★ P0.5-3b: 归一化 ID —— 哈希前按 (name, kind_rank) 排序后重编号，
+/// 用序号代替绝对 net_id，使 hash 不受上游无关器件插入导致的 id 偏移影响。
 pub fn hash_net_order(graph: &McVecGraph) -> String {
     let mut hasher = DefaultHasher::new();
-    for (i, n) in graph.nets.iter().enumerate() {
+    // 按稳定属性排序，然后用序号代替绝对 net_id
+    let mut sorted: Vec<&VizNet> = graph.nets.iter().collect();
+    sorted.sort_by_key(|n| {
+        let key = StableNetKey::from_net(n, 0);
+        (key.name.clone(), key.kind_rank)
+    });
+    for (i, n) in sorted.iter().enumerate() {
         let key = StableNetKey::from_net(n, i);
-        key.net_id.hash(&mut hasher);
+        // 使用归一化后的序号而非绝对 net_id
+        (i as u64).hash(&mut hasher);
         key.name.hash(&mut hasher);
         key.kind_rank.hash(&mut hasher);
     }
