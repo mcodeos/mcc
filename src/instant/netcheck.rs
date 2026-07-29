@@ -140,6 +140,7 @@ impl Report {
             s,
             "├───────────────────────────────────────────────────────────────────"
         );
+        let _ = writeln!(s, "│ 规则                         命中数（唯一值/命中数）");
 
         for (rule, n) in &self.counts {
             let lvl = rule_level(rule);
@@ -194,14 +195,22 @@ impl Report {
             }
         }
 
+        let total_errors: usize = self
+            .counts
+            .iter()
+            .filter(|(rule, _)| rule_level(rule) == Level::Error)
+            .map(|(_, &n)| n)
+            .sum();
+        let total_warns: usize = self
+            .counts
+            .iter()
+            .filter(|(rule, _)| rule_level(rule) == Level::Warn)
+            .map(|(_, &n)| n)
+            .sum();
         let _ = writeln!(
             s,
-            "└─ {} error(s), {} warn(s) ─────────────────────────────────────────",
-            self.error_count(),
-            self.findings
-                .iter()
-                .filter(|f| f.level == Level::Warn)
-                .count()
+            "└─ {} error(s)（命中总数）, {} warn(s)（命中总数） ─────────────────",
+            total_errors, total_warns
         );
         s
     }
@@ -1132,9 +1141,24 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
     // union 依据。判断方法：端口的 entry 所在的 net 里是否同时包含父模块
     // 的点（即端口被父层连接了）。
     for m in table.get_modules() {
-        let parent_id = match table.get_entry(m.id).and_then(|e| e.parent_id) {
+        let parent_entry_id = match table.get_entry(m.id).and_then(|e| e.parent_id) {
             Some(pid) => pid,
             None => continue,
+        };
+
+        // ★ parent_entry_id 是父条目的 id（可能是 Component/Module/Label…），
+        // 不是父 Module 的 id。如果父条目本身就是 Module，直接用它的 id；
+        // 否则通过 nearest_module 向上找到最近的 Module。
+        let parent_module_id = {
+            let parent_entry = table.get_entry(parent_entry_id);
+            match parent_entry {
+                Some(pe) if pe.kind == InstKind::Module => parent_entry_id,
+                Some(_other) => match idx.nearest_module.get(&parent_entry_id) {
+                    Some(pm) => *pm,
+                    None => continue,
+                },
+                None => continue,
+            }
         };
 
         if let Some(port_rails) = module_port_rails.get(&m.id) {
@@ -1143,9 +1167,9 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
                 // 至少有一个端口 entry 所在的 net 包含父模块的点 → 已连通
                 let port_connected = port_eids.iter().any(|&eid| {
                     if let Some(net) = table.get_net_of(eid) {
-                        net.points.iter().any(|p| {
-                            idx.nearest_module.get(p) == Some(&parent_id)
-                        })
+                        net.points
+                            .iter()
+                            .any(|p| idx.nearest_module.get(p) == Some(&parent_module_id))
                     } else {
                         false
                     }
@@ -1168,7 +1192,7 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
                     } else {
                         continue;
                     }
-                    if mods.contains(&parent_id) {
+                    if mods.contains(&parent_module_id) {
                         parent_nets.push(*nid);
                     }
                     if mods.contains(&m.id) {
@@ -1188,43 +1212,58 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
 
     set_scanned(rep, "R11", scanned);
 
-    // 对每个 rail_identity，按 union-find 根分组
-    for (rid, nets) in buckets {
-        let mut groups: BTreeSet<u32> = BTreeSet::new();
-        for nid in &nets {
-            groups.insert(uf_find(&mut uf, *nid));
-        }
-        if groups.len() >= 2 {
-            // 收集每组中的一个代表 net 用于报告
-            let mut group_repr: BTreeMap<u32, u32> = BTreeMap::new(); // root -> representative net_id
-            for nid in &nets {
-                let root = uf_find(&mut uf, *nid);
-                group_repr.entry(root).or_insert(*nid);
+    // ★ P0.5-6: 按模块 scope —— 只报告同一模块内 rail 被拆成多张网的情况。
+    // 先按模块重新分桶，再在每个模块内检查 union 后的分组数。
+    // 使用 idx.net_module 作为每个 net 的"主模块"（最深公共祖先），
+    // 避免跨模块共享的 net 被计入多个模块。
+    let mut module_buckets: BTreeMap<String, BTreeMap<String, BTreeSet<u32>>> = BTreeMap::new();
+    for (rid, nets) in &buckets {
+        for nid in nets {
+            let primary = idx.module_of_net(*nid);
+            if primary.is_empty() {
+                continue;
             }
-            let names: Vec<String> = group_repr
-                .values()
-                .filter_map(|n| {
-                    table.get_net(*n).map(|e| {
-                        let m = idx.module_of_net(*n);
-                        if m.is_empty() {
-                            format!("{}#{}", e.name, e.id)
-                        } else {
-                            format!("{}::{}#{}", m, e.name, e.id)
-                        }
+            module_buckets
+                .entry(primary.to_string())
+                .or_default()
+                .entry(rid.clone())
+                .or_default()
+                .insert(*nid);
+        }
+    }
+
+    for (mod_name, rid_buckets) in &module_buckets {
+        for (rid, nets) in rid_buckets {
+            let mut groups: BTreeSet<u32> = BTreeSet::new();
+            for nid in nets {
+                groups.insert(uf_find(&mut uf, *nid));
+            }
+            if groups.len() >= 2 {
+                let mut group_repr: BTreeMap<u32, u32> = BTreeMap::new();
+                for nid in nets {
+                    let root = uf_find(&mut uf, *nid);
+                    group_repr.entry(root).or_insert(*nid);
+                }
+                let names: Vec<String> = group_repr
+                    .values()
+                    .filter_map(|n| {
+                        table
+                            .get_net(*n)
+                            .map(|e| format!("{}::{}#{}", mod_name, e.name, e.id))
                     })
-                })
-                .collect();
-            push(
-                rep,
-                "R11",
-                String::new(),
-                format!(
-                    "电源 `{}` 被拆成 {} 张互不相连的网: {}",
-                    rid,
-                    groups.len(),
-                    names.join(", ")
-                ),
-            );
+                    .collect();
+                push(
+                    rep,
+                    "R11",
+                    mod_name.clone(),
+                    format!(
+                        "模块内电源 `{}` 被拆成 {} 张互不相连的网: {}",
+                        rid,
+                        groups.len(),
+                        names.join(", ")
+                    ),
+                );
+            }
         }
     }
 }

@@ -9,12 +9,12 @@ Cargo.lock
 .claude/settings.json
 
 
+
+baseline
 projects
 circuit.html
-prompt
 mcode
 unitest
-fix.MD
 mcd
 plan
 test
