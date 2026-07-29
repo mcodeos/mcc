@@ -978,8 +978,9 @@ fn place_terminal_box(
     for &(pin_id, _) in connected {
         // G4: Upgrade from debug_assert to release-mode diagnostic.
         if !b.pins.is_empty() && !b.pins.iter().any(|p| p.id == pin_id) {
+            crate::viz::SYNTHETIC_PIN_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             eprintln!(
-                "[viz] GHOST_PIN: pin {pin_id} 不属于 box#{} (端子配对错误，可能来自失败的实例化)，跳过",
+                "[viz] GHOST_PIN: pin {pin_id} 不属于 box#{} (合成端子，可能来自端口标量/成员处理或未解析的端点引用)，跳过",
                 b.id
             );
             continue;
@@ -1245,8 +1246,9 @@ fn apply_chain_layout(
                 // Ghost pins from failed instantiations must not cause a panic;
                 // instead, log and skip (hard veto).
                 if !b.pins.is_empty() && !b.pins.iter().any(|p| p.id == pin_id) {
+                    crate::viz::SYNTHETIC_PIN_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     eprintln!(
-                        "[viz] GHOST_PIN: pin {pin_id} 不属于 box#{} (端子配对错误，可能来自失败的实例化)，跳过",
+                        "[viz] GHOST_PIN: pin {pin_id} 不属于 box#{} (合成端子，可能来自端口标量/成员处理或未解析的端点引用)，跳过",
                         b.id
                     );
                     continue;

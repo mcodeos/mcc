@@ -176,6 +176,9 @@ pub fn render_with_metrics(
     mut graph: McVecGraph,
     opts: RenderOpts,
 ) -> (VizDocument, crate::viz::metrics::MetricsAccumulator) {
+    // Reset R15 counter for this render
+    crate::viz::SYNTHETIC_PIN_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
+
     let root_bid = graph.bid;
     let root_name = graph.name.clone();
 
