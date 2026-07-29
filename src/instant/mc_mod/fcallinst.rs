@@ -73,26 +73,35 @@ impl McModuleInst {
         let inst_name = self.auto_name(&safe_type);
 
         // 2. Create the component instance with parameters
-        let inst = match McComponentInst::with_params(&inst_name, comp_def.clone(), params) {
-            Ok(inst) => inst,
-            Err(e) => {
-                let reason = format!("{:?}", e);
-                eprintln!(
-                    "[ERROR] Failed to instantiate anonymous component '{}' (class '{}'): {}",
-                    inst_name, type_name, reason
-                );
-                self.failed_classes.insert(type_name.clone());
-                self.failed_records.push(FailedRecord {
-                    module: self.name.clone(),
-                    src_line: self.current_line_span.as_ref().map(|s| s.start / 1000),
-                    component_name: inst_name.clone(),
-                    class_name: type_name.clone(),
-                    reason: reason.clone(),
-                });
-                return Err(InstError::Other(format!(
-                    "Failed to instantiate '{}': {}",
-                    inst_name, reason
-                )));
+        // ★ P0.5-3: if any param is NC, use with_nc (skip param binding).
+        // This converges the anonymous inline path with the named-array
+        // declaration path (Mc2Component::with_params sets nc=true, then
+        // instantiate_declarations_resilient uses with_nc).
+        let has_nc = params.iter().any(|p| matches!(p, McParamValue::NC(_)));
+        let inst = if has_nc {
+            McComponentInst::with_nc(&inst_name, comp_def.clone())
+        } else {
+            match McComponentInst::with_params(&inst_name, comp_def.clone(), params) {
+                Ok(inst) => inst,
+                Err(e) => {
+                    let reason = format!("{:?}", e);
+                    eprintln!(
+                        "[ERROR] Failed to instantiate anonymous component '{}' (class '{}'): {}",
+                        inst_name, type_name, reason
+                    );
+                    self.failed_classes.insert(type_name.clone());
+                    self.failed_records.push(FailedRecord {
+                        module: self.name.clone(),
+                        src_line: self.current_line_span.as_ref().map(|s| s.start / 1000),
+                        component_name: inst_name.clone(),
+                        class_name: type_name.clone(),
+                        reason: reason.clone(),
+                    });
+                    return Err(InstError::Other(format!(
+                        "Failed to instantiate '{}': {}",
+                        inst_name, reason
+                    )));
+                }
             }
         };
 

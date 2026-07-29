@@ -269,6 +269,10 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
                 match mcc::mcc_build_flat(&mod_ident, &mod_uri, 1000) {
                     Ok((mod_inst, mod_table)) => {
+                        // ★ netcheck: 网表体检
+                        let nc_report = mcc::instant::netcheck::run(&mod_table);
+                        nc_report.print();
+
                         mcc::vector::builder::reset_np_warn_count();
                         let (vec_block, _report) =
                             mcc::build_mc_vec_with_report(&mod_inst, &mod_table);

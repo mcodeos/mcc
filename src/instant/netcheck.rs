@@ -44,6 +44,7 @@
 //! | R11 SPLIT_RAIL         | ERROR | 同一模块内同名电源网被拆成多张互不相连的网 |
 //! | R12 DANGLING_PORT      | INFO  | 端口网只有它自己一个点 |
 //! | R14 ORPHAN_INSTANCE     | WARN  | 注册了但不在任何网里的实例 |
+//! | R15 SYNTHETIC_PIN       | WARN  | 合成端子（pin_id 不属于任何真实管脚，来自端口标量/成员处理） |
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
@@ -214,7 +215,7 @@ impl Report {
 fn rule_level(rule: &str) -> Level {
     match rule {
         "R03a" | "R12" => Level::Info,
-        "R06" | "R09" | "R14" => Level::Warn,
+        "R06" | "R09" | "R14" | "R15" => Level::Warn,
         _ => Level::Error,
     }
 }
@@ -235,6 +236,7 @@ fn rule_name(rule: &str) -> &'static str {
         "R11" => "R11 SPLIT_RAIL",
         "R12" => "R12 DANGLING_PORT",
         "R14" => "R14 ORPHAN_INSTANCE",
+        "R15" => "R15 SYNTHETIC_PIN",
         _ => "?",
     }
 }
@@ -258,7 +260,7 @@ pub fn run_with_expectation(table: &InstTable, pass1_expect: &BTreeMap<String, u
     // 所有规则都登记一次，保证 0 命中的规则也出现在表里
     for r in [
         "R01", "R02", "R03", "R03a", "R04", "R05", "R06", "R07", "R08", "R09", "R10", "R11", "R12",
-        "R14",
+        "R14", "R15",
     ] {
         rep.counts.insert(r, 0);
     }
@@ -280,6 +282,7 @@ pub fn run_with_expectation(table: &InstTable, pass1_expect: &BTreeMap<String, u
     check_r11_split_rail(table, &idx, &mut rep);
     check_r12_dangling_port(table, &idx, &mut rep);
     check_r14_orphan_instance(table, &idx, &mut rep);
+    check_r15_synthetic_pin(&mut rep);
 
     rep
 }
@@ -1059,12 +1062,21 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
     // 收集每个模块通过端口导出的 rail_identity
     // ★ 不仅查 Port，也查 Bus 的子成员和直接 Label —— 模块的电源参数
     // 可能注册为 Label（如 main.GND）、Bus 子 Label（如 dc.GND）或 Port。
-    let mut module_port_rails: BTreeMap<u32, BTreeSet<String>> = BTreeMap::new();
+    //
+    // ★ P0.5-5: 收紧 union 条件 —— 同时记录每个 rail_identity 对应的端口 entry id，
+    // 以便后续验证父层是否确实通过端口绑定连通了该端口。
+    // module_id → (rail_identity → Vec<port_entry_id>)
+    let mut module_port_rails: BTreeMap<u32, BTreeMap<String, Vec<u32>>> = BTreeMap::new();
     for m in table.get_modules() {
         // 1) 显式端口（Port）
         for port in table.get_ports_of(m.id) {
             if let Some(rid) = rail_identity(&port.path) {
-                module_port_rails.entry(m.id).or_default().insert(rid);
+                module_port_rails
+                    .entry(m.id)
+                    .or_default()
+                    .entry(rid)
+                    .or_default()
+                    .push(port.id);
             }
         }
         // 2) 模块直属的 Bus 子节点 → 其子 Label 的 rail_identity
@@ -1074,14 +1086,24 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
                 InstKind::Bus => {
                     for grandchild in table.children_of(child.id) {
                         if let Some(rid) = rail_identity(&grandchild.path) {
-                            module_port_rails.entry(m.id).or_default().insert(rid);
+                            module_port_rails
+                                .entry(m.id)
+                                .or_default()
+                                .entry(rid)
+                                .or_default()
+                                .push(grandchild.id);
                         }
                     }
                 }
                 InstKind::Label => {
                     // 3) 直接 Label 子节点（如 main.GND, main.mcu513.GND）
                     if let Some(rid) = rail_identity(&child.path) {
-                        module_port_rails.entry(m.id).or_default().insert(rid);
+                        module_port_rails
+                            .entry(m.id)
+                            .or_default()
+                            .entry(rid)
+                            .or_default()
+                            .push(child.id);
                     }
                 }
                 _ => {}
@@ -1104,6 +1126,11 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
     }
 
     // 对每个父子模块对，union 通过端口连接的同 rail 网
+    //
+    // ★ P0.5-5: 收紧 union 条件 —— 只有当父层确实通过端口绑定连通了
+    // 子模块端口时才 union。仅凭"父层某条连接提到了这个端口名"不构成
+    // union 依据。判断方法：端口的 entry 所在的 net 里是否同时包含父模块
+    // 的点（即端口被父层连接了）。
     for m in table.get_modules() {
         let parent_id = match table.get_entry(m.id).and_then(|e| e.parent_id) {
             Some(pid) => pid,
@@ -1111,7 +1138,23 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
         };
 
         if let Some(port_rails) = module_port_rails.get(&m.id) {
-            for rid in port_rails {
+            for (rid, port_eids) in port_rails {
+                // ★ 检查：父层是否确实通过端口绑定连通了该端口？
+                // 至少有一个端口 entry 所在的 net 包含父模块的点 → 已连通
+                let port_connected = port_eids.iter().any(|&eid| {
+                    if let Some(net) = table.get_net_of(eid) {
+                        net.points.iter().any(|p| {
+                            idx.nearest_module.get(p) == Some(&parent_id)
+                        })
+                    } else {
+                        false
+                    }
+                });
+                if !port_connected {
+                    // 父层未绑定此端口，不得 union
+                    continue;
+                }
+
                 // 收集父模块中该 rail_identity 的 net
                 let mut parent_nets: Vec<u32> = Vec::new();
                 // 收集子模块中该 rail_identity 的 net
@@ -1261,6 +1304,27 @@ fn check_r14_orphan_instance(table: &InstTable, idx: &Index, rep: &mut Report) {
                 sorted.join(", ")
             ),
         );
+    }
+}
+
+// ============================================================================
+// R15 · 合成端子 —— viz 层检测到的 pin_id 不属于任何真实管脚
+// ============================================================================
+
+fn check_r15_synthetic_pin(rep: &mut Report) {
+    let count = crate::viz::SYNTHETIC_PIN_COUNT.load(std::sync::atomic::Ordering::Relaxed);
+    set_scanned(rep, "R15", 1); // R15 runs once per viz render
+    if count > 0 {
+        rep.counts.insert("R15", count);
+        rep.findings.push(Finding {
+            rule: "R15",
+            level: Level::Warn,
+            module: String::new(),
+            detail: format!(
+                "{} 个合成端子（pin_id 不属于任何真实管脚，可能来自端口标量/成员处理或未解析的端点引用）",
+                count
+            ),
+        });
     }
 }
 
