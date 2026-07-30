@@ -1,0 +1,53 @@
+# POWER_LDO golden 网表
+# 依赖裁决：⑥ 全局 GND — ldo.2 兼作 VIN.GND 与 VOUT.GND，是全局 GND 的第一座桥
+# 源码：power.mc:52-72
+
+[meta]
+module = "POWER_LDO"
+nets = 3
+components = 3
+
+[[comp]]
+id = "ldo"
+class = "LDO.SGM2019_33YN5G_TR"
+value = "SGM2019-3.3YN5G/TR"
+pins = 5
+origin = "power.mc:59"
+
+[[comp]]
+id = "C10u"
+class = "CAP"
+value = "10uF"
+pins = 2
+origin = "power.mc:64"
+
+[[comp]]
+id = "C4u7"
+class = "CAP"
+value = "4.7uF"
+pins = 2
+origin = "power.mc:67"
+
+[[net]]
+name = "vin.VCC"
+points = ["vin.VCC", "ldo.1", "ldo.3", "C10u.1"]
+
+[[net]]
+name = "GND"
+points = ["vin.GND", "vout.GND", "ldo.2", "C10u.2", "C4u7.2"]
+
+[[net]]
+name = "vout.VCC"
+points = ["ldo.5", "C4u7.1", "vout.VCC"]
+
+[[unconnected]]
+pin = "ldo.4"
+reason = "SGM2019 固定 3.3V 输出版本，FB 反馈脚不用"
+
+[[series]]
+comp = "C10u"
+is_series = false
+
+[[series]]
+comp = "C4u7"
+is_series = false

@@ -1,0 +1,72 @@
+# POWER_USB golden 网表
+# 依赖裁决：无（usbsock.GND = pin 6/7 由组件声明直接给出，无需裁决）
+# 源码：power.mc:24-33
+# ★ 与 golden 文档 v4 §1.1 差异：
+#   - 文档写 TP3，源码 power.mc:29 声明为 TP2，以源码为准
+#   - 文档写 usbsock.5 在 vin.GND 网中，但源码 usbsock.GND 仅指 pin 6/7，
+#     pin 5 属于 USB 接口组 [1:5]，源码未显式连接，以源码为准
+
+[meta]
+module = "POWER_USB"
+nets = 3
+components = 4
+
+[[comp]]
+id = "usbsock"
+class = "USB.MINI_B"
+value = "HUM011D-5-S"
+pins = 9
+origin = "power.mc:28"
+
+[[comp]]
+id = "TP1"
+class = "TEST_POINT"
+value = ""
+pins = 1
+origin = "power.mc:29"
+
+[[comp]]
+id = "TP2"
+class = "TEST_POINT"
+value = ""
+pins = 1
+origin = "power.mc:29"
+
+[[comp]]
+id = "R0"
+class = "RES"
+value = "0R"
+pins = 2
+origin = "power.mc:31"
+
+[[net]]
+name = "USB_VBUS"
+points = ["usbsock.1", "TP1.1", "R0.1"]
+
+[[net]]
+name = "vin.POWER_SYS"
+points = ["R0.2", "vin.POWER_SYS"]
+
+[[net]]
+name = "vin.GND"
+points = ["usbsock.6", "usbsock.7", "usbsock.8", "usbsock.9", "TP2.1", "vin.GND"]
+
+[[unconnected]]
+pin = "usbsock.2"
+reason = "USB D+，纯供电用途未使用"
+
+[[unconnected]]
+pin = "usbsock.3"
+reason = "USB D-，纯供电用途未使用"
+
+[[unconnected]]
+pin = "usbsock.4"
+reason = "USB ID，纯供电用途未使用"
+
+[[unconnected]]
+pin = "usbsock.5"
+reason = "USB GND（pin 5），属于 USB 接口组成员，usbsock.GND 仅指 pin 6/7"
+
+[[series]]
+comp = "R0"
+is_series = true
