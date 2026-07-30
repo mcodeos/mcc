@@ -1,0 +1,343 @@
+# US513 golden 网表
+# 依赖裁决：② 闭包块不产生实例（不适用） / ③ 转置 ' 不切网（R442 跨接）
+# 源码：us513.mc:117-162
+
+[meta]
+module = "US513"
+nets = 21
+components = 21
+
+[[comp]]
+id = "uC"
+class = "MCU.US513_20_F"
+value = "US513_20_F"
+pins = 21
+origin = "us513.mc:124"
+
+[[comp]]
+id = "X6"
+class = "Crystal2.DST310S"
+value = "DST310S"
+pins = 2
+origin = "us513.mc:130"
+
+[[comp]]
+id = "R442"
+class = "RES"
+value = "1MΩ"
+pins = 2
+origin = "us513.mc:82"
+
+[[comp]]
+id = "C18a"
+class = "CAP"
+value = "18pF"
+pins = 2
+origin = "us513.mc:84"
+
+[[comp]]
+id = "C18b"
+class = "CAP"
+value = "18pF"
+pins = 2
+origin = "us513.mc:85"
+
+[[comp]]
+id = "res1"
+class = "RES"
+value = "0Ω"
+pins = 2
+origin = "us513.mc:148"
+
+[[comp]]
+id = "res2"
+class = "RES"
+value = "0Ω"
+pins = 2
+origin = "us513.mc:148"
+
+[[comp]]
+id = "R100k_uart"
+class = "RES"
+value = "100kΩ"
+pins = 2
+origin = "us513.mc:149"
+
+[[comp]]
+id = "cap4"
+class = "CAP"
+value = "1uF"
+pins = 2
+origin = "us513.mc:153"
+
+[[comp]]
+id = "cap5"
+class = "CAP"
+value = "1uF"
+pins = 2
+origin = "us513.mc:153"
+
+[[comp]]
+id = "C2u2"
+class = "CAP"
+value = "2.2uF"
+pins = 2
+origin = "us513.mc:156"
+
+[[comp]]
+id = "R15k"
+class = "RES"
+value = "15kΩ"
+pins = 2
+origin = "us513.mc:156"
+
+[[comp]]
+id = "C330n"
+class = "CAP"
+value = "330nF"
+pins = 2
+origin = "us513.mc:158"
+
+[[comp]]
+id = "C1n"
+class = "CAP"
+value = "1nF"
+pins = 2
+origin = "us513.mc:159"
+
+[[comp]]
+id = "R10k_f"
+class = "RES"
+value = "10kΩ"
+pins = 2
+origin = "us513.mc:159"
+
+[[comp]]
+id = "C1u_vdd"
+class = "CAP"
+value = "1uF"
+pins = 2
+origin = "us513.mc:51"
+
+[[comp]]
+id = "C1u_core"
+class = "CAP"
+value = "1uF"
+pins = 2
+origin = "us513.mc:52"
+
+[[comp]]
+id = "C1u_avdd"
+class = "CAP"
+value = "1uF"
+pins = 2
+origin = "us513.mc:53"
+
+[[comp]]
+id = "R100k_gpio"
+class = "RES"
+value = "100kΩ"
+pins = 2
+origin = "us513.mc:61"
+
+[[comp]]
+id = "R10k_scl"
+class = "RES"
+value = "10kΩ"
+pins = 2
+origin = "us513.mc:65"
+
+[[comp]]
+id = "R10k_sda"
+class = "RES"
+value = "10kΩ"
+pins = 2
+origin = "us513.mc:65"
+
+[[net]]
+name = "VDD_3V3"
+points = ["port.VDD_3V3", "uC.5", "C1u_vdd.1", "R100k_uart.2", "R10k_scl.2", "R10k_sda.2", "R100k_gpio.1"]
+
+[[net]]
+name = "GND"
+points = ["port.GND", "uC.21", "C1u_vdd.2", "C1u_core.2", "C1u_avdd.2", "C18a.2", "C18b.2", "C1n.2", "R10k_f.2"]
+
+[[net]]
+name = "VCC_1V2"
+points = ["port.VCC_1V2", "uC.14", "C1u_core.1"]
+
+[[net]]
+name = "AVDD09"
+points = ["uC.15", "C1u_avdd.1"]
+
+[[net]]
+name = "XTAL.X1"
+points = ["X6.1", "uC.3", "R442.1", "C18a.1"]
+
+[[net]]
+name = "XTAL.X2"
+points = ["X6.2", "uC.4", "R442.2", "C18b.1"]
+
+[[net]]
+name = "I2C0.SCL"
+points = ["uC.1", "port.I2C0.SCL", "R10k_scl.1"]
+
+[[net]]
+name = "I2C0.SDA"
+points = ["uC.2", "port.I2C0.SDA", "R10k_sda.1"]
+
+[[net]]
+name = "GPIO2"
+points = ["uC.20", "R100k_gpio.2"]
+
+[[net]]
+name = "UART0.TX"
+points = ["port.UART0.TX", "res1.1"]
+
+[[net]]
+name = "UART0.RX"
+points = ["port.UART0.RX", "res2.1"]
+
+[[net]]
+name = "uC6"
+points = ["res1.2", "uC.6", "C2u2.1"]
+
+[[net]]
+name = "uC7"
+points = ["res2.2", "uC.7", "R100k_uart.1"]
+
+[[net]]
+name = "MIC.P"
+points = ["port.MIC.P", "cap4.1"]
+
+[[net]]
+name = "MIC.N"
+points = ["port.MIC.N", "cap5.1"]
+
+[[net]]
+name = "ADC.P"
+points = ["cap4.2", "uC.16"]
+
+[[net]]
+name = "ADC.N"
+points = ["cap5.2", "uC.17"]
+
+[[net]]
+name = "dac_a"
+points = ["C2u2.2", "R15k.1"]
+
+[[net]]
+name = "dac_b"
+points = ["R15k.2", "C330n.1", "C1n.1", "R10k_f.1"]
+
+[[net]]
+name = "DAC_OUT"
+points = ["C330n.2", "port.DAC_OUT"]
+
+[[net]]
+name = "SPK_MUTE"
+points = ["uC.19", "port.SPK_MUTE"]
+
+[[unconnected]]
+pin = "uC.8"
+reason = "SPI.SCLK — 合法悬空，在 main 层跨模块直连 flash"
+
+[[unconnected]]
+pin = "uC.9"
+reason = "SPI.MOSI — 合法悬空，在 main 层跨模块直连 flash"
+
+[[unconnected]]
+pin = "uC.10"
+reason = "SPI.CSN — 合法悬空，在 main 层跨模块直连 flash"
+
+[[unconnected]]
+pin = "uC.11"
+reason = "SPI.MISO — 合法悬空，在 main 层跨模块直连 flash"
+
+[[unconnected]]
+pin = "uC.12"
+reason = "UART1.TX — 未使用端口"
+
+[[unconnected]]
+pin = "uC.13"
+reason = "UART1.RX — 未使用端口"
+
+[[unconnected]]
+pin = "uC.18"
+reason = "JTAG/GPIO0 — 未使用端口"
+
+[[series]]
+comp = "R442"
+is_series = false
+
+[[series]]
+comp = "C18a"
+is_series = true
+
+[[series]]
+comp = "C18b"
+is_series = true
+
+[[series]]
+comp = "res1"
+is_series = true
+
+[[series]]
+comp = "res2"
+is_series = true
+
+[[series]]
+comp = "R100k_uart"
+is_series = false
+
+[[series]]
+comp = "cap4"
+is_series = true
+
+[[series]]
+comp = "cap5"
+is_series = true
+
+[[series]]
+comp = "C2u2"
+is_series = true
+
+[[series]]
+comp = "R15k"
+is_series = true
+
+[[series]]
+comp = "C330n"
+is_series = true
+
+[[series]]
+comp = "C1n"
+is_series = false
+
+[[series]]
+comp = "R10k_f"
+is_series = false
+
+[[series]]
+comp = "C1u_vdd"
+is_series = false
+
+[[series]]
+comp = "C1u_core"
+is_series = false
+
+[[series]]
+comp = "C1u_avdd"
+is_series = false
+
+[[series]]
+comp = "R100k_gpio"
+is_series = false
+
+[[series]]
+comp = "R10k_scl"
+is_series = false
+
+[[series]]
+comp = "R10k_sda"
+is_series = false

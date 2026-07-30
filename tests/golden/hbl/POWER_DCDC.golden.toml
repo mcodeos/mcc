@@ -1,0 +1,138 @@
+# POWER_DCDC golden 网表
+# 依赖裁决：⑥ 全局 GND — 入/出端口 GND 同名 label 合一，是全局 GND 的第二座桥
+# 源码：power.mc:91-111
+
+[meta]
+module = "POWER_DCDC"
+nets = 6
+components = 10
+
+[[comp]]
+id = "lp322dcdc"
+class = "DCDC.LP3220AB5F"
+value = "LP3220AB5F"
+pins = 5
+origin = "power.mc:96"
+
+[[comp]]
+id = "R47k"
+class = "RES"
+value = "47kΩ"
+pins = 2
+origin = "power.mc:87"
+
+[[comp]]
+id = "C10u_in"
+class = "CAP"
+value = "10uF"
+pins = 2
+origin = "power.mc:100"
+
+[[comp]]
+id = "C1u_en"
+class = "CAP"
+value = "1uF"
+pins = 2
+origin = "power.mc:101"
+
+[[comp]]
+id = "L2u2"
+class = "IND"
+value = "2.2uH"
+pins = 2
+origin = "power.mc:104"
+
+[[comp]]
+id = "C10u_out"
+class = "CAP"
+value = "10uF"
+pins = 2
+origin = "power.mc:105"
+
+[[comp]]
+id = "C100n"
+class = "CAP"
+value = "100nF"
+pins = 2
+origin = "power.mc:106"
+
+[[comp]]
+id = "R137k"
+class = "RES"
+value = "137kΩ"
+pins = 2
+origin = "power.mc:109"
+
+[[comp]]
+id = "R150k"
+class = "RES"
+value = "150kΩ"
+pins = 2
+origin = "power.mc:109"
+
+[[comp]]
+id = "C15p"
+class = "CAP"
+value = "15pF"
+pins = 2
+origin = "power.mc:110"
+
+[[net]]
+name = "VDD_3V3"
+points = ["port.VDD_3V3", "lp322dcdc.4", "C10u_in.1", "R47k.1"]
+
+[[net]]
+name = "GND"
+points = ["port.GND", "lp322dcdc.2", "C10u_in.2", "C1u_en.2", "C10u_out.2", "C100n.2", "R150k.2", "C15p.2"]
+
+[[net]]
+name = "EN"
+points = ["lp322dcdc.1", "R47k.2", "C1u_en.1"]
+
+[[net]]
+name = "LX"
+points = ["lp322dcdc.3", "L2u2.1"]
+
+[[net]]
+name = "VCC_1V2"
+points = ["L2u2.2", "port.VCC_1V2", "C10u_out.1", "C100n.1", "R137k.1"]
+
+[[net]]
+name = "FB"
+points = ["lp322dcdc.5", "R137k.2", "R150k.1", "C15p.1"]
+
+[[series]]
+comp = "R47k"
+is_series = true
+
+[[series]]
+comp = "C10u_in"
+is_series = false
+
+[[series]]
+comp = "C1u_en"
+is_series = false
+
+[[series]]
+comp = "L2u2"
+is_series = true
+
+[[series]]
+comp = "C10u_out"
+is_series = false
+
+[[series]]
+comp = "C100n"
+is_series = false
+
+[[series]]
+comp = "R137k"
+is_series = true
+
+[[series]]
+comp = "R150k"
+is_series = true
+
+[[series]]
+comp = "C15p"
+is_series = false
