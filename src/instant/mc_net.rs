@@ -47,6 +47,10 @@ pub struct NetPoint {
 
     /// Source position in the AST (for diagnostic source-line reporting)
     pub src_pos: Option<i32>,
+
+    /// P2-1: bus member name (e.g. "CS", "SCLK", "MISO", "MOSI" for SPI).
+    /// Used for name-based matching in create_connection.
+    pub member_name: Option<String>,
 }
 
 impl NetPoint {
@@ -74,6 +78,7 @@ impl NetPoint {
             owner: None,
             iotype,
             src_pos: None,
+            member_name: None,
         }
     }
 
@@ -95,12 +100,19 @@ impl NetPoint {
             owner: Some(owner.to_string()),
             iotype,
             src_pos: None,
+            member_name: None,
         }
     }
 
     /// Set source position (for diagnostic source-line reporting)
     pub fn with_src_pos(mut self, pos: i32) -> Self {
         self.src_pos = Some(pos);
+        self
+    }
+
+    /// P2-1: set bus member name for name-based matching
+    pub fn with_member_name(mut self, name: &str) -> Self {
+        self.member_name = Some(name.to_string());
         self
     }
 }
@@ -956,6 +968,7 @@ impl NetTable {
             owner,
             iotype,
             src_pos: None,
+            member_name: None,
         });
         self.parent.push(idx);
         idx

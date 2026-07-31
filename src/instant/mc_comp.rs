@@ -734,7 +734,10 @@ impl McComponentInst {
     /// ## Return
     /// - At least 2 pin_ids → `Some(pids)`
     /// - Port not found / single pin / not found associated pid → `None`
-    pub fn find_bus_port_pin_ids(&self, port_name: &str) -> Option<Vec<String>> {
+    /// P2-1: returns `Vec<(member_name, pin_id)>` instead of `Vec<pin_id>`.
+    /// The member_name comes from the interface/bus declaration (e.g. "CS", "SCLK" for SPI).
+    /// Callers use member_name for name-based matching in create_connection.
+    pub fn find_bus_port_pin_ids(&self, port_name: &str) -> Option<Vec<(String, String)>> {
         // ── [P2-FBPPI] Temporary probe (commented)
         // if port_name.starts_with("UART") {
         //     use crate::semantic::component::mc_pins::McPinPort;
@@ -830,6 +833,7 @@ impl McComponentInst {
 
             if decl_members.len() >= 2 {
                 let mut ordered: Vec<String> = Vec::new();
+                let mut ordered_names: Vec<String> = Vec::new();
                 let mut seen: std::collections::BTreeSet<String> =
                     std::collections::BTreeSet::new();
                 for m in &decl_members {
@@ -847,6 +851,7 @@ impl McComponentInst {
                     if let Some(pid) = pid_opt {
                         if seen.insert(pid.clone()) {
                             ordered.push(pid);
+                            ordered_names.push(m.clone());
                         }
                     }
                 }
@@ -864,13 +869,15 @@ impl McComponentInst {
                             self.name, port_name, ordered, asc
                         );
                     }
-                    return Some(ordered);
+                    // P2-1: return names alongside pids
+                    return Some(ordered_names.into_iter().zip(ordered.into_iter()).collect());
                 }
                 // Resolved < 2 → fall through to the original scan fallback below, no regression
             }
         }
 
         // Direct hit: Multi(pids)
+        // P2-1: extract member names from pin_id_to_names for each pid
         if let McPinPort::Multi(pids) = port_kind {
             if pids.len() >= 2 {
                 let mut sorted = pids.clone();
@@ -880,14 +887,53 @@ impl McComponentInst {
                     na.cmp(&nb)
                 });
                 // ── [P1-MULTI-PROBE] delete after verification: for Multi/List ports, if non-monotonic, declaration order ≠ ascending order ──
-                // If this prints and is empirically flipped, change the next line to `return Some(pids.clone());` (preserve declaration order).
                 if sorted != *pids {
                     eprintln!(
                         "[P1-MULTI-NONMONO] {}.{} declared={:?} ascending={:?}",
                         self.name, port_name, pids, sorted
                     );
                 }
-                return Some(sorted);
+                // P2-1: look up member names from pin_id_to_names
+                // Qualified names like "SPI.CS" are stored in pin_id_to_names.
+                // Extract the member name (last segment after port_name.)
+                let prefix = format!("{port_name}.");
+                let mut pid_with_name: Vec<(String, String)> = Vec::new();
+                for pid in &sorted {
+                    let member_name = self
+                        .def
+                        .pins
+                        .pin_id_to_names
+                        .get(pid)
+                        .and_then(|names| {
+                            names.iter().find_map(|n| {
+                                if n.starts_with(&prefix) {
+                                    Some(n[prefix.len()..].to_string())
+                                } else {
+                                    None
+                                }
+                            })
+                        })
+                        .unwrap_or_default();
+                    pid_with_name.push((member_name, pid.clone()));
+                }
+                // If no member names found via pin_id_to_names, try names_to_id scan
+                if pid_with_name.iter().all(|(n, _)| n.is_empty()) {
+                    // Print all keys with their types
+                    let mut entries: Vec<String> = Vec::new();
+                    for (key, port) in self.def.pins.names_to_id.iter() {
+                        let type_str = match port {
+                            McPinPort::Single(_) => "Single",
+                            McPinPort::Multi(_) => "Multi",
+                            McPinPort::Interface(_) => "Interface",
+                            McPinPort::Bus(_) => "Bus",
+                            McPinPort::List(_, _) => "List",
+                            McPinPort::MultiGroup(_) => "MultiGroup",
+                            McPinPort::NC => "NC",
+                        };
+                        entries.push(format!("{key}:{type_str}"));
+                    }
+                }
+                return Some(pid_with_name);
             }
             return None;
         }
@@ -942,7 +988,17 @@ impl McComponentInst {
             pid_with_name.retain(|(_, pid)| seen.insert(pid.clone()));
         }
 
-        Some(pid_with_name.into_iter().map(|(_, pid)| pid).collect())
+        // P2-1: general case preserves (name, pid) pairs. Name is the dotted alias
+        // (e.g. "SPI.SCLK"), extract last segment as member name for matching.
+        Some(
+            pid_with_name
+                .into_iter()
+                .map(|(name, pid)| {
+                    let member = name.rsplit('.').next().unwrap_or(&name).to_string();
+                    (member, pid)
+                })
+                .collect(),
+        )
     }
 }
 

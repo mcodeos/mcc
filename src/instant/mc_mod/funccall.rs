@@ -815,12 +815,13 @@ impl McModuleInst {
                             if pids.len() >= 2 {
                                 return Ok(pids
                                     .iter()
-                                    .map(|pid| {
+                                    .map(|(name, pid)| {
                                         NetPoint::with_owner(
                                             &format!("{}.{}", owner_name, pid),
                                             owner_name,
                                             IOType::None,
                                         )
+                                        .with_member_name(name)
                                     })
                                     .collect());
                             }
