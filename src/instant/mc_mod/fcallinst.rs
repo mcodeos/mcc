@@ -624,6 +624,31 @@ impl McModuleInst {
             })?;
         {
             let sub = &mut self.sub_modules[idx];
+            // ── P2-2: register boundary formals as buses in the submodule ──
+            // When a boundary formal (e.g. `spi`) is paired with a component bus
+            // (e.g. `uC[SPI]`), the default broadcast behavior shorts all bus pins.
+            // By registering the formal as a bus with the component's pin IDs,
+            // the body connection becomes N×N instead of 1×N broadcast.
+            for (formal, _) in &boundary_pairs {
+                // Resolve formal to declared port name (case-insensitive)
+                let resolved_port = sub
+                    .ports
+                    .iter()
+                    .find(|p| p.name.eq_ignore_ascii_case(formal))
+                    .map(|p| p.name.clone())
+                    .unwrap_or_else(|| formal.clone());
+                if let Some(pin_ids) = sub
+                    .components
+                    .iter()
+                    .find_map(|comp| comp.find_bus_port_pin_ids(&resolved_port))
+                {
+                    if pin_ids.len() >= 2 {
+                        let members: Vec<String> =
+                            pin_ids.iter().map(|(_, pid)| pid.clone()).collect();
+                        let _ = sub.ensure_bus(formal, &members);
+                    }
+                }
+            }
             // ── P4-b: Isolate anonymous instance entries for each body line
             //    in the same func ──
             // (This is a sub-module; snapshot-reset sub.auto_inst_map)
@@ -663,7 +688,7 @@ impl McModuleInst {
         //   - Then case-insensitive fallback (p.name.eq_ignore_ascii_case(formal))
         // If both fail, fall back to the original formal (safe fallback,
         // preserving old behavior).
-        let resolved: Vec<(String, IOType, McParamValue)> = boundary_pairs
+        let resolved: Vec<(String, String, IOType, McParamValue)> = boundary_pairs
             .into_iter()
             .map(|(formal, actual)| {
                 let (declared, iotype) = self
@@ -693,17 +718,43 @@ impl McModuleInst {
                             .map(|p| (p.name.clone(), p.iotype.clone()))
                     })
                     .unwrap_or_else(|| (formal.clone(), IOType::None));
-                (declared, iotype, actual)
+                (formal, declared, iotype, actual)
             })
             .collect();
-        for (declared_port_name, _port_iotype, actual) in resolved {
+        for (formal, declared_port_name, _port_iotype, actual) in resolved {
             let actual_elems = Self::param_value_to_node_elements(&actual);
             let mut left: Vec<NetPoint> = Vec::new();
             for e in &actual_elems {
-                left.extend(self.expand_node_element(e));
+                let expanded = self.expand_node_element(e);
+                left.extend(expanded);
             }
-            let boundary_name = format!("{inst_name}.{declared_port_name}");
-            let right = self.expand_node_element(&McBus::new(&boundary_name));
+            // ── P2-2: use the formal name for the boundary connection ──
+            // This matches the submodule's internal bus registration (registered
+            // with the formal name in Phase A), ensuring the boundary connection
+            // and the submodule body use the same label.
+            let boundary_name = format!("{inst_name}.{formal}");
+            // Try to expand via component pin ID lookup (same as Phase A bus registration)
+            let pin_ids: Option<Vec<(String, String)>> =
+                self.find_submodule(inst_name).and_then(|sub| {
+                    sub.components
+                        .iter()
+                        .find_map(|comp| comp.find_bus_port_pin_ids(&declared_port_name))
+                });
+            let right: Vec<NetPoint> = if let Some(ref pids) = pin_ids {
+                if pids.len() == left.len() && pids.len() >= 2 {
+                    pids.iter()
+                        .map(|(member_name, pin_id)| {
+                            let path = format!("{boundary_name}.{pin_id}");
+                            NetPoint::with_owner(&path, inst_name, IOType::None)
+                                .with_member_name(member_name)
+                        })
+                        .collect()
+                } else {
+                    self.expand_node_element(&McBus::new(&boundary_name))
+                }
+            } else {
+                self.expand_node_element(&McBus::new(&boundary_name))
+            };
             self.create_connection(left, right, ConnDir::Undirected)?;
         }
         Ok(())

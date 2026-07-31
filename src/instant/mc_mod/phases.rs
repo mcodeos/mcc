@@ -177,7 +177,7 @@ impl McModuleInst {
 
             // 1. When creating PortInst, extract bus_members according to port form
             //    —— Iter-8: let N×1 bus ports expand according to declaration during endpoint resolution.
-            let bus_members = extract_port_bus_members(inst);
+            let bus_members = extract_port_bus_members(inst, port_name);
             let port = PortInst::with_members(port_name, iotype.clone(), bus_members);
             self.ports.push(port);
 
@@ -1042,7 +1042,7 @@ impl McModuleInst {
 //                                          only expand for >=2 members)
 //
 // Returning empty `Vec` means the port is treated as a bare scalar.
-fn extract_port_bus_members(inst: &McInstance) -> Vec<String> {
+fn extract_port_bus_members(inst: &McInstance, _port_name: &str) -> Vec<String> {
     match inst {
         // Named List: `GPIO[1:2]`
         McInstance::List(list) if !list.member.is_empty() => {

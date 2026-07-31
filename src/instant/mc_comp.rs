@@ -774,29 +774,6 @@ impl McComponentInst {
 
         use crate::semantic::component::mc_pins::McPinPort;
 
-        if self.def.name.to_string().contains("US513_20_F")
-            || self.def.name.to_string().contains("GD25Q32E")
-        {
-            let _n2i: Vec<String> = self
-                .def
-                .pins
-                .names_to_id
-                .iter()
-                .map(|(n, p)| {
-                    let tag = match p {
-                        McPinPort::Single(id) => format!("S({})", id),
-                        McPinPort::Multi(v) => format!("M{:?}", v),
-                        McPinPort::MultiGroup(v) => format!("MG{:?}", v),
-                        McPinPort::List(_, v) => format!("L{:?}", v),
-                        McPinPort::Bus(b) => format!("Bus({};{:?})", b.name, b.member),
-                        McPinPort::Interface(i) => format!("Iface({})", i.name),
-                        McPinPort::NC => "NC".to_string(),
-                    };
-                    format!("{}=>{}", n, tag)
-                })
-                .collect();
-        }
-
         // Port must be registered in names_to_id as some bus type
         let port_kind = self.def.pins.names_to_id.get(port_name)?;
         if !matches!(

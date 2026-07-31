@@ -979,9 +979,13 @@ fn netdiff_all_modules() {
         "POWER_LDO: G3 should be relaxed (C10u, C4u7 absent)"
     );
 
-    // main: should have diffs (SPI nets missing or WRONG-POINT)
+    // main: P2-2 fix — SPI nets now appear, match rate improved from 2/12 to 6/12
     let main_mod = reports.iter().find(|r| r.module == "main").unwrap();
-    assert!(!main_mod.diffs.is_empty(), "main: expected diffs");
+    assert!(
+        main_mod.match_rate >= 0.4,
+        "main: expected match_rate >= 0.4 (SPI nets present), got {:.2}",
+        main_mod.match_rate
+    );
     assert!(
         main_mod.g3_relaxed,
         "main: G3 should be relaxed (anonymous comps absent)"

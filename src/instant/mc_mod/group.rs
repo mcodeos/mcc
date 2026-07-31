@@ -500,6 +500,18 @@ impl McModuleInst {
             members.push(omember.to_string());
         }
 
+        // ── P2-2: extract member names from others for pin ID lookup ──
+        // Prefer the member_name field (set by P2-1 bus port expansion);
+        // fall back to the last path segment for bare pin IDs.
+        let peer_member_names: Vec<&str> = others
+            .iter()
+            .map(|o| {
+                o.member_name
+                    .as_deref()
+                    .unwrap_or_else(|| o.path.rsplit('.').next().unwrap_or(&o.path))
+            })
+            .collect();
+
         // ── Form 1: scalar = `sub.port` (2 segments) — original P2/A2 path ─────
         if let Some((sub, port)) = scalar.path.split_once('.') {
             if !port.contains('.') && !is_power_rail_name(port) && !is_ground_name(port) {
@@ -509,6 +521,68 @@ impl McModuleInst {
                         .iter()
                         .any(|p| p.name == port && p.bus_members.is_empty())
                     {
+                        // ── P2-2: try physical pin ID lookup from submodule's components ──
+                        // When the submodule's port has empty bus_members, look for a
+                        // component inside the submodule that has a same-named bus port,
+                        // and use its physical pin IDs (e.g. mcu513.10 instead of mcu513.SPI.1).
+                        // First try member-name matching, then fall back to positional.
+                        let pin_ids: Option<Vec<String>> =
+                            submod.components.iter().find_map(|comp| {
+                                comp.find_bus_port_pin_ids(port)
+                                    .map(|pairs| pairs.into_iter().map(|(_, pid)| pid).collect())
+                            });
+
+                        if let Some(ref pids) = pin_ids {
+                            if pids.len() == members.len() {
+                                // Try member-name matching first
+                                let pin_map: std::collections::HashMap<&str, &str> = {
+                                    // Build map from peer_member_names → pids, but since
+                                    // member names may be empty, fall back to positional
+                                    let mut map = std::collections::HashMap::new();
+                                    for (i, m) in peer_member_names.iter().enumerate() {
+                                        if !m.is_empty() && i < pids.len() {
+                                            map.insert(*m, pids[i].as_str());
+                                        }
+                                    }
+                                    map
+                                };
+
+                                let lanes: Vec<NetPoint> = if !pin_map.is_empty() {
+                                    peer_member_names
+                                        .iter()
+                                        .filter_map(|m| {
+                                            pin_map.get(m).map(|pid| {
+                                                NetPoint::with_owner(
+                                                    &format!("{sub}.{pid}"),
+                                                    sub,
+                                                    scalar.iotype.clone(),
+                                                )
+                                            })
+                                        })
+                                        .collect()
+                                } else {
+                                    // Fallback: positional zip
+                                    members
+                                        .iter()
+                                        .enumerate()
+                                        .map(|(i, _m)| {
+                                            NetPoint::with_owner(
+                                                &format!("{sub}.{}", pids[i]),
+                                                sub,
+                                                scalar.iotype.clone(),
+                                            )
+                                        })
+                                        .collect()
+                                };
+
+                                if lanes.len() == members.len() {
+                                    return Some(lanes);
+                                }
+                            }
+                            // Pin count mismatch → fall through to original behavior
+                        }
+
+                        // Original behavior: use member names as suffix
                         let lanes: Vec<NetPoint> = members
                             .iter()
                             .map(|m| {
