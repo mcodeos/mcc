@@ -163,6 +163,15 @@ impl McModuleInst {
                         } else {
                             format!("{}.{}", elements.name, m)
                         };
+                        // ── P2-1: try expand_port_lanes BEFORE normalization ──
+                        // If <owner>.<member> is a bus port (e.g., uC.SPI, flash.SPI),
+                        // expand_port_lanes needs the original qualified name to look up
+                        // the port in names_to_id. normalize_one_inst_pin_path would
+                        // resolve it to a single pid (e.g., uC.8), losing the bus context.
+                        if let Some(lanes) = self.expand_port_lanes(&path) {
+                            points.extend(lanes);
+                            continue;
+                        }
                         // ── P2: component pin alias → pid (normalize at construction so union sees pid) ──
                         let path = self.normalize_one_inst_pin_path(&path).unwrap_or(path);
                         // ── P2: if <owner>.<member> itself is bus port (members need further
@@ -447,6 +456,12 @@ impl McModuleInst {
                 base: McInstance::Interface(_),
                 ..
             })) => Ok(vec![]),
+            // ── P2-1: McEndpoint::List → register bus + expand ──────────────
+            // Symmetric to get_right_points McEndpoint::List handler.
+            McPhrase::Endpoint(McEndpoint::List(ref items)) => {
+                let left_elems: Vec<McBus> = items.iter().flat_map(|e| e.get_left()).collect();
+                self.resolve_curly_mn_points(&left_elems, &[], true)
+            }
             McPhrase::Multiple(inner) => {
                 let mut points = Vec::new();
                 for p in inner {
@@ -494,15 +509,20 @@ impl McModuleInst {
                             if let Some(pids) = comp.find_bus_port_pin_ids(mname) {
                                 return Ok(pids
                                     .iter()
-                                    .map(|pid| {
+                                    .map(|(member_name, pin_id)| {
                                         NetPoint::with_owner(
-                                            &format!("{caller}.{pid}"),
+                                            &format!("{caller}.{pin_id}"),
                                             &caller,
                                             IOType::None,
                                         )
+                                        .with_member_name(member_name)
                                     })
                                     .collect());
+                            } else {
+                                eprintln!();
                             }
+                        } else {
+                            eprintln!();
                         }
                         // (B) cross-module component lookup: caller="mcu513.uC" → sub="mcu513", comp="uC"
                         if let Some((sub_name, comp_name)) = caller.split_once('.') {
@@ -513,12 +533,13 @@ impl McModuleInst {
                                     if let Some(pids) = comp.find_bus_port_pin_ids(mname) {
                                         return Ok(pids
                                             .iter()
-                                            .map(|pid| {
+                                            .map(|(member_name, pin_id)| {
                                                 NetPoint::with_owner(
-                                                    &format!("{caller}.{pid}"),
+                                                    &format!("{caller}.{pin_id}"),
                                                     sub_name,
                                                     IOType::None,
                                                 )
+                                                .with_member_name(member_name)
                                             })
                                             .collect());
                                     }
@@ -527,8 +548,10 @@ impl McModuleInst {
                         }
                         // (C) expand_port_lanes fallback
                         let qualified = format!("{caller}.{mname}");
+                        eprintln!();
                         if let Some(lanes) = self.expand_port_lanes(&qualified) {
                             return Ok(lanes);
+                        } else {
                         }
                     }
                 }
@@ -577,6 +600,11 @@ impl McModuleInst {
                         } else {
                             format!("{}.{}", elements.name, m)
                         };
+                        // ── P2-1: try expand_port_lanes BEFORE normalization ──
+                        if let Some(lanes) = self.expand_port_lanes(&path) {
+                            points.extend(lanes);
+                            continue;
+                        }
                         // ── P2: component pin alias → pid (normalize at construction so union sees pid) ──
                         let path = self.normalize_one_inst_pin_path(&path).unwrap_or(path);
                         // ── P2: if <owner>.<member> itself is bus port (members need further
@@ -786,6 +814,14 @@ impl McModuleInst {
                 base: McInstance::Interface(_),
                 ..
             })) => Ok(vec![]),
+            // ── P2-1: McEndpoint::List → register bus + expand ──────────────
+            // e.g., [SPI.SCLK, SPI.MOSI, SPI.CSN, SPI.MISO] on the right side
+            // of a connection. Each element is a dotted label; common prefix
+            // becomes the bus name, suffixes become members.
+            McPhrase::Endpoint(McEndpoint::List(ref items)) => {
+                let right_elems: Vec<McBus> = items.iter().flat_map(|e| e.get_right()).collect();
+                self.resolve_curly_mn_points(&[], &right_elems, false)
+            }
             McPhrase::Endpoint(ref ep) => {
                 let right = ep.get_right();
                 let mut points = Vec::new();
@@ -813,12 +849,13 @@ impl McModuleInst {
                             if let Some(pids) = comp.find_bus_port_pin_ids(mname) {
                                 return Ok(pids
                                     .iter()
-                                    .map(|pid| {
+                                    .map(|(member_name, pin_id)| {
                                         NetPoint::with_owner(
-                                            &format!("{caller}.{pid}"),
+                                            &format!("{caller}.{pin_id}"),
                                             &caller,
                                             IOType::None,
                                         )
+                                        .with_member_name(member_name)
                                     })
                                     .collect());
                             }
@@ -832,12 +869,13 @@ impl McModuleInst {
                                     if let Some(pids) = comp.find_bus_port_pin_ids(mname) {
                                         return Ok(pids
                                             .iter()
-                                            .map(|pid| {
+                                            .map(|(member_name, pin_id)| {
                                                 NetPoint::with_owner(
-                                                    &format!("{caller}.{pid}"),
+                                                    &format!("{caller}.{pin_id}"),
                                                     sub_name,
                                                     IOType::None,
                                                 )
+                                                .with_member_name(member_name)
                                             })
                                             .collect());
                                     }
@@ -1388,25 +1426,31 @@ impl McModuleInst {
             if !port_name.contains('.') {
                 if let Some(comp) = self.find_component(owner) {
                     if let Some(pids) = comp.find_bus_port_pin_ids(port_name) {
-                        // pid is component physical pin number, owner is component instance name,
-                        // path form `<comp>.<pid>` consistent with init_pins registration.
-                        // iotype takes first pid's direction (UART0/SPI bus ports
+                        eprintln!();
+                        // pids is Vec<(member_name, pin_id)>, member_name from interface declaration
+                        // path form `<comp>.<pin_id>` consistent with init_pins registration.
+                        // iotype takes first pin_id's direction (UART0/SPI bus ports
                         // typically all members same direction; even if different, taking first as default
                         // doesn't affect create_connection N×N alignment behavior).
                         let iotype = pids
                             .first()
-                            .and_then(|pid| comp.def.pins.get_pin_io(pid))
+                            .and_then(|(_, pin_id)| comp.def.pins.get_pin_io(pin_id))
                             .unwrap_or(IOType::None);
 
                         return Some(
                             pids.iter()
-                                .map(|pid| {
-                                    let path = format!("{owner}.{pid}");
+                                .map(|(member_name, pin_id)| {
+                                    let path = format!("{owner}.{pin_id}");
                                     NetPoint::with_owner(&path, owner, iotype.clone())
+                                        .with_member_name(member_name)
                                 })
                                 .collect(),
                         );
+                    } else {
+                        eprintln!();
                     }
+                } else {
+                    eprintln!();
                 }
             }
         }
