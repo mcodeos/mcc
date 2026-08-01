@@ -101,7 +101,25 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
             pname.contains("volt") || pname.contains("vcc") || pname.contains("vdd")
         });
 
-        if !has_voltage_attr && !has_voltage_param {
+        // Check if any interface binding provides voltage info (e.g. ::DC(3.3V))
+        let has_voltage_iface = comp.pins.names_to_id.values().any(|port| {
+            if let crate::semantic::component::mc_pins::McPinPort::Interface(ref iface) = port {
+                let iname = iface.name.to_string().to_lowercase();
+                if iname.contains("dc") || iname.contains("power") || iname.contains("supply") {
+                    return true;
+                }
+                return iface.params.iter().any(|p| {
+                    if let crate::semantic::basic::mc_param::McParamValue::UValue(uv) = p {
+                        matches!(uv.unit(), crate::semantic::basic::mc_uval::McUnit::Volt)
+                    } else {
+                        false
+                    }
+                });
+            }
+            false
+        });
+
+        if !has_voltage_attr && !has_voltage_param && !has_voltage_iface {
             acc.push(CheckResult {
                 check_name: "hw",
                 severity: CheckSeverity::Warning,
@@ -500,7 +518,7 @@ fn check_component_metadata(acc: &mut CheckAccumulator) {
             // Having both is best practice for BOM generation.
             acc.push(CheckResult {
                 check_name: "hw",
-                severity: CheckSeverity::Info,
+                severity: CheckSeverity::Hint,
                 uri: Some(uri.clone()),
                 span: Some(comp.span.start..comp.span.end),
                 message: format!(
