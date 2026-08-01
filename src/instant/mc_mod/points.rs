@@ -518,11 +518,7 @@ impl McModuleInst {
                                         .with_member_name(member_name)
                                     })
                                     .collect());
-                            } else {
-                                eprintln!();
                             }
-                        } else {
-                            eprintln!();
                         }
                         // (B) cross-module component lookup: caller="mcu513.uC" → sub="mcu513", comp="uC"
                         if let Some((sub_name, comp_name)) = caller.split_once('.') {
@@ -548,7 +544,6 @@ impl McModuleInst {
                         }
                         // (C) expand_port_lanes fallback
                         let qualified = format!("{caller}.{mname}");
-                        eprintln!();
                         if let Some(lanes) = self.expand_port_lanes(&qualified) {
                             return Ok(lanes);
                         } else {
@@ -1262,7 +1257,7 @@ impl McModuleInst {
     /// - Name not a port (bare label / component pin / bus member): return `None`.
     /// - Already manually expanded (`element.member` non-empty): caller should **check member first**
     ///   then come here, avoid double expansion.
-    pub(super) fn expand_port_lanes(&self, name: &str) -> Option<Vec<NetPoint>> {
+    pub(super) fn expand_port_lanes(&mut self, name: &str) -> Option<Vec<NetPoint>> {
         // ── P2 helper: extract members from "name{A, B}" / "[A, B]" / "name[A, B]" ──
         // tolerate space after comma. find first `{`/`[` and last `}`/`]`, split middle by comma.
         fn parse_brace_members(s: &str) -> Vec<String> {
@@ -1340,7 +1335,13 @@ impl McModuleInst {
                             let m = if !p.bus_members.is_empty() {
                                 p.bus_members.clone()
                             } else {
-                                parse_brace_members(&p.name)
+                                // ── P2-3: try input name's brace notation first ──
+                                let from_input = parse_brace_members(port_name_raw);
+                                if !from_input.is_empty() {
+                                    from_input
+                                } else {
+                                    parse_brace_members(&p.name)
+                                }
                             };
                             (p, m)
                         })
@@ -1370,7 +1371,7 @@ impl McModuleInst {
         // boundary formal `spi` vs declared port `SPI`). Symmetric with Bug D Part 1 fix.
         {
             let port_base = strip_brace_suffix(name);
-            let best = self
+            let best_info = self
                 .ports
                 .iter()
                 .filter(|p| {
@@ -1383,20 +1384,42 @@ impl McModuleInst {
                     let m = if !p.bus_members.is_empty() {
                         p.bus_members.clone()
                     } else {
-                        parse_brace_members(&p.name)
+                        // ── P2-3: try input name's brace notation first ──
+                        // When the port declaration has no bus_members (e.g., `io MIC`)
+                        // but the body uses `MIC{P,N}`, extract members from the input name.
+                        let from_input = parse_brace_members(name);
+                        if !from_input.is_empty() {
+                            from_input
+                        } else {
+                            parse_brace_members(&p.name)
+                        }
                     };
                     (p, m)
                 })
                 .filter(|(p, m)| m.len() >= 2 && iotype_allowed(&p.iotype))
-                .max_by_key(|(_, m)| m.len());
-            if let Some((port, members)) = best {
+                .max_by_key(|(_, m)| m.len())
+                .map(|(p, m)| (p.name.clone(), p.iotype.clone(), m));
+            if let Some((port_name, iotype, members)) = best_info {
+                // ── P2-3: back-propagate bus_members to the port ──
+                // When the port declaration has no bus_members (e.g., `io MIC`)
+                // but the body uses `MIC{P,N}`, write the members back so parent
+                // modules can also expand the port via Case 1 (b).
+                if let Some(target_port) = self
+                    .ports
+                    .iter_mut()
+                    .find(|p| p.name == port_name || strip_brace_suffix(&p.name) == port_name)
+                {
+                    if target_port.bus_members.is_empty() {
+                        target_port.bus_members = members.clone();
+                    }
+                }
                 return Some(
                     members
                         .iter()
                         .map(|m| {
                             let path = format!("{port_base}.{m}");
                             // current module's own port has no owner (it's net top-level label).
-                            NetPoint::new(&path, port.iotype.clone())
+                            NetPoint::new(&path, iotype.clone())
                         })
                         .collect(),
                 );
@@ -1425,32 +1448,41 @@ impl McModuleInst {
         if let Some((owner, port_name)) = name.split_once('.') {
             if !port_name.contains('.') {
                 if let Some(comp) = self.find_component(owner) {
-                    if let Some(pids) = comp.find_bus_port_pin_ids(port_name) {
-                        eprintln!();
+                    // ── P2-3: strip brace suffix from port_name ──
+                    // e.g., `uC.ADC{P,N}` → port_name="ADC{P,N}", port_base="ADC"
+                    let port_base = strip_brace_suffix(port_name);
+                    let brace_members = parse_brace_members(port_name);
+                    if let Some(pids) = comp.find_bus_port_pin_ids(port_base) {
                         // pids is Vec<(member_name, pin_id)>, member_name from interface declaration
                         // path form `<comp>.<pin_id>` consistent with init_pins registration.
-                        // iotype takes first pin_id's direction (UART0/SPI bus ports
-                        // typically all members same direction; even if different, taking first as default
-                        // doesn't affect create_connection N×N alignment behavior).
+                        // iotype takes first pin_id's direction.
                         let iotype = pids
                             .first()
                             .and_then(|(_, pin_id)| comp.def.pins.get_pin_io(pin_id))
                             .unwrap_or(IOType::None);
 
-                        return Some(
-                            pids.iter()
-                                .map(|(member_name, pin_id)| {
-                                    let path = format!("{owner}.{pin_id}");
-                                    NetPoint::with_owner(&path, owner, iotype.clone())
-                                        .with_member_name(member_name)
-                                })
-                                .collect(),
-                        );
-                    } else {
-                        eprintln!();
+                        // ── P2-3: if input has brace members, filter by them ──
+                        let filtered: Vec<(String, String)> = if !brace_members.is_empty() {
+                            pids.into_iter()
+                                .filter(|(m, _)| brace_members.contains(m))
+                                .collect()
+                        } else {
+                            pids
+                        };
+
+                        if filtered.len() >= 2 {
+                            return Some(
+                                filtered
+                                    .iter()
+                                    .map(|(member_name, pin_id)| {
+                                        let path = format!("{owner}.{pin_id}");
+                                        NetPoint::with_owner(&path, owner, iotype.clone())
+                                            .with_member_name(member_name)
+                                    })
+                                    .collect(),
+                            );
+                        }
                     }
-                } else {
-                    eprintln!();
                 }
             }
         }
