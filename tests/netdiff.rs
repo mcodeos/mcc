@@ -813,9 +813,12 @@ fn netdiff_all_modules() {
     let entry_uri: McURI = entry_path.to_string_lossy().into_owned();
 
     mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(std::path::Path::new(""));
+    let mcode_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("mcode");
+    mcc::mcc_set_system_root(mcode_dir.as_path());
     mcc::mcc_set_project_root(&project_root);
     mcc::mcc_clear_workspace();
+    // ── P2-3: load mcode library for CAP, RES, IND, DIO etc. ──
+    mcc::mcb_load_lib("mcode", mcode_dir.as_path());
     mcc::mcc_load_project(&entry_uri);
 
     let (_tree, table) =
@@ -941,70 +944,73 @@ fn netdiff_all_modules() {
     println!("Baseline written to: {:?}", baseline_path);
 
     // 7. Self-check assertions (known expected differences)
-    // Note: many anonymous components (CAP, RES, IND, DIO) are not instantiated
-    // due to #910 warnings (func expansion incomplete — Pass2-B scope).
-    // These assertions verify the tool is correctly identifying the current state.
+    // P2-3: mcode library (CAP, RES, IND, DIO, etc.) is now loaded, so all
+    // anonymous comps are instantiated. G3 is no longer relaxed for most modules.
     //
     // G3 projection: golden_comps now reflects present_count (matched golden comps),
     // not the total golden comps. golden_nets reflects the projected net count.
 
-    // POWER_DCDC: named comps matched (lp322dcdc), anonymous comps golden-only
+    // POWER_DCDC: all 10 comps matched (mcode loaded)
     let dcdc = reports.iter().find(|r| r.module == "POWER_DCDC").unwrap();
     assert!(
-        dcdc.matched_comps >= 1,
-        "POWER_DCDC: should have at least 1 comp matched"
+        dcdc.matched_comps >= 10,
+        "POWER_DCDC: should have all 10 comps matched"
     );
     assert!(
-        dcdc.g3_relaxed,
-        "POWER_DCDC: G3 should be relaxed (anonymous comps absent)"
+        !dcdc.g3_relaxed,
+        "POWER_DCDC: G3 should NOT be relaxed (all comps present)"
     );
 
-    // SPEAKER_M: named comps matched (lpa, spk, TP1, TP2)
+    // SPEAKER_M: all 11 comps matched (mcode loaded)
     let spk = reports.iter().find(|r| r.module == "SPEAKER_M").unwrap();
     assert!(
-        spk.matched_comps >= 4,
-        "SPEAKER_M: should have at least 4 comps matched"
+        spk.matched_comps >= 11,
+        "SPEAKER_M: should have all 11 comps matched"
     );
     assert!(
-        spk.g3_relaxed,
-        "SPEAKER_M: G3 should be relaxed (anonymous comps absent)"
+        !spk.g3_relaxed,
+        "SPEAKER_M: G3 should NOT be relaxed (all comps present)"
     );
 
-    // POWER_LDO: should have GND split issue (EXTRA-SPLIT or MISSING-NET)
+    // POWER_LDO: all 3 comps matched (mcode loaded)
     let ldo = reports.iter().find(|r| r.module == "POWER_LDO").unwrap();
     let has_ldo_diffs = !ldo.diffs.is_empty();
     assert!(has_ldo_diffs, "POWER_LDO: expected diffs (GND 被拆成两张)");
     assert!(
-        ldo.g3_relaxed,
-        "POWER_LDO: G3 should be relaxed (C10u, C4u7 absent)"
+        !ldo.g3_relaxed,
+        "POWER_LDO: G3 should NOT be relaxed (all comps present)"
     );
 
-    // main: P2-2 fix — SPI nets now appear, match rate improved from 2/12 to 6/12
+    // main: P2-3 fix — MIC.P/N nets now appear, match rate improved from 6/12 to 8/14
     let main_mod = reports.iter().find(|r| r.module == "main").unwrap();
     assert!(
-        main_mod.match_rate >= 0.4,
-        "main: expected match_rate >= 0.4 (SPI nets present), got {:.2}",
+        main_mod.match_rate >= 0.5,
+        "main: expected match_rate >= 0.5 (MIC.P/N nets present), got {:.2}",
         main_mod.match_rate
     );
     assert!(
-        main_mod.g3_relaxed,
-        "main: G3 should be relaxed (anonymous comps absent)"
+        !main_mod.g3_relaxed,
+        "main: G3 should NOT be relaxed (all comps present)"
     );
 
-    // MIC_SIP: should have MISSING-NET for wm7121.VCC or other diffs
+    // MIC_SIP: all 7 comps matched (mcode loaded), still has MISSING-NET for MIC.P/N
     let mic = reports.iter().find(|r| r.module == "MIC_SIP").unwrap();
     let has_missing = mic.diffs.iter().any(|d| d.kind == DiffKind::MissingNet);
     assert!(has_missing, "MIC_SIP: expected MISSING-NET");
     assert!(
-        mic.g3_relaxed,
-        "MIC_SIP: G3 should be relaxed (C1, dio1, dio2, etc. absent)"
+        !mic.g3_relaxed,
+        "MIC_SIP: G3 should NOT be relaxed (all comps present)"
     );
 
-    // US513: G3 should be relaxed (19/21 comps absent)
+    // US513: 18/21 comps matched, G3 still relaxed (3 comps missing: R100k_gpio, R10k_scl, R10k_sda)
     let us513 = reports.iter().find(|r| r.module == "US513").unwrap();
     assert!(
+        us513.matched_comps >= 18,
+        "US513: should have at least 18 comps matched"
+    );
+    assert!(
         us513.g3_relaxed,
-        "US513: G3 should be relaxed (most comps absent)"
+        "US513: G3 should still be relaxed (3 comps absent)"
     );
 
     // All 7 modules should have reports
