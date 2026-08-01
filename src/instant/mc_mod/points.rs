@@ -518,11 +518,7 @@ impl McModuleInst {
                                         .with_member_name(member_name)
                                     })
                                     .collect());
-                            } else {
-                                eprintln!();
                             }
-                        } else {
-                            eprintln!();
                         }
                         // (B) cross-module component lookup: caller="mcu513.uC" → sub="mcu513", comp="uC"
                         if let Some((sub_name, comp_name)) = caller.split_once('.') {
@@ -548,7 +544,6 @@ impl McModuleInst {
                         }
                         // (C) expand_port_lanes fallback
                         let qualified = format!("{caller}.{mname}");
-                        eprintln!();
                         if let Some(lanes) = self.expand_port_lanes(&qualified) {
                             return Ok(lanes);
                         } else {
