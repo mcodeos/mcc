@@ -824,6 +824,22 @@ fn netdiff_all_modules() {
     // 2. Build actual modules
     let actual_modules = build_actual_modules(&table);
 
+    // ── P2-3-DBG: print actual nets ──
+    if let Some(main_mod) = actual_modules.iter().find(|m| m.module_name == "main") {
+        eprintln!("\n[P2-3-DBG] main module actual nets:");
+        for net in &main_mod.nets {
+            let points: Vec<&str> = net.points.iter().map(|s| s.as_str()).collect();
+            eprintln!("  {} : [{}]", net.name, points.join(", "));
+        }
+    }
+    if let Some(us513_mod) = actual_modules.iter().find(|m| m.module_name == "US513") {
+        eprintln!("\n[P2-3-DBG] US513 module actual nets:");
+        for net in &us513_mod.nets {
+            let points: Vec<&str> = net.points.iter().map(|s| s.as_str()).collect();
+            eprintln!("  {} : [{}]", net.name, points.join(", "));
+        }
+    }
+
     // 3. Load golden TOMLs
     let dir = golden_dir();
     let module_order = [
