@@ -58,6 +58,11 @@ pub struct McPins {
     pub has_base_pins: bool,
     /// Pin ID ranges for overlap detection (H3 check).
     pub pin_ranges: Vec<(std::ops::Range<usize>, String)>, // (span, description)
+    // H3 (deferred): pin_defs for cross-line overlap detection.
+    #[allow(dead_code)]
+    pub pin_defs: BTreeMap<String, Vec<(IOType, Vec<String>, usize)>>,
+    #[allow(dead_code)]
+    current_line_idx: usize,
 
     // pin -> multiple function name/alias mapping (supports multi-option like I2C0 | GPIO)
     // e.g.: "1" -> ["GPIO3", "I2C0.SCL"], "2" -> ["GPIO4", "I2C0.SDA"]
@@ -108,6 +113,8 @@ impl McPins {
             pin_name_spans: std::collections::HashMap::new(),
             pin_id_spans: std::collections::HashMap::new(),
             pin_iface_spans: std::collections::HashMap::new(),
+            pin_defs: BTreeMap::new(),
+            current_line_idx: 0,
             has_base_pins: false,
             pin_ranges: Vec::new(),
             pin_id_to_names: BTreeMap::new(),
@@ -278,6 +285,8 @@ impl McPins {
         };
 
         for pnode in plinenodes.iter().filter(|n| n.get_type() == MCAST_PIN_LINE) {
+            // H3 (deferred): track line index for overlap detection
+            // self.current_line_idx = self.pin_ranges.len();
             // H3: record pin range
             self.pin_ranges
                 .push((pin_span.clone(), format!("{:?}", pnode.get_type())));
@@ -1256,6 +1265,11 @@ impl McPins {
         values: &[McAttrVal],
     ) {
         let values_arc = self.insert_values(values);
+        // H3 (deferred): track pin definitions for cross-line overlap detection
+        // self.pin_defs
+        //     .entry(pinid.clone())
+        //     .or_default()
+        //     .push((iotype.clone(), names.to_vec(), self.current_line_idx));
         // If pinid already exists, append names instead of overwriting
         if let Some(existing) = self.pins.get_mut(pinid) {
             for name in names {
