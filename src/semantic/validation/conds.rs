@@ -188,6 +188,61 @@ fn check_missing_else(acc: &mut CheckAccumulator) {
 /// Component pin definitions with IO types deserve scrutiny:
 ///   - `nc` (not-connected) on a component pin is unusual (typically on instances)
 ///   - `ps` (power supply) without associated voltage attribute
+/// Locate the source span of a pin's name within its definition line.
+///
+/// First finds the pin definition line by searching for `keyword [...pin_id...]`,
+/// then narrows to the specific `pin_name` within the names bracket `[...,name,...]`.
+/// Falls back to the line's keyword span, then to the component span.
+fn pin_definition_span(comp: &crate::semantic::component::McComponent, pin_id: &str, pin_name: Option<&str>) -> std::ops::Range<usize> {
+    if let Ok(content) = std::fs::read_to_string(comp.uri.as_str()) {
+        for keyword in &["ps ", "in ", "io ", "out ", "anl ", "nc "] {
+            let mut search_from = 0;
+            while let Some(kw_pos) = content[search_from..].find(keyword) {
+                let line_start = search_from + kw_pos;
+                let line_end_pos = content[line_start..].find('\n').unwrap_or(content.len() - line_start);
+                let line = &content[line_start..line_start + line_end_pos];
+                // Find the first bracket pair (pin IDs like [5,21]) and check for our pin_id
+                if let (Some(bs), Some(be)) = (line.find('['), line.find(']')) {
+                    if bs < be {
+                        let id_tokens: Vec<&str> = line[bs + 1..be]
+                            .split(&[',', ' ', ':'][..])
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                        if id_tokens.contains(&pin_id) {
+                            // Try to narrow to the specific pin name
+                            if let Some(name) = pin_name {
+                                // Find the names bracket (second [...] in the line)
+                                if let Some(rest) = line.get(be + 1..) {
+                                    if let (Some(nbs), Some(nbe)) = (rest.find('['), rest.find(']')) {
+                                        let names_bracket = &rest[nbs + 1..nbe];
+                                        // Find the exact position of this name within the names bracket
+                                        let name_tokens: Vec<&str> = names_bracket
+                                            .split(&[',', ' '][..])
+                                            .filter(|s| !s.is_empty())
+                                            .collect();
+                                        if name_tokens.contains(&name) {
+                                            // Compute absolute position of the name within the file
+                                            let name_pos_in_rest = names_bracket.find(name)
+                                                .unwrap_or(0);
+                                            let abs_name_pos = line_start + be + 1 + nbs + 1 + name_pos_in_rest;
+                                            return abs_name_pos..abs_name_pos + name.len();
+                                        }
+                                    }
+                                }
+                            }
+                            // Fallback: span of the keyword
+                            return line_start..line_start + keyword.trim().len();
+                        }
+                    }
+                }
+                search_from = line_start + 1;
+            }
+        }
+    }
+    // Ultimate fallback
+    comp.span.start..comp.span.end
+}
+
 fn check_pin_io_context(acc: &mut CheckAccumulator) {
     let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
@@ -200,6 +255,7 @@ fn check_pin_io_context(acc: &mut CheckAccumulator) {
         // Iterate all pins (keyed by pin ID) to check IO types
         for (pin_id, pin) in &comp.pins.pins {
             use crate::IOType;
+            let pin_span = pin_definition_span(comp, pin_id, pin.names.first().map(|s| s.as_str()));
             match pin.iotype {
                 IOType::NonCon => {
                     let names = if pin.names.is_empty() {
@@ -211,7 +267,7 @@ fn check_pin_io_context(acc: &mut CheckAccumulator) {
                         check_name: "conds",
                         severity: CheckSeverity::Info,
                         uri: Some(uri.clone()),
-                        span: Some(comp.span.start..comp.span.end),
+                        span: Some(pin_span.clone()),
                         message: format!(
                             "Component '{}': pin '{}' ({}) is declared NC (not-connected) at \
                              the component level. NC is typically used at instantiation.",
@@ -236,7 +292,7 @@ fn check_pin_io_context(acc: &mut CheckAccumulator) {
                             check_name: "conds",
                             severity: CheckSeverity::Info,
                             uri: Some(uri.clone()),
-                            span: Some(comp.span.start..comp.span.end),
+                            span: Some(pin_span.clone()),
                             message: format!(
                                 "Component '{}': power pin '{}' ({}) has no associated \
                                  voltage attribute. Consider adding e.g. `voltage = \"5V\"`.",
