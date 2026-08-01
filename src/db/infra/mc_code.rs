@@ -3576,9 +3576,20 @@ impl McCode {
         }
         // MCAST_INSTANCE wraps the inner FCall (e.g. RES(100kΩ)).
         let inner_fcall = s.get_sub_node()?;
-        // inner_fcall.get_sub_node() for a bare OPD_FCALL returns MCAST_NAME(21).
-        // MCAST_NAME wraps MCAST_IDS(3) — need another get_sub_node().
-        let name_node = inner_fcall.get_sub_node()?;
+        // Walk children to find MCAST_NAME — the first child may be
+        // MCAST_PARAMS_PRE (from `pre => Class(...)` patterns) rather
+        // than MCAST_NAME.
+        let name_node = if inner_fcall.get_type() == MCAST_NAME {
+            inner_fcall
+        } else {
+            // Search children for MCAST_NAME in the linked list
+            let first_child = inner_fcall.get_sub_node()?;
+            if first_child.get_type() == MCAST_NAME {
+                first_child
+            } else {
+                first_child.iter().find(|n| n.get_type() == MCAST_NAME)?
+            }
+        };
         let ids_node = name_node.get_sub_node()?;
         let ids = McIds::new(&ids_node)?;
         Some(ids.to_string())
