@@ -20,6 +20,8 @@ mc_value* mc_value_create(void)
     mc_value* value = (mc_value*)malloc(sizeof(mc_value));
     value->type = 0;
     value->data = NULL;
+    value->pos = 0;
+    value->len = 0;
     value->next = NULL;
     value->sub = NULL;
     return value;
