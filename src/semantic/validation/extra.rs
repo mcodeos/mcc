@@ -122,14 +122,14 @@ fn check_empty_functions(acc: &mut CheckAccumulator) {
             continue;
         }
         let m = entry.value();
-        let mod_span = Some(m.span.start..m.span.end);
         for func in entry.value().funcs.iter() {
             if func.lines.is_empty() && func.insts.is_empty() {
+                let func_span = func.span.clone().unwrap_or(m.span.start..m.span.end);
                 acc.push(CheckResult {
                     check_name: "extra",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.clone()),
-                    span: mod_span.clone(),
+                    span: Some(func_span),
                     message: format!("Function '{}' has an empty body.", func.name),
                     code: 2602,
                 });
@@ -144,14 +144,14 @@ fn check_empty_functions(acc: &mut CheckAccumulator) {
             continue;
         }
         let comp = entry.value();
-        let comp_span = Some(comp.span.start..comp.span.end);
         for func in entry.value().funcs.iter() {
             if func.lines.is_empty() && func.insts.is_empty() {
+                let func_span = func.span.clone().unwrap_or(comp.span.start..comp.span.end);
                 acc.push(CheckResult {
                     check_name: "extra",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.clone()),
-                    span: comp_span.clone(),
+                    span: Some(func_span),
                     message: format!(
                         "Function '{}' in component '{}' has an empty body.",
                         func.name,
