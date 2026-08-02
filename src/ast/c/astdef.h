@@ -255,6 +255,7 @@ void mc_sem_token_add(short type, void* token);
 void mc_sem_token_add_mcvalue(short type, mc_value* pval);
 void mc_sem_token_print();
 void mc_sem_token_free();
+void mc_sem_scan_and_add_comments(const char* source, size_t source_len);
 
 mc_sem_token* mcc_get_error_tokens();
 void mc_error_token_add(void* ptoken);

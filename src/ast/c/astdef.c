@@ -141,6 +141,111 @@ void mc_sem_token_add(short type, void* ptoken)
     }
 }
 
+// ── Post-lex comment scan ────────────────────────────────────────────────
+// ELC ("whitespace-or-comment") is embedded in many token rules (e.g.
+// LP="(" ELC, COMMA="," ELC).  When ELC consumes a //, #, or /* */ comment
+// as part of another token, the comment is never emitted as a standalone
+// semantic token.  This pass walks the source buffer, finds every comment
+// that is NOT already covered by an existing sem token, and emits a
+// MCC_TK_COMMENT sem token for it.
+
+/// Trim any existing token whose span covers `pos` so the region
+/// from `pos` onward is freed for a comment token.
+static void mc_sem_trim_at(unsigned int pos) {
+    for (mc_sem_token* t = g_sem_token_list; t != NULL; t = t->next) {
+        if (t->pos < pos && pos < t->pos + t->len) {
+            t->len = pos - t->pos;
+        }
+    }
+}
+
+/// Insert a sem token in position-sorted order (required by LSP delta encoding).
+static void mc_sem_emit_token(short type, unsigned int pos, unsigned int len) {
+    mc_sem_token* t = (mc_sem_token*) malloc(sizeof(mc_sem_token));
+    t->type = type;
+    t->pos = pos;
+    t->len = len;
+    t->next = NULL;
+
+    // Find insertion point to keep list sorted by position
+    mc_sem_token** prev = &g_sem_token_list;
+    while (*prev != NULL && (*prev)->pos < pos) {
+        prev = &(*prev)->next;
+    }
+    // Insert before the first token with larger position
+    t->next = *prev;
+    *prev = t;
+    // Update tail if we inserted at the end
+    if (t->next == NULL) {
+        g_sem_token_list_tail = t;
+    }
+}
+
+static bool mc_sem_has_token_at(unsigned int pos) {
+    for (mc_sem_token* t = g_sem_token_list; t != NULL; t = t->next) {
+        if (t->pos <= pos && pos < t->pos + t->len) return true;
+    }
+    return false;
+}
+
+static void mc_sem_scan_comments(const char* source, size_t source_len) {
+    if (source == NULL || source_len == 0) return;
+    int _found = 0, _skipped = 0;
+    (void)_found; (void)_skipped;
+    size_t i = 0;
+    while (i + 1 < source_len) {
+        // Skip string literals (don't match comment markers inside "...")
+        if (source[i] == '"') {
+            i++;
+            while (i < source_len && source[i] != '"') {
+                if (source[i] == '\\') i++;
+                if (i < source_len) i++;
+            }
+            if (i < source_len) i++;
+            continue;
+        }
+        // Single-line: //
+        if (source[i] == '/' && i + 1 < source_len && source[i + 1] == '/') {
+            unsigned int start = (unsigned int)i;
+            i += 2;
+            while (i < source_len && source[i] != '\n' && source[i] != '\r' && source[i] != '\0') i++;
+            // ★ Trim any token whose span extends into this comment,
+            //    then emit the comment token (even if overlapping).
+            mc_sem_trim_at(start);
+            mc_sem_emit_token(MCC_TK_COMMENT, start, (unsigned int)i - start);
+            continue;
+        }
+        // Single-line: #
+        if (source[i] == '#') {
+            unsigned int start = (unsigned int)i;
+            i++;
+            while (i < source_len && source[i] != '\n' && source[i] != '\r' && source[i] != '\0') i++;
+            mc_sem_trim_at(start);
+            mc_sem_emit_token(MCC_TK_COMMENT, start, (unsigned int)i - start);
+            continue;
+        }
+        // Multi-line: /* */
+        if (source[i] == '/' && i + 1 < source_len && source[i + 1] == '*') {
+            unsigned int start = (unsigned int)i;
+            i += 2;
+            while (i + 1 < source_len) {
+                if (source[i] == '*' && source[i + 1] == '/') { i += 2; break; }
+                if (source[i] == '\0') break;
+                i++;
+            }
+            mc_sem_trim_at(start);
+            mc_sem_emit_token(MCC_TK_COMMENT, start, (unsigned int)i - start);
+            continue;
+        }
+        i++;
+    }
+    // [comment-scan] diagnostics available via MCC_LOG_SEM flag
+}
+
+void mc_sem_scan_and_add_comments(const char* source, size_t source_len) {
+    mc_sem_scan_comments(source, source_len);
+}
+
 // Minimal compatibility version: original parameters unchanged, fix crash, dest only allowed to pass NULL
 char* string_cat(char *dest, const char *src, bool withdot)
 {
@@ -332,6 +437,9 @@ void mcc_lex(char* data)
     mc_lex_token* m_tokens_tail = NULL;
     lex(&m_tokens_tail, data);
     print_tokens(g_token_head);
+
+    // Post-lex: emit sem tokens for comments consumed by ELC
+    mc_sem_scan_and_add_comments(data, strlen(data));
 }
 
 mc_value* mcc_parse()
