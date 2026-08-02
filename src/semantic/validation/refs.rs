@@ -41,11 +41,12 @@ fn check_comp_func_unused_params(acc: &mut CheckAccumulator) {
         for func in comp.funcs.iter() {
             if !func.params.is_empty() && func.lines.is_empty() && func.insts.is_empty() {
                 let param_names = func.params.names().join(", ");
+                let func_span = func.span.clone().unwrap_or(comp.span.start..comp.span.end);
                 acc.push(CheckResult {
                     check_name: "ref-integrity",
                     severity: CheckSeverity::Warning,
                     uri: Some(uri.clone()),
-                    span: Some(comp.span.start..comp.span.end),
+                    span: Some(func_span),
                     message: format!(
                         "Function '{}' in component '{}' has unused params: [{}].",
                         func.name, comp_name, param_names
