@@ -65,7 +65,7 @@ pub static AST_VISIT_DONE: AtomicBool = AtomicBool::new(false);
 // on-demand parsing from re-entering parse_pass1_types for a file
 // that is already being parsed higher up the call stack.
 thread_local! {
-    static PARSING_PASS1: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+    pub(crate) static PARSING_PASS1: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
 }
 
 pub fn mcb_reset_ast_visit_flag() {
@@ -577,15 +577,21 @@ impl McCode {
 
     /// Parse AST from an in-memory string (no disk file dependency)
     /// Note: the caller must set log flags via `mcc_reset()` before calling
+    /// Parse AST from in-memory string.
+    /// Mirrors `parse_ast()` exactly, but reads content from memory instead of disk.
     pub fn parse_ast_from_string(&mut self, content: &str) {
         current_uri::set(&self.uri);
         crate::db::diagnostic::diagnostic::dlog_clear_file(&self.uri);
 
-        // Clear C-level error tokens and dlog entries before parsing to prevent accumulation
+        // ★ mcc_reset BEFORE loading — mirrors parse_ast()'s first reset.
+        //   Clears any residual C parser state (g_token_head, etc.) from
+        //   a previous parse that ran on the same OS thread.
         unsafe {
-            crate::ast::c_bindings::mcc_clear_error_tokens();
-            crate::ast::c_bindings::mcc_clear_dlog_entries();
+            crate::ast::c_bindings::mcc_reset(0);
         }
+
+        // Create line index from the content (mirrors parse_ast)
+        self.line_index = Some(LineIndex::new(content));
 
         let c_content = std::ffi::CString::new(content).expect("Failed to create CString");
         let fcontent_ptr = unsafe {
@@ -602,6 +608,10 @@ impl McCode {
         self.free();
 
         unsafe {
+            // ★ mcc_reset AFTER loading — mirrors parse_ast()'s second reset
+            crate::ast::c_bindings::mcc_reset(0);
+
+            // Clear tokens and symbols, ensure no residual data
             if let Ok(mut t) = self.tokens.lock() {
                 *t = McSemTokens::new();
             }
@@ -609,15 +619,12 @@ impl McCode {
                 *s = McSemSymbols::new();
             }
 
-            crate::ast::c_bindings::mc_sem_token_free();
             crate::ast::c_bindings::mcc_lex(fcontent_ptr);
 
             let ast = AstNode::new(crate::ast::c_bindings::mcc_parse());
             if ast.is_null() {
                 tracing::warn!(target: "mcc::code", uri = %self.uri, "AST parse returned null");
             } else {
-                // Output AST visit (if trace.visit is enabled), once per cycle
-                // Skip during system library loading, to prevent mcode loading from preempting user file visit quota
                 if crate::cli::config::get_trace_visit() == Some(true)
                     && !crate::cli::config::is_system_lib_loading()
                     && !crate::cli::config::is_trace_stdout_suppressed()
@@ -636,20 +643,14 @@ impl McCode {
                     let pos = err.pos as u32;
                     let len = err.len as u32;
                     let location = crate::db::diagnostic::diagnostic::Location::new(
-                        self.uri.clone(),
-                        pos,
-                        len,
+                        self.uri.clone(), pos, len,
                     );
                     let diagnostic = crate::db::diagnostic::diagnostic::Diagnostic::new(
-                        1000, // E1000: parse error
-                        crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
-                        location,
-                        "syntax error".to_string(),
+                        1000, crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                        location, "syntax error".to_string(),
                     );
                     workspace::WORKSPACE
-                        .diagnostics
-                        .lock()
-                        .unwrap()
+                        .diagnostics.lock().unwrap()
                         .add_diagnostic(diagnostic);
                     err_ptr = err.next;
                 }
@@ -669,7 +670,6 @@ impl McCode {
                     raw.push((entry.code, entry.level, entry.pos, entry.len, msg));
                     dlog_ptr = entry.next;
                 }
-                // Dedup: at overlapping positions, keep the highest code (most specific)
                 raw.sort_by_key(|e| (e.2, e.3));
                 let mut last_end: u32 = 0;
                 for (code, level, pos, len, msg) in &raw {
@@ -690,7 +690,6 @@ impl McCode {
                 Ok(mut t) => {
                     *t = McSemTokens::new();
                     t.parse(crate::ast::c_bindings::mcc_get_sem_tokens());
-                    // Extract inline comments consumed by ELC prefix/suffix
                     Self::extract_inline_comments(&mut t.tokens, content);
                 }
                 Err(e) => {
