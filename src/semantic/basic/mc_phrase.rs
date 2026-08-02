@@ -671,8 +671,19 @@ impl McPhrase {
                                         dot_member: None,
                                     }));
                                 }
-                                return Some(if fcs.len() == 1 {
-                                    fcs.into_iter().next().unwrap()
+                                return Some(if fcs.len() <= 1 {
+                                    // Also handle empty names (e.g. `R1::RES(1M)` where
+                                    // instance name is part of mc_ids via `::`)
+                                    fcs.into_iter().next()
+                                        .unwrap_or_else(|| McPhrase::FuncCall(McFuncCall {
+                                            id: 0,
+                                            caller: None,
+                                            func_name: class_ids.clone(),
+                                            params: params.clone(),
+                                            left: left.clone(),
+                                            right: right.clone(),
+                                            dot_member: None,
+                                        }))
                                 } else {
                                     McPhrase::Multiple(fcs)
                                 });

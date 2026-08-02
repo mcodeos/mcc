@@ -5,6 +5,17 @@
 use crate::ast::ast_node::McValueFFI;
 use crate::ast::ast_token::McSemTokenFFI;
 
+// FFI binding for C struct mc_dlog_entry
+#[repr(C)]
+pub struct McDlogEntryFFI {
+    pub code: u32,
+    pub level: i32,
+    pub pos: u32,
+    pub len: u32,
+    pub msg: *const libc::c_char,
+    pub next: *mut McDlogEntryFFI,
+}
+
 // #[link(name = "mcast", kind = "static")]
 extern "C" {
     pub fn mcc_reset(log_flags: libc::c_uchar);
@@ -22,6 +33,8 @@ extern "C" {
     pub fn mc_sem_token_free();
     pub fn mcc_get_error_tokens() -> *mut McSemTokenFFI;
     pub fn mcc_clear_error_tokens();
+    pub fn mcc_get_dlog_entries() -> *mut McDlogEntryFFI;
+    pub fn mcc_clear_dlog_entries();
     pub fn mc_log_init(log_file: *const libc::c_char);
     pub fn mc_log_close();
 }

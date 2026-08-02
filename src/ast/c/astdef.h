@@ -263,6 +263,65 @@ void mcc_clear_error_tokens(void);
 void mc_error_token_print();
 void mc_error_token_free();
 
+// ── Structured diagnostic log (dlog) entries ──────────────────────────
+// Each entry carries a unique error/warning code, severity level,
+// byte-offset position, length, and a human-readable message.
+// The Rust side collects these entries via mcc_get_dlog_entries()
+// and converts them into proper Diagnostic objects for the IDE.
+
+typedef struct mc_dlog_entry {
+    unsigned int code;               // diagnostic code (e.g. 1002)
+    int level;                       // 1=Error, 2=Warning, 3=Info, 4=Hint
+    unsigned int pos;                // byte offset in source
+    unsigned int len;                // byte length of the error span
+    char* msg;                       // human-readable message
+    struct mc_dlog_entry* next;      // linked list
+} mc_dlog_entry;
+
+// Parser error / warning codes (unified with dlog numbering)
+#define MCD_E1000_SYNTAX_ERROR          1000  // fallback: generic syntax error (mca_error)
+#define MCD_E1002_TOP_SKIPPED           1002  // mc_top: error — invalid top-level declaration
+#define MCD_E1003_CLAUSE_SKIPPED        1003  // mc_clause: error — invalid clause in body
+#define MCD_E1004_PIN_SKIPPED           1004  // mc_pins_line: error — invalid pin declaration
+#define MCD_E1005_PIN_ID_NOT_CONST      1005  // pin ID must be a constant integer
+#define MCD_E1006_PIN_NAME_NOT_CONST    1006  // pin name must be a constant identifier
+#define MCD_E1007_NET_NOT_PORT          1007  // net endpoint must be a port/label, not a literal
+#define MCD_E1008_NET_ERROR             1008  // mc_net: error — invalid net/connection expression
+#define MCD_E1009_CONDS_ERROR           1009  // mc_conds: error — invalid if/else condition block
+#define MCD_E1010_ROLE_ERROR            1010  // mc_role: error — invalid role block
+#define MCD_E1011_FUNC_ERROR            1011  // mc_function: error — invalid function definition
+#define MCD_E1012_PINS_ERROR            1012  // mc_attribute_pin: error — invalid pins declaration
+#define MCD_E1013_USE_ERROR             1013  // mc_use: error — invalid import statement
+#define MCD_E1014_CONDBLOCK_ERROR        1014  // mc_cond_block: error — invalid condition body
+#define MCD_E1015_DECLAREB_ERROR         1015  // mc_declare_b: error — invalid instance declaration (:: syntax)
+#define MCD_E1016_BODY_ERROR             1016  // mc_body: error — invalid body
+#define MCD_E1017_JUDGE_ERROR            1017  // mc_judge: error — invalid condition expression
+#define MCD_E1018_PARD_ERROR             1018  // mc_pard: error — invalid parameter declaration
+#define MCD_E1019_URI_ERROR              1019  // mc_uri: error — invalid import path
+#define MCD_E1020_PHRASES_ERROR          1020  // mc_phrases: error — invalid expression list
+#define MCD_E1021_OPDS_ERROR             1021  // mc_opds: error — invalid operand list
+#define MCD_E1022_PARAMS_ERROR           1022  // mc_params: error — invalid parameter list
+#define MCD_E1023_PARDS_ERROR            1023  // mc_pards: error — invalid parameter declaration list
+#define MCD_E1024_ATTR_VALUES_ERROR      1024  // mc_attr_values: error — invalid attribute value list
+#define MCD_E1025_ATTR_LINES_ERROR       1025  // mc_attr_lines: error — invalid attribute line list
+#define MCD_E1026_PINS_NAMES_ERROR       1026  // mc_pins_names: error — invalid pin name list
+#define MCD_E1027_INSTS_ERROR            1027  // mc_insts: error — invalid instance list
+#define MCD_E1028_CONDS_ELIFS_ERROR      1028  // mc_conds_elifs: error — invalid else-if chain
+#define MCD_E1029_IDSS_ERROR             1029  // mc_idss: error — invalid identifier list
+#define MCD_E1030_LEVELS_ERROR           1030  // mc_levels: error — invalid path in import
+#define MCD_E1031_PHRASE_ERROR           1031  // mc_phrase: error — invalid expression
+#define MCD_W1101_SINGLE_OR             1101  // single '|' as binary operator outside pin context
+#define MCD_W1102_PLUSMINUS             1102  // '±' as binary operator outside tolerance context
+#define MCD_W1103_TRANSPOSE_ON_LITERAL  1103  // transpose (') on a literal has no effect
+#define MCD_W1104_CARET_ON_LITERAL      1104  // caret (^) on a literal has no effect
+#define MCD_W1105_EMPTY_BODY            1105  // empty body — component/module/func/role has no clauses
+#define MCD_W1106_EMPTY_PINS            1106  // empty pins declaration
+
+void mc_dlog_add(unsigned int code, int level, unsigned int pos, unsigned int len, const char* msg);
+mc_dlog_entry* mcc_get_dlog_entries(void);
+void mcc_clear_dlog_entries(void);
+void mc_dlog_entries_free(void);
+
 #define MCC_TK_STRING       0
 #define MCC_TK_NUMBER       1
 #define MCC_TK_TYPE         2

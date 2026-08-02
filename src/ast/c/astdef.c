@@ -352,8 +352,12 @@ void mc_sem_token_free()
 }
 
 //////////////////////////////////////////////////
-mc_sem_token* g_error_token_list = NULL; 
-mc_sem_token* g_error_token_list_tail = NULL; 
+mc_sem_token* g_error_token_list = NULL;
+mc_sem_token* g_error_token_list_tail = NULL;
+
+// ── Structured diagnostic log entries ──────────────────────────────────
+mc_dlog_entry* g_dlog_entries = NULL;
+mc_dlog_entry* g_dlog_entries_tail = NULL;
 
 mc_sem_token* mcc_get_error_tokens()
 {
@@ -417,6 +421,53 @@ void mc_error_token_free()
     g_error_token_list_tail = NULL;
 }
 
+// ── Structured diagnostic log entry functions ──────────────────────────
+
+void mc_dlog_add(unsigned int code, int level, unsigned int pos, unsigned int len, const char* msg)
+{
+    mc_dlog_entry* entry = (mc_dlog_entry*) malloc(sizeof(mc_dlog_entry));
+    entry->code = code;
+    entry->level = level;
+    entry->pos = pos;
+    entry->len = len;
+    entry->msg = msg ? strdup(msg) : NULL;
+    entry->next = NULL;
+
+    if (g_dlog_entries_tail == NULL) {
+        g_dlog_entries = entry;
+        g_dlog_entries_tail = entry;
+    } else {
+        g_dlog_entries_tail->next = entry;
+        g_dlog_entries_tail = entry;
+    }
+
+    mprintf(MCC_LOG_ERROR, "\n[DLOG %s%u at %u..%u] %s\n",
+            level == 1 ? "E" : level == 2 ? "W" : level == 3 ? "I" : "H",
+            code, pos, pos + len, msg ? msg : "");
+}
+
+mc_dlog_entry* mcc_get_dlog_entries(void)
+{
+    return g_dlog_entries;
+}
+
+void mc_dlog_entries_free(void)
+{
+    while (g_dlog_entries != NULL) {
+        mc_dlog_entry* this = g_dlog_entries;
+        g_dlog_entries = g_dlog_entries->next;
+        if (this->msg) free(this->msg);
+        free(this);
+    }
+    g_dlog_entries = NULL;
+    g_dlog_entries_tail = NULL;
+}
+
+void mcc_clear_dlog_entries(void)
+{
+    mc_dlog_entries_free();
+}
+
 //////////////////////////////////////////////////
 void mcc_reset(unsigned char log_flags)
 {
@@ -429,6 +480,7 @@ void mcc_reset(unsigned char log_flags)
     g_current_token = NULL;
     mc_sem_token_free();
     mc_error_token_free();
+    mc_dlog_entries_free();
 }
 
 void mcc_lex(char* data)
