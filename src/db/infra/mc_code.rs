@@ -417,7 +417,6 @@ impl McCode {
 
             // Collect structured diagnostics from parser (mc_dlog_add)
             {
-                // Gather all entries, resolve messages, dedup by position
                 let mut raw: Vec<(u32, i32, u32, u32, String)> = Vec::new();
                 let mut dlog_ptr = crate::ast::c_bindings::mcc_get_dlog_entries();
                 while !dlog_ptr.is_null() {
@@ -582,8 +581,11 @@ impl McCode {
         current_uri::set(&self.uri);
         crate::db::diagnostic::diagnostic::dlog_clear_file(&self.uri);
 
-        // Clear C-level error tokens before parsing to prevent accumulation
-        unsafe { crate::ast::c_bindings::mcc_clear_error_tokens() };
+        // Clear C-level error tokens and dlog entries before parsing to prevent accumulation
+        unsafe {
+            crate::ast::c_bindings::mcc_clear_error_tokens();
+            crate::ast::c_bindings::mcc_clear_dlog_entries();
+        }
 
         let c_content = std::ffi::CString::new(content).expect("Failed to create CString");
         let fcontent_ptr = unsafe {
@@ -655,7 +657,6 @@ impl McCode {
 
             // Collect structured diagnostics from parser (mc_dlog_add)
             {
-                // Gather all entries, resolve messages, dedup by position
                 let mut raw: Vec<(u32, i32, u32, u32, String)> = Vec::new();
                 let mut dlog_ptr = crate::ast::c_bindings::mcc_get_dlog_entries();
                 while !dlog_ptr.is_null() {
