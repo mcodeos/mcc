@@ -20,8 +20,6 @@ pub fn handle_sem(params: Option<Value>) -> RpcResult {
         // ★ Fix: Use canonicalized URI for lookup (same as what mcb_add_from_string uses)
         let canonical_uri = crate::build::pass1::canonicalize_project_uri(&mc_uri);
         let result = try_lookup_sem(&[McURI::from(&canonical_uri)]);
-        // ★ Fix: DON'T remove the entry - mcc_query needs it for goto_definition
-        // crate::db::cmie::tables::WORKSPACE.mcodes.remove(&McURI::from(&canonical_uri));
         return result.ok_or_else(|| JsonRpcError::custom(32100, "parse from string failed"));
     }
 
