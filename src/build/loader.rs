@@ -5,6 +5,7 @@
 use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
 use crate::db::infra::mc_code::McCode;
+use crate::db::infra::mc_code::PARSING_PASS1;
 use crate::{McSpaceName, McURI};
 use dashmap;
 use std::collections::HashSet;
@@ -54,6 +55,15 @@ pub fn mcb_add(uri: &McURI) {
 pub fn mcb_add_from_string(uri: &McURI, content: &str) {
     let canonical_uri = canonicalize_project_uri(uri);
     tracing::info!(target: "mcc::lsp", "mcb_add_from_string: uri={:?} -> canonical={:?}", uri, canonical_uri);
+
+    // ★ Clear PARSING_PASS1 for this URI.  The re-entrancy guard is
+    //   thread-local and persists across independent RPC requests on
+    //   the same OS thread.  Without this, a second content-based
+    //   re-parse on the same thread skips create_lapper() entirely,
+    //   producing 0 lapper entries.
+    PARSING_PASS1.with(|s| {
+        s.borrow_mut().remove(&canonical_uri);
+    });
 
     if let Some(mut mcfile) = McCode::new_from_string(&canonical_uri, content) {
         let already_exists = {
