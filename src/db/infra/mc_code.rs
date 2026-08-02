@@ -308,6 +308,36 @@ impl McCode {
                 }
             }
 
+            // Collect structured diagnostics from parser (mc_dlog_add)
+            {
+                // Gather all entries, resolve messages, dedup by position
+                let mut raw: Vec<(u32, i32, u32, u32, String)> = Vec::new();
+                let mut dlog_ptr = crate::ast::c_bindings::mcc_get_dlog_entries();
+                while !dlog_ptr.is_null() {
+                    let entry = &*dlog_ptr;
+                    let msg = if entry.msg.is_null() {
+                        Self::dlog_parser_message(entry.code).to_string()
+                    } else {
+                        std::ffi::CStr::from_ptr(entry.msg).to_string_lossy().to_string()
+                    };
+                    raw.push((entry.code, entry.level, entry.pos, entry.len, msg));
+                    dlog_ptr = entry.next;
+                }
+                // Dedup: at overlapping positions, keep the highest code (most specific)
+                raw.sort_by_key(|e| (e.2, e.3)); // sort by pos, then len
+                let mut last_end: u32 = 0;
+                for (code, level, pos, len, msg) in &raw {
+                    if *pos < last_end && *code < 1100 {
+                        continue; // skip less-specific error at same position
+                    }
+                    last_end = pos.saturating_add(*len);
+                    match level {
+                        2 => crate::db::diagnostic::diagnostic::dlog_warning_at(*code, *pos, *len, &msg),
+                        _ => crate::db::diagnostic::diagnostic::dlog_error_at(*code, *pos, *len, &msg),
+                    }
+                }
+            }
+
             // Free the loaded content
             libc::free(fcontent_ptr as *mut libc::c_void);
 
@@ -382,6 +412,36 @@ impl McCode {
                         .unwrap()
                         .add_diagnostic(diagnostic);
                     err_ptr = err.next;
+                }
+            }
+
+            // Collect structured diagnostics from parser (mc_dlog_add)
+            {
+                // Gather all entries, resolve messages, dedup by position
+                let mut raw: Vec<(u32, i32, u32, u32, String)> = Vec::new();
+                let mut dlog_ptr = crate::ast::c_bindings::mcc_get_dlog_entries();
+                while !dlog_ptr.is_null() {
+                    let entry = &*dlog_ptr;
+                    let msg = if entry.msg.is_null() {
+                        Self::dlog_parser_message(entry.code).to_string()
+                    } else {
+                        std::ffi::CStr::from_ptr(entry.msg).to_string_lossy().to_string()
+                    };
+                    raw.push((entry.code, entry.level, entry.pos, entry.len, msg));
+                    dlog_ptr = entry.next;
+                }
+                // Dedup: at overlapping positions, keep the highest code (most specific)
+                raw.sort_by_key(|e| (e.2, e.3));
+                let mut last_end: u32 = 0;
+                for (code, level, pos, len, msg) in &raw {
+                    if *pos < last_end && *code < 1100 {
+                        continue;
+                    }
+                    last_end = pos.saturating_add(*len);
+                    match level {
+                        2 => crate::db::diagnostic::diagnostic::dlog_warning_at(*code, *pos, *len, &msg),
+                        _ => crate::db::diagnostic::diagnostic::dlog_error_at(*code, *pos, *len, &msg),
+                    }
                 }
             }
 
@@ -590,6 +650,36 @@ impl McCode {
                         .unwrap()
                         .add_diagnostic(diagnostic);
                     err_ptr = err.next;
+                }
+            }
+
+            // Collect structured diagnostics from parser (mc_dlog_add)
+            {
+                // Gather all entries, resolve messages, dedup by position
+                let mut raw: Vec<(u32, i32, u32, u32, String)> = Vec::new();
+                let mut dlog_ptr = crate::ast::c_bindings::mcc_get_dlog_entries();
+                while !dlog_ptr.is_null() {
+                    let entry = &*dlog_ptr;
+                    let msg = if entry.msg.is_null() {
+                        Self::dlog_parser_message(entry.code).to_string()
+                    } else {
+                        std::ffi::CStr::from_ptr(entry.msg).to_string_lossy().to_string()
+                    };
+                    raw.push((entry.code, entry.level, entry.pos, entry.len, msg));
+                    dlog_ptr = entry.next;
+                }
+                // Dedup: at overlapping positions, keep the highest code (most specific)
+                raw.sort_by_key(|e| (e.2, e.3));
+                let mut last_end: u32 = 0;
+                for (code, level, pos, len, msg) in &raw {
+                    if *pos < last_end && *code < 1100 {
+                        continue;
+                    }
+                    last_end = pos.saturating_add(*len);
+                    match level {
+                        2 => crate::db::diagnostic::diagnostic::dlog_warning_at(*code, *pos, *len, &msg),
+                        _ => crate::db::diagnostic::diagnostic::dlog_error_at(*code, *pos, *len, &msg),
+                    }
                 }
             }
 
@@ -3593,6 +3683,51 @@ impl McCode {
         let ids_node = name_node.get_sub_node()?;
         let ids = McIds::new(&ids_node)?;
         Some(ids.to_string())
+    }
+
+    /// Look up the human-readable message for a parser diagnostic code.
+    fn dlog_parser_message(code: u32) -> &'static str {
+        match code {
+            // Errors (E1002–E1031)
+            1002 => "Invalid top-level declaration",
+            1003 => "Invalid clause in body",
+            1004 => "Invalid pin declaration",
+            1005 => "Pin ID must be a constant integer, not an expression",
+            1006 => "Pin name must be a constant identifier, not an expression",
+            1007 => "Net endpoint must be a port/label, not a literal",
+            1008 => "Invalid net/connection expression",
+            1009 => "Invalid if/else condition block",
+            1010 => "Invalid role block",
+            1011 => "Invalid function definition",
+            1012 => "Invalid pins declaration",
+            1013 => "Invalid import statement",
+            1014 => "Invalid condition body",
+            1015 => "Invalid instance declaration (:: syntax)",
+            1016 => "Invalid body",
+            1017 => "Invalid condition expression",
+            1018 => "Invalid parameter declaration",
+            1019 => "Invalid import path",
+            1020 => "Invalid expression list",
+            1021 => "Invalid operand list",
+            1022 => "Invalid parameter list",
+            1023 => "Invalid parameter declaration list",
+            1024 => "Invalid attribute value list",
+            1025 => "Invalid attribute line list",
+            1026 => "Invalid pin name list",
+            1027 => "Invalid instance list",
+            1028 => "Invalid else-if chain",
+            1029 => "Invalid identifier list",
+            1030 => "Invalid path in import",
+            1031 => "Invalid expression",
+            // Warnings (W1101–W1106)
+            1101 => "Single '|' as binary operator outside pin context",
+            1102 => "'±' as binary operator outside tolerance context",
+            1103 => "Transpose (') on a literal has no effect",
+            1104 => "Caret (^) on a literal has no effect",
+            1105 => "Empty body — no clauses defined",
+            1106 => "Empty pins declaration",
+            _ => "Syntax error",
+        }
     }
 }
 
