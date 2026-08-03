@@ -57,15 +57,75 @@ impl McModuleInst {
         let mut phrase = phrase.clone();
         Self::assign_phrase_ids(&mut phrase, &mut self.next_phrase_id);
         let members = self.phrase_to_members(&phrase);
+        if self.name == "mcu513" {
+            let member_strs: Vec<String> = members.iter().map(|m| format!("{m:?}")).collect();
+            eprintln!("[P2-4-LINE] US513 members after phrase_to_members: {member_strs:?}");
+        }
         if members.is_empty() {
             return Ok(());
         }
 
-        // recursively process nested structures — per-member fault-tolerant
-        for member in &members {
-            if let Err(e) = self.process_member_internal(member) {
+        // ── P2-5: Expand builtin twopin calls adjacent to multi-member buses ──
+        // When a builtin twopin (Pullup/Pulldown) is on the RIGHT side of a Multiple
+        // with N > 1 members, iterate the FuncCall N times to create N components.
+        // e.g. I2C0 => RES(10kΩ).Pullup(_, VDD) should create 2 resistors (SCL, SDA).
+        //
+        // Only expand when Multiple is on the LEFT (signal side). When Multiple is on
+        // the RIGHT (e.g. Cap(_) -> [VDD, GND]), the Multiple represents the component's
+        // own pins, NOT independent signals — do NOT expand.
+        let mut i: usize = 0;
+        while i < members.len() {
+            let (should_expand, n_items, fc_is_left) = match &members[i] {
+                McPhrase::Multiple(inner) if inner.len() > 1 => {
+                    if i + 1 < members.len() && Self::is_builtin_twopin_phrase(&members[i + 1]) {
+                        (true, inner.len(), false) // Multiple left, FuncCall right
+                    } else {
+                        (false, 0, false)
+                    }
+                }
+                _ => {
+                    // P2-5 fix: do NOT expand when FuncCall is on the left and Multiple
+                    // is on the right. This case (e.g. Cap(_) -> [VDD, GND]) means the
+                    // Multiple is the component's own pins, not independent signals.
+                    (false, 0, false)
+                }
+            };
+
+            if should_expand {
+                let multiple_idx = if fc_is_left { i + 1 } else { i };
+                let fc_idx = if fc_is_left { i } else { i + 1 };
+                let inner = match &members[multiple_idx] {
+                    McPhrase::Multiple(inner) => inner.clone(),
+                    _ => unreachable!(),
+                };
+                let fc = members[fc_idx].clone();
+                eprintln!(
+                    "[P2-5-EXPAND] module='{}' expanding builtin twopin: n_items={}, fc_is_left={fc_is_left}, fc={fc:?}",
+                    self.name, n_items
+                );
+
+                for item in &inner {
+                    let pair = if fc_is_left {
+                        McPhrase::Series(vec![fc.clone(), item.clone()], dir)
+                    } else {
+                        McPhrase::Series(vec![item.clone(), fc.clone()], dir)
+                    };
+                    if let Err(e) = self.process_line(&pair) {
+                        self.record_warning(
+                            911,
+                            format!("Expanded builtin twopin pair failed: {e}"),
+                        );
+                    }
+                }
+                i += 2; // skip both the Multiple and the FuncCall
+                continue;
+            }
+
+            // Normal processing for non-expanded members
+            if let Err(e) = self.process_member_internal(&members[i]) {
                 self.record_warning(911, format!("Member processing failed: {e}"));
             }
+            i += 1;
         }
 
         // ── Root cause C: `.Cap(_)` decoupling cap in chain is parallel shunt, not series ─────────
@@ -271,6 +331,19 @@ impl McModuleInst {
         match member {
             McPhrase::Multiple(inner) => inner.iter().any(|p| matches!(p, McPhrase::Lead)),
             McPhrase::Parallel(lines) => lines.iter().any(|l| Self::member_contains_lead(l)),
+            _ => false,
+        }
+    }
+
+    /// P2-5: Check if a phrase is a builtin twopin FuncCall that should be expanded
+    /// when adjacent to a multi-member bus (Pullup/Pulldown only, NOT Cap).
+    fn is_builtin_twopin_phrase(member: &McPhrase) -> bool {
+        match member {
+            McPhrase::FuncCall(fc) => {
+                let name = fc.func_name.to_string();
+                let last = name.rsplit('.').next().unwrap_or(&name);
+                last.eq_ignore_ascii_case("Pullup") || last.eq_ignore_ascii_case("Pulldown")
+            }
             _ => false,
         }
     }
@@ -535,6 +608,11 @@ impl McModuleInst {
     /// Convert McPhrase to expanded McPhrase list
     /// Series is recursively expanded to individual member McPhrases
     pub(super) fn phrase_to_members(&self, phrase: &McPhrase) -> Vec<McPhrase> {
+        let disc = std::mem::discriminant(phrase);
+        eprintln!(
+            "[P2-5-PTM-ENTRY] module='{}' phrase_to_members: disc={disc:?}",
+            self.name
+        );
         match phrase {
             McPhrase::Series(phrases, _) => {
                 // ── P1-B ────────────────────────────────────────────────
@@ -848,17 +926,53 @@ impl McModuleInst {
                 base: McInstance::Bus(ref data),
                 ..
             })) => {
+                eprintln!(
+                    "[P2-5-BUS-ENTRY] module='{}' phrase_to_members Bus: name='{}', member={:?}",
+                    self.name, data.name, data.member
+                );
                 // ── M11.5: expand multi-member Bus to Multiple ──────────────
                 // When a Bus has multiple members (e.g. dc{VDD_3V3, GND}),
                 // expand to Multiple so lane-by-lane wiring can handle each
                 // lane independently.  Single-member buses stay as-is.
-                if data.member.len() > 1 {
-                    let inner: Vec<McPhrase> = data
-                        .member
+                //
+                // ── P2-5: also check bus table for named buses (e.g. I2C0) ──
+                // When data.member is empty but the bus table has members,
+                // expand using the bus table members.
+                let members: Vec<String> = if data.member.len() > 1 {
+                    data.member.clone()
+                } else if data.member.is_empty() && !data.name.is_empty() {
+                    let from_bus = self
+                        .buses
+                        .get(&data.name)
+                        .map(|b| b.members.clone())
+                        .unwrap_or_default();
+                    eprintln!(
+                        "[P2-5-BUS-LOOKUP] module='{}' bus='{}' data.member={:?} from_bus_table={:?}",
+                        self.name, data.name, data.member, from_bus
+                    );
+                    from_bus
+                } else {
+                    Vec::new()
+                };
+
+                if members.len() > 1 {
+                    eprintln!(
+                        "[P2-5-BUS] module='{}' expanding bus '{}' to Multiple with members {:?}",
+                        self.name, data.name, members
+                    );
+                    let inner: Vec<McPhrase> = members
                         .iter()
                         .map(|m| {
+                            // P2-6: when bus name is empty (anonymous DC bus),
+                            // use member name directly without dot prefix.
+                            // e.g. [VDD_3V3,GND]::DC() → VDD_3V3, GND (not .VDD_3V3, .GND)
+                            let path = if data.name.is_empty() {
+                                m.clone()
+                            } else {
+                                format!("{}.{}", data.name, m)
+                            };
                             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
-                                McInstance::Bus(McBus::member_ref(&data.name, m.clone())),
+                                McInstance::Bus(McBus::new(&path)),
                             )))
                         })
                         .collect();
@@ -873,9 +987,32 @@ impl McModuleInst {
                 base: McInstance::Label(label),
                 ..
             })) => {
-                vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
-                    McInstance::Bus(McBus::new(label)),
-                )))]
+                // ── P2-5: expand Label to Multiple when bus table has members ──
+                let from_bus = self
+                    .buses
+                    .get(label)
+                    .map(|b| b.members.clone())
+                    .unwrap_or_default();
+                if from_bus.len() > 1 {
+                    eprintln!(
+                        "[P2-5-BUS-LABEL] module='{}' expanding Label '{}' to Multiple with members {:?}",
+                        self.name, label, from_bus
+                    );
+                    let inner: Vec<McPhrase> = from_bus
+                        .iter()
+                        .map(|m| {
+                            let path = format!("{}.{}", label, m);
+                            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                                McInstance::Bus(McBus::new(&path)),
+                            )))
+                        })
+                        .collect();
+                    vec![McPhrase::Multiple(inner)]
+                } else {
+                    vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        McInstance::Bus(McBus::new(label)),
+                    )))]
+                }
             }
             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
                 base: McInstance::List(list),
@@ -891,6 +1028,10 @@ impl McModuleInst {
                 result
             }
             McPhrase::Endpoint(ref ep) => {
+                eprintln!(
+                    "[P2-5-BUS-CATCHALL] module='{}' phrase_to_members Endpoint catch-all: ep={ep:?}",
+                    self.name
+                );
                 let left = ep.get_left();
                 let right = ep.get_right();
                 if left.is_empty() && right.is_empty() {
@@ -909,12 +1050,17 @@ impl McModuleInst {
                 }
             }
             McPhrase::Member(inner, member_ep) => {
-                if matches!(inner.as_ref(), McPhrase::FuncCall(_)) {
-                    // keep the Member so adjacency resolves the named port via the Member branch
-                    vec![McPhrase::Member(inner.clone(), member_ep.clone())]
-                } else {
-                    self.phrase_to_members(inner)
+                // ── P2-4 fix: keep Member for ALL cases, not just FuncCall ──
+                // Previously only FuncCall inners kept the Member wrapper (e.g.
+                // `X6.setup(GND, NC).XTAL`), while non-FuncCall inners like
+                // `uC.XTAL` (Member(Endpoint(Component(uC)), "XTAL")) were stripped,
+                // losing the XTAL member name and causing all XTAL pins to merge
+                // into one net instead of lane-by-lane matching.
+                let result = vec![McPhrase::Member(inner.clone(), member_ep.clone())];
+                if self.name == "mcu513" {
+                    eprintln!("[P2-4-PTM] Member kept: inner={inner:?}, member_ep={member_ep:?}");
                 }
+                result
             }
         }
     }
@@ -1087,6 +1233,13 @@ impl McModuleInst {
         } else {
             let left_points = self.get_right_points(left_member)?;
             let right_points = self.get_left_points(right_member)?;
+            if self.name == "mcu513" {
+                let dl: Vec<String> = left_points.iter().map(|p| format!("{}", p.path)).collect();
+                let dr: Vec<String> = right_points.iter().map(|p| format!("{}", p.path)).collect();
+                eprintln!(
+                    "[P2-4-ADJ] US513: L={_l_kind} R={_r_kind} | get_right(L)={dl:?} get_left(R)={dr:?}",
+                );
+            }
             // ── [P4-ADJ] temporary probe (commented)
             // if matches!(left_member, McPhrase::Parallel(_))
             //     || matches!(right_member, McPhrase::Parallel(_))
@@ -1853,6 +2006,10 @@ impl McModuleInst {
                         if let Some(inst_name) = Self::extract_caller_inst_name(caller_box.as_ref())
                         {
                             let func_name_str = fc.func_name.to_string();
+                            eprintln!(
+                                "[P2-4-DBG] instance method dispatch: inst={inst_name}, func={func_name_str}, module={}",
+                                self.name
+                            );
 
                             // Component instance method
                             let comp_func = self
@@ -1860,7 +2017,17 @@ impl McModuleInst {
                                 .iter()
                                 .find(|c| c.name == inst_name)
                                 .and_then(|c| c.def.funcs.find(&func_name_str).cloned());
+                            eprintln!(
+                                "[P2-4-DBG] comp_func found={} for inst={inst_name} func={func_name_str}",
+                                comp_func.is_some()
+                            );
                             if let Some(func_def) = comp_func {
+                                eprintln!(
+                                    "[P2-4-DBG] func_def name={}, lines={}, params={}",
+                                    func_def.name,
+                                    func_def.lines.len(),
+                                    func_def.params.iter().count()
+                                );
                                 let key = Self::member_key(phrase);
                                 let result = self.instantiate_instance_method(
                                     &inst_name, &func_def, &fc.params, &fc.left, &fc.right,

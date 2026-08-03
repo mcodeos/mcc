@@ -836,8 +836,6 @@ impl McPins {
                                         };
                                         // use inst_pins to call merge_pins_with update registered_pins
                                         let merged = declare.merge_pins_with(&inst_pins);
-                                        // dlog_trace(1203, &format!("Bus interface insert: base={}, inst_name={}, iface_name={}, registered_pins={:?}",
-                                        //     base_iface_name, declare.name, iface_name, merged.registered_pins));
                                         self.names_to_id.insert(
                                             iface_name,
                                             McPinPort::Interface(Arc::new(merged)),

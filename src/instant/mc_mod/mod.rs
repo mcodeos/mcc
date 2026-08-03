@@ -244,6 +244,18 @@ impl McModuleInst {
         // 3. Process connection lines — per-line fault tolerance
         self.instantiate_lines_resilient();
 
+        // 3.5 Auto-invoke module-level parameterless functions (closures)
+        // Module-level functions like `func i2c() { ... }` with no parameters
+        // are auto-invoked during instantiation. Functions with parameters
+        // (e.g. `func loadFlash(spi)`) must be explicitly called.
+        self.auto_invoke_module_funcs();
+
+        // 3.6 Post-processing (moved from instantiate_lines_resilient to cover auto-invoked closures)
+        self.infer_bare_port_members_from_buses();
+        self.normalize_component_pin_paths();
+        self.dedup_connections();
+        self.check_unbound_param_ports();
+
         // 4. Build the final net table (based on successful connections)
         self.build_net_table();
 
@@ -260,6 +272,60 @@ impl McModuleInst {
         }
 
         Ok(()) // Always return Ok — errors have been recorded to diagnostics
+    }
+
+    /// Auto-invoke module-level parameterless functions (closures).
+    ///
+    /// Module-level functions like `func i2c() { ... }` with no parameters
+    /// are treated as closures and auto-invoked during instantiation.
+    /// Functions with parameters (e.g. `func loadFlash(spi)`) must be
+    /// explicitly called and are skipped here.
+    pub(super) fn auto_invoke_module_funcs(&mut self) {
+        let funcs: Vec<_> = self.def.funcs.iter().cloned().collect();
+        eprintln!(
+            "[P2-4-AUTO] module '{}' has {} funcs: {:?}",
+            self.name,
+            funcs.len(),
+            funcs
+                .iter()
+                .map(|f| format!("{} (arity={})", f.name, f.params.iter().count()))
+                .collect::<Vec<_>>()
+        );
+        for func in funcs {
+            let arity = func.params.iter().count();
+            if arity > 0 {
+                continue; // skip parameterized functions
+            }
+            if func.lines.is_empty() {
+                continue;
+            }
+            eprintln!(
+                "[P2-4-AUTO] auto-invoking module func '{}' with {} body lines",
+                func.name,
+                func.lines.len()
+            );
+            for line in &func.lines {
+                eprintln!(
+                    "[P2-4-AUTO-DBG] module '{}' func '{}' processing line: {:?}",
+                    self.name,
+                    func.name,
+                    std::mem::discriminant(line)
+                );
+                if let Err(e) = self.process_line(line) {
+                    eprintln!(
+                        "[P2-4-AUTO-DBG] module '{}' func '{}' line FAILED: {e}",
+                        self.name, func.name
+                    );
+                    self.record_warning(
+                        913,
+                        format!(
+                            "Module-level function '{}' body line failed: {e}",
+                            func.name
+                        ),
+                    );
+                }
+            }
+        }
     }
 
     // ========================================================================
@@ -368,6 +434,21 @@ impl McModuleInst {
         }
 
         self.nets = table.into_nets();
+
+        // P2-4-US513-DEBUG
+        if self.name == "mcu513" {
+            eprintln!("[P2-4-US513] build_net_table for mcu513:");
+            let mut net_names: Vec<&String> = self.nets.keys().collect();
+            net_names.sort();
+            for net_name in net_names {
+                let points = &self.nets[net_name];
+                eprintln!(
+                    "[P2-4-US513]   net '{}': {:?}",
+                    net_name,
+                    points.iter().map(|p| p.path.clone()).collect::<Vec<_>>()
+                );
+            }
+        }
     }
 }
 

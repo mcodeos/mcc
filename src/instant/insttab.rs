@@ -818,10 +818,6 @@ impl InstTable {
             let mut point_ids: Vec<u32> = Vec::new();
 
             for np in net_points {
-                // NetPoint.path is the module's internal relative path (e.g. "R1.1",
-                // "VCC", "power.VCC", or bracket form "sub.[A, B]"). A single path
-                // may resolve to 0 / 1 / N IDs after three-level fallback (N > 1
-                // only when bracket expansion).
                 for id in self.resolve_netpoint_path(&np.path, module_path) {
                     point_ids.push(id);
                 }

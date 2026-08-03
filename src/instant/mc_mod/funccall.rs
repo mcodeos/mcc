@@ -554,7 +554,8 @@ impl McModuleInst {
         };
 
         // 3. Wire
-        //    1 target → pin1 → target, pin2 → GND (implicit)
+        //    1 target → pin1 → target, pin2 → GND (implicit) — for Cap
+        //    1 target + Pullup/Pulldown → pin2 → target, pin1 left for outer chain
         //    ≥2 targets → pin1 → targets[0], pin2 → targets[1]
         //
         // ── P1-1: `.Cap(x)` single-arg case, pin2 implicitly connects to GND ──────────────
@@ -563,14 +564,22 @@ impl McModuleInst {
         let t1 = it.next().unwrap();
         match it.next() {
             None => {
-                // .Cap(x) → pin1 → x, pin2 → GND
-                let id1 = self.next_conn_id();
-                self.connections
-                    .push(ConnectionInst::new(id1, vec![pin1, t1]));
-                let gnd = self.node_to_netpoint(&McBus::new("GND"));
-                let id2 = self.next_conn_id();
-                self.connections
-                    .push(ConnectionInst::new(id2, vec![pin2, gnd]));
+                if is_pull {
+                    // Pullup/Pulldown: pin1=signal (wired by outer chain), pin2=rail
+                    // e.g. Pullup(_, VDD) → pin2 → VDD, pin1 left for I2C0.SCL
+                    let id2 = self.next_conn_id();
+                    self.connections
+                        .push(ConnectionInst::new(id2, vec![pin2, t1]));
+                } else {
+                    // .Cap(x) → pin1 → x, pin2 → GND
+                    let id1 = self.next_conn_id();
+                    self.connections
+                        .push(ConnectionInst::new(id1, vec![pin1, t1]));
+                    let gnd = self.node_to_netpoint(&McBus::new("GND"));
+                    let id2 = self.next_conn_id();
+                    self.connections
+                        .push(ConnectionInst::new(id2, vec![pin2, gnd]));
+                }
             }
             Some(t2) => {
                 let id1 = self.next_conn_id();

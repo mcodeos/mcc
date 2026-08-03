@@ -28,6 +28,7 @@ use crate::semantic::mc_func::{McFuncReturn, McFunction};
 use crate::semantic::mc_inst::McInstance;
 use crate::semantic::module::McModule;
 use crate::McIds;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 // ── P2-2: thread_local side channel ──────────────────────────────────────
@@ -792,12 +793,80 @@ impl McModuleInst {
             skip.insert(p.name.clone());
         }
 
+        // ── P2-4: Register component bus interfaces as buses ──
+        // When a component method body uses labels like `I2C0` (which are
+        // component interface names), the skip set prevents prefixing them
+        // with the instance name. Register the component's bus interfaces
+        // as module-level buses so `expand_port_lanes` can expand standalone
+        // labels like `I2C0` to `I2C0.SCL` and `I2C0.SDA`.
+        let buses_to_register: Vec<(String, Vec<String>)> = {
+            if let Some(comp) = self.find_component(inst_name) {
+                // P2-5: Register component bus interfaces as module-level buses.
+                // Look at pin_id_to_names to find which interface names appear on
+                // multiple pins, then look at names_to_id for dot-separated member
+                // names (e.g. PBus.CLK, PBus.DATA → PBus with [CLK, DATA]).
+                let mut bus_members: HashMap<String, Vec<String>> = HashMap::new();
+
+                // First pass: collect all dot-separated names (e.g. PBus.CLK → PBus)
+                for name in comp.def.pins.names_to_id.keys() {
+                    if let Some(dot_pos) = name.find('.') {
+                        let base = &name[..dot_pos];
+                        let member = &name[dot_pos + 1..];
+                        bus_members
+                            .entry(base.to_string())
+                            .or_default()
+                            .push(member.to_string());
+                    }
+                }
+
+                // Second pass: for Multi entries without dot-separated members,
+                // try to derive member names from the interface definition.
+                // Look at the McInterface base.pins to get member names.
+                for (name, port) in comp.def.pins.names_to_id.iter() {
+                    if let crate::semantic::component::mc_pins::McPinPort::Multi(pids) = port {
+                        if pids.len() >= 2 && !bus_members.contains_key(name) {
+                            // Try to find member names from Interface variant (may be stored under a different key)
+                            // Fall back to using pin IDs as member names
+                            let members: Vec<String> = pids.clone();
+                            bus_members.insert(name.clone(), members);
+                        }
+                    }
+                }
+
+                bus_members
+                    .into_iter()
+                    .filter(|(_, members)| members.len() >= 2)
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        };
+        for (iface_name, member_names) in &buses_to_register {
+            eprintln!(
+                "[P2-4-CM] registering bus '{iface_name}' with members {member_names:?} for component '{inst_name}'"
+            );
+            let _ = self.ensure_bus(iface_name, member_names);
+        }
+
         if func_def.lines.is_empty() {
             eprintln!(
                 "Warning: component method '{}.{}' has no parsed lines.",
                 inst_name, func_def.name
             );
             return Ok(());
+        }
+        eprintln!(
+            "[P2-4-CM] run_component_method: {}.{} with {} body lines",
+            inst_name,
+            func_def.name,
+            func_def.lines.len()
+        );
+        for (i, line) in func_def.lines.iter().enumerate() {
+            eprintln!(
+                "[P2-4-CM]   line[{}]: {:?}",
+                i,
+                std::mem::discriminant(line)
+            );
         }
         // ── P4-b: Isolate anonymous instance entries for each body line in the same func ──
         let conn_start = self.connections.len(); // ← P4 backstop start point
@@ -811,7 +880,15 @@ impl McModuleInst {
             } else {
                 Self::substitute_line(line, bindings, Some(inst_name))
             };
+            eprintln!(
+                "[P2-4-CM-LINE] {}.{} line after substitute: {:?}",
+                inst_name, func_def.name, substituted
+            );
             let prefixed = Self::prefix_instance_line_with_skip(&substituted, inst_name, &skip);
+            eprintln!(
+                "[P2-4-CM-LINE] {}.{} line after prefix: {:?}",
+                inst_name, func_def.name, prefixed
+            );
             self.process_line(&prefixed)?;
         }
         // ── P4 backstop: strip synthetic host interface endpoints leaked
