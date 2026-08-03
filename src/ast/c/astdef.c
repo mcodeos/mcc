@@ -504,7 +504,6 @@ mc_value* mcc_parse()
     int parse_result = mca_parse(ast_root);
     if (parse_result != 0) {
         mc_value_free(&ast_root);
-        return NULL;  // ★ Return NULL so caller knows parse failed
     }
     return ast_root;
 }
