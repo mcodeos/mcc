@@ -193,13 +193,19 @@ fn check_missing_else(acc: &mut CheckAccumulator) {
 /// First finds the pin definition line by searching for `keyword [...pin_id...]`,
 /// then narrows to the specific `pin_name` within the names bracket `[...,name,...]`.
 /// Falls back to the line's keyword span, then to the component span.
-fn pin_definition_span(comp: &crate::semantic::component::McComponent, pin_id: &str, pin_name: Option<&str>) -> std::ops::Range<usize> {
+fn pin_definition_span(
+    comp: &crate::semantic::component::McComponent,
+    pin_id: &str,
+    pin_name: Option<&str>,
+) -> std::ops::Range<usize> {
     if let Ok(content) = std::fs::read_to_string(comp.uri.as_str()) {
         for keyword in &["ps ", "in ", "io ", "out ", "anl ", "nc "] {
             let mut search_from = 0;
             while let Some(kw_pos) = content[search_from..].find(keyword) {
                 let line_start = search_from + kw_pos;
-                let line_end_pos = content[line_start..].find('\n').unwrap_or(content.len() - line_start);
+                let line_end_pos = content[line_start..]
+                    .find('\n')
+                    .unwrap_or(content.len() - line_start);
                 let line = &content[line_start..line_start + line_end_pos];
                 // Find the first bracket pair (pin IDs like [5,21]) and check for our pin_id
                 if let (Some(bs), Some(be)) = (line.find('['), line.find(']')) {
@@ -213,7 +219,8 @@ fn pin_definition_span(comp: &crate::semantic::component::McComponent, pin_id: &
                             if let Some(name) = pin_name {
                                 // Find the names bracket (second [...] in the line)
                                 if let Some(rest) = line.get(be + 1..) {
-                                    if let (Some(nbs), Some(nbe)) = (rest.find('['), rest.find(']')) {
+                                    if let (Some(nbs), Some(nbe)) = (rest.find('['), rest.find(']'))
+                                    {
                                         let names_bracket = &rest[nbs + 1..nbe];
                                         // Find the exact position of this name within the names bracket
                                         let name_tokens: Vec<&str> = names_bracket
@@ -222,9 +229,10 @@ fn pin_definition_span(comp: &crate::semantic::component::McComponent, pin_id: &
                                             .collect();
                                         if name_tokens.contains(&name) {
                                             // Compute absolute position of the name within the file
-                                            let name_pos_in_rest = names_bracket.find(name)
-                                                .unwrap_or(0);
-                                            let abs_name_pos = line_start + be + 1 + nbs + 1 + name_pos_in_rest;
+                                            let name_pos_in_rest =
+                                                names_bracket.find(name).unwrap_or(0);
+                                            let abs_name_pos =
+                                                line_start + be + 1 + nbs + 1 + name_pos_in_rest;
                                             return abs_name_pos..abs_name_pos + name.len();
                                         }
                                     }
@@ -286,7 +294,10 @@ fn check_pin_io_context(acc: &mut CheckAccumulator) {
                     // 1. Component-level attributes (e.g. `voltage = "5V"`)
                     let has_voltage_attr = comp.attrs.iter().any(|a| {
                         let key = a.id.to_string().to_lowercase();
-                        key.contains("voltage") || key.contains("volt") || key == "vcc" || key == "vdd"
+                        key.contains("voltage")
+                            || key.contains("volt")
+                            || key == "vcc"
+                            || key == "vdd"
                     });
                     // 2. Interface binding covering this pin (e.g. `::DC(3.3V)`)
                     let has_voltage_iface = comp.pins.names_to_id.values().any(|port| {
@@ -309,7 +320,9 @@ fn check_pin_io_context(acc: &mut CheckAccumulator) {
                     let has_pin_voltage = pin.values.iter().any(|v| {
                         if let crate::semantic::component::mc_attr::McAttrVal::KVS(kvs) = v {
                             let key = kvs.key.to_string().to_lowercase();
-                            return key.contains("volt") || key.contains("vcc") || key.contains("vdd");
+                            return key.contains("volt")
+                                || key.contains("vcc")
+                                || key.contains("vdd");
                         }
                         false
                     });

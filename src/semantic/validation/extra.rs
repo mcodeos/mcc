@@ -250,11 +250,15 @@ fn check_overlapping_pins(acc: &mut CheckAccumulator) {
             for (iotype, names, line_idx) in defs {
                 let key = format!("{:?}", iotype);
                 seen_lines.entry(key.clone()).or_default().push(*line_idx);
-                iotype_names.entry(key).or_default().extend(names.iter().cloned());
+                iotype_names
+                    .entry(key)
+                    .or_default()
+                    .extend(names.iter().cloned());
             }
             // Flag only if same IO type appears on ≥2 DIFFERENT pin lines
             for (iotype_str, lines) in &seen_lines {
-                let unique_lines: std::collections::HashSet<usize> = lines.iter().cloned().collect();
+                let unique_lines: std::collections::HashSet<usize> =
+                    lines.iter().cloned().collect();
                 if unique_lines.len() > 1 {
                     let names = iotype_names.get(iotype_str).cloned().unwrap_or_default();
                     conflicts.push((pin_id.clone(), iotype_str.clone(), names));

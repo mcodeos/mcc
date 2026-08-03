@@ -264,6 +264,11 @@ impl McParamDeclares {
         self.declares.is_empty()
     }
 
+    /// Returns iterator over parameter declarations (P2-4).
+    pub fn iter(&self) -> impl Iterator<Item = &McParamDeclare> {
+        self.declares.iter()
+    }
+
     /// Get all parameter names (single params only, drops Multiples).
     pub fn names(&self) -> Vec<String> {
         self.declares
@@ -706,6 +711,29 @@ impl McParamDeclare {
                 .default
                 .as_ref()
                 .map(|default| (uval.name.clone(), default.clone())),
+            _ => None,
+        }
+    }
+
+    // ── P2-4: extract port name and members for interface-type params ──
+    /// Returns `(port_name, members)` for interface-type parameters.
+    ///
+    /// For `[VDD_3V3, GND]::DC(3.3V)` → `("[VDD_3V3, GND]", ["VDD_3V3", "GND"])`
+    /// For `dc{VDD_3V3, GND}::DC(3.3V)` → `("dc{VDD_3V3, GND}", ["VDD_3V3", "GND"])`
+    pub fn to_port_name_and_members(&self) -> Option<(String, Vec<String>)> {
+        if !self.param_type.is_port() {
+            return None;
+        }
+        match &self.kind {
+            McParamDeclareKind::Multiple(ids_list) => {
+                let members: Vec<String> = ids_list.iter().map(|ids| ids.to_string()).collect();
+                let name = format!("[{}]", members.join(", "));
+                Some((name, members))
+            }
+            McParamDeclareKind::Single(ids) => {
+                let name = ids.to_string();
+                Some((name, vec![]))
+            }
             _ => None,
         }
     }

@@ -742,8 +742,7 @@ impl McInstances {
                                                 let ids_name = McIds {
                                                     segments: vec![IdsSegment::Square(members_ids)],
                                                 };
-                                                let port_name =
-                                                    format!("[{}]", members.to_vec().join(","));
+                                                let port_name = ids_name.to_string();
                                                 let mc_inst = McInstance::Interface(Arc::new(
                                                     Mc2Interface::new(ids_name, iface_def.clone()),
                                                 ));
@@ -1412,7 +1411,7 @@ impl McInstances {
                             let ids_name = McIds {
                                 segments: vec![IdsSegment::Square(members_ids)],
                             };
-                            let port_name = format!("[{}]", members.to_vec().join(","));
+                            let port_name = ids_name.to_string();
                             (
                                 McInstance::Interface(Arc::new(Mc2Interface::new(
                                     ids_name,

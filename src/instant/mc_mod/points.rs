@@ -433,6 +433,27 @@ impl McModuleInst {
             )) => {
                 let bus = iref.to_bus();
                 if !bus.name.is_empty() {
+                    // ── P2-4: expand submodule's in-ports to left-side endpoints ──
+                    if let Some(sub) = self.find_submodule(&bus.name) {
+                        let in_ports: Vec<String> = sub
+                            .ports
+                            .iter()
+                            .filter(|p| matches!(p.iotype, IOType::In))
+                            .map(|p| p.name.clone())
+                            .collect();
+                        if !in_ports.is_empty() {
+                            let mut points = Vec::new();
+                            for port_name in &in_ports {
+                                let dotted = format!("{}.{}", bus.name, port_name);
+                                if let Some(lanes) = self.expand_port_lanes(&dotted) {
+                                    points.extend(lanes);
+                                }
+                            }
+                            if !points.is_empty() {
+                                return Ok(points);
+                            }
+                        }
+                    }
                     if let Some(lanes) = self.expand_port_lanes(&bus.name) {
                         return Ok(lanes);
                     }
@@ -451,11 +472,48 @@ impl McModuleInst {
             | McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
                 base: McInstance::List(_),
                 ..
-            }))
-            | McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
-                base: McInstance::Interface(_),
-                ..
             })) => Ok(vec![]),
+            // ── P2-4: expand Interface members to individual NetPoints ──
+            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                base: McInstance::Interface(iface),
+                ..
+            })) => {
+                let (members, prefix): (Vec<String>, Option<String>) =
+                    if let Some(m) = iface.name.list_members() {
+                        (m, None)
+                    } else if let Some((p, m)) = iface.name.as_bus() {
+                        (m, Some(p))
+                    } else {
+                        // Scalar-named interface (e.g. V3V3::DC(3.3V)): extract from base pins
+                        let pin_names: Vec<String> = iface
+                            .base
+                            .pins
+                            .pins
+                            .values()
+                            .filter_map(|p| p.names.first().cloned())
+                            .collect();
+                        if pin_names.len() >= 2 {
+                            let port_name = iface.name.to_string();
+                            (pin_names, Some(port_name))
+                        } else {
+                            return Ok(vec![]);
+                        }
+                    };
+                let points: Vec<NetPoint> = members
+                    .into_iter()
+                    .map(|m| {
+                        let path = match &prefix {
+                            Some(p) => format!("{p}.{m}"),
+                            None => m.clone(),
+                        };
+                        self.labels
+                            .get(&path)
+                            .cloned()
+                            .unwrap_or_else(|| NetPoint::new(&path, IOType::None))
+                    })
+                    .collect();
+                Ok(points)
+            }
             // ── P2-1: McEndpoint::List → register bus + expand ──────────────
             // Symmetric to get_right_points McEndpoint::List handler.
             McPhrase::Endpoint(McEndpoint::List(ref items)) => {
@@ -504,9 +562,21 @@ impl McModuleInst {
                 // try to extract caller component name from inner phrase
                 if let Some(ref mname) = member_name {
                     if let Some(caller) = Self::extract_caller_inst_name(phrase) {
+                        eprintln!(
+                            "[P2-4-XTAL-DBG] get_left_points Member: mname={mname:?}, caller={caller:?}, module={}",
+                            self.name
+                        );
                         // (A) direct component lookup (same module)
                         if let Some(comp) = self.find_component(&caller) {
+                            eprintln!(
+                                "[P2-4-XTAL-DBG]   found component {}, pins: {:?}",
+                                comp.name,
+                                comp.def.pins.pins.keys().collect::<Vec<_>>()
+                            );
                             if let Some(pids) = comp.find_bus_port_pin_ids(mname) {
+                                eprintln!(
+                                    "[P2-4-XTAL-DBG]   find_bus_port_pin_ids({mname}) = {pids:?}"
+                                );
                                 return Ok(pids
                                     .iter()
                                     .map(|(member_name, pin_id)| {
@@ -518,7 +588,13 @@ impl McModuleInst {
                                         .with_member_name(member_name)
                                     })
                                     .collect());
+                            } else {
+                                eprintln!(
+                                    "[P2-4-XTAL-DBG]   find_bus_port_pin_ids({mname}) = None"
+                                );
                             }
+                        } else {
+                            eprintln!("[P2-4-XTAL-DBG]   component {caller} NOT FOUND");
                         }
                         // (B) cross-module component lookup: caller="mcu513.uC" → sub="mcu513", comp="uC"
                         if let Some((sub_name, comp_name)) = caller.split_once('.') {
@@ -544,10 +620,18 @@ impl McModuleInst {
                         }
                         // (C) expand_port_lanes fallback
                         let qualified = format!("{caller}.{mname}");
+                        eprintln!("[P2-4-XTAL-DBG]   trying expand_port_lanes({qualified:?})");
                         if let Some(lanes) = self.expand_port_lanes(&qualified) {
+                            eprintln!(
+                                "[P2-4-XTAL-DBG]   expand_port_lanes hit: {:?}",
+                                lanes.iter().map(|p| &p.path).collect::<Vec<_>>()
+                            );
                             return Ok(lanes);
                         } else {
+                            eprintln!("[P2-4-XTAL-DBG]   expand_port_lanes miss, falling back to get_left_points(phrase)");
                         }
+                    } else {
+                        eprintln!("[P2-4-XTAL-DBG] get_left_points Member: mname={mname:?}, extract_caller_inst_name returned None");
                     }
                 }
                 // Fallback: delegate to inner phrase
@@ -786,6 +870,27 @@ impl McModuleInst {
             )) => {
                 let bus = iref.to_bus();
                 if !bus.name.is_empty() {
+                    // ── P2-4: expand submodule's out-ports to right-side endpoints ──
+                    if let Some(sub) = self.find_submodule(&bus.name) {
+                        let out_ports: Vec<String> = sub
+                            .ports
+                            .iter()
+                            .filter(|p| matches!(p.iotype, IOType::Out))
+                            .map(|p| p.name.clone())
+                            .collect();
+                        if !out_ports.is_empty() {
+                            let mut points = Vec::new();
+                            for port_name in &out_ports {
+                                let dotted = format!("{}.{}", bus.name, port_name);
+                                if let Some(lanes) = self.expand_port_lanes(&dotted) {
+                                    points.extend(lanes);
+                                }
+                            }
+                            if !points.is_empty() {
+                                return Ok(points);
+                            }
+                        }
+                    }
                     if let Some(lanes) = self.expand_port_lanes(&bus.name) {
                         return Ok(lanes);
                     }
@@ -804,11 +909,48 @@ impl McModuleInst {
             | McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
                 base: McInstance::List(_),
                 ..
-            }))
-            | McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
-                base: McInstance::Interface(_),
-                ..
             })) => Ok(vec![]),
+            // ── P2-4: expand Interface members to individual NetPoints ──
+            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                base: McInstance::Interface(iface),
+                ..
+            })) => {
+                let (members, prefix): (Vec<String>, Option<String>) =
+                    if let Some(m) = iface.name.list_members() {
+                        (m, None)
+                    } else if let Some((p, m)) = iface.name.as_bus() {
+                        (m, Some(p))
+                    } else {
+                        // Scalar-named interface (e.g. V3V3::DC(3.3V)): extract from base pins
+                        let pin_names: Vec<String> = iface
+                            .base
+                            .pins
+                            .pins
+                            .values()
+                            .filter_map(|p| p.names.first().cloned())
+                            .collect();
+                        if pin_names.len() >= 2 {
+                            let port_name = iface.name.to_string();
+                            (pin_names, Some(port_name))
+                        } else {
+                            return Ok(vec![]);
+                        }
+                    };
+                let points: Vec<NetPoint> = members
+                    .into_iter()
+                    .map(|m| {
+                        let path = match &prefix {
+                            Some(p) => format!("{p}.{m}"),
+                            None => m.clone(),
+                        };
+                        self.labels
+                            .get(&path)
+                            .cloned()
+                            .unwrap_or_else(|| NetPoint::new(&path, IOType::None))
+                    })
+                    .collect();
+                Ok(points)
+            }
             // ── P2-1: McEndpoint::List → register bus + expand ──────────────
             // e.g., [SPI.SCLK, SPI.MOSI, SPI.CSN, SPI.MISO] on the right side
             // of a connection. Each element is a dotted label; common prefix
@@ -839,9 +981,21 @@ impl McModuleInst {
                 };
                 if let Some(ref mname) = member_name {
                     if let Some(caller) = Self::extract_caller_inst_name(phrase) {
+                        eprintln!(
+                            "[P2-4-XTAL-DBG] get_right_points Member: mname={mname:?}, caller={caller:?}, module={}",
+                            self.name
+                        );
                         // (A) direct component lookup
                         if let Some(comp) = self.find_component(&caller) {
+                            eprintln!(
+                                "[P2-4-XTAL-DBG]   found component {}, pins: {:?}",
+                                comp.name,
+                                comp.def.pins.pins.keys().collect::<Vec<_>>()
+                            );
                             if let Some(pids) = comp.find_bus_port_pin_ids(mname) {
+                                eprintln!(
+                                    "[P2-4-XTAL-DBG]   find_bus_port_pin_ids({mname}) = {pids:?}"
+                                );
                                 return Ok(pids
                                     .iter()
                                     .map(|(member_name, pin_id)| {
@@ -853,7 +1007,13 @@ impl McModuleInst {
                                         .with_member_name(member_name)
                                     })
                                     .collect());
+                            } else {
+                                eprintln!(
+                                    "[P2-4-XTAL-DBG]   find_bus_port_pin_ids({mname}) = None"
+                                );
                             }
+                        } else {
+                            eprintln!("[P2-4-XTAL-DBG]   component {caller} NOT FOUND");
                         }
                         // (B) cross-module component lookup
                         if let Some((sub_name, comp_name)) = caller.split_once('.') {
@@ -879,9 +1039,17 @@ impl McModuleInst {
                         }
                         // (C) expand_port_lanes fallback
                         let qualified = format!("{caller}.{mname}");
+                        eprintln!("[P2-4-XTAL-DBG]   trying expand_port_lanes({qualified:?})");
                         if let Some(lanes) = self.expand_port_lanes(&qualified) {
+                            eprintln!(
+                                "[P2-4-XTAL-DBG]   expand_port_lanes hit: {:?}",
+                                lanes.iter().map(|p| &p.path).collect::<Vec<_>>()
+                            );
                             return Ok(lanes);
                         }
+                        eprintln!("[P2-4-XTAL-DBG]   expand_port_lanes miss, falling back to get_right_points(phrase)");
+                    } else {
+                        eprintln!("[P2-4-XTAL-DBG] get_right_points Member: mname={mname:?}, extract_caller_inst_name returned None");
                     }
                 }
                 self.get_right_points(phrase)
@@ -1391,7 +1559,20 @@ impl McModuleInst {
                         if !from_input.is_empty() {
                             from_input
                         } else {
-                            parse_brace_members(&p.name)
+                            let from_port = parse_brace_members(&p.name);
+                            if !from_port.is_empty() {
+                                from_port
+                            } else {
+                                // ── P2-4: fallback to bus table lookup ──
+                                // When a port has no bus_members and no brace notation,
+                                // look up the bus in the module's bus table.
+                                // This handles cases like `I2C0` where the bus members
+                                // were registered from the component's interface definition.
+                                self.buses
+                                    .get(&p.name)
+                                    .map(|b| b.members.clone())
+                                    .unwrap_or_default()
+                            }
                         }
                     };
                     (p, m)
