@@ -355,8 +355,8 @@ fn has_deprecated_attr(attrs: &crate::semantic::component::mc_attr::McAttributes
 fn check_module_member_refs(acc: &mut CheckAccumulator) {
     let modules = &crate::db::cmie::tables::WORKSPACE.modules;
 
-    // Pre-build: class name → port names set (for components and interfaces)
-    let comp_ports: std::collections::HashMap<String, HashSet<String>> = {
+    // Pre-build: class name → pin/port names set (pins for components, ports for interfaces/modules)
+    let comp_pins: std::collections::HashMap<String, HashSet<String>> = {
         let mut m = std::collections::HashMap::new();
         let comps = &crate::db::cmie::tables::WORKSPACE.components;
         for e in comps.iter() {
@@ -427,7 +427,7 @@ fn check_module_member_refs(acc: &mut CheckAccumulator) {
             check_phrase_member_refs(
                 phrase,
                 &inst_class,
-                &comp_ports,
+                &comp_pins,
                 &iface_ports,
                 &mod_ports,
                 &uri,
@@ -443,7 +443,7 @@ fn check_module_member_refs(acc: &mut CheckAccumulator) {
                 check_phrase_member_refs(
                     phrase,
                     &inst_class,
-                    &comp_ports,
+                    &comp_pins,
                     &iface_ports,
                     &mod_ports,
                     &uri,
@@ -460,7 +460,7 @@ fn check_module_member_refs(acc: &mut CheckAccumulator) {
 fn check_phrase_member_refs(
     phrase: &crate::semantic::basic::mc_phrase::McPhrase,
     inst_class: &std::collections::HashMap<String, String>,
-    comp_ports: &std::collections::HashMap<String, HashSet<String>>,
+    comp_pins: &std::collections::HashMap<String, HashSet<String>>,
     iface_ports: &std::collections::HashMap<String, HashSet<String>>,
     mod_ports: &std::collections::HashMap<String, HashSet<String>>,
     uri: &str,
@@ -473,7 +473,13 @@ fn check_phrase_member_refs(
     // Split by `->` first (the connection arrow), then by `,` for multiple endpoints
     for side in text.split("->") {
         for endpoint in side.split(',') {
-            let endpoint = endpoint.trim();
+            let mut endpoint = endpoint.trim();
+            // Strip trailing/leading punctuation that may be part of
+            // enclosing function-call syntax: `Pullup(..., uC.VDD)` →
+            // endpoint is "uC.VDD)" after split by `,`.
+            endpoint = endpoint.trim_end_matches(|c: char| c == ')' || c == '(');
+            endpoint = endpoint.trim_start_matches(|c: char| c == ')' || c == '(');
+            endpoint = endpoint.trim();
             if endpoint.is_empty() || endpoint == "_" {
                 continue;
             }
@@ -486,7 +492,7 @@ fn check_phrase_member_refs(
 
                 // Method calls are represented as FuncCall phrases, not member
                 // accesses. Their display form still contains a dot, so do not
-                // interpret `device.Configure(...)` as a component port.
+                // interpret `device.Configure(...)` as a component pin.
                 if first.is_empty() || port_name.is_empty() || port_name.contains('(') {
                     continue;
                 }
@@ -499,28 +505,28 @@ fn check_phrase_member_refs(
                 }
                 let class_name = class_name.unwrap();
 
-                // Check component ports
-                if let Some(ports) = comp_ports.get(&class_name) {
-                    if !ports.contains(port_name) && !port_name.contains('.') {
+                // Check component pins
+                if let Some(pins) = comp_pins.get(&class_name) {
+                    if !pins.contains(port_name) && !port_name.contains('.') {
                         acc.push(CheckResult {
                             check_name: "interface",
                             severity: CheckSeverity::Warning,
                             uri: Some(uri.to_string()),
                             span: module_span.clone(),
                             message: format!(
-                                "Module '{}': '{}.{}' — '{}' is not a defined port of \
-                                 component '{}'. Available: {}",
+                                "Module '{}': '{}.{}' — '{}' is not a defined pin of \
+                                 component '{}'. Available: {} pins",
                                 mod_name,
                                 first,
                                 port_name,
                                 port_name,
                                 class_name,
-                                summarize_names(ports)
+                                summarize_names(pins)
                             ),
                             code: 3105,
                         });
                     }
-                    continue; // Found in component ports — done
+                    continue; // Found in component pins — done
                 }
 
                 // Check interface ports
