@@ -197,10 +197,12 @@ extern int mca_debug;
 #if ! defined MCA_STYPE && ! defined MCA_STYPE_IS_DECLARED
 union MCA_STYPE
 {
+#line 19 "mca.y"
 
     mc_lex_token *token;
     mc_value *value;
 
+#line 206 "mca.tab.h"
 
 };
 typedef union MCA_STYPE MCA_STYPE;

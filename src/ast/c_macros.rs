@@ -167,3 +167,6 @@ pub const MCAST_UNIT_BFIELD: u16 = 329;
 pub const MCAST_UNIT_SLEW: u16 = 330;
 pub const MCAST_UNIT_NOISE: u16 = 331;
 pub const MCAST_UNIT_CHARGE: u16 = 332;
+pub const MCAST_UNIT_DIV: u16 = 333;
+pub const MCAST_UNIT_MUL: u16 = 334;
+pub const MCAST_UNIT_GROUP: u16 = 335;

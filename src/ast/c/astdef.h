@@ -202,6 +202,9 @@
 #define MCAST_UNIT_SLEW                 330
 #define MCAST_UNIT_NOISE                331
 #define MCAST_UNIT_CHARGE               332
+#define MCAST_UNIT_DIV                  333
+#define MCAST_UNIT_MUL                  334
+#define MCAST_UNIT_GROUP                335
 
 
 //---------------------------

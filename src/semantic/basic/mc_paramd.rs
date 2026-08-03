@@ -616,6 +616,7 @@ impl McParamDeclare {
             self.param_type.kind,
             crate::semantic::basic::mc_param_type::McParamTypeKind::UnitValue { .. }
                 | crate::semantic::basic::mc_param_type::McParamTypeKind::UnitValueDefault { .. }
+                | crate::semantic::basic::mc_param_type::McParamTypeKind::CompoundUnit { .. }
         )
     }
 
@@ -624,9 +625,21 @@ impl McParamDeclare {
         match &self.param_type.kind {
             crate::semantic::basic::mc_param_type::McParamTypeKind::UnitValue { unit }
             | crate::semantic::basic::mc_param_type::McParamTypeKind::UnitValueDefault {
-                unit,
-                ..
+                unit, ..
             } => Some(unit),
+            crate::semantic::basic::mc_param_type::McParamTypeKind::CompoundUnit {
+                ref unit_type, ..
+            } => Some(unit_type.head_unit()),
+            _ => None,
+        }
+    }
+
+    /// Get the full compound unit type tree, if any.
+    pub fn get_unit_type(&self) -> Option<&crate::semantic::basic::mc_param_type::McUnitType> {
+        match &self.param_type.kind {
+            crate::semantic::basic::mc_param_type::McParamTypeKind::CompoundUnit {
+                unit_type, ..
+            } => Some(unit_type),
             _ => None,
         }
     }

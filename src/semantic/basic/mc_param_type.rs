@@ -43,6 +43,75 @@ impl Default for McParamType {
     }
 }
 
+// ============================================================================
+// Recursive compound unit type (for UV.PPM / UV.TEMP, UV.V * UV.A, etc.)
+// ============================================================================
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum McUnitType {
+    /// Leaf: a single unit like UV.VOLT, UV.TEMP
+    Leaf(McUnit),
+    /// Division: UV.PPM / UV.TEMP
+    Div(Box<McUnitType>, Box<McUnitType>),
+    /// Multiplication: UV.VOLT * UV.AMP
+    Mul(Box<McUnitType>, Box<McUnitType>),
+}
+
+impl McUnitType {
+    pub fn leaf(unit: McUnit) -> Self {
+        McUnitType::Leaf(unit)
+    }
+
+    /// Build from an AST node (MCAST_UNIT_*, MCAST_UNIT_DIV, MCAST_UNIT_MUL, MCAST_UNIT_GROUP)
+    pub fn from_ast(node: &AstNode) -> Option<Self> {
+        match node.get_type() {
+            MCAST_UNIT_DIV | MCAST_UNIT_MUL | MCAST_UNIT_GROUP => {
+                let sub = node.get_sub_node()?;
+                let children: Vec<AstNode> = sub.iter().collect();
+                match node.get_type() {
+                    MCAST_UNIT_GROUP if children.len() == 1 => {
+                        Self::from_ast(&children[0])
+                    }
+                    MCAST_UNIT_DIV if children.len() == 2 => {
+                        let left = Self::from_ast(&children[0])?;
+                        let right = Self::from_ast(&children[1])?;
+                        Some(McUnitType::Div(Box::new(left), Box::new(right)))
+                    }
+                    MCAST_UNIT_MUL if children.len() == 2 => {
+                        let left = Self::from_ast(&children[0])?;
+                        let right = Self::from_ast(&children[1])?;
+                        Some(McUnitType::Mul(Box::new(left), Box::new(right)))
+                    }
+                    _ => None,
+                }
+            }
+            _ => {
+                // Leaf: single unit
+                McUnit::from_ast(node).map(McUnitType::Leaf)
+            }
+        }
+    }
+
+    /// Return the "numerator" unit (first leaf for display/validation)
+    pub fn head_unit(&self) -> &McUnit {
+        match self {
+            McUnitType::Leaf(u) => u,
+            McUnitType::Div(left, _) => left.head_unit(),
+            McUnitType::Mul(left, _) => left.head_unit(),
+        }
+    }
+}
+
+impl std::fmt::Display for McUnitType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            McUnitType::Leaf(u) => write!(f, "{u}"),
+            McUnitType::Div(left, right) => write!(f, "{left} / {right}"),
+            McUnitType::Mul(left, right) => write!(f, "{left} * {right}"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum McParamTypeKind {
     // ── Category A: Label / Bus / Interface (ports) ──
@@ -69,6 +138,11 @@ pub enum McParamTypeKind {
     /// B2: physical unit typed with default — `id::UV.TEMP = 25°C`
     UnitValueDefault {
         unit: McUnit,
+        default_val: Option<String>,
+    },
+    /// B4: compound unit — `id::UV.PPM / UV.TEMP`, `UV.V * UV.A`, etc.
+    CompoundUnit {
+        unit_type: McUnitType,
         default_val: Option<String>,
     },
     // 未标注 (Unannotated)
@@ -196,10 +270,17 @@ impl McParamType {
                     let class_node = sub; // first child is MCAST_CLASS
                     if class_node.get_type() == MCAST_CLASS {
                         if let Some(unit_node) = class_node.get_sub_node() {
-                            if let Some(unit) = McUnit::from_ast(&unit_node) {
-                                // Try to extract default value from MCAST_INSTANCE sibling
-                                let default_val = Self::extract_default_from_declare_uv(&subnode);
-                                return Self::classify_unit_type(&unit, default_val);
+                            let default_val = Self::extract_default_from_declare_uv(&subnode);
+                            // Handle compound units: UV.PPM / UV.TEMP, UV.VOLT * UV.AMP, etc.
+                            if let Some(unit_type) = McUnitType::from_ast(&unit_node) {
+                                return match unit_type {
+                                    McUnitType::Leaf(unit) => {
+                                        Self::classify_unit_type(&unit, default_val)
+                                    }
+                                    compound => {
+                                        Self::classify_compound_unit(compound, default_val)
+                                    }
+                                };
                             }
                         }
                     }
@@ -280,6 +361,20 @@ impl McParamType {
                 kind: McParamTypeKind::BasicString { default_val },
                 direction: None,
             },
+        }
+    }
+
+    /// Classify a compound unit (B4): `UV.PPM / UV.TEMP`, `UV.V * UV.A`, etc.
+    fn classify_compound_unit(
+        unit_type: McUnitType,
+        default_val: Option<String>,
+    ) -> Self {
+        Self {
+            kind: McParamTypeKind::CompoundUnit {
+                unit_type,
+                default_val,
+            },
+            direction: None,
         }
     }
 
@@ -409,6 +504,7 @@ impl McParamType {
             McParamTypeKind::ComponentInstance { .. } => "A5-Component+Attrs",
             McParamTypeKind::UnitValue { .. } => "B1-UnitValue",
             McParamTypeKind::UnitValueDefault { .. } => "B2-UnitValue+Default",
+            McParamTypeKind::CompoundUnit { .. } => "B4-CompoundUnit",
             McParamTypeKind::BareNumeric => "B3-BareNumeric",
             McParamTypeKind::BasicString { .. } => "C1-String",
             McParamTypeKind::BasicInt { .. } => "C2-Int",
@@ -424,6 +520,7 @@ impl McParamType {
     pub fn default_value(&self) -> Option<&str> {
         match &self.kind {
             McParamTypeKind::UnitValueDefault { default_val, .. } => default_val.as_deref(),
+            McParamTypeKind::CompoundUnit { default_val, .. } => default_val.as_deref(),
             McParamTypeKind::BasicString { default_val } => default_val.as_deref(),
             McParamTypeKind::BasicInt { default_val } => default_val.as_deref(),
             McParamTypeKind::BasicHex { default_val } => default_val.as_deref(),

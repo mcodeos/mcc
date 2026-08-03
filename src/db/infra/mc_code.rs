@@ -2044,7 +2044,9 @@ impl McCode {
                     for ((def_uri, class_name), class_id) in &gt.enum_class_name_to_id {
                         if let Some((_u, span)) = gt.enum_class_id_to_span.get(class_id) {
                             let fid = map.intern_file(def_uri);
-                            let cid = map.intern_container("");
+                            // Use a distinct container so same-named enum+component coexist
+                            // in name_to_declare_id (e.g. enum CAP + component CAP).
+                            let cid = map.intern_container("@enum");
                             let entry = RefDefEntry {
                                 ref_kind: SymbolKind::ClassDef,
                                 ref_id: u32::from(*class_id),
