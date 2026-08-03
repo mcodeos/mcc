@@ -106,42 +106,39 @@ impl McInterface {
                 let child_type = child_ref.get_type();
                 // Directly check if it's a COND_IF node
                 if child_type == MCAST_COND_IF {
-                    // Found COND_IF, parse its pins
+                    // Found COND_IF, parse its pins from the ELSE (default) branch.
                     // COND_IF structure may be: [cond_expr?, pins?, cond_block1?, COND_ELSE_IF*, COND_ELSE?]
                     if let Some(cond_subnodes) = child_ref.get_sub_node() {
-                        let mut found_first_block = false;
+                        // First pass: find the last COND_ELSE block (default branch).
+                        // If no COND_ELSE, use the last COND_BLOCK.
+                        let mut last_block: Option<AstNode> = None;
+                        let mut direct_pins: Option<AstNode> = None;
                         for cond_child in cond_subnodes.iter() {
-                            let cond_child_ref = &cond_child;
-                            let cond_child_type = cond_child_ref.get_type();
-                            // Check if it's a condition block
+                            let cond_child_type = cond_child.get_type();
                             if cond_child_type == MCAST_COND_BLOCK
                                 || cond_child_type == MCAST_COND_ELSE
                             {
-                                if !found_first_block {
-                                    // Only parse pins in the first condition block
-                                    found_first_block = true;
-                                    if let Some(block_subnodes) = cond_child_ref.get_sub_node() {
-                                        for block_child in block_subnodes.iter() {
-                                            let block_child_ref = &block_child;
-                                            let block_child_type = block_child_ref.get_type();
-                                            if block_child_type == MCAST_ATTRIBUTE_PIN
-                                                || block_child_type == MCAST_ATTRIBUTE_PINADD
-                                            {
-                                                pins.parse(block_child_ref);
-                                            }
-                                        }
-                                    }
-                                }
+                                last_block = Some(cond_child.clone());
                             } else if cond_child_type == MCAST_ATTRIBUTE_PIN
                                 || cond_child_type == MCAST_ATTRIBUTE_PINADD
                             {
-                                // Pins are direct children of COND_IF (e.g., pins = [...])
-                                // Only parse the first ATTRIBUTE_PIN
-                                if !found_first_block {
-                                    found_first_block = true;
-                                    pins.parse(cond_child_ref);
+                                direct_pins = Some(cond_child.clone());
+                            }
+                        }
+                        // Prefer the last block (ELSE/default), fallback to direct pins
+                        if let Some(ref block) = last_block {
+                            if let Some(block_subnodes) = block.get_sub_node() {
+                                for block_child in block_subnodes.iter() {
+                                    let block_child_type = block_child.get_type();
+                                    if block_child_type == MCAST_ATTRIBUTE_PIN
+                                        || block_child_type == MCAST_ATTRIBUTE_PINADD
+                                    {
+                                        pins.parse(&block_child);
+                                    }
                                 }
                             }
+                        } else if let Some(ref dp) = direct_pins {
+                            pins.parse(dp);
                         }
                     }
                     break;

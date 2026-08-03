@@ -230,6 +230,20 @@ impl McModuleInst {
             // where flash.SPI(CS,MISO,MOSI,SCLK) was zipped positionally against
             // uC.SPI(SCLK,MOSI,CSN,MISO) and got SCLK→MOSI etc.
             let matched_by_name = if left_size >= 2 {
+                let mn_left: Vec<Option<&str>> = left_points
+                    .iter()
+                    .map(|p| p.member_name.as_deref())
+                    .collect();
+                let mn_right: Vec<Option<&str>> = right_points
+                    .iter()
+                    .map(|p| p.member_name.as_deref())
+                    .collect();
+                eprintln!(
+                    "[P2-4-CONN] create_connection: left_size={left_size}, right_size={right_size}, \
+                     left_paths={:?}, right_paths={:?}, left_member_names={mn_left:?}, right_member_names={mn_right:?}",
+                    left_points.iter().map(|p| &p.path).collect::<Vec<_>>(),
+                    right_points.iter().map(|p| &p.path).collect::<Vec<_>>(),
+                );
                 Self::try_match_by_member_name(&left_points, &right_points)
             } else {
                 None

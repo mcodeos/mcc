@@ -325,8 +325,29 @@ fn build_actual_modules(table: &InstTable) -> Vec<ActualModule> {
         let comp_leaf_names: HashSet<String> =
             actual_comps.iter().map(|c| c.leaf_name.clone()).collect();
 
+        // ★ P2-4: filter pins by module path prefix to prevent cross-module
+        // pin leakage. Without this, a pin like `main.mic.CAP_1.1` (mic module)
+        // would normalize to `CAP_1.1` and match the main module's `CAP_1`,
+        // polluting the main module's nets.
+        //
+        // Check: pin path must start with `<mod_path>.` and the remainder
+        // must have exactly 2 segments (comp_leaf.pin_number), ensuring the
+        // pin belongs directly to this module, not a sub-module.
+        let mod_prefix = format!("{}.", mod_path);
+        let mod_prefix_len = mod_prefix.len();
+
         let mut net_points: HashMap<String, BTreeSet<NormPoint>> = HashMap::new();
         for (pin_path, net_name) in &pin_to_net {
+            // Only include pins that belong directly to this module
+            if !pin_path.starts_with(&mod_prefix) {
+                continue;
+            }
+            // Check path depth: after mod_prefix, should have exactly 2 segments
+            let remainder = &pin_path[mod_prefix_len..];
+            let depth = remainder.chars().filter(|&c| c == '.').count();
+            if depth != 1 {
+                continue; // skip sub-module pins (e.g. main.mic.CAP_1.1 has depth 2)
+            }
             if let Some((comp_leaf, pin_num)) = normalize_pin(pin_path, &comp_leaf_names) {
                 let norm = format!("{}.{}", comp_leaf, pin_num);
                 net_points.entry(net_name.clone()).or_default().insert(norm);
@@ -872,7 +893,6 @@ fn netdiff_all_modules() {
         let present: HashSet<String> = comp_mapping.iter().map(|(gid, _)| gid.clone()).collect();
         let projected = project(golden, &present);
 
-        // Compare nets against golden' (projected)
         let (diffs, matched_nets) = compare_nets(&projected.nets, &actual.nets, &comp_mapping);
 
         let projected_net_count = projected.nets.len();
@@ -1002,15 +1022,15 @@ fn netdiff_all_modules() {
         "MIC_SIP: G3 should NOT be relaxed (all comps present)"
     );
 
-    // US513: 18/21 comps matched, G3 still relaxed (3 comps missing: R100k_gpio, R10k_scl, R10k_sda)
+    // US513: 21/21 comps matched, G3 no longer relaxed (all comps present)
     let us513 = reports.iter().find(|r| r.module == "US513").unwrap();
     assert!(
-        us513.matched_comps >= 18,
-        "US513: should have at least 18 comps matched"
+        us513.matched_comps >= 21,
+        "US513: should have all 21 comps matched"
     );
     assert!(
-        us513.g3_relaxed,
-        "US513: G3 should still be relaxed (3 comps absent)"
+        !us513.g3_relaxed,
+        "US513: G3 should NOT be relaxed (all comps present)"
     );
 
     // All 7 modules should have reports
