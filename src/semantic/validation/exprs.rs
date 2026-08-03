@@ -400,6 +400,12 @@ fn check_idx_key_collision(acc: &mut CheckAccumulator) {
         let mut base_keys: HashMap<String, Vec<String>> = HashMap::new();
         for name in m.insts.iter_instance_names() {
             if let Some(bracket_pos) = name.find('[') {
+                // Skip anonymous-bus / label-list instances.
+                // `[VDD_3V3,GND]` is a label list whose members are
+                // module port labels — no base key to collide on.
+                if bracket_pos == 0 {
+                    continue;
+                }
                 let base = name[..bracket_pos].to_string();
                 base_keys.entry(base).or_default().push(name.clone());
             }

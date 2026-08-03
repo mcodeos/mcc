@@ -148,6 +148,15 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                     }
                 }
                 crate::McInstance::Interface(i2) => {
+                    // Skip anonymous-bus / label-list instances.
+                    //   [VDD_3V3,GND]::DC(3.3V)
+                    // is a declaration-site port binding where the bracket
+                    // members (VDD_3V3, GND) are module port labels, not
+                    // constructor args.  The value (3.3V) lives inside the
+                    // ::DC(…) type annotation — param count doesn't apply.
+                    if inst_name.starts_with('[') {
+                        continue;
+                    }
                     let class_name = i2.base.name.to_string();
                     let def_param_count = i2.base.params.len();
                     let call_arg_count = i2.params.len();
