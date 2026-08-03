@@ -159,6 +159,29 @@ impl McPhrase {
                             //     items[0].is_some()
                             // );
                             if let Some(ident) = items.remove(0) {
+                                // ── P2-4: square bracket Interface → expand to Multiple ──
+                                // When a square bracket list like `[VDD_3V3, GND]` is found
+                                // as an McInstance::Interface in the symbol table, expand it
+                                // to individual member labels. Otherwise the bracket list is
+                                // returned as a single phrase, and get_left_points /
+                                // get_right_points return empty for Interface, causing the
+                                // entire body line connection to be silently dropped.
+                                if ids.is_square_bracket()
+                                    && matches!(ident, McInstance::Interface(_))
+                                {
+                                    let expanded = ids.expand();
+                                    if expanded.len() >= 2 {
+                                        let phrases: Vec<McPhrase> = expanded
+                                            .into_iter()
+                                            .map(|m| {
+                                                context
+                                                    .add_label(m.clone())
+                                                    .unwrap_or_else(|| McPhrase::label(m))
+                                            })
+                                            .collect();
+                                        return Some(McPhrase::Multiple(phrases));
+                                    }
+                                }
                                 // ★ LSP: Register instance reference for MCAST_OPD path
                                 let span = (subnode.get_pos() as usize)
                                     ..((subnode.get_pos() + subnode.get_len()) as usize);

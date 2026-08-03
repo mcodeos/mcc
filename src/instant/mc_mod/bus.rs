@@ -48,8 +48,19 @@ impl McModuleInst {
         if let Some(existing) = self.buses.get_mut(name) {
             existing.merge_members(members);
         } else {
+            // P2-6: deduplicate members before creating new bus.
+            // Component pins like GND can appear multiple times (e.g. pin 21
+            // has names ["GND", "ADC.GND"], both mapping to pin 21), causing
+            // duplicate entries in the Multi port. Deduplication prevents
+            // shape mismatches when labels expand to too many entries.
+            let mut deduped: Vec<String> = Vec::new();
+            for m in members {
+                if !deduped.contains(m) {
+                    deduped.push(m.clone());
+                }
+            }
             self.buses
-                .insert(name.to_string(), McBusInst::new(name, members.to_vec()));
+                .insert(name.to_string(), McBusInst::new(name, deduped));
         }
         Ok(())
     }
