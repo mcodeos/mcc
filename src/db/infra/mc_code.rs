@@ -2125,6 +2125,12 @@ impl McCode {
                 Self::lapper_function_params(&self.uri, &mut sem, &mut symbol_lapper);
                 Self::lapper_component_defs(&self.uri, &mut sem, &mut symbol_lapper);
                 Self::lapper_enum_refs(&self.uri, &self.ast, &mut sem, &mut symbol_lapper);
+                Self::lapper_scoped_enum_bare_refs(
+                    &self.uri,
+                    &self.ast,
+                    &mut sem,
+                    &mut symbol_lapper,
+                );
 
                 // ★ InstRef from inst_id_to_span (was in lapper_second_pass_and_dedup)
                 // Collect first to avoid borrowing sem immutably + mutably.
@@ -3194,13 +3200,7 @@ impl McCode {
             if !attr_node.is_type(MCAST_ATTRIBUTE) {
                 continue;
             }
-            let key_name = match attr_key_name(&attr_node) {
-                Some(k) => k,
-                None => continue,
-            };
-            if key_name != "package" && key_name != "pkg" {
-                continue;
-            }
+            // Process all attribute keys for DOT-pattern enum refs (e.g., CAP.X7R)
             let att_id = match attr_node.get_sub_node() {
                 Some(s) => s,
                 None => continue,
@@ -3301,6 +3301,142 @@ impl McCode {
                 ));
                 tracing::debug!(target: "mcc::enum_ref",
                     "pushed enum_class_ref+enum_value_ref for {base_name}.{member_name} (class_id={class_id:?}, value_id={value_id:?})");
+            }
+        }
+    }
+
+    /// Register EnumValRef for bare identifiers that match scoped enum values.
+    ///
+    /// When inside `component CAP` or `component CAP.CER`, a bare identifier
+    /// like `X7R` that matches a value in `enum CAP` gets an `EnumValRef`
+    /// lapper entry pointing to the enum value definition.
+    fn lapper_scoped_enum_bare_refs(
+        uri: &McURI,
+        ast: &AstNode,
+        sem: &mut McSemSymbols,
+        symbol_lapper: &mut DedupLapper,
+    ) {
+        use rust_lapper::Interval;
+
+        // Collect all AST nodes via BFS
+        let all_nodes: Vec<AstNode> = {
+            let mut acc: Vec<AstNode> = Vec::new();
+            let mut stack: Vec<AstNode> = ast.iter().collect();
+            while let Some(node) = stack.pop() {
+                if let Some(sub) = node.get_sub_node() {
+                    for child in sub.iter() {
+                        stack.push(child);
+                    }
+                }
+                acc.push(node);
+            }
+            acc
+        };
+
+        // Build container stack: track which component encloses each position
+        let mut container_stack: Vec<(String, usize)> = Vec::new();
+        let mut pos_to_container: Vec<(usize, String)> = Vec::new();
+        for node in &all_nodes {
+            let ntype = node.get_type();
+            let node_start = node.get_pos() as usize;
+            let node_end = node_start + node.get_len() as usize;
+            while let Some((_, end)) = container_stack.last() {
+                if node_start >= *end {
+                    container_stack.pop();
+                } else {
+                    break;
+                }
+            }
+            if ntype == MCAST_COMPONENT {
+                if let Some(sub) = node.get_sub_node() {
+                    if let Some(name_node) = sub.iter().find(|x| x.is_type(MCAST_NAME)) {
+                        if let Some(ids_node) = name_node.get_sub_node() {
+                            if let Some(ids) = McIds::new(&ids_node) {
+                                container_stack.push((ids.to_string(), node_end));
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some((name, _)) = container_stack.last() {
+                pos_to_container.push((node_start, name.clone()));
+            }
+        }
+        pos_to_container.sort_by_key(|(pos, _)| *pos);
+        let find_container = move |pos: usize| -> Option<String> {
+            pos_to_container
+                .iter()
+                .take_while(|(p, _)| *p <= pos)
+                .last()
+                .map(|(_, name)| name.clone())
+        };
+
+        // Scan bare identifiers inside component scopes
+        for node in &all_nodes {
+            let ntype = node.get_type();
+            // Only handle bare identifiers — MCAST_ID (single ID) or direct IDA
+            if ntype != MCAST_ID && ntype != MCAST_IDA {
+                continue;
+            }
+
+            let pos = node.get_pos() as usize;
+            let comp_name_str = match find_container(pos) {
+                Some(name) => name,
+                None => continue,
+            };
+
+            let bare_name = match McIds::new(node) {
+                Some(ids) => ids.to_string(),
+                None => continue,
+            };
+            if bare_name.is_empty() {
+                continue;
+            }
+
+            let comp_ids = McIds::from(comp_name_str.as_str());
+            match crate::db::cmie::cmie::lookup_scoped_enum_value(
+                &bare_name, &comp_ids, uri,
+            ) {
+                Some((_def_uri, _span, value_idx)) => {
+                    // Get the enum class to build value_id
+                    let family_name = comp_ids.root_name().unwrap_or_default();
+                    let class_id = {
+                        let gt = match sem.global_table.lock() {
+                            Ok(gt) => gt,
+                            Err(_) => continue,
+                        };
+                        gt.lookup_enum_class(uri, &family_name)
+                            .or_else(|| {
+                                gt.enum_class_name_to_id.iter().find_map(
+                                    |((_uri, name), cid)| {
+                                        (name == &family_name).then_some(*cid)
+                                    },
+                                )
+                            })
+                            .unwrap_or_default()
+                    };
+                    if u32::from(class_id) == 0 {
+                        continue;
+                    }
+                    let value_id = crate::ast::ast_semantic::GlobalSymbolTable::pack_enum_value_id(class_id, value_idx);
+
+                    let end = pos + node.get_len() as usize;
+                    symbol_lapper.insert(Interval {
+                        start: pos,
+                        stop: end,
+                        val: SymbolType::new(SymbolKind::EnumValRef, u32::from(value_id)),
+                    });
+                    sem.ref_entries.push((
+                        SymbolKind::EnumValRef,
+                        u32::from(value_id),
+                        pos,
+                        end,
+                    ));
+                    tracing::debug!(target: "mcc::enum_ref",
+                        "pushed scoped enum bare ref '{}' -> {}.{} (value_id={:?})",
+                        bare_name, family_name, bare_name, value_id);
+                }
+                None => {}
             }
         }
     }

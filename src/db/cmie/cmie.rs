@@ -164,8 +164,82 @@ pub(crate) fn resolve_cmie_member(
                 return Some((mod_def.uri.clone(), span, SymbolKind::FuncRef));
             }
         }
-        // TODO: Interface ports, Enum values
+        McCMIE::Enum(enum_def) => {
+            for value in &enum_def.values {
+                if value.name.to_string() == member_name {
+                    let span = value.span[0] as usize..value.span[1] as usize;
+                    return Some((enum_def.uri.clone(), span, SymbolKind::EnumValRef));
+                }
+            }
+        }
+        // TODO: Interface ports
         _ => {}
     }
+    None
+}
+
+// ============================================================================
+// Scoped Enum Resolution
+// ============================================================================
+
+/// Find an enum whose name matches the component family name.
+///
+/// Example: `component CAP.CER` has family name `"CAP"`; this function looks
+/// for `enum CAP` in workspace or global tables.
+pub(crate) fn find_scoped_enum_for_component(
+    comp_name: &McIds,
+    uri: &McURI,
+) -> Option<std::sync::Arc<crate::semantic::mc_enum::McEnumDef>> {
+    let family_name = match comp_name.root_name() {
+        Some(name) => name,
+        None => return None,
+    };
+
+    let space_name = McSpaceName {
+        ident: McIds::from(family_name.as_str()),
+        uri: uri.clone(),
+    };
+
+    // Search workspace enums first, then global
+    if let Some(entry) = workspace::WORKSPACE.enums.get(&space_name) {
+        return Some(entry.value().clone());
+    }
+    if let Some(entry) = global::mcc_enums.get(&space_name) {
+        return Some(entry.value().clone());
+    }
+
+    // Fallback: name-only search (for cross-file enums)
+    for entry in workspace::WORKSPACE.enums.iter() {
+        if entry.key().ident.to_string() == family_name {
+            return Some(entry.value().clone());
+        }
+    }
+    for entry in global::mcc_enums.iter() {
+        if entry.key().ident.to_string() == family_name {
+            return Some(entry.value().clone());
+        }
+    }
+
+    None
+}
+
+/// Look up a bare identifier as a scoped enum value inside a component.
+///
+/// Returns `(uri, span, value_index)` if `bare_name` matches a value in the
+/// enum that is scoped to the component identified by `comp_name`/`uri`.
+pub(crate) fn lookup_scoped_enum_value(
+    bare_name: &str,
+    comp_name: &McIds,
+    uri: &McURI,
+) -> Option<(McURI, std::ops::Range<usize>, u32)> {
+    let enum_def = find_scoped_enum_for_component(comp_name, uri)?;
+
+    for (idx, value) in enum_def.values.iter().enumerate() {
+        if value.name.to_string() == bare_name {
+            let span = value.span[0] as usize..value.span[1] as usize;
+            return Some((enum_def.uri.clone(), span, idx as u32));
+        }
+    }
+
     None
 }
