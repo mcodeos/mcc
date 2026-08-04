@@ -11,6 +11,7 @@ use super::{
 };
 use crate::db::context::DB;
 use crate::db::diagnostic::diagnostic::dlog_error;
+use crate::semantic::basic::mc_param_type::McParamType;
 use crate::semantic::component::Mc2Component;
 use crate::semantic::context::resolve_cmie;
 use crate::semantic::mc_func::McFuncReturn;
@@ -121,9 +122,17 @@ impl McModule {
                     MCAST_OPD | MCAST_OPD_SQUARE_VEC => {
                         self.insts.parse(&subnode, &self.uri);
                     }
-                    // Instance parameter -> insts
+                    // Instance parameter -> insts, or enum-class data param
                     MCAST_DECLARE => {
-                        self.insts.parse(&subnode, &self.uri);
+                        // Check if CLASS is an enum → data param (B5/B6)
+                        let is_enum = McParamType::extract_class_name_from_declare(&subnode)
+                            .map(|cn| crate::db::cmie::cmie::is_enum_class_name(&cn))
+                            .unwrap_or(false);
+                        if is_enum {
+                            self.params.parse(&param_node);
+                        } else {
+                            self.insts.parse(&subnode, &self.uri);
+                        }
                     }
                     // IOTYPE-prefix parameter -> insts + params (e.g. ps dc24v, in GPIO[1:2])
                     MCAST_IOTYPE => {

@@ -45,10 +45,19 @@ impl McParamDeclares {
 
                 // Determine IOType and port name(s), store spans.
                 // Handle both MCAST_PARAM-wrapped and direct child forms.
+                // Some grammar rules (e.g., mc_pard -> mc_declare_b) produce
+                // MCAST_PARAM -> MCAST_PARAM -> MCAST_DECLARE nesting.
                 let inner = if body_type == MCAST_PARAM {
-                    param_node
+                    let mut unwrapped = param_node
                         .get_sub_node()
-                        .unwrap_or_else(|| param_node.clone())
+                        .unwrap_or_else(|| param_node.clone());
+                    // Unwrap extra MCAST_PARAM layer (from mc_pard: mc_declare_b rules)
+                    while unwrapped.get_type() == MCAST_PARAM {
+                        unwrapped = unwrapped
+                            .get_sub_node()
+                            .unwrap_or_else(|| unwrapped.clone());
+                    }
+                    unwrapped
                 } else {
                     param_node.clone()
                 };
@@ -64,6 +73,25 @@ impl McParamDeclares {
                     }
                     MCAST_DECLARE_UV => {
                         // volt::UV.VOLT = 5V — the name precedes the DECLARE_UV
+                        // node by name.len() + 2 bytes (for the "::" separator).
+                        if let Some(paramd) = McParamDeclare::new(&inner) {
+                            if let Some(name) = paramd.get_primary_name() {
+                                let inner_pos = inner.get_pos() as usize;
+                                let prefix_len = name.len() + 2; // "name::"
+                                let start = if inner_pos > prefix_len {
+                                    inner_pos - prefix_len
+                                } else {
+                                    inner_pos
+                                };
+                                let name_span = start..(start + name.len());
+                                self.store_def_span(&name, name_span);
+                            }
+                            self.declares.push(paramd);
+                            continue;
+                        }
+                    }
+                    MCAST_DECLARE => {
+                        // diel::CAP = X7R — the name precedes the DECLARE
                         // node by name.len() + 2 bytes (for the "::" separator).
                         if let Some(paramd) = McParamDeclare::new(&inner) {
                             if let Some(name) = paramd.get_primary_name() {
@@ -430,9 +458,20 @@ impl<'a> IntoIterator for &'a McParamDeclares {
 #[derive(Debug, Clone)]
 pub struct McParamDeclare {
     pub kind: McParamDeclareKind,
-    /// Semantic type classification — set during parse (明显标注)
-    /// or via usage-based inference (未标注). Controls port filtering.
+    /// Semantic type classification — set during parse (explicitly annotated)
+    /// or via usage-based inference (unannotated). Controls port filtering.
     pub param_type: McParamType,
+}
+
+/// Enum-class parameter declaration — `diel::CAP` or `diel::CAP = X7R`.
+#[derive(Clone, Debug)]
+pub struct McEnumClassDeclare {
+    /// Parameter name — `diel`
+    pub name: McIds,
+    /// Enum class name — `CAP`
+    pub class_name: String,
+    /// Default value text — `X7R` (None if no `= value`)
+    pub default_val: Option<String>,
 }
 
 /// The structural form of a parameter declaration (shape, not type).
@@ -442,19 +481,25 @@ pub enum McParamDeclareKind {
     Single(McIds),
     Multiple(Vec<McIds>),
     UValue(McUnitValueDeclare),
+    EnumClass(McEnumClassDeclare),
 }
 
 impl McParamDeclare {
     /// Create parameter declaration from AST node, with syntactic type classification.
     pub fn new(node: &AstNode) -> Option<Self> {
         let subnode = if node.get_type() == MCAST_PARAM {
-            node.get_sub_node()?
+            let mut unwrapped = node.get_sub_node()?;
+            // Unwrap extra MCAST_PARAM layer (from mc_pard: mc_declare_b rules)
+            while unwrapped.get_type() == MCAST_PARAM {
+                unwrapped = unwrapped.get_sub_node().unwrap_or_else(|| unwrapped.clone());
+            }
+            unwrapped
         } else {
             node.clone()
         };
 
-        // Syntactic type classification (handles 明显标注 immediately)
-        let param_type = McParamType::from_ast(node);
+        // Syntactic type classification (handles explicitly annotated forms immediately)
+        let mut param_type = McParamType::from_ast(node);
 
         let kind = match subnode.get_type() {
             MCAST_ROLE => McParamDeclareKind::Role(McIds::from("role")),
@@ -521,6 +566,57 @@ impl McParamDeclare {
             }
 
             MCAST_DECLARE => {
+                // Reclassify as B5/B6 if CLASS is an enum (e.g. diel::CAP)
+                param_type.reclassify_if_enum_class(&subnode);
+
+                // Try enum-class path first: diel::CAP = X7R
+                if let Some(class_name) =
+                    McParamType::extract_class_name_from_declare(&subnode)
+                {
+                    // Extract instance name from MCAST_INSTANCE child
+                    let mut inst_name: Option<McIds> = None;
+                    let mut default_val: Option<String> = None;
+                    if let Some(decl_first_child) = subnode.get_sub_node() {
+                        for child in decl_first_child.iter() {
+                            if child.get_type() == MCAST_INSTANCE {
+                                if let Some(inner) = child.get_sub_node() {
+                                    // First child of INSTANCE is the param name
+                                    let name_node = if inner.get_type() == MCAST_OPD {
+                                        inner.get_sub_node().unwrap_or(inner.clone())
+                                    } else {
+                                        inner.clone()
+                                    };
+                                    if inst_name.is_none() {
+                                        inst_name = McIds::new(&name_node);
+                                    }
+                                    // Check next sibling for default value (MCAST_EXPRESSION)
+                                    let mut current = name_node.get_next();
+                                    while let Some(c) = current {
+                                        if c.get_type() == MCAST_EXPRESSION {
+                                            default_val = c.to_string();
+                                            break;
+                                        }
+                                        current = c.get_next();
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if let Some(name) = inst_name {
+                        return Some(Self {
+                            param_type,
+                            kind: McParamDeclareKind::EnumClass(
+                                McEnumClassDeclare {
+                                    name,
+                                    class_name,
+                                    default_val,
+                                },
+                            ),
+                        });
+                    }
+                }
+
+                // Fallback: existing component-instance path
                 let mut inst_ids_list: Vec<McIds> = Vec::new();
                 if let Some(decl_first_child) = subnode.get_sub_node() {
                     for child in decl_first_child
@@ -583,6 +679,7 @@ impl McParamDeclare {
             McParamDeclareKind::Single(ids) => ids.match_name(target),
             McParamDeclareKind::Multiple(_) => false,
             McParamDeclareKind::UValue(_) => false,
+            McParamDeclareKind::EnumClass(ec) => ec.name.match_name(target),
         }
     }
 
@@ -592,6 +689,7 @@ impl McParamDeclare {
             McParamDeclareKind::Single(ids) => ids.get_primary_name(),
             McParamDeclareKind::Multiple(_) => None,
             McParamDeclareKind::UValue(uval) => uval.name.get_primary_name(),
+            McParamDeclareKind::EnumClass(ec) => ec.name.get_primary_name(),
         }
     }
 
@@ -609,7 +707,7 @@ impl McParamDeclare {
 
     // ── Type classification ──
 
-    /// Check if this parameter has an explicit type constraint (明显标注, not Unknown).
+    /// Check if this parameter has an explicit type constraint (explicitly annotated, not Unknown).
     pub fn has_type_constraint(&self) -> bool {
         self.param_type.is_explicitly_typed()
     }
@@ -622,6 +720,15 @@ impl McParamDeclare {
             crate::semantic::basic::mc_param_type::McParamTypeKind::UnitValue { .. }
                 | crate::semantic::basic::mc_param_type::McParamTypeKind::UnitValueDefault { .. }
                 | crate::semantic::basic::mc_param_type::McParamTypeKind::CompoundUnit { .. }
+        )
+    }
+
+    /// Check if this parameter has an enum-class type (B5: EnumClass / B6: EnumClassDefault).
+    pub fn has_enum_class(&self) -> bool {
+        matches!(
+            self.param_type.kind,
+            crate::semantic::basic::mc_param_type::McParamTypeKind::EnumClass { .. }
+                | crate::semantic::basic::mc_param_type::McParamTypeKind::EnumClassDefault { .. }
         )
     }
 
@@ -659,6 +766,11 @@ impl McParamDeclare {
             }
             | crate::semantic::basic::mc_param_type::McParamTypeKind::ComponentInstance {
                 class_name,
+            }
+            | crate::semantic::basic::mc_param_type::McParamTypeKind::EnumClass { class_name }
+            | crate::semantic::basic::mc_param_type::McParamTypeKind::EnumClassDefault {
+                class_name,
+                ..
             } => Some(class_name.clone()),
             _ => None,
         }
@@ -696,6 +808,7 @@ impl McParamDeclare {
             McParamDeclareKind::Single(ids) => ids.expand(),
             McParamDeclareKind::Multiple(_) => Vec::new(),
             McParamDeclareKind::UValue(_) => Vec::new(),
+            McParamDeclareKind::EnumClass(ec) => ec.name.expand(),
         }
     }
 
@@ -709,6 +822,7 @@ impl McParamDeclare {
                 .collect(),
             McParamDeclareKind::Role(role) => role.all_name_forms(),
             McParamDeclareKind::UValue(uval) => uval.name.all_name_forms(),
+            McParamDeclareKind::EnumClass(ec) => ec.name.all_name_forms(),
         }
     }
 
@@ -724,6 +838,10 @@ impl McParamDeclare {
                 .default
                 .as_ref()
                 .map(|default| (uval.name.clone(), default.clone())),
+            McParamDeclareKind::EnumClass(ec) => ec
+                .default_val
+                .as_ref()
+                .map(|default| (ec.name.clone(), default.clone())),
             _ => None,
         }
     }
@@ -759,6 +877,13 @@ impl std::fmt::Display for McParamDeclare {
             McParamDeclareKind::Single(ids) => write!(f, "{ids}"),
             McParamDeclareKind::Multiple(_phrases) => write!(f, "[, ]"),
             McParamDeclareKind::UValue(uval) => write!(f, "{uval}"),
+            McParamDeclareKind::EnumClass(ec) => {
+                if let Some(ref dv) = ec.default_val {
+                    write!(f, "{}::{} = {}", ec.name, ec.class_name, dv)
+                } else {
+                    write!(f, "{}::{}", ec.name, ec.class_name)
+                }
+            }
         }
     }
 }

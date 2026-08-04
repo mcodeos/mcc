@@ -571,7 +571,7 @@ impl McParamBindings {
         let total = declares.iter().count();
         let new_required = declares
             .iter()
-            .filter(|d| !d.has_unit_type() && !d.has_default_value())
+            .filter(|d| !d.has_unit_type() && !d.has_enum_class() && !d.has_default_value())
             .count();
 
         // Check for too many arguments (strict error unless silent mode)
