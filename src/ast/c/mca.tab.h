@@ -30,8 +30,8 @@
    This special exception was added by the Free Software Foundation in
    version 2.2 of Bison.  */
 
-#ifndef YY_MCA_MCA_TAB_H_INCLUDED
-# define YY_MCA_MCA_TAB_H_INCLUDED
+#ifndef YY_MCA_SRC_MCA_TAB_H_INCLUDED
+# define YY_MCA_SRC_MCA_TAB_H_INCLUDED
 /* Debug traces.  */
 #ifndef MCA_DEBUG
 # if defined YYDEBUG
@@ -136,7 +136,7 @@ extern int mca_debug;
     MCU_IND = 334,                 /* MCU_IND  */
     MCU_TIME = 335,                /* MCU_TIME  */
     MCU_LEN = 336,                 /* MCU_LEN  */
-    MCU_WAT = 337,                 /* MCU_WAT  */
+    MCU_WATT = 337,                /* MCU_WATT  */
     MCU_OHM = 338,                 /* MCU_OHM  */
     MCU_TEMP = 339,                /* MCU_TEMP  */
     MCU_HZ = 340,                  /* MCU_HZ  */
@@ -164,7 +164,7 @@ extern int mca_debug;
     MCUVAL_IND = 362,              /* MCUVAL_IND  */
     MCUVAL_TIME = 363,             /* MCUVAL_TIME  */
     MCUVAL_LEN = 364,              /* MCUVAL_LEN  */
-    MCUVAL_WAT = 365,              /* MCUVAL_WAT  */
+    MCUVAL_WATT = 365,             /* MCUVAL_WATT  */
     MCUVAL_OHM = 366,              /* MCUVAL_OHM  */
     MCUVAL_TEMP = 367,             /* MCUVAL_TEMP  */
     MCUVAL_HZ = 368,               /* MCUVAL_HZ  */
@@ -197,12 +197,12 @@ extern int mca_debug;
 #if ! defined MCA_STYPE && ! defined MCA_STYPE_IS_DECLARED
 union MCA_STYPE
 {
-#line 19 "mca.y"
+#line 19 "src/mca.y"
 
     mc_lex_token *token;
     mc_value *value;
 
-#line 206 "mca.tab.h"
+#line 206 "src/mca.tab.h"
 
 };
 typedef union MCA_STYPE MCA_STYPE;
@@ -228,4 +228,4 @@ struct MCA_LTYPE
 
 int mca_parse (mc_value* mcast);
 
-#endif /* !YY_MCA_MCA_TAB_H_INCLUDED  */
+#endif /* !YY_MCA_SRC_MCA_TAB_H_INCLUDED  */
