@@ -243,3 +243,20 @@ pub(crate) fn lookup_scoped_enum_value(
 
     None
 }
+
+/// Check whether a class name refers to a known enum (in workspace or global tables).
+pub(crate) fn is_enum_class_name(class_name: &str) -> bool {
+    // Search workspace enums
+    for entry in workspace::WORKSPACE.enums.iter() {
+        if entry.key().ident.to_string() == class_name {
+            return true;
+        }
+    }
+    // Search global enums
+    for entry in global::mcc_enums.iter() {
+        if entry.key().ident.to_string() == class_name {
+            return true;
+        }
+    }
+    false
+}

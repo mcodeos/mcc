@@ -115,12 +115,12 @@ impl std::fmt::Display for McUnitType {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum McParamTypeKind {
     // ── Category A: Label / Bus / Interface (ports) ──
-    // 未标注 (Unannotated)
+    // Unannotated
     /// A1: bare identifier used as a label/port
     Label,
     /// A2: indexed identifier — {curly named} or [square range], unified
     Idx,
-    // 明显标注 (Explicitly Annotated)
+    // Explicitly Annotated
     /// A3: interface-typed — `id::ClassName(params)`
     Interface { class_name: String },
     /// A4: interface-typed with role/enum value — `id::ClassName(Role)`
@@ -132,7 +132,7 @@ pub enum McParamTypeKind {
     ComponentInstance { class_name: String },
 
     // ── Category B: Numeric Values ──
-    // 明显标注 (Explicitly Annotated — has physical unit type)
+    // Explicitly Annotated — has physical unit type
     /// B1: physical unit typed — `id::UV.VOLT`, `id::UV.CAP`, ...
     UnitValue { unit: McUnit },
     /// B2: physical unit typed with default — `id::UV.TEMP = 25°C`
@@ -145,12 +145,21 @@ pub enum McParamTypeKind {
         unit_type: McUnitType,
         default_val: Option<String>,
     },
-    // 未标注 (Unannotated)
+    // Unannotated
     /// B3: bare identifier used as a numeric value (inferred from usage)
     BareNumeric,
 
+    // Explicitly Annotated — has enum class type
+    /// B5: enum-class typed — `diel::CAP` (no default)
+    EnumClass { class_name: String },
+    /// B6: enum-class typed with default — `diel::CAP = X7R`
+    EnumClassDefault {
+        class_name: String,
+        default_val: Option<String>,
+    },
+
     // ── Category C: Basic Data Types (scalar primitives) ──
-    // 明显标注 (Explicitly Annotated)
+    // Explicitly Annotated
     /// C1: `id::STRING`
     BasicString { default_val: Option<String> },
     /// C2: `id::INT`
@@ -159,7 +168,7 @@ pub enum McParamTypeKind {
     BasicHex { default_val: Option<String> },
     /// C4: `id::FLOAT`
     BasicFloat { default_val: Option<String> },
-    // 未标注 (Unannotated)
+    // Unannotated
     /// C5: enum/role value — positional arg to interface constructor
     EnumValue,
 
@@ -222,7 +231,7 @@ impl McIoTy {
 impl McParamType {
     /// Syntactic classification from AST node — called during parse.
     ///
-    /// This only handles 明显标注 (explicitly annotated) forms where the type
+    /// This only handles explicitly annotated forms where the type
     /// is directly visible in the syntax. Bare identifiers return `Unknown`
     /// and need usage-based inference later.
     pub fn from_ast(node: &AstNode) -> Self {
@@ -466,6 +475,80 @@ impl McParamType {
         None
     }
 
+    /// Extract class name from MCAST_DECLARE node's MCAST_CLASS child.
+    pub fn extract_class_name_from_declare(node: &AstNode) -> Option<String> {
+        if let Some(first_child) = node.get_sub_node() {
+            for child in first_child.iter() {
+                if child.get_type() == MCAST_CLASS {
+                    if let Some(name_node) = child.get_sub_node() {
+                        return McIds::new(&name_node).map(|ids| ids.to_string());
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Extract default value string from MCAST_DECLARE's MCAST_INSTANCE child.
+    /// The default is the MCAST_EXPRESSION (or MCAST_UVALUE, MCAST_STRING, etc.)
+    /// that follows the parameter name inside MCAST_INSTANCE.
+    pub fn extract_default_from_declare(node: &AstNode) -> Option<String> {
+        if let Some(sub) = node.get_sub_node() {
+            for child in sub.iter() {
+                if child.get_type() == MCAST_INSTANCE {
+                    let mut current = child.get_sub_node();
+                    // Skip past the parameter name (first child: MCAST_IDS/MCAST_OPD)
+                    if let Some(ref c) = current {
+                        if c.get_type() == MCAST_OPD {
+                            current = c.get_sub_node();
+                        }
+                    }
+                    // The next sibling is the default value
+                    current = current.and_then(|c| c.get_next());
+                    while let Some(c) = current {
+                        if c.get_type() == MCAST_EXPRESSION
+                            || c.get_type() == MCAST_UVALUE
+                            || c.get_type() == MCAST_STRING
+                            || c.get_type() == MCAST_INT
+                            || c.get_type() == MCAST_HEX
+                            || c.get_type() == MCAST_FLOAT
+                        {
+                            return c.to_string();
+                        }
+                        current = c.get_next();
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Reclassify a MCAST_DECLARE parameter as B5/B6 if its CLASS is an enum.
+    ///
+    /// Called from `module/mod.rs` and `mc_func.rs` after initial classification,
+    /// where workspace/global enum tables are accessible.
+    pub fn reclassify_if_enum_class(&mut self, node: &AstNode) {
+        let class_name = match Self::extract_class_name_from_declare(node) {
+            Some(cn) => cn,
+            None => return,
+        };
+        // Check workspace + global enum tables
+        let is_enum = crate::db::cmie::cmie::is_enum_class_name(&class_name);
+        if !is_enum {
+            return;
+        }
+        let default_val = Self::extract_default_from_declare(node);
+        let new_kind = if default_val.is_some() {
+            McParamTypeKind::EnumClassDefault {
+                class_name,
+                default_val,
+            }
+        } else {
+            McParamTypeKind::EnumClass { class_name }
+        };
+        self.kind = new_kind;
+    }
+
     // ── Port classification ──
 
     /// Only Category A parameters are ports (connection points in the net graph).
@@ -506,6 +589,8 @@ impl McParamType {
             McParamTypeKind::UnitValueDefault { .. } => "B2-UnitValue+Default",
             McParamTypeKind::CompoundUnit { .. } => "B4-CompoundUnit",
             McParamTypeKind::BareNumeric => "B3-BareNumeric",
+            McParamTypeKind::EnumClass { .. } => "B5-EnumClass",
+            McParamTypeKind::EnumClassDefault { .. } => "B6-EnumClass+Default",
             McParamTypeKind::BasicString { .. } => "C1-String",
             McParamTypeKind::BasicInt { .. } => "C2-Int",
             McParamTypeKind::BasicHex { .. } => "C3-Hex",
@@ -521,6 +606,7 @@ impl McParamType {
         match &self.kind {
             McParamTypeKind::UnitValueDefault { default_val, .. } => default_val.as_deref(),
             McParamTypeKind::CompoundUnit { default_val, .. } => default_val.as_deref(),
+            McParamTypeKind::EnumClassDefault { default_val, .. } => default_val.as_deref(),
             McParamTypeKind::BasicString { default_val } => default_val.as_deref(),
             McParamTypeKind::BasicInt { default_val } => default_val.as_deref(),
             McParamTypeKind::BasicHex { default_val } => default_val.as_deref(),
