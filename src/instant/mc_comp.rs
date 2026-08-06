@@ -334,6 +334,13 @@ impl McComponentInst {
                         }
                     }
                 }
+                crate::semantic::basic::mc_paramd::McParamDeclareKind::EnumClass(ec) => {
+                    if ec.name.get_primary_name().as_deref() == Some(name) {
+                        if let Some(ref default) = ec.default_val {
+                            return Some(default.clone());
+                        }
+                    }
+                }
                 crate::semantic::basic::mc_paramd::McParamDeclareKind::Single(ids)
                 | crate::semantic::basic::mc_paramd::McParamDeclareKind::Role(ids) => {
                     if ids.get_primary_name().as_deref() == Some(name) {

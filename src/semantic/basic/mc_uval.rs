@@ -67,19 +67,18 @@ impl McUnitValueDeclare {
         }
 
         let unit_node = class_node.get_sub_node()?;
-        let unit = McUnit::from_ast(&unit_node)
-            .or_else(|| {
-                // Compound unit: extract head unit from MCAST_UNIT_DIV/MUL/GROUP
-                if unit_node.get_type() == MCAST_UNIT_DIV
-                    || unit_node.get_type() == MCAST_UNIT_MUL
-                    || unit_node.get_type() == MCAST_UNIT_GROUP
-                {
-                    let sub = unit_node.get_sub_node()?;
-                    sub.iter().next().and_then(|n| McUnit::from_ast(&n))
-                } else {
-                    None
-                }
-            })?;
+        let unit = McUnit::from_ast(&unit_node).or_else(|| {
+            // Compound unit: extract head unit from MCAST_UNIT_DIV/MUL/GROUP
+            if unit_node.get_type() == MCAST_UNIT_DIV
+                || unit_node.get_type() == MCAST_UNIT_MUL
+                || unit_node.get_type() == MCAST_UNIT_GROUP
+            {
+                let sub = unit_node.get_sub_node()?;
+                sub.iter().next().and_then(|n| McUnit::from_ast(&n))
+            } else {
+                None
+            }
+        })?;
 
         let name_node = instance_node.get_sub_node()?;
         let name = McIds::new(&name_node)?;

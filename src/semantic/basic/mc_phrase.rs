@@ -697,8 +697,8 @@ impl McPhrase {
                                 return Some(if fcs.len() <= 1 {
                                     // Also handle empty names (e.g. `R1::RES(1M)` where
                                     // instance name is part of mc_ids via `::`)
-                                    fcs.into_iter().next()
-                                        .unwrap_or_else(|| McPhrase::FuncCall(McFuncCall {
+                                    fcs.into_iter().next().unwrap_or_else(|| {
+                                        McPhrase::FuncCall(McFuncCall {
                                             id: 0,
                                             caller: None,
                                             func_name: class_ids.clone(),
@@ -706,7 +706,8 @@ impl McPhrase {
                                             left: left.clone(),
                                             right: right.clone(),
                                             dot_member: None,
-                                        }))
+                                        })
+                                    })
                                 } else {
                                     McPhrase::Multiple(fcs)
                                 });

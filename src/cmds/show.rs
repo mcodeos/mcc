@@ -411,7 +411,21 @@ fn show_lapper(args: &ShowArgs) -> Result<()> {
         }
     }
 
-    // Not loaded yet — load project and try again
+    // Not loaded yet — load project and try again.
+    // Load library dependencies from project.toml first.
+    let project_root = {
+        let mut current = path.to_path_buf();
+        loop {
+            if current.join("project.toml").exists() {
+                break current;
+            }
+            if !current.pop() {
+                break path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+            }
+        }
+    };
+    let libs = super::manifest::collect_libs(Some(&project_root), &[]);
+    super::manifest::load_libs(&libs);
     mcc::mcc_load_project(&mc_uri);
     if is_text {
         if let Some(text) = mcc::dump_symbols_f12_text(&mc_uri) {

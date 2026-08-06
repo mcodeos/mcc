@@ -23,6 +23,31 @@ pub fn handle_sem(params: Option<Value>) -> RpcResult {
         // ★ Fix: Use canonicalized URI for lookup (same as what mcb_add_from_string uses)
         let canonical_uri = crate::build::pass1::canonicalize_project_uri(&mc_uri);
         let result = try_lookup_sem(&[McURI::from(&canonical_uri)]);
+
+        // If content-based parse produced empty lapper (GLR ambiguity),
+        // fall back to file-based load which uses the deterministic path.
+        let lapper_empty = result.as_ref().map_or(true, |val| {
+            val.get("symbols")
+                .and_then(|s| s.get("lapper"))
+                .map(|l| l.as_array().map_or(true, |a| a.is_empty()))
+                .unwrap_or(true)
+        });
+        if lapper_empty {
+            tracing::warn!(target: "mcc::lsp", uri = %canonical_uri,
+                "content-based parse empty lapper, reloading from disk");
+            // Reload from disk: use the same path as CLI show lapper
+            let file_path = canonical_uri
+                .strip_prefix("file://")
+                .unwrap_or(&canonical_uri);
+            let path = Path::new(file_path);
+            if path.exists() {
+                // Reload from disk (same as CLI show lapper path)
+                crate::mcc_load_project(&McURI::from(file_path));
+                return try_lookup_sem(&[McURI::from(&canonical_uri), McURI::from(file_path)])
+                    .ok_or_else(|| JsonRpcError::custom(32100, "file reload fallback failed"));
+            }
+        }
+
         return result.ok_or_else(|| JsonRpcError::custom(32100, "parse from string failed"));
     }
 
@@ -35,8 +60,13 @@ pub fn handle_sem(params: Option<Value>) -> RpcResult {
         cwd.join(&root_str)
     };
 
-    let raw_path = Path::new(raw_uri);
-    let mut candidates: Vec<McURI> = vec![McURI::from(raw_uri.as_str())];
+    // Strip file:// prefix if present
+    let file_path_str = raw_uri.strip_prefix("file://").unwrap_or(raw_uri);
+    let raw_path = Path::new(file_path_str);
+    let mut candidates: Vec<McURI> = vec![
+        McURI::from(raw_uri.as_str()),
+        McURI::from(file_path_str), // also try without file:// prefix
+    ];
     if raw_path.is_absolute() && raw_path.starts_with(&root_path) {
         let rel = raw_path.strip_prefix(&root_path).unwrap_or(raw_path);
         let rel_str = rel.to_string_lossy().to_string();
@@ -48,17 +78,19 @@ pub fn handle_sem(params: Option<Value>) -> RpcResult {
     // Try lookup
     let result = try_lookup_sem(&candidates);
 
-    // If not found and workspace is empty, auto-create workspace and load project
-    if result.is_none() {
-        let workspace_empty = {
-            let binding = &crate::db::cmie::tables::WORKSPACE.mcodes;
-            binding.is_empty()
-        };
-        if workspace_empty && raw_path.is_absolute() {
-            auto_load_from_file_path(raw_path);
-            return try_lookup_sem(&candidates)
-                .ok_or_else(|| JsonRpcError::custom(32100, "file not found in workspace"));
-        }
+    // If not found, or lapper is empty, auto-load project from disk
+    let needs_reload = match &result {
+        None => true,
+        Some(val) => val
+            .get("tokens")
+            .and_then(|t| t.as_array())
+            .map(|a| a.is_empty())
+            .unwrap_or(true),
+    };
+    if needs_reload && raw_path.is_absolute() {
+        auto_load_from_file_path(raw_path);
+        return try_lookup_sem(&candidates)
+            .ok_or_else(|| JsonRpcError::custom(32100, "file not found in workspace"));
     }
 
     result.ok_or_else(|| JsonRpcError::custom(32100, "file not found in workspace"))

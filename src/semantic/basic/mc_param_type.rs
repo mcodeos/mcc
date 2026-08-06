@@ -69,9 +69,7 @@ impl McUnitType {
                 let sub = node.get_sub_node()?;
                 let children: Vec<AstNode> = sub.iter().collect();
                 match node.get_type() {
-                    MCAST_UNIT_GROUP if children.len() == 1 => {
-                        Self::from_ast(&children[0])
-                    }
+                    MCAST_UNIT_GROUP if children.len() == 1 => Self::from_ast(&children[0]),
                     MCAST_UNIT_DIV if children.len() == 2 => {
                         let left = Self::from_ast(&children[0])?;
                         let right = Self::from_ast(&children[1])?;
@@ -286,9 +284,7 @@ impl McParamType {
                                     McUnitType::Leaf(unit) => {
                                         Self::classify_unit_type(&unit, default_val)
                                     }
-                                    compound => {
-                                        Self::classify_compound_unit(compound, default_val)
-                                    }
+                                    compound => Self::classify_compound_unit(compound, default_val),
                                 };
                             }
                         }
@@ -374,10 +370,7 @@ impl McParamType {
     }
 
     /// Classify a compound unit (B4): `UV.PPM / UV.TEMP`, `UV.V * UV.A`, etc.
-    fn classify_compound_unit(
-        unit_type: McUnitType,
-        default_val: Option<String>,
-    ) -> Self {
+    fn classify_compound_unit(unit_type: McUnitType, default_val: Option<String>) -> Self {
         Self {
             kind: McParamTypeKind::CompoundUnit {
                 unit_type,

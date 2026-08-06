@@ -472,6 +472,10 @@ fn check_non_constant_default(acc: &mut CheckAccumulator) {
         let comp = entry.value();
         for d in comp.params.iter() {
             let pname = d.get_primary_name().unwrap_or_default();
+            // Skip enum-class params — their defaults are enum value references
+            if d.has_enum_class() {
+                continue;
+            }
             if let Some(def_val) = d.param_type.default_value() {
                 // Heuristic: if default contains arithmetic/logic operators,
                 // it's likely a non-constant expression.
