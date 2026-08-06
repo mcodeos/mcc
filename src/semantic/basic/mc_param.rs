@@ -722,6 +722,32 @@ impl McParamBindings {
             }
         }
 
+        // ── Enum value validation ───────────────────────────────────────────
+        // Verify that enum-class parameter values are valid enum members.
+        for binding in &final_bindings {
+            if let McParamDeclareKind::EnumClass(ec) = &binding.declare.kind {
+                let ids_primary: Option<String> = match &binding.value {
+                    Some(McParamValue::Ids(ids)) => ids.get_primary_name(),
+                    _ => None,
+                };
+                let val_name: Option<&str> = match &binding.value {
+                    Some(McParamValue::Ids(_)) => ids_primary.as_deref(),
+                    Some(_) => None,
+                    None if binding.is_default => ec.default_val.as_deref(),
+                    None => None,
+                };
+                if let Some(vn) = val_name {
+                    if !ec.is_valid_value(vn) {
+                        eprintln!(
+                            "[E2810] Enum value '{}' is not a valid member of 'enum {}'. \
+                             Parameter '{}' requires a value from '{}'.",
+                            vn, ec.class_name, ec.name, ec.class_name
+                        );
+                    }
+                }
+            }
+        }
+
         Ok(Self {
             bindings: final_bindings,
         })

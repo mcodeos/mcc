@@ -99,10 +99,22 @@ pub fn mcb_parse_all_modules() {
                 crate::db::infra::context::push_line_index(uri.clone(), line_index.clone());
             }
             mcfile.parse_pass1_modules();
+            // ★ Robustness: ensure lapper is built even when parse_pass1_modules
+            //   returns early (e.g., modules_parsed flag already set). Without this,
+            //   files loaded as dependencies via mcb_add_recursive may have an empty
+            //   symbol_lapper after remove+insert cycles.
+            mcfile.create_lapper();
             if mcfile.line_index.is_some() {
                 crate::db::infra::context::pop_line_index();
             }
             workspace::WORKSPACE.mcodes.insert(uri, mcfile);
+        } else {
+            // File was in uri_deps but not in workspace — log as dlog
+            tracing::warn!(
+                target: "mcc::pass1",
+                uri = %uri,
+                "mcb_parse_all_modules: file in dependency graph but not found in workspace"
+            );
         }
     }
 
@@ -122,28 +134,28 @@ pub fn mcb_parse_all_modules() {
         let registry = CheckRegistry::with_defaults();
         let saved_uri = crate::current_uri::try_get();
         for r in registry.run_post_parse(&ctx) {
-                // Switch current_uri to the file this diagnostic belongs to
-                if let Some(ref uri) = r.uri {
-                    crate::current_uri::set(&McURI::from(uri.as_str()));
-                }
-                let level = match r.severity {
-                    crate::semantic::validation::CheckSeverity::Error => DiagnosticLevel::Error,
-                    crate::semantic::validation::CheckSeverity::Warning => DiagnosticLevel::Warning,
-                    crate::semantic::validation::CheckSeverity::Info => DiagnosticLevel::Info,
-                    crate::semantic::validation::CheckSeverity::Hint => DiagnosticLevel::Hint,
-                };
-                let (pos, len) = r
-                    .span
-                    .as_ref()
-                    .map(|s| (s.start as u32, (s.end - s.start) as u32))
-                    .unwrap_or((0, 0));
-                diagnostic_log(r.code, level, pos, len, &r.message, &[]);
+            // Switch current_uri to the file this diagnostic belongs to
+            if let Some(ref uri) = r.uri {
+                crate::current_uri::set(&McURI::from(uri.as_str()));
             }
-            // Restore previous current_uri (or reset)
-            match saved_uri {
-                Some(ref uri) => crate::current_uri::set(uri),
-                None => crate::current_uri::reset(),
-            }
+            let level = match r.severity {
+                crate::semantic::validation::CheckSeverity::Error => DiagnosticLevel::Error,
+                crate::semantic::validation::CheckSeverity::Warning => DiagnosticLevel::Warning,
+                crate::semantic::validation::CheckSeverity::Info => DiagnosticLevel::Info,
+                crate::semantic::validation::CheckSeverity::Hint => DiagnosticLevel::Hint,
+            };
+            let (pos, len) = r
+                .span
+                .as_ref()
+                .map(|s| (s.start as u32, (s.end - s.start) as u32))
+                .unwrap_or((0, 0));
+            diagnostic_log(r.code, level, pos, len, &r.message, &[]);
+        }
+        // Restore previous current_uri (or reset)
+        match saved_uri {
+            Some(ref uri) => crate::current_uri::set(uri),
+            None => crate::current_uri::reset(),
+        }
     }
 }
 

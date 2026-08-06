@@ -474,6 +474,14 @@ pub struct McEnumClassDeclare {
     pub default_val: Option<String>,
 }
 
+impl McEnumClassDeclare {
+    /// Validate that a value name is a member of this enum class.
+    /// Returns `true` if the value is valid, `false` otherwise.
+    pub fn is_valid_value(&self, value_name: &str) -> bool {
+        crate::db::cmie::cmie::is_enum_member(&self.class_name, value_name)
+    }
+}
+
 /// The structural form of a parameter declaration (shape, not type).
 #[derive(Debug, Clone)]
 pub enum McParamDeclareKind {
@@ -491,7 +499,9 @@ impl McParamDeclare {
             let mut unwrapped = node.get_sub_node()?;
             // Unwrap extra MCAST_PARAM layer (from mc_pard: mc_declare_b rules)
             while unwrapped.get_type() == MCAST_PARAM {
-                unwrapped = unwrapped.get_sub_node().unwrap_or_else(|| unwrapped.clone());
+                unwrapped = unwrapped
+                    .get_sub_node()
+                    .unwrap_or_else(|| unwrapped.clone());
             }
             unwrapped
         } else {
@@ -570,9 +580,7 @@ impl McParamDeclare {
                 param_type.reclassify_if_enum_class(&subnode);
 
                 // Try enum-class path first: diel::CAP = X7R
-                if let Some(class_name) =
-                    McParamType::extract_class_name_from_declare(&subnode)
-                {
+                if let Some(class_name) = McParamType::extract_class_name_from_declare(&subnode) {
                     // Extract instance name from MCAST_INSTANCE child
                     let mut inst_name: Option<McIds> = None;
                     let mut default_val: Option<String> = None;
@@ -605,13 +613,11 @@ impl McParamDeclare {
                     if let Some(name) = inst_name {
                         return Some(Self {
                             param_type,
-                            kind: McParamDeclareKind::EnumClass(
-                                McEnumClassDeclare {
-                                    name,
-                                    class_name,
-                                    default_val,
-                                },
-                            ),
+                            kind: McParamDeclareKind::EnumClass(McEnumClassDeclare {
+                                name,
+                                class_name,
+                                default_val,
+                            }),
                         });
                     }
                 }
@@ -737,10 +743,12 @@ impl McParamDeclare {
         match &self.param_type.kind {
             crate::semantic::basic::mc_param_type::McParamTypeKind::UnitValue { unit }
             | crate::semantic::basic::mc_param_type::McParamTypeKind::UnitValueDefault {
-                unit, ..
+                unit,
+                ..
             } => Some(unit),
             crate::semantic::basic::mc_param_type::McParamTypeKind::CompoundUnit {
-                ref unit_type, ..
+                ref unit_type,
+                ..
             } => Some(unit_type.head_unit()),
             _ => None,
         }
@@ -750,7 +758,8 @@ impl McParamDeclare {
     pub fn get_unit_type(&self) -> Option<&crate::semantic::basic::mc_param_type::McUnitType> {
         match &self.param_type.kind {
             crate::semantic::basic::mc_param_type::McParamTypeKind::CompoundUnit {
-                unit_type, ..
+                unit_type,
+                ..
             } => Some(unit_type),
             _ => None,
         }

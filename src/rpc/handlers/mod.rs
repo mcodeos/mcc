@@ -1731,6 +1731,16 @@ pub(crate) fn auto_load_from_file_path(file_path: &Path) {
     scan_mc_files_recursive(&project_root, &project_root, &mut all_files);
     info!(target: "crate::rpc", "auto_load: found {} .mc files", all_files.len());
 
+    // Load library dependencies from project.toml before parsing
+    let file_uri = McURI::from(file_path.to_string_lossy().to_string());
+    ensure_library_loaded(&file_uri);
+
+    // Force-load mcode: mcb_init_system_lib may have registered an empty placeholder.
+    // Reload from the real mcode directory to ensure library components are available.
+    if let Ok(mcode_root) = resolve_lib_root("mcode") {
+        crate::db::infra::libmgr::mcb_load_lib("mcode", &mcode_root);
+    }
+
     if let Some(entry_path) = all_files.first() {
         let full = project_root.join(entry_path);
         let uri = McURI::from(full.to_string_lossy().to_string());
@@ -1773,12 +1783,26 @@ pub(crate) fn find_project_root(file_path: &Path) -> PathBuf {
             .unwrap_or_else(|| PathBuf::from("."))
     };
 
+    // First pass: walk up looking for project.toml (highest priority)
+    let mut probe = current.clone();
+    let mut toml_dir: Option<PathBuf> = None;
     loop {
-        // Check for project.toml
-        if current.join("project.toml").exists() {
-            return current;
+        if probe.join("project.toml").exists() {
+            toml_dir = Some(probe.clone());
+            break;
         }
-        // Check for .mc files at this level
+        if let Some(parent) = probe.parent() {
+            probe = parent.to_path_buf();
+        } else {
+            break;
+        }
+    }
+    // If project.toml found, use that directory
+    if let Some(dir) = toml_dir {
+        return dir;
+    }
+    // Fallback: first directory with .mc files
+    loop {
         if let Ok(entries) = std::fs::read_dir(&current) {
             for entry in entries.flatten() {
                 if entry.path().extension().is_some_and(|ext| ext == "mc") {
@@ -1786,7 +1810,6 @@ pub(crate) fn find_project_root(file_path: &Path) -> PathBuf {
                 }
             }
         }
-        // Go up one level
         if let Some(parent) = current.parent() {
             current = parent.to_path_buf();
         } else {

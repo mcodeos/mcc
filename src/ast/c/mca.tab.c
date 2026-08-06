@@ -1,16 +1,22 @@
 /* A Bison parser, made by GNU Bison 3.8.2.  */
+
 /* Skeleton implementation for Bison GLR parsers in C
+
    Copyright (C) 2002-2015, 2018-2021 Free Software Foundation, Inc.
+
    This program is free software: you can redistribute it and/or modify
    it under the terms of the GNU General Public License as published by
    the Free Software Foundation, either version 3 of the License, or
    (at your option) any later version.
+
    This program is distributed in the hope that it will be useful,
    but WITHOUT ANY WARRANTY; without even the implied warranty of
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
    GNU General Public License for more details.
+
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <https://www.gnu.org/licenses/>.  */
+
 /* As a special exception, you may create a larger work that contains
    part or all of the Bison parser skeleton and distribute that work
    under terms of your choice, so long as that work isn't itself a
@@ -20,20 +26,30 @@
    special exception, which will cause the skeleton and the resulting
    Bison output files to be licensed under the GNU General Public
    License without this special exception.
+
    This special exception was added by the Free Software Foundation in
    version 2.2 of Bison.  */
+
 /* C GLR parser skeleton written by Paul Hilfinger.  */
+
 /* DO NOT RELY ON FEATURES THAT ARE NOT DOCUMENTED in the manual,
    especially those whose name start with YY_ or yy_.  They are
    private implementation details that can be changed or removed.  */
+
 /* Identify Bison output, and Bison version.  */
 #define YYBISON 30802
+
 /* Bison version string.  */
 #define YYBISON_VERSION "3.8.2"
+
 /* Skeleton name.  */
 #define YYSKELETON_NAME "glr.c"
+
 /* Pure parsers.  */
 #define YYPURE 1
+
+
+
 /* Substitute the type names.  */
 #define YYSTYPE MCA_STYPE
 #define YYLTYPE MCA_LTYPE
@@ -42,7 +58,9 @@
 #define yylex   mca_lex
 #define yyerror mca_error
 #define yydebug mca_debug
+
 /* First part of user prologue.  */
+
     #include <stdio.h>
     #include <string.h>
     #include <stdlib.h>
@@ -50,10 +68,14 @@
     #include "astdef.h"
     #include "lex.h"
     #include "common.h"
+
     struct YYLTYPE;
     void mca_error(struct YYLTYPE *_loc, mc_value* mcast, const char *msg);
+
     extern mc_lex_token* g_last_token;
     #define YYMAXDEPTH 2000000
+
+
 # ifndef YY_CAST
 #  ifdef __cplusplus
 #   define YY_CAST(Type, Val) static_cast<Type> (Val)
@@ -74,7 +96,9 @@
 #   define YY_NULLPTR ((void*)0)
 #  endif
 # endif
+
 #include "mca.tab.h"
+
 /* Symbol kind.  */
 enum yysymbol_kind_t
 {
@@ -287,6 +311,8 @@ enum yysymbol_kind_t
   YYSYMBOL_mc_endls = 205                  /* mc_endls  */
 };
 typedef enum yysymbol_kind_t yysymbol_kind_t;
+
+
 /* Default (constant) value used for initialization for null
    right-hand sides.  Unlike the standard yacc.c template, here we set
    the default value of $$ to a zeroed-out value.  Since the default
@@ -297,17 +323,23 @@ static YYLTYPE yyloc_default
   = { 1, 1, 1, 1 }
 # endif
 ;
+
+
+
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 #ifdef short
 # undef short
 #endif
+
 /* On compilers that do not define __PTRDIFF_MAX__ etc., make sure
    <limits.h> and (if available) <stdint.h> are included
    so that the code can choose integer types of a good width.  */
+
 #ifndef __PTRDIFF_MAX__
 # include <limits.h> /* INFRINGES ON USER NAME SPACE */
 # if defined __STDC_VERSION__ && 199901 <= __STDC_VERSION__
@@ -315,10 +347,12 @@ static YYLTYPE yyloc_default
 #  define YY_STDINT_H
 # endif
 #endif
+
 /* Narrow types that promote to a signed type and that can represent a
    signed or unsigned integer of at least N bits.  In tables they can
    save space and decrease cache pressure.  Promoting to a signed type
    helps avoid bugs in integer arithmetic.  */
+
 #ifdef __INT_LEAST8_MAX__
 typedef __INT_LEAST8_TYPE__ yytype_int8;
 #elif defined YY_STDINT_H
@@ -326,6 +360,7 @@ typedef int_least8_t yytype_int8;
 #else
 typedef signed char yytype_int8;
 #endif
+
 #ifdef __INT_LEAST16_MAX__
 typedef __INT_LEAST16_TYPE__ yytype_int16;
 #elif defined YY_STDINT_H
@@ -333,6 +368,7 @@ typedef int_least16_t yytype_int16;
 #else
 typedef short yytype_int16;
 #endif
+
 /* Work around bug in HP-UX 11.23, which defines these macros
    incorrectly for preprocessor constants.  This workaround can likely
    be removed in 2023, as HPE has promised support for HP-UX 11.23
@@ -344,6 +380,7 @@ typedef short yytype_int16;
 # define UINT_LEAST8_MAX 255
 # define UINT_LEAST16_MAX 65535
 #endif
+
 #if defined __UINT_LEAST8_MAX__ && __UINT_LEAST8_MAX__ <= __INT_MAX__
 typedef __UINT_LEAST8_TYPE__ yytype_uint8;
 #elif (!defined __UINT_LEAST8_MAX__ && defined YY_STDINT_H \
@@ -354,6 +391,7 @@ typedef unsigned char yytype_uint8;
 #else
 typedef short yytype_uint8;
 #endif
+
 #if defined __UINT_LEAST16_MAX__ && __UINT_LEAST16_MAX__ <= __INT_MAX__
 typedef __UINT_LEAST16_TYPE__ yytype_uint16;
 #elif (!defined __UINT_LEAST16_MAX__ && defined YY_STDINT_H \
@@ -379,6 +417,7 @@ typedef int yytype_uint16;
 #  define YYPTRDIFF_MAXIMUM LONG_MAX
 # endif
 #endif
+
 #ifndef YYSIZE_T
 # ifdef __SIZE_TYPE__
 #  define YYSIZE_T __SIZE_TYPE__
@@ -391,12 +430,16 @@ typedef int yytype_uint16;
 #  define YYSIZE_T unsigned
 # endif
 #endif
+
 #define YYSIZE_MAXIMUM                                  \
   YY_CAST (YYPTRDIFF_T,                                 \
            (YYPTRDIFF_MAXIMUM < YY_CAST (YYSIZE_T, -1)  \
             ? YYPTRDIFF_MAXIMUM                         \
             : YY_CAST (YYSIZE_T, -1)))
+
 #define YYSIZEOF(X) YY_CAST (YYPTRDIFF_T, sizeof (X))
+
+
 #ifndef YY_
 # if defined YYENABLE_NLS && YYENABLE_NLS
 #  if ENABLE_NLS
@@ -408,6 +451,8 @@ typedef int yytype_uint16;
 #  define YY_(Msgid) Msgid
 # endif
 #endif
+
+
 #ifndef YYFREE
 # define YYFREE free
 #endif
@@ -417,6 +462,7 @@ typedef int yytype_uint16;
 #ifndef YYREALLOC
 # define YYREALLOC realloc
 #endif
+
 #ifdef __cplusplus
   typedef bool yybool;
 # define yytrue true
@@ -427,6 +473,7 @@ typedef int yytype_uint16;
 # define yytrue 1
 # define yyfalse 0
 #endif
+
 #ifndef YYSETJMP
 # include <setjmp.h>
 # define YYJMP_BUF jmp_buf
@@ -438,6 +485,7 @@ typedef int yytype_uint16;
    YY_ASSERT (0);                               \
  } while (yyfalse)
 #endif
+
 #ifndef YY_ATTRIBUTE_PURE
 # if defined __GNUC__ && 2 < __GNUC__ + (96 <= __GNUC_MINOR__)
 #  define YY_ATTRIBUTE_PURE __attribute__ ((__pure__))
@@ -445,6 +493,7 @@ typedef int yytype_uint16;
 #  define YY_ATTRIBUTE_PURE
 # endif
 #endif
+
 #ifndef YY_ATTRIBUTE_UNUSED
 # if defined __GNUC__ && 2 < __GNUC__ + (7 <= __GNUC_MINOR__)
 #  define YY_ATTRIBUTE_UNUSED __attribute__ ((__unused__))
@@ -452,6 +501,7 @@ typedef int yytype_uint16;
 #  define YY_ATTRIBUTE_UNUSED
 # endif
 #endif
+
 /* The _Noreturn keyword of C11.  */
 #ifndef _Noreturn
 # if (defined __cplusplus \
@@ -475,12 +525,14 @@ typedef int yytype_uint16;
 #  define _Noreturn
 # endif
 #endif
+
 /* Suppress unused-variable warnings by "using" E.  */
 #if ! defined lint || defined __GNUC__
 # define YY_USE(E) ((void) (E))
 #else
 # define YY_USE(E) /* empty */
 #endif
+
 /* Suppress an incorrect diagnostic about yylval being uninitialized.  */
 #if defined __GNUC__ && ! defined __ICC && 406 <= __GNUC__ * 100 + __GNUC_MINOR__
 # if __GNUC__ * 100 + __GNUC_MINOR__ < 407
@@ -505,6 +557,7 @@ typedef int yytype_uint16;
 #ifndef YY_INITIAL_VALUE
 # define YY_INITIAL_VALUE(Value) /* Nothing. */
 #endif
+
 #if defined __cplusplus && defined __GNUC__ && ! defined __ICC && 6 <= __GNUC__
 # define YY_IGNORE_USELESS_CAST_BEGIN                          \
     _Pragma ("GCC diagnostic push")                            \
@@ -516,11 +569,15 @@ typedef int yytype_uint16;
 # define YY_IGNORE_USELESS_CAST_BEGIN
 # define YY_IGNORE_USELESS_CAST_END
 #endif
+
+
 #define YY_ASSERT(E) ((void) (0 && (E)))
+
 /* YYFINAL -- State number of the termination state.  */
 #define YYFINAL  40
 /* YYLAST -- Last index in YYTABLE.  */
 #define YYLAST   2662
+
 /* YYNTOKENS -- Number of terminals.  */
 #define YYNTOKENS  135
 /* YYNNTS -- Number of nonterminals.  */
@@ -534,14 +591,17 @@ typedef int yytype_uint16;
 /* YYMAXLEFT -- Maximum number of symbols to the left of a handle
    accessed by $0, $-1, etc., in any rule.  */
 #define YYMAXLEFT 0
+
 /* YYMAXUTOK -- Last valid token kind.  */
 #define YYMAXUTOK   389
+
 /* YYTRANSLATE(TOKEN-NUM) -- Symbol number corresponding to TOKEN-NUM
    as returned by yylex, with out-of-bounds checking.  */
 #define YYTRANSLATE(YYX)                                \
   (0 <= (YYX) && (YYX) <= YYMAXUTOK                     \
    ? YY_CAST (yysymbol_kind_t, yytranslate[YYX])        \
    : YYSYMBOL_YYUNDEF)
+
 /* YYTRANSLATE[TOKEN-NUM] -- Symbol number corresponding to TOKEN-NUM
    as returned by yylex.  */
 static const yytype_uint8 yytranslate[] =
@@ -586,6 +646,7 @@ static const yytype_uint8 yytranslate[] =
      115,   116,   117,   118,   119,   120,   121,   122,   123,   124,
      125,   126,   127,   128,   129,   130,   131,   132,   133,   134
 };
+
 #if MCA_DEBUG
 /* YYRLINE[YYN] -- source line where rule number YYN was defined.  */
 static const yytype_int16 yyrline[] =
@@ -630,8 +691,10 @@ static const yytype_int16 yyrline[] =
     1485,  1486,  1487,  1488,  1493,  1498,  1504,  1505,  1506,  1507
 };
 #endif
+
 #define YYPACT_NINF (-521)
 #define YYTABLE_NINF (-218)
+
 /* YYPACT[STATE-NUM] -- Index in YYTABLE of the portion describing
    STATE-NUM.  */
 static const yytype_int16 yypact[] =
@@ -698,6 +761,7 @@ static const yytype_int16 yypact[] =
      285,  2109,  -521,  2423,  2137,   380,  -521,  -521,  -521,  -521,
     -521,   289,   490,  -521,  2423,  -521,   490
 };
+
 /* YYDEFACT[STATE-NUM] -- Default reduction number in state STATE-NUM.
    Performed when YYTABLE does not specify something else to do.  Zero
    means the default is an error.  */
@@ -765,6 +829,7 @@ static const yytype_int16 yydefact[] =
        0,   240,    65,     0,     0,    71,   252,   191,   192,   193,
      233,     0,    70,    77,     0,   232,    72
 };
+
 /* YYPGOTO[NTERM-NUM].  */
 static const yytype_int16 yypgoto[] =
 {
@@ -777,6 +842,7 @@ static const yytype_int16 yypgoto[] =
     -521,   437,  -521,  -521,  -520,  -521,   850,   -43,  -110,  -277,
        6
 };
+
 /* YYDEFGOTO[NTERM-NUM].  */
 static const yytype_int16 yydefgoto[] =
 {
@@ -789,6 +855,7 @@ static const yytype_int16 yydefgoto[] =
      171,   172,   173,   174,   288,    99,   175,   176,   177,   328,
      357
 };
+
 /* YYTABLE[YYPACT[STATE-NUM]] -- What to do in state STATE-NUM.  If
    positive, shift that token.  If negative, reduce the rule whose
    number is the opposite.  If YYTABLE_NINF, syntax error.  */
@@ -1062,6 +1129,7 @@ static const yytype_int16 yytable[] =
      314,   315,   316,   317,   318,   319,   320,   321,   322,   323,
      324,   325,   326
 };
+
 static const yytype_int16 yycheck[] =
 {
        4,     5,     6,     7,     8,    82,     0,   221,   168,    35,
@@ -1332,6 +1400,7 @@ static const yytype_int16 yycheck[] =
       91,    92,    93,    94,    95,    96,    97,    98,    99,   100,
      101,   102,   103
 };
+
 /* YYSTOS[STATE-NUM] -- The symbol kind of the accessing symbol of
    state STATE-NUM.  */
 static const yytype_uint8 yystos[] =
@@ -1398,6 +1467,7 @@ static const yytype_uint8 yystos[] =
      178,    50,    49,    26,    43,   161,   182,   190,   190,   190,
       51,   178,   154,   162,    26,    51,   154
 };
+
 /* YYR1[RULE-NUM] -- Symbol kind of the left-hand side of rule RULE-NUM.  */
 static const yytype_uint8 yyr1[] =
 {
@@ -1440,6 +1510,7 @@ static const yytype_uint8 yyr1[] =
      204,   204,   204,   204,   204,   204,   204,   204,   204,   204,
      204,   204,   204,   204,   204,   204,   205,   205,   205,   205
 };
+
 /* YYR2[RULE-NUM] -- Number of symbols on the right-hand side of rule RULE-NUM.  */
 static const yytype_int8 yyr2[] =
 {
@@ -1482,6 +1553,8 @@ static const yytype_int8 yyr2[] =
        1,     1,     1,     1,     1,     1,     1,     1,     1,     1,
        1,     1,     1,     3,     3,     3,     1,     1,     2,     2
 };
+
+
 /* YYDPREC[RULE-NUM] -- Dynamic precedence of rule #RULE-NUM (0 if none).  */
 static const yytype_int8 yydprec[] =
 {
@@ -1524,6 +1597,7 @@ static const yytype_int8 yydprec[] =
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0
 };
+
 /* YYMERGER[RULE-NUM] -- Index of merging function for rule #RULE-NUM.  */
 static const yytype_int8 yymerger[] =
 {
@@ -1566,6 +1640,7 @@ static const yytype_int8 yymerger[] =
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0
 };
+
 /* YYIMMEDIATE[RULE-NUM] -- True iff rule #RULE-NUM is not to be deferred, as
    in the case of predicates.  */
 static const yybool yyimmediate[] =
@@ -1609,6 +1684,7 @@ static const yybool yyimmediate[] =
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0
 };
+
 /* YYCONFLP[YYPACT[STATE-NUM]] -- Pointer into YYCONFL of start of
    list of conflicting reductions corresponding to action entry for
    state STATE-NUM in yytable.  0 means no conflicts.  The list in
@@ -1883,6 +1959,7 @@ static const yytype_int8 yyconflp[] =
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
        0,     0,     0
 };
+
 /* YYCONFL[I] -- lists of conflicting rule numbers, each terminated by
    0, pointed into by YYCONFLP.  */
 static const short yyconfl[] =
@@ -1893,9 +1970,12 @@ static const short yyconfl[] =
        0,    90,     0,    90,     0,   258,     0,   272,     0,   257,
        0,   257,     0,    90,     0,    90,     0,    90,     0
 };
+
+
 /* YYLLOC_DEFAULT -- Set CURRENT to span from RHS[1] to RHS[N].
    If N is 0, then set CURRENT to the empty location which ends
    the previous symbol: RHS[0] (always defined).  */
+
 #ifndef YYLLOC_DEFAULT
 # define YYLLOC_DEFAULT(Current, Rhs, N)                                \
     do                                                                  \
@@ -1915,7 +1995,11 @@ static const short yyconfl[] =
         }                                                               \
     while (0)
 #endif
+
 # define YYRHSLOC(Rhs, K) ((Rhs)[K].yystate.yyloc)
+
+
+
 #undef yynerrs
 #define yynerrs (yystackp->yyerrcnt)
 #undef yychar
@@ -1928,35 +2012,45 @@ static const short yyconfl[] =
 #define mca_char yychar
 #define mca_lval yylval
 #define mca_lloc yylloc
+
 enum { YYENOMEM = -2 };
+
 typedef enum { yyok, yyaccept, yyabort, yyerr, yynomem } YYRESULTTAG;
+
 #define YYCHK(YYE)                              \
   do {                                          \
     YYRESULTTAG yychk_flag = YYE;               \
     if (yychk_flag != yyok)                     \
       return yychk_flag;                        \
   } while (0)
+
 /* YYINITDEPTH -- initial size of the parser's stacks.  */
 #ifndef YYINITDEPTH
 # define YYINITDEPTH 200
 #endif
+
 /* YYMAXDEPTH -- maximum size the stacks can grow to (effective only
    if the built-in stack extension method is used).
+
    Do not make this value too large; the results are undefined if
    SIZE_MAX < YYMAXDEPTH * sizeof (GLRStackItem)
    evaluated with infinite-precision integer arithmetic.  */
+
 #ifndef YYMAXDEPTH
 # define YYMAXDEPTH 10000
 #endif
+
 /* Minimum number of free items on the stack allowed after an
    allocation.  This is to allow allocation and initialization
    to be completed by functions that call yyexpandGLRStack before the
    stack is expanded, thus insuring that all necessary pointers get
    properly redirected to new data.  */
 #define YYHEADROOM 2
+
 #ifndef YYSTACKEXPANDABLE
 #  define YYSTACKEXPANDABLE 1
 #endif
+
 #if YYSTACKEXPANDABLE
 # define YY_RESERVE_GLRSTACK(Yystack)                   \
   do {                                                  \
@@ -1970,17 +2064,22 @@ typedef enum { yyok, yyaccept, yyabort, yyerr, yynomem } YYRESULTTAG;
       yyMemoryExhausted (Yystack);                      \
   } while (0)
 #endif
+
 /** State numbers. */
 typedef int yy_state_t;
+
 /** Rule numbers. */
 typedef int yyRuleNum;
+
 /** Item references. */
 typedef short yyItemNum;
+
 typedef struct yyGLRState yyGLRState;
 typedef struct yyGLRStateSet yyGLRStateSet;
 typedef struct yySemanticOption yySemanticOption;
 typedef union yyGLRStackItem yyGLRStackItem;
 typedef struct yyGLRStack yyGLRStack;
+
 struct yyGLRState
 {
   /** Type tag: always true.  */
@@ -2005,6 +2104,7 @@ struct yyGLRState
   /** Source location for this state.  */
   YYLTYPE yyloc;
 };
+
 struct yyGLRStateSet
 {
   yyGLRState** yystates;
@@ -2016,6 +2116,7 @@ struct yyGLRStateSet
   YYPTRDIFF_T yysize;
   YYPTRDIFF_T yycapacity;
 };
+
 struct yySemanticOption
 {
   /** Type tag: always false.  */
@@ -2032,20 +2133,24 @@ struct yySemanticOption
    *  options are chained in decreasing order by address.  */
   yySemanticOption* yynext;
 };
+
 /** Type of the items in the GLR stack.  The yyisState field
  *  indicates which item of the union is valid.  */
 union yyGLRStackItem {
   yyGLRState yystate;
   yySemanticOption yyoption;
 };
+
 struct yyGLRStack {
   int yyerrState;
   /* To compute the location of the error token.  */
   yyGLRStackItem yyerror_range[3];
+
   int yyerrcnt;
   int yyrawchar;
   YYSTYPE yyval;
   YYLTYPE yyloc;
+
   YYJMP_BUF yyexception_buffer;
   yyGLRStackItem* yyitems;
   yyGLRStackItem* yynextFree;
@@ -2054,9 +2159,11 @@ struct yyGLRStack {
   yyGLRState* yylastDeleted;
   yyGLRStateSet yytops;
 };
+
 #if YYSTACKEXPANDABLE
 static void yyexpandGLRStack (yyGLRStack* yystackp);
 #endif
+
 _Noreturn static void
 yyFail (yyGLRStack* yystackp, YYLTYPE *yylocp, mc_value* mcast, const char* yymsg)
 {
@@ -2064,21 +2171,25 @@ yyFail (yyGLRStack* yystackp, YYLTYPE *yylocp, mc_value* mcast, const char* yyms
     yyerror (yylocp, mcast, yymsg);
   YYLONGJMP (yystackp->yyexception_buffer, 1);
 }
+
 _Noreturn static void
 yyMemoryExhausted (yyGLRStack* yystackp)
 {
   YYLONGJMP (yystackp->yyexception_buffer, 2);
 }
+
 /** Accessing symbol of state YYSTATE.  */
 static inline yysymbol_kind_t
 yy_accessing_symbol (yy_state_t yystate)
 {
   return YY_CAST (yysymbol_kind_t, yystos[yystate]);
 }
+
 #if MCA_DEBUG || 0
 /* The user-facing name of the symbol whose (internal) number is
    YYSYMBOL.  No bounds checking.  */
 static const char *yysymbol_name (yysymbol_kind_t yysymbol) YY_ATTRIBUTE_UNUSED;
+
 /* YYTNAME[SYMBOL-NUM] -- String name of the symbol SYMBOL-NUM.
    First, the terminals, then, starting at YYNTOKENS, nonterminals.  */
 static const char *const yytname[] =
@@ -2127,47 +2238,63 @@ static const char *const yytname[] =
   "mc_const", "mc_nc", "mc_underscore", "mc_literal", "mc_iotype",
   "mc_unit_value", "mc_unit_type", "mc_endls", YY_NULLPTR
 };
+
 static const char *
 yysymbol_name (yysymbol_kind_t yysymbol)
 {
   return yytname[yysymbol];
 }
 #endif
+
 /** Left-hand-side symbol for rule #YYRULE.  */
 static inline yysymbol_kind_t
 yylhsNonterm (yyRuleNum yyrule)
 {
   return YY_CAST (yysymbol_kind_t, yyr1[yyrule]);
 }
+
 #if MCA_DEBUG
+
 # ifndef YYFPRINTF
 #  define YYFPRINTF fprintf
 # endif
+
 # define YY_FPRINTF                             \
   YY_IGNORE_USELESS_CAST_BEGIN YY_FPRINTF_
+
 # define YY_FPRINTF_(Args)                      \
   do {                                          \
     YYFPRINTF Args;                             \
     YY_IGNORE_USELESS_CAST_END                  \
   } while (0)
+
 # define YY_DPRINTF                             \
   YY_IGNORE_USELESS_CAST_BEGIN YY_DPRINTF_
+
 # define YY_DPRINTF_(Args)                      \
   do {                                          \
     if (yydebug)                                \
       YYFPRINTF Args;                           \
     YY_IGNORE_USELESS_CAST_END                  \
   } while (0)
+
+
 /* YYLOCATION_PRINT -- Print the location on the stream.
    This macro was not mandated originally: define only if we know
    we won't break user code: when these are the locations we know.  */
+
 # ifndef YYLOCATION_PRINT
+
 #  if defined YY_LOCATION_PRINT
+
    /* Temporary convenience wrapper in case some people defined the
       undocumented and private YY_LOCATION_PRINT macros.  */
 #   define YYLOCATION_PRINT(File, Loc)  YY_LOCATION_PRINT(File, *(Loc))
+
 #  elif defined MCA_LTYPE_IS_TRIVIAL && MCA_LTYPE_IS_TRIVIAL
+
 /* Print *YYLOCP on YYO.  Private, do not rely on its existence. */
+
 YY_ATTRIBUTE_UNUSED
 static int
 yy_location_print_ (FILE *yyo, YYLTYPE const * const yylocp)
@@ -2193,20 +2320,29 @@ yy_location_print_ (FILE *yyo, YYLTYPE const * const yylocp)
     }
   return res;
 }
+
 #   define YYLOCATION_PRINT  yy_location_print_
+
     /* Temporary convenience wrapper in case some people defined the
        undocumented and private YY_LOCATION_PRINT macros.  */
 #   define YY_LOCATION_PRINT(File, Loc)  YYLOCATION_PRINT(File, &(Loc))
+
 #  else
+
 #   define YYLOCATION_PRINT(File, Loc) ((void) 0)
     /* Temporary convenience wrapper in case some people defined the
        undocumented and private YY_LOCATION_PRINT macros.  */
 #   define YY_LOCATION_PRINT  YYLOCATION_PRINT
+
 #  endif
 # endif /* !defined YYLOCATION_PRINT */
+
+
+
 /*-----------------------------------.
 | Print this symbol's value on YYO.  |
 `-----------------------------------*/
+
 static void
 yy_symbol_value_print (FILE *yyo,
                        yysymbol_kind_t yykind, YYSTYPE const * const yyvaluep, YYLTYPE const * const yylocationp, mc_value* mcast)
@@ -2221,20 +2357,25 @@ yy_symbol_value_print (FILE *yyo,
   YY_USE (yykind);
   YY_IGNORE_MAYBE_UNINITIALIZED_END
 }
+
+
 /*---------------------------.
 | Print this symbol on YYO.  |
 `---------------------------*/
+
 static void
 yy_symbol_print (FILE *yyo,
                  yysymbol_kind_t yykind, YYSTYPE const * const yyvaluep, YYLTYPE const * const yylocationp, mc_value* mcast)
 {
   YYFPRINTF (yyo, "%s %s (",
              yykind < YYNTOKENS ? "token" : "nterm", yysymbol_name (yykind));
+
   YYLOCATION_PRINT (yyo, yylocationp);
   YYFPRINTF (yyo, ": ");
   yy_symbol_value_print (yyo, yykind, yyvaluep, yylocationp, mcast);
   YYFPRINTF (yyo, ")");
 }
+
 # define YY_SYMBOL_PRINT(Title, Kind, Value, Location)                  \
   do {                                                                  \
     if (yydebug)                                                        \
@@ -2244,26 +2385,36 @@ yy_symbol_print (FILE *yyo,
         YY_FPRINTF ((stderr, "\n"));                                    \
       }                                                                 \
   } while (0)
+
 static inline void
 yy_reduce_print (yybool yynormal, yyGLRStackItem* yyvsp, YYPTRDIFF_T yyk,
                  yyRuleNum yyrule, mc_value* mcast);
+
 # define YY_REDUCE_PRINT(Args)          \
   do {                                  \
     if (yydebug)                        \
       yy_reduce_print Args;             \
   } while (0)
+
 /* Nonzero means print parse trace.  It is left uninitialized so that
    multiple parsers can coexist.  */
 int yydebug;
+
 static void yypstack (yyGLRStack* yystackp, YYPTRDIFF_T yyk)
   YY_ATTRIBUTE_UNUSED;
 static void yypdumpstack (yyGLRStack* yystackp)
   YY_ATTRIBUTE_UNUSED;
+
 #else /* !MCA_DEBUG */
+
 # define YY_DPRINTF(Args) do {} while (yyfalse)
 # define YY_SYMBOL_PRINT(Title, Kind, Value, Location)
 # define YY_REDUCE_PRINT(Args)
+
 #endif /* !MCA_DEBUG */
+
+
+
 /** Fill in YYVSP[YYLOW1 .. YYLOW0-1] from the chain of states starting
  *  at YYVSP[YYLOW0].yystate.yypred.  Leaves YYVSP[YYLOW1].yystate.yypred
  *  containing the pointer to the next state in the chain.  */
@@ -2289,6 +2440,8 @@ yyfillin (yyGLRStackItem *yyvsp, int yylow0, int yylow1)
       s = yyvsp[i].yystate.yypred = s->yypred;
     }
 }
+
+
 /** If yychar is empty, fetch the next token.  */
 static inline yysymbol_kind_t
 yygetToken (int *yycharp, yyGLRStack* yystackp, mc_value* mcast)
@@ -2313,6 +2466,7 @@ yygetToken (int *yycharp, yyGLRStack* yystackp, mc_value* mcast)
     }
   return yytoken;
 }
+
 /* Do nothing if YYNORMAL or if *YYLOW <= YYLOW1.  Otherwise, fill in
  * YYVSP[YYLOW1 .. *YYLOW-1] as in yyfillin and set *YYLOW = YYLOW1.
  * For convenience, always return YYLOW1.  */
@@ -2328,6 +2482,7 @@ yyfill (yyGLRStackItem *yyvsp, int *yylow, int yylow1, yybool yynormal)
     }
   return yylow1;
 }
+
 /** Perform user action for rule number YYN, with RHS length YYRHSLEN,
  *  and top stack item YYVSP.  YYLVALP points to place to put semantic
  *  value ($$), and yylocp points to place for location information
@@ -2365,6 +2520,7 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
 # define YYBACKUP(Token, Value)                                              \
   return yyerror (yylocp, mcast, YY_("syntax error: cannot back up")),     \
          yyerrok, yyerr
+
   if (yyrhslen == 0)
     *yyvalp = yyval_default;
   else
@@ -2378,57 +2534,72 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
   YY_REDUCE_PRINT ((yynormal || yyk == -1, yyvsp, yyk, yyrule, mcast));
   switch (yyrule)
     {
-  case 2:
+  case 2: /* start: mc_tops  */
                {}
     break;
-  case 3:
+
+  case 3: /* start: mc_tops mc_endls  */
                         { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value); }
     break;
-  case 4:
+
+  case 4: /* start: mc_endls mc_tops  */
                         { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 5:
+
+  case 5: /* start: mc_endls mc_tops mc_endls  */
                                  { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value); }
     break;
-  case 6:
+
+  case 6: /* start: mc_endls  */
                         { ((*yyvalp).value) = NULL; }
     break;
-  case 7:
-                                 { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value); }
+
+  case 7: /* mc_tops: mc_tops mc_endls mc_top  */
+                                 { mprintf(MCC_LOG_AST,"'top.n "); ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value); }
     break;
-  case 8:
-                { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
+
+  case 8: /* mc_tops: mc_top  */
+                { mprintf(MCC_LOG_AST,"'top.1 "); ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 9:
+
+  case 9: /* mc_top: mc_use  */
                { mc_value_link(mcast, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
-  case 10:
+
+  case 10: /* mc_top: mc_component  */
                      { mc_value_link(mcast, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
-  case 11:
+
+  case 11: /* mc_top: mc_module  */
                   { mc_value_link(mcast, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
-  case 12:
+
+  case 12: /* mc_top: mc_interface  */
                      { mc_value_link(mcast, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
-  case 13:
+
+  case 13: /* mc_top: mc_enum  */
                 { mc_value_link(mcast, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
-  case 14:
+
+  case 14: /* mc_top: mc_define  */
                   { mc_value_link(mcast, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
-  case 15:
+
+  case 15: /* mc_top: error  */
               { ((*yyvalp).value) = NULL; mc_dlog_add(MCD_E1002_TOP_SKIPPED, 1, g_last_token ? g_last_token->tpos : 0, g_last_token ? g_last_token->tlen : 0, NULL); }
     break;
-  case 16:
+
+  case 16: /* mc_use: MCK_PUB MCK_USE mc_uri  */
 {
-    
+    mprintf(MCC_LOG_AST,"@use ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_USE_PUB, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 17:
+
+  case 17: /* mc_use: MCK_PUB MCK_USE mc_uri MCPT_COLON mc_idss  */
 {
-    
+    mprintf(MCC_LOG_AST,"@use ");
     // Save mc_uri pos/len before mc_value_link extends it with IMPORT_IDS
     unsigned int uri_pos = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)->pos;
     unsigned int uri_len = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)->len;
@@ -2437,15 +2608,17 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
     (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)->len = uri_len;
 }
     break;
-  case 18:
+
+  case 18: /* mc_use: MCK_USE mc_uri  */
 {
-    
+    mprintf(MCC_LOG_AST,"@use ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_USE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 19:
+
+  case 19: /* mc_use: MCK_USE mc_uri MCPT_COLON mc_idss  */
 {
-    
+    mprintf(MCC_LOG_AST,"@use ");
     // Save mc_uri pos/len before mc_value_link extends it with IMPORT_IDS
     unsigned int uri_pos = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)->pos;
     unsigned int uri_len = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)->len;
@@ -2454,12 +2627,14 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
     (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)->len = uri_len;
 }
     break;
-  case 20:
+
+  case 20: /* mc_uri: mc_uri_trunk  */
 {
     ((*yyvalp).value) = mc_value_link(mc_value_create_data(MCAST_URI_PREFIX, strdup("$"), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)->pos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)->len), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 21:
+
+  case 21: /* mc_uri: mc_uri_trunk MCK_AS mc_ids  */
 {
     ((*yyvalp).value) = mc_value_link3(
         mc_value_create_data(MCAST_URI_PREFIX, strdup("$"), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)->pos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)->len),
@@ -2468,12 +2643,14 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
     );
 }
     break;
-  case 22:
+
+  case 22: /* mc_uri: mc_prefix mc_uri_trunk  */
 {
     ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 23:
+
+  case 23: /* mc_uri: mc_prefix mc_uri_trunk MCK_AS mc_ids  */
 {
     ((*yyvalp).value) = mc_value_link3(
                 (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value),
@@ -2482,70 +2659,85 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
             );
 }
     break;
-  case 24:
+
+  case 24: /* mc_prefix: MCOP_DIVID  */
                                 { ((*yyvalp).value) = mc_value_create_data(MCAST_URI_PREFIX, strdup("/"), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 25:
+
+  case 25: /* mc_prefix: MCPT_DOT MCOP_DIVID  */
                                 { ((*yyvalp).value) = mc_value_create_data(MCAST_URI_PREFIX, strdup("./"), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tlen + (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen);}
     break;
-  case 26:
+
+  case 26: /* mc_prefix: MCPT_DOT MCPT_DOT MCOP_DIVID  */
                                          { ((*yyvalp).value) = mc_value_create_data(MCAST_URI_PREFIX, strdup("../"), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.token)->tlen + (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tlen + (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 27:
+
+  case 27: /* mc_uri_trunk: mc_levels  */
 {
     ((*yyvalp).value) = mc_value_create_node(MCAST_URI_MODULE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 28:
+
+  case 28: /* mc_uri_trunk: mc_levels MCPT_AT MCTP_VERSION  */
 {
     ((*yyvalp).value) = mc_value_link( mc_value_create_node(MCAST_URI_MODULE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)), 
                        mc_value_create_data(MCAST_URI_VERSION, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen));
 }
     break;
-  case 29:
+
+  case 29: /* mc_uri_trunk: mc_levels MCPT_AT MCTP_NUMBER_FLOAT  */
 {
     ((*yyvalp).value) = mc_value_link( mc_value_create_node(MCAST_URI_MODULE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)), 
                        mc_value_create_data(MCAST_URI_VERSION, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen));
 }
     break;
-  case 30:
+
+  case 30: /* mc_uri_trunk: mc_levels MCK_MC  */
 {
     ((*yyvalp).value) = mc_value_create_node(MCAST_URI_FILE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value));
     ((*yyvalp).value)->len += (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen;  // extend position to include ".mc"
 }
     break;
-  case 31:
+
+  case 31: /* mc_uri_trunk: mc_levels MCPT_AT MCTP_VERSION MCK_MC  */
 {
     ((*yyvalp).value) = mc_value_link( mc_value_create_node(MCAST_URI_FILE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value)), 
                        mc_value_create_data(MCAST_URI_VERSION, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tlen));
     ((*yyvalp).value)->len += (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen;  // extend position to include ".mc"
 }
     break;
-  case 32:
+
+  case 32: /* mc_uri_trunk: mc_levels MCPT_AT MCTP_NUMBER_FLOAT MCK_MC  */
 {
     ((*yyvalp).value) = mc_value_link( mc_value_create_node(MCAST_URI_FILE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value)), 
                        mc_value_create_data(MCAST_URI_VERSION, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tlen));
     ((*yyvalp).value)->len += (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen;  // extend position to include ".mc"
 }
     break;
-  case 33:
+
+  case 33: /* mc_levels: mc_levels MCPT_DOT mc_id  */
                                         { ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
-  case 34:
+
+  case 34: /* mc_levels: mc_levels MCOP_DIVID mc_id  */
                                         { ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
-  case 35:
+
+  case 35: /* mc_levels: mc_id  */
                                         { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 36:
+
+  case 36: /* mc_class_name: mc_ids MCPT_DOT mc_int  */
                                         { ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), mc_value_create_node(MCAST_OPD_DOT, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
     break;
-  case 37:
+
+  case 37: /* mc_class_name: mc_ids  */
                                         { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value);}
     break;
-  case 38:
+
+  case 38: /* mc_component: MCK_COMPONENT mc_class_name mc_paramds mc_body  */
 {
-    
+    mprintf(MCC_LOG_AST,"@comp ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_COMPONENT, mc_value_link3(
             mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)), 
             mc_value_create_node(MCAST_PARAMS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)),
@@ -2553,9 +2745,10 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
         );
 }
     break;
-  case 39:
+
+  case 39: /* mc_module: MCK_MODULE mc_class_name mc_paramds mc_body  */
 {
-    
+    mprintf(MCC_LOG_AST,"@mdl ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_MODULE, mc_value_link3(
             mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)), 
             mc_value_create_node(MCAST_PARAMS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)),
@@ -2563,9 +2756,10 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
         );
 }
     break;
-  case 40:
+
+  case 40: /* mc_interface: MCK_INTERFACE mc_class_name mc_paramds mc_body  */
 {
-    
+    mprintf(MCC_LOG_AST,"@ifs ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_INTERFACE, mc_value_link3(
             mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)), 
             mc_value_create_node(MCAST_PARAMS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)),
@@ -2573,24 +2767,27 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
         );
 }
     break;
-  case 41:
+
+  case 41: /* mc_enum: MCK_ENUM mc_class_name MCPT_LCURLY mc_idss MCPT_RCURLY  */
 {
-    
+    mprintf(MCC_LOG_AST,"@enum ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_ENUM, mc_value_link(
                 mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value)), 
                 mc_value_create_node(MCAST_ENUM_VALUES, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value))
             ));
 }
     break;
-  case 42:
+
+  case 42: /* mc_define: MCK_DEFINE mc_class_name mc_body  */
 {
-    
+    mprintf(MCC_LOG_AST,"@def ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_DEFINE, mc_value_link(mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)));
 }
     break;
-  case 43:
+
+  case 43: /* mc_body: MCPT_LCURLY mc_clauses MCPT_RCURLY  */
 {
-    
+    mprintf(MCC_LOG_AST,"@bdy.{n} ");
     if ((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value) == NULL) {
         mc_dlog_add(MCD_W1105_EMPTY_BODY, 2,
                     (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen,
@@ -2599,86 +2796,106 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
     ((*yyvalp).value) = mc_value_create_node(MCAST_BODY, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 44:
-                                            { ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
+
+  case 44: /* mc_clauses: mc_clauses mc_endls mc_clause  */
+                                            { mprintf(MCC_LOG_AST,"'claus.n \n\n "); ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
-  case 45:
-                                            { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
+
+  case 45: /* mc_clauses: mc_clause  */
+                                            { mprintf(MCC_LOG_AST,"'claus.1 \n\n "); ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 46:
-                                            { ((*yyvalp).value) = NULL; }
+
+  case 46: /* mc_clauses: %empty  */
+                                            { mprintf(MCC_LOG_AST,"param empty "); ((*yyvalp).value) = NULL; }
     break;
-  case 47:
+
+  case 47: /* mc_clause: mc_attribute  */
                         { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 48:
+
+  case 48: /* mc_clause: mc_attribute_pin  */
                             { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 49:
+
+  case 49: /* mc_clause: mc_net  */
                   { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 50:
+
+  case 50: /* mc_clause: mc_role  */
                    { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 51:
+
+  case 51: /* mc_clause: mc_function  */
                        { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 52:
+
+  case 52: /* mc_clause: mc_conds  */
                     { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 53:
+
+  case 53: /* mc_clause: error  */
                  { ((*yyvalp).value) = NULL; mc_dlog_add(MCD_E1003_CLAUSE_SKIPPED, 1, g_last_token ? g_last_token->tpos : 0, g_last_token ? g_last_token->tlen : 0, NULL); }
     break;
-  case 54:
+
+  case 54: /* mc_attribute: mc_ids MCOP_EQUAL mc_attr_values  */
 {
-    
+    mprintf(MCC_LOG_AST,"@attr.id=v ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_ATTRIBUTE, mc_value_link(
                     mc_value_create_node(MCAST_ATT_ID, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)),
                     mc_value_create_node(MCAST_ATT_VALUES, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))));
 }
     break;
-  case 55:
+
+  case 55: /* mc_attr_values: mc_attr_values MCPT_COMMA mc_attr_value  */
 {
-    
+    mprintf(MCC_LOG_AST,"'av.n ");
     ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 56:
+
+  case 56: /* mc_attr_values: mc_attr_value  */
 {
-    
+    mprintf(MCC_LOG_AST,"'av.1 ");
     ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value);
 }
     break;
-  case 57:
+
+  case 57: /* mc_attr_value: mc_literal  */
 {
     ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); 
 }
     break;
-  case 58:
+
+  case 58: /* mc_attr_value: mc_opd  */
 {
     ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); 
 }
     break;
-  case 59:
+
+  case 59: /* mc_attr_value: mc_phrase  */
 {
     ((*yyvalp).value) = mc_value_create_node(MCAST_EXPRESSION, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); 
 }
     break;
-  case 60:
+
+  case 60: /* mc_attr_value: MCPT_LBRACKET mc_attr_lines MCPT_RBRACKET  */
 {
-    
+    mprintf(MCC_LOG_AST,"@set.lines.[] ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_SET_ATTRIBUTES, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 61:
-                                                    { ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
+
+  case 61: /* mc_attr_lines: mc_attr_lines mc_endls mc_attribute  */
+                                                    { mprintf(MCC_LOG_AST,"'atrline.n "); ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
-  case 62:
-                                                    { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
+
+  case 62: /* mc_attr_lines: mc_attribute  */
+                                                    { mprintf(MCC_LOG_AST,"'atrline.1 "); ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 63:
+
+  case 63: /* mc_attribute_pin: MCK_PINS MCOP_EQUAL MCPT_LBRACKET mc_pins_lines MCPT_RBRACKET  */
 {
-    
+    mprintf(MCC_LOG_AST,"@attr.pins=[] ");
     if ((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value) == NULL) {
         mc_dlog_add(MCD_W1106_EMPTY_PINS, 2,
                     (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.token)->tpos + (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.token)->tlen, 0,
@@ -2687,9 +2904,10 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
     ((*yyvalp).value) = mc_value_create_node(MCAST_ATTRIBUTE_PIN, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 64:
+
+  case 64: /* mc_attribute_pin: MCK_PINS MCOP_PLUSEQUAL MCPT_LBRACKET mc_pins_lines MCPT_RBRACKET  */
 {
-    
+    mprintf(MCC_LOG_AST,"@attr.pins+=[] ");
     if ((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value) == NULL) {
         mc_dlog_add(MCD_W1106_EMPTY_PINS, 2,
                     (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.token)->tpos + (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.token)->tlen, 0,
@@ -2698,9 +2916,10 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
     ((*yyvalp).value) = mc_value_create_node(MCAST_ATTRIBUTE_PINADD, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 65:
+
+  case 65: /* mc_attribute_pin: MCK_PINS MCPT_DOT mc_id MCOP_EQUAL MCPT_LBRACKET mc_pins_lines MCPT_RBRACKET  */
 {
-    
+    mprintf(MCC_LOG_AST,"@attr.pins.subcls=[] ");
     if ((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value) == NULL) {
         mc_dlog_add(MCD_W1106_EMPTY_PINS, 2,
                     (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.token)->tpos + (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.token)->tlen, 0,
@@ -2709,44 +2928,51 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
     ((*yyvalp).value) = mc_value_create_node(MCAST_ATTRIBUTE_PIN, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-4)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)));
 }
     break;
-  case 66:
-                                                    { ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
+
+  case 66: /* mc_pins_lines: mc_pins_lines mc_endls mc_pins_line  */
+                                                    { mprintf(MCC_LOG_AST,"'plines.n "); ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
-  case 67:
-                                                    { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
+
+  case 67: /* mc_pins_lines: mc_pins_line  */
+                                                    { mprintf(MCC_LOG_AST,"'plines.1 "); ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 68:
-                                                    { ((*yyvalp).value) = NULL; }
+
+  case 68: /* mc_pins_lines: %empty  */
+                                                    { mprintf(MCC_LOG_AST,"pin empty "); ((*yyvalp).value) = NULL; }
     break;
-  case 69:
+
+  case 69: /* mc_pins_line: mc_pin_idn MCOP_EQUAL mc_pins_names  */
 {
-    
+    mprintf(MCC_LOG_AST,"@pl.id=nm ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_PIN_LINE, mc_value_link(
                 mc_value_create_node(MCAST_PIN_ID, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)),
                 mc_value_create_node(MCAST_PIN_NAMES, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))));
 }
     break;
-  case 70:
+
+  case 70: /* mc_pins_line: mc_pin_idn MCOP_EQUAL mc_pins_names MCPT_COMMA mc_attr_values  */
 {
-    
+    mprintf(MCC_LOG_AST,"@pl.id=nm+val ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_PIN_LINE, mc_value_link3(
                 mc_value_create_node(MCAST_PIN_ID, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-4)].yystate.yysemantics.yyval.value)),
                 mc_value_create_node(MCAST_PIN_NAMES, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)),
                 mc_value_create_node(MCAST_PIN_VALUES, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))));
 }
     break;
-  case 71:
+
+  case 71: /* mc_pins_line: mc_iotype mc_pin_idn MCOP_EQUAL mc_pins_names  */
 {
-    
+    mprintf(MCC_LOG_AST,"@pline.io+id=nm ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_PIN_LINE, mc_value_link3(
                 (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value),
                 mc_value_create_node(MCAST_PIN_ID, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)),
                 mc_value_create_node(MCAST_PIN_NAMES, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))));
 }
     break;
-  case 72:
+
+  case 72: /* mc_pins_line: mc_iotype mc_pin_idn MCOP_EQUAL mc_pins_names MCPT_COMMA mc_attr_values  */
 {
-    
+    mprintf(MCC_LOG_AST,"@pline.io+id=nm+val ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_PIN_LINE, mc_value_link4(
                 (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-5)].yystate.yysemantics.yyval.value),
                 mc_value_create_node(MCAST_PIN_ID, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-4)].yystate.yysemantics.yyval.value)),
@@ -2755,7 +2981,8 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
             );
 }
     break;
-  case 73:
+
+  case 73: /* mc_pins_line: error  */
 {
     ((*yyvalp).value) = NULL;
     mc_dlog_add(MCD_E1004_PIN_SKIPPED, 1,
@@ -2764,21 +2991,24 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
                 NULL);
 }
     break;
-  case 74:
+
+  case 74: /* mc_pin_idn: mc_int  */
 {
-    
+    mprintf(MCC_LOG_AST,"'pidn.int ");
     ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value);
 }
     break;
-  case 75:
+
+  case 75: /* mc_pin_idn: mc_ida  */
 {
-    
+    mprintf(MCC_LOG_AST,"'pidn.ida ");
     ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value);
 }
     break;
-  case 76:
+
+  case 76: /* mc_pin_idn: mc_phrase  */
 {
-    
+    mprintf(MCC_LOG_AST,"'pidn.expr '");
     if ((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value) != NULL && (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)->type >= 64) {
         mc_dlog_add(MCD_E1005_PIN_ID_NOT_CONST, 1,
                     g_last_token->tpos, g_last_token->tlen,
@@ -2787,38 +3017,44 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
     ((*yyvalp).value) = mc_value_create_node(MCAST_EXPRESSION, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 77:
+
+  case 77: /* mc_pins_names: mc_pins_names MCOP_OR mc_pins_name  */
 {
-    
+    mprintf(MCC_LOG_AST,"'names.n ");
     ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 78:
+
+  case 78: /* mc_pins_names: mc_pins_name  */
 {
-    
+    mprintf(MCC_LOG_AST,"'names.1 ");
     ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value);
 }
     break;
-  case 79:
+
+  case 79: /* mc_pins_name: mc_nc  */
 { 
     ((*yyvalp).value) =  mc_value_create_node(MCAST_PIN_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 80:
+
+  case 80: /* mc_pins_name: mc_int  */
 {
-    
+    mprintf(MCC_LOG_AST,"'name.int ");
     ((*yyvalp).value) =  mc_value_create_node(MCAST_PIN_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 81:
+
+  case 81: /* mc_pins_name: mc_opd  */
 {
-    
+    mprintf(MCC_LOG_AST,"'name.opd ");
     ((*yyvalp).value) =  mc_value_create_node(MCAST_PIN_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 82:
+
+  case 82: /* mc_pins_name: mc_phrase  */
 {
-    
+    mprintf(MCC_LOG_AST,"@name.expr ");
     if ((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value) != NULL && (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)->type >= 64) {
         mc_dlog_add(MCD_E1006_PIN_NAME_NOT_CONST, 1,
                     g_last_token->tpos, g_last_token->tlen,
@@ -2827,27 +3063,31 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
     ((*yyvalp).value) = mc_value_create_node(MCAST_PIN_NAME, mc_value_create_node(MCAST_EXPRESSION, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)));
 }
     break;
-  case 83:
+
+  case 83: /* mc_net: mc_iotype mc_opds  */
 {
-    
+    mprintf(MCC_LOG_AST,"@net.io ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_NET_PORTS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)));
 }
     break;
-  case 84:
+
+  case 84: /* mc_net: mc_iotype mc_phrase  */
 {
-    
+    mprintf(MCC_LOG_AST,"@net.io ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_NET_PORTS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)));
 }
     break;
-  case 85:
+
+  case 85: /* mc_net: mc_declare_a  */
 {
-    
+    mprintf(MCC_LOG_AST,"@net.dclra+ ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_NET, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 86:
+
+  case 86: /* mc_net: mc_phrase  */
 {
-    
+    mprintf(MCC_LOG_AST,"@net ");
     if ((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value) != NULL && ((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)->type == 4 || (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)->type == 6 || (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)->type == 7 || (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)->type == 9)) {
         mc_dlog_add(MCD_E1007_NET_NOT_PORT, 1,
                     g_last_token->tpos, g_last_token->tlen,
@@ -2856,59 +3096,68 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
     ((*yyvalp).value) = mc_value_create_node(MCAST_NET, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 87:
+
+  case 87: /* mc_net: MCK_RETURN mc_phrases  */
 {
-    
+    mprintf(MCC_LOG_AST,"@ret ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_NET, mc_value_link(
             mc_value_create_data(MCAST_IOTYPE_RETURN, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tlen),
             (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))
         );
 }
     break;
-  case 88:
-                                    { ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
+
+  case 88: /* mc_opds: mc_opds MCPT_COMMA mc_opd  */
+                                    { mprintf(MCC_LOG_AST,"'opd.n "); ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
-  case 89:
-                                    { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
+
+  case 89: /* mc_opds: mc_opd  */
+                                    { mprintf(MCC_LOG_AST,"'opd.1 "); ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 90:
+
+  case 90: /* mc_opd: mc_ids  */
 {
-    
+    mprintf(MCC_LOG_AST,"'opd.ida ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 91:
+
+  case 91: /* mc_opd: mc_ids MCPT_DOT mc_int  */
 {
-    
+    mprintf(MCC_LOG_AST,"@opd.ids.num ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), mc_value_create_node(MCAST_OPD_DOT, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))));
 }
     break;
-  case 92:
+
+  case 92: /* mc_opd: MCK_THIS  */
 {
-    
+    mprintf(MCC_LOG_AST,"@opd.this ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD, 
             mc_value_create_data(MCAST_OPD_THIS, strdup("this"), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen));
 }
     break;
-  case 93:
+
+  case 93: /* mc_opd: MCK_THIS mc_idm  */
 {
-    
+    mprintf(MCC_LOG_AST,"@opd.this.sub ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD, mc_value_link(
             mc_value_create_data(MCAST_OPD_THIS, strdup("this"), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tlen), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)));
 }
     break;
-  case 94:
+
+  case 94: /* mc_opd: MCK_THIS MCPT_DOT mc_int  */
 {
-    
+    mprintf(MCC_LOG_AST,"@opd.this.int ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD, mc_value_link(
             mc_value_create_data(MCAST_OPD_THIS, strdup("this"), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.token)->tlen), 
             mc_value_create_node(MCAST_OPD_DOT, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)))
         );
 }
     break;
-  case 95:
+
+  case 95: /* mc_opd: MCK_THIS mc_idm MCPT_DOT mc_int  */
 {
-    
+    mprintf(MCC_LOG_AST,"@opd.this.sub.int ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD, mc_value_link3(
             mc_value_create_data(MCAST_OPD_THIS, strdup("this"), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.token)->tlen),
             (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value),
@@ -2916,285 +3165,367 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
         );
 }
     break;
-  case 96:
+
+  case 96: /* mc_opd: MCK_PINS mc_idm  */
 {
-    
+    mprintf(MCC_LOG_AST,"@opd.this.sub ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD, mc_value_link(
             mc_value_create_data(MCAST_OPD_PINS, strdup("pins"), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tlen), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)));
 }
     break;
-  case 97:
+
+  case 97: /* mc_opd: MCK_PINS MCPT_DOT mc_int  */
 {
-    
+    mprintf(MCC_LOG_AST,"@opd.this.int ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD, mc_value_link(
             mc_value_create_data(MCAST_OPD_PINS, strdup("pins"), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.token)->tlen), 
             mc_value_create_node(MCAST_OPD_DOT, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)))
         );
 }
     break;
-  case 98:
+
+  case 98: /* mc_opd: mc_underscore  */
 {
-    
+    mprintf(MCC_LOG_AST,"'opd._ ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 99:
+
+  case 99: /* mc_opd: MCPT_LPAREN mc_opd MCPT_RPAREN  */
 {
     ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value);
 }
     break;
-  case 100:
+
+  case 100: /* mc_phrases: mc_phrases MCPT_COMMA mc_phrase  */
 {
-    
+    mprintf(MCC_LOG_AST,"'phr.n ");
     ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 101:
+
+  case 101: /* mc_phrases: mc_phrases MCPT_COMMA mc_literal  */
 {
-    
+    mprintf(MCC_LOG_AST,"'phr.n ");
     ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 102:
+
+  case 102: /* mc_phrases: mc_phrases MCPT_COMMA mc_opd  */
 {
-    
+    mprintf(MCC_LOG_AST,"'phr.n ");
     ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 103:
-                { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
-    break;
-  case 104:
-                { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
-    break;
-  case 105:
-                { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
-    break;
-  case 106:
-                                    { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
-    break;
-  case 107:
-                                    { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
-    break;
-  case 108:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_APOST, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)); }
-    break;
-  case 109:
-                                    { if ((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value) != NULL && (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)->type >= 4 && (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)->type <= 9) { mc_dlog_add(MCD_W1103_TRANSPOSE_ON_LITERAL, 2, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen, NULL); } ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_APOST, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)); }
-    break;
-  case 110:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_CARET, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)); }
-    break;
-  case 111:
-                                    { if ((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value) != NULL && (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)->type >= 4 && (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)->type <= 9) { mc_dlog_add(MCD_W1104_CARET_ON_LITERAL, 2, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen, NULL); } ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_CARET, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)); }
-    break;
-  case 112:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_PLUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 113:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_PLUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 114:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_PLUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 115:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_PLUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 116:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_PLUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 117:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_PLUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 118:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_PLUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 119:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_PLUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 120:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_PLUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 121:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MINUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 122:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MINUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 123:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MINUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 124:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MINUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 125:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MINUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 126:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MINUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 127:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MINUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 128:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MINUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 129:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MINUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 130:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MULTI, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 131:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MULTI, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 132:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MULTI, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 133:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MULTI, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 134:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MULTI, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 135:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MULTI, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 136:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MULTI, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 137:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MULTI, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 138:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MULTI, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 139:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_DIVID, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 140:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_DIVID, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 141:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_DIVID, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 142:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_DIVID, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 143:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_DIVID, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 144:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_DIVID, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 145:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_DIVID, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 146:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_DIVID, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 147:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_DIVID, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 148:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_TILDE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 149:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_TILDE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 150:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_TILDE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 151:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_TILDE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 152:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_TILDE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 153:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_TILDE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 154:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_TILDE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 155:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_TILDE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 156:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_TILDE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 157:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_COLON, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 158:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_COLON, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 159:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_COLON, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 160:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_COLON, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 161:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_COLON, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 162:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_COLON, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 163:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_COLON, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 164:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_COLON, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 165:
-                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_COLON, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 166:
-                                        { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_RIGHTARROW, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 167:
-                                        { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_RIGHTARROW, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 168:
-                                        { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_RIGHTARROW, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 169:
-                                        { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_RIGHTARROW, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 170:
-                                        { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_LEFTARROW, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 171:
-                                        { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_LEFTARROW, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 172:
-                                        { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_LEFTARROW, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 173:
-                                        { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_LEFTARROW, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
-    break;
-  case 174:
+
+  case 103: /* mc_phrases: mc_phrase  */
+                { mprintf(MCC_LOG_AST,"'phr.1 "); ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
+    break;
+
+  case 104: /* mc_phrases: mc_opd  */
+                { mprintf(MCC_LOG_AST,"'phr.1 "); ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
+    break;
+
+  case 105: /* mc_phrases: mc_literal  */
+                { mprintf(MCC_LOG_AST,"'phr.1 "); ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
+    break;
+
+  case 106: /* mc_phrase: mc_declare_a1  */
+                                    { mprintf(MCC_LOG_AST,"@phr.dcla1 "); ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
+    break;
+
+  case 107: /* mc_phrase: mc_declare_b  */
+                                    { mprintf(MCC_LOG_AST,"@phr.dclb "); ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
+    break;
+
+  case 108: /* mc_phrase: mc_opd MCOP_APOST  */
+                                    { mprintf(MCC_LOG_AST,"@phr.' "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_APOST, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)); }
+    break;
+
+  case 109: /* mc_phrase: mc_phrase MCOP_APOST  */
+                                    { mprintf(MCC_LOG_AST,"@phr.' "); if ((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value) != NULL && (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)->type >= 4 && (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)->type <= 9) { mc_dlog_add(MCD_W1103_TRANSPOSE_ON_LITERAL, 2, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen, NULL); } ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_APOST, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)); }
+    break;
+
+  case 110: /* mc_phrase: mc_opd MCOP_CARET  */
+                                    { mprintf(MCC_LOG_AST,"@phr.^ "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_CARET, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)); }
+    break;
+
+  case 111: /* mc_phrase: mc_phrase MCOP_CARET  */
+                                    { mprintf(MCC_LOG_AST,"@phr.^ "); if ((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value) != NULL && (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)->type >= 4 && (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)->type <= 9) { mc_dlog_add(MCD_W1104_CARET_ON_LITERAL, 2, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen, NULL); } ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_CARET, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)); }
+    break;
+
+  case 112: /* mc_phrase: mc_opd MCOP_PLUS mc_opd  */
+                                    { mprintf(MCC_LOG_AST,"[+1] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_PLUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 113: /* mc_phrase: mc_opd MCOP_PLUS mc_literal  */
+                                    { mprintf(MCC_LOG_AST,"[+2] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_PLUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 114: /* mc_phrase: mc_literal MCOP_PLUS mc_opd  */
+                                    { mprintf(MCC_LOG_AST,"[+3] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_PLUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 115: /* mc_phrase: mc_literal MCOP_PLUS mc_literal  */
+                                    { mprintf(MCC_LOG_AST,"[+4] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_PLUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 116: /* mc_phrase: mc_phrase MCOP_PLUS mc_opd  */
+                                    { mprintf(MCC_LOG_AST,"[+5] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_PLUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 117: /* mc_phrase: mc_phrase MCOP_PLUS mc_literal  */
+                                    { mprintf(MCC_LOG_AST,"[+6] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_PLUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 118: /* mc_phrase: mc_opd MCOP_PLUS mc_phrase  */
+                                    { mprintf(MCC_LOG_AST,"[+7] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_PLUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 119: /* mc_phrase: mc_literal MCOP_PLUS mc_phrase  */
+                                    { mprintf(MCC_LOG_AST,"[+8] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_PLUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 120: /* mc_phrase: mc_phrase MCOP_PLUS mc_phrase  */
+                                    { mprintf(MCC_LOG_AST,"[+9] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_PLUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 121: /* mc_phrase: mc_opd MCOP_MINUS mc_opd  */
+                                    { mprintf(MCC_LOG_AST,"[-1] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MINUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 122: /* mc_phrase: mc_opd MCOP_MINUS mc_literal  */
+                                    { mprintf(MCC_LOG_AST,"[-2] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MINUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 123: /* mc_phrase: mc_literal MCOP_MINUS mc_opd  */
+                                    { mprintf(MCC_LOG_AST,"[-3] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MINUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 124: /* mc_phrase: mc_literal MCOP_MINUS mc_literal  */
+                                    { mprintf(MCC_LOG_AST,"[-4] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MINUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 125: /* mc_phrase: mc_phrase MCOP_MINUS mc_opd  */
+                                    { mprintf(MCC_LOG_AST,"[-5] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MINUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 126: /* mc_phrase: mc_phrase MCOP_MINUS mc_literal  */
+                                    { mprintf(MCC_LOG_AST,"[-6] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MINUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 127: /* mc_phrase: mc_opd MCOP_MINUS mc_phrase  */
+                                    { mprintf(MCC_LOG_AST,"[-7] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MINUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 128: /* mc_phrase: mc_literal MCOP_MINUS mc_phrase  */
+                                    { mprintf(MCC_LOG_AST,"[-8] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MINUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 129: /* mc_phrase: mc_phrase MCOP_MINUS mc_phrase  */
+                                    { mprintf(MCC_LOG_AST,"[-9] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MINUS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 130: /* mc_phrase: mc_opd MCOP_MULTI mc_opd  */
+                                    { mprintf(MCC_LOG_AST,"[*1] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MULTI, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 131: /* mc_phrase: mc_opd MCOP_MULTI mc_literal  */
+                                    { mprintf(MCC_LOG_AST,"[*2] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MULTI, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 132: /* mc_phrase: mc_literal MCOP_MULTI mc_opd  */
+                                    { mprintf(MCC_LOG_AST,"[*3] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MULTI, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 133: /* mc_phrase: mc_literal MCOP_MULTI mc_literal  */
+                                    { mprintf(MCC_LOG_AST,"[*4] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MULTI, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 134: /* mc_phrase: mc_phrase MCOP_MULTI mc_opd  */
+                                    { mprintf(MCC_LOG_AST,"[*5] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MULTI, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 135: /* mc_phrase: mc_phrase MCOP_MULTI mc_literal  */
+                                    { mprintf(MCC_LOG_AST,"[*6] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MULTI, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 136: /* mc_phrase: mc_opd MCOP_MULTI mc_phrase  */
+                                    { mprintf(MCC_LOG_AST,"[*7] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MULTI, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 137: /* mc_phrase: mc_literal MCOP_MULTI mc_phrase  */
+                                    { mprintf(MCC_LOG_AST,"[*8] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MULTI, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 138: /* mc_phrase: mc_phrase MCOP_MULTI mc_phrase  */
+                                    { mprintf(MCC_LOG_AST,"[*9] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_MULTI, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 139: /* mc_phrase: mc_opd MCOP_DIVID mc_opd  */
+                                    { mprintf(MCC_LOG_AST,"[/1] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_DIVID, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 140: /* mc_phrase: mc_opd MCOP_DIVID mc_literal  */
+                                    { mprintf(MCC_LOG_AST,"[/2] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_DIVID, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 141: /* mc_phrase: mc_literal MCOP_DIVID mc_opd  */
+                                    { mprintf(MCC_LOG_AST,"[/3] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_DIVID, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 142: /* mc_phrase: mc_literal MCOP_DIVID mc_literal  */
+                                    { mprintf(MCC_LOG_AST,"[/4] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_DIVID, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 143: /* mc_phrase: mc_phrase MCOP_DIVID mc_opd  */
+                                    { mprintf(MCC_LOG_AST,"[/5] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_DIVID, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 144: /* mc_phrase: mc_phrase MCOP_DIVID mc_literal  */
+                                    { mprintf(MCC_LOG_AST,"[/6] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_DIVID, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 145: /* mc_phrase: mc_opd MCOP_DIVID mc_phrase  */
+                                    { mprintf(MCC_LOG_AST,"[/7] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_DIVID, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 146: /* mc_phrase: mc_literal MCOP_DIVID mc_phrase  */
+                                    { mprintf(MCC_LOG_AST,"[/8] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_DIVID, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 147: /* mc_phrase: mc_phrase MCOP_DIVID mc_phrase  */
+                                    { mprintf(MCC_LOG_AST,"[/9] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_DIVID, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 148: /* mc_phrase: mc_opd MCOP_TILDE mc_opd  */
+                                    { mprintf(MCC_LOG_AST,"[~1] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_TILDE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 149: /* mc_phrase: mc_opd MCOP_TILDE mc_literal  */
+                                    { mprintf(MCC_LOG_AST,"[~2] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_TILDE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 150: /* mc_phrase: mc_literal MCOP_TILDE mc_opd  */
+                                    { mprintf(MCC_LOG_AST,"[~3] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_TILDE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 151: /* mc_phrase: mc_literal MCOP_TILDE mc_literal  */
+                                    { mprintf(MCC_LOG_AST,"[~4] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_TILDE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 152: /* mc_phrase: mc_phrase MCOP_TILDE mc_opd  */
+                                    { mprintf(MCC_LOG_AST,"[~5] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_TILDE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 153: /* mc_phrase: mc_phrase MCOP_TILDE mc_literal  */
+                                    { mprintf(MCC_LOG_AST,"[~6] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_TILDE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 154: /* mc_phrase: mc_opd MCOP_TILDE mc_phrase  */
+                                    { mprintf(MCC_LOG_AST,"[~7] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_TILDE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 155: /* mc_phrase: mc_literal MCOP_TILDE mc_phrase  */
+                                    { mprintf(MCC_LOG_AST,"[~8] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_TILDE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 156: /* mc_phrase: mc_phrase MCOP_TILDE mc_phrase  */
+                                    { mprintf(MCC_LOG_AST,"[~9] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_TILDE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 157: /* mc_phrase: mc_opd MCPT_COLON mc_opd  */
+                                    { mprintf(MCC_LOG_AST,"[:1] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_COLON, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 158: /* mc_phrase: mc_opd MCPT_COLON mc_literal  */
+                                    { mprintf(MCC_LOG_AST,"[:2] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_COLON, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 159: /* mc_phrase: mc_literal MCPT_COLON mc_opd  */
+                                    { mprintf(MCC_LOG_AST,"[:3] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_COLON, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 160: /* mc_phrase: mc_literal MCPT_COLON mc_literal  */
+                                    { mprintf(MCC_LOG_AST,"[:4] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_COLON, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 161: /* mc_phrase: mc_phrase MCPT_COLON mc_opd  */
+                                    { mprintf(MCC_LOG_AST,"[:5] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_COLON, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 162: /* mc_phrase: mc_phrase MCPT_COLON mc_literal  */
+                                    { mprintf(MCC_LOG_AST,"[:6] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_COLON, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 163: /* mc_phrase: mc_opd MCPT_COLON mc_phrase  */
+                                    { mprintf(MCC_LOG_AST,"[:7] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_COLON, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 164: /* mc_phrase: mc_literal MCPT_COLON mc_phrase  */
+                                    { mprintf(MCC_LOG_AST,"[:8] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_COLON, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 165: /* mc_phrase: mc_phrase MCPT_COLON mc_phrase  */
+                                    { mprintf(MCC_LOG_AST,"[:9] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_COLON, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 166: /* mc_phrase: mc_opd MCOP_RIGHTARROW mc_opd  */
+                                        { mprintf(MCC_LOG_AST,"[->1] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_RIGHTARROW, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 167: /* mc_phrase: mc_phrase MCOP_RIGHTARROW mc_opd  */
+                                        { mprintf(MCC_LOG_AST,"[->2] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_RIGHTARROW, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 168: /* mc_phrase: mc_opd MCOP_RIGHTARROW mc_phrase  */
+                                        { mprintf(MCC_LOG_AST,"[->3] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_RIGHTARROW, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 169: /* mc_phrase: mc_phrase MCOP_RIGHTARROW mc_phrase  */
+                                        { mprintf(MCC_LOG_AST,"[->4] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_RIGHTARROW, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 170: /* mc_phrase: mc_opd MCOP_LEFTARROW mc_opd  */
+                                        { mprintf(MCC_LOG_AST,"[<-1] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_LEFTARROW, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 171: /* mc_phrase: mc_phrase MCOP_LEFTARROW mc_opd  */
+                                        { mprintf(MCC_LOG_AST,"[<-2] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_LEFTARROW, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 172: /* mc_phrase: mc_opd MCOP_LEFTARROW mc_phrase  */
+                                        { mprintf(MCC_LOG_AST,"[<-3] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_LEFTARROW, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 173: /* mc_phrase: mc_phrase MCOP_LEFTARROW mc_phrase  */
+                                        { mprintf(MCC_LOG_AST,"[<-4] "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_LEFTARROW, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+    break;
+
+  case 174: /* mc_phrase: mc_phrase MCPT_DOT mc_int  */
 {
-    
+    mprintf(MCC_LOG_AST,"@phr..int");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_DOT, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)));
 }
     break;
-  case 175:
+
+  case 175: /* mc_phrase: mc_phrase MCPT_DOT mc_ids  */
 {
-    
+    mprintf(MCC_LOG_AST,"@phr..ids");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_DOT, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)));
 }
     break;
-  case 176:
+
+  case 176: /* mc_phrase: mc_phrase MCPT_LCURLY mc_idans MCPT_RCURLY  */
 {
-    
+    mprintf(MCC_LOG_AST,"@phr:{} ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_CURLY, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value), mc_value_create_node(MCAST_OPD_IDAN, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value))));
 }
     break;
-  case 177:
+
+  case 177: /* mc_phrase: mc_opd MCPT_LCURLY mc_idans MCOP_OR mc_idans MCPT_RCURLY  */
 {
-    
+    mprintf(MCC_LOG_AST,"@phr:phr{n|m} ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_CURLY_MN, mc_value_link3(
             (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-5)].yystate.yysemantics.yyval.value), 
             mc_value_create_node(MCAST_OPD_IDAN, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value)),
@@ -3202,9 +3533,10 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
         );
 }
     break;
-  case 178:
+
+  case 178: /* mc_phrase: mc_phrase MCPT_LCURLY mc_idans MCOP_OR mc_idans MCPT_RCURLY  */
 {
-    
+    mprintf(MCC_LOG_AST,"@phr:phr{n|m} ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_CURLY_MN, mc_value_link3(
             (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-5)].yystate.yysemantics.yyval.value), 
             mc_value_create_node(MCAST_OPD_IDAN, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value)),
@@ -3212,30 +3544,34 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
         );
 }
     break;
-  case 179:
+
+  case 179: /* mc_phrase: MCPT_LBRACKET mc_phrases MCPT_RBRACKET  */
 {
-    
+    mprintf(MCC_LOG_AST,"@phr:[+] ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_SQUARE_VEC, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 180:
+
+  case 180: /* mc_phrase: MCPT_LPAREN mc_phrase MCPT_RPAREN  */
 {
-    
+    mprintf(MCC_LOG_AST,"'phr.(phr) ");
     ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value);
 }
     break;
-  case 181:
+
+  case 181: /* mc_phrase: mc_id MCPT_LPAREN mc_params MCPT_RPAREN  */
 {
-    
+    mprintf(MCC_LOG_AST,"@fcall(p) ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_FCALL, mc_value_link(
                 mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value)),
                 mc_value_create_node(MCAST_PARAMS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)))
             );
 }
     break;
-  case 182:
+
+  case 182: /* mc_phrase: mc_opd MCPT_DOT mc_id MCPT_LPAREN mc_params MCPT_RPAREN  */
 {
-    
+    mprintf(MCC_LOG_AST,"@fcall(p) ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_FCALL, mc_value_link3(
                 mc_value_create_node(MCAST_INSTANCE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-5)].yystate.yysemantics.yyval.value)),
                 mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value)),
@@ -3243,9 +3579,10 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
             );
 }
     break;
-  case 183:
+
+  case 183: /* mc_phrase: mc_phrase MCPT_DOT mc_id MCPT_LPAREN mc_params MCPT_RPAREN  */
 {
-    
+    mprintf(MCC_LOG_AST,"@phr.fcall(p) ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_FCALL, mc_value_link3(
                 mc_value_create_node(MCAST_INSTANCE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-5)].yystate.yysemantics.yyval.value)),
                 mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value)),
@@ -3253,9 +3590,10 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
             );
 }
     break;
-  case 184:
+
+  case 184: /* mc_phrase: mc_opd MCOP_DOUBLEARROW mc_opd MCPT_LPAREN mc_params MCPT_RPAREN  */
 {
-    
+    mprintf(MCC_LOG_AST,"@opd=>opdcall(p) ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_FCALL, mc_value_link3(
                 mc_value_create_node(MCAST_PARAMS_PRE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-5)].yystate.yysemantics.yyval.value)),
                 mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value)),
@@ -3263,9 +3601,10 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
             );
 }
     break;
-  case 185:
+
+  case 185: /* mc_phrase: mc_phrase MCOP_DOUBLEARROW mc_opd MCPT_LPAREN mc_params MCPT_RPAREN  */
 {
-    
+    mprintf(MCC_LOG_AST,"@phr=>opdcall(p) ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_FCALL, mc_value_link3(
                 mc_value_create_node(MCAST_PARAMS_PRE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-5)].yystate.yysemantics.yyval.value)),
                 mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value)),
@@ -3273,45 +3612,50 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
             );
 }
     break;
-  case 186:
+
+  case 186: /* mc_phrase: mc_opd MCOP_DOUBLEARROW mc_declare_a1  */
 {
-    
+    mprintf(MCC_LOG_AST,"@opd=>dclra1 ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_FCALL, mc_value_link(
                 mc_value_create_node(MCAST_PARAMS_PRE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)),
                 mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)))
             );
 }
     break;
-  case 187:
+
+  case 187: /* mc_phrase: mc_phrase MCOP_DOUBLEARROW mc_declare_a1  */
 {
-    
+    mprintf(MCC_LOG_AST,"@phr=>dclra1 ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_FCALL, mc_value_link(
                 mc_value_create_node(MCAST_PARAMS_PRE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)),
                 mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)))
             );
 }
     break;
-  case 188:
+
+  case 188: /* mc_phrase: mc_opd MCOP_DOUBLEARROW mc_declare_b  */
 {
-    
+    mprintf(MCC_LOG_AST,"@opd=>dclrb ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_FCALL, mc_value_link(
                 mc_value_create_node(MCAST_PARAMS_PRE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)),
                 mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)))
             );
 }
     break;
-  case 189:
+
+  case 189: /* mc_phrase: mc_phrase MCOP_DOUBLEARROW mc_declare_b  */
 {
-    
+    mprintf(MCC_LOG_AST,"@phr=>dclrb ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_FCALL, mc_value_link(
                 mc_value_create_node(MCAST_PARAMS_PRE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)),
                 mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)))
             );
 }
     break;
-  case 190:
+
+  case 190: /* mc_phrase: mc_id MCPT_LPAREN mc_params MCPT_RPAREN mc_idm  */
 {
-    
+    mprintf(MCC_LOG_AST,"@fcall(p) ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_FCALL, mc_value_link3(
                 mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-4)].yystate.yysemantics.yyval.value)),
                 mc_value_create_node(MCAST_PARAMS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)),
@@ -3319,9 +3663,10 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
             );
 }
     break;
-  case 191:
+
+  case 191: /* mc_phrase: mc_opd MCPT_DOT mc_id MCPT_LPAREN mc_params MCPT_RPAREN mc_idm  */
 {
-    
+    mprintf(MCC_LOG_AST,"@fcall(p) ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_FCALL, mc_value_link4(
                 mc_value_create_node(MCAST_INSTANCE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-6)].yystate.yysemantics.yyval.value)),
                 mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-4)].yystate.yysemantics.yyval.value)),
@@ -3330,9 +3675,10 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
             );
 }
     break;
-  case 192:
+
+  case 192: /* mc_phrase: mc_phrase MCPT_DOT mc_id MCPT_LPAREN mc_params MCPT_RPAREN mc_idm  */
 {
-    
+    mprintf(MCC_LOG_AST,"@phr.fcall(p) ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_FCALL, mc_value_link4(
                 mc_value_create_node(MCAST_INSTANCE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-6)].yystate.yysemantics.yyval.value)),
                 mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-4)].yystate.yysemantics.yyval.value)),
@@ -3341,9 +3687,10 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
             );
 }
     break;
-  case 193:
+
+  case 193: /* mc_phrase: mc_phrase MCOP_DOUBLEARROW mc_opd MCPT_LPAREN mc_params MCPT_RPAREN mc_idm  */
 {
-    
+    mprintf(MCC_LOG_AST,"@phr=>opd.fcall ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_FCALL, mc_value_link4(
                 mc_value_create_node(MCAST_PARAMS_PRE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-6)].yystate.yysemantics.yyval.value)),
                 mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-4)].yystate.yysemantics.yyval.value)),
@@ -3352,9 +3699,10 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
             );
 }
     break;
-  case 194:
+
+  case 194: /* mc_phrase: mc_opd MCOP_DOUBLEARROW mc_declare_a1 mc_idm  */
 {
-    
+    mprintf(MCC_LOG_AST,"@opd=>dclra1 ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_FCALL, mc_value_link3(
                 mc_value_create_node(MCAST_PARAMS_PRE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value)),
                 mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)),
@@ -3362,9 +3710,10 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
             );
 }
     break;
-  case 195:
+
+  case 195: /* mc_phrase: mc_phrase MCOP_DOUBLEARROW mc_declare_a1 mc_idm  */
 {
-    
+    mprintf(MCC_LOG_AST,"@phr=>dclra1 ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_FCALL, mc_value_link3(
                 mc_value_create_node(MCAST_PARAMS_PRE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value)),
                 mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)),
@@ -3372,9 +3721,10 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
             );
 }
     break;
-  case 196:
+
+  case 196: /* mc_phrase: mc_opd MCOP_DOUBLEARROW mc_declare_b mc_idm  */
 {
-    
+    mprintf(MCC_LOG_AST,"@opd=>dclrb ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_FCALL, mc_value_link3(
                 mc_value_create_node(MCAST_PARAMS_PRE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value)),
                 mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)),
@@ -3382,9 +3732,10 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
             );
 }
     break;
-  case 197:
+
+  case 197: /* mc_phrase: mc_phrase MCOP_DOUBLEARROW mc_declare_b mc_idm  */
 {
-    
+    mprintf(MCC_LOG_AST,"@phr=>dclrb ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_FCALL, mc_value_link3(
                 mc_value_create_node(MCAST_PARAMS_PRE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value)),
                 mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)),
@@ -3392,17 +3743,19 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
             );
 }
     break;
-  case 198:
+
+  case 198: /* mc_phrase: mc_opd MCOP_DOUBLEARROW mc_body  */
 {
-    
+    mprintf(MCC_LOG_AST,"@opd=>{closure} ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_CLOSURE, mc_value_link(
             mc_value_create_node(MCAST_PARAMS_PRE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))
         );
 }
     break;
-  case 199:
+
+  case 199: /* mc_phrase: mc_opd MCOP_DOUBLEARROW MCOP_OR mc_opds MCOP_OR mc_body  */
 {
-    
+    mprintf(MCC_LOG_AST,"@opd=>{closure} ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_CLOSURE, mc_value_link3(
             mc_value_create_node(MCAST_PARAMS_PRE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-5)].yystate.yysemantics.yyval.value)), 
             mc_value_create_node(MCAST_PARAMS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)),
@@ -3410,17 +3763,19 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
         );
 }
     break;
-  case 200:
+
+  case 200: /* mc_phrase: mc_phrase MCOP_DOUBLEARROW mc_body  */
 {
-    
+    mprintf(MCC_LOG_AST,"@phr=>{closure} ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_CLOSURE, mc_value_link(
             mc_value_create_node(MCAST_PARAMS_PRE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))
         );
 }
     break;
-  case 201:
+
+  case 201: /* mc_phrase: mc_phrase MCOP_DOUBLEARROW MCOP_OR mc_opds MCOP_OR mc_body  */
 {
-    
+    mprintf(MCC_LOG_AST,"@phr=>{closure} ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_CLOSURE, mc_value_link3(
             mc_value_create_node(MCAST_PARAMS_PRE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-5)].yystate.yysemantics.yyval.value)), 
             mc_value_create_node(MCAST_PARAMS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)),
@@ -3428,25 +3783,29 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
         );
 }
     break;
-  case 202:
+
+  case 202: /* mc_phrase: MCPT_LPAREN mc_opd MCPT_COMMA mc_phrases MCPT_RPAREN  */
 {
-    
+    mprintf(MCC_LOG_AST,"@phr:(group) ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_GROUP, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)));
 }
     break;
-  case 203:
+
+  case 203: /* mc_phrase: MCPT_LPAREN mc_phrase MCPT_COMMA mc_phrases MCPT_RPAREN  */
 {
-    
+    mprintf(MCC_LOG_AST,"@phr:(group) ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_GROUP, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)));
 }
     break;
-  case 204:
+
+  case 204: /* mc_role: MCK_ROLE mc_ids MCPT_LCURLY mc_clauses MCPT_RCURLY  */
 {
-    
+    mprintf(MCC_LOG_AST,"@claus.role ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_ROLE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)));
 }
     break;
-  case 205:
+
+  case 205: /* mc_function: MCK_FUNC mc_id mc_paramds mc_body  */
 {
     ((*yyvalp).value) = mc_value_create_node(MCAST_FUNCTION, mc_value_link3(
             mc_value_create_node(MCAST_NAME, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)),
@@ -3455,77 +3814,92 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
         );
 }
     break;
-  case 206:
+
+  case 206: /* mc_paramds: MCPT_LPAREN mc_pards MCPT_RPAREN  */
                                                 { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value); }
     break;
-  case 207:
+
+  case 207: /* mc_paramds: MCPT_LPAREN MCPT_RPAREN  */
                                                 { ((*yyvalp).value) = NULL; }
     break;
-  case 208:
-                                                { ((*yyvalp).value) = NULL; }
+
+  case 208: /* mc_paramds: %empty  */
+                                                { mprintf(MCC_LOG_AST,"paramd empty "); ((*yyvalp).value) = NULL; }
     break;
-  case 209:
+
+  case 209: /* mc_pards: mc_pards MCPT_COMMA mc_pard  */
                                         { ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
-  case 210:
+
+  case 210: /* mc_pards: mc_pard  */
                                         { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 211:
+
+  case 211: /* mc_pard: MCK_ROLE  */
 {
     ((*yyvalp).value) = mc_value_create_node(MCAST_PARAM, mc_value_create_data(MCAST_ROLE, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen));
 }
     break;
-  case 212:
+
+  case 212: /* mc_pard: mc_ids  */
 {
-    
+    mprintf(MCC_LOG_AST,"'pd.ids ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_PARAM, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 213:
+
+  case 213: /* mc_pard: MCOP_AND mc_ids  */
 {
-    
+    mprintf(MCC_LOG_AST,"'pd.&opd ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_PARAM, mc_value_create_node(MCAST_OPD, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)));
 }
     break;
-  case 214:
+
+  case 214: /* mc_pard: MCPT_LBRACKET mc_phrases MCPT_RBRACKET  */
 {
-    
+    mprintf(MCC_LOG_AST,"'pd.[] ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_PARAM, mc_value_create_node(MCAST_SQUARE_VEC, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)));
 }
     break;
-  case 215:
+
+  case 215: /* mc_pard: MCOP_AND MCPT_LBRACKET mc_phrases MCPT_RBRACKET  */
 {
-    
+    mprintf(MCC_LOG_AST,"'pd.&[] ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_PARAM, mc_value_create_node(MCAST_OPD_SQUARE_VEC, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)));
 }
     break;
-  case 216:
+
+  case 216: /* mc_pard: mc_iotype mc_phrase  */
 {
-    
+    mprintf(MCC_LOG_AST,"@pd.iotype.phr ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_PARAM, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)));
 }
     break;
-  case 217:
+
+  case 217: /* mc_pard: mc_iotype mc_ids  */
 {
-    
+    mprintf(MCC_LOG_AST,"@pd.iotype.ids ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_PARAM, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)));
 }
     break;
-  case 218:
+
+  case 218: /* mc_pard: mc_declare_a1  */
 {
-    
+    mprintf(MCC_LOG_AST,"'pd.dclra ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_PARAM, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 219:
+
+  case 219: /* mc_pard: mc_declare_b  */
 {
-    
+    mprintf(MCC_LOG_AST,"'pd.dclrb ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_PARAM, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 220:
+
+  case 220: /* mc_pard: mc_ids MCPT_DBCOLON mc_unit_type  */
 {
-    
+    mprintf(MCC_LOG_AST,"@pd.opdc::type ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_PARAM, 
             mc_value_create_node(MCAST_DECLARE_UV, mc_value_link(
                 mc_value_create_node(MCAST_CLASS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)),
@@ -3533,9 +3907,10 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
         );
 }
     break;
-  case 221:
+
+  case 221: /* mc_pard: mc_ids MCPT_DBCOLON mc_unit_type MCOP_EQUAL mc_literal  */
 {
-    
+    mprintf(MCC_LOG_AST,"@pd.opdc::type=val ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_PARAM, 
             mc_value_create_node(MCAST_DECLARE_UV, mc_value_link(
                 mc_value_create_node(MCAST_CLASS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)),
@@ -3543,9 +3918,10 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
         );
 }
     break;
-  case 222:
+
+  case 222: /* mc_pard: mc_ids MCPT_DBCOLON mc_unit_type MCOP_EQUAL mc_phrase  */
 {
-    
+    mprintf(MCC_LOG_AST,"@pd.opdc::type=val ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_PARAM, 
             mc_value_create_node(MCAST_DECLARE_UV, mc_value_link(
                 mc_value_create_node(MCAST_CLASS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)),
@@ -3556,94 +3932,106 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
         );
 }
     break;
-  case 223:
+
+  case 223: /* mc_declare_a: mc_ids mc_insts  */
 {
-    
+    mprintf(MCC_LOG_AST,"@dcla:cls_inst ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_DECLARE, mc_value_link(
             mc_value_create_node(MCAST_CLASS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)), 
             (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))
         );
 }
     break;
-  case 224:
+
+  case 224: /* mc_declare_a: mc_ids MCPT_LPAREN mc_params MCPT_RPAREN mc_insts  */
 {
-    
+    mprintf(MCC_LOG_AST,"@dcla:cls(p)_inst ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_DECLARE, mc_value_link(
             mc_value_create_node(MCAST_CLASS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-4)].yystate.yysemantics.yyval.value), mc_value_create_node(MCAST_PARAMS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)))), 
             (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))
         );
 }
     break;
+
   case 225: /* mc_declare_a1: mc_ids mc_inst  */
 {
-    
+    mprintf(MCC_LOG_AST,"@dcla1:cls_inst ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_DECLARE, mc_value_link(
             mc_value_create_node(MCAST_CLASS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)), 
             (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))
         );
 }
     break;
+
   case 226: /* mc_declare_a1: mc_ids MCPT_LPAREN mc_params MCPT_RPAREN mc_inst  */
 {
-    
+    mprintf(MCC_LOG_AST,"@dcla1:cls(p)_inst ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_DECLARE, mc_value_link(
             mc_value_create_node(MCAST_CLASS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-4)].yystate.yysemantics.yyval.value), mc_value_create_node(MCAST_PARAMS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)))), 
             (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))
         );
 }
     break;
-  case 227:
+
+  case 227: /* mc_insts: mc_insts MCPT_COMMA mc_inst  */
 {
-    
+    mprintf(MCC_LOG_AST,"@inst.n ");
     ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 228:
+
+  case 228: /* mc_insts: mc_inst MCPT_COMMA mc_inst  */
 {
-    
+    mprintf(MCC_LOG_AST,"@inst.1 ");
     ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 229:
+
+  case 229: /* mc_inst: mc_ida  */
 {
-    
+    mprintf(MCC_LOG_AST,"@inst.ida ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_INSTANCE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 230:
+
+  case 230: /* mc_inst: mc_ida MCPT_LPAREN mc_params MCPT_RPAREN  */
 {
-    
+    mprintf(MCC_LOG_AST,"@inst.ida() ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_INSTANCE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value), mc_value_create_node(MCAST_PARAMS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value))));
 }
     break;
-  case 231:
+
+  case 231: /* mc_declare_b: mc_opd MCPT_DBCOLON mc_ids MCPT_LPAREN mc_params MCPT_RPAREN  */
 {
-    
+    mprintf(MCC_LOG_AST,"@dclb:inst::cls(p) ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_DECLARE, mc_value_link(
                 mc_value_create_node(MCAST_CLASS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value), mc_value_create_node(MCAST_PARAMS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)))), 
                 mc_value_create_node(MCAST_INSTANCE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-5)].yystate.yysemantics.yyval.value))));
 }
     break;
-  case 232:
+
+  case 232: /* mc_declare_b: mc_opd MCPT_LPAREN mc_params MCPT_RPAREN MCPT_DBCOLON mc_ids MCPT_LPAREN mc_params MCPT_RPAREN  */
 {
-    
+    mprintf(MCC_LOG_AST,"@dclb:inst(p)::cls(p) ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_DECLARE, mc_value_link(
                         mc_value_create_node(MCAST_CLASS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value), mc_value_create_node(MCAST_PARAMS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)))),
                         mc_value_create_node(MCAST_INSTANCE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-8)].yystate.yysemantics.yyval.value), mc_value_create_node(MCAST_PARAMS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-6)].yystate.yysemantics.yyval.value))))
                     ));
 }
     break;
-  case 233:
+
+  case 233: /* mc_declare_b: MCPT_LBRACKET mc_phrases MCPT_RBRACKET MCPT_DBCOLON mc_ids MCPT_LPAREN mc_params MCPT_RPAREN  */
 {
-    
+    mprintf(MCC_LOG_AST,"@dclb:inst::cls(p) ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_DECLARE, mc_value_link(
                 mc_value_create_node(MCAST_CLASS, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value), mc_value_create_node(MCAST_PARAMS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)))),
                 mc_value_create_node(MCAST_INSTANCE, mc_value_create_node(MCAST_OPD_SQUARE_VEC, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-6)].yystate.yysemantics.yyval.value)))));
 }
     break;
-  case 234:
+
+  case 234: /* mc_declare_b: mc_ids MCPT_DBCOLON mc_ids MCOP_EQUAL mc_literal  */
 {
-    
+    mprintf(MCC_LOG_AST,"@pd.opdc::ids=val ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_PARAM,
             mc_value_create_node(MCAST_DECLARE, mc_value_link(
                 mc_value_create_node(MCAST_CLASS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)),
@@ -3651,9 +4039,10 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
         );
 }
     break;
-  case 235:
+
+  case 235: /* mc_declare_b: mc_ids MCPT_DBCOLON mc_ids MCOP_EQUAL mc_phrase  */
 {
-    
+    mprintf(MCC_LOG_AST,"@pd.opdc::ids=val ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_PARAM,
             mc_value_create_node(MCAST_DECLARE, mc_value_link(
                 mc_value_create_node(MCAST_CLASS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)),
@@ -3664,9 +4053,10 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
         );
 }
     break;
-  case 236:
+
+  case 236: /* mc_declare_b: mc_ids MCPT_DBCOLON mc_ids MCOP_EQUAL mc_opd  */
 {
-    
+    mprintf(MCC_LOG_AST,"@pd.opdc::ids=opd ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_PARAM,
             mc_value_create_node(MCAST_DECLARE, mc_value_link(
                 mc_value_create_node(MCAST_CLASS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)),
@@ -3677,9 +4067,10 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
         );
 }
     break;
-  case 237:
+
+  case 237: /* mc_declare_b: mc_ids MCPT_DBCOLON mc_ids  */
 {
-    
+    mprintf(MCC_LOG_AST,"@pd.opdc::ids ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_PARAM,
             mc_value_create_node(MCAST_DECLARE, mc_value_link(
                 mc_value_create_node(MCAST_CLASS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)),
@@ -3687,55 +4078,66 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
         );
 }
     break;
-  case 238:
+
+  case 238: /* mc_params: mc_params MCPT_COMMA mc_param  */
                                             { ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
-  case 239:
+
+  case 239: /* mc_params: mc_param  */
                                             { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 240:
+
+  case 240: /* mc_params: %empty  */
                                             { ((*yyvalp).value) = NULL; }
     break;
-  case 241:
+
+  case 241: /* mc_param: mc_literal  */
 {
     ((*yyvalp).value) = mc_value_create_node(MCAST_PARAM, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 242:
+
+  case 242: /* mc_param: mc_nc  */
 {
     ((*yyvalp).value) = mc_value_create_node(MCAST_PARAM, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 243:
+
+  case 243: /* mc_param: MCK_ROLE  */
 {
     ((*yyvalp).value) = mc_value_create_node(MCAST_PARAM, mc_value_create_data(MCAST_ROLE, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen));
 }
     break;
-  case 244:
+
+  case 244: /* mc_param: mc_opd  */
 {
     ((*yyvalp).value) = mc_value_create_node(MCAST_PARAM, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 245:
+
+  case 245: /* mc_param: mc_phrase  */
 {
     ((*yyvalp).value) = mc_value_create_node(MCAST_PARAM, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 246:
+
+  case 246: /* mc_param: mc_body  */
 {
-    
+    mprintf(MCC_LOG_AST,"'par.bdy ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_PARAM, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
 }
     break;
-  case 247:
+
+  case 247: /* mc_conds: MCK_IF mc_judge mc_cond_block  */
 {
-    
+    mprintf(MCC_LOG_AST,"@cdc.if ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_COND_IF, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)));
 }
     break;
-  case 248:
+
+  case 248: /* mc_conds: MCK_IF mc_judge mc_cond_block MCK_ELSE mc_cond_block  */
 {
-    
+    mprintf(MCC_LOG_AST,"@cdc.ifs ");
     ((*yyvalp).value) =  mc_value_create_node(MCAST_COND_IF, mc_value_link3(
             (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value), 
             (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), 
@@ -3743,15 +4145,17 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
         );
 }
     break;
-  case 249:
+
+  case 249: /* mc_conds: MCK_IF mc_judge mc_cond_block mc_conds_elifs  */
 {
-    
+    mprintf(MCC_LOG_AST,"@cdc.ifs+ ");
     ((*yyvalp).value) =  mc_value_create_node(MCAST_COND_IF, mc_value_link3((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)));
 }
     break;
-  case 250:
+
+  case 250: /* mc_conds: MCK_IF mc_judge mc_cond_block mc_conds_elifs MCK_ELSE mc_cond_block  */
 {
-    
+    mprintf(MCC_LOG_AST,"@cdc.ifs+ ");
     ((*yyvalp).value) =  mc_value_create_node(MCAST_COND_IF, mc_value_link4(
             (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-4)].yystate.yysemantics.yyval.value),
             (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value),
@@ -3760,432 +4164,565 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
         );
 }
     break;
-  case 251:
+
+  case 251: /* mc_conds_elifs: MCK_ELSE_IF mc_judge mc_cond_block  */
 {
-    
+    mprintf(MCC_LOG_AST,"@cdc.elif ");
     ((*yyvalp).value) = mc_value_create_node(MCAST_COND_ELSE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)));
 }
     break;
-  case 252:
+
+  case 252: /* mc_conds_elifs: mc_conds_elifs MCK_ELSE_IF mc_judge mc_cond_block  */
 {
-    
+    mprintf(MCC_LOG_AST,"@cdc.elif+ ");
     ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-3)].yystate.yysemantics.yyval.value), mc_value_create_node(MCAST_COND_ELSE, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))));
 }
     break;
-  case 253:
+
+  case 253: /* mc_cond_block: mc_clause  */
 {
-    
+    mprintf(MCC_LOG_AST,"'cdb.cl ");
     ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value);
 }
     break;
-  case 254:
+
+  case 254: /* mc_cond_block: mc_endls mc_clause  */
 {
-    
+    mprintf(MCC_LOG_AST,"'cdb.cledl ");
     ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value);
 }
     break;
-  case 255:
+
+  case 255: /* mc_cond_block: mc_body  */
 {
-    
+    mprintf(MCC_LOG_AST,"'cdb.bdy ");
     ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value);
 }
     break;
-  case 256:
+
+  case 256: /* mc_expr: mc_literal  */
                                                 { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 257:
+
+  case 257: /* mc_expr: mc_opd  */
                                                 { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 258:
+
+  case 258: /* mc_expr: mc_phrase  */
                                                 { ((*yyvalp).value) = mc_value_create_node(MCAST_EXPRESSION, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
-  case 259:
-                                                { ((*yyvalp).value) = mc_value_create_node(MCAST_JUDGE_EQEQ, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+
+  case 259: /* mc_judge: mc_expr MCOP_EQUALEQUAL mc_expr  */
+                                                { mprintf(MCC_LOG_AST,"@jdg.== "); ((*yyvalp).value) = mc_value_create_node(MCAST_JUDGE_EQEQ, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
     break;
-  case 260:
-                                                { ((*yyvalp).value) = mc_value_create_node(MCAST_JUDGE_NOTEQ, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+
+  case 260: /* mc_judge: mc_expr MCOP_NOTEQUAL mc_expr  */
+                                                { mprintf(MCC_LOG_AST,"@jdg.!= "); ((*yyvalp).value) = mc_value_create_node(MCAST_JUDGE_NOTEQ, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
     break;
-  case 261:
-                                                { ((*yyvalp).value) = mc_value_create_node(MCAST_JUDGE_LESSTHAN, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)));}
+
+  case 261: /* mc_judge: mc_expr MCOP_LESSTHAN mc_expr  */
+                                                { mprintf(MCC_LOG_AST,"@jdg.< "); ((*yyvalp).value) = mc_value_create_node(MCAST_JUDGE_LESSTHAN, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)));}
     break;
-  case 262:
-                                                { ((*yyvalp).value) = mc_value_create_node(MCAST_JUDGE_GREATERTHAN, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+
+  case 262: /* mc_judge: mc_expr MCOP_GREATERTHAN mc_expr  */
+                                                { mprintf(MCC_LOG_AST,"@jdg.> "); ((*yyvalp).value) = mc_value_create_node(MCAST_JUDGE_GREATERTHAN, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
     break;
-  case 263:
-                                                { ((*yyvalp).value) = mc_value_create_node(MCAST_JUDGE_LESSEQTHAN, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+
+  case 263: /* mc_judge: mc_expr MCOP_LESSEQTHAN mc_expr  */
+                                                { mprintf(MCC_LOG_AST,"@jdg.<= "); ((*yyvalp).value) = mc_value_create_node(MCAST_JUDGE_LESSEQTHAN, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
     break;
-  case 264:
-                                                { ((*yyvalp).value) = mc_value_create_node(MCAST_JUDGE_GREATEREQTHAN, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+
+  case 264: /* mc_judge: mc_expr MCOP_GREATEREQTHAN mc_expr  */
+                                                { mprintf(MCC_LOG_AST,"@jdg.>= "); ((*yyvalp).value) = mc_value_create_node(MCAST_JUDGE_GREATEREQTHAN, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
     break;
-  case 265:
-                                                { ((*yyvalp).value) = mc_value_create_node(MCAST_JUDGE_BITAND, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+
+  case 265: /* mc_judge: mc_expr MCOP_AND mc_expr  */
+                                                { mprintf(MCC_LOG_AST,"@jdg.& "); ((*yyvalp).value) = mc_value_create_node(MCAST_JUDGE_BITAND, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
     break;
-  case 266:
-                                                { mc_dlog_add(MCD_W1101_SINGLE_OR, 2, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tlen, NULL); ((*yyvalp).value) = mc_value_create_node(MCAST_JUDGE_BITOR, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+
+  case 266: /* mc_judge: mc_expr MCOP_OR mc_expr  */
+                                                { mprintf(MCC_LOG_AST,"@jdg.| "); mc_dlog_add(MCD_W1101_SINGLE_OR, 2, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tlen, NULL); ((*yyvalp).value) = mc_value_create_node(MCAST_JUDGE_BITOR, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
     break;
-  case 267:
-                                                { mc_dlog_add(MCD_W1102_PLUSMINUS, 2, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tlen, NULL); ((*yyvalp).value) = mc_value_create_node(MCAST_EXPRESSION, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+
+  case 267: /* mc_judge: mc_expr MCOP_PLUSMINUS mc_expr  */
+                                                { mprintf(MCC_LOG_AST,"@jdg.± "); mc_dlog_add(MCD_W1102_PLUSMINUS, 2, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.token)->tlen, NULL); ((*yyvalp).value) = mc_value_create_node(MCAST_EXPRESSION, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
     break;
-  case 268:
-                                                               { ((*yyvalp).value) = mc_value_create_node(MCAST_JUDGE_IN, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-4)].yystate.yysemantics.yyval.value), mc_value_create_node(MCAST_OPD_SQUARE_VEC, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)))); }
+
+  case 268: /* mc_judge: mc_opd MCK_IN MCPT_LBRACKET mc_phrases MCPT_RBRACKET  */
+                                                               { mprintf(MCC_LOG_AST,"@jdg.in "); ((*yyvalp).value) = mc_value_create_node(MCAST_JUDGE_IN, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-4)].yystate.yysemantics.yyval.value), mc_value_create_node(MCAST_OPD_SQUARE_VEC, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)))); }
     break;
-  case 269:
+
+  case 269: /* mc_judge: MCPT_LPAREN mc_judge MCPT_RPAREN  */
                                                 { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value); }
     break;
-  case 270:
+
+  case 270: /* mc_id: MCTP_ID  */
                                                     { ((*yyvalp).value) = mc_value_create_data(MCAST_ID, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 271:
+
+  case 271: /* mc_ida: MCTP_IDA  */
                                                     { ((*yyvalp).value) = mc_value_create_data(MCAST_IDA, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 272:
+
+  case 272: /* mc_ida: mc_id  */
                                                     { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 273:
+
+  case 273: /* mc_idss: mc_idss MCPT_COMMA mc_ids  */
                                                     { ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
-  case 274:
+
+  case 274: /* mc_idss: mc_idss MCPT_COMMA  */
                                                         { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value); }
     break;
-  case 275:
+
+  case 275: /* mc_idss: mc_ids  */
                                                     { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 276:
-                                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_IDS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
+
+  case 276: /* mc_ids: mc_idseg  */
+                                                    { mprintf(MCC_LOG_AST,"@ids "); ((*yyvalp).value) = mc_value_create_node(MCAST_IDS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
-  case 277:
+
+  case 277: /* mc_idseg: mc_ida  */
                                                     { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 278:
+
+  case 278: /* mc_idseg: mc_idseg mc_idm  */
                                                     { ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
-  case 279:
-                                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_DOT, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
+
+  case 279: /* mc_idm: MCPT_DOT mc_ida  */
+                                                    { mprintf(MCC_LOG_AST,"@opd.ida "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_DOT, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
-  case 280:
-                                                    { ((*yyvalp).value) = mc_value_link(mc_value_create_node(MCAST_OPD_DOT, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
+
+  case 280: /* mc_idm: MCPT_DOT mc_ida mc_idm  */
+                                                    { mprintf(MCC_LOG_AST,"@opd.ida.idm "); ((*yyvalp).value) = mc_value_link(mc_value_create_node(MCAST_OPD_DOT, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
-  case 281:
-                                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_CURLY, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)); }
+
+  case 281: /* mc_idm: MCPT_LCURLY mc_idans MCPT_RCURLY  */
+                                                    { mprintf(MCC_LOG_AST,"@opd.{} "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_CURLY, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value)); }
     break;
-  case 282:
-                                                    { ((*yyvalp).value) = mc_value_link(mc_value_create_node(MCAST_OPD_CURLY, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
+
+  case 282: /* mc_idm: MCPT_LCURLY mc_idans MCPT_RCURLY mc_idm  */
+                                                    { mprintf(MCC_LOG_AST,"@opd.{}.idm "); ((*yyvalp).value) = mc_value_link(mc_value_create_node(MCAST_OPD_CURLY, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value)), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
     break;
-  case 283:
+
+  case 283: /* mc_idans: mc_idan  */
+                                                    { mprintf(MCC_LOG_AST,"'idan.1 "); ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
+    break;
+
+  case 284: /* mc_idans: mc_idans MCPT_COMMA mc_idan  */
+                                                    { mprintf(MCC_LOG_AST,"'idan.n "); ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
+    break;
+
+  case 285: /* mc_idan: mc_ida  */
                                                     { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 284:
-                                                    { ((*yyvalp).value) = mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)); }
+
+  case 286: /* mc_idan: mc_int  */
+                                                    { mprintf(MCC_LOG_AST,"'idan.i "); ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 285:
-                                                    { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
+
+  case 287: /* mc_idan: mc_int MCPT_COLON mc_int  */
+                                                    { mprintf(MCC_LOG_AST,"@idan.m:n "); ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_COLON, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
     break;
-  case 286:
-                                                    { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
+
+  case 288: /* mc_int: MCTP_NUMBER_DEC  */
+                        { mprintf(MCC_LOG_AST,"@int "); ((*yyvalp).value) = mc_value_create_data(MCAST_INT, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 287:
-                                                    { ((*yyvalp).value) = mc_value_create_node(MCAST_OPD_COLON, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value))); }
+
+  case 289: /* mc_hex: MCTP_NUMBER_HEX  */
+                        { mprintf(MCC_LOG_AST,"@hex "); ((*yyvalp).value) = mc_value_create_data(MCAST_HEX, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 288:
-                        { ((*yyvalp).value) = mc_value_create_data(MCAST_INT, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
+
+  case 290: /* mc_float: MCTP_NUMBER_FLOAT  */
+                            { mprintf(MCC_LOG_AST,"@float "); ((*yyvalp).value) = mc_value_create_data(MCAST_FLOAT, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 289:
-                        { ((*yyvalp).value) = mc_value_create_data(MCAST_HEX, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
-    break;
-  case 290:
-                            { ((*yyvalp).value) = mc_value_create_data(MCAST_FLOAT, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
-    break;
-  case 291:
+
+  case 291: /* mc_number: mc_int  */
                   { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 292:
+
+  case 292: /* mc_number: mc_hex  */
                   { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 293:
+
+  case 293: /* mc_number: mc_float  */
                     { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 294:
-                       { ((*yyvalp).value) = mc_value_create_data(MCAST_STRING, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
+
+  case 294: /* mc_string: MCTP_STRING  */
+                       { mprintf(MCC_LOG_AST,"@str "); ((*yyvalp).value) = mc_value_create_data(MCAST_STRING, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 295:
-                        { ((*yyvalp).value) = mc_value_create_data(MCAST_CONST, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
+
+  case 295: /* mc_const: MCONST_HIGH  */
+                        { mprintf(MCC_LOG_AST,"@.HIGH "); ((*yyvalp).value) = mc_value_create_data(MCAST_CONST, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 296:
-                        { ((*yyvalp).value) = mc_value_create_data(MCAST_CONST, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
+
+  case 296: /* mc_const: MCONST_LOW  */
+                        { mprintf(MCC_LOG_AST,"@.LOW "); ((*yyvalp).value) = mc_value_create_data(MCAST_CONST, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 297:
-                        { ((*yyvalp).value) = mc_value_create_data(MCAST_OPD_NC, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
+
+  case 297: /* mc_nc: MCONST_NC  */
+                        { mprintf(MCC_LOG_AST,"@.NC "); ((*yyvalp).value) = mc_value_create_data(MCAST_OPD_NC, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 298:
-                               { ((*yyvalp).value) = mc_value_create_data(MCAST_OPD_USCORE, strdup("_"), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
+
+  case 298: /* mc_underscore: MCOP_UNDERSCORE  */
+                               { mprintf(MCC_LOG_AST,"@._ "); ((*yyvalp).value) = mc_value_create_data(MCAST_OPD_USCORE, strdup("_"), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 299:
+
+  case 299: /* mc_literal: mc_number  */
                         { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 300:
+
+  case 300: /* mc_literal: mc_string  */
                         { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 301:
+
+  case 301: /* mc_literal: mc_const  */
                         { ((*yyvalp).value) = (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value); }
     break;
-  case 302:
+
+  case 302: /* mc_literal: mc_unit_value  */
                         {
-            
+            mprintf(MCC_LOG_AST,"@uv ");
             ((*yyvalp).value) = mc_value_create_node(MCAST_UVALUE, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
         }
     break;
-  case 303:
+
+  case 303: /* mc_literal: mc_unit_value MCPT_AT mc_unit_value  */
                                               {
-            
+            mprintf(MCC_LOG_AST,"@uv@uv ");
             ((*yyvalp).value) = mc_value_create_node(MCAST_UVALUE_AT, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)));
         }
     break;
-  case 304:
+
+  case 304: /* mc_literal: MCOP_PLUSMINUS mc_unit_value  */
                                        {
-            
+            mprintf(MCC_LOG_AST,"@rg.± ");
             ((*yyvalp).value) = mc_value_create_node(MCAST_RANGE_PLUSMINUS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
         }
     break;
-  case 305:
+
+  case 305: /* mc_literal: MCOP_PLUSMINUS mc_number  */
                                    {
-            
+            mprintf(MCC_LOG_AST,"@rg.±# ");
             ((*yyvalp).value) = mc_value_create_node(MCAST_RANGE_PLUSMINUS, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value));
         }
     break;
-  case 306:
+
+  case 306: /* mc_iotype: MCK_IN  */
                         { ((*yyvalp).value) = mc_value_create_node(MCAST_IOTYPE, mc_value_create_data(MCAST_IOTYPE_IN, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen)); }
     break;
-  case 307:
+
+  case 307: /* mc_iotype: MCK_OUT  */
                         { ((*yyvalp).value) = mc_value_create_node(MCAST_IOTYPE, mc_value_create_data(MCAST_IOTYPE_OUT, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen)); }
     break;
-  case 308:
+
+  case 308: /* mc_iotype: MCK_IO  */
                         { ((*yyvalp).value) = mc_value_create_node(MCAST_IOTYPE, mc_value_create_data(MCAST_IOTYPE_IO, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen)); }
     break;
-  case 309:
+
+  case 309: /* mc_iotype: MCK_PS  */
                         { ((*yyvalp).value) = mc_value_create_node(MCAST_IOTYPE, mc_value_create_data(MCAST_IOTYPE_PS, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen)); }
     break;
-  case 310:
+
+  case 310: /* mc_iotype: MCK_ANL  */
                         { ((*yyvalp).value) = mc_value_create_node(MCAST_IOTYPE, mc_value_create_data(MCAST_IOTYPE_ANL, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen)); }
     break;
-  case 311:
+
+  case 311: /* mc_iotype: MCK_NC  */
                         { ((*yyvalp).value) = mc_value_create_node(MCAST_IOTYPE, mc_value_create_data(MCAST_IOTYPE_NC, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen)); }
     break;
-  case 312:
+
+  case 312: /* mc_iotype: MCK_LABEL  */
                         { ((*yyvalp).value) = mc_value_create_node(MCAST_IOTYPE, mc_value_create_data(MCAST_IOTYPE_LABEL, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen)); }
     break;
-  case 313:
+
+  case 313: /* mc_unit_value: MCUVAL_VOLT  */
             { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_VOLT, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 314:
+
+  case 314: /* mc_unit_value: MCUVAL_AMP  */
              { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_AMP, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 315:
+
+  case 315: /* mc_unit_value: MCUVAL_CAP  */
              { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_CAP, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 316:
+
+  case 316: /* mc_unit_value: MCUVAL_IND  */
              { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_IND, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 317:
+
+  case 317: /* mc_unit_value: MCUVAL_TIME  */
               { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_TIME, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 318:
+
+  case 318: /* mc_unit_value: MCUVAL_LEN  */
              { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_LEN, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 319:
+
+  case 319: /* mc_unit_value: MCUVAL_WATT  */
               { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_WAT, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 320:
+
+  case 320: /* mc_unit_value: MCUVAL_OHM  */
              { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_OHM, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 321:
+
+  case 321: /* mc_unit_value: MCUVAL_TEMP  */
               { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_TEMP, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 322:
+
+  case 322: /* mc_unit_value: MCUVAL_HZ  */
             { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_HZ, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 323:
+
+  case 323: /* mc_unit_value: MCUVAL_DB  */
             { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_DB, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 324:
+
+  case 324: /* mc_unit_value: MCUVAL_PPM  */
              { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_PPM, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 325:
+
+  case 325: /* mc_unit_value: MCUVAL_PERCENT  */
                  { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_PERCENT, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 326:
+
+  case 326: /* mc_unit_value: MCUVAL_BAUD  */
               { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_BAUD, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 327:
+
+  case 327: /* mc_unit_value: MCUVAL_DATASIZE  */
                   { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_DATASIZE, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 328:
+
+  case 328: /* mc_unit_value: MCUVAL_SPS  */
              { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_SPS, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 329:
+
+  case 329: /* mc_unit_value: MCUVAL_SIEMENS  */
                  { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_SIEMENS, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 330:
+
+  case 330: /* mc_unit_value: MCUVAL_RESPONSIVITY  */
                       { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_RESPONSIVITY, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 331:
+
+  case 331: /* mc_unit_value: MCUVAL_ANGLE  */
                { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_ANGLE, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 332:
+
+  case 332: /* mc_unit_value: MCUVAL_ANGULAR_RATE  */
                       { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_ANGULAR_RATE, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 333:
+
+  case 333: /* mc_unit_value: MCUVAL_ENERGY  */
                 { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_ENERGY, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 334:
+
+  case 334: /* mc_unit_value: MCUVAL_EFIELD  */
                 { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_EFIELD, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 335:
+
+  case 335: /* mc_unit_value: MCUVAL_HFIELD  */
                 { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_HFIELD, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 336:
+
+  case 336: /* mc_unit_value: MCUVAL_FLUX  */
               { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_FLUX, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 337:
+
+  case 337: /* mc_unit_value: MCUVAL_BFIELD  */
                 { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_BFIELD, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 338:
+
+  case 338: /* mc_unit_value: MCUVAL_SLEW  */
               { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_SLEW, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 339:
+
+  case 339: /* mc_unit_value: MCUVAL_NOISE  */
                { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_NOISE, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 340:
+
+  case 340: /* mc_unit_value: MCUVAL_CHARGE  */
                 { ((*yyvalp).value) = mc_value_create_data(MCAST_UVAL_CHARGE, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 341:
+
+  case 341: /* mc_unit_type: MCU_INT  */
         { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_INT, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 342:
+
+  case 342: /* mc_unit_type: MCU_HEX  */
           { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_HEX, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 343:
+
+  case 343: /* mc_unit_type: MCU_FLOAT  */
             { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_FLOAT, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 344:
+
+  case 344: /* mc_unit_type: MCU_STRING  */
              { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_STRING, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 345:
+
+  case 345: /* mc_unit_type: MCU_VOLT  */
            { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_VOLT, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 346:
+
+  case 346: /* mc_unit_type: MCU_AMP  */
           { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_AMP, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 347:
+
+  case 347: /* mc_unit_type: MCU_CAP  */
           { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_CAP, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 348:
+
+  case 348: /* mc_unit_type: MCU_IND  */
           { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_IND, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 349:
+
+  case 349: /* mc_unit_type: MCU_TIME  */
            { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_TIME, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 350:
+
+  case 350: /* mc_unit_type: MCU_OHM  */
           { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_OHM, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 351:
+
+  case 351: /* mc_unit_type: MCU_TEMP  */
            { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_TEMP, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 352:
+
+  case 352: /* mc_unit_type: MCU_HZ  */
          { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_HZ, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 353:
+
+  case 353: /* mc_unit_type: MCU_DB  */
          { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_DB, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 354:
+
+  case 354: /* mc_unit_type: MCU_PPM  */
           { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_PPM, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 355:
+
+  case 355: /* mc_unit_type: MCU_LEN  */
           { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_LEN, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 356:
+
+  case 356: /* mc_unit_type: MCU_WATT  */
            { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_WAT, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 357:
+
+  case 357: /* mc_unit_type: MCU_PERCENT  */
               { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_PERCENT, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 358:
+
+  case 358: /* mc_unit_type: MCU_BAUD  */
            { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_BAUD, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 359:
+
+  case 359: /* mc_unit_type: MCU_DATASIZE  */
                { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_DATASIZE, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 360:
+
+  case 360: /* mc_unit_type: MCU_SPS  */
           { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_SPS, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 361:
+
+  case 361: /* mc_unit_type: MCU_SIEMENS  */
               { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_SIEMENS, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 362:
+
+  case 362: /* mc_unit_type: MCU_RESPONSIVITY  */
                    { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_RESPONSIVITY, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 363:
+
+  case 363: /* mc_unit_type: MCU_ANGLE  */
             { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_ANGLE, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 364:
+
+  case 364: /* mc_unit_type: MCU_ANGULAR_RATE  */
                    { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_ANGULAR_RATE, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 365:
+
+  case 365: /* mc_unit_type: MCU_ENERGY  */
              { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_ENERGY, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 366:
+
+  case 366: /* mc_unit_type: MCU_EFIELD  */
              { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_EFIELD, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 367:
+
+  case 367: /* mc_unit_type: MCU_HFIELD  */
              { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_HFIELD, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 368:
+
+  case 368: /* mc_unit_type: MCU_FLUX  */
            { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_FLUX, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 369:
+
+  case 369: /* mc_unit_type: MCU_BFIELD  */
              { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_BFIELD, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 370:
+
+  case 370: /* mc_unit_type: MCU_SLEW  */
            { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_SLEW, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 371:
+
+  case 371: /* mc_unit_type: MCU_NOISE  */
             { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_NOISE, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 372:
+
+  case 372: /* mc_unit_type: MCU_CHARGE  */
              { ((*yyvalp).value) = mc_value_create_data(MCAST_UNIT_CHARGE, strdup((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tstring), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tpos, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.token)->tlen); }
     break;
-  case 373:
+
+  case 373: /* mc_unit_type: mc_unit_type MCOP_DIVID mc_unit_type  */
         {
-	    
+	    mprintf(MCC_LOG_AST,"@ut.div ");
 	    ((*yyvalp).value) = mc_value_create_node(MCAST_UNIT_DIV, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)));
 	}
     break;
-  case 374:
+
+  case 374: /* mc_unit_type: mc_unit_type MCOP_MULTI mc_unit_type  */
         {
-	    
+	    mprintf(MCC_LOG_AST,"@ut.mul ");
 	    ((*yyvalp).value) = mc_value_create_node(MCAST_UNIT_MUL, mc_value_link((YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-2)].yystate.yysemantics.yyval.value), (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (0)].yystate.yysemantics.yyval.value)));
 	}
     break;
-  case 375:
+
+  case 375: /* mc_unit_type: MCPT_LPAREN mc_unit_type MCPT_RPAREN  */
         {
-	    
+	    mprintf(MCC_LOG_AST,"@ut.grp ");
 	    ((*yyvalp).value) = mc_value_create_node(MCAST_UNIT_GROUP, (YY_CAST (yyGLRStackItem const *, yyvsp)[YYFILL (-1)].yystate.yysemantics.yyval.value));
 	}
     break;
-  case 376:
+
+  case 376: /* mc_endls: MC_ENDL  */
                   {}
     break;
-  case 377:
+
+  case 377: /* mc_endls: MCPT_SEMICOLON  */
                          {}
     break;
-  case 378:
+
+  case 378: /* mc_endls: mc_endls MC_ENDL  */
                            {}
     break;
-  case 379:
+
+  case 379: /* mc_endls: mc_endls MCPT_SEMICOLON  */
                                   {}
     break;
+
+
+
       default: break;
     }
   YY_SYMBOL_PRINT ("-> $$ =", yylhsNonterm (yyrule), yyvalp, yylocp);
+
   return yyok;
 # undef yyerrok
 # undef YYABORT
@@ -4196,20 +4733,27 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
 # undef yyclearin
 # undef YYRECOVERING
 }
+
+
 static void
 yyuserMerge (int yyn, YYSTYPE* yy0, YYSTYPE* yy1)
 {
   YY_USE (yy0);
   YY_USE (yy1);
+
   switch (yyn)
     {
+
       default: break;
     }
 }
+
                               /* Bison grammar-table manipulation.  */
+
 /*-----------------------------------------------.
 | Release the memory associated to this symbol.  |
 `-----------------------------------------------*/
+
 static void
 yydestruct (const char *yymsg,
             yysymbol_kind_t yykind, YYSTYPE *yyvaluep, YYLTYPE *yylocationp, mc_value* mcast)
@@ -4220,16 +4764,19 @@ yydestruct (const char *yymsg,
   if (!yymsg)
     yymsg = "Deleting";
   YY_SYMBOL_PRINT (yymsg, yykind, yyvaluep, yylocationp);
+
   YY_IGNORE_MAYBE_UNINITIALIZED_BEGIN
   YY_USE (yykind);
   YY_IGNORE_MAYBE_UNINITIALIZED_END
 }
+
 /** Number of symbols composing the right hand side of rule #RULE.  */
 static inline int
 yyrhsLength (yyRuleNum yyrule)
 {
   return yyr2[yyrule];
 }
+
 static void
 yydestroyGLRState (char const *yymsg, yyGLRState *yys, mc_value* mcast)
 {
@@ -4248,6 +4795,7 @@ yydestroyGLRState (char const *yymsg, yyGLRState *yys, mc_value* mcast)
           YY_SYMBOL_PRINT ("", yy_accessing_symbol (yys->yylrState), YY_NULLPTR, &yys->yyloc);
         }
 #endif
+
       if (yys->yysemantics.yyfirstVal)
         {
           yySemanticOption *yyoption = yys->yysemantics.yyfirstVal;
@@ -4260,8 +4808,10 @@ yydestroyGLRState (char const *yymsg, yyGLRState *yys, mc_value* mcast)
         }
     }
 }
+
 #define yypact_value_is_default(Yyn) \
   ((Yyn) == YYPACT_NINF)
+
 /** True iff LR state YYSTATE has only a default reduction (regardless
  *  of token).  */
 static inline yybool
@@ -4269,14 +4819,17 @@ yyisDefaultedState (yy_state_t yystate)
 {
   return yypact_value_is_default (yypact[yystate]);
 }
+
 /** The default reduction for YYSTATE, assuming it has one.  */
 static inline yyRuleNum
 yydefaultAction (yy_state_t yystate)
 {
   return yydefact[yystate];
 }
+
 #define yytable_value_is_error(Yyn) \
   0
+
 /** The action to take in YYSTATE on seeing YYTOKEN.
  *  Result R means
  *    R < 0:  Reduce on rule -R.
@@ -4312,6 +4865,7 @@ yygetLRActions (yy_state_t yystate, yysymbol_kind_t yytoken, const short** yycon
       return 0;
     }
 }
+
 /** Compute post-reduction state.
  * \param yystate   the current state
  * \param yysym     the nonterminal to push on the stack
@@ -4325,21 +4879,26 @@ yyLRgotoState (yy_state_t yystate, yysymbol_kind_t yysym)
   else
     return yydefgoto[yysym - YYNTOKENS];
 }
+
 static inline yybool
 yyisShiftAction (int yyaction)
 {
   return 0 < yyaction;
 }
+
 static inline yybool
 yyisErrorAction (int yyaction)
 {
   return yyaction == 0;
 }
+
                                 /* GLRStates */
+
 /** Return a fresh GLRStackItem in YYSTACKP.  The item is an LR state
  *  if YYISSTATE, and otherwise a semantic option.  Callers should call
  *  YY_RESERVE_GLRSTACK afterwards to make sure there is sufficient
  *  headroom.  */
+
 static inline yyGLRStackItem*
 yynewGLRStackItem (yyGLRStack* yystackp, yybool yyisState)
 {
@@ -4349,6 +4908,7 @@ yynewGLRStackItem (yyGLRStack* yystackp, yybool yyisState)
   yynewItem->yystate.yyisState = yyisState;
   return yynewItem;
 }
+
 /** Add a new semantic action that will execute the action for rule
  *  YYRULE on the semantic values in YYRHS to the list of
  *  alternative actions for YYSTATE.  Assumes that YYRHS comes from
@@ -4372,9 +4932,12 @@ yyaddDeferredAction (yyGLRStack* yystackp, YYPTRDIFF_T yyk, yyGLRState* yystate,
     yynewOption->yyrawchar = MCA_EMPTY;
   yynewOption->yynext = yystate->yysemantics.yyfirstVal;
   yystate->yysemantics.yyfirstVal = yynewOption;
+
   YY_RESERVE_GLRSTACK (yystackp);
 }
+
                                 /* GLRStacks */
+
 /** Initialize YYSET to a singleton set containing an empty stack.  */
 static yybool
 yyinitStateSet (yyGLRStateSet* yyset)
@@ -4402,11 +4965,13 @@ yyinitStateSet (yyGLRStateSet* yyset)
           YY_CAST (YYSIZE_T, yyset->yycapacity) * sizeof yyset->yylookaheadNeeds[0]);
   return yytrue;
 }
+
 static void yyfreeStateSet (yyGLRStateSet* yyset)
 {
   YYFREE (yyset->yystates);
   YYFREE (yyset->yylookaheadNeeds);
 }
+
 /** Initialize *YYSTACKP to a single empty stack, with total maximum
  *  capacity for all stacks of YYSIZE.  */
 static yybool
@@ -4426,10 +4991,13 @@ yyinitGLRStack (yyGLRStack* yystackp, YYPTRDIFF_T yysize)
   yystackp->yylastDeleted = YY_NULLPTR;
   return yyinitStateSet (&yystackp->yytops);
 }
+
+
 #if YYSTACKEXPANDABLE
 # define YYRELOC(YYFROMITEMS, YYTOITEMS, YYX, YYTYPE)                   \
   &((YYTOITEMS)                                                         \
     - ((YYFROMITEMS) - YY_REINTERPRET_CAST (yyGLRStackItem*, (YYX))))->YYTYPE
+
 /** If *YYSTACKP is expandable, extend it.  WARNING: Pointers into the
     stack from outside should be considered invalid after this call.
     We always expand when there are 1 or fewer items left AFTER an
@@ -4483,6 +5051,7 @@ yyexpandGLRStack (yyGLRStack* yystackp)
   if (yystackp->yysplitPoint != YY_NULLPTR)
     yystackp->yysplitPoint = YYRELOC (yystackp->yyitems, yynewItems,
                                       yystackp->yysplitPoint, yystate);
+
   for (yyn = 0; yyn < yystackp->yytops.yysize; yyn += 1)
     if (yystackp->yytops.yystates[yyn] != YY_NULLPTR)
       yystackp->yytops.yystates[yyn] =
@@ -4494,12 +5063,14 @@ yyexpandGLRStack (yyGLRStack* yystackp)
   yystackp->yyspaceLeft = yynewSize - yysize;
 }
 #endif
+
 static void
 yyfreeGLRStack (yyGLRStack* yystackp)
 {
   YYFREE (yystackp->yyitems);
   yyfreeStateSet (&yystackp->yytops);
 }
+
 /** Assuming that YYS is a GLRState somewhere on *YYSTACKP, update the
  *  splitpoint of *YYSTACKP, if needed, so that it is at least as deep as
  *  YYS.  */
@@ -4509,6 +5080,7 @@ yyupdateSplit (yyGLRStack* yystackp, yyGLRState* yys)
   if (yystackp->yysplitPoint != YY_NULLPTR && yystackp->yysplitPoint > yys)
     yystackp->yysplitPoint = yys;
 }
+
 /** Invalidate stack #YYK in *YYSTACKP.  */
 static inline void
 yymarkStackDeleted (yyGLRStack* yystackp, YYPTRDIFF_T yyk)
@@ -4517,6 +5089,7 @@ yymarkStackDeleted (yyGLRStack* yystackp, YYPTRDIFF_T yyk)
     yystackp->yylastDeleted = yystackp->yytops.yystates[yyk];
   yystackp->yytops.yystates[yyk] = YY_NULLPTR;
 }
+
 /** Undelete the last stack in *YYSTACKP that was marked as deleted.  Can
     only be done once after a deletion, and only when all other stacks have
     been deleted.  */
@@ -4530,6 +5103,7 @@ yyundeleteLastStack (yyGLRStack* yystackp)
   YY_DPRINTF ((stderr, "Restoring last deleted stack as stack #0.\n"));
   yystackp->yylastDeleted = YY_NULLPTR;
 }
+
 static inline void
 yyremoveDeletes (yyGLRStack* yystackp)
 {
@@ -4561,6 +5135,7 @@ yyremoveDeletes (yyGLRStack* yystackp)
       yyi += 1;
     }
 }
+
 /** Shift to a new state on stack #YYK of *YYSTACKP, corresponding to LR
  * state YYLRSTATE, at input position YYPOSN, with (resolved) semantic
  * value *YYVALP and source location *YYLOCP.  */
@@ -4570,6 +5145,7 @@ yyglrShift (yyGLRStack* yystackp, YYPTRDIFF_T yyk, yy_state_t yylrState,
             YYSTYPE* yyvalp, YYLTYPE* yylocp)
 {
   yyGLRState* yynewState = &yynewGLRStackItem (yystackp, yytrue)->yystate;
+
   yynewState->yylrState = yylrState;
   yynewState->yyposn = yyposn;
   yynewState->yyresolved = yytrue;
@@ -4577,8 +5153,10 @@ yyglrShift (yyGLRStack* yystackp, YYPTRDIFF_T yyk, yy_state_t yylrState,
   yynewState->yysemantics.yyval = *yyvalp;
   yynewState->yyloc = *yylocp;
   yystackp->yytops.yystates[yyk] = yynewState;
+
   YY_RESERVE_GLRSTACK (yystackp);
 }
+
 /** Shift stack #YYK of *YYSTACKP, to a new state corresponding to LR
  *  state YYLRSTATE, at input position YYPOSN, with the (unresolved)
  *  semantic value of YYRHS under the action for YYRULE.  */
@@ -4588,19 +5166,24 @@ yyglrShiftDefer (yyGLRStack* yystackp, YYPTRDIFF_T yyk, yy_state_t yylrState,
 {
   yyGLRState* yynewState = &yynewGLRStackItem (yystackp, yytrue)->yystate;
   YY_ASSERT (yynewState->yyisState);
+
   yynewState->yylrState = yylrState;
   yynewState->yyposn = yyposn;
   yynewState->yyresolved = yyfalse;
   yynewState->yypred = yystackp->yytops.yystates[yyk];
   yynewState->yysemantics.yyfirstVal = YY_NULLPTR;
   yystackp->yytops.yystates[yyk] = yynewState;
+
   /* Invokes YY_RESERVE_GLRSTACK.  */
   yyaddDeferredAction (yystackp, yyk, yynewState, yyrhs, yyrule);
 }
+
 #if MCA_DEBUG
+
 /*----------------------------------------------------------------------.
 | Report that stack #YYK of *YYSTACKP is going to be reduced by YYRULE. |
 `----------------------------------------------------------------------*/
+
 static inline void
 yy_reduce_print (yybool yynormal, yyGLRStackItem* yyvsp, YYPTRDIFF_T yyk,
                  yyRuleNum yyrule, mc_value* mcast)
@@ -4626,6 +5209,7 @@ yy_reduce_print (yybool yynormal, yyGLRStackItem* yyvsp, YYPTRDIFF_T yyk,
     }
 }
 #endif
+
 /** Pop the symbols consumed by reduction #YYRULE from the top of stack
  *  #YYK of *YYSTACKP, and perform the appropriate semantic action on their
  *  semantic values.  Assumes that all ambiguities in semantic values
@@ -4637,6 +5221,7 @@ yydoAction (yyGLRStack* yystackp, YYPTRDIFF_T yyk, yyRuleNum yyrule,
             YYSTYPE* yyvalp, YYLTYPE *yylocp, mc_value* mcast)
 {
   int yynrhs = yyrhsLength (yyrule);
+
   if (yystackp->yysplitPoint == YY_NULLPTR)
     {
       /* Standard special case: single stack.  */
@@ -4669,6 +5254,7 @@ yydoAction (yyGLRStack* yystackp, YYPTRDIFF_T yyk, yyRuleNum yyrule,
                            yystackp, yyk, yyvalp, yylocp, mcast);
     }
 }
+
 /** Pop items off stack #YYK of *YYSTACKP according to grammar rule YYRULE,
  *  and push back on the resulting nonterminal symbol.  Perform the
  *  semantic action associated with YYRULE and store its value with the
@@ -4685,10 +5271,12 @@ yyglrReduce (yyGLRStack* yystackp, YYPTRDIFF_T yyk, yyRuleNum yyrule,
              yybool yyforceEval, mc_value* mcast)
 {
   YYPTRDIFF_T yyposn = yystackp->yytops.yystates[yyk]->yyposn;
+
   if (yyforceEval || yystackp->yysplitPoint == YY_NULLPTR)
     {
       YYSTYPE yyval;
       YYLTYPE yyloc;
+
       YYRESULTTAG yyflag = yydoAction (yystackp, yyk, yyrule, &yyval, &yyloc, mcast);
       if (yyflag == yyerr && yystackp->yysplitPoint != YY_NULLPTR)
         YY_DPRINTF ((stderr,
@@ -4707,6 +5295,7 @@ yyglrReduce (yyGLRStack* yystackp, YYPTRDIFF_T yyk, yyRuleNum yyrule,
       int yyn;
       yyGLRState* yys, *yys0 = yystackp->yytops.yystates[yyk];
       yy_state_t yynewLRState;
+
       for (yys = yystackp->yytops.yystates[yyk], yyn = yyrhsLength (yyrule);
            0 < yyn; yyn -= 1)
         {
@@ -4743,6 +5332,7 @@ yyglrReduce (yyGLRStack* yystackp, YYPTRDIFF_T yyk, yyRuleNum yyrule,
     }
   return yyok;
 }
+
 static YYPTRDIFF_T
 yysplitStack (yyGLRStack* yystackp, YYPTRDIFF_T yyk)
 {
@@ -4758,6 +5348,7 @@ yysplitStack (yyGLRStack* yystackp, YYPTRDIFF_T yyk)
       if (half_max_capacity < yystackp->yytops.yycapacity)
         yyMemoryExhausted (yystackp);
       yystackp->yytops.yycapacity *= 2;
+
       {
         yyGLRState** yynewStates
           = YY_CAST (yyGLRState**,
@@ -4768,6 +5359,7 @@ yysplitStack (yyGLRStack* yystackp, YYPTRDIFF_T yyk)
           yyMemoryExhausted (yystackp);
         yystackp->yytops.yystates = yynewStates;
       }
+
       {
         yybool* yynewLookaheadNeeds
           = YY_CAST (yybool*,
@@ -4786,6 +5378,7 @@ yysplitStack (yyGLRStack* yystackp, YYPTRDIFF_T yyk)
   yystackp->yytops.yysize += 1;
   return yystackp->yytops.yysize - 1;
 }
+
 /** True iff YYY0 and YYY1 represent identical options at the top level.
  *  That is, they represent the same rule applied to RHS symbols
  *  that produce the same terminal symbols.  */
@@ -4807,6 +5400,7 @@ yyidenticalOptions (yySemanticOption* yyy0, yySemanticOption* yyy1)
   else
     return yyfalse;
 }
+
 /** Assuming identicalOptions (YYY0,YYY1), destructively merge the
  *  alternative semantic values for the RHS-symbols of YYY1 and YYY0.  */
 static void
@@ -4857,6 +5451,7 @@ yymergeOptionSets (yySemanticOption* yyy0, yySemanticOption* yyy1)
         }
     }
 }
+
 /** Y0 and Y1 represent two possible actions to take in a given
  *  parsing state; return 0 if no combination is possible,
  *  1 if user-mergeable, 2 if Y0 is preferred, 3 if Y1 is preferred.  */
@@ -4865,6 +5460,7 @@ yypreference (yySemanticOption* y0, yySemanticOption* y1)
 {
   yyRuleNum r0 = y0->yyrule, r1 = y1->yyrule;
   int p0 = yydprec[r0], p1 = yydprec[r1];
+
   if (p0 == p1)
     {
       if (yymerger[r0] == 0 || yymerger[r0] != yymerger[r1])
@@ -4880,8 +5476,11 @@ yypreference (yySemanticOption* y0, yySemanticOption* y1)
     return 2;
   return 0;
 }
+
 static YYRESULTTAG
 yyresolveValue (yyGLRState* yys, yyGLRStack* yystackp, mc_value* mcast);
+
+
 /** Resolve the previous YYN states starting at and including state YYS
  *  on *YYSTACKP. If result != yyok, some states may have been left
  *  unresolved possibly with empty semantic option chains.  Regardless
@@ -4900,6 +5499,7 @@ yyresolveStates (yyGLRState* yys, int yyn,
     }
   return yyok;
 }
+
 /** Resolve the states for the RHS of YYOPT on *YYSTACKP, perform its
  *  user action, and return the semantic value and location in *YYVALP
  *  and *YYLOCP.  Regardless of whether result = yyok, all RHS states
@@ -4920,6 +5520,7 @@ yyresolveAction (yySemanticOption* yyopt, yyGLRStack* yystackp,
         yydestroyGLRState ("Cleanup: popping", yys, mcast);
       return yyflag;
     }
+
   yyrhsVals[YYMAXRHS + YYMAXLEFT].yystate.yypred = yyopt->yystate;
   if (yynrhs == 0)
     /* Set default location.  */
@@ -4940,6 +5541,7 @@ yyresolveAction (yySemanticOption* yyopt, yyGLRStack* yystackp,
   }
   return yyflag;
 }
+
 #if MCA_DEBUG
 static void
 yyreportTree (yySemanticOption* yyx, int yyindent)
@@ -4949,6 +5551,7 @@ yyreportTree (yySemanticOption* yyx, int yyindent)
   yyGLRState* yys;
   yyGLRState* yystates[1 + YYMAXRHS];
   yyGLRState yyleftmost_state;
+
   for (yyi = yynrhs, yys = yyx->yystate; 0 < yyi; yyi -= 1, yys = yys->yypred)
     yystates[yyi] = yys;
   if (yys == YY_NULLPTR)
@@ -4958,6 +5561,7 @@ yyreportTree (yySemanticOption* yyx, int yyindent)
     }
   else
     yystates[0] = yys;
+
   if (yyx->yystate->yyposn < yys->yyposn + 1)
     YY_FPRINTF ((stderr, "%*s%s -> <Rule %d, empty>\n",
                  yyindent, "", yysymbol_name (yylhsNonterm (yyx->yyrule)),
@@ -4985,12 +5589,14 @@ yyreportTree (yySemanticOption* yyx, int yyindent)
     }
 }
 #endif
+
 static YYRESULTTAG
 yyreportAmbiguity (yySemanticOption* yyx0,
                    yySemanticOption* yyx1, YYLTYPE *yylocp, mc_value* mcast)
 {
   YY_USE (yyx0);
   YY_USE (yyx1);
+
 #if MCA_DEBUG
   YY_FPRINTF ((stderr, "Ambiguity detected.\n"));
   YY_FPRINTF ((stderr, "Option 1,\n"));
@@ -4999,9 +5605,11 @@ yyreportAmbiguity (yySemanticOption* yyx0,
   yyreportTree (yyx1, 2);
   YY_FPRINTF ((stderr, "\n"));
 #endif
+
   yyerror (yylocp, mcast, YY_("syntax is ambiguous"));
   return yyabort;
 }
+
 /** Resolve the locations for each of the YYN1 states in *YYSTACKP,
  *  ending at YYS1.  Has no effect on previously resolved states.
  *  The first semantic option of a state is always chosen.  */
@@ -5046,6 +5654,7 @@ yyresolveLocations (yyGLRState *yys1, int yyn1,
         }
     }
 }
+
 /** Resolve the ambiguity represented in state YYS in *YYSTACKP,
  *  perform the indicated actions, and set the semantic value of YYS.
  *  If result != yyok, the chain of semantic options in YYS has been
@@ -5063,9 +5672,11 @@ yyresolveValue (yyGLRState* yys, yyGLRStack* yystackp, mc_value* mcast)
   YYSTYPE yyval;
   YYRESULTTAG yyflag;
   YYLTYPE *yylocp = &yys->yyloc;
+
   for (yypp = &yyoptionList->yynext; *yypp != YY_NULLPTR; )
     {
       yySemanticOption* yyp = *yypp;
+
       if (yyidenticalOptions (yybest, yyp))
         {
           yymergeOptionSets (yybest, yyp);
@@ -5097,6 +5708,7 @@ yyresolveValue (yyGLRState* yys, yyGLRStack* yystackp, mc_value* mcast)
           yypp = &yyp->yynext;
         }
     }
+
   if (yymerge)
     {
       yySemanticOption* yyp;
@@ -5123,6 +5735,7 @@ yyresolveValue (yyGLRState* yys, yyGLRStack* yystackp, mc_value* mcast)
     }
   else
     yyflag = yyresolveAction (yybest, yystackp, &yyval, yylocp, mcast);
+
   if (yyflag == yyok)
     {
       yys->yyresolved = yytrue;
@@ -5132,6 +5745,7 @@ yyresolveValue (yyGLRState* yys, yyGLRStack* yystackp, mc_value* mcast)
     yys->yysemantics.yyfirstVal = YY_NULLPTR;
   return yyflag;
 }
+
 static YYRESULTTAG
 yyresolveStack (yyGLRStack* yystackp, mc_value* mcast)
 {
@@ -5139,6 +5753,7 @@ yyresolveStack (yyGLRStack* yystackp, mc_value* mcast)
     {
       yyGLRState* yys;
       int yyn;
+
       for (yyn = 0, yys = yystackp->yytops.yystates[0];
            yys != yystackp->yysplitPoint;
            yys = yys->yypred, yyn += 1)
@@ -5148,6 +5763,7 @@ yyresolveStack (yyGLRStack* yystackp, mc_value* mcast)
     }
   return yyok;
 }
+
 /** Called when returning to deterministic operation to clean up the extra
  * stacks. */
 static void
@@ -5155,8 +5771,10 @@ yycompressStack (yyGLRStack* yystackp)
 {
   /* yyr is the state after the split point.  */
   yyGLRState *yyr;
+
   if (yystackp->yytops.yysize != 1 || yystackp->yysplitPoint == YY_NULLPTR)
     return;
+
   {
     yyGLRState *yyp, *yyq;
     for (yyp = yystackp->yytops.yystates[0], yyq = yyp->yypred, yyr = YY_NULLPTR;
@@ -5164,11 +5782,13 @@ yycompressStack (yyGLRStack* yystackp)
          yyr = yyp, yyp = yyq, yyq = yyp->yypred)
       yyp->yypred = yyr;
   }
+
   yystackp->yyspaceLeft += yystackp->yynextFree - yystackp->yyitems;
   yystackp->yynextFree = YY_REINTERPRET_CAST (yyGLRStackItem*, yystackp->yysplitPoint) + 1;
   yystackp->yyspaceLeft -= yystackp->yynextFree - yystackp->yyitems;
   yystackp->yysplitPoint = YY_NULLPTR;
   yystackp->yylastDeleted = YY_NULLPTR;
+
   while (yyr != YY_NULLPTR)
     {
       yystackp->yynextFree->yystate = *yyr;
@@ -5179,6 +5799,7 @@ yycompressStack (yyGLRStack* yystackp)
       yystackp->yyspaceLeft -= 1;
     }
 }
+
 static YYRESULTTAG
 yyprocessOneStack (yyGLRStack* yystackp, YYPTRDIFF_T yyk,
                    YYPTRDIFF_T yyposn, YYLTYPE *yylocp, mc_value* mcast)
@@ -5188,7 +5809,9 @@ yyprocessOneStack (yyGLRStack* yystackp, YYPTRDIFF_T yyk,
       yy_state_t yystate = yystackp->yytops.yystates[yyk]->yylrState;
       YY_DPRINTF ((stderr, "Stack %ld Entering state %d\n",
                    YY_CAST (long, yyk), yystate));
+
       YY_ASSERT (yystate != YYFINAL);
+
       if (yyisDefaultedState (yystate))
         {
           YYRESULTTAG yyflag;
@@ -5218,6 +5841,7 @@ yyprocessOneStack (yyGLRStack* yystackp, YYPTRDIFF_T yyk,
           const short* yyconflicts;
           const int yyaction = yygetLRActions (yystate, yytoken, &yyconflicts);
           yystackp->yytops.yylookaheadNeeds[yyk] = yytrue;
+
           for (/* nothing */; *yyconflicts; yyconflicts += 1)
             {
               YYRESULTTAG yyflag;
@@ -5238,6 +5862,7 @@ yyprocessOneStack (yyGLRStack* yystackp, YYPTRDIFF_T yyk,
               else
                 return yyflag;
             }
+
           if (yyisShiftAction (yyaction))
             break;
           else if (yyisErrorAction (yyaction))
@@ -5266,6 +5891,12 @@ yyprocessOneStack (yyGLRStack* yystackp, YYPTRDIFF_T yyk,
     }
   return yyok;
 }
+
+
+
+
+
+
 static void
 yyreportSyntaxError (yyGLRStack* yystackp, mc_value* mcast)
 {
@@ -5274,6 +5905,7 @@ yyreportSyntaxError (yyGLRStack* yystackp, mc_value* mcast)
   yyerror (&yylloc, mcast, YY_("syntax error"));
   yynerrs += 1;
 }
+
 /* Recover from a syntax error on *YYSTACKP, assuming that *YYSTACKP->YYTOKENP,
    yylval, and yylloc are the syntactic category, semantic value, and location
    of the lookahead.  */
@@ -5316,6 +5948,7 @@ yyrecoverSyntaxError (yyGLRStack* yystackp, mc_value* mcast)
         else if (! yytable_value_is_error (yytable[yyj]))
           return;
       }
+
   /* Reduce to one stack.  */
   {
     YYPTRDIFF_T yyk;
@@ -5329,6 +5962,7 @@ yyrecoverSyntaxError (yyGLRStack* yystackp, mc_value* mcast)
     yyremoveDeletes (yystackp);
     yycompressStack (yystackp);
   }
+
   /* Pop stack until we find a state that shifts the error token.  */
   yystackp->yyerrState = 3;
   while (yystackp->yytops.yystates[0] != YY_NULLPTR)
@@ -5365,6 +5999,7 @@ yyrecoverSyntaxError (yyGLRStack* yystackp, mc_value* mcast)
   if (yystackp->yytops.yystates[0] == YY_NULLPTR)
     yyFail (yystackp, &yylloc, mcast, YY_NULLPTR);
 }
+
 #define YYCHK1(YYE)                             \
   do {                                          \
     switch (YYE) {                              \
@@ -5376,9 +6011,11 @@ yyrecoverSyntaxError (yyGLRStack* yystackp, mc_value* mcast)
     default:       goto yybuglab;               \
     }                                           \
   } while (0)
+
 /*----------.
 | yyparse.  |
 `----------*/
+
 int
 yyparse (mc_value* mcast)
 {
@@ -5386,10 +6023,13 @@ yyparse (mc_value* mcast)
   yyGLRStack yystack;
   yyGLRStack* const yystackp = &yystack;
   YYPTRDIFF_T yyposn;
+
   YY_DPRINTF ((stderr, "Starting parse\n"));
+
   yychar = MCA_EMPTY;
   yylval = yyval_default;
   yylloc = yyloc_default;
+
   if (! yyinitGLRStack (yystackp, YYINITDEPTH))
     goto yyexhaustedlab;
   switch (YYSETJMP (yystack.yyexception_buffer))
@@ -5401,6 +6041,7 @@ yyparse (mc_value* mcast)
     }
   yyglrShift (&yystack, 0, 0, 0, &yylval, &yylloc);
   yyposn = 0;
+
   while (yytrue)
     {
       /* For efficiency, we have two loops, the first of which is
@@ -5454,27 +6095,35 @@ yyparse (mc_value* mcast)
                 YYCHK1 (yyglrReduce (&yystack, 0, -yyaction, yytrue, mcast));
             }
         }
+
       /* Nondeterministic mode. */
       while (yytrue)
         {
           yysymbol_kind_t yytoken_to_shift;
           YYPTRDIFF_T yys;
+
           for (yys = 0; yys < yystack.yytops.yysize; yys += 1)
             yystackp->yytops.yylookaheadNeeds[yys] = yychar != MCA_EMPTY;
+
           /* yyprocessOneStack returns one of three things:
+
               - An error flag.  If the caller is yyprocessOneStack, it
                 immediately returns as well.  When the caller is finally
                 yyparse, it jumps to an error label via YYCHK1.
+
               - yyok, but yyprocessOneStack has invoked yymarkStackDeleted
                 (&yystack, yys), which sets the top state of yys to NULL.  Thus,
                 yyparse's following invocation of yyremoveDeletes will remove
                 the stack.
+
               - yyok, when ready to shift a token.
+
              Except in the first case, yyparse will invoke yyremoveDeletes and
              then shift the next token onto all remaining stacks.  This
              synchronization of the shift (that is, after all preceding
              reductions on all stacks) helps prevent double destructor calls
              on yylval in the event of memory exhaustion.  */
+
           for (yys = 0; yys < yystack.yytops.yysize; yys += 1)
             YYCHK1 (yyprocessOneStack (&yystack, yys, yyposn, &yylloc, mcast));
           yyremoveDeletes (&yystack);
@@ -5489,6 +6138,7 @@ yyparse (mc_value* mcast)
               yyreportSyntaxError (&yystack, mcast);
               goto yyuser_error;
             }
+
           /* If any yyglrShift call fails, it will fail after shifting.  Thus,
              a copy of yylval will already be on stack 0 in the event of a
              failure in the following loop.  Thus, yychar is set to MCA_EMPTY
@@ -5512,6 +6162,7 @@ yyparse (mc_value* mcast)
                            YY_CAST (long, yys),
                            yystack.yytops.yystates[yys]->yylrState));
             }
+
           if (yystack.yytops.yysize == 1)
             {
               YYCHK1 (yyresolveStack (&yystack, mcast));
@@ -5525,23 +6176,29 @@ yyparse (mc_value* mcast)
       yyrecoverSyntaxError (&yystack, mcast);
       yyposn = yystack.yytops.yystates[0]->yyposn;
     }
+
  yyacceptlab:
   yyresult = 0;
   goto yyreturnlab;
+
  yybuglab:
   YY_ASSERT (yyfalse);
   goto yyabortlab;
+
  yyabortlab:
   yyresult = 1;
   goto yyreturnlab;
+
  yyexhaustedlab:
   yyerror (&yylloc, mcast, YY_("memory exhausted"));
   yyresult = 2;
   goto yyreturnlab;
+
  yyreturnlab:
   if (yychar != MCA_EMPTY)
     yydestruct ("Cleanup: discarding lookahead",
                 YYTRANSLATE (yychar), &yylval, &yylloc, mcast);
+
   /* If the stack is well-formed, pop the stack until it is empty,
      destroying its entries as we go.  But free the stack regardless
      of whether it is well-formed.  */
@@ -5570,8 +6227,10 @@ yyparse (mc_value* mcast)
         }
       yyfreeGLRStack (&yystack);
     }
+
   return yyresult;
 }
+
 /* DEBUGGING ONLY */
 #if MCA_DEBUG
 /* Print *YYS and its predecessors. */
@@ -5585,6 +6244,7 @@ yy_yypstack (yyGLRState* yys)
     }
   YY_FPRINTF ((stderr, "%d@%ld", yys->yylrState, YY_CAST (long, yys->yyposn)));
 }
+
 /* Print YYS (possibly NULL) and its predecessors. */
 static void
 yypstates (yyGLRState* yys)
@@ -5595,12 +6255,14 @@ yypstates (yyGLRState* yys)
     yy_yypstack (yys);
   YY_FPRINTF ((stderr, "\n"));
 }
+
 /* Print the stack #YYK.  */
 static void
 yypstack (yyGLRStack* yystackp, YYPTRDIFF_T yyk)
 {
   yypstates (yystackp->yytops.yystates[yyk]);
 }
+
 /* Print all the stacks.  */
 static void
 yypdumpstack (yyGLRStack* yystackp)
@@ -5610,6 +6272,7 @@ yypdumpstack (yyGLRStack* yystackp)
            ((YYX)                                                       \
             ? YY_REINTERPRET_CAST (yyGLRStackItem*, (YYX)) - yystackp->yyitems \
             : -1))
+
   yyGLRStackItem* yyp;
   for (yyp = yystackp->yyitems; yyp < yystackp->yynextFree; yyp += 1)
     {
@@ -5638,6 +6301,7 @@ yypdumpstack (yyGLRStack* yystackp)
         }
       YY_FPRINTF ((stderr, "\n"));
     }
+
   YY_FPRINTF ((stderr, "Tops:"));
   {
     YYPTRDIFF_T yyi;
@@ -5649,10 +6313,12 @@ yypdumpstack (yyGLRStack* yystackp)
 #undef YYINDEX
 }
 #endif
+
 #undef yylval
 #undef yychar
 #undef yynerrs
 #undef yylloc
+
 /* Substitute the variable and function names.  */
 #define yyparse mca_parse
 #define yylex   mca_lex
@@ -5662,6 +6328,10 @@ yypdumpstack (yyGLRStack* yystackp)
 #define yydebug mca_debug
 #define yynerrs mca_nerrs
 #define yylloc  mca_lloc
+
+
+
+
 void mca_error(struct YYLTYPE *_loc, mc_value* mcast, const char *msg) {
     (void)_loc;
     (void)mcast;

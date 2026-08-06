@@ -260,3 +260,28 @@ pub(crate) fn is_enum_class_name(class_name: &str) -> bool {
     }
     false
 }
+
+/// Check whether `value_name` is a valid member of the given enum class.
+pub(crate) fn is_enum_member(class_name: &str, value_name: &str) -> bool {
+    // Search workspace enums
+    for entry in workspace::WORKSPACE.enums.iter() {
+        if entry.key().ident.to_string() == class_name {
+            return entry
+                .value()
+                .values
+                .iter()
+                .any(|v| v.name.to_string() == value_name);
+        }
+    }
+    // Search global enums
+    for entry in global::mcc_enums.iter() {
+        if entry.key().ident.to_string() == class_name {
+            return entry
+                .value()
+                .values
+                .iter()
+                .any(|v| v.name.to_string() == value_name);
+        }
+    }
+    false
+}

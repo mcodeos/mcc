@@ -318,7 +318,9 @@ impl McCode {
                     let msg = if entry.msg.is_null() {
                         Self::dlog_parser_message(entry.code).to_string()
                     } else {
-                        std::ffi::CStr::from_ptr(entry.msg).to_string_lossy().to_string()
+                        std::ffi::CStr::from_ptr(entry.msg)
+                            .to_string_lossy()
+                            .to_string()
                     };
                     raw.push((entry.code, entry.level, entry.pos, entry.len, msg));
                     dlog_ptr = entry.next;
@@ -332,8 +334,12 @@ impl McCode {
                     }
                     last_end = pos.saturating_add(*len);
                     match level {
-                        2 => crate::db::diagnostic::diagnostic::dlog_warning_at(*code, *pos, *len, &msg),
-                        _ => crate::db::diagnostic::diagnostic::dlog_error_at(*code, *pos, *len, &msg),
+                        2 => crate::db::diagnostic::diagnostic::dlog_warning_at(
+                            *code, *pos, *len, &msg,
+                        ),
+                        _ => crate::db::diagnostic::diagnostic::dlog_error_at(
+                            *code, *pos, *len, &msg,
+                        ),
                     }
                 }
             }
@@ -424,7 +430,9 @@ impl McCode {
                     let msg = if entry.msg.is_null() {
                         Self::dlog_parser_message(entry.code).to_string()
                     } else {
-                        std::ffi::CStr::from_ptr(entry.msg).to_string_lossy().to_string()
+                        std::ffi::CStr::from_ptr(entry.msg)
+                            .to_string_lossy()
+                            .to_string()
                     };
                     raw.push((entry.code, entry.level, entry.pos, entry.len, msg));
                     dlog_ptr = entry.next;
@@ -438,8 +446,12 @@ impl McCode {
                     }
                     last_end = pos.saturating_add(*len);
                     match level {
-                        2 => crate::db::diagnostic::diagnostic::dlog_warning_at(*code, *pos, *len, &msg),
-                        _ => crate::db::diagnostic::diagnostic::dlog_error_at(*code, *pos, *len, &msg),
+                        2 => crate::db::diagnostic::diagnostic::dlog_warning_at(
+                            *code, *pos, *len, &msg,
+                        ),
+                        _ => crate::db::diagnostic::diagnostic::dlog_error_at(
+                            *code, *pos, *len, &msg,
+                        ),
                     }
                 }
             }
@@ -643,14 +655,20 @@ impl McCode {
                     let pos = err.pos as u32;
                     let len = err.len as u32;
                     let location = crate::db::diagnostic::diagnostic::Location::new(
-                        self.uri.clone(), pos, len,
+                        self.uri.clone(),
+                        pos,
+                        len,
                     );
                     let diagnostic = crate::db::diagnostic::diagnostic::Diagnostic::new(
-                        1000, crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
-                        location, "syntax error".to_string(),
+                        1000,
+                        crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
+                        location,
+                        "syntax error".to_string(),
                     );
                     workspace::WORKSPACE
-                        .diagnostics.lock().unwrap()
+                        .diagnostics
+                        .lock()
+                        .unwrap()
                         .add_diagnostic(diagnostic);
                     err_ptr = err.next;
                 }
@@ -665,7 +683,9 @@ impl McCode {
                     let msg = if entry.msg.is_null() {
                         Self::dlog_parser_message(entry.code).to_string()
                     } else {
-                        std::ffi::CStr::from_ptr(entry.msg).to_string_lossy().to_string()
+                        std::ffi::CStr::from_ptr(entry.msg)
+                            .to_string_lossy()
+                            .to_string()
                     };
                     raw.push((entry.code, entry.level, entry.pos, entry.len, msg));
                     dlog_ptr = entry.next;
@@ -678,8 +698,12 @@ impl McCode {
                     }
                     last_end = pos.saturating_add(*len);
                     match level {
-                        2 => crate::db::diagnostic::diagnostic::dlog_warning_at(*code, *pos, *len, &msg),
-                        _ => crate::db::diagnostic::diagnostic::dlog_error_at(*code, *pos, *len, &msg),
+                        2 => crate::db::diagnostic::diagnostic::dlog_warning_at(
+                            *code, *pos, *len, &msg,
+                        ),
+                        _ => crate::db::diagnostic::diagnostic::dlog_error_at(
+                            *code, *pos, *len, &msg,
+                        ),
                     }
                 }
             }
@@ -3396,9 +3420,7 @@ impl McCode {
             }
 
             let comp_ids = McIds::from(comp_name_str.as_str());
-            match crate::db::cmie::cmie::lookup_scoped_enum_value(
-                &bare_name, &comp_ids, uri,
-            ) {
+            match crate::db::cmie::cmie::lookup_scoped_enum_value(&bare_name, &comp_ids, uri) {
                 Some((_def_uri, _span, value_idx)) => {
                     // Get the enum class to build value_id
                     let family_name = comp_ids.root_name().unwrap_or_default();
@@ -3409,18 +3431,20 @@ impl McCode {
                         };
                         gt.lookup_enum_class(uri, &family_name)
                             .or_else(|| {
-                                gt.enum_class_name_to_id.iter().find_map(
-                                    |((_uri, name), cid)| {
+                                gt.enum_class_name_to_id
+                                    .iter()
+                                    .find_map(|((_uri, name), cid)| {
                                         (name == &family_name).then_some(*cid)
-                                    },
-                                )
+                                    })
                             })
                             .unwrap_or_default()
                     };
                     if u32::from(class_id) == 0 {
                         continue;
                     }
-                    let value_id = crate::ast::ast_semantic::GlobalSymbolTable::pack_enum_value_id(class_id, value_idx);
+                    let value_id = crate::ast::ast_semantic::GlobalSymbolTable::pack_enum_value_id(
+                        class_id, value_idx,
+                    );
 
                     let end = pos + node.get_len() as usize;
                     symbol_lapper.insert(Interval {
@@ -3428,12 +3452,8 @@ impl McCode {
                         stop: end,
                         val: SymbolType::new(SymbolKind::EnumValRef, u32::from(value_id)),
                     });
-                    sem.ref_entries.push((
-                        SymbolKind::EnumValRef,
-                        u32::from(value_id),
-                        pos,
-                        end,
-                    ));
+                    sem.ref_entries
+                        .push((SymbolKind::EnumValRef, u32::from(value_id), pos, end));
                     tracing::debug!(target: "mcc::enum_ref",
                         "pushed scoped enum bare ref '{}' -> {}.{} (value_id={:?})",
                         bare_name, family_name, bare_name, value_id);
