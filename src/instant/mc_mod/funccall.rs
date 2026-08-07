@@ -220,13 +220,21 @@ impl McModuleInst {
         // Fix gate: use "caller is not FuncCall" instead of "caller is None".
         let caller_is_funccall = matches!(caller, Some(McPhrase::FuncCall(_)));
         let cmie_raw = mcb_get_cmie(func_name, &current_uri::get());
+        // Only use direct lookup if it's a Component or Module; otherwise
+        // fall through to alias fallback (e.g. "ESD" → "DIO.ESD").
         let cmie = match cmie_raw {
-            Some(c) => Some(c),
-            None => {
+            Some(c @ McCMIE::Component(_)) | Some(c @ McCMIE::Module(_)) => Some(c),
+            _ => {
                 let raw_name = func_name.to_string();
                 // First try the regular alias (ESD→DIO.ESD etc.), no caller gating
                 let standard_alias =
                     crate::vector::graph::naming::canonicalize_class_alias(&raw_name);
+                if self.name == "speaker" {
+                    eprintln!(
+                        "[FUNCALL-ALIAS] module={} func_name={raw_name} cmie_raw_is_some={} standard_alias={standard_alias:?}",
+                        self.name, cmie_raw.is_some()
+                    );
+                }
                 // Then try the bare-call-specific alias (PULLUP/PULLDOWN→RES), only
                 // enabled when caller is not FuncCall (i.e. not chain-method form)
                 let bare_alias = if !caller_is_funccall {
@@ -238,13 +246,26 @@ impl McModuleInst {
                     Some(canonical) => {
                         let canon_ids =
                             crate::semantic::basic::mc_ids::McIds::from(canonical.as_str());
-                        mcb_get_cmie(&canon_ids, &current_uri::get())
+                        let uri = current_uri::get();
+                        if self.name == "speaker" {
+                            eprintln!(
+                                "[FUNCALL-ALIAS] canonical={canonical} uri={uri}",
+                            );
+                        }
+                        let result = mcb_get_cmie(&canon_ids, &uri);
+                        if self.name == "speaker" {
+                            eprintln!(
+                                "[FUNCALL-ALIAS] cmie_result_is_some={}",
+                                result.is_some()
+                            );
+                        }
+                        result
                     }
                     None => None,
                 }
             }
         };
-        if self.name.contains("moddcdc") {
+        if self.name.contains("moddcdc") || self.name == "speaker" {
             eprintln!(
                 "[FUNCALL-DISP] module={} func_name={func_name} cmie_found={}",
                 self.name,

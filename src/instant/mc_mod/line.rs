@@ -74,7 +74,7 @@ impl McModuleInst {
         let mut phrase = phrase.clone();
         Self::assign_phrase_ids(&mut phrase, &mut self.next_phrase_id);
         let members = self.phrase_to_members(&phrase);
-        if self.name.contains("513") || self.name.contains("moddcdc") {
+        if self.name.contains("513") || self.name.contains("moddcdc") || self.name == "speaker" {
             eprintln!(
                 "[PROC-LINE-MEMBERS] module={} n_members={}",
                 self.name,
@@ -2627,7 +2627,7 @@ impl McModuleInst {
                         if let Some(comp) = new_components.first() {
                             self.auto_inst_map.insert(key, comp.name.clone());
                         }
-                        if self.name.contains("513") || self.name.contains("moddcdc") {
+                        if self.name.contains("513") || self.name.contains("moddcdc") || self.name == "speaker" {
                             for c in &new_components {
                                 eprintln!(
                                     "[LINE-CREATE] module={} inst_name={} class={}",
