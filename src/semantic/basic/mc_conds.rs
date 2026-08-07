@@ -4,6 +4,7 @@
 
 use crate::{
     ast::{ast_node::AstNode, c_macros::*},
+    semantic::basic::mc_phrase::McPhrase,
     McIds,
 };
 
@@ -61,6 +62,12 @@ impl McConds {
     pub fn new(node: &AstNode) -> Option<Self> {
         let mut if_blocks = Vec::new();
         let mut else_block = None;
+
+        eprintln!(
+            "[CONDS-NEW] node_type={} node_str={:?}",
+            node.get_type(),
+            node.to_string()
+        );
 
         match node.get_type() {
             MCAST_COND_IF => {
@@ -144,6 +151,9 @@ impl McConds {
                 has_condition = true;
             } else if node_type == MCAST_COND_BLOCK {
                 block_node = Some(child.clone());
+            } else if node_type == MCAST_NET {
+                // Direct NET node as block (e.g., `if address == 0x36 VDD -> RES(100kΩ) -> GPIO.2`)
+                block_node = Some(child.clone());
             } else if node_type == MCAST_BODY {
                 // Some parser paths wrap the pin block in MCAST_BODY
                 // Look inside for ATTRIBUTE_PIN, ATTRIBUTE_PINADD, or ATTRIBUTE
@@ -184,7 +194,7 @@ impl McConds {
         };
 
         for child in subnodes.iter() {
-            if child.get_type() == MCAST_COND_BLOCK {
+            if child.get_type() == MCAST_COND_BLOCK || child.get_type() == MCAST_NET {
                 return Some(child.clone());
             }
         }
@@ -212,6 +222,9 @@ impl McConds {
             {
                 condition_node = Some(child);
             } else if child_type == MCAST_COND_BLOCK {
+                block_node = Some(child.clone());
+            } else if child_type == MCAST_NET {
+                // Direct NET node as block (e.g., `else GPIO.2 - RES(100kΩ) -> GND`)
                 block_node = Some(child.clone());
             } else if child_type == MCAST_BODY {
                 // Some parser paths wrap the pin block in MCAST_BODY
@@ -546,5 +559,121 @@ impl McConds {
         }
 
         None
+    }
+}
+
+// ============================================================================
+// McFuncConds — 解析后的条件块，存储 McPhrase 行用于实例化时评估
+// ============================================================================
+
+/// 解析后的单个条件分支
+#[derive(Debug, Clone)]
+pub struct McCondBlock {
+    pub condition: McCondition,
+    pub lines: Vec<McPhrase>,
+}
+
+/// 解析后的条件块集合（if/else if/else）
+#[derive(Debug, Clone)]
+pub struct McFuncConds {
+    pub if_blocks: Vec<McCondBlock>,
+    pub else_lines: Vec<McPhrase>,
+}
+
+impl McFuncConds {
+    /// 从 McConds 和上下文解析出 McPhrase 行
+    pub fn from_conds(
+        conds: &McConds,
+        context: &mut dyn crate::semantic::mc_func::HasFindInst,
+    ) -> Self {
+        let mut if_blocks = Vec::new();
+        let mut else_lines = Vec::new();
+
+        for cond in &conds.if_blocks {
+            let mut lines = Vec::new();
+            // The block is an AstNode; parse its content into McPhrase lines
+            Self::parse_block_lines(&cond.block, context, &mut lines);
+            if_blocks.push(McCondBlock {
+                condition: cond.condition.clone(),
+                lines,
+            });
+        }
+
+        if let Some(else_block) = &conds.else_block {
+            Self::parse_block_lines(else_block, context, &mut else_lines);
+        }
+
+        McFuncConds {
+            if_blocks,
+            else_lines,
+        }
+    }
+
+    /// Parse an AstNode block into McPhrase lines
+    fn parse_block_lines(
+        block: &AstNode,
+        context: &mut dyn crate::semantic::mc_func::HasFindInst,
+        lines: &mut Vec<McPhrase>,
+    ) {
+        // The block can be:
+        // - MCAST_COND_BLOCK: has subnodes, parse each child as a phrase
+        // - MCAST_NET: a single connection line
+        // - MCAST_ATTRIBUTE_PIN / MCAST_ATTRIBUTE: single line
+        match block.get_type() {
+            MCAST_COND_BLOCK => {
+                if let Some(subnodes) = block.get_sub_node() {
+                    for child in subnodes.iter() {
+                        let child_type = child.get_type();
+                        if child_type == MCAST_NET {
+                            // A NET node may contain a DECLARE or a connection line
+                            if let Some(net_sub) = child.get_sub_node() {
+                                if net_sub.get_type() == MCAST_DECLARE {
+                                    continue; // skip declarations in cond blocks
+                                }
+                                if let Some(phrase) = McPhrase::new(&net_sub, context) {
+                                    lines.push(phrase);
+                                }
+                            }
+                        } else if child_type == MCAST_ATTRIBUTE_PIN
+                            || child_type == MCAST_ATTRIBUTE_PINADD
+                            || child_type == MCAST_ATTRIBUTE
+                        {
+                            // Single line attribute
+                            if let Some(phrase) = McPhrase::new(&child, context) {
+                                lines.push(phrase);
+                            }
+                        }
+                    }
+                }
+            }
+            MCAST_NET => {
+                if let Some(net_sub) = block.get_sub_node() {
+                    if let Some(phrase) = McPhrase::new(&net_sub, context) {
+                        lines.push(phrase);
+                    }
+                }
+            }
+            MCAST_ATTRIBUTE_PIN | MCAST_ATTRIBUTE_PINADD | MCAST_ATTRIBUTE => {
+                if let Some(phrase) = McPhrase::new(block, context) {
+                    lines.push(phrase);
+                }
+            }
+            _ => {
+                // Try to parse the block directly as a phrase
+                if let Some(phrase) = McPhrase::new(block, context) {
+                    lines.push(phrase);
+                }
+            }
+        }
+    }
+
+    /// Evaluate conditions against parameter bindings and return matching lines
+    pub fn evaluate(&self, params: &[(McIds, String)]) -> &[McPhrase] {
+        for cond_block in &self.if_blocks {
+            if McConds::check_condition(&cond_block.condition, params) {
+                return &cond_block.lines;
+            }
+        }
+        &self.else_lines
     }
 }

@@ -408,7 +408,14 @@ impl McModuleInst {
             .entry(type_name.to_string())
             .or_insert(0);
         *counter += 1;
-        format!("{type_name}_{counter}")
+        let name = format!("{type_name}_{counter}");
+        if type_name.contains("CAP") || type_name.contains("RES") || type_name.starts_with("@") {
+            eprintln!(
+                "[AUTO-NAME] module={} type={type_name} counter={counter} name={name}",
+                self.name
+            );
+        }
+        name
     }
 
     /// Take the next connection ID

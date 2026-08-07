@@ -160,6 +160,27 @@ impl McFuncCall {
         let mut func_name: Option<McIds> = None;
         let mut params: Vec<McParamValue> = Vec::new();
 
+        // ── P2-12-DEBUG: print children types ──
+        {
+            let children: Vec<(u16, String)> = subnode
+                .iter()
+                .map(|c| (c.get_type(), c.to_string().unwrap_or_default()))
+                .collect();
+            let func_name_from_ast = subnode
+                .iter()
+                .find(|c| c.get_type() == MCAST_NAME)
+                .and_then(|c| c.get_sub_node())
+                .and_then(|n| McIds::new(&n))
+                .map(|ids| ids.to_string())
+                .unwrap_or_default();
+            if func_name_from_ast.contains("Cap")
+                || func_name_from_ast.contains("Pullup")
+                || func_name_from_ast.contains("Pulldown")
+            {
+                eprintln!("[FCALL-PARSE-DBG] func={func_name_from_ast} children={children:?}",);
+            }
+        }
+
         // === Handle pre-closure parameter (vin => CAP(10uF).Cap(_)) ===
         // Pattern: opd => ClassName(params).MethodName(method_params)
         // AST structure:
@@ -379,19 +400,13 @@ impl McFuncCall {
                 // (a) Pure `.Cap(_)`: don't fold, pre_param stays as chain head (pre_label) for shunt path
                 method_params
             } else if is_twopin && method_params.iter().any(&is_uscore) {
-                // (b) `.Pullup(_, VDD)`: pre_param replaces first `_` placeholder → [I2C0, VDD]
-                let mut replaced = false;
+                // (b) `.Pullup(_, VDD)` / `.Cap(x, _)`:
+                // Keep `_` as-is — the chain processing (lane-by-lane expansion)
+                // will connect the signal to the correct pin. Replacing `_` with
+                // pre_param here is dangerous when pre_param is a Multi (e.g. I2C0
+                // with 2 members SCL/SDA): wire_builtin_twopin would get 3 targets
+                // (SCL, SDA, VDD) and drop VDD, shorting the Pullup.
                 method_params
-                    .into_iter()
-                    .map(|p| {
-                        if !replaced && is_uscore(&p) {
-                            replaced = true;
-                            pre_param.clone()
-                        } else {
-                            p
-                        }
-                    })
-                    .collect()
             } else {
                 // (c) Non-two-pin: keep original prepend
                 let mut v = vec![pre_param.clone()];
@@ -444,8 +459,81 @@ impl McFuncCall {
         if let Some(first_child) = subnode.iter().next() {
             if first_child.get_type() == MCAST_INSTANCE {
                 if let Some(inner) = first_child.get_sub_node() {
-                    if let Some(phrase) = parse_phrase(&inner, context) {
-                        caller = Some(Box::new(phrase));
+                    let inner_type = inner.get_type();
+                    eprintln!("[FCALL-CALLER-DBG] MCAST_INSTANCE inner_type={inner_type}");
+                    // ── P2-12: Handle MCAST_DECLARE as FuncCall caller ──
+                    // When CAP(10uF,10V) is wrapped in MCAST_INSTANCE as MCAST_DECLARE
+                    // (e.g. CAP(10uF,10V).Cap(...)), parse_phrase creates a component
+                    // at parse time and returns Multiple (due to auto-instance names).
+                    // Instead, build a FuncCall directly to preserve the parameters.
+                    if inner_type == MCAST_DECLARE {
+                        eprintln!("[FCALL-CALLER-DBG] MCAST_DECLARE handler entered");
+                        if let Some(sub) = inner.get_sub_node() {
+                            let mut class_node: Option<AstNode> = None;
+                            for c in sub.iter() {
+                                if c.get_type() == MCAST_CLASS && class_node.is_none() {
+                                    class_node = Some(c.clone());
+                                }
+                            }
+                            eprintln!("[FCALL-CALLER-DBG] class_node={}", class_node.is_some());
+                            if let Some(cls) = class_node {
+                                if let Some(class_ids) =
+                                    cls.get_sub_node().and_then(|cid| McIds::new(&cid))
+                                {
+                                    let fname = class_ids.to_string();
+                                    let is_twopin =
+                                        crate::vector::graph::naming::is_known_twopin_class(&fname);
+                                    eprintln!(
+                                        "[FCALL-CALLER-DBG] fname={fname} is_twopin={is_twopin}"
+                                    );
+                                    if is_twopin {
+                                        let mut params: Vec<McParamValue> = Vec::new();
+                                        let mut cur = cls.get_sub_node();
+                                        while let Some(n) = cur {
+                                            if n.get_type() == MCAST_PARAMS {
+                                                if let Some(ps) = n.get_sub_node() {
+                                                    for p in ps.iter() {
+                                                        if let Some(v) =
+                                                            McParamValue::new(&p, context)
+                                                        {
+                                                            params.push(v);
+                                                        }
+                                                    }
+                                                }
+                                                break;
+                                            }
+                                            cur = n.get_next();
+                                        }
+                                        caller = Some(Box::new(McPhrase::FuncCall(McFuncCall {
+                                            id: 0,
+                                            caller: None,
+                                            func_name: class_ids,
+                                            params,
+                                            left: vec![],
+                                            right: vec![],
+                                            dot_member: None,
+                                        })));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if caller.is_none() {
+                        // For MCAST_OPD_FCALL inner two-pin classes, try direct FuncCall first
+                        if inner_type == MCAST_OPD_FCALL {
+                            caller = Self::try_parse_inner_fcall(&inner, context);
+                        }
+                        if caller.is_none() {
+                            if let Some(phrase) = parse_phrase(&inner, context) {
+                                let phrase_desc = match &phrase {
+                                    McPhrase::FuncCall(fc) => format!("FuncCall({})", fc.func_name),
+                                    McPhrase::Endpoint(_) => "Endpoint".into(),
+                                    _ => format!("{:?}", std::mem::discriminant(&phrase)),
+                                };
+                                eprintln!("[FCALL-CALLER-DBG] parse_phrase inner_type={inner_type} returned: {phrase_desc}");
+                                caller = Some(Box::new(phrase));
+                            }
+                        }
                     }
                 } else if let Some(phrase) = parse_phrase(&first_child, context) {
                     caller = Some(Box::new(phrase));
@@ -603,57 +691,107 @@ impl McFuncCall {
 
                 MCAST_INSTANCE => {
                     // Handle MCAST_INSTANCE as caller for method calls like ldo.enable() or CAP(...).Cap(...)
+                    eprintln!(
+                        "[FCALL-INST-DBG] MCAST_INSTANCE reached, caller.is_none()={}",
+                        caller.is_none()
+                    );
                     if caller.is_none() {
+                        eprintln!(
+                            "[FCALL-INST-DBG] each.get_sub_node()={:?}",
+                            each.get_sub_node().map(|n| (n.get_type(), n.to_string()))
+                        );
                         if let Some(inner) = each.get_sub_node() {
-                            let names = inner.to_id_or_ida();
-                            if !names.is_empty() {
-                                let inst_name = names[0].to_string();
-
-                                // First try: check if it's an existing instance (e.g., ldo.enable)
-                                if let Some(existing_inst) = context.find_inst(&inst_name) {
-                                    caller = Some(Box::new(McPhrase::from(existing_inst)));
-                                } else {
-                                    // Second try: it's a class definition, create anonymous instance
-                                    let ids = McIds::from(inst_name.as_str());
-                                    let anon_name = context.gen_anon_name(&inst_name);
-                                    // Store the source span for diagnostics on this anonymous instance.
-                                    let inst_span = (each.get_pos() as usize)
-                                        ..((each.get_pos() + each.get_len()) as usize);
-                                    context.store_inst_span(&anon_name, inst_span);
-
-                                    // Check for NC parameter
-                                    let _is_nc = instance_params
-                                        .iter()
-                                        .any(|p| matches!(p, McParamValue::NC(_)));
-
-                                    if let Some(McCMIE::Component(comp_def)) =
-                                        resolve_cmie(&DB, &ids, context.uri())
+                            let inner_type = inner.get_type();
+                            eprintln!(
+                                "[FCALL-INST-DBG] inner_type={inner_type} MCAST_OPD_FCALL={}",
+                                crate::ast::c_macros::MCAST_OPD_FCALL
+                            );
+                            // ── P2-12: Handle nested FuncCall inside MCAST_INSTANCE ──
+                            // When a FuncCall like CAP(10uF,10V) is wrapped in MCAST_INSTANCE
+                            // (e.g. as the instance of CAP(10uF,10V).Cap(...)),
+                            // parse it as a FuncCall to preserve the parameters.
+                            // For two-pin classes (CAP/RES/IND/...), build FuncCall directly
+                            // to avoid premature anonymous component instantiation.
+                            if inner_type == crate::ast::c_macros::MCAST_OPD_FCALL {
+                                eprintln!(
+                                    "[FCALL-INST-DBG] nested FuncCall, parsing via parse_phrase"
+                                );
+                                caller = Self::try_parse_inner_fcall(&inner, context);
+                                if caller.is_none() {
+                                    if let Some(phrase) = parse_phrase(&inner, context) {
+                                        caller = Some(Box::new(phrase));
+                                    }
+                                }
+                            } else if inner_type == crate::ast::c_macros::MCAST_OPD {
+                                // MCAST_OPD may wrap MCAST_OPD_FCALL
+                                if let Some(opd_inner) = inner.get_sub_node() {
+                                    if opd_inner.get_type() == crate::ast::c_macros::MCAST_OPD_FCALL
                                     {
-                                        let component = Mc2Component::with_params(
-                                            &anon_name,
-                                            comp_def,
-                                            instance_params.clone(),
-                                        );
-                                        if let Some(phrase) =
-                                            context.add_component(anon_name, component)
-                                        {
-                                            caller = Some(Box::new(phrase));
+                                        eprintln!("[FCALL-INST-DBG] MCAST_OPD wraps FuncCall, parsing via parse_phrase");
+                                        caller = Self::try_parse_inner_fcall(&opd_inner, context);
+                                        if caller.is_none() {
+                                            if let Some(phrase) = parse_phrase(&opd_inner, context)
+                                            {
+                                                caller = Some(Box::new(phrase));
+                                            }
                                         }
-                                    } else if let Some(McCMIE::Module(mod_def)) =
-                                        resolve_cmie(&DB, &ids, context.uri())
-                                    {
-                                        let module = Mc2Module::new(&anon_name, mod_def);
-                                        if let Some(phrase) = context.add_module(anon_name, module)
+                                    }
+                                }
+                            }
+                            if caller.is_some() {
+                                // caller was set by the nested FuncCall handling above
+                            } else {
+                                let names = inner.to_id_or_ida();
+                                if !names.is_empty() {
+                                    let inst_name = names[0].to_string();
+
+                                    // First try: check if it's an existing instance (e.g., ldo.enable)
+                                    if let Some(existing_inst) = context.find_inst(&inst_name) {
+                                        caller = Some(Box::new(McPhrase::from(existing_inst)));
+                                    } else {
+                                        // Second try: it's a class definition, create anonymous instance
+                                        let ids = McIds::from(inst_name.as_str());
+                                        let anon_name = context.gen_anon_name(&inst_name);
+                                        // Store the source span for diagnostics on this anonymous instance.
+                                        let inst_span = (each.get_pos() as usize)
+                                            ..((each.get_pos() + each.get_len()) as usize);
+                                        context.store_inst_span(&anon_name, inst_span);
+
+                                        // Check for NC parameter
+                                        let _is_nc = instance_params
+                                            .iter()
+                                            .any(|p| matches!(p, McParamValue::NC(_)));
+
+                                        if let Some(McCMIE::Component(comp_def)) =
+                                            resolve_cmie(&DB, &ids, context.uri())
                                         {
-                                            caller = Some(Box::new(phrase));
+                                            let component = Mc2Component::with_params(
+                                                &anon_name,
+                                                comp_def,
+                                                instance_params.clone(),
+                                            );
+                                            if let Some(phrase) =
+                                                context.add_component(anon_name, component)
+                                            {
+                                                caller = Some(Box::new(phrase));
+                                            }
+                                        } else if let Some(McCMIE::Module(mod_def)) =
+                                            resolve_cmie(&DB, &ids, context.uri())
+                                        {
+                                            let module = Mc2Module::new(&anon_name, mod_def);
+                                            if let Some(phrase) =
+                                                context.add_module(anon_name, module)
+                                            {
+                                                caller = Some(Box::new(phrase));
+                                            }
+                                        } else if let Some(McCMIE::Interface(iface_def)) =
+                                            resolve_cmie(&DB, &ids, context.uri())
+                                        {
+                                            let iface =
+                                                Mc2Interface::new_with_str(&anon_name, iface_def);
+                                            let inst = McInstance::Interface(Arc::new(iface));
+                                            caller = Some(Box::new(McPhrase::from(inst)));
                                         }
-                                    } else if let Some(McCMIE::Interface(iface_def)) =
-                                        resolve_cmie(&DB, &ids, context.uri())
-                                    {
-                                        let iface =
-                                            Mc2Interface::new_with_str(&anon_name, iface_def);
-                                        let inst = McInstance::Interface(Arc::new(iface));
-                                        caller = Some(Box::new(McPhrase::from(inst)));
                                     }
                                 }
                             }
@@ -1004,65 +1142,72 @@ impl McFuncCall {
 
         // Check if func_name is a Component or Module definition (function call form instantiation)
         // e.g., CAP(10uF, ...).Cap(...) - creates anonymous instance of CAP
+        //
+        // ── P2-12: For known two-pin classes (CAP/RES/IND/...), do NOT create
+        // anonymous components at parse time. Instead, preserve as FuncCall so that
+        // the instantiation phase can properly auto-name and wire them.
         if caller.is_none() {
             let _cmie_result = resolve_cmie(&DB, &func_name, context.uri()).is_some();
-            // eprintln!("[FC-PARSE-BARE] func_name='{}' cmie_found={}", func_name, cmie_result);
-            if let Some(cmie) = resolve_cmie(&DB, &func_name, context.uri()) {
-                match cmie {
-                    McCMIE::Component(comp_def) => {
-                        let inst_name = context.gen_anon_name(&func_name.to_string());
-                        // ── Iter-3.E fix ────────────────────────────────────
-                        // When context is McComponent, gen_anon_name returns "",
-                        // and add_component is also an empty implementation. If we wrap a component
-                        // with name "" into Endpoint as-is, pass2 processing would produce
-                        // ghost pins (empty owner) like `.1 : X ~ .1`.
-                        //
-                        // Correct approach: when inst_name is empty, **do not** take the Endpoint branch;
-                        // fall through to the FuncCall construction below, letting pass2's auto_name
-                        // in `instantiate_component_construction` generate the actual @RES1/@CAP1 names.
-                        if !inst_name.is_empty() {
-                            // Store the source span for diagnostics on this anonymous instance.
-                            let inst_span = (node.get_pos() as usize)
-                                ..((node.get_pos() + node.get_len()) as usize);
-                            context.store_inst_span(&inst_name, inst_span);
-                            // Check for NC parameter
-                            let is_nc = params.iter().any(|p| matches!(p, McParamValue::NC(_)));
-                            // ── Iter-7.4 (with diag) ───────────────────────
-                            let mc2_comp = if is_nc {
-                                Mc2Component::with_nc(&inst_name, comp_def.clone(), true)
-                            } else {
-                                Mc2Component::with_params(
-                                    &inst_name,
-                                    comp_def.clone(),
-                                    params.clone(),
-                                )
-                            };
-                            context.add_component(inst_name.clone(), mc2_comp.clone());
-                            return Some(McPhrase::Endpoint(McEndpoint::Single(
-                                McInstanceRef::new(McInstance::Component(Arc::new(mc2_comp))),
-                            )));
+            let func_name_str = func_name.to_string();
+            let is_twopin = crate::vector::graph::naming::is_known_twopin_class(&func_name_str);
+            if !is_twopin {
+                if let Some(cmie) = resolve_cmie(&DB, &func_name, context.uri()) {
+                    match cmie {
+                        McCMIE::Component(comp_def) => {
+                            let inst_name = context.gen_anon_name(&func_name.to_string());
+                            // ── Iter-3.E fix ────────────────────────────────────
+                            // When context is McComponent, gen_anon_name returns "",
+                            // and add_component is also an empty implementation. If we wrap a component
+                            // with name "" into Endpoint as-is, pass2 processing would produce
+                            // ghost pins (empty owner) like `.1 : X ~ .1`.
+                            //
+                            // Correct approach: when inst_name is empty, **do not** take the Endpoint branch;
+                            // fall through to the FuncCall construction below, letting pass2's auto_name
+                            // in `instantiate_component_construction` generate the actual @RES1/@CAP1 names.
+                            if !inst_name.is_empty() {
+                                // Store the source span for diagnostics on this anonymous instance.
+                                let inst_span = (node.get_pos() as usize)
+                                    ..((node.get_pos() + node.get_len()) as usize);
+                                context.store_inst_span(&inst_name, inst_span);
+                                // Check for NC parameter
+                                let is_nc = params.iter().any(|p| matches!(p, McParamValue::NC(_)));
+                                // ── Iter-7.4 (with diag) ───────────────────────
+                                let mc2_comp = if is_nc {
+                                    Mc2Component::with_nc(&inst_name, comp_def.clone(), true)
+                                } else {
+                                    Mc2Component::with_params(
+                                        &inst_name,
+                                        comp_def.clone(),
+                                        params.clone(),
+                                    )
+                                };
+                                context.add_component(inst_name.clone(), mc2_comp.clone());
+                                return Some(McPhrase::Endpoint(McEndpoint::Single(
+                                    McInstanceRef::new(McInstance::Component(Arc::new(mc2_comp))),
+                                )));
+                            }
+                            // else: fall through to FuncCall construction below
                         }
-                        // else: fall through to FuncCall construction below
-                    }
-                    McCMIE::Module(mod_def) => {
-                        let inst_name = context.gen_anon_name(&func_name.to_string());
-                        // Same as Iter-3.E: only take the Endpoint branch when inst_name is non-empty
-                        if !inst_name.is_empty() {
-                            // Store the source span for diagnostics on this anonymous instance.
-                            let inst_span = (node.get_pos() as usize)
-                                ..((node.get_pos() + node.get_len()) as usize);
-                            context.store_inst_span(&inst_name, inst_span);
-                            let mc2_mod = Mc2Module::new(&inst_name, mod_def.clone());
-                            context.add_module(inst_name.clone(), mc2_mod);
-                            return Some(McPhrase::Endpoint(McEndpoint::Single(
-                                McInstanceRef::new(McInstance::Module(Arc::new(Mc2Module::new(
-                                    &inst_name, mod_def,
-                                )))),
-                            )));
+                        McCMIE::Module(mod_def) => {
+                            let inst_name = context.gen_anon_name(&func_name.to_string());
+                            // Same as Iter-3.E: only take the Endpoint branch when inst_name is non-empty
+                            if !inst_name.is_empty() {
+                                // Store the source span for diagnostics on this anonymous instance.
+                                let inst_span = (node.get_pos() as usize)
+                                    ..((node.get_pos() + node.get_len()) as usize);
+                                context.store_inst_span(&inst_name, inst_span);
+                                let mc2_mod = Mc2Module::new(&inst_name, mod_def.clone());
+                                context.add_module(inst_name.clone(), mc2_mod);
+                                return Some(McPhrase::Endpoint(McEndpoint::Single(
+                                    McInstanceRef::new(McInstance::Module(Arc::new(
+                                        Mc2Module::new(&inst_name, mod_def),
+                                    ))),
+                                )));
+                            }
+                            // else: fall through to FuncCall construction below
                         }
-                        // else: fall through to FuncCall construction below
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
         }
@@ -1075,6 +1220,25 @@ impl McFuncCall {
         // must return `this` (or be Implicit). A function returning a bus /
         // label is an *endpoint* and cannot be chained off of.
         Self::check_chain_validity(&caller, &func_name, node, context);
+
+        let caller_desc = match &caller {
+            Some(c) => match c.as_ref() {
+                McPhrase::FuncCall(fc) => format!("FuncCall({})", fc.func_name),
+                McPhrase::Endpoint(_) => "Endpoint".into(),
+                _ => format!("{:?}", std::mem::discriminant(c.as_ref())),
+            },
+            None => "None".into(),
+        };
+        let fn_str = func_name.to_string();
+        if fn_str == "Cap" || fn_str == "Pullup" || fn_str == "Pulldown" {
+            eprintln!(
+                "[FCALL-FINAL] func={fn_str} caller={caller_desc} params={:?}",
+                params
+                    .iter()
+                    .map(|p| format!("{:?}", p))
+                    .collect::<Vec<_>>()
+            );
+        }
 
         Some(McPhrase::FuncCall(McFuncCall {
             id: 0,
@@ -1211,5 +1375,57 @@ impl McFuncCall {
         }
 
         None
+    }
+
+    /// Try to parse an inner MCAST_OPD_FCALL as a FuncCall for two-pin classes.
+    /// This avoids premature anonymous component instantiation when the inner
+    /// FuncCall is the caller of a chained method (e.g. CAP(10uF).Cap(...)).
+    /// Returns None if the inner FuncCall is not a known two-pin class.
+    fn try_parse_inner_fcall(
+        node: &AstNode,
+        context: &mut dyn HasFindInst,
+    ) -> Option<Box<McPhrase>> {
+        let subnode = node.get_sub_node()?;
+        let mut func_name: Option<McIds> = None;
+        let mut params: Vec<McParamValue> = Vec::new();
+
+        for child in subnode.iter() {
+            match child.get_type() {
+                MCAST_NAME => {
+                    if let Some(ids_node) = child.get_sub_node() {
+                        func_name = McIds::new(&ids_node);
+                    }
+                }
+                MCAST_PARAMS => {
+                    if let Some(param_nodes) = child.get_sub_node() {
+                        for param_node in param_nodes.iter() {
+                            if let Some(value) = McParamValue::new(&param_node, context) {
+                                params.push(value);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        let fname = func_name?;
+        let fname_str = fname.to_string();
+        if crate::vector::graph::naming::is_known_twopin_class(&fname_str) {
+            eprintln!(
+                "[FCALL-INST-DBG] inner two-pin class: {fname_str}, building FuncCall directly"
+            );
+            Some(Box::new(McPhrase::FuncCall(McFuncCall {
+                id: 0,
+                caller: None,
+                func_name: fname,
+                params,
+                left: vec![],
+                right: vec![],
+                dot_member: None,
+            })))
+        } else {
+            None
+        }
     }
 }

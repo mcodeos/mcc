@@ -62,6 +62,7 @@ impl McModuleInst {
         params: &[McParamValue],
         left: &[McBus],
         right: &[McBus],
+        caller_name: Option<&str>,
     ) -> Result<FuncCallInst, InstError> {
         // 1. Auto-name: CAP → @CAP_1, DIO.ESD → @DIO_ESD_1, ...
         // ── P0-2: replace '.' in type_name with '_' ──────────────────
@@ -71,7 +72,18 @@ impl McModuleInst {
         // → union-find short circuit.
         let type_name = comp_def.name.to_string();
         let safe_type = type_name.replace('.', "_");
-        let inst_name = self.auto_name(&safe_type);
+        let inst_name = if let Some(name) = caller_name {
+            // P2-7: use caller name as instance name (e.g. R442::RES(1MΩ) → R442)
+            name.to_string()
+        } else {
+            self.auto_name(&safe_type)
+        };
+        if self.name.contains("513") {
+            eprintln!(
+                "[COMP-CREATE] module={} inst_name={inst_name} type={type_name} params={params:?}",
+                self.name
+            );
+        }
 
         // 2. Create the component instance with parameters
         // ★ P0.5-3: if any param is NC, use with_nc (skip param binding).
@@ -438,6 +450,29 @@ impl McModuleInst {
                 };
                 self.process_line(&substituted)?;
             }
+
+            // ── Process conditional blocks (if/else if/else) ──
+            if !func_def.conds.is_empty() {
+                let params: Vec<(crate::McIds, String)> = bindings
+                    .iter()
+                    .filter_map(|b| {
+                        let name = b.declare.get_primary_name()?;
+                        let value = b.get_value().map(|v| v.to_string()).unwrap_or_default();
+                        Some((crate::McIds::from(name.as_str()), value))
+                    })
+                    .collect();
+                for conds in &func_def.conds {
+                    let matched_lines = conds.evaluate(&params);
+                    for line in matched_lines {
+                        let substituted = if bindings.is_empty() && caller_inst_name.is_none() {
+                            line.clone()
+                        } else {
+                            Self::substitute_line(line, &bindings, caller_inst_name)
+                        };
+                        self.process_line(&substituted)?;
+                    }
+                }
+            }
         } else {
             // Body was not parsed (lines is empty)
             eprintln!(
@@ -553,6 +588,10 @@ impl McModuleInst {
         _left: &[McBus],
         _right: &[McBus],
     ) -> Result<FuncCallInst, InstError> {
+        eprintln!(
+            "[IIM-DBG] module={} inst_name={inst_name} func={} params={params:?}",
+            self.name, func_def.name
+        );
         // 1. Bind formal parameters
         let bindings = McParamBindings::bind(&func_def.params, params).map_err(|e| {
             InstError::Other(format!(
@@ -659,8 +698,6 @@ impl McModuleInst {
                 let substituted = if value_bindings.is_empty() {
                     line.clone()
                 } else {
-                    // this_name=None: inside the sub-module `this` naturally
-                    // refers to the sub-module itself
                     Self::substitute_line(line, &value_bindings, None)
                 };
                 if let Err(_e) = sub.process_line(&substituted) {
@@ -669,6 +706,38 @@ impl McModuleInst {
                 }
             }
         } // sub's mutable borrow ends here
+
+        // ── Process conditional blocks in sub-module ──
+        if !func_def.conds.is_empty() {
+            let params: Vec<(crate::McIds, String)> = bindings
+                .iter()
+                .filter_map(|b| {
+                    let name = b.declare.get_primary_name()?;
+                    let value = b.get_value().map(|v| v.to_string()).unwrap_or_default();
+                    Some((crate::McIds::from(name.as_str()), value))
+                })
+                .collect();
+
+            let idx = self
+                .sub_modules
+                .iter()
+                .position(|s| s.name == inst_name)
+                .ok_or_else(|| {
+                    InstError::Other(format!("submodule '{inst_name}' not found for method"))
+                })?;
+            let sub = &mut self.sub_modules[idx];
+            for conds in &func_def.conds {
+                let matched_lines = conds.evaluate(&params);
+                for line in matched_lines {
+                    let substituted = if value_bindings.is_empty() {
+                        line.clone()
+                    } else {
+                        Self::substitute_line(line, &value_bindings, None)
+                    };
+                    if let Err(_e) = sub.process_line(&substituted) {}
+                }
+            }
+        }
 
         // Phase B: Boundary connections (in parent module self)
         //   Parent actual (flash.SPI) ~ sub-module boundary label (mcu513.spi)
@@ -793,6 +862,30 @@ impl McModuleInst {
             skip.insert(p.name.clone());
         }
 
+        // ── P2-8: Remove component pin names from skip set ──
+        // When a component pin name (e.g. GND, VDD) happens to match a name
+        // in the skip set (e.g. from actual params or module ports), the skip
+        // set incorrectly prevents prefixing it with the instance name.
+        // This causes component pins to be treated as module-level labels,
+        // breaking connections like uC.GND → module GND.
+        // Fix: remove component pin names from skip so they get properly
+        // prefixed (e.g. GND → uC.GND).
+        if let Some(comp) = self.find_component(inst_name) {
+            for name in comp.def.pins.names_to_id.keys() {
+                skip.remove(name);
+            }
+            for names in comp.def.pins.pin_id_to_names.values() {
+                for name in names {
+                    // Also remove the last segment of dotted names
+                    // (e.g. "XTAL.X1" → remove "X1" too)
+                    skip.remove(name);
+                    if let Some(last) = name.rsplit('.').next() {
+                        skip.remove(last);
+                    }
+                }
+            }
+        }
+
         // ── P2-4: Register component bus interfaces as buses ──
         // When a component method body uses labels like `I2C0` (which are
         // component interface names), the skip set prevents prefixing them
@@ -846,6 +939,16 @@ impl McModuleInst {
                 "[P2-4-CM] registering bus '{iface_name}' with members {member_names:?} for component '{inst_name}'"
             );
             let _ = self.ensure_bus(iface_name, member_names);
+            // ── P2-7-XTAL: also register prefixed bus name ──
+            // When the function body references a component interface (e.g. XTAL),
+            // prefix_instance_line_with_skip converts it to X6.XTAL as a Label.
+            // Register the prefixed name as a bus so lane-by-lane wiring can
+            // expand it to individual pins.
+            let prefixed_iface = format!("{inst_name}.{iface_name}");
+            eprintln!(
+                "[P2-4-CM] registering bus '{prefixed_iface}' with members {member_names:?} for component '{inst_name}'"
+            );
+            let _ = self.ensure_bus(&prefixed_iface, member_names);
         }
 
         if func_def.lines.is_empty() {
@@ -863,9 +966,8 @@ impl McModuleInst {
         );
         for (i, line) in func_def.lines.iter().enumerate() {
             eprintln!(
-                "[P2-4-CM]   line[{}]: {:?}",
-                i,
-                std::mem::discriminant(line)
+                "[P2-4-CM] {}.{} line[{}]: {:?}",
+                inst_name, func_def.name, i, line
             );
         }
         // ── P4-b: Isolate anonymous instance entries for each body line in the same func ──
@@ -880,20 +982,81 @@ impl McModuleInst {
             } else {
                 Self::substitute_line(line, bindings, Some(inst_name))
             };
-            eprintln!(
-                "[P2-4-CM-LINE] {}.{} line after substitute: {:?}",
-                inst_name, func_def.name, substituted
-            );
             let prefixed = Self::prefix_instance_line_with_skip(&substituted, inst_name, &skip);
+            // ── P2-7-XTAL: convert Labels that are known buses to Bus representations ──
+            // When prefix_instance_line_with_skip creates prefixed Labels like
+            // "X6.XTAL", they need to be converted to Bus("X6.XTAL", members)
+            // so that get_left_points/get_right_points can expand them to
+            // individual pin points and lane-by-lane wiring handles them correctly.
+            let expanded = self.expand_bus_labels(&prefixed);
             eprintln!(
-                "[P2-4-CM-LINE] {}.{} line after prefix: {:?}",
-                inst_name, func_def.name, prefixed
+                "[RCM-DBG] module={} inst={inst_name} line={_li} expanded={expanded:?}",
+                self.name
             );
-            self.process_line(&prefixed)?;
+            self.process_line(&expanded)?;
         }
         // ── P4 backstop: strip synthetic host interface endpoints leaked
         //    during body processing ──
+        // NOTE: must be called BEFORE conditional block processing since
+        // cond blocks may also create new connections.
         self.strip_host_iface_phantoms(inst_name, conn_start);
+
+        // ── Process conditional blocks (if/else if/else) ──
+        if !func_def.conds.is_empty() {
+            // Convert bindings to (McIds, String) pairs for condition evaluation
+            let params: Vec<(crate::McIds, String)> = bindings
+                .iter()
+                .filter_map(|b| {
+                    let name = b.declare.get_primary_name()?;
+                    let value = b.get_value().map(|v| v.to_string()).unwrap_or_default();
+                    Some((crate::McIds::from(name.as_str()), value))
+                })
+                .collect();
+
+            if self.name.contains("513") {
+                eprintln!(
+                    "[COND-EVAL] func={} conds_count={} params={params:?}",
+                    func_def.name,
+                    func_def.conds.len()
+                );
+            }
+
+            // Record connection start for cond block phantom stripping
+            let cond_conn_start = self.connections.len();
+
+            for (ci, conds) in func_def.conds.iter().enumerate() {
+                let matched_lines = conds.evaluate(&params);
+                if self.name.contains("513") {
+                    eprintln!(
+                        "[COND-EVAL] func={} cond[{}] matched {} lines",
+                        func_def.name,
+                        ci,
+                        matched_lines.len()
+                    );
+                }
+                for (li, line) in matched_lines.iter().enumerate() {
+                    let substituted = if bindings.is_empty() {
+                        line.clone()
+                    } else {
+                        Self::substitute_line(line, bindings, Some(inst_name))
+                    };
+                    let prefixed =
+                        Self::prefix_instance_line_with_skip(&substituted, inst_name, &skip);
+                    let expanded = self.expand_bus_labels(&prefixed);
+                    if self.name.contains("513") {
+                        eprintln!(
+                            "[COND-PROC] func={} cond[{}] line[{}] expanded={expanded:?}",
+                            func_def.name, ci, li
+                        );
+                    }
+                    self.process_line(&expanded)?;
+                }
+            }
+
+            // Strip phantom interfaces from cond block connections too
+            self.strip_host_iface_phantoms(inst_name, cond_conn_start);
+        }
+
         Ok(())
     }
 
@@ -936,6 +1099,74 @@ impl McModuleInst {
         }
         let kept: Vec<_> = tail.into_iter().filter(|c| c.points.len() >= 2).collect();
         self.connections.extend(kept);
+    }
+
+    /// ── P2-7-XTAL: Convert Labels that are known bus names to Bus representations ──
+    ///
+    /// When `prefix_instance_line_with_skip` creates prefixed Labels like
+    /// "X6.XTAL", they are stored as `Endpoint(Single(Label("X6.XTAL")))`.
+    /// However, `get_left_points`/`get_right_points` return empty for Labels
+    /// (see points.rs lines 468-475), and `collect_one_lane_item` only adds
+    /// Labels for lane 0. This means multi-pin component interfaces referenced
+    /// in function bodies are not expanded to individual pins.
+    ///
+    /// This function walks the McPhrase tree and converts any
+    /// `Endpoint(Single(Label(name)))` where `name` is a known bus to
+    /// `Endpoint(Single(Bus(name, members)))`, enabling proper multi-lane
+    /// expansion.
+    fn expand_bus_labels(&self, phrase: &McPhrase) -> McPhrase {
+        match phrase {
+            McPhrase::Series(phrases, d) => McPhrase::Series(
+                phrases.iter().map(|p| self.expand_bus_labels(p)).collect(),
+                *d,
+            ),
+            McPhrase::Parallel(phrases) => {
+                McPhrase::Parallel(phrases.iter().map(|p| self.expand_bus_labels(p)).collect())
+            }
+            McPhrase::Multiple(inner) => {
+                McPhrase::Multiple(inner.iter().map(|p| self.expand_bus_labels(p)).collect())
+            }
+            McPhrase::Transposed(inner) => {
+                McPhrase::Transposed(Box::new(self.expand_bus_labels(inner)))
+            }
+            McPhrase::Group(g) => McPhrase::Group(McGroup {
+                opds: g.opds.iter().map(|p| self.expand_bus_labels(p)).collect(),
+                left_match: g.left_match,
+                right_match: g.right_match,
+            }),
+            McPhrase::FuncCall(f) => McPhrase::FuncCall(McFuncCall {
+                id: f.id,
+                caller: f
+                    .caller
+                    .as_ref()
+                    .map(|c| Box::new(self.expand_bus_labels(c))),
+                func_name: f.func_name.clone(),
+                params: f.params.clone(),
+                left: f.left.clone(),
+                right: f.right.clone(),
+                dot_member: f.dot_member.clone(),
+            }),
+            McPhrase::Endpoint(McEndpoint::Single(ref iref))
+                if matches!(iref.base, McInstance::Label(_)) =>
+            {
+                if let McInstance::Label(ref s) = iref.base {
+                    if let Some(bus) = self.find_bus(s) {
+                        if bus.members.len() >= 2 {
+                            let new_bus = McBus {
+                                name: s.clone(),
+                                member: bus.members.clone(),
+                                full_members: Vec::new(),
+                            };
+                            return McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                                McInstance::Bus(new_bus),
+                            )));
+                        }
+                    }
+                }
+                phrase.clone()
+            }
+            _ => phrase.clone(),
+        }
     }
 
     /// ── P3: Does the formal's actual point to a parent-scope entity
@@ -1033,34 +1264,42 @@ impl McModuleInst {
                 left_match: g.left_match,
                 right_match: g.right_match,
             }),
-            McPhrase::FuncCall(f) => McPhrase::FuncCall(McFuncCall {
-                id: 0,
-                caller: f
-                    .caller
-                    .as_ref()
-                    .map(|c| Box::new(Self::prefix_instance_phrase_with_skip(c, inst_name, skip))),
-                func_name: f.func_name.clone(),
-                // ── P4: Prefix bare pin names in actuals (e.g. `_CS` in `.Pullup(_CS, V3V3)`
-                // → `flash._CS`). The underscore placeholder `_` (McOpd::Uscore) and
-                // the skip set (actuals / parent ports, e.g. V3V3) are protected
-                // inside the helper and are not accidentally prefixed.
-                params: f
-                    .params
-                    .iter()
-                    .map(|p| Self::prefix_param_value_with_skip(p, inst_name, skip))
-                    .collect(),
-                left: f
-                    .left
-                    .iter()
-                    .map(|e| Self::prefix_instance_node_element_with_skip(e, inst_name, skip))
-                    .collect(),
-                right: f
-                    .right
-                    .iter()
-                    .map(|e| Self::prefix_instance_node_element_with_skip(e, inst_name, skip))
-                    .collect(),
-                dot_member: f.dot_member.clone(),
-            }),
+            McPhrase::FuncCall(f) => {
+                // ── P2-7-XTAL: discriminate caller prefixing ──
+                // Class names (e.g. RES, CAP, DIO.ESD) start with uppercase →
+                //   caller is a user-specified instance name → do NOT prefix.
+                // Method names (e.g. setup, power, i2c) start with lowercase →
+                //   caller is a reference to an existing instance → prefix.
+                let func_name_str = f.func_name.to_string();
+                let is_class_name = func_name_str
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_ascii_uppercase());
+                McPhrase::FuncCall(McFuncCall {
+                    id: 0,
+                    caller: if is_class_name {
+                        // Class construction: caller is instance name, don't prefix
+                        f.caller.clone()
+                    } else {
+                        f.caller.as_ref().map(|c| {
+                            Box::new(Self::prefix_instance_phrase_with_skip(c, inst_name, skip))
+                        })
+                    },
+                    func_name: f.func_name.clone(),
+                    // ── P4: Prefix bare pin names in actuals (e.g. `_CS` in `.Pullup(_CS, V3V3)`
+                    // → `flash._CS`). The underscore placeholder `_` (McOpd::Uscore) and
+                    // the skip set (actuals / parent ports, e.g. V3V3) are protected
+                    // inside the helper and are not accidentally prefixed.
+                    params: f
+                        .params
+                        .iter()
+                        .map(|p| Self::prefix_param_value_with_skip(p, inst_name, skip))
+                        .collect(),
+                    left: f.left.clone(), // P2-10: do NOT prefix FuncCall's synthetic left/right placeholders
+                    right: f.right.clone(), // (e.g., RES.in, RES.out). They are resolved by resolve_funccall_*_points.
+                    dot_member: f.dot_member.clone(),
+                })
+            }
             McPhrase::Transposed(inner) => McPhrase::Transposed(Box::new(
                 Self::prefix_instance_phrase_with_skip(inner, inst_name, skip),
             )),

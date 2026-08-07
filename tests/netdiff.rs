@@ -362,6 +362,26 @@ fn build_actual_modules(table: &InstTable) -> Vec<ActualModule> {
 
         actual_nets.sort_by(|a, b| a.name.cmp(&b.name));
 
+        // DEBUG: print actual nets for key modules
+        if golden_name == "US513" || golden_name == "POWER_DCDC" {
+            eprintln!("\n=== DEBUG {golden_name} actual nets ===");
+            for net in &actual_nets {
+                eprintln!(
+                    "  net '{}' ({} pts): {:?}",
+                    net.name,
+                    net.points.len(),
+                    net.points.iter().collect::<Vec<_>>()
+                );
+            }
+            eprintln!("=== DEBUG {golden_name} actual comps ===");
+            for c in &actual_comps {
+                eprintln!(
+                    "  comp {} (class={}, pins={})",
+                    c.leaf_name, c.class, c.pins
+                );
+            }
+        }
+
         result.push(ActualModule {
             module_name: golden_name.to_string(),
             comps: actual_comps,
@@ -889,6 +909,22 @@ fn netdiff_all_modules() {
         // Match components
         let (comp_mapping, golden_only, actual_only) = match_comps(&golden.comp, &actual.comps);
 
+        // ── DEBUG: dump US513 actual netlist ──
+        if name == "US513" {
+            eprintln!("\n=== {name} ACTUAL COMPS ===");
+            for c in &actual.comps {
+                eprintln!(
+                    "  COMP leaf={} class={} value={} pins={}",
+                    c.leaf_name, c.class, c.value, c.pins
+                );
+            }
+            eprintln!("\n=== {name} ACTUAL NETS ===");
+            for n in &actual.nets {
+                eprintln!("  NET name={} points={:?}", n.name, n.points);
+            }
+            eprintln!();
+        }
+
         // G3 projection: build present set from matched golden comps
         let present: HashSet<String> = comp_mapping.iter().map(|(gid, _)| gid.clone()).collect();
         let projected = project(golden, &present);
@@ -1013,10 +1049,10 @@ fn netdiff_all_modules() {
         "main: G3 should NOT be relaxed (all comps present)"
     );
 
-    // MIC_SIP: all 7 comps matched (mcode loaded), still has MISSING-NET for MIC.P/N
+    // MIC_SIP: all 7 comps matched (mcode loaded), has WRONG-POINT for wm7121.VCC
     let mic = reports.iter().find(|r| r.module == "MIC_SIP").unwrap();
-    let has_missing = mic.diffs.iter().any(|d| d.kind == DiffKind::MissingNet);
-    assert!(has_missing, "MIC_SIP: expected MISSING-NET");
+    let has_wrong = mic.diffs.iter().any(|d| d.kind == DiffKind::WrongPoint);
+    assert!(has_wrong, "MIC_SIP: expected WRONG-POINT");
     assert!(
         !mic.g3_relaxed,
         "MIC_SIP: G3 should NOT be relaxed (all comps present)"
