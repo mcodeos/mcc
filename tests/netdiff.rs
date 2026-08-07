@@ -910,7 +910,7 @@ fn netdiff_all_modules() {
         let (comp_mapping, golden_only, actual_only) = match_comps(&golden.comp, &actual.comps);
 
         // ── DEBUG: dump US513 actual netlist ──
-        if name == "US513" {
+        if name == "US513" || name == "SPEAKER_M" {
             eprintln!("\n=== {name} ACTUAL COMPS ===");
             for c in &actual.comps {
                 eprintln!(
