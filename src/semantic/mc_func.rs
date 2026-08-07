@@ -298,6 +298,10 @@ pub struct McFunction {
     pub returns: McFuncReturn,
     pub insts: McInstances,
     pub lines: Vec<McPhrase>,
+    /// Conditional blocks (if/else if/else) parsed from the function body.
+    /// Lines are pre-parsed into McPhrase; evaluated at instantiation time
+    /// against actual parameter values.
+    pub conds: Vec<crate::semantic::basic::mc_conds::McFuncConds>,
     /// Pre-parsed function body connections (needs to be called after McModule is built to fill parse_body)
     pub called_time: u32,
     anon_counter: usize,
@@ -327,6 +331,7 @@ impl McFunction {
             returns: McFuncReturn::Implicit,
             insts: McInstances::new(),
             lines: Vec::new(),
+            conds: Vec::new(),
             called_time: 0,
             anon_counter: 1,
             uri: None,
@@ -393,22 +398,23 @@ impl McFunction {
             // this statement appears in AST in what form (or doesn't appear at all).
             // get_type() returns u16; against c_macros.rs: NET=33, DECLARE=26,
             // OPD=52, OPD_RIGHTARROW=71, OPD_DBCOLON=77, INSTANCE=29, CLASS=28。
-            // {
-            //     let mut idx = 0;
-            //     for body_node in body_nodes.iter() {
-            //         let bt = body_node.get_type();
-            //         let child_types: Vec<u16> = body_node
-            //             .get_sub_node()
-            //             .map(|c| c.iter().map(|n| n.get_type()).collect())
-            //             .unwrap_or_default();
-            //         eprintln!(
-            //             "[BODY-RAW] node[{}] type={} child_types={:?}",
-            //             idx, bt, child_types
-            //         );
-            //         idx += 1;
-            //     }
-            //     eprintln!("[BODY-RAW] total {} top-level body nodes", idx);
-            // }
+            {
+                let mut idx = 0;
+                for body_node in body_nodes.iter() {
+                    let bt = body_node.get_type();
+                    let child_types: Vec<u16> = body_node
+                        .get_sub_node()
+                        .map(|c| c.iter().map(|n| n.get_type()).collect())
+                        .unwrap_or_default();
+                    let node_str = body_node.to_string();
+                    eprintln!(
+                        "[BODY-RAW] node[{}] type={} child_types={child_types:?} to_string={node_str:?}",
+                        idx, bt
+                    );
+                    idx += 1;
+                }
+                eprintln!("[BODY-RAW] total {} top-level body nodes", idx);
+            }
             for body_node in body_nodes.iter() {
                 match body_node.get_type() {
                     // MCAST_DECLARE: component/module instantiation
@@ -485,8 +491,25 @@ impl McFunction {
                     }
 
                     MCAST_COND_IF => {
-                        // COND_IF node: child nodes are the phrase
-                        //.. todo
+                        // Parse conditional blocks (if/else if/else)
+                        // The body_node is a COND_IF node; use McConds to parse
+                        // the condition structure, then convert to McFuncConds
+                        // with pre-parsed McPhrase lines.
+                        use crate::semantic::basic::mc_conds::{McConds, McFuncConds};
+                        if let Some(raw_conds) = McConds::new(&body_node) {
+                            let parsed = McFuncConds::from_conds(&raw_conds, &mut wrapper);
+                            if !parsed.if_blocks.is_empty() || !parsed.else_lines.is_empty() {
+                                if self.name.to_string().contains("i2c") {
+                                    eprintln!(
+                                        "[COND-PARSE] func={} if_blocks={} else_lines={}",
+                                        self.name,
+                                        parsed.if_blocks.len(),
+                                        parsed.else_lines.len()
+                                    );
+                                }
+                                self.conds.push(parsed);
+                            }
+                        }
                     }
                     _ => {
                         dlog_error(1308, &body_node, "Invalid function body node.");

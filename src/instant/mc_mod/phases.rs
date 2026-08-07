@@ -14,6 +14,7 @@ use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{canonicalize_path, ConnectionInst, InstError, NetPoint, PortInst};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
+use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::IOType;
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_inst::McInstance;
@@ -345,7 +346,21 @@ impl McModuleInst {
             .map(|(k, v)| (k.to_string(), v.clone()))
             .collect();
 
+        if self.name.contains("513") {
+            eprintln!("[P2-4-DECL] module={} has {} insts", self.name, items.len());
+            for (k, _) in &items {
+                eprintln!("[P2-4-DECL]   inst: {k}");
+            }
+        }
+
         for (_name, ident) in items {
+            if self.name.contains("513") {
+                eprintln!(
+                    "[P2-4-DECL] module={} processing decl: {:?}",
+                    self.name,
+                    std::mem::discriminant(&ident)
+                );
+            }
             match &ident {
                 McInstance::Component(c) => {
                     let inst = if c.nc {
@@ -380,6 +395,12 @@ impl McModuleInst {
                             }
                         }
                     };
+                    if self.name.contains("513") {
+                        eprintln!(
+                            "[DECL-CREATE] module={} inst_name={} class={}",
+                            self.name, inst.name, inst.def.name
+                        );
+                    }
                     self.components.push(inst);
 
                     // ── P1-C5: Execute same-name constructor func ──
@@ -392,6 +413,10 @@ impl McModuleInst {
                 }
                 McInstance::Module(m) => {
                     let inst_name = m.name.to_string();
+                    eprintln!(
+                        "[P2-4-MOD] module={} instantiating sub-module '{}' class='{}'",
+                        self.name, inst_name, m.base.name
+                    );
                     let mut inst = McModuleInst::new(&inst_name, m.base.clone());
                     // ★ Sub-module instantiation failure → record diagnostics, but keep instance
                     if let Err(e) = inst.instantiate() {
@@ -429,6 +454,40 @@ impl McModuleInst {
     pub(super) fn instantiate_lines_resilient(&mut self) {
         let lines = self.def.lines.clone();
         let line_spans = self.def.line_spans.clone();
+        if self.name.contains("513") || self.name.contains("moddcdc") {
+            eprintln!(
+                "[P2-LINES] module={} total_lines={}",
+                self.name,
+                lines.len()
+            );
+            for (idx, line) in lines.iter().enumerate() {
+                let desc = match line {
+                    McPhrase::Series(inner, _) => {
+                        let inner_desc: Vec<String> = inner
+                            .iter()
+                            .map(|p| match p {
+                                McPhrase::Endpoint(_) => "Ep".into(),
+                                McPhrase::FuncCall(fc) => format!("FC({})", fc.func_name),
+                                McPhrase::Group(_) => "Grp".into(),
+                                McPhrase::Parallel(_) => "Par".into(),
+                                _ => format!("{:?}", std::mem::discriminant(p)),
+                            })
+                            .collect();
+                        format!("Series[{}]", inner_desc.join(", "))
+                    }
+                    McPhrase::Parallel(_) => "Parallel".into(),
+                    McPhrase::FuncCall(fc) => format!("FuncCall({})", fc.func_name),
+                    McPhrase::Multiple(_) => "Multiple".into(),
+                    McPhrase::Endpoint(_) => "Endpoint".into(),
+                    McPhrase::Transposed(_) => "Transposed".into(),
+                    McPhrase::Group(_) => "Group".into(),
+                    McPhrase::Closure(_) => "Closure".into(),
+                    McPhrase::Lead => "Lead".into(),
+                    _ => "Other".into(),
+                };
+                eprintln!("[P2-LINES]   line[{idx}]={desc}");
+            }
+        }
         for (_i, _l) in lines.iter().enumerate() {}
         for (idx, line) in lines.iter().enumerate() {
             // ── Iter-6.S4.3 ──────────────────────────────────────────────

@@ -30,6 +30,23 @@ enum LaneItem<'a> {
 impl McModuleInst {
     /// Process connection line - accepts McPhrase
     pub(super) fn process_line(&mut self, phrase: &McPhrase) -> Result<(), InstError> {
+        // ── P2-7 debug ──
+        if self.name.contains("513") || self.name.contains("moddcdc") || self.name == "X6" {
+            let desc = match phrase {
+                McPhrase::Series(_, _) => "Series",
+                McPhrase::Parallel(_) => "Parallel",
+                McPhrase::FuncCall(_) => "FuncCall",
+                McPhrase::Multiple(_) => "Multiple",
+                McPhrase::Endpoint(_) => "Endpoint",
+                McPhrase::Transposed(_) => "Transposed",
+                McPhrase::Group(_) => "Group",
+                McPhrase::Closure(_) => "Closure",
+                McPhrase::Lead => "Lead",
+                McPhrase::Member(_, _) => "Member",
+                _ => "Other",
+            };
+            eprintln!("[PROC-LINE] module={} desc={desc}", self.name);
+        }
         // ── G4: Skip lines referencing failed components ──
         // If any FuncCall in the phrase references a class whose instantiation
         // previously failed, skip the entire line to avoid ghost pins.
@@ -57,9 +74,28 @@ impl McModuleInst {
         let mut phrase = phrase.clone();
         Self::assign_phrase_ids(&mut phrase, &mut self.next_phrase_id);
         let members = self.phrase_to_members(&phrase);
-        if self.name == "mcu513" {
-            let member_strs: Vec<String> = members.iter().map(|m| format!("{m:?}")).collect();
-            eprintln!("[P2-4-LINE] US513 members after phrase_to_members: {member_strs:?}");
+        if self.name.contains("513") || self.name.contains("moddcdc") {
+            eprintln!(
+                "[PROC-LINE-MEMBERS] module={} n_members={}",
+                self.name,
+                members.len()
+            );
+            for (i, m) in members.iter().enumerate() {
+                let desc: String = match m {
+                    McPhrase::Series(_, _) => "Series".into(),
+                    McPhrase::Parallel(_) => "Parallel".into(),
+                    McPhrase::FuncCall(fc) => format!("FuncCall({})", fc.func_name),
+                    McPhrase::Multiple(_) => "Multiple".into(),
+                    McPhrase::Endpoint(_) => "Endpoint".into(),
+                    McPhrase::Transposed(_) => "Transposed".into(),
+                    McPhrase::Group(_) => "Group".into(),
+                    McPhrase::Closure(_) => "Closure".into(),
+                    McPhrase::Lead => "Lead".into(),
+                    McPhrase::Member(_, _) => "Member".into(),
+                    _ => "Other".into(),
+                };
+                eprintln!("[PROC-LINE-MEMBERS]   member[{i}]={desc}");
+            }
         }
         if members.is_empty() {
             return Ok(());
@@ -74,6 +110,10 @@ impl McModuleInst {
         // the RIGHT (e.g. Cap(_) -> [VDD, GND]), the Multiple represents the component's
         // own pins, NOT independent signals — do NOT expand.
         let mut i: usize = 0;
+        // Track which member indices were consumed by P2-5 expansion, so the
+        // downstream try_connect_adjacent loop doesn't re-process them and
+        // create shorting connections (e.g. SCL-SDA bridge).
+        let mut p25_consumed: std::collections::HashSet<usize> = std::collections::HashSet::new();
         while i < members.len() {
             let (should_expand, n_items, fc_is_left) = match &members[i] {
                 McPhrase::Multiple(inner) if inner.len() > 1 => {
@@ -104,12 +144,30 @@ impl McModuleInst {
                     self.name, n_items
                 );
 
+                // Mark these indices as consumed so they won't be re-processed
+                // by the downstream try_connect_adjacent loop.
+                p25_consumed.insert(multiple_idx);
+                p25_consumed.insert(fc_idx);
+
                 for item in &inner {
+                    let mut fc_clone = fc.clone();
+                    // ── P2-5 fix: reset FuncCall IDs so each expanded pair
+                    // gets fresh unique IDs from assign_phrase_ids. Without this,
+                    // all pairs share the same ID, and P2-9 dedup incorrectly
+                    // skips the second (and subsequent) builtin twopin
+                    // instantiations (e.g. I2C0 SCL+SDA Pullup only creates 1 RES).
+                    Self::reset_phrase_ids(&mut fc_clone);
                     let pair = if fc_is_left {
-                        McPhrase::Series(vec![fc.clone(), item.clone()], dir)
+                        McPhrase::Series(vec![fc_clone, item.clone()], dir)
                     } else {
-                        McPhrase::Series(vec![item.clone(), fc.clone()], dir)
+                        McPhrase::Series(vec![item.clone(), fc_clone], dir)
                     };
+                    if self.name.contains("513") {
+                        eprintln!(
+                            "[P2-5-PAIR] module='{}' item={item:?} pair={pair:?}",
+                            self.name
+                        );
+                    }
                     if let Err(e) = self.process_line(&pair) {
                         self.record_warning(
                             911,
@@ -150,12 +208,22 @@ impl McModuleInst {
         let needs_lane_by_lane = members
             .iter()
             .any(|m| Self::member_contains_lead(m) || matches!(m, McPhrase::Transposed(_)));
+        if self.name.contains("US513") {
+            eprintln!(
+                "[PROC-LINE] module={} needs_lane_by_lane={needs_lane_by_lane} members={members:?}",
+                self.name
+            );
+        }
         if needs_lane_by_lane {
             return self.wire_chain_lane_by_lane(&members, dir);
         }
 
         // handle adjacent member connections — per-pair fault-tolerant
         for i in 0..members.len().saturating_sub(1) {
+            // Skip pairs where either member was consumed by P2-5 expansion
+            if p25_consumed.contains(&i) || p25_consumed.contains(&(i + 1)) {
+                continue;
+            }
             let left_member = &members[i];
             let right_member = &members[i + 1];
 
@@ -274,6 +342,17 @@ impl McModuleInst {
             if !shunt[k] {
                 continue;
             }
+            // ── P2-11: Process the shunt member first to create the component ──
+            // process_member_internal creates the CAP component and wires pin2→GND.
+            // Without this, get_left_points returns empty because the component
+            // doesn't exist in auto_inst_map yet.
+            if let Err(e) = self.process_member_internal(m) {
+                self.record_warning(
+                    913,
+                    format!("`.Cap(_)` shunt: failed to create component: {e}"),
+                );
+                continue;
+            }
             // get rail source: prefer nearest left neighbor right_points, otherwise nearest right neighbor left_points
             let rail_src: Vec<NetPoint> = {
                 let mut left_pts: Option<Vec<NetPoint>> = None;
@@ -327,6 +406,17 @@ impl McModuleInst {
     }
 
     // ── M11.2: check if a member contains Lead (recursively into Parallel) ──
+    pub(super) fn phrase_contains_transposed(phrase: &McPhrase) -> bool {
+        match phrase {
+            McPhrase::Transposed(_) => true,
+            McPhrase::Series(elems, _) => elems.iter().any(|e| Self::phrase_contains_transposed(e)),
+            McPhrase::Multiple(inner) => inner.iter().any(|e| Self::phrase_contains_transposed(e)),
+            McPhrase::Parallel(lines) => lines.iter().any(|l| Self::phrase_contains_transposed(l)),
+            McPhrase::Group(g) => g.opds.iter().any(|e| Self::phrase_contains_transposed(e)),
+            _ => false,
+        }
+    }
+
     fn member_contains_lead(member: &McPhrase) -> bool {
         match member {
             McPhrase::Multiple(inner) => inner.iter().any(|p| matches!(p, McPhrase::Lead)),
@@ -400,8 +490,25 @@ impl McModuleInst {
             .max()
             .unwrap_or(0);
         crate::vlog!("[lane-by-lane] num_lanes={num_lanes}");
+        eprintln!("[LL-ENTRY] module={} num_lanes={num_lanes}", self.name);
         if num_lanes == 0 {
             return Ok(());
+        }
+
+        // Pre-instantiate FuncCalls inside Transposed members.
+        // In normal flow, process_member_internal handles Transposed by
+        // instantiating its inner FuncCall. But lane-by-lane wiring skips
+        // the normal adjacency loop, so Transposed-inner FuncCalls never
+        // get instantiated → get_transposed_lane_pin returns empty.
+        for member in members {
+            if let McPhrase::Transposed(_) = member {
+                if let Err(e) = self.process_member_internal(member) {
+                    self.record_warning(
+                        915,
+                        format!("Failed to instantiate Transposed in lane-by-lane: {e}"),
+                    );
+                }
+            }
         }
 
         for lane in 0..num_lanes {
@@ -435,13 +542,39 @@ impl McModuleInst {
                 last.extend(std::mem::take(&mut pending_bridges));
             }
 
+            // Instantiate FuncCall elements before resolving points.
+            // When lane-by-lane wiring skips the normal process_member_internal
+            // loop, FuncCall elements (e.g. CAP(18pF) in setup chains) are
+            // never instantiated → get_left_points/get_right_points return
+            // empty because auto_inst_map has no entries.
+            for elem in &series_elems {
+                if matches!(elem, McPhrase::FuncCall(_)) {
+                    if let Err(e) = self.process_member_internal(elem) {
+                        self.record_warning(
+                            914,
+                            format!("Failed to instantiate FuncCall in lane-by-lane wiring: {e}"),
+                        );
+                    }
+                    // P2-7 debug: trace FuncCall instantiation in lane-by-lane
+                    if let McPhrase::FuncCall(fc) = elem {
+                        let key = Self::member_key(elem);
+                        let inst_name = self.auto_inst_map.get(&key).cloned();
+                        let left_pts = self.get_left_points(elem).unwrap_or_default();
+                        eprintln!(
+                            "[LL-DBG] module={} lane={lane} FuncCall(fn={}, id={}) key={key:?} inst={inst_name:?} left_pts={left_pts:?}",
+                            self.name, fc.func_name, fc.id
+                        );
+                    }
+                }
+            }
+
             if series_elems.len() < 2 {
                 // Single series element: attach bridge pins directly to it
                 let all_bridges: Vec<NetPoint> = bridges_at.iter().flatten().cloned().collect();
                 if !all_bridges.is_empty() && series_elems.len() == 1 {
                     let pts = self.get_left_points(series_elems[0]).unwrap_or_default();
-                    if !pts.is_empty() {
-                        let mut all_pts = vec![pts[0].clone()];
+                    if let Some(lp) = Self::pick_lane_point(&pts, lane) {
+                        let mut all_pts = vec![lp];
                         all_pts.extend(all_bridges);
                         if all_pts.len() >= 2 {
                             let id = self.next_conn_id();
@@ -456,6 +589,23 @@ impl McModuleInst {
             // attached to the net between series[i] and series[i+1].
             // bridges_at[0] = leading bridges, bridges_at[k] = gap between series[k-1] and series[k]
             let n = series_elems.len();
+
+            // ── P2-7: handle leading bridges (bridges_at[0]) ──
+            // Attach leading bridges to the first series element's left points.
+            if let Some(leading) = bridges_at.first() {
+                if !leading.is_empty() {
+                    let first_left = self.get_left_points(series_elems[0]).unwrap_or_default();
+                    if let Some(lp) = Self::pick_lane_point(&first_left, lane) {
+                        let mut all_pts = vec![lp.clone()];
+                        all_pts.extend(leading.iter().cloned());
+                        if all_pts.len() >= 2 {
+                            let id = self.next_conn_id();
+                            self.connections.push(ConnectionInst::new(id, all_pts));
+                        }
+                    }
+                }
+            }
+
             for i in 0..n.saturating_sub(1) {
                 let left_pts = self.get_right_points(series_elems[i]).unwrap_or_default();
                 let right_pts = self
@@ -471,22 +621,42 @@ impl McModuleInst {
                     continue;
                 };
 
+                let lp = match Self::pick_lane_point(&left_pts, lane) {
+                    Some(p) => p,
+                    None => continue,
+                };
+                let rp = match Self::pick_lane_point(&right_pts, lane) {
+                    Some(p) => p,
+                    None => continue,
+                };
+
                 if !bridge_pins.is_empty() {
-                    let mut all_pts = vec![left_pts[0].clone(), right_pts[0].clone()];
+                    let mut all_pts = vec![lp.clone(), rp.clone()];
                     all_pts.extend(bridge_pins.iter().cloned());
                     let id = self.next_conn_id();
                     self.connections.push(ConnectionInst::new(id, all_pts));
                 } else {
-                    self.create_connection(
-                        vec![left_pts[0].clone()],
-                        vec![right_pts[0].clone()],
-                        dir,
-                    )?;
+                    self.create_connection(vec![lp], vec![rp], dir)?;
                 }
             }
         }
 
         Ok(())
+    }
+
+    /// Pick the lane-specific point from a list of points.
+    /// For multi-pin endpoints (e.g. XTAL interface with 2 pins),
+    /// get_left_points/get_right_points returns all points. This helper
+    /// picks the point at index `lane`, falling back to index 0 if the
+    /// lane index is out of bounds.
+    fn pick_lane_point(pts: &[NetPoint], lane: usize) -> Option<NetPoint> {
+        if pts.is_empty() {
+            None
+        } else if lane < pts.len() {
+            Some(pts[lane].clone())
+        } else {
+            Some(pts[0].clone())
+        }
     }
 
     // ── M11.4: collect lane items (series elements + bridge pins) preserving order ──
@@ -518,7 +688,7 @@ impl McModuleInst {
                 }
             }
             McPhrase::Parallel(lines) => {
-                for line in lines {
+                for (line_idx, line) in lines.iter().enumerate() {
                     match line {
                         McPhrase::Multiple(inner) => {
                             if lane < inner.len() {
@@ -535,7 +705,12 @@ impl McModuleInst {
                             self.try_record_bridge_passive(inner);
                         }
                         _ => {
-                            if lane == 0 {
+                            // ── P2-7-XTAL fix: assign each Parallel line to its matching lane ──
+                            // In lane-by-lane wiring, a Parallel group like [CAP1, CAP2]
+                            // provides one element per lane. Previously, lane==0 captured
+                            // all lines, causing duplicate component creation and leaving
+                            // other lanes without their assigned elements.
+                            if lane == line_idx {
                                 items.push(LaneItem::Series(line));
                             }
                         }
@@ -557,6 +732,18 @@ impl McModuleInst {
                     if !matches!(p, McPhrase::Lead) {
                         items.push(LaneItem::Series(p));
                     }
+                }
+            }
+            // ── P2-7: bus endpoint (e.g. XTAL interface with 2 pins) ──
+            // Treat as multi-lane series element: each lane gets its own pin.
+            // The lane-specific pin is picked in wire_chain_lane_by_lane via
+            // pick_lane_point.
+            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                base: McInstance::Bus(ref bus),
+                ..
+            })) if !bus.member.is_empty() => {
+                if lane < bus.member.len() {
+                    items.push(LaneItem::Series(member));
                 }
             }
             _ => {
@@ -1324,7 +1511,7 @@ impl McModuleInst {
                 continue;
             }
             // ── Diagnostic: print opd phrase form ──────────────────────────────
-            let _opd_kind = match opd {
+            let opd_kind = match opd {
                 McPhrase::Endpoint(McEndpoint::Single(ir)) => match &ir.base {
                     McInstance::Label(s) => format!("Label('{s}')"),
                     McInstance::Bus(b) => format!("Bus('{}', mem={:?})", b.name, b.member),
@@ -1353,6 +1540,9 @@ impl McModuleInst {
                 McPhrase::Member(_, _) => "Member".to_string(),
                 McPhrase::Series(_, _) => "Series".to_string(),
             };
+            if self.name.contains("513") {
+                eprintln!("[PAR-INT] module={} opd[{_idx}] kind={opd_kind}", self.name);
+            }
             // ── Use the same rule as try_connect_adjacent to get endpoints ───────────
             // i.e. call self.get_left_points / get_right_points (top-level version,
             // going through auto_inst_map), not _from_phrase, so that stubs /
@@ -1416,6 +1606,24 @@ impl McModuleInst {
             };
             opd_lefts.push(lps);
             opd_rights.push(rps);
+            if self.name.contains("513") {
+                eprintln!(
+                    "[PAR-INT] module={} opd[{_idx}] lps={:?} rps={:?}",
+                    self.name,
+                    opd_lefts
+                        .last()
+                        .unwrap()
+                        .iter()
+                        .map(|p| p.path.clone())
+                        .collect::<Vec<_>>(),
+                    opd_rights
+                        .last()
+                        .unwrap()
+                        .iter()
+                        .map(|p| p.path.clone())
+                        .collect::<Vec<_>>()
+                );
+            }
         }
 
         // [R2-DIAG2] Unconditionally print each parallel's opd form + point extraction
@@ -1852,6 +2060,24 @@ impl McModuleInst {
                 }
             }
             McPhrase::FuncCall(ref fc) => {
+                if self.name.contains("moddcdc") {
+                    let caller_desc = fc
+                        .caller
+                        .as_ref()
+                        .map(|c| match c.as_ref() {
+                            McPhrase::FuncCall(inner) => format!("FuncCall({})", inner.func_name),
+                            McPhrase::Endpoint(_) => "Endpoint".into(),
+                            _ => format!("{:?}", std::mem::discriminant(c.as_ref())),
+                        })
+                        .unwrap_or_else(|| "None".into());
+                    eprintln!(
+                        "[PMI-FC] module={} func_name={} has_caller={} caller_desc={caller_desc} params={:?}",
+                        self.name,
+                        fc.func_name,
+                        fc.caller.is_some(),
+                        fc.params.iter().map(|p| format!("{:?}", p)).collect::<Vec<_>>(),
+                    );
+                }
                 // First check if it's an iterated call
                 if let Some(iterated_result) = self.check_and_expand_iterated_call(
                     &fc.caller,
@@ -1964,6 +2190,18 @@ impl McModuleInst {
                 // recursively expands the setup body —— which is exactly the
                 // fix target.
                 if let Some(caller_line) = &fc.caller {
+                    if self.name.contains("moddcdc") {
+                        let caller_desc = match caller_line.as_ref() {
+                            McPhrase::FuncCall(inner) => format!("FuncCall({})", inner.func_name),
+                            McPhrase::Endpoint(_) => "Endpoint".into(),
+                            McPhrase::Series(_, _) => "Series".into(),
+                            _ => format!("{:?}", std::mem::discriminant(caller_line.as_ref())),
+                        };
+                        eprintln!(
+                            "[PMI-CALLER] module={} func_name={} caller={caller_desc}",
+                            self.name, fc.func_name
+                        );
+                    }
                     match caller_line.as_ref() {
                         McPhrase::FuncCall(_)
                         | McPhrase::Endpoint(_)
@@ -2287,6 +2525,7 @@ impl McModuleInst {
                                         &c.params,
                                         &fc.left,
                                         &fc.right,
+                                        None,
                                     )?;
                                     if let FuncCallInst::Components {
                                         mut new_components,
@@ -2348,6 +2587,31 @@ impl McModuleInst {
                     }
                 }
 
+                // ── P2-9: prevent duplicate component creation ──────────────
+                // When lane-by-lane wiring re-processes the same FuncCall
+                // elements that were already instantiated by the normal
+                // process_member_internal loop, auto_inst_map already has
+                // the entry. Skip re-instantiation to avoid creating
+                // duplicate components (e.g. CAP_6/CAP_7 alongside CAP_4/CAP_5
+                // in XTAL setup).
+                if self.auto_inst_map.contains_key(&key) {
+                    if self.name.contains("513") {
+                        eprintln!(
+                            "[P2-9-DEDUP] module={} key={key} already in auto_inst_map, skipping re-instantiation",
+                            self.name
+                        );
+                    }
+                    return Ok(());
+                }
+
+                if self.name.contains("moddcdc") {
+                    eprintln!(
+                        "[FC-DISPATCH] module={} func_name={} caller={}",
+                        self.name,
+                        fc.func_name,
+                        fc.caller.is_some()
+                    );
+                }
                 let result = self.instantiate_funccall(
                     &fc.func_name,
                     &fc.params,
@@ -2362,6 +2626,14 @@ impl McModuleInst {
                     } => {
                         if let Some(comp) = new_components.first() {
                             self.auto_inst_map.insert(key, comp.name.clone());
+                        }
+                        if self.name.contains("513") || self.name.contains("moddcdc") {
+                            for c in &new_components {
+                                eprintln!(
+                                    "[LINE-CREATE] module={} inst_name={} class={}",
+                                    self.name, c.name, c.def.name
+                                );
+                            }
                         }
                         self.components.extend(new_components);
                         self.connections.extend(new_connections);
@@ -2419,7 +2691,8 @@ impl McModuleInst {
                             let caller_looks_like_class = caller_name
                                 .chars()
                                 .next()
-                                .is_some_and(|c| c.is_ascii_uppercase());
+                                .is_some_and(|c| c.is_ascii_uppercase())
+                                && !caller_name.chars().any(|c| c.is_ascii_digit());
                             let caller_unknown = caller_name.is_empty()
                                 || caller_looks_like_class
                                 || (!self.is_port(&caller_name)
@@ -2641,6 +2914,43 @@ impl McModuleInst {
                 Self::assign_phrase_ids(inner, next_id);
             }
             McPhrase::Lead | McPhrase::Endpoint(_) => {}
+        }
+    }
+
+    /// Reset all FuncCall IDs in a phrase to 0.
+    /// Used by P2-5 expansion so that each expanded pair gets fresh unique IDs
+    /// from assign_phrase_ids, preventing P2-9 dedup from incorrectly skipping
+    /// the second (and subsequent) builtin twopin instantiations.
+    fn reset_phrase_ids(phrase: &mut McPhrase) {
+        match phrase {
+            McPhrase::FuncCall(ref mut f) => {
+                f.id = 0;
+                if let Some(ref mut caller) = f.caller {
+                    Self::reset_phrase_ids(caller);
+                }
+            }
+            McPhrase::Series(elems, _) | McPhrase::Parallel(elems) | McPhrase::Multiple(elems) => {
+                for p in elems {
+                    Self::reset_phrase_ids(p);
+                }
+            }
+            McPhrase::Group(ref mut g) => {
+                for p in &mut g.opds {
+                    Self::reset_phrase_ids(p);
+                }
+            }
+            McPhrase::Transposed(ref mut inner) => {
+                Self::reset_phrase_ids(inner);
+            }
+            McPhrase::Closure(ref mut c) => {
+                for p in &mut c.body {
+                    Self::reset_phrase_ids(p);
+                }
+            }
+            McPhrase::Member(ref mut inner, _) => {
+                Self::reset_phrase_ids(inner);
+            }
+            _ => {}
         }
     }
 

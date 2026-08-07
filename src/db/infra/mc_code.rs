@@ -263,6 +263,10 @@ impl McCode {
                 *s = McSemSymbols::new();
             }
 
+            // P2-7-XTAL: set file name for lexer debug
+            let fname_cstr =
+                std::ffi::CString::new(fname.to_string_lossy().as_bytes()).unwrap_or_default();
+            crate::ast::c_bindings::mcc_set_lex_file(fname_cstr.as_ptr());
             crate::ast::c_bindings::mcc_lex(fcontent_ptr);
 
             let ast = AstNode::new(crate::ast::c_bindings::mcc_parse());
@@ -388,6 +392,10 @@ impl McCode {
                 *s = McSemSymbols::new();
             }
 
+            // P2-7-XTAL: set file name for lexer debug
+            let fname_cstr2 =
+                std::ffi::CString::new(fname.to_string_lossy().as_bytes()).unwrap_or_default();
+            crate::ast::c_bindings::mcc_set_lex_file(fname_cstr2.as_ptr());
             crate::ast::c_bindings::mcc_lex(fcontent_ptr);
             let ast = AstNode::new(crate::ast::c_bindings::mcc_parse());
             if !ast.is_null() {
@@ -631,6 +639,9 @@ impl McCode {
                 *s = McSemSymbols::new();
             }
 
+            // P2-7-XTAL: set file name for lexer debug
+            let uri_cstr = std::ffi::CString::new(self.uri.as_bytes()).unwrap_or_default();
+            crate::ast::c_bindings::mcc_set_lex_file(uri_cstr.as_ptr());
             crate::ast::c_bindings::mcc_lex(fcontent_ptr);
 
             let ast = AstNode::new(crate::ast::c_bindings::mcc_parse());

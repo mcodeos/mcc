@@ -18,10 +18,12 @@ use crate::db::cmie::cmie::mcb_get_cmie;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint, PortInst};
 use crate::semantic::basic::mc_bus::McBus;
+use crate::semantic::basic::mc_endpoint::McEndpoint;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{IOType, McCMIE};
 use crate::semantic::mc_func::McFunction;
+use crate::semantic::mc_inst::McInstance;
 use crate::{current_uri, McIds};
 
 // ============================================================================
@@ -242,10 +244,47 @@ impl McModuleInst {
                 }
             }
         };
+        if self.name.contains("moddcdc") {
+            eprintln!(
+                "[FUNCALL-DISP] module={} func_name={func_name} cmie_found={}",
+                self.name,
+                cmie.is_some()
+            );
+        }
         if let Some(cmie) = cmie {
             match cmie {
                 McCMIE::Component(comp_def) => {
-                    return self.instantiate_component_construction(comp_def, params, left, right);
+                    let caller_label = caller.and_then(|c| match c {
+                        McPhrase::Endpoint(McEndpoint::Single(iref)) => match &iref.base {
+                            McInstance::Label(s) => {
+                                let s = s.as_str();
+                                // P2-7: check if this Label is part of a dotted class name.
+                                // For example, `DIO.ESD(...)` is parsed as caller=Label("DIO")
+                                // and func_name="ESD". But "DIO" is not an instance — it's
+                                // part of the class name "DIO.ESD". If the Label+func_name
+                                // matches the component definition's full name, don't use it
+                                // as the component name.
+                                let func_name_str = func_name.to_string();
+                                let dotted_name = format!("{s}.{func_name_str}");
+                                if dotted_name == comp_def.name.to_string() {
+                                    // Label is part of the class name, not a user-specified instance name
+                                    None
+                                } else {
+                                    // Label is a user-specified instance name (e.g. R442::RES(1MΩ))
+                                    Some(s)
+                                }
+                            }
+                            _ => None,
+                        },
+                        _ => None,
+                    });
+                    return self.instantiate_component_construction(
+                        comp_def,
+                        params,
+                        left,
+                        right,
+                        caller_label,
+                    );
                 }
                 McCMIE::Module(module_def) => {
                     return self.instantiate_module_construction(
@@ -453,6 +492,12 @@ impl McModuleInst {
         params: &[McParamValue],
         func_name: &str,
     ) -> Result<(), InstError> {
+        if self.name.contains("513") {
+            eprintln!(
+                "[TWOPIN-WIRE] module={} inst_name={inst_name} func={func_name} params={params:?}",
+                self.name
+            );
+        }
         // 1. Flatten all params into a McBus list, then expand to NetPoint
         let mut elements: Vec<McBus> = Vec::new();
         for p in params {

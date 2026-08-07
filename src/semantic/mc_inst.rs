@@ -1380,6 +1380,9 @@ impl McInstances {
                 }
                 let (mc_inst, insert_key) = match &cmie {
                     Some(McCMIE::Component(comp_def)) => {
+                        eprintln!(
+                            "[P2-4-PARSE] inst='{inst_name}' class='{class_name}' -> Component (cmie=Component)",
+                        );
                         // ── P1: besides class-level value params (CAP(1uF…)), also merge instance-level construction args (flash(V3V3)) ──
                         let mut instance_params = instance_params;
                         instance_params.extend(ctor_args.clone());
@@ -1390,15 +1393,20 @@ impl McInstances {
                         );
                         (McInstance::Component(Arc::new(mc2_comp)), inst_name)
                     }
-                    Some(McCMIE::Module(mod_def)) => (
-                        // ── P1: bring construction args into module instance ──
-                        McInstance::Module(Arc::new(Mc2Module::with_params(
-                            &inst_name,
-                            mod_def.clone(),
-                            ctor_args.clone(),
-                        ))),
-                        inst_name,
-                    ),
+                    Some(McCMIE::Module(mod_def)) => {
+                        eprintln!(
+                            "[P2-4-PARSE] inst='{inst_name}' class='{class_name}' -> Module (cmie=Module)",
+                        );
+                        (
+                            // ── P1: bring construction args into module instance ──
+                            McInstance::Module(Arc::new(Mc2Module::with_params(
+                                &inst_name,
+                                mod_def.clone(),
+                                ctor_args.clone(),
+                            ))),
+                            inst_name,
+                        )
+                    }
                     Some(McCMIE::Interface(iface_def)) => {
                         // For Interface with square bracket syntax (e.g., [VDD, GND]::DC(3.3V)),
                         // create McIds with Square segment

@@ -227,6 +227,7 @@ mc_value* mc_value_link4(mc_value* va, mc_value* vb, mc_value* vc, mc_value* vd)
 //---------------------------
 void mcc_reset(unsigned char log_flags);
 void mcc_lex(char* data);
+void mcc_set_lex_file(const char* fname);
 mc_value* mcc_parse();
 void mcc_free(mc_value* ast);
 void mcc_visit(mc_value* ast);
