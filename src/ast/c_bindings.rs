@@ -22,6 +22,7 @@ extern "C" {
     pub fn mcc_load(file: *mut i8) -> *mut i8;
     pub fn mcc_load_from_string(content: *const i8, len: usize) -> *mut i8;
     pub fn mcc_lex(data: *mut i8);
+    pub fn mcc_set_lex_file(fname: *const libc::c_char);
     pub fn mcc_parse() -> *mut McValueFFI;
     pub fn mcc_free(ast: *mut McValueFFI);
     pub fn mcc_visit(ast: *mut McValueFFI);

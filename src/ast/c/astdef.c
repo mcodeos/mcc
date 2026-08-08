@@ -494,13 +494,20 @@ void mcc_lex(char* data)
     mc_sem_scan_and_add_comments(data, strlen(data));
 }
 
+// P2-7-XTAL: set current file name for lexer debug output
+void mcc_set_lex_file(const char* fname)
+{
+    extern const char* g_lex_file;
+    g_lex_file = fname;
+}
+
 mc_value* mcc_parse()
 {
     if (!g_token_head) return NULL;
     g_current_token = g_token_head;
 
     mc_value* ast_root = mc_value_create();
-    // mca_debug = 1;
+    mca_debug = 1;
     int parse_result = mca_parse(ast_root);
     if (parse_result != 0) {
         mc_value_free(&ast_root);

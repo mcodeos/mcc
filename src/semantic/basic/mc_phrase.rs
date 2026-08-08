@@ -128,6 +128,28 @@ impl McPhrase {
         let node_type = node.get_type();
         let _node_name = format!("{}", node_type);
         let _node_str = node.to_string();
+        let node_str = node.to_string();
+        if node_type == MCAST_OPD_DBCOLON
+            || node_type == MCAST_INSTANCE
+            || node_type == MCAST_CLASS
+            || node_type == MCAST_DECLARE
+        {
+            eprintln!(
+                "[P2-7-NODE-DBG] McPhrase::new node_type={node_type}, to_string={node_str:?}",
+            );
+        }
+        // P2-7-XTAL: trace XTAL setup function body parsing
+        if let Some(ref s) = node_str {
+            if s.contains("XTAL") || s.contains("R442") || s.contains("RES(1M") {
+                let child_types: Vec<u16> = node
+                    .get_sub_node()
+                    .map(|c| c.iter().map(|n| n.get_type()).collect())
+                    .unwrap_or_default();
+                eprintln!(
+                    "[P2-7-XTAL-DBG] McPhrase::new node_type={node_type}, to_string={s:?}, child_types={child_types:?}",
+                );
+            }
+        }
         match node_type {
             MCAST_OPD_USCORE => Some(McPhrase::Lead),
 
@@ -142,6 +164,15 @@ impl McPhrase {
             MCAST_OPD => {
                 // Handle MCAST_OPD node - extract subnode and process as McOpd
                 let subnode = node.get_sub_node()?;
+                // ── P2-11: Handle nested FuncCall inside MCAST_OPD ──
+                let subnode_type = subnode.get_type();
+                let subnode_str = subnode.to_string().unwrap_or_default();
+                eprintln!(
+                    "[P2-OPD-DBG] MCAST_OPD subnode_type={subnode_type} MCAST_OPD_FCALL={MCAST_OPD_FCALL} subnode_str={subnode_str:?}"
+                );
+                if subnode_type == MCAST_OPD_FCALL {
+                    return McFuncCall::parse(&subnode, context);
+                }
                 if let Some(opdc) = McOpd::new(&subnode) {
                     // Convert McOpd to McPhrase
                     match opdc {
@@ -658,8 +689,9 @@ impl McPhrase {
                         if let Some(class_ids) = cls.get_sub_node().and_then(|cid| McIds::new(&cid))
                         {
                             let fname = class_ids.to_string();
-                            let build = names.is_empty()
-                                && crate::vector::graph::naming::is_known_twopin_class(&fname);
+                            let is_twopin =
+                                crate::vector::graph::naming::is_known_twopin_class(&fname);
+                            let build = is_twopin;
                             if build {
                                 let mut params: Vec<McParamValue> = Vec::new();
                                 let mut cur = cls.get_sub_node();
@@ -682,11 +714,23 @@ impl McPhrase {
                                 }
                                 let left = vec![McBus::new(&format!("{fname}.in"))];
                                 let right = vec![McBus::new(&format!("{fname}.out"))];
-                                let mut fcs: Vec<McPhrase> = Vec::with_capacity(names.len());
-                                for _ in &names {
+                                let total = if names.is_empty() { 1 } else { names.len() };
+                                let mut fcs: Vec<McPhrase> = Vec::with_capacity(total);
+                                for name in if names.is_empty() {
+                                    vec![String::new()]
+                                } else {
+                                    names.clone()
+                                } {
+                                    let caller = if name.is_empty() {
+                                        None
+                                    } else {
+                                        Some(Box::new(McPhrase::Endpoint(McEndpoint::Single(
+                                            McInstanceRef::new(McInstance::Label(name.clone())),
+                                        ))))
+                                    };
                                     fcs.push(McPhrase::FuncCall(McFuncCall {
                                         id: 0,
-                                        caller: None,
+                                        caller,
                                         func_name: class_ids.clone(),
                                         params: params.clone(),
                                         left: left.clone(),
@@ -1210,6 +1254,11 @@ impl McPhrase {
 
             MCAST_OPD_APOST => {
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
+                eprintln!(
+                    "[P2-7-APOST-DBG] APOST inner type={}, to_string={:?}",
+                    opd1_node.get_type(),
+                    opd1_node.to_string()
+                );
                 match McPhrase::new(&opd1_node, context)? {
                     McPhrase::Series(phrases, _) => Some(McPhrase::Transposed(Box::new(
                         McPhrase::Series(phrases, ConnDir::Undirected),
@@ -1246,7 +1295,19 @@ impl McPhrase {
                 }
             }
 
-            MCAST_OPD_FCALL => McFuncCall::parse(node, context),
+            MCAST_OPD_FCALL => {
+                let result = McFuncCall::parse(node, context);
+                if let Some(ref r) = result {
+                    let fn_name = match r {
+                        McPhrase::FuncCall(fc) => fc.func_name.to_string(),
+                        _ => format!("{:?}", std::mem::discriminant(r)),
+                    };
+                    eprintln!("[P2-FCALL-RESULT] FCALL result={fn_name}");
+                } else {
+                    eprintln!("[P2-FCALL-RESULT] FCALL result=None");
+                }
+                result
+            }
 
             MCAST_OPD_CLOSURE => McClosure::parse(node, context).map(McPhrase::Closure),
 
@@ -1263,8 +1324,27 @@ impl McPhrase {
 
                 let opd2_node = opd1_node.get_next().expect(MISSING_SUBNODE);
 
+                // P2-7-XTAL: trace raw AST node types before McPhrase::new
+                {
+                    let t1 = opd1_node.get_type();
+                    let t2 = opd2_node.get_type();
+                    let c1: Vec<u16> = opd1_node
+                        .get_sub_node()
+                        .map(|c| c.iter().map(|n| n.get_type()).collect())
+                        .unwrap_or_default();
+                    let c2: Vec<u16> = opd2_node
+                        .get_sub_node()
+                        .map(|c| c.iter().map(|n| n.get_type()).collect())
+                        .unwrap_or_default();
+                    eprintln!(
+                        "[P2-7-PLUS-AST] PLUS raw: opd1_type={t1}, opd1_children={c1:?}, opd2_type={t2}, opd2_children={c2:?}"
+                    );
+                }
+
                 let opd1 = McPhrase::new(&opd1_node, context)?;
                 let opd2 = McPhrase::new(&opd2_node, context)?;
+
+                eprintln!("[P2-7-PLUS-DBG] PLUS opd1={:?}, opd2={:?}", opd1, opd2);
 
                 // Infer shapes and upgrade phrases before checking connectivity
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
@@ -1331,6 +1411,8 @@ impl McPhrase {
                 let opd1 = McPhrase::new(&opd1_node, context)?;
                 let opd2 = McPhrase::new(&opd2_node, context)?;
 
+                eprintln!("[P2-7-MINUS-DBG] MINUS opd1={:?}, opd2={:?}", opd1, opd2);
+
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
 
                 if !is_connectable(&opd1.get_right(), &opd2.get_left()) {
@@ -1357,6 +1439,20 @@ impl McPhrase {
                 check_ambiguous_precedence(node, &loc_node);
 
                 let opd2_node = opd1_node.get_next().expect(MISSING_SUBNODE);
+                // ── P2-DEBUG ──
+                {
+                    let t1 = opd1_node.get_type();
+                    let t2 = opd2_node.get_type();
+                    let c1: Vec<u16> = opd1_node
+                        .get_sub_node()
+                        .map(|c| c.iter().map(|n| n.get_type()).collect())
+                        .unwrap_or_default();
+                    let c2: Vec<u16> = opd2_node
+                        .get_sub_node()
+                        .map(|c| c.iter().map(|n| n.get_type()).collect())
+                        .unwrap_or_default();
+                    eprintln!("[P2-ARROW-DBG] ARROW: opd1_type={t1} opd1_children={c1:?} opd2_type={t2} opd2_children={c2:?}");
+                }
                 let opd1 = McPhrase::new(&opd1_node, context);
                 let opd2 = McPhrase::new(&opd2_node, context);
                 // if opd1.is_none() || opd2.is_none() {
@@ -1395,7 +1491,24 @@ impl McPhrase {
                 }
 
                 ret_line.extend(line2);
-                Some(Series(ret_line, ConnDir::LtoR))
+                let result = Series(ret_line, ConnDir::LtoR);
+                // Debug: print result for ARROW with GROUP
+                if let McPhrase::Series(ref inner, _) = result {
+                    let has_group = inner.iter().any(|p| matches!(p, McPhrase::Group(_)));
+                    if has_group {
+                        let desc: Vec<String> = inner
+                            .iter()
+                            .map(|p| match p {
+                                McPhrase::Endpoint(_) => "Ep".into(),
+                                McPhrase::FuncCall(fc) => format!("FC({})", fc.func_name),
+                                McPhrase::Group(_) => "Grp".into(),
+                                _ => format!("{:?}", std::mem::discriminant(p)),
+                            })
+                            .collect();
+                        eprintln!("[P2-ARROW-RESULT] Series[{}]", desc.join(", "));
+                    }
+                }
+                Some(result)
             }
 
             MCAST_OPD_LEFTARROW => {
@@ -1444,6 +1557,16 @@ impl McPhrase {
             // or as a leftover from split inline declarations), extract the instance name as an identifier reference.
             MCAST_INSTANCE => {
                 if let Some(inner) = node.get_sub_node() {
+                    // P2-7-XTAL: trace MCAST_INSTANCE inner node structure
+                    let inner_type = inner.get_type();
+                    let inner_child_types: Vec<u16> = inner
+                        .get_sub_node()
+                        .map(|c| c.iter().map(|n| n.get_type()).collect())
+                        .unwrap_or_default();
+                    eprintln!(
+                        "[P2-7-INST-DBG] MCAST_INSTANCE inner_type={inner_type}, inner_child_types={inner_child_types:?}, to_string={:?}",
+                        node.to_string()
+                    );
                     // Check if inner is a DECLARE - if so, parse it via the DECLARE handling
                     if inner.get_type() == MCAST_DECLARE {
                         // Parse the DECLARE to get the phrase (which may contain DOT expressions)
@@ -1505,8 +1628,15 @@ impl McPhrase {
             // When MCAST_CLASS appears in an expression (e.g., a leftover from inline declaration V5V::DC(5V)),
             // extract the class name as an identifier reference
             MCAST_CLASS => {
+                // P2-7-XTAL: trace MCAST_CLASS inner structure
                 if let Some(inner) = node.get_sub_node() {
+                    let inner_type = inner.get_type();
+                    eprintln!(
+                        "[P2-7-CLASS-DBG] MCAST_CLASS inner_type={inner_type}, to_string={:?}",
+                        node.to_string()
+                    );
                     let names = inner.to_id_or_ida();
+                    eprintln!("[P2-7-CLASS-DBG] MCAST_CLASS names={names:?}",);
                     if names.len() == 1 {
                         if let Some(inst) = context.find_inst(&names[0]) {
                             // ★ LSP: Register instance reference for MCAST_CLASS path
