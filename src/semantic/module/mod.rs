@@ -161,6 +161,21 @@ impl McModule {
 
                     MCAST_NET => {
                         if let Some(subnode) = clause.get_sub_node() {
+                            // ── P2-DEBUG: print AST structure ──
+                            if self.name.to_string().contains("513") {
+                                let st = subnode.get_type();
+                                let children: Vec<(u16, String)> = subnode
+                                    .get_sub_node()
+                                    .map(|c| {
+                                        c.iter()
+                                            .map(|n| {
+                                                (n.get_type(), n.to_string().unwrap_or_default())
+                                            })
+                                            .collect()
+                                    })
+                                    .unwrap_or_default();
+                                eprintln!("[P2-NET-AST] module={} net_node_type={st} children={children:?}", self.name);
+                            }
                             if subnode.get_type() == MCAST_DECLARE {
                                 self.insts.parse(&subnode, &self.uri);
                                 continue;
@@ -362,7 +377,13 @@ impl McModule {
     /// Add component instance to symbol table
     pub(crate) fn add_component(&mut self, name: String, comp: Mc2Component) -> McPhrase {
         let inst = McInstance::Component(Arc::new(comp));
-        self.insts.create_inst(&name, inst.clone());
+        // ── P2-10: anonymous components (names starting with @) are created
+        // inline in connection lines. They must NOT be stored in insts,
+        // otherwise instantiate_declarations_resilient will create them as
+        // declarations with no connections, duplicating the line-created ones.
+        if !name.starts_with('@') {
+            self.insts.create_inst(&name, inst.clone());
+        }
         McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(inst)))
     }
 

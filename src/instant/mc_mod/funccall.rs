@@ -18,10 +18,12 @@ use crate::db::cmie::cmie::mcb_get_cmie;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint, PortInst};
 use crate::semantic::basic::mc_bus::McBus;
+use crate::semantic::basic::mc_endpoint::McEndpoint;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{IOType, McCMIE};
 use crate::semantic::mc_func::McFunction;
+use crate::semantic::mc_inst::McInstance;
 use crate::{current_uri, McIds};
 
 // ============================================================================
@@ -218,13 +220,21 @@ impl McModuleInst {
         // Fix gate: use "caller is not FuncCall" instead of "caller is None".
         let caller_is_funccall = matches!(caller, Some(McPhrase::FuncCall(_)));
         let cmie_raw = mcb_get_cmie(func_name, &current_uri::get());
+        // Only use direct lookup if it's a Component or Module; otherwise
+        // fall through to alias fallback (e.g. "ESD" → "DIO.ESD").
         let cmie = match cmie_raw {
-            Some(c) => Some(c),
-            None => {
+            Some(c @ McCMIE::Component(_)) | Some(c @ McCMIE::Module(_)) => Some(c),
+            _ => {
                 let raw_name = func_name.to_string();
                 // First try the regular alias (ESD→DIO.ESD etc.), no caller gating
                 let standard_alias =
                     crate::vector::graph::naming::canonicalize_class_alias(&raw_name);
+                if self.name == "speaker" {
+                    eprintln!(
+                        "[FUNCALL-ALIAS] module={} func_name={raw_name} cmie_raw_is_some={} standard_alias={standard_alias:?}",
+                        self.name, cmie_raw.is_some()
+                    );
+                }
                 // Then try the bare-call-specific alias (PULLUP/PULLDOWN→RES), only
                 // enabled when caller is not FuncCall (i.e. not chain-method form)
                 let bare_alias = if !caller_is_funccall {
@@ -236,16 +246,66 @@ impl McModuleInst {
                     Some(canonical) => {
                         let canon_ids =
                             crate::semantic::basic::mc_ids::McIds::from(canonical.as_str());
-                        mcb_get_cmie(&canon_ids, &current_uri::get())
+                        let uri = current_uri::get();
+                        if self.name == "speaker" {
+                            eprintln!(
+                                "[FUNCALL-ALIAS] canonical={canonical} uri={uri}",
+                            );
+                        }
+                        let result = mcb_get_cmie(&canon_ids, &uri);
+                        if self.name == "speaker" {
+                            eprintln!(
+                                "[FUNCALL-ALIAS] cmie_result_is_some={}",
+                                result.is_some()
+                            );
+                        }
+                        result
                     }
                     None => None,
                 }
             }
         };
+        if self.name.contains("moddcdc") || self.name == "speaker" {
+            eprintln!(
+                "[FUNCALL-DISP] module={} func_name={func_name} cmie_found={}",
+                self.name,
+                cmie.is_some()
+            );
+        }
         if let Some(cmie) = cmie {
             match cmie {
                 McCMIE::Component(comp_def) => {
-                    return self.instantiate_component_construction(comp_def, params, left, right);
+                    let caller_label = caller.and_then(|c| match c {
+                        McPhrase::Endpoint(McEndpoint::Single(iref)) => match &iref.base {
+                            McInstance::Label(s) => {
+                                let s = s.as_str();
+                                // P2-7: check if this Label is part of a dotted class name.
+                                // For example, `DIO.ESD(...)` is parsed as caller=Label("DIO")
+                                // and func_name="ESD". But "DIO" is not an instance — it's
+                                // part of the class name "DIO.ESD". If the Label+func_name
+                                // matches the component definition's full name, don't use it
+                                // as the component name.
+                                let func_name_str = func_name.to_string();
+                                let dotted_name = format!("{s}.{func_name_str}");
+                                if dotted_name == comp_def.name.to_string() {
+                                    // Label is part of the class name, not a user-specified instance name
+                                    None
+                                } else {
+                                    // Label is a user-specified instance name (e.g. R442::RES(1MΩ))
+                                    Some(s)
+                                }
+                            }
+                            _ => None,
+                        },
+                        _ => None,
+                    });
+                    return self.instantiate_component_construction(
+                        comp_def,
+                        params,
+                        left,
+                        right,
+                        caller_label,
+                    );
                 }
                 McCMIE::Module(module_def) => {
                     return self.instantiate_module_construction(
@@ -453,6 +513,12 @@ impl McModuleInst {
         params: &[McParamValue],
         func_name: &str,
     ) -> Result<(), InstError> {
+        if self.name.contains("513") {
+            eprintln!(
+                "[TWOPIN-WIRE] module={} inst_name={inst_name} func={func_name} params={params:?}",
+                self.name
+            );
+        }
         // 1. Flatten all params into a McBus list, then expand to NetPoint
         let mut elements: Vec<McBus> = Vec::new();
         for p in params {
