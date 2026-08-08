@@ -285,3 +285,65 @@ pub(crate) fn is_enum_member(class_name: &str, value_name: &str) -> bool {
     }
     false
 }
+
+/// Resolve a bare identifier as an enum value by searching all known enums.
+///
+/// Returns `Some(class_name)` if `value_name` is a member of a known enum.
+///
+/// - If exactly one enum contains the value, return its class name.
+/// - If multiple enums contain it, `prefer_class` is used as a tiebreaker
+///   (e.g., the same-named component's enum).
+/// - Returns `None` if no enum contains the value.
+pub(crate) fn resolve_bare_enum_value(
+    value_name: &str,
+    prefer_class: Option<&str>,
+) -> Option<String> {
+    let mut candidates: Vec<String> = Vec::new();
+
+    // Search workspace enums
+    for entry in workspace::WORKSPACE.enums.iter() {
+        let class_name = entry.key().ident.to_string();
+        let has_value = entry
+            .value()
+            .values
+            .iter()
+            .any(|v| v.name.to_string() == value_name);
+        if has_value {
+            // Prefer exact match — return immediately
+            if let Some(pref) = prefer_class {
+                if class_name == pref {
+                    return Some(class_name);
+                }
+            }
+            candidates.push(class_name);
+        }
+    }
+    // Search global enums
+    for entry in global::mcc_enums.iter() {
+        let class_name = entry.key().ident.to_string();
+        let has_value = entry
+            .value()
+            .values
+            .iter()
+            .any(|v| v.name.to_string() == value_name);
+        if has_value {
+            if let Some(pref) = prefer_class {
+                if class_name == pref {
+                    return Some(class_name);
+                }
+            }
+            candidates.push(class_name);
+        }
+    }
+
+    // Return the unique candidate, or None if ambiguous/not found
+    match candidates.len() {
+        0 => None,
+        1 => Some(candidates.into_iter().next().unwrap()),
+        _ => {
+            // Ambiguous: multiple enums have this value, and none matched prefer_class.
+            // Return the first one (deterministic but arbitrary).
+            Some(candidates.into_iter().next().unwrap())
+        }
+    }
+}

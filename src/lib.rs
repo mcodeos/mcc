@@ -318,6 +318,23 @@ pub fn get_def(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     builder::mcb_get_cmie(class_name, uri)
 }
 
+/// Direct component table lookup — bypasses RefDefMap to avoid ambiguity
+/// when a component and enum share the same name+URI.
+pub fn get_component_def(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
+    let space_name = McSpaceName {
+        ident: class_name.clone(),
+        uri: uri.clone(),
+    };
+    // Try workspace components first, then global
+    if let Some(c) = crate::db::cmie::tables::WORKSPACE.components.get(&space_name) {
+        return Some(McCMIE::Component(c.clone()));
+    }
+    if let Some(c) = crate::db::infra::global::mcc_components.get(&space_name) {
+        return Some(McCMIE::Component(c.clone()));
+    }
+    None
+}
+
 pub fn get_module_def(class_name: &McIds) -> Option<Arc<McModule>> {
     builder::mcb_get_module_def_by_name(class_name)
 }

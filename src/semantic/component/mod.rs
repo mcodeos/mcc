@@ -99,6 +99,7 @@ impl McComponent {
         };
 
         //2. param
+        new_comp.params.enclosing_component_name = Some(comp_name.clone());
         let _ = &subnodes
             .iter()
             .find(|x| x.is_type(MCAST_PARAMS))

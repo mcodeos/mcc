@@ -35,6 +35,7 @@ use anyhow::{Context, Result};
 use mcc::cli::rpcclient::RpcClient;
 use mcc::cli::ParseArgs;
 use mcc::{IOType, McCMIE, McEndpoint, McIds, McInstance, McInstanceRef, McPhrase, McURI};
+use mcc::{McParamDeclare, McParamTypeKind};
 use serde_json::json;
 use std::path::Path;
 
@@ -145,7 +146,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
     // build phase will naturally belong to pass1/pass2 via tracker.collect. ──
     builder.set_pass0(public_collect_pass0());
 
-    // ── 4. Select top module ──
+    // ── 4. Select top definition (module, component, interface, or enum) ──
     let top_name = match forced_top
         .clone()
         .or_else(|| args.top.clone())
@@ -154,56 +155,38 @@ pub fn run(args: &ParseArgs) -> Result<()> {
     {
         Some(n) => n,
         None => {
-            // Even if top module not found, pass0 is already snapshotted in step 3.5, directly finish.
-            // Text mode will render pass0 section (including C parser errors) + summary.
-            if args.dlog {
-                print_dlog_diagnostics();
+            // No module found — if --tree/--ast is set, still proceed to show
+            // components/interfaces/enums. Otherwise finish.
+            if !stages.tree {
+                if args.dlog { print_dlog_diagnostics(); }
+                let env = Envelope::ok(builder.finish());
+                output::emit_envelope(&env, args.format, args.output.as_deref().map(Path::new), false)?;
                 return Ok(());
             }
-            let env = Envelope::ok(builder.finish());
-            output::emit_envelope(
-                &env,
-                args.format,
-                args.output.as_deref().map(Path::new),
-                false,
-            )?;
-            return Ok(());
+            // Use a dummy — tree section will collect all CMIE types directly
+            String::new()
         }
     };
 
-    // ── 5. get_def: get top-level module definition ──
+    // ── 5. get_def: get top-level definition ──
     let ident = McIds::from(top_name.as_str());
-    let cmie = match mcc::get_def(&ident, &uri) {
-        Some(c) => c,
-        None => {
-            return emit_error(
-                args,
-                RpcError::invalid_params(format!("parse: definition '{}' not found", top_name)),
-            );
-        }
-    };
+    let cmie = mcc::get_def(&ident, &uri);
 
-    let module_def = match cmie {
-        McCMIE::Module(m) => m,
-        McCMIE::Component(c) => {
-            return emit_error(
-                args,
-                RpcError::invalid_params(format!("'{}' is Component, not Module", c.name)),
-            );
-        }
-        McCMIE::Interface(i) => {
-            return emit_error(
-                args,
-                RpcError::invalid_params(format!("'{}' is Interface, not Module", i.name)),
-            );
-        }
-        McCMIE::Enum(e) => {
-            return emit_error(
-                args,
-                RpcError::invalid_params(format!("'{}' is Enum, not Module", e.name)),
-            );
-        }
+    // Accept all CMIE types — tree/ast view works for component/interface/enum too.
+    enum ParseTarget {
+        Module(std::sync::Arc<mcc::McModule>),
+        Component(std::sync::Arc<mcc::McComponent>),
+        Interface(std::sync::Arc<mcc::McInterface>),
+        Enum(std::sync::Arc<mcc::McEnumDef>),
+    }
+    let parse_target: Option<ParseTarget> = match &cmie {
+        Some(McCMIE::Module(m)) => Some(ParseTarget::Module(m.clone())),
+        Some(McCMIE::Component(c)) => Some(ParseTarget::Component(c.clone())),
+        Some(McCMIE::Interface(i)) => Some(ParseTarget::Interface(i.clone())),
+        Some(McCMIE::Enum(e)) => Some(ParseTarget::Enum(e.clone())),
+        _ => None,
     };
+    let is_module = matches!(parse_target, Some(ParseTarget::Module(_)));
 
     // ── 6. Pass1 assembly ──
     if stages.pass1 {
@@ -233,23 +216,99 @@ pub fn run(args: &ParseArgs) -> Result<()> {
 
     // ── 7. tree / ast: go through view field (replacement output) ──
     if stages.tree {
-        let mut nodes = Vec::with_capacity(module_def.lines.len());
-        for line in module_def.lines.iter() {
-            nodes.push(phrase_to_tree_json(line, args.depth, 0));
+        let has_explicit_top = forced_top.is_some() || args.top.is_some();
+        let mut nodes: Vec<serde_json::Value> = Vec::new();
+
+        if has_explicit_top {
+            // Show the single top definition
+            if let Some(ref cmie) = cmie {
+                nodes.push(match cmie {
+                    McCMIE::Module(m) => {
+                        let mut children = Vec::with_capacity(m.lines.len());
+                        for line in m.lines.iter() {
+                            children.push(phrase_to_tree_json(line, args.depth, 0));
+                        }
+                        json!({
+                            "kind": "module",
+                            "name": m.name.to_string(),
+                            "children": children,
+                        })
+                    }
+                    _ => cmie_to_tree_json(cmie, args.depth),
+                });
+            }
+        } else {
+            // Tree-all mode: collect all definitions from this file.
+            // Each mcb_iter_* chains workspace + global tables, so dedup
+            // within each category. Enum+component can share a name+URI.
+            let file_uri = uri.as_str();
+
+            // Helper: iterate with intra-category dedup, filter by file URI
+            macro_rules! collect_from {
+                ($iter:expr, $seen:ident, |$name:ident, $cmie_uri:ident| $body:expr) => {{
+                    let mut $seen: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
+                    for ($name, $cmie_uri) in $iter {
+                        if !$seen.insert(($name.clone(), $cmie_uri.clone())) { continue; }
+                        if $cmie_uri == file_uri || $cmie_uri.ends_with(file_uri) || file_uri.ends_with($cmie_uri.as_str()) {
+                            $body
+                        }
+                    }
+                }};
+            }
+
+            // Modules
+            collect_from!(&mcc::mcb_iter_modules(), seen_mod, |name, cmie_uri| {
+                let ident = McIds::from(name.as_str());
+                if let Some(McCMIE::Module(m)) = mcc::get_def(&ident, &McURI::from(cmie_uri.as_str())) {
+                    let mut children = Vec::with_capacity(m.lines.len());
+                    for line in m.lines.iter() {
+                        children.push(phrase_to_tree_json(line, args.depth, 0));
+                    }
+                    nodes.push(json!({
+                        "kind": "module",
+                        "name": m.name.to_string(),
+                        "children": children,
+                    }));
+                }
+            });
+
+            // Components — use get_component_def to avoid RefDefMap ambiguity
+            // when a component shares its name with an enum.
+            collect_from!(&mcc::mcb_iter_components(), seen_comp, |name, cmie_uri| {
+                let ident = McIds::from(name.as_str());
+                let cmie = mcc::get_component_def(&ident, &McURI::from(cmie_uri.as_str()))
+                    .or_else(|| mcc::get_def(&ident, &McURI::from(cmie_uri.as_str())));
+                if let Some(cmie) = cmie {
+                    nodes.push(cmie_to_tree_json(&cmie, args.depth));
+                }
+            });
+
+            // Interfaces
+            collect_from!(&mcc::mcb_iter_interfaces(), seen_iface, |name, cmie_uri| {
+                let ident = McIds::from(name.as_str());
+                if let Some(cmie) = mcc::get_def(&ident, &McURI::from(cmie_uri.as_str())) {
+                    nodes.push(cmie_to_tree_json(&cmie, args.depth));
+                }
+            });
+
+            // Enums
+            collect_from!(&mcc::mcb_iter_enums(), seen_enum, |name, cmie_uri| {
+                let ident = McIds::from(name.as_str());
+                if let Some(cmie) = mcc::get_def(&ident, &McURI::from(cmie_uri.as_str())) {
+                    nodes.push(cmie_to_tree_json(&cmie, args.depth));
+                }
+            });
         }
+
         let view_data = ViewData {
-            target: if args.ast {
-                "ast".into()
-            } else {
-                "tree".into()
-            },
+            target: if args.ast { "ast".into() } else { "tree".into() },
             data: serde_json::Value::Array(nodes),
         };
         builder.set_view(view_data);
     }
 
-    // ── 8. Pass2 assembly ──
-    if stages.pass2 {
+    // ── 8. Pass2 assembly (Module only) ──
+    if stages.pass2 && is_module {
         // ─────────────────────────────────────────────────────────────────────────────
         // Top Module Selection Strategy
         //
@@ -1167,5 +1226,151 @@ fn emit_error(args: &ParseArgs, err: RpcError) -> Result<()> {
         Ok(())
     } else {
         Err(anyhow::anyhow!(err.message))
+    }
+}
+
+// ============================================================================
+// cmie_to_tree_json — generic tree view for component / interface / enum
+// ============================================================================
+
+/// Extract the type annotation (class/unit) from a parameter declaration.
+fn param_cls(d: &McParamDeclare) -> Option<String> {
+    match &d.param_type.kind {
+        McParamTypeKind::UnitValue { unit } => Some(format!("UV.{}", unit)),
+        McParamTypeKind::UnitValueDefault { unit, .. } => Some(format!("UV.{}", unit)),
+        McParamTypeKind::CompoundUnit { unit_type, .. } => Some(unit_type.to_string()),
+        McParamTypeKind::EnumClass { class_name } => Some(class_name.clone()),
+        McParamTypeKind::EnumClassDefault { class_name, .. } => Some(class_name.clone()),
+        McParamTypeKind::Interface { class_name } => Some(class_name.clone()),
+        McParamTypeKind::InterfaceWithRole { class_name, .. } => Some(class_name.clone()),
+        McParamTypeKind::ComponentInstance { class_name } => Some(class_name.clone()),
+        McParamTypeKind::BasicString { .. } => Some("STRING".into()),
+        McParamTypeKind::BasicInt { .. } => Some("INT".into()),
+        McParamTypeKind::BasicHex { .. } => Some("HEX".into()),
+        McParamTypeKind::BasicFloat { .. } => Some("FLOAT".into()),
+        _ => None,
+    }
+}
+
+/// Extract the default value from a parameter declaration, if any.
+fn param_default(d: &McParamDeclare) -> Option<String> {
+    match &d.param_type.kind {
+        McParamTypeKind::UnitValueDefault { default_val, .. } => default_val.clone(),
+        McParamTypeKind::EnumClassDefault { default_val, .. } => default_val.clone(),
+        McParamTypeKind::CompoundUnit { default_val, .. } => default_val.clone(),
+        _ => None,
+    }
+}
+
+/// Build a JSON tree representation for a non-Module CMIE definition.
+fn cmie_to_tree_json(cmie: &McCMIE, _max_depth: usize) -> serde_json::Value {
+    match cmie {
+        McCMIE::Component(c) => {
+            // ── params: name, cls (type annotation), default ──
+            let params: Vec<_> = c
+                .params
+                .iter()
+                .map(|d| {
+                    let mut obj = serde_json::Map::new();
+                    obj.insert("name".into(), json!(d.get_primary_name().unwrap_or_default()));
+                    if let Some(cls) = param_cls(d) {
+                        obj.insert("cls".into(), json!(cls));
+                    }
+                    if let Some(def) = param_default(d) {
+                        obj.insert("default".into(), json!(def));
+                    }
+                    serde_json::Value::Object(obj)
+                })
+                .collect();
+
+            // ── attrs: key = value ──
+            let attrs: Vec<_> = c
+                .attrs
+                .iter()
+                .map(|a| {
+                    let vals: Vec<String> = a.values.iter().map(|v| v.to_string()).collect();
+                    json!({
+                        "key": a.id.to_string(),
+                        "value": if vals.len() == 1 { vals[0].clone() } else { vals.join(", ") },
+                    })
+                })
+                .collect();
+
+            // ── pins: id, names, iotype ──
+            let pins: Vec<_> = c
+                .pins
+                .pins
+                .iter()
+                .map(|(id, pin)| {
+                    json!({
+                        "id": id,
+                        "names": pin.names,
+                        "io": iotype_str(&pin.iotype),
+                    })
+                })
+                .collect();
+
+            // ── funcs: name, param count ──
+            let funcs: Vec<_> = c
+                .funcs
+                .iter()
+                .map(|f| {
+                    json!({
+                        "name": f.name.to_string(),
+                        "params": f.params.len(),
+                    })
+                })
+                .collect();
+
+            let mut obj = serde_json::Map::new();
+            obj.insert("kind".into(), json!("component"));
+            obj.insert("name".into(), json!(c.name.to_string()));
+            obj.insert("uri".into(), json!(c.uri.to_string()));
+            obj.insert("params".into(), json!(params));
+            if !attrs.is_empty() {
+                obj.insert("attrs".into(), json!(attrs));
+            }
+            if !pins.is_empty() {
+                obj.insert("pins".into(), json!(pins));
+            }
+            if !funcs.is_empty() {
+                obj.insert("funcs".into(), json!(funcs));
+            }
+            serde_json::Value::Object(obj)
+        }
+        McCMIE::Interface(i) => {
+            let params: Vec<_> = i
+                .params
+                .iter()
+                .map(|d| {
+                    let mut obj = serde_json::Map::new();
+                    obj.insert("name".into(), json!(d.get_primary_name().unwrap_or_default()));
+                    if let Some(cls) = param_cls(d) {
+                        obj.insert("cls".into(), json!(cls));
+                    }
+                    if let Some(def) = param_default(d) {
+                        obj.insert("default".into(), json!(def));
+                    }
+                    serde_json::Value::Object(obj)
+                })
+                .collect();
+            json!({
+                "kind": "interface",
+                "name": i.name.to_string(),
+                "params": params,
+            })
+        }
+        McCMIE::Enum(e) => {
+            let values: Vec<_> = e.values.iter().map(|v| v.name.to_string()).collect();
+            json!({
+                "kind": "enum",
+                "name": e.name.to_string(),
+                "uri": e.uri.to_string(),
+                "values": values,
+            })
+        }
+        McCMIE::Module(_) => {
+            json!({"kind": "module", "note": "use phrase tree for modules"})
+        }
     }
 }
