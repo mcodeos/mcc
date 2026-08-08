@@ -636,6 +636,31 @@ impl McModuleInst {
         func_def: &McFunction,
         bindings: &McParamBindings,
     ) -> Result<(), InstError> {
+        // ── P2-8: skip if already auto-invoked ──
+        // Module-level functions (closures) with arity=0 are auto-invoked
+        // during instantiate(). When a parent module explicitly calls the
+        // same function (e.g. `mcu513.i2c()`), the body should not be
+        // executed again — it would create duplicate components and wrong
+        // connections.
+        {
+            let idx = self
+                .sub_modules
+                .iter()
+                .position(|s| s.name == inst_name)
+                .ok_or_else(|| {
+                    InstError::Other(format!("submodule '{inst_name}' not found for method"))
+                })?;
+            let sub = &self.sub_modules[idx];
+            let func_name = func_def.name.to_string();
+            if sub.auto_invoked_funcs.contains(&func_name) {
+                eprintln!(
+                    "[P2-8-SKIP] module={} sub={inst_name} func={func_name} already auto-invoked, skipping",
+                    self.name
+                );
+                return Ok(());
+            }
+        }
+
         // Distinguish boundary formals (parent-scope refs) vs value formals (literal/constant)
         let mut boundary_formals: std::collections::HashSet<String> =
             std::collections::HashSet::new();

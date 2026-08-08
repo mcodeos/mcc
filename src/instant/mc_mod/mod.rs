@@ -119,6 +119,11 @@ pub struct McModuleInst {
 
     /// Structured failure records for known_missing.md (G4 baseline).
     pub(super) failed_records: Vec<FailedRecord>,
+
+    /// Set of module-level function names that have been auto-invoked.
+    /// Prevents double execution when a function is both auto-invoked and
+    /// explicitly called from a parent module (e.g. `mcu513.i2c()`).
+    pub(super) auto_invoked_funcs: HashSet<String>,
 }
 
 /// Structured record of a failed component instantiation.
@@ -168,6 +173,7 @@ impl McModuleInst {
             current_line_span: None,
             failed_classes: HashSet::new(),
             failed_records: Vec::new(),
+            auto_invoked_funcs: HashSet::new(),
         }
     }
 
@@ -202,6 +208,7 @@ impl McModuleInst {
             current_line_span: None,
             failed_classes: HashSet::new(),
             failed_records: Vec::new(),
+            auto_invoked_funcs: HashSet::new(),
         })
     }
 
@@ -325,6 +332,9 @@ impl McModuleInst {
                     );
                 }
             }
+            // Mark as auto-invoked to prevent double execution when
+            // explicitly called from a parent module (e.g. `mcu513.i2c()`).
+            self.auto_invoked_funcs.insert(func.name.to_string());
         }
     }
 
