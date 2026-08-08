@@ -25,10 +25,20 @@ impl ValidationCheck for DuplicateCmieCheck {
     }
 
     fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
-        use std::collections::HashMap;
+        use std::collections::{HashMap, HashSet};
 
-        // Collect all CMIE names with their URIs from project tables
-        let mut name_uris: HashMap<String, Vec<String>> = HashMap::new();
+        /// CMIE kind for duplicate tracking.
+        #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+        enum CmieKind {
+            Component,
+            Interface,
+            Enum,
+            Module,
+        }
+
+        // Collect all CMIE names with their (uri, kind) pairs from project tables.
+        // key: name → value: list of (uri, kind)
+        let mut name_entries: HashMap<String, Vec<(String, CmieKind)>> = HashMap::new();
         let mut uri_spans: HashMap<String, std::ops::Range<usize>> = HashMap::new();
 
         // Check components
@@ -39,7 +49,10 @@ impl ValidationCheck for DuplicateCmieCheck {
                 let uri = entry.key().uri.to_string();
                 let span = entry.value().span.clone();
                 uri_spans.entry(uri.clone()).or_insert(span.start..span.end);
-                name_uris.entry(name).or_default().push(uri);
+                name_entries
+                    .entry(name)
+                    .or_default()
+                    .push((uri, CmieKind::Component));
             }
         }
         // Check interfaces
@@ -50,7 +63,10 @@ impl ValidationCheck for DuplicateCmieCheck {
                 let uri = entry.key().uri.to_string();
                 let span = entry.value().span.clone();
                 uri_spans.entry(uri.clone()).or_insert(span.start..span.end);
-                name_uris.entry(name).or_default().push(uri);
+                name_entries
+                    .entry(name)
+                    .or_default()
+                    .push((uri, CmieKind::Interface));
             }
         }
         // Check enums
@@ -63,7 +79,10 @@ impl ValidationCheck for DuplicateCmieCheck {
                 uri_spans
                     .entry(uri.clone())
                     .or_insert(span[0] as usize..span[1] as usize);
-                name_uris.entry(name).or_default().push(uri);
+                name_entries
+                    .entry(name)
+                    .or_default()
+                    .push((uri, CmieKind::Enum));
             }
         }
         // Check modules
@@ -74,28 +93,43 @@ impl ValidationCheck for DuplicateCmieCheck {
                 let uri = entry.key().uri.to_string();
                 let span = entry.value().span.clone();
                 uri_spans.entry(uri.clone()).or_insert(span.start..span.end);
-                name_uris.entry(name).or_default().push(uri);
+                name_entries
+                    .entry(name)
+                    .or_default()
+                    .push((uri, CmieKind::Module));
             }
         }
 
-        // Report names that appear in >1 URI
-        for (name, uris) in &name_uris {
-            if uris.len() > 1 {
-                // Filter out test files (unitest/ and cases*/)
-                let non_test_uris: Vec<_> =
+        // Report only same-kind collisions across different URIs.
+        // enum+component with the same name is ALLOWED (namespace merges).
+        for (name, entries) in &name_entries {
+            let mut kind_uris: HashMap<CmieKind, HashSet<&String>> = HashMap::new();
+            for (uri, kind) in entries {
+                kind_uris.entry(*kind).or_default().insert(uri);
+            }
+
+            for (kind, uris) in &kind_uris {
+                // Filter out test files
+                let non_test: Vec<_> =
                     uris.iter().filter(|u| !super::is_test_file(u)).collect();
-                if non_test_uris.len() > 1 {
-                    let first = &non_test_uris[0];
-                    for other in &non_test_uris[1..] {
+                if non_test.len() > 1 {
+                    let kind_str = match kind {
+                        CmieKind::Component => "component",
+                        CmieKind::Interface => "interface",
+                        CmieKind::Enum => "enum",
+                        CmieKind::Module => "module",
+                    };
+                    let first = non_test[0];
+                    for other in &non_test[1..] {
                         acc.push(CheckResult {
                             check_name: self.name(),
                             severity: self.default_severity(),
                             uri: Some(name.clone()),
                             span: uri_spans.get(first.as_str()).cloned(),
                             message: format!(
-                                "CMIE '{}' defined in both '{}' and '{}'. \
+                                "CMIE {} '{}' defined in both '{}' and '{}'. \
                                  The latter shadows the former.",
-                                name, first, other
+                                kind_str, name, first, other
                             ),
                             code: 2100,
                         });
