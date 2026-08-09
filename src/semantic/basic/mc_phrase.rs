@@ -23,7 +23,7 @@ use crate::{
             message_templates::{CANNOT_TRANSPOSE, SHAPE_MISMATCH},
         },
     },
-    query::refs::mcb_register_instance_ref,
+    query::refs::{mcb_register_declare_class, mcb_register_instance_ref},
     semantic::{
         basic::{mc_opd::McOpd, mc_param::McParamValue},
         context::resolve_cmie,
@@ -690,6 +690,17 @@ impl McPhrase {
                         if let Some(class_ids) = cls.get_sub_node().and_then(|cid| McIds::new(&cid))
                         {
                             let fname = class_ids.to_string();
+                            // ★ LSP: Register class reference for goto-definition on ::
+                            // syntax inside net expressions (e.g., res[1:2]::RES(0Ω)).
+                            // This is needed because the 2-pin class code path below
+                            // returns early, bypassing context.parse_declare() at the
+                            // end of this MCAST_DECLARE handler.
+                            if let Some(class_id_node) = cls.get_sub_node() {
+                                let class_span = (class_id_node.get_pos() as usize)
+                                    ..((class_id_node.get_pos() + class_id_node.get_len())
+                                        as usize);
+                                mcb_register_declare_class(context.uri(), &fname, class_span);
+                            }
                             let is_twopin =
                                 crate::vector::graph::naming::is_known_twopin_class(&fname);
                             let build = is_twopin;
