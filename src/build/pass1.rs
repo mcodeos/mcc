@@ -13,21 +13,6 @@ use tracing::{debug, trace};
 
 use crate::db::infra::init::*;
 
-use std::sync::LazyLock;
-/// Guard to prevent duplicate post-parse validation runs.
-/// Reset by `reset_post_parse_flag()` before content-based re-parse.
-static POST_PARSE_RUN: LazyLock<std::sync::Mutex<bool>> =
-    LazyLock::new(|| std::sync::Mutex::new(false));
-
-/// Reset the post-parse validation flag.  Call before content-based
-/// re-parse so that `mcb_parse_all_modules` re-runs validation checks
-/// and regenerates diagnostics cleared by `clear_file`.
-pub(crate) fn reset_post_parse_flag() {
-    if let Ok(mut flag) = POST_PARSE_RUN.lock() {
-        *flag = false;
-    }
-}
-
 // === pub fn mcb_parse_all_modules() { ===
 /// Phase 1b: all component/interface/enum are registered, now parse all modules
 ///
@@ -119,17 +104,9 @@ pub fn mcb_parse_all_modules() {
     }
 
     // ★ Validation: run PostParse checks after all modules parsed.
-    //   Guarded by POST_PARSE_RUN to avoid duplicates.  Content-based
-    //   re-parse (handle_sem) resets the flag via reset_post_parse_flag()
-    //   before clearing diagnostics, so validation runs fresh each edit.
     {
         use crate::db::diagnostic::diagnostic::{diagnostic_log, DiagnosticLevel};
         use crate::semantic::validation::{CheckRegistry, PostParseContext};
-        let mut flag = POST_PARSE_RUN.lock().unwrap_or_else(|e| e.into_inner());
-        if *flag {
-            return;
-        }
-        *flag = true;
         let ctx = PostParseContext::new();
         let registry = CheckRegistry::with_defaults();
         let saved_uri = crate::current_uri::try_get();

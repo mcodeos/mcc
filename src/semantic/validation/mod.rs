@@ -4,16 +4,12 @@
 
 //! Validation Module — centralized semantic checks.
 //!
-//! Two phases:
-//!   Instant  — runs during parsing (per-definition). Fast, AST available.
-//!   PostParse — runs after all files loaded. Cross-URI analysis.
+//! PostParse — runs after all files loaded. Cross-URI analysis.
 //!
 //! Usage:
-//!   let mut registry = CheckRegistry::with_defaults();
-//!   registry.run_instant(&ctx);   // called from McComponent::new(), etc.
+//!   let registry = CheckRegistry::with_defaults();
 //!   registry.run_post_parse(&ctx); // called from mcb_parse_all_modules()
 
-use crate::McURI;
 use std::ops::Range;
 
 // ============================================================================
@@ -22,7 +18,6 @@ use std::ops::Range;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CheckPhase {
-    Instant,
     PostParse,
 }
 
@@ -61,17 +56,6 @@ pub struct CheckResult {
     pub span: Option<Range<usize>>,
     pub message: String,
     pub code: u32,
-}
-
-// ============================================================================
-// Instant Context (available during parsing)
-// ============================================================================
-
-pub struct InstantContext<'a> {
-    pub def_name: &'a str,
-    pub def_uri: &'a McURI,
-    pub params: &'a crate::semantic::basic::mc_param::McParamDeclares,
-    pub insts: Option<&'a crate::semantic::mc_inst::McInstances>,
 }
 
 // ============================================================================
@@ -119,9 +103,6 @@ pub trait ValidationCheck: Send + Sync {
     fn name(&self) -> &'static str;
     fn phase(&self) -> CheckPhase;
     fn default_severity(&self) -> CheckSeverity;
-    fn run_instant(&self, _ctx: &InstantContext) -> Vec<CheckResult> {
-        vec![]
-    }
     fn run_post_parse(&self, _ctx: &PostParseContext, _acc: &mut CheckAccumulator) {}
 }
 
@@ -159,16 +140,6 @@ impl CheckRegistry {
 
     pub fn register(&mut self, check: Box<dyn ValidationCheck>) {
         self.checks.push(check);
-    }
-
-    pub fn run_instant(&self, ctx: &InstantContext) -> Vec<CheckResult> {
-        let mut results = Vec::new();
-        for check in &self.checks {
-            if check.phase() == CheckPhase::Instant {
-                results.extend(check.run_instant(ctx));
-            }
-        }
-        results
     }
 
     pub fn run_post_parse(&self, ctx: &PostParseContext) -> Vec<CheckResult> {

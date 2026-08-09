@@ -192,6 +192,13 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
             known.insert(e.key().ident.to_string());
         }
     }
+    {
+        // Defines: workspace only (defines are not stored in global tables)
+        let defs = &crate::db::cmie::tables::WORKSPACE.defines;
+        for e in defs.iter() {
+            known.insert(e.key().ident.to_string());
+        }
+    }
 
     // Check component pin interface bindings
     {

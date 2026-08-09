@@ -33,6 +33,8 @@ pub const DUPLICATE_ENUM: u32 = 1004;
 pub const DUPLICATE_MODULE: u32 = 1503;
 /// Definition not found — a name reference could not be resolved.
 pub const DEFINITION_NOT_FOUND: u32 = 1504;
+/// Duplicate define definition in the same file.
+pub const DUPLICATE_DEFINE: u32 = 1505;
 
 // ============================================================================
 // Name resolution / instance lookup
@@ -118,6 +120,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(DUPLICATE_ENUM, "An enum with the same name already exists in this file."),
     // Pass1b
     entry!(DUPLICATE_MODULE, "A module with the same name already exists in this file."),
+    entry!(DUPLICATE_DEFINE, "A define with the same name already exists in this file."),
     entry!(DEFINITION_NOT_FOUND, "A name reference could not be resolved to any known definition."),
     // Name resolution
     entry!(COMPONENT_NOT_FOUND, "Component name could not be resolved to a definition."),

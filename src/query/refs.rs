@@ -85,31 +85,43 @@ pub fn mcb_get_refs(name: &str) -> Vec<(String, String, Span)> {
 }
 
 /// Register a system library class in the global table, returning its DeclareId.
-/// If already registered, returns the existing id; otherwise calls `add_class`.
+/// If already registered, returns the existing id; otherwise computes a stable
+/// (hash-based) DeclareId and stores it in an available file's global table.
+///
+/// ★ Fix (Defect 73): Previously used `gt.add_class()` which assigns a sequential
+/// id from whatever file's per-file counter happened to be first in DashMap
+/// iteration order — non-deterministic and meaningless to the referencing file.
+/// Now uses `assign_declare_id_stable` for a deterministic id based on (uri, name).
 fn register_lib_class_in_global_table(
     def_uri: &str,
     class_name: &str,
     def_span: &std::ops::Range<usize>,
 ) -> DeclareId {
+    let mc_uri = McURI::from(def_uri);
     // Try to find it in any loaded file's global table first
     let binding = &workspace::WORKSPACE.mcodes;
     for entry in binding.iter() {
         if let Ok(sem) = entry.value().symbols.lock() {
             if let Ok(gt) = sem.global_table.lock() {
-                // Check if already registered by (uri, name)
-                let mc_uri = McURI::from(def_uri);
-                if let Some(&cid) = gt.class_name_to_id.get(&(mc_uri, class_name.to_string())) {
+                if let Some(&cid) = gt.class_name_to_id.get(&(mc_uri.clone(), class_name.to_string())) {
                     return cid;
                 }
             }
         }
     }
-    // Not found — register it in the first available file's global table
+    // Not found — compute a stable (deterministic) DeclareId and register
+    // in the first available file's global table. Using a hash-based id
+    // avoids the non-determinism of per-file sequential counters (Defect 73).
+    let cid = crate::ast::ast_semantic::LocalSymbolTable::assign_declare_id_stable(
+        &mc_uri, "", class_name,
+    );
     for entry in binding.iter() {
         if let Ok(sem) = entry.value().symbols.lock() {
             if let Ok(mut gt) = sem.global_table.lock() {
-                let mc_uri = McURI::from(def_uri);
-                return gt.add_class(&mc_uri, &class_name.to_string(), def_span.clone());
+                // Only insert if not already present (avoid overwriting)
+                gt.class_name_to_id.entry((mc_uri.clone(), class_name.to_string())).or_insert(cid);
+                gt.class_id_to_span.entry(cid).or_insert((mc_uri.clone(), def_span.clone()));
+                return cid;
             }
         }
     }
@@ -314,15 +326,13 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, mut span: Span)
             .push((span, class_id, target_uri, target_span));
         tracing::info!(target: "crate::lsp", "Registered declare_class: {} at {:?} -> class_id={:?}", class_name, span_clone, class_id);
     } else {
-        // ★ Diagnostic: class definition not found — emit warning for IDE.
-        crate::db::diagnostic::diagnostic::diagnostic_log(
-            1601,
-            crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
-            span.start as u32,
-            (span.end - span.start) as u32,
-            &format!("class '{}' not found", class_name),
-            &[],
-        );
+        // ★ Fix (Defect 72): Do NOT emit E1601 here during P4, because WORKSPACE.modules
+        // is empty at that point (modules are registered in P5). The class ref is stored
+        // below with DeclareId::default() sentinel; resolve_class_ref_at_span in
+        // create_lapper will re-resolve it correctly after all modules are parsed.
+        // Emitting an Error here would leave a permanent false positive in the diagnostic
+        // table that is never retracted.
+        tracing::info!(target: "crate::lsp", "register_declare_class: {} not resolved cross-file (P4 — deferring to create_lapper)", class_name);
         // ★ LSP: Even without cross-file resolution, register the class-name
         // span as a declare_class entry in the lapper.  This lets mcext's
         // F12 handler pick it up and resolve via project index.
