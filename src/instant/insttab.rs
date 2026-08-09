@@ -639,6 +639,12 @@ impl InstTable {
         } else {
             format!("{}.{}", prefix, inst.name)
         };
+        eprintln!(
+            "[FLATTEN] module={} prefix={prefix} sub_modules={} components={}",
+            my_path,
+            inst.sub_modules.len(),
+            inst.components.len()
+        );
         let my_id = self.register(
             my_path.clone(),
             InstKind::Module,

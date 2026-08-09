@@ -448,15 +448,14 @@ impl McModuleInst {
             .map(|(k, v)| (k.to_string(), v.clone()))
             .collect();
 
-        if self.name.contains("513") {
-            mcc_dbg!(
-                "inst::mod",
+        if self.name.contains("513") || self.name == "main" {
+            eprintln!(
                 "[P2-4-DECL] module={} has {} insts",
                 self.name,
                 items.len()
             );
             for (k, _) in &items {
-                mcc_dbg!("inst::mod", "[P2-4-DECL]   inst: {k}");
+                eprintln!("[P2-4-DECL]   inst: {k}");
             }
         }
 
@@ -525,12 +524,9 @@ impl McModuleInst {
                 }
                 McInstance::Module(m) => {
                     let inst_name = m.name.to_string();
-                    mcc_dbg!(
-                        "inst::mod",
+                    eprintln!(
                         "[P2-4-MOD] module={} instantiating sub-module '{}' class='{}'",
-                        self.name,
-                        inst_name,
-                        m.base.name
+                        self.name, inst_name, m.base.name
                     );
                     let mut inst = McModuleInst::new(&inst_name, m.base.clone());
                     // ★ Sub-module instantiation failure → record diagnostics, but keep instance
