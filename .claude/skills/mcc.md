@@ -1007,6 +1007,50 @@ mcc def CAP --lib mcode
 mcc show lapper us513.mc --lib mcode -f json | python3 -m json.tool
 ```
 
+**End-to-end server example (F12 goto-def on CAP/RES in us513.mc):**
+
+```bash
+# 1. Start server with mcode preloaded
+cd /Users/dan/work/mo/mcc
+./target/debug/mcc start --lib mcode -d -l /tmp/mcc.log
+
+# 2. Inspect lapper symbols via sem RPC (all ClassRef/ClassDef)
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"sem","params":{"uri":"/Users/dan/work/mo/mcd/projects/hbl/src/us513.mc"}}' | python3 -m json.tool
+
+# 3. Test go-to-definition
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"def","params":{"name":"CAP"}}'
+
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"def","params":{"name":"RES"}}'
+
+# 4. Find references
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"refs","params":{"name":"CAP"}}'
+
+# 5. Get diagnostics for the file
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"diagnostics","params":{"uri":"/Users/dan/work/mo/mcd/projects/hbl/src/us513.mc"}}'
+
+# 6. Show full definitions
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"show.component","params":{"name":"CAP"}}'
+
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"show.component","params":{"name":"RES"}}'
+
+# 7. Stop server
+./target/debug/mcc stop
+```
+
 ### 6.7 RPC-Based Debug Session
 
 ```bash
