@@ -2,6 +2,9 @@
 #
 # Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+[profile.dev]
+opt-level = 1      # Light‑weight optimization, almost no increase in compile time, 2‑3× faster runtime
+
 [package]
 name = "mcc"
 version = "0.7.11"

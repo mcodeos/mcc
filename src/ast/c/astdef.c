@@ -507,7 +507,7 @@ mc_value* mcc_parse()
     g_current_token = g_token_head;
 
     mc_value* ast_root = mc_value_create();
-    mca_debug = 1;
+    mca_debug = (g_mcc_log_flags & MCC_LOG_AST) ? 1 : 0;
     int parse_result = mca_parse(ast_root);
     if (parse_result != 0) {
         mc_value_free(&ast_root);

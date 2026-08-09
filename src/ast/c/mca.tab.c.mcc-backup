@@ -161,7 +161,7 @@ enum yysymbol_kind_t
   YYSYMBOL_MCU_IND = 79,                   /* MCU_IND  */
   YYSYMBOL_MCU_TIME = 80,                  /* MCU_TIME  */
   YYSYMBOL_MCU_LEN = 81,                   /* MCU_LEN  */
-  YYSYMBOL_MCU_WATT = 82,                  /* MCU_WATT  */
+  YYSYMBOL_MCU_WAT = 82,                   /* MCU_WAT  */
   YYSYMBOL_MCU_OHM = 83,                   /* MCU_OHM  */
   YYSYMBOL_MCU_TEMP = 84,                  /* MCU_TEMP  */
   YYSYMBOL_MCU_HZ = 85,                    /* MCU_HZ  */
@@ -189,7 +189,7 @@ enum yysymbol_kind_t
   YYSYMBOL_MCUVAL_IND = 107,               /* MCUVAL_IND  */
   YYSYMBOL_MCUVAL_TIME = 108,              /* MCUVAL_TIME  */
   YYSYMBOL_MCUVAL_LEN = 109,               /* MCUVAL_LEN  */
-  YYSYMBOL_MCUVAL_WATT = 110,              /* MCUVAL_WATT  */
+  YYSYMBOL_MCUVAL_WAT = 110,               /* MCUVAL_WAT  */
   YYSYMBOL_MCUVAL_OHM = 111,               /* MCUVAL_OHM  */
   YYSYMBOL_MCUVAL_TEMP = 112,              /* MCUVAL_TEMP  */
   YYSYMBOL_MCUVAL_HZ = 113,                /* MCUVAL_HZ  */
@@ -786,8 +786,8 @@ static const yytype_int16 yydefgoto[] =
      159,   217,   285,   161,   162,    56,    94,    95,   163,   164,
      261,   204,   165,   286,   287,   166,   493,   356,   225,   226,
      167,    33,    70,   190,    35,   184,   106,   107,   169,   170,
-     171,   172,   173,   174,   288,    99,   175,   176,   177,   328,
-     357
+     171,   172,   173,   174,   287,    99,   175,   176,   177,   325,
+     354
 };
 /* YYTABLE[YYPACT[STATE-NUM]] -- What to do in state STATE-NUM.  If
    positive, shift that token.  If negative, reduce the rule whose
@@ -1605,9 +1605,13 @@ static const yytype_int8 yyconflp[] =
        0,     0,     0,     1,     0,     0,     0,     0,     0,     0,
        3,     0,     0,     0,     0,     0,     0,     0,     0,     0,
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+       0,     0,     0,     0,     0,     0,     0,     0,    11,     0,
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+       0,     0,     0,    13,     0,     0,     0,     0,     0,     0,
+       0,     0,     0,     0,     0,     0,     0,     0,     5,     0,
+      37,     0,     7,     0,     0,     0,     0,     0,     0,     0,
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
        0,     0,     0,     0,    15,    17,     0,     0,     0,     0,
        0,    19,     0,     0,     0,     0,     0,     0,     0,     0,
@@ -1626,10 +1630,10 @@ static const yytype_int8 yyconflp[] =
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
        0,     0,     0,     0,     0,     0,     0,     0,    13,     0,
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
-      39,     0,     0,     0,     0,     0,     0,     0,     0,     0,
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
+       0,    29,     0,     0,     0,     0,     0,     0,     0,     0,
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
        0,     0,     0,     0,     0,     0,     0,     0,     0,     0,
@@ -2076,12 +2080,12 @@ static const char *const yytname[] =
   "MCK_ANL", "MCK_NC", "MCK_LABEL", "MCONST_HIGH", "MCONST_LOW",
   "MCONST_NC", "MCU_INT", "MCU_HEX", "MCU_FLOAT", "MCU_STRING", "MCK_FUNC",
   "MCK_THIS", "MCU_VOLT", "MCU_AMP", "MCU_CAP", "MCU_IND", "MCU_TIME",
-  "MCU_LEN", "MCU_WATT", "MCU_OHM", "MCU_TEMP", "MCU_HZ", "MCU_DB",
+  "MCU_LEN", "MCU_WAT", "MCU_OHM", "MCU_TEMP", "MCU_HZ", "MCU_DB",
   "MCU_PPM", "MCU_PERCENT", "MCU_BAUD", "MCU_DATASIZE", "MCU_SPS",
   "MCU_SIEMENS", "MCU_RESPONSIVITY", "MCU_ANGLE", "MCU_ANGULAR_RATE",
   "MCU_ENERGY", "MCU_EFIELD", "MCU_HFIELD", "MCU_FLUX", "MCU_BFIELD",
   "MCU_SLEW", "MCU_NOISE", "MCU_CHARGE", "MCUVAL_VOLT", "MCUVAL_AMP",
-  "MCUVAL_CAP", "MCUVAL_IND", "MCUVAL_TIME", "MCUVAL_LEN", "MCUVAL_WATT",
+  "MCUVAL_CAP", "MCUVAL_IND", "MCUVAL_TIME", "MCUVAL_LEN", "MCUVAL_WAT",
   "MCUVAL_OHM", "MCUVAL_TEMP", "MCUVAL_HZ", "MCUVAL_DB", "MCUVAL_PPM",
   "MCUVAL_PERCENT", "MCUVAL_BAUD", "MCUVAL_DATASIZE", "MCUVAL_SPS",
   "MCUVAL_SIEMENS", "MCUVAL_RESPONSIVITY", "MCUVAL_ANGLE",
@@ -2352,6 +2356,9 @@ yyuserAction (yyRuleNum yyrule, int yyrhslen, yyGLRStackItem* yyvsp,
      stack.  In that case, YY_REDUCE_PRINT must not play with YYFILL,
      so pretend the stack is "normal". */
   YY_REDUCE_PRINT ((yynormal || yyk == -1, yyvsp, yyk, yyrule, mcast));
+  if (yydebug) {
+    fprintf(stderr, "[P2-7-PARSER-DBG] yyuserAction rule=%d (yyrhslen=%d)\n", yyrule, yyrhslen);
+  }
   switch (yyrule)
     {
   case 2:
