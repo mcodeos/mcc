@@ -257,13 +257,34 @@ impl McModuleInst {
                     self.connections.push(conn);
                 }
             } else {
+                // ── P2-4: sort both sides by member name for consistent zip ──
+                // When member names don't match exactly (e.g. VCC vs Vout vs VDD_3V3),
+                // alphabetical sorting ensures GND always matches GND and power rails
+                // match power rails, instead of relying on positional order which may
+                // differ between declaration order and sorted port members.
+                let mut left_sorted: Vec<(usize, &NetPoint)> =
+                    left_points.iter().enumerate().collect();
+                let mut right_sorted: Vec<(usize, &NetPoint)> =
+                    right_points.iter().enumerate().collect();
+                let has_member_names = left_points.iter().all(|p| p.member_name.is_some())
+                    && right_points.iter().all(|p| p.member_name.is_some());
+                if has_member_names {
+                    left_sorted.sort_by(|a, b| {
+                        a.1.member_name.as_deref().cmp(&b.1.member_name.as_deref())
+                    });
+                    right_sorted.sort_by(|a, b| {
+                        a.1.member_name.as_deref().cmp(&b.1.member_name.as_deref())
+                    });
+                }
                 // ── D5: BUS_ORDER_MISMATCH detection ──────────────────────────────
                 // When two multi-point lists are connected 1:1, compare the last
                 // segment of each path at the same index. If they differ, the bus
                 // member order may be misaligned.
                 if left_size >= 2 {
                     let mut mismatches: Vec<String> = Vec::new();
-                    for (i, (l, r)) in left_points.iter().zip(right_points.iter()).enumerate() {
+                    for (i, ((_, l), (_, r))) in
+                        left_sorted.iter().zip(right_sorted.iter()).enumerate()
+                    {
                         let l_name = l.path.rsplit('.').next().unwrap_or(&l.path);
                         let r_name = r.path.rsplit('.').next().unwrap_or(&r.path);
                         if l_name != r_name {
@@ -295,8 +316,10 @@ impl McModuleInst {
                         diagnostic_log(2005, DiagnosticLevel::Error, pos, len, &msg, &[]);
                     }
                 }
-                for (l, r) in left_points.into_iter().zip(right_points.into_iter()) {
-                    let conn = ConnectionInst::new(self.next_conn_id(), vec![l, r]).with_dir(dir);
+                for ((_, l), (_, r)) in left_sorted.iter().zip(right_sorted.iter()) {
+                    let conn =
+                        ConnectionInst::new(self.next_conn_id(), vec![(*l).clone(), (*r).clone()])
+                            .with_dir(dir);
                     self.connections.push(conn);
                 }
             }

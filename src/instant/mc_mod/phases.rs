@@ -13,7 +13,10 @@ use super::McModuleInst;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{canonicalize_path, ConnectionInst, InstError, NetPoint, PortInst};
 use crate::semantic::basic::mc_bus::McBus;
+use crate::semantic::basic::mc_ids::IdsSegment;
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
+use crate::semantic::basic::mc_param_type::{McIoTy, McParamTypeKind};
+use crate::semantic::basic::mc_paramd::McParamDeclareKind;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::IOType;
 use crate::semantic::component::McComponent;
@@ -143,6 +146,29 @@ impl McModuleInst {
             .map(|(k, (io, inst))| (k.to_string(), io.clone(), inst.clone()))
             .collect();
 
+        if self.name.contains("513") || self.name.contains("ldo") || self.name.contains("modldo") || self.name.contains("SPEAKER") {
+            eprintln!(
+                "[P2-4-IFACE] module={} insts count={} params count={}",
+                self.name,
+                items.len(),
+                self.def.params.len()
+            );
+            for (k, io, inst) in &items {
+                eprintln!(
+                    "[P2-4-IFACE]   inst: {k} iotype={io:?} variant={:?}",
+                    std::mem::discriminant(inst)
+                );
+            }
+            for pd in self.def.params.iter() {
+                eprintln!(
+                    "[P2-4-IFACE]   param: {} is_port={} kind={:?}",
+                    pd.display_name(),
+                    pd.is_port(),
+                    pd.param_type.kind
+                );
+            }
+        }
+
         for (port_name, iotype, inst) in &items {
             // ── Bug fix ① ───────────────────────────────────────────
             // `self.def.insts` is a symbol table **shared by ports and body declarations**:
@@ -185,11 +211,87 @@ impl McModuleInst {
             // 1. When creating PortInst, extract bus_members according to port form
             //    —— Iter-8: let N×1 bus ports expand according to declaration during endpoint resolution.
             let bus_members = extract_port_bus_members(inst, port_name);
-            let port = PortInst::with_members(port_name, iotype.clone(), bus_members);
+            if self.name.contains("513") || self.name.contains("ldo") || self.name.contains("modldo") || self.name.contains("speaker") || self.name.contains("SPEAKER") {
+                eprintln!(
+                    "[P2-4-PORT] module={} port_name={} iotype={:?} bus_members={:?}",
+                    self.name, port_name, iotype, bus_members
+                );
+            }
+            let port = PortInst::with_members(port_name, iotype.clone(), bus_members.clone());
             self.ports.push(port);
 
             // 2. Iter-5.B —— inject member labels / register prefix bus according to port form.
             self.inject_port_member_labels(iotype, inst);
+        }
+
+        // ── P2-4: process interface-type parameters from module signature ──
+        // Module signature params like `[VDD_3V3,GND]::DC(3.3V)` live in `def.params`,
+        // not `def.insts`. Without this, `bind_actual_args_to_ports` can't find them,
+        // and parent modules can't pass bus arguments to submodule interface ports.
+        for pd in self.def.params.iter() {
+            let is_interface_port = matches!(
+                pd.param_type.kind,
+                McParamTypeKind::Interface { .. } | McParamTypeKind::InterfaceWithRole { .. }
+            );
+            if !is_interface_port {
+                continue;
+            }
+
+            let port_name = pd
+                .get_primary_name()
+                .unwrap_or_else(|| pd.display_name());
+            let iotype = match pd.param_type.direction {
+                Some(McIoTy::Input) => IOType::In,
+                Some(McIoTy::Output) => IOType::Out,
+                Some(McIoTy::InOut) => IOType::InOut,
+                Some(McIoTy::PowerSupply) => IOType::Power,
+                Some(McIoTy::Analog) => IOType::Analog,
+                Some(McIoTy::NotConnected) => IOType::NonCon,
+                Some(McIoTy::Label) => IOType::Label,
+                None => IOType::InOut,
+            };
+
+            // Extract bus members
+            // ── P2-4 fix: handle both Multiple and Single (curly) forms ──
+            let bus_members: Vec<String> = match &pd.kind {
+                McParamDeclareKind::Multiple(members) => {
+                    let mut m: Vec<String> = members.iter().map(|m| m.to_string()).collect();
+                    m.sort();
+                    m
+                }
+                McParamDeclareKind::Single(ids) => {
+                    // Handle curly bracket form: vin{VCC, GND} → ["VCC", "GND"]
+                    let mut members: Vec<String> = Vec::new();
+                    for seg in &ids.segments {
+                        if let IdsSegment::Curly(curly_segs) = seg {
+                            for curly_seg in curly_segs {
+                                members.push(curly_seg.to_string());
+                            }
+                        }
+                    }
+                    members.sort();
+                    members
+                }
+                _ => Vec::new(),
+            };
+
+            if self.name.contains("513") || self.name.contains("ldo") || self.name.contains("modldo") || self.name.contains("speaker") || self.name.contains("SPEAKER") {
+                eprintln!(
+                    "[P2-4-PARAM] module={} port_name={} iotype={:?} bus_members={:?}",
+                    self.name, port_name, iotype, bus_members
+                );
+            }
+
+            let port = PortInst::with_members(&port_name, iotype.clone(), bus_members.clone());
+            self.ports.push(port);
+
+            // Inject member labels so that connection lines can reference them
+            for member in &bus_members {
+                self.labels.insert(
+                    member.clone(),
+                    NetPoint::new(member, iotype.clone()).with_member_name(member),
+                );
+            }
         }
 
         Ok(())
@@ -306,7 +408,7 @@ impl McModuleInst {
             }
             self.labels
                 .entry(m.clone())
-                .or_insert_with(|| NetPoint::new(m, iotype.clone()));
+                .or_insert_with(|| NetPoint::new(m, iotype.clone()).with_member_name(m));
         }
 
         // ── Step A2: curly form additional register prefix bus + dotted label ────────
@@ -324,9 +426,9 @@ impl McModuleInst {
                         continue;
                     }
                     let dotted = format!("{prefix}.{m}");
-                    self.labels
-                        .entry(dotted.clone())
-                        .or_insert_with(|| NetPoint::new(&dotted, iotype.clone()));
+                    self.labels.entry(dotted.clone()).or_insert_with(|| {
+                        NetPoint::new(&dotted, iotype.clone()).with_member_name(m)
+                    });
                 }
             }
         }
@@ -643,6 +745,15 @@ impl McModuleInst {
             .filter(|p| p.name.trim_start().starts_with('[') || !p.bus_members.is_empty())
             .collect();
 
+        if inst_name.contains("speaker") {
+            eprintln!(
+                "[P2-4-BIND] inst={inst_name} ports_count={} formal_count={} ports={:?}",
+                ports.len(),
+                formal.len(),
+                ports.iter().map(|p| (&p.name, &p.bus_members)).collect::<Vec<_>>()
+            );
+        }
+
         let mut used = vec![false; formal.len()];
 
         for (ai, arg) in args.iter().enumerate() {
@@ -655,6 +766,13 @@ impl McModuleInst {
             let mut arg_lanes: Vec<NetPoint> = Vec::new();
             for e in &arg_elems {
                 arg_lanes.extend(self.expand_node_element(e));
+            }
+
+            if inst_name.contains("speaker") {
+                eprintln!(
+                    "[P2-4-BIND-ARG] inst={inst_name} ai={ai} arg_name={arg_name} arg_lanes={:?}",
+                    arg_lanes.iter().map(|np| &np.path).collect::<Vec<_>>()
+                );
             }
 
             // Choose formal port: ① voltage token match (order irrelevant); ② position fallback (next unused)
@@ -699,9 +817,34 @@ impl McModuleInst {
                 parse_bracket_members(&port.name)
             };
 
-            // ── Case 1: Equal-width multi-member → positional zip ──
+            // ── Case 1: Equal-width multi-member → sort by member name then zip ──
+            // P2-4: Sort both sides by member name for deterministic alignment.
+            // Without sorting, arg_lanes (from McBus member iteration order) and
+            // members (from port declaration order) may differ, causing positional
+            // zip mismatches (e.g. VCC↔GND, GND↔VDD_3V3).
             if members.len() >= 2 && arg_lanes.len() == members.len() {
-                for (a, m) in arg_lanes.iter().zip(members.iter()) {
+                // Sort members alphabetically (already sorted by extract_port_bus_members,
+                // but sort again for safety).
+                let mut sorted_members: Vec<&String> = members.iter().collect();
+                sorted_members.sort();
+
+                // Sort arg_lanes by the last segment of the path (member name).
+                // NetPoints from expand_node_element don't have member_name set,
+                // so fall back to the last path segment.
+                let mut sorted_arg_lanes: Vec<&NetPoint> = arg_lanes.iter().collect();
+                sorted_arg_lanes.sort_by(|a, b| {
+                    let a_name = a
+                        .member_name
+                        .as_deref()
+                        .unwrap_or_else(|| a.path.rsplit('.').next().unwrap_or(&a.path));
+                    let b_name = b
+                        .member_name
+                        .as_deref()
+                        .unwrap_or_else(|| b.path.rsplit('.').next().unwrap_or(&b.path));
+                    a_name.cmp(b_name)
+                });
+
+                for (a, m) in sorted_arg_lanes.iter().zip(sorted_members.iter()) {
                     let pp = NetPoint::with_owner(
                         &format!("{inst_name}.{m}"),
                         inst_name,
@@ -709,7 +852,7 @@ impl McModuleInst {
                     );
                     let id = self.next_conn_id();
                     self.connections
-                        .push(ConnectionInst::new(id, vec![a.clone(), pp]));
+                        .push(ConnectionInst::new(id, vec![(*a).clone(), pp]));
                 }
                 continue;
             }
@@ -862,11 +1005,48 @@ impl McModuleInst {
                 v
             };
 
-            // ── Case 1: Equal-width multi-member -> positional zip ──
+            // ── Case 1: Equal-width multi-member -> sort by member name then zip ──
+            // P2-4: Sort both sides by member name for deterministic alignment.
             if members.len() >= 2 && arg_lanes.len() == members.len() {
-                for (a, m) in arg_lanes.iter().zip(members.iter()) {
+                eprintln!(
+                    "[P2-4-BIND-CALL] inst={inst_name} arg_name={arg_name} \
+                     arg_lanes={:?} members={members:?}",
+                    arg_lanes
+                        .iter()
+                        .map(|p| (&p.path, &p.member_name))
+                        .collect::<Vec<_>>(),
+                );
+                // Sort members alphabetically (already sorted by extract_port_bus_members,
+                // but sort again for safety).
+                let mut sorted_members: Vec<&String> = members.iter().collect();
+                sorted_members.sort();
+
+                // Sort arg_lanes by the last segment of the path (member name).
+                let mut sorted_arg_lanes: Vec<&NetPoint> = arg_lanes.iter().collect();
+                sorted_arg_lanes.sort_by(|a, b| {
+                    let a_name = a
+                        .member_name
+                        .as_deref()
+                        .unwrap_or_else(|| a.path.rsplit('.').next().unwrap_or(&a.path));
+                    let b_name = b
+                        .member_name
+                        .as_deref()
+                        .unwrap_or_else(|| b.path.rsplit('.').next().unwrap_or(&b.path));
+                    a_name.cmp(b_name)
+                });
+
+                eprintln!(
+                    "[P2-4-BIND-CALL-SORTED] inst={inst_name} \
+                     sorted_arg_lanes={:?} sorted_members={sorted_members:?}",
+                    sorted_arg_lanes
+                        .iter()
+                        .map(|p| (&p.path, &p.member_name))
+                        .collect::<Vec<_>>(),
+                );
+
+                for (a, m) in sorted_arg_lanes.iter().zip(sorted_members.iter()) {
                     let mut pts = make_ports(m.as_str(), pio.clone());
-                    pts.push(a.clone());
+                    pts.push((*a).clone());
                     let id = self.next_conn_id();
                     out.push(ConnectionInst::new(id, pts));
                 }
@@ -1127,14 +1307,22 @@ fn extract_port_bus_members(inst: &McInstance, _port_name: &str) -> Vec<String> 
                 // Anonymous `[A, B]`: no valid prefix, don't expand
                 Vec::new()
             } else if list.member.len() >= 2 {
-                list.member.clone()
+                // ── P2-4 fix: sort members for deterministic ordering ──
+                let mut members = list.member.clone();
+                members.sort();
+                members
             } else {
                 Vec::new()
             }
         }
 
         // Curly: `name{A, B}`
-        McInstance::Bus(bus) if bus.member.len() >= 2 => bus.member.clone(),
+        McInstance::Bus(bus) if bus.member.len() >= 2 => {
+            // ── P2-4 fix: sort members for deterministic ordering ──
+            let mut members = bus.member.clone();
+            members.sort();
+            members
+        }
 
         // Interface: `[A, B]::DC()` or `dc{A, B}::DC()` or `MIC{P, N}::ADC.DIFF()`
         //
@@ -1154,13 +1342,17 @@ fn extract_port_bus_members(inst: &McInstance, _port_name: &str) -> Vec<String> 
         // sequence as bus_members. This is consistent with the logic used by
         // derive_interface_subnames in components/mc_pins/mod.rs (same source = same order).
         McInstance::Interface(iface) => {
-            if let Some((_prefix, members)) = iface.name.as_bus() {
+            if let Some((_prefix, mut members)) = iface.name.as_bus() {
                 if members.len() >= 2 {
+                    // ── P2-4 fix: sort members for deterministic ordering ──
+                    members.sort();
                     return members;
                 }
             }
-            if let Some(members) = iface.name.list_members() {
+            if let Some(mut members) = iface.name.list_members() {
                 if members.len() >= 2 {
+                    // ── P2-4 fix: sort members for deterministic ordering ──
+                    members.sort();
                     return members;
                 }
             }
@@ -1169,13 +1361,19 @@ fn extract_port_bus_members(inst: &McInstance, _port_name: &str) -> Vec<String> 
             // ports with interface annotation (e.g. `V3V3::DC(3.3V)`, `in vin::DC(5V)`).
             // The interface type defines the members (e.g. DC → VCC, GND), and the port
             // name is just a label — the electrical members come from the interface type.
-            let pin_names: Vec<String> = iface
+            //
+            // ── P2-4 fix: sort members for deterministic ordering ──
+            // BTreeMap pinid order is stable but may differ from component bus
+            // member order (which is sorted alphabetically). Sorting ensures
+            // consistent zip matching when connecting two interfaces.
+            let mut pin_names: Vec<String> = iface
                 .base
                 .pins
                 .pins
                 .values()
                 .filter_map(|p| p.names.first().cloned())
                 .collect();
+            pin_names.sort();
             if pin_names.len() >= 2 {
                 return pin_names;
             }

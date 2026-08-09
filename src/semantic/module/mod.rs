@@ -11,7 +11,7 @@ use super::{
 };
 use crate::db::context::DB;
 use crate::db::diagnostic::diagnostic::dlog_error;
-use crate::semantic::basic::mc_param_type::McParamType;
+use crate::semantic::basic::mc_param_type::{McParamType, McParamTypeKind};
 use crate::semantic::component::Mc2Component;
 use crate::semantic::context::resolve_cmie;
 use crate::semantic::mc_func::McFuncReturn;
@@ -122,13 +122,22 @@ impl McModule {
                     MCAST_OPD | MCAST_OPD_SQUARE_VEC => {
                         self.insts.parse(&subnode, &self.uri);
                     }
-                    // Instance parameter -> insts, or enum-class data param
+                    // Instance parameter -> insts, or enum-class/interface data param
                     MCAST_DECLARE => {
                         // Check if CLASS is an enum → data param (B5/B6)
                         let is_enum = McParamType::extract_class_name_from_declare(&subnode)
                             .map(|cn| crate::db::cmie::cmie::is_enum_class_name(&cn))
                             .unwrap_or(false);
-                        if is_enum {
+                        // Check if CLASS is an interface → port param (A3/A4)
+                        // e.g., USB_VBUS_1{VDD_3V, GND}::DC(3.3V) has name prefix
+                        // and is parsed as MCAST_DECLARE (not MCAST_SQUARE_VEC).
+                        let pt = McParamType::from_ast(&subnode);
+                        let is_interface = matches!(
+                            pt.kind,
+                            McParamTypeKind::Interface { .. }
+                                | McParamTypeKind::InterfaceWithRole { .. }
+                        );
+                        if is_enum || is_interface {
                             self.params.parse(&param_node);
                         } else {
                             self.insts.parse(&subnode, &self.uri);
