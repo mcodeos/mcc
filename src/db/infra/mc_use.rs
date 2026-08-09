@@ -99,13 +99,27 @@ impl McUse {
         let uri_path = match module_file_node.get_type() {
             MCAST_URI_MODULE => {
                 if let Some(path_strs) = module_file_node.subs_to_string_vec() {
-                    // For single-path modules like `use conn`, complete as `conn/conn` (same-name file under module directory)
-                    if path_strs.len() == 1 {
+                    // C parser may misclassify MCAST_URI_FILE as MCAST_URI_MODULE
+                    // when the path has a .mc extension (e.g. "use ./xtal.mc").
+                    // When prefix is ./ or ../ it's always a file path — never auto-complete.
+                    let is_file_path = matches!(
+                        uri_prefix,
+                        McUsePrefix::PathCurrent | McUsePrefix::PathParent
+                    );
+                    if is_file_path {
+                        // Simple file path: join segments as-is (C parser may split ext)
+                        if path_strs.len() >= 2 && path_strs.last().map_or(false, |s| s == "mc") {
+                            let prefix = path_strs[..path_strs.len() - 1].join("/");
+                            format!("{prefix}.mc")
+                        } else {
+                            path_strs.join("/")
+                        }
+                    } else if path_strs.len() == 1 {
+                        // Single module name like `use conn` → conn/conn
                         let module_name = path_strs[0].clone();
                         format!("{module_name}/{module_name}")
                     } else {
-                        // Multi-segment: auto-complete last segment as <name>/<name>
-                        // e.g., man.mcu.comp → man/mcu/comp/comp
+                        // Multi-segment module: man.mcu.comp → man/mcu/comp/comp
                         let last = path_strs.last().unwrap();
                         let mut path = path_strs.join("/");
                         path.push('/');
