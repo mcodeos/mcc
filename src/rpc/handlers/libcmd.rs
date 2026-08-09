@@ -136,49 +136,135 @@ pub fn handle_lib_search(params: Option<Value>) -> RpcResult {
 }
 
 // === handle_trace_set (lines 699-720 in original) ===
+//
+// Supports two modes:
+//   1. Legacy:  {name: "trace.enabled", value: true}
+//   2. New:     {name: "mcc::sem::fcall", level: "debug"}
+//               {name: "pass1", level: "trace"}          (alias expansion)
+//               {name: "mcc::sem::fcall", level: "off"}  (turn off)
 
 pub fn handle_trace_set(params: Option<Value>) -> RpcResult {
     let p: TraceSetParams = parse_strict(params)?;
+
+    // ── New API: per-target level override ──
+    if let Some(ref level) = p.level {
+        // Resolve aliases
+        let raw = vec![format!("{}={}", p.name, level)];
+        let targets = crate::cli::config::resolve_debug_targets(&raw);
+
+        let base = p.base.as_deref().unwrap_or("warn");
+        crate::cli::config::set_debug_targets(base, &targets);
+
+        return Ok(
+            json!({"name": p.name, "level": level, "targets": targets.iter().map(|(t,l)| format!("{}={}", t, l)).collect::<Vec<_>>()}),
+        );
+    }
+
+    // ── Legacy API: boolean flags ──
+    // Extract bool from value
+    let val = p.value.as_ref().and_then(|v| v.as_bool()).unwrap_or(false);
+
     match p.name.as_str() {
         // ── C parser trace flags (token/ast/sem/visit)──
-        "trace.enabled" | "enabled" => crate::cli::config::set_trace_enabled(p.value),
-        "trace.ast" | "ast" => crate::cli::config::set_trace_ast(p.value),
-        "trace.lexer" | "lexer" => crate::cli::config::set_trace_lexer(p.value),
-        "trace.parser" | "parser" => crate::cli::config::set_trace_parser(p.value),
-        "trace.visit" | "visit" => crate::cli::config::set_trace_visit(p.value),
+        "trace.enabled" | "enabled" => crate::cli::config::set_trace_enabled(val),
+        "trace.ast" | "ast" => crate::cli::config::set_trace_ast(val),
+        "trace.lexer" | "lexer" => crate::cli::config::set_trace_lexer(val),
+        "trace.parser" | "parser" => crate::cli::config::set_trace_parser(val),
+        "trace.visit" | "visit" => crate::cli::config::set_trace_visit(val),
         // ── Rust log pass flags (real-time effect)──
-        "trace.pass1" | "pass1" => crate::cli::config::set_log_pass1(p.value),
-        "trace.pass2" | "pass2" => crate::cli::config::set_log_pass2(p.value),
-        "trace.server" | "server" => crate::cli::config::set_log_server(p.value),
+        "trace.pass1" | "pass1" => crate::cli::config::set_log_pass1(val),
+        "trace.pass2" | "pass2" => crate::cli::config::set_log_pass2(val),
+        "trace.server" | "server" => crate::cli::config::set_log_server(val),
+        // ── New: treat as per-target level via value string ──
         _ => {
+            // Try value as a level string ("debug", "off", etc.)
+            if let Some(level) = p.value.as_ref().and_then(|v| v.as_str()) {
+                let raw = vec![format!("{}={}", p.name, level)];
+                let targets = crate::cli::config::resolve_debug_targets(&raw);
+                let base = p.base.as_deref().unwrap_or("warn");
+                crate::cli::config::set_debug_targets(base, &targets);
+                return Ok(
+                    json!({"name": p.name, "level": level, "targets": targets.iter().map(|(t,l)| format!("{}={}", t, l)).collect::<Vec<_>>()}),
+                );
+            }
             return Err(JsonRpcError::custom(
                 -32099,
                 &format!("unknown trace config: {}", p.name),
             ));
         }
     }
-    Ok(json!({"name": p.name, "value": p.value}))
+    Ok(json!({"name": p.name, "value": val}))
 }
 
 // === handle_trace_get (lines 722-741 in original) ===
+//
+// Supports two modes:
+//   1. Legacy:  {name: "trace.enabled"} → returns {name, value: bool}
+//   2. New:     {name: "mcc::sem::fcall"} → returns {name, level: "debug"}
+//               {name: "*"} or {} → returns all current target overrides
 
 pub fn handle_trace_get(params: Option<Value>) -> RpcResult {
-    let name = parse_string_param(params, &["name"])?;
-    let value = match name.as_str() {
-        "trace.enabled" | "enabled" => crate::cli::config::get_trace_enabled(),
-        "trace.ast" | "ast" => crate::cli::config::get_trace_ast(),
-        "trace.lexer" | "lexer" => crate::cli::config::get_trace_lexer(),
-        "trace.parser" | "parser" => crate::cli::config::get_trace_parser(),
-        "trace.visit" | "visit" => crate::cli::config::get_trace_visit(),
-        "trace.pass1" | "pass1" => crate::cli::config::get_log_pass1(),
-        "trace.pass2" | "pass2" => crate::cli::config::get_log_pass2(),
-        "trace.server" | "server" => crate::cli::config::get_log_server(),
-        _ => {
-            return Err(JsonRpcError::custom(
-                -32099,
-                &format!("unknown trace config: {name}"),
-            ));
+    // Allow empty params → return all targets
+    let name = match params
+        .as_ref()
+        .and_then(|v| v.get("name"))
+        .and_then(|v| v.as_str())
+    {
+        Some(n) => n.to_string(),
+        None => {
+            // Return all current target overrides + legacy flags
+            let targets = crate::cli::config::get_debug_targets();
+            let legacy = json!({
+                "trace.enabled": crate::cli::config::get_trace_enabled(),
+                "trace.ast": crate::cli::config::get_trace_ast(),
+                "trace.lexer": crate::cli::config::get_trace_lexer(),
+                "trace.parser": crate::cli::config::get_trace_parser(),
+                "trace.visit": crate::cli::config::get_trace_visit(),
+                "trace.pass1": crate::cli::config::get_log_pass1(),
+                "trace.pass2": crate::cli::config::get_log_pass2(),
+                "trace.server": crate::cli::config::get_log_server(),
+            });
+            return Ok(json!({
+                "legacy": legacy,
+                "targets": targets,
+            }));
         }
     };
-    Ok(json!({"name": name, "value": value}))
+
+    match name.as_str() {
+        // ── Legacy flags ──
+        "trace.enabled" | "enabled" => {
+            return Ok(json!({"name": name, "value": crate::cli::config::get_trace_enabled()}));
+        }
+        "trace.ast" | "ast" => {
+            return Ok(json!({"name": name, "value": crate::cli::config::get_trace_ast()}));
+        }
+        "trace.lexer" | "lexer" => {
+            return Ok(json!({"name": name, "value": crate::cli::config::get_trace_lexer()}));
+        }
+        "trace.parser" | "parser" => {
+            return Ok(json!({"name": name, "value": crate::cli::config::get_trace_parser()}));
+        }
+        "trace.visit" | "visit" => {
+            return Ok(json!({"name": name, "value": crate::cli::config::get_trace_visit()}));
+        }
+        "trace.pass1" | "pass1" => {
+            return Ok(json!({"name": name, "value": crate::cli::config::get_log_pass1()}));
+        }
+        "trace.pass2" | "pass2" => {
+            return Ok(json!({"name": name, "value": crate::cli::config::get_log_pass2()}));
+        }
+        "trace.server" | "server" => {
+            return Ok(json!({"name": name, "value": crate::cli::config::get_log_server()}));
+        }
+        // ── New: look up per-target level ──
+        _ => {
+            let targets = crate::cli::config::get_debug_targets();
+            if let Some(level) = targets.get(&name) {
+                return Ok(json!({"name": name, "level": level}));
+            }
+            // Not set — return null level
+            return Ok(json!({"name": name, "level": serde_json::Value::Null}));
+        }
+    }
 }

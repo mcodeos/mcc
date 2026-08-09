@@ -177,7 +177,10 @@ impl McFuncCall {
                 || func_name_from_ast.contains("Pullup")
                 || func_name_from_ast.contains("Pulldown")
             {
-                eprintln!("[FCALL-PARSE-DBG] func={func_name_from_ast} children={children:?}",);
+                mcc_dbg!(
+                    "sem::fcall",
+                    "[FCALL-PARSE-DBG] func={func_name_from_ast} children={children:?}",
+                );
             }
         }
 
@@ -460,14 +463,20 @@ impl McFuncCall {
             if first_child.get_type() == MCAST_INSTANCE {
                 if let Some(inner) = first_child.get_sub_node() {
                     let inner_type = inner.get_type();
-                    eprintln!("[FCALL-CALLER-DBG] MCAST_INSTANCE inner_type={inner_type}");
+                    mcc_dbg!(
+                        "sem::fcall",
+                        "[FCALL-CALLER-DBG] MCAST_INSTANCE inner_type={inner_type}"
+                    );
                     // ── P2-12: Handle MCAST_DECLARE as FuncCall caller ──
                     // When CAP(10uF,10V) is wrapped in MCAST_INSTANCE as MCAST_DECLARE
                     // (e.g. CAP(10uF,10V).Cap(...)), parse_phrase creates a component
                     // at parse time and returns Multiple (due to auto-instance names).
                     // Instead, build a FuncCall directly to preserve the parameters.
                     if inner_type == MCAST_DECLARE {
-                        eprintln!("[FCALL-CALLER-DBG] MCAST_DECLARE handler entered");
+                        mcc_dbg!(
+                            "sem::fcall",
+                            "[FCALL-CALLER-DBG] MCAST_DECLARE handler entered"
+                        );
                         if let Some(sub) = inner.get_sub_node() {
                             let mut class_node: Option<AstNode> = None;
                             for c in sub.iter() {
@@ -475,7 +484,11 @@ impl McFuncCall {
                                     class_node = Some(c.clone());
                                 }
                             }
-                            eprintln!("[FCALL-CALLER-DBG] class_node={}", class_node.is_some());
+                            mcc_dbg!(
+                                "sem::fcall",
+                                "[FCALL-CALLER-DBG] class_node={}",
+                                class_node.is_some()
+                            );
                             if let Some(cls) = class_node {
                                 if let Some(class_ids) =
                                     cls.get_sub_node().and_then(|cid| McIds::new(&cid))
@@ -483,7 +496,8 @@ impl McFuncCall {
                                     let fname = class_ids.to_string();
                                     let is_twopin =
                                         crate::vector::graph::naming::is_known_twopin_class(&fname);
-                                    eprintln!(
+                                    mcc_dbg!(
+                                        "sem::fcall",
                                         "[FCALL-CALLER-DBG] fname={fname} is_twopin={is_twopin}"
                                     );
                                     if is_twopin {
@@ -530,7 +544,7 @@ impl McFuncCall {
                                     McPhrase::Endpoint(_) => "Endpoint".into(),
                                     _ => format!("{:?}", std::mem::discriminant(&phrase)),
                                 };
-                                eprintln!("[FCALL-CALLER-DBG] parse_phrase inner_type={inner_type} returned: {phrase_desc}");
+                                mcc_dbg!("sem::fcall", "[FCALL-CALLER-DBG] parse_phrase inner_type={inner_type} returned: {phrase_desc}");
                                 caller = Some(Box::new(phrase));
                             }
                         }
@@ -691,18 +705,21 @@ impl McFuncCall {
 
                 MCAST_INSTANCE => {
                     // Handle MCAST_INSTANCE as caller for method calls like ldo.enable() or CAP(...).Cap(...)
-                    eprintln!(
+                    mcc_dbg!(
+                        "sem::fcall",
                         "[FCALL-INST-DBG] MCAST_INSTANCE reached, caller.is_none()={}",
                         caller.is_none()
                     );
                     if caller.is_none() {
-                        eprintln!(
+                        mcc_dbg!(
+                            "sem::fcall",
                             "[FCALL-INST-DBG] each.get_sub_node()={:?}",
                             each.get_sub_node().map(|n| (n.get_type(), n.to_string()))
                         );
                         if let Some(inner) = each.get_sub_node() {
                             let inner_type = inner.get_type();
-                            eprintln!(
+                            mcc_dbg!(
+                                "sem::fcall",
                                 "[FCALL-INST-DBG] inner_type={inner_type} MCAST_OPD_FCALL={}",
                                 crate::ast::c_macros::MCAST_OPD_FCALL
                             );
@@ -713,7 +730,8 @@ impl McFuncCall {
                             // For two-pin classes (CAP/RES/IND/...), build FuncCall directly
                             // to avoid premature anonymous component instantiation.
                             if inner_type == crate::ast::c_macros::MCAST_OPD_FCALL {
-                                eprintln!(
+                                mcc_dbg!(
+                                    "sem::fcall",
                                     "[FCALL-INST-DBG] nested FuncCall, parsing via parse_phrase"
                                 );
                                 caller = Self::try_parse_inner_fcall(&inner, context);
@@ -727,7 +745,7 @@ impl McFuncCall {
                                 if let Some(opd_inner) = inner.get_sub_node() {
                                     if opd_inner.get_type() == crate::ast::c_macros::MCAST_OPD_FCALL
                                     {
-                                        eprintln!("[FCALL-INST-DBG] MCAST_OPD wraps FuncCall, parsing via parse_phrase");
+                                        mcc_dbg!("sem::fcall", "[FCALL-INST-DBG] MCAST_OPD wraps FuncCall, parsing via parse_phrase");
                                         caller = Self::try_parse_inner_fcall(&opd_inner, context);
                                         if caller.is_none() {
                                             if let Some(phrase) = parse_phrase(&opd_inner, context)
@@ -1231,7 +1249,8 @@ impl McFuncCall {
         };
         let fn_str = func_name.to_string();
         if fn_str == "Cap" || fn_str == "Pullup" || fn_str == "Pulldown" {
-            eprintln!(
+            mcc_dbg!(
+                "sem::fcall",
                 "[FCALL-FINAL] func={fn_str} caller={caller_desc} params={:?}",
                 params
                     .iter()
@@ -1412,7 +1431,8 @@ impl McFuncCall {
         let fname = func_name?;
         let fname_str = fname.to_string();
         if crate::vector::graph::naming::is_known_twopin_class(&fname_str) {
-            eprintln!(
+            mcc_dbg!(
+                "sem::fcall",
                 "[FCALL-INST-DBG] inner two-pin class: {fname_str}, building FuncCall directly"
             );
             Some(Box::new(McPhrase::FuncCall(McFuncCall {

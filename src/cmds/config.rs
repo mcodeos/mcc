@@ -139,9 +139,17 @@ fn set_config_value(config: &mut MccConfig, name: &str, value: &str) -> Result<(
         ["trace", "lexer"] => config.trace.lexer = Some(parse_bool(value)?),
         ["trace", "parser"] => config.trace.parser = Some(parse_bool(value)?),
         ["trace", "visit"] => config.trace.visit = Some(parse_bool(value)?),
+        ["trace", "level"] => config.trace.level = Some(value.to_string()),
         ["trace", "pass1"] => {} // runtime state, not stored in config file
         ["trace", "pass2"] => {}
         ["trace", "server"] => {}
+        ["trace", "targets", target] => {
+            // mcc config set "trace.targets.mcc::sem::fcall" debug
+            config
+                .trace
+                .targets
+                .insert(target.to_string(), value.to_string());
+        }
         ["parser", "max_depth"] => config.parser.max_depth = Some(value.parse()?),
         ["parser", "strict"] => config.parser.strict = Some(parse_bool(value)?),
         ["output", "format"] => config.output.format = Some(value.to_string()),
@@ -162,16 +170,23 @@ fn set_config_value(config: &mut MccConfig, name: &str, value: &str) -> Result<(
 
 fn list_config(config: &MccConfig) {
     println!("Global Config:");
-    println!("  global.trace.enabled = {:?}", config.trace.enabled);
-    println!("  global.trace.ast = {:?}", config.trace.ast);
-    println!("  global.trace.lexer = {:?}", config.trace.lexer);
-    println!("  global.trace.parser = {:?}", config.trace.parser);
-    println!("  global.trace.visit = {:?}", config.trace.visit);
-    println!("  global.parser.max_depth = {:?}", config.parser.max_depth);
-    println!("  global.parser.strict = {:?}", config.parser.strict);
-    println!("  global.output.format = {:?}", config.output.format);
-    println!("  global.output.color = {:?}", config.output.color);
-    println!("  global.libs.load = {:?}", config.libs.load);
+    println!("  trace.enabled = {:?}", config.trace.enabled);
+    println!("  trace.ast = {:?}", config.trace.ast);
+    println!("  trace.lexer = {:?}", config.trace.lexer);
+    println!("  trace.parser = {:?}", config.trace.parser);
+    println!("  trace.visit = {:?}", config.trace.visit);
+    println!("  trace.level = {:?}", config.trace.level);
+    if !config.trace.targets.is_empty() {
+        println!("  trace.targets:");
+        for (t, l) in &config.trace.targets {
+            println!("    {} = {}", t, l);
+        }
+    }
+    println!("  parser.max_depth = {:?}", config.parser.max_depth);
+    println!("  parser.strict = {:?}", config.parser.strict);
+    println!("  output.format = {:?}", config.output.format);
+    println!("  output.color = {:?}", config.output.color);
+    println!("  libs.load = {:?}", config.libs.load);
 }
 
 fn parse_bool(value: &str) -> Result<bool> {

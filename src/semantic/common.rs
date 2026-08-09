@@ -352,7 +352,7 @@ impl ScopeFilter {
 
 #[allow(dead_code)]
 pub fn print_backtrace(label: &str) {
-    eprintln!("\n=== BACKTRACE: {label} ===");
+    mcc_dbg!("sem::comp", "\n=== BACKTRACE: {label} ===");
     let bt = std::backtrace::Backtrace::capture();
-    eprintln!("{bt}");
+    mcc_dbg!("sem::comp", "{bt}");
 }

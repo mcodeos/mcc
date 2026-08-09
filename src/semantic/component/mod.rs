@@ -84,7 +84,10 @@ impl McComponent {
         let ids_node = name_node.get_sub_node()?;
         let start = ids_node.get_pos() as usize;
         let end = start + ids_node.get_len() as usize;
-        eprintln!("[P2-7-COMP-NEW] McComponent::new comp_name={comp_name}",);
+        mcc_dbg!(
+            "sem::class",
+            "[P2-7-COMP-NEW] McComponent::new comp_name={comp_name}",
+        );
         let mut new_comp = Self {
             name: comp_name.clone(),
             params: McParamDeclares::new(),

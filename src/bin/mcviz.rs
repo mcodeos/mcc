@@ -24,7 +24,8 @@ use std::process;
 use mcc::vector::builder::{build_mc_vec, np_warn_count, reset_np_warn_count};
 use mcc::vector::graph::build_mc_vec_graph;
 use mcc::{
-    mcc_build_flat, mcc_init, mcc_load_project, mcc_set_project_root, mcc_set_system_root, McIds,
+    mcc_build_flat, mcc_dbg, mcc_init, mcc_load_project, mcc_set_project_root, mcc_set_system_root,
+    McIds,
 };
 
 // ─── New P2 pipeline ─────────────────────────────────────────────
@@ -140,21 +141,22 @@ fn main() {
 
     // ── Output: three modes ──
     let output = if legacy_mode {
-        eprintln!("[mcviz] using LEGACY pipeline (fake expand)");
+        mcc_dbg!("viz", "[mcviz] using LEGACY pipeline (fake expand)");
         run_legacy(graph, json_mode)
     } else if json_mode {
-        eprintln!("[mcviz] using NEW P2 pipeline -> VizDocument JSON");
+        mcc_dbg!("viz", "[mcviz] using NEW P2 pipeline -> VizDocument JSON");
         let opts = build_opts(!no_promote, layouter_name.as_deref());
         let doc = render_with(graph, opts);
         doc.to_json()
     } else {
-        eprintln!("[mcviz] using NEW P2 pipeline -> HTML (real expand)");
+        mcc_dbg!("viz", "[mcviz] using NEW P2 pipeline -> HTML (real expand)");
         let opts = build_opts(!no_promote, layouter_name.as_deref());
         let doc = render_with(graph, opts);
         let layer_count = doc.layer_count();
         let svg_bytes = doc.total_svg_bytes();
         let html = wrap_document(&doc);
-        eprintln!(
+        mcc_dbg!(
+            "viz",
             "[mcviz] VizDocument: {} layers, {} bytes total SVG, HTML {} bytes",
             layer_count,
             svg_bytes,
@@ -166,7 +168,7 @@ fn main() {
     // ── Write file / stdout ──
     match output_file.as_deref() {
         Some(path) => match std::fs::write(path, &output) {
-            Ok(_) => eprintln!("[mcviz] wrote {} ({} bytes)", path, output.len()),
+            Ok(_) => mcc_dbg!("viz", "[mcviz] wrote {} ({} bytes)", path, output.len()),
             Err(e) => {
                 eprintln!("Error writing to {}: {}", path, e);
                 process::exit(1);
@@ -183,7 +185,8 @@ fn main() {
         .iter()
         .filter(|d| d.code == 921)
         .count();
-    eprintln!(
+    mcc_dbg!(
+        "viz",
         "[Viz Metrics] np_warns={} bus_warns={}",
         np_warn_count(),
         bus_warns,
@@ -253,7 +256,7 @@ fn build_opts(apply_promote: bool, layouter_name: Option<&str>) -> RenderOpts {
         opts.sub_layouter = sub;
         opts.top_candidates = top_cands;
         opts.sub_candidates = sub_cands;
-        eprintln!("[mcviz] locked layouter: top={} sub={}", name, name);
+        mcc_dbg!("viz", "[mcviz] locked layouter: top={} sub={}", name, name);
     }
     opts
 }

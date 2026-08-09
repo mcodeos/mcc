@@ -63,7 +63,8 @@ impl McConds {
         let mut if_blocks = Vec::new();
         let mut else_block = None;
 
-        eprintln!(
+        mcc_dbg!(
+            "sem::conds",
             "[CONDS-NEW] node_type={} node_str={:?}",
             node.get_type(),
             node.to_string()

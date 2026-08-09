@@ -14,9 +14,10 @@
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{LazyLock, RwLock};
+use std::sync::{LazyLock, Mutex as StdMutex, RwLock};
 
 // Use LazyLock to ensure only one initialization and global sharing
 static RUNTIME_TRACE: LazyLock<RwLock<TraceConfig>, fn() -> RwLock<TraceConfig>> =
@@ -82,6 +83,16 @@ pub struct TraceConfig {
 
     #[serde(default)]
     pub visit: Option<bool>,
+
+    /// Base tracing level (off | error | warn | info | debug | trace).
+    /// Overridden by CLI `-v`/`-q`.
+    #[serde(default)]
+    pub level: Option<String>,
+
+    /// Per-target level overrides: `"mcc::sem::fcall" = "debug"`.
+    /// Aliases (pass1, pass2, …) are NOT resolved here — use `resolve_debug_targets`.
+    #[serde(default)]
+    pub targets: HashMap<String, String>,
 }
 
 impl TraceConfig {
@@ -91,6 +102,8 @@ impl TraceConfig {
             || self.lexer.is_some()
             || self.parser.is_some()
             || self.visit.is_some()
+            || self.level.is_some()
+            || !self.targets.is_empty()
     }
 
     pub fn is_enabled(&self) -> bool {
@@ -283,6 +296,14 @@ pub fn merge_configs(global: &MccConfig, local: Option<&MccConfig>) -> MccConfig
                 lexer: local.trace.lexer.or(global.trace.lexer),
                 parser: local.trace.parser.or(global.trace.parser),
                 visit: local.trace.visit.or(global.trace.visit),
+                level: local.trace.level.clone().or(global.trace.level.clone()),
+                targets: {
+                    let mut merged = global.trace.targets.clone();
+                    for (k, v) in &local.trace.targets {
+                        merged.insert(k.clone(), v.clone());
+                    }
+                    merged
+                },
             };
 
             let parser = ParserConfig {
@@ -526,4 +547,155 @@ pub fn get_libs_load_list(project_root: Option<&Path>) -> Vec<String> {
     let local = project_root.and_then(|p| load_project_config(p).ok().flatten());
     let merged = merge_configs(&global, local.as_ref());
     merged.libs.get_load_list().to_vec()
+}
+
+// ============================================================================
+// Debug target aliases & resolution
+// ============================================================================
+
+/// Known debug-target aliases.
+/// Each alias expands to one or more tracing targets.
+static DEBUG_ALIASES: &[(&str, &[&str])] = &[
+    ("pass1", &["mcc::parse::*", "mcc::sem::*"]),
+    ("pass2", &["mcc::inst::*"]),
+    ("fcall", &["mcc::sem::fcall", "mcc::inst::fcall"]),
+    ("lapper", &["mcc::sem::class", "mcc::lsp::lapper"]),
+    ("vec", &["mcc::vec"]),
+    ("viz", &["mcc::viz"]),
+    ("lsp", &["mcc::lsp::*"]),
+    ("all", &["*"]),
+];
+
+/// Resolve CLI `-D` flags into `(target, level)` pairs.
+///
+/// Each raw flag has the form `target[=level]` (level defaults to `"debug"`).
+/// Aliases (pass1, pass2, fcall, …) are expanded to their constituent targets.
+pub fn resolve_debug_targets(raw: &[String]) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+
+    for raw_flag in raw {
+        let (key, level) = match raw_flag.split_once('=') {
+            Some((k, l)) => (k.trim(), l.trim().to_string()),
+            None => (raw_flag.trim(), "debug".to_string()),
+        };
+        if key.is_empty() {
+            continue;
+        }
+
+        // Check alias expansion
+        let alias = key.to_lowercase();
+        if let Some(targets) = DEBUG_ALIASES
+            .iter()
+            .find(|(name, _)| *name == alias)
+            .map(|(_, targets)| *targets)
+        {
+            for t in targets {
+                out.push((t.to_string(), level.clone()));
+            }
+        } else {
+            out.push((key.to_string(), level));
+        }
+    }
+
+    out
+}
+
+/// Build the base log level string from CLI verbosity flags.
+pub fn base_level(verbose: u8, quiet: bool) -> &'static str {
+    if quiet {
+        "error"
+    } else {
+        match verbose {
+            0 => "warn",
+            1 => "info",
+            2 => "debug",
+            _ => "trace",
+        }
+    }
+}
+
+// ============================================================================
+// Per-target debug level overrides (bridge between lib ↔ binary logging)
+// ============================================================================
+
+/// In-library storage for per-target debug overrides.
+/// Mirrors `logging::TARGETS` in the binary so RPC handlers can read/write.
+static TARGET_OVERRIDES: LazyLock<StdMutex<HashMap<String, String>>> =
+    LazyLock::new(|| StdMutex::new(HashMap::new()));
+
+type TargetApplier = Box<dyn Fn(&str, &[(String, String)]) + Send + Sync>;
+static mut TARGET_APPLIER: Option<TargetApplier> = None;
+
+/// Register a callback that bridges target overrides to the binary's `logging::set_targets`.
+///
+/// Called by `main.rs` after `logging::init()`.
+pub fn set_target_applier(f: TargetApplier) {
+    unsafe {
+        TARGET_APPLIER = Some(f);
+    }
+}
+
+#[allow(static_mut_refs)]
+fn apply_target_overrides(base_level: &str) {
+    let targets: Vec<(String, String)> = TARGET_OVERRIDES
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    if let Some(ref f) = unsafe { TARGET_APPLIER.as_ref() } {
+        f(base_level, &targets);
+    }
+}
+
+/// Set per-target debug levels.  `targets` is a list of `(target, level)` pairs
+/// where level is one of `off | error | warn | info | debug | trace`.
+///
+/// Aliases are NOT resolved here — the caller (`trace.set` handler or `-D` CLI)
+/// must expand aliases before calling.  An empty slice clears all overrides.
+pub fn set_debug_targets(base_level: &str, targets: &[(String, String)]) {
+    {
+        let mut map = TARGET_OVERRIDES.lock().unwrap();
+        map.clear();
+        for (t, l) in targets {
+            map.insert(t.clone(), l.clone());
+        }
+    }
+    apply_target_overrides(base_level);
+}
+
+/// Return all current per-target overrides (empty if none have been set).
+pub fn get_debug_targets() -> HashMap<String, String> {
+    TARGET_OVERRIDES.lock().unwrap().clone()
+}
+
+/// Return the list of known debug-target aliases for `server.methods` discovery.
+pub fn get_debug_aliases() -> Vec<(&'static str, &'static [&'static str])> {
+    DEBUG_ALIASES.iter().map(|(n, t)| (*n, *t)).collect()
+}
+
+/// Return the list of known debug targets for `server.methods` discovery.
+pub fn get_known_debug_targets() -> Vec<&'static str> {
+    vec![
+        "mcc::parse::ast",
+        "mcc::parse::phrase",
+        "mcc::sem::fcall",
+        "mcc::sem::conds",
+        "mcc::sem::class",
+        "mcc::sem::inst",
+        "mcc::sem::module",
+        "mcc::sem::comp",
+        "mcc::inst::mod",
+        "mcc::inst::comp",
+        "mcc::inst::fcall",
+        "mcc::inst::points",
+        "mcc::inst::table",
+        "mcc::inst::dump",
+        "mcc::vec",
+        "mcc::viz",
+        "mcc::lsp::query",
+        "mcc::lsp::lapper",
+        "mcc::build",
+        "mcc::config",
+    ]
 }

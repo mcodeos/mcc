@@ -131,14 +131,21 @@ pub fn route_layer_with_channels(graph: &mut McVecGraph) {
                     .map(|b| b.find_entry(ep.pin_id).is_some())
                     .unwrap_or(false);
             if !found {
-                eprintln!(
+                mcc_dbg!(
+                    "viz",
                     "[diag] net '{}' nid={}: box_id={} NOT FOUND",
-                    net.name, net.nid, ep.box_id
+                    net.name,
+                    net.nid,
+                    ep.box_id
                 );
             } else if !has_entry {
-                eprintln!(
+                mcc_dbg!(
+                    "viz",
                     "[diag] net '{}' nid={}: box_id={} pin_id={} NO ENTRY_POINT",
-                    net.name, net.nid, ep.box_id, ep.pin_id
+                    net.name,
+                    net.nid,
+                    ep.box_id,
+                    ep.pin_id
                 );
             }
         }

@@ -43,9 +43,8 @@ impl McModuleInst {
                 McPhrase::Closure(_) => "Closure",
                 McPhrase::Lead => "Lead",
                 McPhrase::Member(_, _) => "Member",
-                _ => "Other",
             };
-            eprintln!("[PROC-LINE] module={} desc={desc}", self.name);
+            mcc_dbg!("inst::mod", "[PROC-LINE] module={} desc={desc}", self.name);
         }
         // ── G4: Skip lines referencing failed components ──
         // If any FuncCall in the phrase references a class whose instantiation
@@ -75,7 +74,8 @@ impl McModuleInst {
         Self::assign_phrase_ids(&mut phrase, &mut self.next_phrase_id);
         let members = self.phrase_to_members(&phrase);
         if self.name.contains("513") || self.name.contains("moddcdc") || self.name == "speaker" {
-            eprintln!(
+            mcc_dbg!(
+                "inst::mod",
                 "[PROC-LINE-MEMBERS] module={} n_members={}",
                 self.name,
                 members.len()
@@ -92,9 +92,8 @@ impl McModuleInst {
                     McPhrase::Closure(_) => "Closure".into(),
                     McPhrase::Lead => "Lead".into(),
                     McPhrase::Member(_, _) => "Member".into(),
-                    _ => "Other".into(),
                 };
-                eprintln!("[PROC-LINE-MEMBERS]   member[{i}]={desc}");
+                mcc_dbg!("inst::mod", "[PROC-LINE-MEMBERS]   member[{i}]={desc}");
             }
         }
         if members.is_empty() {
@@ -139,7 +138,7 @@ impl McModuleInst {
                     _ => unreachable!(),
                 };
                 let fc = members[fc_idx].clone();
-                eprintln!(
+                mcc_dbg!("inst::mod", 
                     "[P2-5-EXPAND] module='{}' expanding builtin twopin: n_items={}, fc_is_left={fc_is_left}, fc={fc:?}",
                     self.name, n_items
                 );
@@ -163,7 +162,8 @@ impl McModuleInst {
                         McPhrase::Series(vec![item.clone(), fc_clone], dir)
                     };
                     if self.name.contains("513") {
-                        eprintln!(
+                        mcc_dbg!(
+                            "inst::mod",
                             "[P2-5-PAIR] module='{}' item={item:?} pair={pair:?}",
                             self.name
                         );
@@ -209,7 +209,8 @@ impl McModuleInst {
             .iter()
             .any(|m| Self::member_contains_lead(m) || matches!(m, McPhrase::Transposed(_)));
         if self.name.contains("US513") {
-            eprintln!(
+            mcc_dbg!(
+                "inst::mod",
                 "[PROC-LINE] module={} needs_lane_by_lane={needs_lane_by_lane} members={members:?}",
                 self.name
             );
@@ -490,7 +491,11 @@ impl McModuleInst {
             .max()
             .unwrap_or(0);
         crate::vlog!("[lane-by-lane] num_lanes={num_lanes}");
-        eprintln!("[LL-ENTRY] module={} num_lanes={num_lanes}", self.name);
+        mcc_dbg!(
+            "inst::mod",
+            "[LL-ENTRY] module={} num_lanes={num_lanes}",
+            self.name
+        );
         if num_lanes == 0 {
             return Ok(());
         }
@@ -560,7 +565,7 @@ impl McModuleInst {
                         let key = Self::member_key(elem);
                         let inst_name = self.auto_inst_map.get(&key).cloned();
                         let left_pts = self.get_left_points(elem).unwrap_or_default();
-                        eprintln!(
+                        mcc_dbg!("inst::mod", 
                             "[LL-DBG] module={} lane={lane} FuncCall(fn={}, id={}) key={key:?} inst={inst_name:?} left_pts={left_pts:?}",
                             self.name, fc.func_name, fc.id
                         );
@@ -796,7 +801,8 @@ impl McModuleInst {
     /// Series is recursively expanded to individual member McPhrases
     pub(super) fn phrase_to_members(&self, phrase: &McPhrase) -> Vec<McPhrase> {
         let disc = std::mem::discriminant(phrase);
-        eprintln!(
+        mcc_dbg!(
+            "inst::mod",
             "[P2-5-PTM-ENTRY] module='{}' phrase_to_members: disc={disc:?}",
             self.name
         );
@@ -1113,9 +1119,12 @@ impl McModuleInst {
                 base: McInstance::Bus(ref data),
                 ..
             })) => {
-                eprintln!(
+                mcc_dbg!(
+                    "inst::mod",
                     "[P2-5-BUS-ENTRY] module='{}' phrase_to_members Bus: name='{}', member={:?}",
-                    self.name, data.name, data.member
+                    self.name,
+                    data.name,
+                    data.member
                 );
                 // ── M11.5: expand multi-member Bus to Multiple ──────────────
                 // When a Bus has multiple members (e.g. dc{VDD_3V3, GND}),
@@ -1133,7 +1142,7 @@ impl McModuleInst {
                         .get(&data.name)
                         .map(|b| b.members.clone())
                         .unwrap_or_default();
-                    eprintln!(
+                    mcc_dbg!("inst::mod", 
                         "[P2-5-BUS-LOOKUP] module='{}' bus='{}' data.member={:?} from_bus_table={:?}",
                         self.name, data.name, data.member, from_bus
                     );
@@ -1143,9 +1152,12 @@ impl McModuleInst {
                 };
 
                 if members.len() > 1 {
-                    eprintln!(
+                    mcc_dbg!(
+                        "inst::mod",
                         "[P2-5-BUS] module='{}' expanding bus '{}' to Multiple with members {:?}",
-                        self.name, data.name, members
+                        self.name,
+                        data.name,
+                        members
                     );
                     let inner: Vec<McPhrase> = members
                         .iter()
@@ -1181,7 +1193,7 @@ impl McModuleInst {
                     .map(|b| b.members.clone())
                     .unwrap_or_default();
                 if from_bus.len() > 1 {
-                    eprintln!(
+                    mcc_dbg!("inst::mod", 
                         "[P2-5-BUS-LABEL] module='{}' expanding Label '{}' to Multiple with members {:?}",
                         self.name, label, from_bus
                     );
@@ -1215,7 +1227,7 @@ impl McModuleInst {
                 result
             }
             McPhrase::Endpoint(ref ep) => {
-                eprintln!(
+                mcc_dbg!("inst::mod",
                     "[P2-5-BUS-CATCHALL] module='{}' phrase_to_members Endpoint catch-all: ep={ep:?}",
                     self.name
                 );
@@ -1245,7 +1257,10 @@ impl McModuleInst {
                 // into one net instead of lane-by-lane matching.
                 let result = vec![McPhrase::Member(inner.clone(), member_ep.clone())];
                 if self.name == "mcu513" {
-                    eprintln!("[P2-4-PTM] Member kept: inner={inner:?}, member_ep={member_ep:?}");
+                    mcc_dbg!(
+                        "inst::mod",
+                        "[P2-4-PTM] Member kept: inner={inner:?}, member_ep={member_ep:?}"
+                    );
                 }
                 result
             }
@@ -1423,7 +1438,7 @@ impl McModuleInst {
             if self.name == "mcu513" {
                 let dl: Vec<String> = left_points.iter().map(|p| format!("{}", p.path)).collect();
                 let dr: Vec<String> = right_points.iter().map(|p| format!("{}", p.path)).collect();
-                eprintln!(
+                mcc_dbg!("inst::mod",
                     "[P2-4-ADJ] US513: L={_l_kind} R={_r_kind} | get_right(L)={dl:?} get_left(R)={dr:?}",
                 );
             }
@@ -1541,7 +1556,11 @@ impl McModuleInst {
                 McPhrase::Series(_, _) => "Series".to_string(),
             };
             if self.name.contains("513") {
-                eprintln!("[PAR-INT] module={} opd[{_idx}] kind={opd_kind}", self.name);
+                mcc_dbg!(
+                    "inst::mod",
+                    "[PAR-INT] module={} opd[{_idx}] kind={opd_kind}",
+                    self.name
+                );
             }
             // ── Use the same rule as try_connect_adjacent to get endpoints ───────────
             // i.e. call self.get_left_points / get_right_points (top-level version,
@@ -1607,7 +1626,8 @@ impl McModuleInst {
             opd_lefts.push(lps);
             opd_rights.push(rps);
             if self.name.contains("513") {
-                eprintln!(
+                mcc_dbg!(
+                    "inst::mod",
                     "[PAR-INT] module={} opd[{_idx}] lps={:?} rps={:?}",
                     self.name,
                     opd_lefts
@@ -2070,7 +2090,7 @@ impl McModuleInst {
                             _ => format!("{:?}", std::mem::discriminant(c.as_ref())),
                         })
                         .unwrap_or_else(|| "None".into());
-                    eprintln!(
+                    mcc_dbg!("inst::mod",
                         "[PMI-FC] module={} func_name={} has_caller={} caller_desc={caller_desc} params={:?}",
                         self.name,
                         fc.func_name,
@@ -2197,9 +2217,11 @@ impl McModuleInst {
                             McPhrase::Series(_, _) => "Series".into(),
                             _ => format!("{:?}", std::mem::discriminant(caller_line.as_ref())),
                         };
-                        eprintln!(
+                        mcc_dbg!(
+                            "inst::mod",
                             "[PMI-CALLER] module={} func_name={} caller={caller_desc}",
-                            self.name, fc.func_name
+                            self.name,
+                            fc.func_name
                         );
                     }
                     match caller_line.as_ref() {
@@ -2244,7 +2266,7 @@ impl McModuleInst {
                         if let Some(inst_name) = Self::extract_caller_inst_name(caller_box.as_ref())
                         {
                             let func_name_str = fc.func_name.to_string();
-                            eprintln!(
+                            mcc_dbg!("inst::mod",
                                 "[P2-4-DBG] instance method dispatch: inst={inst_name}, func={func_name_str}, module={}",
                                 self.name
                             );
@@ -2255,12 +2277,13 @@ impl McModuleInst {
                                 .iter()
                                 .find(|c| c.name == inst_name)
                                 .and_then(|c| c.def.funcs.find(&func_name_str).cloned());
-                            eprintln!(
+                            mcc_dbg!("inst::mod",
                                 "[P2-4-DBG] comp_func found={} for inst={inst_name} func={func_name_str}",
                                 comp_func.is_some()
                             );
                             if let Some(func_def) = comp_func {
-                                eprintln!(
+                                mcc_dbg!(
+                                    "inst::mod",
                                     "[P2-4-DBG] func_def name={}, lines={}, params={}",
                                     func_def.name,
                                     func_def.lines.len(),
@@ -2596,7 +2619,7 @@ impl McModuleInst {
                 // in XTAL setup).
                 if self.auto_inst_map.contains_key(&key) {
                     if self.name.contains("513") {
-                        eprintln!(
+                        mcc_dbg!("inst::mod",
                             "[P2-9-DEDUP] module={} key={key} already in auto_inst_map, skipping re-instantiation",
                             self.name
                         );
@@ -2605,7 +2628,8 @@ impl McModuleInst {
                 }
 
                 if self.name.contains("moddcdc") {
-                    eprintln!(
+                    mcc_dbg!(
+                        "inst::mod",
                         "[FC-DISPATCH] module={} func_name={} caller={}",
                         self.name,
                         fc.func_name,
@@ -2627,11 +2651,17 @@ impl McModuleInst {
                         if let Some(comp) = new_components.first() {
                             self.auto_inst_map.insert(key, comp.name.clone());
                         }
-                        if self.name.contains("513") || self.name.contains("moddcdc") || self.name == "speaker" {
+                        if self.name.contains("513")
+                            || self.name.contains("moddcdc")
+                            || self.name == "speaker"
+                        {
                             for c in &new_components {
-                                eprintln!(
+                                mcc_dbg!(
+                                    "inst::mod",
                                     "[LINE-CREATE] module={} inst_name={} class={}",
-                                    self.name, c.name, c.def.name
+                                    self.name,
+                                    c.name,
+                                    c.def.name
                                 );
                             }
                         }

@@ -79,7 +79,8 @@ impl McModuleInst {
             self.auto_name(&safe_type)
         };
         if self.name.contains("513") {
-            eprintln!(
+            mcc_dbg!(
+                "inst::fcall",
                 "[COMP-CREATE] module={} inst_name={inst_name} type={type_name} params={params:?}",
                 self.name
             );
@@ -91,32 +92,33 @@ impl McModuleInst {
         // declaration path (Mc2Component::with_params sets nc=true, then
         // instantiate_declarations_resilient uses with_nc).
         let has_nc = params.iter().any(|p| matches!(p, McParamValue::NC(_)));
-        let inst = if has_nc {
-            McComponentInst::with_nc(&inst_name, comp_def.clone())
-        } else {
-            match McComponentInst::with_params(&inst_name, comp_def.clone(), params) {
-                Ok(inst) => inst,
-                Err(e) => {
-                    let reason = format!("{:?}", e);
-                    eprintln!(
+        let inst =
+            if has_nc {
+                McComponentInst::with_nc(&inst_name, comp_def.clone())
+            } else {
+                match McComponentInst::with_params(&inst_name, comp_def.clone(), params) {
+                    Ok(inst) => inst,
+                    Err(e) => {
+                        let reason = format!("{:?}", e);
+                        mcc_dbg!("inst::fcall", 
                         "[ERROR] Failed to instantiate anonymous component '{}' (class '{}'): {}",
                         inst_name, type_name, reason
                     );
-                    self.failed_classes.insert(type_name.clone());
-                    self.failed_records.push(FailedRecord {
-                        module: self.name.clone(),
-                        src_line: self.current_line_span.as_ref().map(|s| s.start / 1000),
-                        component_name: inst_name.clone(),
-                        class_name: type_name.clone(),
-                        reason: reason.clone(),
-                    });
-                    return Err(InstError::Other(format!(
-                        "Failed to instantiate '{}': {}",
-                        inst_name, reason
-                    )));
+                        self.failed_classes.insert(type_name.clone());
+                        self.failed_records.push(FailedRecord {
+                            module: self.name.clone(),
+                            src_line: self.current_line_span.as_ref().map(|s| s.start / 1000),
+                            component_name: inst_name.clone(),
+                            class_name: type_name.clone(),
+                            reason: reason.clone(),
+                        });
+                        return Err(InstError::Other(format!(
+                            "Failed to instantiate '{}': {}",
+                            inst_name, reason
+                        )));
+                    }
                 }
-            }
-        };
+            };
 
         // ── Iter-3.E3 + P4 ───────────────────────────────────────────────
         // Filter out synthetic interface placeholders that mc_fcall.rs injects when
@@ -475,7 +477,8 @@ impl McModuleInst {
             }
         } else {
             // Body was not parsed (lines is empty)
-            eprintln!(
+            mcc_dbg!(
+                "inst::fcall",
                 "Warning: User function '{}' has no parsed lines. \
                  Ensure function bodies are parsed during pass1.",
                 func_def.name
@@ -588,9 +591,11 @@ impl McModuleInst {
         _left: &[McBus],
         _right: &[McBus],
     ) -> Result<FuncCallInst, InstError> {
-        eprintln!(
+        mcc_dbg!(
+            "inst::fcall",
             "[IIM-DBG] module={} inst_name={inst_name} func={} params={params:?}",
-            self.name, func_def.name
+            self.name,
+            func_def.name
         );
         // 1. Bind formal parameters
         let bindings = McParamBindings::bind(&func_def.params, params).map_err(|e| {
@@ -653,7 +658,7 @@ impl McModuleInst {
             let sub = &self.sub_modules[idx];
             let func_name = func_def.name.to_string();
             if sub.auto_invoked_funcs.contains(&func_name) {
-                eprintln!(
+                mcc_dbg!("inst::fcall", 
                     "[P2-8-SKIP] module={} sub={inst_name} func={func_name} already auto-invoked, skipping",
                     self.name
                 );
@@ -960,7 +965,7 @@ impl McModuleInst {
             }
         };
         for (iface_name, member_names) in &buses_to_register {
-            eprintln!(
+            mcc_dbg!("inst::fcall", 
                 "[P2-4-CM] registering bus '{iface_name}' with members {member_names:?} for component '{inst_name}'"
             );
             let _ = self.ensure_bus(iface_name, member_names);
@@ -970,29 +975,36 @@ impl McModuleInst {
             // Register the prefixed name as a bus so lane-by-lane wiring can
             // expand it to individual pins.
             let prefixed_iface = format!("{inst_name}.{iface_name}");
-            eprintln!(
+            mcc_dbg!("inst::fcall", 
                 "[P2-4-CM] registering bus '{prefixed_iface}' with members {member_names:?} for component '{inst_name}'"
             );
             let _ = self.ensure_bus(&prefixed_iface, member_names);
         }
 
         if func_def.lines.is_empty() {
-            eprintln!(
+            mcc_dbg!(
+                "inst::fcall",
                 "Warning: component method '{}.{}' has no parsed lines.",
-                inst_name, func_def.name
+                inst_name,
+                func_def.name
             );
             return Ok(());
         }
-        eprintln!(
+        mcc_dbg!(
+            "inst::fcall",
             "[P2-4-CM] run_component_method: {}.{} with {} body lines",
             inst_name,
             func_def.name,
             func_def.lines.len()
         );
         for (i, line) in func_def.lines.iter().enumerate() {
-            eprintln!(
+            mcc_dbg!(
+                "inst::fcall",
                 "[P2-4-CM] {}.{} line[{}]: {:?}",
-                inst_name, func_def.name, i, line
+                inst_name,
+                func_def.name,
+                i,
+                line
             );
         }
         // ── P4-b: Isolate anonymous instance entries for each body line in the same func ──
@@ -1014,7 +1026,8 @@ impl McModuleInst {
             // so that get_left_points/get_right_points can expand them to
             // individual pin points and lane-by-lane wiring handles them correctly.
             let expanded = self.expand_bus_labels(&prefixed);
-            eprintln!(
+            mcc_dbg!(
+                "inst::fcall",
                 "[RCM-DBG] module={} inst={inst_name} line={_li} expanded={expanded:?}",
                 self.name
             );
@@ -1039,7 +1052,8 @@ impl McModuleInst {
                 .collect();
 
             if self.name.contains("513") {
-                eprintln!(
+                mcc_dbg!(
+                    "inst::fcall",
                     "[COND-EVAL] func={} conds_count={} params={params:?}",
                     func_def.name,
                     func_def.conds.len()
@@ -1052,7 +1066,8 @@ impl McModuleInst {
             for (ci, conds) in func_def.conds.iter().enumerate() {
                 let matched_lines = conds.evaluate(&params);
                 if self.name.contains("513") {
-                    eprintln!(
+                    mcc_dbg!(
+                        "inst::fcall",
                         "[COND-EVAL] func={} cond[{}] matched {} lines",
                         func_def.name,
                         ci,
@@ -1069,9 +1084,12 @@ impl McModuleInst {
                         Self::prefix_instance_line_with_skip(&substituted, inst_name, &skip);
                     let expanded = self.expand_bus_labels(&prefixed);
                     if self.name.contains("513") {
-                        eprintln!(
+                        mcc_dbg!(
+                            "inst::fcall",
                             "[COND-PROC] func={} cond[{}] line[{}] expanded={expanded:?}",
-                            func_def.name, ci, li
+                            func_def.name,
+                            ci,
+                            li
                         );
                     }
                     self.process_line(&expanded)?;

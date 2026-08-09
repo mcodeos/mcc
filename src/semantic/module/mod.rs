@@ -174,7 +174,7 @@ impl McModule {
                                             .collect()
                                     })
                                     .unwrap_or_default();
-                                eprintln!("[P2-NET-AST] module={} net_node_type={st} children={children:?}", self.name);
+                                mcc_dbg!("sem::module", "[P2-NET-AST] module={} net_node_type={st} children={children:?}", self.name);
                             }
                             if subnode.get_type() == MCAST_DECLARE {
                                 self.insts.parse(&subnode, &self.uri);

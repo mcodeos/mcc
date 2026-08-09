@@ -15,6 +15,10 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tracing::debug;
 
+// crate-wide debug macro (20 targets + error/warn/info)
+#[macro_use]
+mod debug_flags;
+
 //2. crate wise
 pub(crate) mod ast;
 pub(crate) mod build;
@@ -326,7 +330,10 @@ pub fn get_component_def(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
         uri: uri.clone(),
     };
     // Try workspace components first, then global
-    if let Some(c) = crate::db::cmie::tables::WORKSPACE.components.get(&space_name) {
+    if let Some(c) = crate::db::cmie::tables::WORKSPACE
+        .components
+        .get(&space_name)
+    {
         return Some(McCMIE::Component(c.clone()));
     }
     if let Some(c) = crate::db::infra::global::mcc_components.get(&space_name) {
@@ -754,14 +761,20 @@ fn node_element_to_info(elem: &McBus) -> NodeElementInfo {
 
 /// Print all connection line info for module (for debugging)
 pub fn print_module_lines(module: &McModule) {
-    eprintln!(
+    mcc_dbg!(
+        "parse::phrase",
         "=== Module '{}' Lines ({}) ===",
         module.name,
         module.lines.len()
     );
     for (i, line) in module.lines.iter().enumerate() {
         let info = phrase_to_info(line);
-        eprintln!("  Line[{}]: {} members", i, info.members.len());
+        mcc_dbg!(
+            "parse::phrase",
+            "  Line[{}]: {} members",
+            i,
+            info.members.len()
+        );
         for (j, member) in info.members.iter().enumerate() {
             print_member_info_indent(member, 4, j);
         }
@@ -772,27 +785,37 @@ fn print_member_info_indent(member: &LineMemberInfo, indent: usize, idx: usize) 
     let pad = " ".repeat(indent);
     match member {
         LineMemberInfo::Lead => {
-            eprintln!("{pad}[{idx}] Lead");
+            mcc_dbg!("parse::phrase", "{pad}[{idx}] Lead");
         }
         LineMemberInfo::Bus { elements } => {
             let names: Vec<&str> = elements.iter().map(|e| e.name.as_str()).collect();
-            eprintln!("{pad}[{idx}] Bus({names:?})");
+            mcc_dbg!("parse::phrase", "{pad}[{idx}] Bus({names:?})");
         }
         LineMemberInfo::Node { left, right } => {
             let l: Vec<&str> = left.iter().map(|e| e.name.as_str()).collect();
             let r: Vec<&str> = right.iter().map(|e| e.name.as_str()).collect();
-            eprintln!("{pad}[{idx}] Node {{ left: {l:?}, right: {r:?} }}");
+            mcc_dbg!(
+                "parse::phrase",
+                "{pad}[{idx}] Node {{ left: {l:?}, right: {r:?} }}"
+            );
         }
         LineMemberInfo::Parallel { lines } => {
-            eprintln!("{}[{}] Parallel({} phrases)", pad, idx, lines.len());
+            mcc_dbg!(
+                "parse::phrase",
+                "{}[{}] Parallel({} phrases)",
+                pad,
+                idx,
+                lines.len()
+            );
         }
         LineMemberInfo::Transposed { inner: _ } => {
-            eprintln!("{pad}[{idx}] Transposed:");
+            mcc_dbg!("parse::phrase", "{pad}[{idx}] Transposed:");
         }
         LineMemberInfo::FuncCall {
             func_name, params, ..
         } => {
-            eprintln!(
+            mcc_dbg!(
+                "parse::phrase",
                 "{}[{}] FuncCall {{ func: {}, params: {} }}",
                 pad,
                 idx,
@@ -801,7 +824,8 @@ fn print_member_info_indent(member: &LineMemberInfo, indent: usize, idx: usize) 
             );
         }
         LineMemberInfo::Closure { params, body, .. } => {
-            eprintln!(
+            mcc_dbg!(
+                "parse::phrase",
                 "{}[{}] Closure {{ params: {}, body: {} lines }}",
                 pad,
                 idx,
@@ -810,13 +834,25 @@ fn print_member_info_indent(member: &LineMemberInfo, indent: usize, idx: usize) 
             );
         }
         LineMemberInfo::Group { lines, .. } => {
-            eprintln!("{}[{}] Group {{ {} lines }}", pad, idx, lines.len());
+            mcc_dbg!(
+                "parse::phrase",
+                "{}[{}] Group {{ {} lines }}",
+                pad,
+                idx,
+                lines.len()
+            );
         }
         LineMemberInfo::Vector { lines } => {
-            eprintln!("{}[{}] Vector({} lines)", pad, idx, lines.len());
+            mcc_dbg!(
+                "parse::phrase",
+                "{}[{}] Vector({} lines)",
+                pad,
+                idx,
+                lines.len()
+            );
         }
         LineMemberInfo::Endpoint { info } => {
-            eprintln!("{pad}[{idx}] Endpoint({info})");
+            mcc_dbg!("parse::phrase", "{pad}[{idx}] Endpoint({info})");
         }
     }
 }
@@ -828,7 +864,7 @@ fn print_phrase_members(phrase: &McPhrase, indent: usize) {
             for (j, p) in phrases.iter().enumerate() {
                 print_phrase_members(p, indent);
                 if j < phrases.len() - 1 {
-                    eprintln!("{}    ---", " ".repeat(indent));
+                    mcc_dbg!("parse::phrase", "{}    ---", " ".repeat(indent));
                 }
             }
         }
@@ -836,13 +872,13 @@ fn print_phrase_members(phrase: &McPhrase, indent: usize) {
             for (k, p) in phrases.iter().enumerate() {
                 print_phrase_members(p, indent);
                 if k < phrases.len() - 1 {
-                    eprintln!("{}    ---", " ".repeat(indent));
+                    mcc_dbg!("parse::phrase", "{}    ---", " ".repeat(indent));
                 }
             }
         }
         McPhrase::Closure(c) => {
             for (k, p) in c.body.iter().enumerate() {
-                eprintln!("{}    body[{}]:", " ".repeat(indent), k);
+                mcc_dbg!("parse::phrase", "{}    body[{}]:", " ".repeat(indent), k);
                 print_phrase_members(p, indent + 4);
             }
         }
@@ -850,13 +886,13 @@ fn print_phrase_members(phrase: &McPhrase, indent: usize) {
             for (k, p) in g.opds.iter().enumerate() {
                 print_phrase_members(p, indent);
                 if k < g.opds.len() - 1 {
-                    eprintln!("{}    ---", " ".repeat(indent));
+                    mcc_dbg!("parse::phrase", "{}    ---", " ".repeat(indent));
                 }
             }
         }
         McPhrase::FuncCall(f) => {
             if let Some(c) = &f.caller {
-                eprintln!("{}    caller:", " ".repeat(indent));
+                mcc_dbg!("parse::phrase", "{}    caller:", " ".repeat(indent));
                 print_phrase_members(c, indent + 4);
             }
         }
@@ -865,11 +901,11 @@ fn print_phrase_members(phrase: &McPhrase, indent: usize) {
         }
         McPhrase::Member(phrase, ep) => {
             print_phrase_members(phrase, indent);
-            eprintln!("{}    .{}", " ".repeat(indent), ep);
+            mcc_dbg!("parse::phrase", "{}    .{}", " ".repeat(indent), ep);
         }
         _ => {
             // For other phrase types, just show the phrase type
-            eprintln!("{}    {:?}", " ".repeat(indent), phrase);
+            mcc_dbg!("parse::phrase", "{}    {:?}", " ".repeat(indent), phrase);
         }
     }
 }
@@ -937,13 +973,35 @@ pub use crate::cli::config::set_log_stream_applier;
 pub use crate::cli::config::{get_runtime_trace, set_trace_stdout_suppressed};
 pub use crate::db::infra::mc_code::mcb_reset_ast_visit_flag;
 
-/// Load trace config from global config file
-/// Called by binary at startup
-pub fn init_trace_config() {
-    use crate::cli::config::{get_runtime_trace, load_global_config};
-    if let Ok(config) = load_global_config() {
-        if let Ok(mut trace) = get_runtime_trace().write() {
-            *trace = config.trace;
-        }
+/// Load trace config from global + project config files.
+/// Called by binary at startup, before `-D` CLI flags are applied.
+///
+/// Priority: project.toml > mcc.yaml (handled by `merge_configs`).
+/// Later, `-D` flags override both via the applier bridge.
+pub fn init_trace_config(project_root: Option<&std::path::Path>) {
+    use crate::cli::config::{
+        get_runtime_trace, load_global_config, load_project_config, merge_configs,
+        set_debug_targets,
+    };
+
+    let global = load_global_config().unwrap_or_default();
+    let local = project_root.and_then(|p| load_project_config(p).ok().flatten());
+    let merged = merge_configs(&global, local.as_ref());
+
+    // Update runtime trace for legacy flag compat
+    if let Ok(mut trace) = get_runtime_trace().write() {
+        *trace = merged.trace.clone();
+    }
+
+    // Apply per-target overrides from merged config
+    if !merged.trace.targets.is_empty() {
+        let base = merged.trace.level.as_deref().unwrap_or("warn");
+        let targets: Vec<(String, String)> = merged
+            .trace
+            .targets
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        set_debug_targets(base, &targets);
     }
 }

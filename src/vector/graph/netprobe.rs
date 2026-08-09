@@ -103,12 +103,16 @@ pub fn probe_block_to_graph(block: &McVecBlock, graph: &McVecGraph) {
     let added: Vec<i64> = out_set.difference(&in_set).copied().collect();
 
     // ── 3) Report ──
-    eprintln!("{TAG} ══ from_block boundary reconciliation (McVecBlock → McVecGraph) ══");
-    eprintln!(
+    mcc_dbg!(
+        "vec",
+        "{TAG} ══ from_block boundary reconciliation (McVecBlock → McVecGraph) ══"
+    );
+    mcc_dbg!(
+        "vec",
         "{TAG}   nets:      in(McVecNet)={in_net_count}  out(VizNet)={out_net_count}  \
          (out>in is normal: SPI/NtoN splits nets; out<in or out=0 means nets are lost)"
     );
-    eprintln!(
+    mcc_dbg!("vec",
         "{TAG}   endpoints: in(distinct real id)={}  out(distinct real id)={}  synthetic(pin_id<0)={}",
         in_set.len(),
         out_set.len(),
@@ -117,9 +121,12 @@ pub fn probe_block_to_graph(block: &McVecBlock, graph: &McVecGraph) {
 
     // 3a) Dropped endpoints — this is the core: net points the drawing layer didn't receive
     if dropped.is_empty() {
-        eprintln!("{TAG}   ✓ 0 endpoints DROPPED (all input endpoints made it into VizNets)");
+        mcc_dbg!(
+            "vec",
+            "{TAG}   ✓ 0 endpoints DROPPED (all input endpoints made it into VizNets)"
+        );
     } else {
-        eprintln!(
+        mcc_dbg!("vec",
             "{TAG}   ✗ {} endpoint(s) DROPPED — these net points weren't mapped to a box in from_block / were skipped by the double-push logic:",
             dropped.len()
         );
@@ -127,16 +134,16 @@ pub fn probe_block_to_graph(block: &McVecBlock, graph: &McVecGraph) {
         sample.sort_unstable();
         for id in sample.iter().take(40) {
             let nets = in_ids.get(id).map(|v| v.join(",")).unwrap_or_default();
-            eprintln!("{TAG}       - id={id}  (from net: {nets})");
+            mcc_dbg!("vec", "{TAG}       - id={id}  (from net: {nets})");
         }
         if dropped.len() > 40 {
-            eprintln!("{TAG}       ... and {} more", dropped.len() - 40);
+            mcc_dbg!("vec", "{TAG}       ... and {} more", dropped.len() - 40);
         }
     }
 
     // 3b) Extra endpoints — usually sub-member expansion, normal, but listed for confirmation
     if !added.is_empty() {
-        eprintln!(
+        mcc_dbg!("vec",
             "{TAG}   · {} endpoint(s) ADDED (in output, not in input — usually SPI/bus sub-member expansion, expected)",
             added.len()
         );
@@ -144,29 +151,32 @@ pub fn probe_block_to_graph(block: &McVecBlock, graph: &McVecGraph) {
         sample.sort_unstable();
         for id in sample.iter().take(15) {
             let nets = out_ids.get(id).map(|v| v.join(",")).unwrap_or_default();
-            eprintln!("{TAG}       + id={id}  (entered VizNet: {nets})");
+            mcc_dbg!("vec", "{TAG}       + id={id}  (entered VizNet: {nets})");
         }
         if added.len() > 15 {
-            eprintln!("{TAG}       ... and {} more", added.len() - 15);
+            mcc_dbg!("vec", "{TAG}       ... and {} more", added.len() - 15);
         }
     }
 
     // 3c) Duplicate endpoints — directly catches the double-push bug in generate_viznets_from_block
     if dup_nets.is_empty() {
-        eprintln!("{TAG}   ✓ 0 VizNets contain duplicate endpoints");
+        mcc_dbg!("vec", "{TAG}   ✓ 0 VizNets contain duplicate endpoints");
     } else {
-        eprintln!(
+        mcc_dbg!("vec",
             "{TAG}   ✗✗ {} VizNet(s) contain *duplicate endpoints* — very likely a double-push in generate_viznets_from_block:",
             dup_nets.len()
         );
-        eprintln!(
+        mcc_dbg!("vec",
             "{TAG}      (duplicate endpoints make topology() count a 2-endpoint net as 4 endpoints → misclassify as Star/MultiDriver → wrong routing!)"
         );
         for (nid, name, dups) in dup_nets.iter().take(30) {
-            eprintln!("{TAG}       - VizNet #{nid} '{name}': {dups} duplicate endpoint(s)");
+            mcc_dbg!(
+                "vec",
+                "{TAG}       - VizNet #{nid} '{name}': {dups} duplicate endpoint(s)"
+            );
         }
         if dup_nets.len() > 30 {
-            eprintln!("{TAG}       ... and {} more", dup_nets.len() - 30);
+            mcc_dbg!("vec", "{TAG}       ... and {} more", dup_nets.len() - 30);
         }
     }
 
@@ -174,8 +184,11 @@ pub fn probe_block_to_graph(block: &McVecBlock, graph: &McVecGraph) {
     let mut topo: Vec<(&&str, &usize)> = topo_hist.iter().collect();
     topo.sort_by_key(|x| *x.0);
     let topo_str: Vec<String> = topo.iter().map(|(k, v)| format!("{k}={v}")).collect();
-    eprintln!("{TAG}   topology: [{}]", topo_str.join("  "));
-    eprintln!("{TAG} ════════════════════════════════════════════════════");
+    mcc_dbg!("vec", "{TAG}   topology: [{}]", topo_str.join("  "));
+    mcc_dbg!(
+        "vec",
+        "{TAG} ════════════════════════════════════════════════════"
+    );
 }
 
 /// Recursively flatten `McVecBlock`: collect each real endpoint id → list of net names, and tally the net count.
@@ -260,7 +273,8 @@ pub fn probe_promote(layer: &str, kept: &[VizNet], dropped: &[VizNet], orphan: &
     if dropped.is_empty() && orphan.is_empty() {
         return;
     }
-    eprintln!(
+    mcc_dbg!(
+        "vec",
         "{TAG} [promote] layer '{}': kept={} dropped(intra-box,1 box)={} orphan(0 box)={}",
         layer,
         kept.len(),
@@ -268,7 +282,8 @@ pub fn probe_promote(layer: &str, kept: &[VizNet], dropped: &[VizNet], orphan: &
         orphan.len()
     );
     for n in dropped.iter().take(20) {
-        eprintln!(
+        mcc_dbg!(
+            "vec",
             "{TAG}   - dropped: #{} '{}' ({} eps, boxes={:?})",
             n.nid,
             n.name,
@@ -277,7 +292,7 @@ pub fn probe_promote(layer: &str, kept: &[VizNet], dropped: &[VizNet], orphan: &
         );
     }
     for n in orphan.iter().take(20) {
-        eprintln!(
+        mcc_dbg!("vec",
             "{TAG}   ⚠ orphan (residue from failed builder parsing, 0 endpoints land in this layer's boxes): #{} '{}' ({} eps)",
             n.nid,
             n.name,
@@ -358,7 +373,8 @@ fn list_unrouted(graph: &McVecGraph, depth: usize) {
             Some(r) => r.segments.is_empty(),
         };
         if bad && shown < 20 {
-            eprintln!(
+            mcc_dbg!(
+                "vec",
                 "{TAG}   - [d{}] #{} '{}' ({} eps, {})",
                 depth,
                 net.nid,

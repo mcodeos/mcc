@@ -49,9 +49,46 @@ cargo build
 -v, -vv, -vvv     Verbose (info / debug / trace)
 -q                Quiet (errors only)
 -t                Show module/file in log lines
+-D TARGET[=LEVEL] Enable debug output for specific module (repeatable)
 --cwd DIR          Working directory
 --completion SHELL Generate shell completions (bash/zsh/fish/powershell)
 -V, --version     Print version
+```
+
+### Debug Targets (`-D` flag)
+
+Runtime-controllable per-module debug output via `mcc_dbg!` macro (20 tracing targets):
+
+| Alias    | Expands to                          |
+|----------|-------------------------------------|
+| `pass1`  | `mcc::parse::*`, `mcc::sem::*`      |
+| `pass2`  | `mcc::inst::*`                      |
+| `fcall`  | `mcc::sem::fcall`, `mcc::inst::fcall`|
+| `lapper` | `mcc::sem::class`, `mcc::lsp::lapper`|
+| `vec`    | `mcc::vec`                          |
+| `viz`    | `mcc::viz`                          |
+| `lsp`    | `mcc::lsp::*`                       |
+| `all`    | `*` (everything)                    |
+
+```bash
+# Example: enable function-call resolution debug
+mcc parse example.mc -D fcall=debug -vv
+
+# Example: enable multiple targets at different levels
+mcc parse example.mc -D pass1=trace -D inst::dump=debug
+```
+
+### RPC Debug Control
+
+```json
+// Enable per-target debug at runtime (no rebuild needed)
+{"method":"trace.set","params":{"name":"mcc::sem::fcall","level":"debug"}}
+{"method":"trace.set","params":{"name":"pass1","level":"trace"}}
+{"method":"trace.set","params":{"name":"mcc::inst::dump","level":"off"}}
+
+// Query active targets
+{"method":"trace.get"}
+→ {"legacy": {...}, "targets": {"mcc::sem::fcall": "debug", ...}}
 ```
 
 ### Legacy Shorthand

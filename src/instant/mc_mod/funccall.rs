@@ -230,7 +230,7 @@ impl McModuleInst {
                 let standard_alias =
                     crate::vector::graph::naming::canonicalize_class_alias(&raw_name);
                 if self.name == "speaker" {
-                    eprintln!(
+                    mcc_dbg!("inst::fcall", 
                         "[FUNCALL-ALIAS] module={} func_name={raw_name} cmie_raw_is_some={} standard_alias={standard_alias:?}",
                         self.name, cmie_raw.is_some()
                     );
@@ -248,13 +248,15 @@ impl McModuleInst {
                             crate::semantic::basic::mc_ids::McIds::from(canonical.as_str());
                         let uri = current_uri::get();
                         if self.name == "speaker" {
-                            eprintln!(
+                            mcc_dbg!(
+                                "inst::fcall",
                                 "[FUNCALL-ALIAS] canonical={canonical} uri={uri}",
                             );
                         }
                         let result = mcb_get_cmie(&canon_ids, &uri);
                         if self.name == "speaker" {
-                            eprintln!(
+                            mcc_dbg!(
+                                "inst::fcall",
                                 "[FUNCALL-ALIAS] cmie_result_is_some={}",
                                 result.is_some()
                             );
@@ -266,7 +268,8 @@ impl McModuleInst {
             }
         };
         if self.name.contains("moddcdc") || self.name == "speaker" {
-            eprintln!(
+            mcc_dbg!(
+                "inst::fcall",
                 "[FUNCALL-DISP] module={} func_name={func_name} cmie_found={}",
                 self.name,
                 cmie.is_some()
@@ -316,7 +319,10 @@ impl McModuleInst {
                     // Interface cannot be used as FuncCall construction
                 }
                 McCMIE::Enum(_) => {
-                    eprintln!("[WARN] Cannot instantiate Enum '{func_name}' as FuncCall");
+                    mcc_dbg!(
+                        "inst::fcall",
+                        "[WARN] Cannot instantiate Enum '{func_name}' as FuncCall"
+                    );
                     return Ok(FuncCallInst::PassThrough);
                 }
             }
@@ -514,7 +520,8 @@ impl McModuleInst {
         func_name: &str,
     ) -> Result<(), InstError> {
         if self.name.contains("513") {
-            eprintln!(
+            mcc_dbg!(
+                "inst::fcall",
                 "[TWOPIN-WIRE] module={} inst_name={inst_name} func={func_name} params={params:?}",
                 self.name
             );

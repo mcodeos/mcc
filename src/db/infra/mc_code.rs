@@ -2487,10 +2487,8 @@ impl McCode {
                             // via resolve_class_ref_at_span.
 
                             // Read class name from the reference span
-                            let content = std::fs::read_to_string(
-                                std::path::Path::new(uri.as_str()),
-                            )
-                            .ok();
+                            let content =
+                                std::fs::read_to_string(std::path::Path::new(uri.as_str())).ok();
                             let class_name: String = content
                                 .as_ref()
                                 .and_then(|c| c.get(decl_span.start..decl_span.end))
@@ -2507,44 +2505,35 @@ impl McCode {
                                 continue;
                             }
 
-                            let (local_class_id, ref_target_uri, ref_target_span) =
-                                if target_uri.is_empty() {
-                                    // Sentinel: unresolved during registration
-                                    if let Some(resolved) = Self::resolve_class_ref_at_span(
-                                        uri,
-                                        &decl_span,
-                                        &mut gt,
-                                        &sem,
-                                    ) {
-                                        (resolved.0, resolved.1, resolved.2)
-                                    } else {
-                                        continue;
-                                    }
+                            let (local_class_id, ref_target_uri, ref_target_span) = if target_uri
+                                .is_empty()
+                            {
+                                // Sentinel: unresolved during registration
+                                if let Some(resolved) =
+                                    Self::resolve_class_ref_at_span(uri, &decl_span, &mut gt, &sem)
+                                {
+                                    (resolved.0, resolved.1, resolved.2)
                                 } else {
-                                    // Normal case: target_uri/target_span are
-                                    // already correct. Register in local table
-                                    // to get a locally-unique DeclareId.
-                                    let cid = {
-                                        let mut found = None;
-                                        for ((u, name), &existing_cid) in
-                                            gt.class_name_to_id.iter()
-                                        {
-                                            if name == &class_name && u == &target_uri
-                                            {
-                                                found = Some(existing_cid);
-                                                break;
-                                            }
+                                    continue;
+                                }
+                            } else {
+                                // Normal case: target_uri/target_span are
+                                // already correct. Register in local table
+                                // to get a locally-unique DeclareId.
+                                let cid = {
+                                    let mut found = None;
+                                    for ((u, name), &existing_cid) in gt.class_name_to_id.iter() {
+                                        if name == &class_name && u == &target_uri {
+                                            found = Some(existing_cid);
+                                            break;
                                         }
-                                        found.unwrap_or_else(|| {
-                                            gt.add_class(
-                                                &target_uri,
-                                                &class_name,
-                                                target_span.clone(),
-                                            )
-                                        })
-                                    };
-                                    (cid, target_uri, target_span)
+                                    }
+                                    found.unwrap_or_else(|| {
+                                        gt.add_class(&target_uri, &class_name, target_span.clone())
+                                    })
                                 };
+                                (cid, target_uri, target_span)
+                            };
 
                             let refid =
                                 gt.add_declare_class(&uri, decl_span.clone(), local_class_id);

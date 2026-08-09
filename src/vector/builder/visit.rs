@@ -107,7 +107,7 @@ impl<'a> McVecBuilder<'a> {
     fn log_shape_stats(&self) {
         let rendered = self.shape_stats.render();
         if !rendered.is_empty() {
-            eprint!("{}", rendered);
+            mcc_dbg!("vec", "{}", rendered);
         }
     }
 

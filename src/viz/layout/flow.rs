@@ -356,7 +356,11 @@ impl FlowLayouter {
 
 impl Layouter for FlowLayouter {
     fn layout(&self, graph: &mut McVecGraph) -> (f64, f64) {
-        eprintln!("{}", super::chain::extract_signal_chains(graph).dump(graph));
+        mcc_dbg!(
+            "viz",
+            "{}",
+            super::chain::extract_signal_chains(graph).dump(graph)
+        );
 
         if graph.boxes.is_empty() {
             return (200.0, 100.0);
@@ -418,7 +422,7 @@ impl Layouter for FlowLayouter {
             let model = crate::viz::idiom::place::analyze_idiom_placement(graph, &protected);
             let report = crate::viz::idiom::place::apply_idiom_placement_pre_pins(graph, &model);
             if report.idioms_detected > 0 {
-                eprintln!("{}", report.report_line());
+                mcc_dbg!("viz", "{}", report.report_line());
             }
             let mut det_report =
                 crate::viz::stability::report::DeterminismReport::from_graph(graph);
@@ -427,7 +431,7 @@ impl Layouter for FlowLayouter {
                 &model.constraints,
                 &report.selected_candidates,
             );
-            eprintln!("{}", det_report.report_line());
+            mcc_dbg!("viz", "{}", det_report.report_line());
         }
 
         // ── 相位 4 · PinPlacement：EntryPoint 唯一写者 + hub 几何唯一终定者 ──

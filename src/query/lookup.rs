@@ -735,7 +735,10 @@ pub(crate) fn find_by_name_in_project_tables(class_name: &McIds) -> Option<McCMI
     for entry in global::mcc_components.iter() {
         let ident_str = entry.key().ident.to_string();
         if name_str == "DIO.ESD" {
-            eprintln!("[CMIE-LOOKUP] global component ident={ident_str} name={name_str}");
+            mcc_dbg!(
+                "lsp::query",
+                "[CMIE-LOOKUP] global component ident={ident_str} name={name_str}"
+            );
         }
         if ident_str == name_str {
             return Some(McCMIE::Component(entry.value().clone()));

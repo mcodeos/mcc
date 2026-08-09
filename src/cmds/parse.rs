@@ -158,9 +158,16 @@ pub fn run(args: &ParseArgs) -> Result<()> {
             // No module found — if --tree/--ast is set, still proceed to show
             // components/interfaces/enums. Otherwise finish.
             if !stages.tree {
-                if args.dlog { print_dlog_diagnostics(); }
+                if args.dlog {
+                    print_dlog_diagnostics();
+                }
                 let env = Envelope::ok(builder.finish());
-                output::emit_envelope(&env, args.format, args.output.as_deref().map(Path::new), false)?;
+                output::emit_envelope(
+                    &env,
+                    args.format,
+                    args.output.as_deref().map(Path::new),
+                    false,
+                )?;
                 return Ok(());
             }
             // Use a dummy — tree section will collect all CMIE types directly
@@ -246,10 +253,16 @@ pub fn run(args: &ParseArgs) -> Result<()> {
             // Helper: iterate with intra-category dedup, filter by file URI
             macro_rules! collect_from {
                 ($iter:expr, $seen:ident, |$name:ident, $cmie_uri:ident| $body:expr) => {{
-                    let mut $seen: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
+                    let mut $seen: std::collections::HashSet<(String, String)> =
+                        std::collections::HashSet::new();
                     for ($name, $cmie_uri) in $iter {
-                        if !$seen.insert(($name.clone(), $cmie_uri.clone())) { continue; }
-                        if $cmie_uri == file_uri || $cmie_uri.ends_with(file_uri) || file_uri.ends_with($cmie_uri.as_str()) {
+                        if !$seen.insert(($name.clone(), $cmie_uri.clone())) {
+                            continue;
+                        }
+                        if $cmie_uri == file_uri
+                            || $cmie_uri.ends_with(file_uri)
+                            || file_uri.ends_with($cmie_uri.as_str())
+                        {
                             $body
                         }
                     }
@@ -259,7 +272,9 @@ pub fn run(args: &ParseArgs) -> Result<()> {
             // Modules
             collect_from!(&mcc::mcb_iter_modules(), seen_mod, |name, cmie_uri| {
                 let ident = McIds::from(name.as_str());
-                if let Some(McCMIE::Module(m)) = mcc::get_def(&ident, &McURI::from(cmie_uri.as_str())) {
+                if let Some(McCMIE::Module(m)) =
+                    mcc::get_def(&ident, &McURI::from(cmie_uri.as_str()))
+                {
                     let mut children = Vec::with_capacity(m.lines.len());
                     for line in m.lines.iter() {
                         children.push(phrase_to_tree_json(line, args.depth, 0));
@@ -301,7 +316,11 @@ pub fn run(args: &ParseArgs) -> Result<()> {
         }
 
         let view_data = ViewData {
-            target: if args.ast { "ast".into() } else { "tree".into() },
+            target: if args.ast {
+                "ast".into()
+            } else {
+                "tree".into()
+            },
             data: serde_json::Value::Array(nodes),
         };
         builder.set_view(view_data);
@@ -1272,7 +1291,10 @@ fn cmie_to_tree_json(cmie: &McCMIE, _max_depth: usize) -> serde_json::Value {
                 .iter()
                 .map(|d| {
                     let mut obj = serde_json::Map::new();
-                    obj.insert("name".into(), json!(d.get_primary_name().unwrap_or_default()));
+                    obj.insert(
+                        "name".into(),
+                        json!(d.get_primary_name().unwrap_or_default()),
+                    );
                     if let Some(cls) = param_cls(d) {
                         obj.insert("cls".into(), json!(cls));
                     }
@@ -1344,7 +1366,10 @@ fn cmie_to_tree_json(cmie: &McCMIE, _max_depth: usize) -> serde_json::Value {
                 .iter()
                 .map(|d| {
                     let mut obj = serde_json::Map::new();
-                    obj.insert("name".into(), json!(d.get_primary_name().unwrap_or_default()));
+                    obj.insert(
+                        "name".into(),
+                        json!(d.get_primary_name().unwrap_or_default()),
+                    );
                     if let Some(cls) = param_cls(d) {
                         obj.insert("cls".into(), json!(cls));
                     }
