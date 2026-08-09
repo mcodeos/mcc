@@ -501,7 +501,11 @@ impl McEnumClassDeclare {
 /// The structural form of a parameter declaration (shape, not type).
 #[derive(Debug, Clone)]
 pub enum McParamDeclareKind {
-    Role(McIds),
+    Role {
+        name: McIds,
+        /// Default role value when declared as `role = Controller`
+        default_role: Option<McIds>,
+    },
     Single(McIds),
     Multiple(Vec<McIds>),
     UValue(McUnitValueDeclare),
@@ -562,7 +566,19 @@ impl McParamDeclare {
         let mut param_type = McParamType::from_ast(node);
 
         let kind = match subnode.get_type() {
-            MCAST_ROLE => McParamDeclareKind::Role(McIds::from("role")),
+            MCAST_ROLE => {
+                // Check for default role value via next sibling (role = Controller)
+                // The C parser links the default value after MCAST_ROLE:
+                // MCAST_PARAM(MCAST_ROLE("role") -> MCAST_IDS("Controller"))
+                let default_role = subnode
+                    .get_next()
+                    .and_then(|n| ids_to_dotted_string(&n))
+                    .map(|s| McIds::from(s.as_str()));
+                McParamDeclareKind::Role {
+                    name: McIds::from("role"),
+                    default_role,
+                }
+            }
             MCAST_ID | MCAST_IDA | MCAST_IDS => {
                 if let Some(name_ids) = McIds::new(&subnode) {
                     // Check for default value (next sibling after the name node)
@@ -778,7 +794,7 @@ impl McParamDeclare {
 
     pub fn match_name(&self, target: &str) -> bool {
         match &self.kind {
-            McParamDeclareKind::Role(role) => role.match_name(target),
+            McParamDeclareKind::Role { name, .. } => name.match_name(target),
             McParamDeclareKind::Single(ids) => ids.match_name(target),
             McParamDeclareKind::Multiple(_) => false,
             McParamDeclareKind::UValue(_) => false,
@@ -788,7 +804,7 @@ impl McParamDeclare {
 
     pub fn get_primary_name(&self) -> Option<String> {
         match &self.kind {
-            McParamDeclareKind::Role(role) => role.get_primary_name(),
+            McParamDeclareKind::Role { name, .. } => name.get_primary_name(),
             McParamDeclareKind::Single(ids) => ids.get_primary_name(),
             McParamDeclareKind::Multiple(_) => None,
             McParamDeclareKind::UValue(uval) => uval.name.get_primary_name(),
@@ -910,7 +926,7 @@ impl McParamDeclare {
 
     pub fn expand(&self) -> Vec<String> {
         match &self.kind {
-            McParamDeclareKind::Role(role) => role.expand(),
+            McParamDeclareKind::Role { name, .. } => name.expand(),
             McParamDeclareKind::Single(ids) => ids.expand(),
             McParamDeclareKind::Multiple(_) => Vec::new(),
             McParamDeclareKind::UValue(_) => Vec::new(),
@@ -926,7 +942,7 @@ impl McParamDeclare {
                 .iter()
                 .flat_map(|ids| ids.all_name_forms())
                 .collect(),
-            McParamDeclareKind::Role(role) => role.all_name_forms(),
+            McParamDeclareKind::Role { name, .. } => name.all_name_forms(),
             McParamDeclareKind::UValue(uval) => uval.name.all_name_forms(),
             McParamDeclareKind::EnumClass(ec) => ec.name.all_name_forms(),
         }
@@ -948,6 +964,12 @@ impl McParamDeclare {
                 .default_val
                 .as_ref()
                 .map(|default| (ec.name.clone(), default.clone())),
+            McParamDeclareKind::Role {
+                name,
+                default_role,
+            } => default_role
+                .as_ref()
+                .map(|dr| (name.clone(), dr.to_string())),
             _ => None,
         }
     }
@@ -979,7 +1001,16 @@ impl McParamDeclare {
 impl std::fmt::Display for McParamDeclare {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.kind {
-            McParamDeclareKind::Role(role) => write!(f, "{role}"),
+            McParamDeclareKind::Role {
+                name,
+                default_role,
+            } => {
+                if let Some(ref dr) = default_role {
+                    write!(f, "{name} = {dr}")
+                } else {
+                    write!(f, "{name}")
+                }
+            }
             McParamDeclareKind::Single(ids) => write!(f, "{ids}"),
             McParamDeclareKind::Multiple(_phrases) => write!(f, "[, ]"),
             McParamDeclareKind::UValue(uval) => write!(f, "{uval}"),
