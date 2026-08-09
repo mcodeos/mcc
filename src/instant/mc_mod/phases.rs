@@ -347,15 +347,21 @@ impl McModuleInst {
             .collect();
 
         if self.name.contains("513") {
-            eprintln!("[P2-4-DECL] module={} has {} insts", self.name, items.len());
+            mcc_dbg!(
+                "inst::mod",
+                "[P2-4-DECL] module={} has {} insts",
+                self.name,
+                items.len()
+            );
             for (k, _) in &items {
-                eprintln!("[P2-4-DECL]   inst: {k}");
+                mcc_dbg!("inst::mod", "[P2-4-DECL]   inst: {k}");
             }
         }
 
         for (_name, ident) in items {
             if self.name.contains("513") {
-                eprintln!(
+                mcc_dbg!(
+                    "inst::mod",
                     "[P2-4-DECL] module={} processing decl: {:?}",
                     self.name,
                     std::mem::discriminant(&ident)
@@ -363,42 +369,46 @@ impl McModuleInst {
             }
             match &ident {
                 McInstance::Component(c) => {
-                    let inst = if c.nc {
-                        McComponentInst::with_nc(&c.name.to_string(), c.base.clone())
-                    } else if c.params.is_empty() {
-                        McComponentInst::new(&c.name.to_string(), c.base.clone())
-                    } else {
-                        match McComponentInst::with_params(
-                            &c.name.to_string(),
-                            c.base.clone(),
-                            &c.params,
-                        ) {
-                            Ok(inst) => inst,
-                            Err(e) => {
-                                let reason = format!("{:?}", e);
-                                eprintln!(
+                    let inst =
+                        if c.nc {
+                            McComponentInst::with_nc(&c.name.to_string(), c.base.clone())
+                        } else if c.params.is_empty() {
+                            McComponentInst::new(&c.name.to_string(), c.base.clone())
+                        } else {
+                            match McComponentInst::with_params(
+                                &c.name.to_string(),
+                                c.base.clone(),
+                                &c.params,
+                            ) {
+                                Ok(inst) => inst,
+                                Err(e) => {
+                                    let reason = format!("{:?}", e);
+                                    mcc_dbg!("inst::mod",
                                     "[ERROR] Failed to instantiate component '{}' (class '{}'): {}",
                                     c.name, c.base.name, reason
                                 );
-                                self.failed_classes.insert(c.base.name.to_string());
-                                self.failed_records.push(FailedRecord {
-                                    module: self.name.clone(),
-                                    src_line: self
-                                        .current_line_span
-                                        .as_ref()
-                                        .map(|s| s.start / 1000),
-                                    component_name: c.name.to_string(),
-                                    class_name: c.base.name.to_string(),
-                                    reason,
-                                });
-                                continue;
+                                    self.failed_classes.insert(c.base.name.to_string());
+                                    self.failed_records.push(FailedRecord {
+                                        module: self.name.clone(),
+                                        src_line: self
+                                            .current_line_span
+                                            .as_ref()
+                                            .map(|s| s.start / 1000),
+                                        component_name: c.name.to_string(),
+                                        class_name: c.base.name.to_string(),
+                                        reason,
+                                    });
+                                    continue;
+                                }
                             }
-                        }
-                    };
+                        };
                     if self.name.contains("513") {
-                        eprintln!(
+                        mcc_dbg!(
+                            "inst::mod",
                             "[DECL-CREATE] module={} inst_name={} class={}",
-                            self.name, inst.name, inst.def.name
+                            self.name,
+                            inst.name,
+                            inst.def.name
                         );
                     }
                     self.components.push(inst);
@@ -413,9 +423,12 @@ impl McModuleInst {
                 }
                 McInstance::Module(m) => {
                     let inst_name = m.name.to_string();
-                    eprintln!(
+                    mcc_dbg!(
+                        "inst::mod",
                         "[P2-4-MOD] module={} instantiating sub-module '{}' class='{}'",
-                        self.name, inst_name, m.base.name
+                        self.name,
+                        inst_name,
+                        m.base.name
                     );
                     let mut inst = McModuleInst::new(&inst_name, m.base.clone());
                     // ★ Sub-module instantiation failure → record diagnostics, but keep instance
@@ -455,7 +468,8 @@ impl McModuleInst {
         let lines = self.def.lines.clone();
         let line_spans = self.def.line_spans.clone();
         if self.name.contains("513") || self.name.contains("moddcdc") {
-            eprintln!(
+            mcc_dbg!(
+                "inst::mod",
                 "[P2-LINES] module={} total_lines={}",
                 self.name,
                 lines.len()
@@ -485,7 +499,7 @@ impl McModuleInst {
                     McPhrase::Lead => "Lead".into(),
                     _ => "Other".into(),
                 };
-                eprintln!("[P2-LINES]   line[{idx}]={desc}");
+                mcc_dbg!("inst::mod", "[P2-LINES]   line[{idx}]={desc}");
             }
         }
         for (_i, _l) in lines.iter().enumerate() {}
@@ -592,9 +606,11 @@ impl McModuleInst {
             //    is complete, this should be **silent**. If it still prints, that path is
             //    coming from a construction point other than get_left/right (funccall/bus.rs),
             //    and that construction point also needs normalization added.
-            eprintln!(
+            mcc_dbg!(
+                "inst::mod",
                 "[P2-SWEEP-LATE] {} -> {}",
-                self.connections[ci].points[pi].path, new_path
+                self.connections[ci].points[pi].path,
+                new_path
             );
             self.connections[ci].points[pi].path = new_path;
         }

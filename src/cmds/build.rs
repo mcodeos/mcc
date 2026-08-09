@@ -25,6 +25,7 @@ use crate::output::{
 };
 use anyhow::{Context, Result};
 use mcc::cli::{rpcclient::RpcClient, BuildArgs, OutputFormat};
+use mcc::mcc_dbg;
 use mcc::viz::{
     layout::{
         FlowLayouter, HierarchicalLayouter, LayeredLayouter, RadialLayouter,
@@ -289,9 +290,11 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                         }
                     }
                     Err(e) => {
-                        eprintln!(
+                        mcc_dbg!(
+                            "build",
                             "[viz] skip module '{}': mcc_build_flat failed: {}",
-                            mod_name, e
+                            mod_name,
+                            e
                         );
                     }
                 }
@@ -317,7 +320,8 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                 .with_context(|| format!("failed to write file: {}", output_path))?;
             renderer.viz_written(output_path, html.len());
 
-            eprintln!(
+            mcc_dbg!(
+                "build",
                 "[viz] rendered {} modules: {} boxes, {} edges",
                 svgs.len(),
                 total_boxes,
@@ -331,13 +335,14 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             // Pipeline diagnostics gated behind MC_VIZ_DUMP (silent by default).
             if mcc::viz::log::enabled() {
                 let sub = inst.sub_modules.iter().find(|s| s.name == "mcu513");
-                eprintln!(
+                mcc_dbg!(
+                    "build",
                     "[CHK] inst-side mcu513.components = {}",
                     sub.map(|s| s.components.len()).unwrap_or(0)
                 );
-                eprintln!("[DUMP] ====== InstTable contents ======");
+                mcc_dbg!("build", "[DUMP] ====== InstTable contents ======");
                 table.1.dump();
-                eprintln!("[DUMP] ==============================");
+                mcc_dbg!("build", "[DUMP] ==============================");
             }
 
             // ★ netcheck: 网表体检（Tier 0 · NETLIST CORRECTNESS）
@@ -352,7 +357,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             let quality = metrics.finish_quality(Some(&build_report));
             // Metrics summary: always shown (this is the acceptance yardstick).
             for line in quality.report_lines() {
-                eprintln!("{line}");
+                mcc_dbg!("build", "{line}");
             }
 
             // [P0-DET] CLI golden guard: compare against baseline when MCC_GOLDEN_CHECK is set
@@ -362,9 +367,10 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                 if std::env::var("UPDATE_GOLDEN").is_ok() || !gp.exists() {
                     std::fs::create_dir_all(gp.parent().unwrap()).ok();
                     std::fs::write(&gp, &sig).ok();
-                    eprintln!("[golden] wrote {}", gp.display());
+                    mcc_dbg!("build", "[golden] wrote {}", gp.display());
                 } else if sig != std::fs::read_to_string(&gp).unwrap_or_default() {
-                    eprintln!(
+                    mcc_dbg!(
+                        "build",
                         "[golden] MISMATCH vs {} (UPDATE_GOLDEN=1 to refresh)",
                         gp.display()
                     );
@@ -383,7 +389,8 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             // the drawing is electrically wrong (dropped/partial nets, unrendered pins,
             // box/wire collisions). Fail the build so it can't pass silently.
             if !quality.is_perfect() {
-                eprintln!(
+                mcc_dbg!(
+                    "build",
                     "[gate] FIDELITY not perfect -> build failed. See report above. \
                      (set MCC_FIDELITY_GATE=0 to downgrade to warning)"
                 );
@@ -468,7 +475,8 @@ fn build_viz_opts(layouter_name: Option<&str>) -> mcc::viz::api::RenderOpts {
                 vec![Box::new(LayeredLayouter::sub())],
             ),
             other => {
-                eprintln!(
+                mcc_dbg!(
+                    "build",
                     "[viz] unknown layouter '{}', using default. Choices: flow|schematic_radial|schematic_sub|hierarchical|radial|layered",
                     other
                 );
@@ -479,7 +487,7 @@ fn build_viz_opts(layouter_name: Option<&str>) -> mcc::viz::api::RenderOpts {
         opts.sub_layouter = sub;
         opts.top_candidates = top_cands;
         opts.sub_candidates = sub_cands;
-        eprintln!("[viz] locked layouter: top={} sub={}", name, name);
+        mcc_dbg!("build", "[viz] locked layouter: top={} sub={}", name, name);
     }
     opts
 }
@@ -599,6 +607,7 @@ fn escape_xml_viz_build(s: &str) -> String {
 mod phase0_golden {
     use super::build_viz_opts;
     use crate::cmds::manifest;
+    use mcc::mcc_dbg;
     use mcc::McIds;
     use std::path::{Path, PathBuf};
 
@@ -641,7 +650,10 @@ mod phase0_golden {
     #[test]
     fn determinism_render_twice() {
         let Some((root, entry, top)) = hbl_project() else {
-            eprintln!("[phase0] set MCC_GOLDEN_PROJECT to enable; skipping");
+            mcc_dbg!(
+                "build",
+                "[phase0] set MCC_GOLDEN_PROJECT to enable; skipping"
+            );
             return;
         };
         let graph = build_graph(&root, entry.as_deref(), top.as_deref());
@@ -680,7 +692,7 @@ mod phase0_golden {
         if std::env::var("UPDATE_GOLDEN").is_ok() || !path.exists() {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, &sig).unwrap();
-            eprintln!("[golden] wrote baseline -> {}", path.display());
+            mcc_dbg!("build", "[golden] wrote baseline -> {}", path.display());
             return;
         }
         let golden = std::fs::read_to_string(&path).unwrap();
@@ -700,8 +712,8 @@ mod phase0_golden {
         let (_, metrics) =
             mcc::viz::api::render_with_metrics(graph, mcc::viz::api::RenderOpts::default());
         let (fid, read) = metrics.finish(None); // self-consistent even without build report
-        eprintln!("{}", fid.report_line());
-        eprintln!("{}", read.report_line());
+        mcc_dbg!("build", "{}", fid.report_line());
+        mcc_dbg!("build", "{}", read.report_line());
         assert!(fid.pins_rendered <= fid.pins_total);
         assert!(fid.nets_rendered <= fid.nets_total);
         assert!(read.total_wirelength >= 0.0 && read.weighted() >= 0.0);
@@ -748,7 +760,7 @@ mod phase0_golden {
     #[test]
     fn hbl1_metrics_golden_roundtrip() {
         if std::env::var("MCC_HBL1_METRICS").is_err() {
-            eprintln!("skip hbl1 metrics golden; set MCC_HBL1_METRICS=1");
+            mcc_dbg!("build", "skip hbl1 metrics golden; set MCC_HBL1_METRICS=1");
             return;
         }
 
@@ -763,7 +775,11 @@ mod phase0_golden {
                 if std::env::var("UPDATE_GOLDEN").is_ok() || !path.exists() {
                     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
                     std::fs::write(&path, snapshot.to_json()).unwrap();
-                    eprintln!("[metrics-golden] wrote baseline -> {}", path.display());
+                    mcc_dbg!(
+                        "build",
+                        "[metrics-golden] wrote baseline -> {}",
+                        path.display()
+                    );
                     return;
                 }
 
@@ -785,7 +801,7 @@ mod phase0_golden {
     #[test]
     fn hbl1_semantic_smoke() {
         if std::env::var("MCC_HBL1_METRICS").is_err() {
-            eprintln!("skip hbl1 semantic smoke; set MCC_HBL1_METRICS=1");
+            mcc_dbg!("build", "skip hbl1 semantic smoke; set MCC_HBL1_METRICS=1");
             return;
         }
 
@@ -809,7 +825,7 @@ mod phase0_golden {
     #[test]
     fn hbl1_determinism_repeated_run() {
         if std::env::var("MCC_HBL1_METRICS").is_err() {
-            eprintln!("skip hbl1 determinism; set MCC_HBL1_METRICS=1");
+            mcc_dbg!("build", "skip hbl1 determinism; set MCC_HBL1_METRICS=1");
             return;
         }
 

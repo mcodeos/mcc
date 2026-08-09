@@ -848,9 +848,13 @@ impl McComponentInst {
                             .cmp(&b.parse::<i64>().unwrap_or(0))
                     });
                     if asc != ordered {
-                        eprintln!(
+                        mcc_dbg!(
+                            "inst::comp",
                             "[P1-FIX] {}.{} declaration_order={:?} (ascending would give {:?})",
-                            self.name, port_name, ordered, asc
+                            self.name,
+                            port_name,
+                            ordered,
+                            asc
                         );
                     }
                     // P2-1: return names alongside pids
@@ -872,9 +876,13 @@ impl McComponentInst {
                 });
                 // ── [P1-MULTI-PROBE] delete after verification: for Multi/List ports, if non-monotonic, declaration order ≠ ascending order ──
                 if sorted != *pids {
-                    eprintln!(
+                    mcc_dbg!(
+                        "inst::comp",
                         "[P1-MULTI-NONMONO] {}.{} declared={:?} ascending={:?}",
-                        self.name, port_name, pids, sorted
+                        self.name,
+                        port_name,
+                        pids,
+                        sorted
                     );
                 }
                 // P2-1: look up member names from pin_id_to_names

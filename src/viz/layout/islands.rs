@@ -979,7 +979,7 @@ fn place_terminal_box(
         // G4: Upgrade from debug_assert to release-mode diagnostic.
         if !b.pins.is_empty() && !b.pins.iter().any(|p| p.id == pin_id) {
             crate::viz::SYNTHETIC_PIN_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            eprintln!(
+            mcc_dbg!("viz",
                 "[viz] GHOST_PIN: pin {pin_id} 不属于 box#{} (合成端子，可能来自端口标量/成员处理或未解析的端点引用)，跳过",
                 b.id
             );
@@ -1248,7 +1248,7 @@ fn apply_chain_layout(
                 if !b.pins.is_empty() && !b.pins.iter().any(|p| p.id == pin_id) {
                     crate::viz::SYNTHETIC_PIN_COUNT
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    eprintln!(
+                    mcc_dbg!("viz",
                         "[viz] GHOST_PIN: pin {pin_id} 不属于 box#{} (合成端子，可能来自端口标量/成员处理或未解析的端点引用)，跳过",
                         b.id
                     );

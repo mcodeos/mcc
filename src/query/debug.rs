@@ -240,23 +240,39 @@ pub(crate) fn print_phrase_internal(
 // === pub fn mcb_debug_get_cmie(class_name: &McIds, uri: &McURI) { ===
 pub fn mcb_debug_get_cmie(class_name: &McIds, uri: &McURI) {
     let name_str = class_name.to_string();
-    eprintln!("╔══════════════════════════════════════════════════════╗");
-    eprintln!("â•' DEBUG mcb_get_cmie                                  â•'");
-    eprintln!("â•' class_name: {name_str:40} â•'");
-    eprintln!("â•' uri:        {uri:40} â•'");
-    eprintln!("╠══════════════════════════════════════════════════════╣");
+    mcc_dbg!(
+        "lsp::query",
+        "╔══════════════════════════════════════════════════════╗"
+    );
+    mcc_dbg!(
+        "lsp::query",
+        "â•' DEBUG mcb_get_cmie                                  â•'"
+    );
+    mcc_dbg!("lsp::query", "â•' class_name: {name_str:40} â•'");
+    mcc_dbg!("lsp::query", "â•' uri:        {uri:40} â•'");
+    mcc_dbg!(
+        "lsp::query",
+        "╠══════════════════════════════════════════════════════╣"
+    );
 
     // Step 1: system lib
     let mcode_found = crate::db::infra::libmgr::mcc_blibs
         .get(&"mcode".to_string())
         .is_some();
-    eprintln!("â•' Step 1: mcode system lib exists = {mcode_found}");
+    mcc_dbg!(
+        "lsp::query",
+        "â•' Step 1: mcode system lib exists = {mcode_found}"
+    );
     // [Diagnostic] Step 1: search in mcode base library
     if let Some(mcode) = crate::db::infra::libmgr::mcc_blibs.get(&"mcode".to_string()) {
         let has_entry = mcode.spacenames.get(class_name).is_some();
-        eprintln!("â•'   spacenames.get({name_str}) = {has_entry}");
+        mcc_dbg!(
+            "lsp::query",
+            "â•'   spacenames.get({name_str}) = {has_entry}"
+        );
         if has_entry {
-            eprintln!(
+            mcc_dbg!(
+                "lsp::query",
                 "║   ⚠️  System library hit! may return system library version (empty module)"
             );
         }
@@ -264,18 +280,29 @@ pub fn mcb_debug_get_cmie(class_name: &McIds, uri: &McURI) {
 
     // Step 2: prj_mcodes
     let mcodes_has_uri = workspace::WORKSPACE.mcodes.get(uri).is_some();
-    eprintln!("â•' Step 2: prj_mcodes.get(uri) = {mcodes_has_uri}");
+    mcc_dbg!(
+        "lsp::query",
+        "â•' Step 2: prj_mcodes.get(uri) = {mcodes_has_uri}"
+    );
     if let Some(mcfile) = workspace::WORKSPACE.mcodes.get(uri) {
         let has_spacename = mcfile.value().spacenames.get(class_name).is_some();
-        eprintln!("â•'   spacenames.get({name_str}) = {has_spacename}");
+        mcc_dbg!(
+            "lsp::query",
+            "â•'   spacenames.get({name_str}) = {has_spacename}"
+        );
         if let Some(sn) = mcfile.value().spacenames.get(class_name) {
             let sn_val = sn.clone();
-            eprintln!("â•'   SpaceName.ident = {}", sn_val.ident);
-            eprintln!("â•'   SpaceName.uri   = {}", sn_val.uri);
+            mcc_dbg!("lsp::query", "â•'   SpaceName.ident = {}", sn_val.ident);
+            mcc_dbg!("lsp::query", "â•'   SpaceName.uri   = {}", sn_val.uri);
             let found = find_in_project_tables(&sn_val);
-            eprintln!("â•'   find_in_project_tables = {}", found.is_some());
+            mcc_dbg!(
+                "lsp::query",
+                "â•'   find_in_project_tables = {}",
+                found.is_some()
+            );
             if let Some(McCMIE::Module(m)) = &found {
-                eprintln!(
+                mcc_dbg!(
+                    "lsp::query",
                     "║   ✅ Module found! lines={}, symbols={}",
                     m.lines.len(),
                     m.insts.iter().count()
@@ -287,7 +314,8 @@ pub fn mcb_debug_get_cmie(class_name: &McIds, uri: &McURI) {
     // Step 3: direct construct
     let direct_sn = McSpaceName::new(&class_name.clone(), uri.clone());
     let direct_found = find_in_project_tables(&direct_sn);
-    eprintln!(
+    mcc_dbg!(
+        "lsp::query",
         "â•' Step 3: direct SpaceName({}, {}) = {}",
         name_str,
         uri,
@@ -296,9 +324,14 @@ pub fn mcb_debug_get_cmie(class_name: &McIds, uri: &McURI) {
 
     // Step 5: by name
     let by_name = find_by_name_in_project_tables(class_name);
-    eprintln!("â•' Step 5: find_by_name = {}", by_name.is_some());
+    mcc_dbg!(
+        "lsp::query",
+        "â•' Step 5: find_by_name = {}",
+        by_name.is_some()
+    );
     if let Some(McCMIE::Module(m)) = &by_name {
-        eprintln!(
+        mcc_dbg!(
+            "lsp::query",
             "║   ✅ Module found! lines={}, symbols={}",
             m.lines.len(),
             m.insts.iter().count()
@@ -307,12 +340,20 @@ pub fn mcb_debug_get_cmie(class_name: &McIds, uri: &McURI) {
 
     // Full prj_modules state
     let modules = &workspace::WORKSPACE.modules;
-    eprintln!("╠══════════════════════════════════════════════════════╣");
-    eprintln!("║ prj_modules status: {} modules", modules.len());
+    mcc_dbg!(
+        "lsp::query",
+        "╠══════════════════════════════════════════════════════╣"
+    );
+    mcc_dbg!(
+        "lsp::query",
+        "║ prj_modules status: {} modules",
+        modules.len()
+    );
     for entry in modules.iter() {
         let key = entry.key();
         let val = entry.value();
-        eprintln!(
+        mcc_dbg!(
+            "lsp::query",
             "║   {} (uri={}) → lines={}, symbols={}",
             key.ident,
             key.uri,
@@ -320,5 +361,8 @@ pub fn mcb_debug_get_cmie(class_name: &McIds, uri: &McURI) {
             val.insts.iter().count()
         );
     }
-    eprintln!("╚══════════════════════════════════════════════════════╝");
+    mcc_dbg!(
+        "lsp::query",
+        "╚══════════════════════════════════════════════════════╝"
+    );
 }

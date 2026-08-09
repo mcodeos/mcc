@@ -134,7 +134,8 @@ impl McPhrase {
             || node_type == MCAST_CLASS
             || node_type == MCAST_DECLARE
         {
-            eprintln!(
+            mcc_dbg!(
+                "sem::conds",
                 "[P2-7-NODE-DBG] McPhrase::new node_type={node_type}, to_string={node_str:?}",
             );
         }
@@ -145,7 +146,7 @@ impl McPhrase {
                     .get_sub_node()
                     .map(|c| c.iter().map(|n| n.get_type()).collect())
                     .unwrap_or_default();
-                eprintln!(
+                mcc_dbg!("sem::conds", 
                     "[P2-7-XTAL-DBG] McPhrase::new node_type={node_type}, to_string={s:?}, child_types={child_types:?}",
                 );
             }
@@ -167,7 +168,7 @@ impl McPhrase {
                 // ── P2-11: Handle nested FuncCall inside MCAST_OPD ──
                 let subnode_type = subnode.get_type();
                 let subnode_str = subnode.to_string().unwrap_or_default();
-                eprintln!(
+                mcc_dbg!("sem::conds", 
                     "[P2-OPD-DBG] MCAST_OPD subnode_type={subnode_type} MCAST_OPD_FCALL={MCAST_OPD_FCALL} subnode_str={subnode_str:?}"
                 );
                 if subnode_type == MCAST_OPD_FCALL {
@@ -1254,7 +1255,8 @@ impl McPhrase {
 
             MCAST_OPD_APOST => {
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
-                eprintln!(
+                mcc_dbg!(
+                    "sem::conds",
                     "[P2-7-APOST-DBG] APOST inner type={}, to_string={:?}",
                     opd1_node.get_type(),
                     opd1_node.to_string()
@@ -1302,9 +1304,9 @@ impl McPhrase {
                         McPhrase::FuncCall(fc) => fc.func_name.to_string(),
                         _ => format!("{:?}", std::mem::discriminant(r)),
                     };
-                    eprintln!("[P2-FCALL-RESULT] FCALL result={fn_name}");
+                    mcc_dbg!("sem::conds", "[P2-FCALL-RESULT] FCALL result={fn_name}");
                 } else {
-                    eprintln!("[P2-FCALL-RESULT] FCALL result=None");
+                    mcc_dbg!("sem::conds", "[P2-FCALL-RESULT] FCALL result=None");
                 }
                 result
             }
@@ -1336,7 +1338,7 @@ impl McPhrase {
                         .get_sub_node()
                         .map(|c| c.iter().map(|n| n.get_type()).collect())
                         .unwrap_or_default();
-                    eprintln!(
+                    mcc_dbg!("sem::conds", 
                         "[P2-7-PLUS-AST] PLUS raw: opd1_type={t1}, opd1_children={c1:?}, opd2_type={t2}, opd2_children={c2:?}"
                     );
                 }
@@ -1344,7 +1346,12 @@ impl McPhrase {
                 let opd1 = McPhrase::new(&opd1_node, context)?;
                 let opd2 = McPhrase::new(&opd2_node, context)?;
 
-                eprintln!("[P2-7-PLUS-DBG] PLUS opd1={:?}, opd2={:?}", opd1, opd2);
+                mcc_dbg!(
+                    "sem::conds",
+                    "[P2-7-PLUS-DBG] PLUS opd1={:?}, opd2={:?}",
+                    opd1,
+                    opd2
+                );
 
                 // Infer shapes and upgrade phrases before checking connectivity
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
@@ -1411,7 +1418,12 @@ impl McPhrase {
                 let opd1 = McPhrase::new(&opd1_node, context)?;
                 let opd2 = McPhrase::new(&opd2_node, context)?;
 
-                eprintln!("[P2-7-MINUS-DBG] MINUS opd1={:?}, opd2={:?}", opd1, opd2);
+                mcc_dbg!(
+                    "sem::conds",
+                    "[P2-7-MINUS-DBG] MINUS opd1={:?}, opd2={:?}",
+                    opd1,
+                    opd2
+                );
 
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
 
@@ -1451,7 +1463,7 @@ impl McPhrase {
                         .get_sub_node()
                         .map(|c| c.iter().map(|n| n.get_type()).collect())
                         .unwrap_or_default();
-                    eprintln!("[P2-ARROW-DBG] ARROW: opd1_type={t1} opd1_children={c1:?} opd2_type={t2} opd2_children={c2:?}");
+                    mcc_dbg!("sem::conds", "[P2-ARROW-DBG] ARROW: opd1_type={t1} opd1_children={c1:?} opd2_type={t2} opd2_children={c2:?}");
                 }
                 let opd1 = McPhrase::new(&opd1_node, context);
                 let opd2 = McPhrase::new(&opd2_node, context);
@@ -1505,7 +1517,11 @@ impl McPhrase {
                                 _ => format!("{:?}", std::mem::discriminant(p)),
                             })
                             .collect();
-                        eprintln!("[P2-ARROW-RESULT] Series[{}]", desc.join(", "));
+                        mcc_dbg!(
+                            "sem::conds",
+                            "[P2-ARROW-RESULT] Series[{}]",
+                            desc.join(", ")
+                        );
                     }
                 }
                 Some(result)
@@ -1563,7 +1579,7 @@ impl McPhrase {
                         .get_sub_node()
                         .map(|c| c.iter().map(|n| n.get_type()).collect())
                         .unwrap_or_default();
-                    eprintln!(
+                    mcc_dbg!("sem::conds", 
                         "[P2-7-INST-DBG] MCAST_INSTANCE inner_type={inner_type}, inner_child_types={inner_child_types:?}, to_string={:?}",
                         node.to_string()
                     );
@@ -1631,12 +1647,13 @@ impl McPhrase {
                 // P2-7-XTAL: trace MCAST_CLASS inner structure
                 if let Some(inner) = node.get_sub_node() {
                     let inner_type = inner.get_type();
-                    eprintln!(
+                    mcc_dbg!(
+                        "sem::conds",
                         "[P2-7-CLASS-DBG] MCAST_CLASS inner_type={inner_type}, to_string={:?}",
                         node.to_string()
                     );
                     let names = inner.to_id_or_ida();
-                    eprintln!("[P2-7-CLASS-DBG] MCAST_CLASS names={names:?}",);
+                    mcc_dbg!("sem::conds", "[P2-7-CLASS-DBG] MCAST_CLASS names={names:?}",);
                     if names.len() == 1 {
                         if let Some(inst) = context.find_inst(&names[0]) {
                             // ★ LSP: Register instance reference for MCAST_CLASS path

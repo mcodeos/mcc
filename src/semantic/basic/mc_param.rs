@@ -674,7 +674,7 @@ impl McParamBindings {
                 if !claimed {
                     // Unit-typed argument cannot claim any slot → diagnostic + R05
                     R05_UNRESOLVED_UNIT.fetch_add(1, Ordering::Relaxed);
-                    eprintln!(
+                    mcc_dbg!("sem::fcall", 
                         "[R05] UNRESOLVED: unit {:?} value '{}' cannot claim any formal parameter slot.",
                         arg_unit, uval
                     );
@@ -738,10 +738,14 @@ impl McParamBindings {
                 };
                 if let Some(vn) = val_name {
                     if !ec.is_valid_value(vn) {
-                        eprintln!(
+                        mcc_dbg!(
+                            "sem::fcall",
                             "[E2810] Enum value '{}' is not a valid member of 'enum {}'. \
                              Parameter '{}' requires a value from '{}'.",
-                            vn, ec.class_name, ec.name, ec.class_name
+                            vn,
+                            ec.class_name,
+                            ec.name,
+                            ec.class_name
                         );
                     }
                 }

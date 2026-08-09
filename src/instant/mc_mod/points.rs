@@ -107,7 +107,8 @@ fn resolve_bare_member_pid(
             // Indicates multiple buses in the source share a same-named member but different
             // physical pins (e.g., two GNDs). Take the smallest pid and print for manual
             // review to see if a more specific interface-segment spelling is needed.
-            eprintln!(
+            mcc_dbg!(
+                "inst::points",
                 "[P2-AMBIG] alias rest={rest:?} last={last:?} -> pids {hits:?} (take smallest)"
             );
             hits.sort_by(|a, b| {
@@ -377,7 +378,8 @@ impl McModuleInst {
                 // 3. if left_match=false, shapes differ, need warning
 
                 if !g.left_match && g.opds.len() > 1 {
-                    eprintln!(
+                    mcc_dbg!(
+                        "inst::points",
                         "Warning: Group has inconsistent left shapes across branches, \
                         connection may not work as expected"
                     );
@@ -562,19 +564,21 @@ impl McModuleInst {
                 // try to extract caller component name from inner phrase
                 if let Some(ref mname) = member_name {
                     if let Some(caller) = Self::extract_caller_inst_name(phrase) {
-                        eprintln!(
+                        mcc_dbg!("inst::points", 
                             "[P2-4-XTAL-DBG] get_left_points Member: mname={mname:?}, caller={caller:?}, module={}",
                             self.name
                         );
                         // (A) direct component lookup (same module)
                         if let Some(comp) = self.find_component(&caller) {
-                            eprintln!(
+                            mcc_dbg!(
+                                "inst::points",
                                 "[P2-4-XTAL-DBG]   found component {}, pins: {:?}",
                                 comp.name,
                                 comp.def.pins.pins.keys().collect::<Vec<_>>()
                             );
                             if let Some(pids) = comp.find_bus_port_pin_ids(mname) {
-                                eprintln!(
+                                mcc_dbg!(
+                                    "inst::points",
                                     "[P2-4-XTAL-DBG]   find_bus_port_pin_ids({mname}) = {pids:?}"
                                 );
                                 return Ok(pids
@@ -589,12 +593,16 @@ impl McModuleInst {
                                     })
                                     .collect());
                             } else {
-                                eprintln!(
+                                mcc_dbg!(
+                                    "inst::points",
                                     "[P2-4-XTAL-DBG]   find_bus_port_pin_ids({mname}) = None"
                                 );
                             }
                         } else {
-                            eprintln!("[P2-4-XTAL-DBG]   component {caller} NOT FOUND");
+                            mcc_dbg!(
+                                "inst::points",
+                                "[P2-4-XTAL-DBG]   component {caller} NOT FOUND"
+                            );
                         }
                         // (B) cross-module component lookup: caller="mcu513.uC" → sub="mcu513", comp="uC"
                         if let Some((sub_name, comp_name)) = caller.split_once('.') {
@@ -620,18 +628,22 @@ impl McModuleInst {
                         }
                         // (C) expand_port_lanes fallback
                         let qualified = format!("{caller}.{mname}");
-                        eprintln!("[P2-4-XTAL-DBG]   trying expand_port_lanes({qualified:?})");
+                        mcc_dbg!(
+                            "inst::points",
+                            "[P2-4-XTAL-DBG]   trying expand_port_lanes({qualified:?})"
+                        );
                         if let Some(lanes) = self.expand_port_lanes(&qualified) {
-                            eprintln!(
+                            mcc_dbg!(
+                                "inst::points",
                                 "[P2-4-XTAL-DBG]   expand_port_lanes hit: {:?}",
                                 lanes.iter().map(|p| &p.path).collect::<Vec<_>>()
                             );
                             return Ok(lanes);
                         } else {
-                            eprintln!("[P2-4-XTAL-DBG]   expand_port_lanes miss, falling back to get_left_points(phrase)");
+                            mcc_dbg!("inst::points", "[P2-4-XTAL-DBG]   expand_port_lanes miss, falling back to get_left_points(phrase)");
                         }
                     } else {
-                        eprintln!("[P2-4-XTAL-DBG] get_left_points Member: mname={mname:?}, extract_caller_inst_name returned None");
+                        mcc_dbg!("inst::points", "[P2-4-XTAL-DBG] get_left_points Member: mname={mname:?}, extract_caller_inst_name returned None");
                     }
                 }
                 // Fallback: delegate to inner phrase
@@ -831,7 +843,8 @@ impl McModuleInst {
                 // 3. if right_match=false, shapes differ, need warning
 
                 if !g.right_match && g.opds.len() > 1 {
-                    eprintln!(
+                    mcc_dbg!(
+                        "inst::points",
                         "Warning: Group has inconsistent right shapes across branches, \
                         connection may not work as expected"
                     );
@@ -981,19 +994,21 @@ impl McModuleInst {
                 };
                 if let Some(ref mname) = member_name {
                     if let Some(caller) = Self::extract_caller_inst_name(phrase) {
-                        eprintln!(
+                        mcc_dbg!("inst::points",
                             "[P2-4-XTAL-DBG] get_right_points Member: mname={mname:?}, caller={caller:?}, module={}",
                             self.name
                         );
                         // (A) direct component lookup
                         if let Some(comp) = self.find_component(&caller) {
-                            eprintln!(
+                            mcc_dbg!(
+                                "inst::points",
                                 "[P2-4-XTAL-DBG]   found component {}, pins: {:?}",
                                 comp.name,
                                 comp.def.pins.pins.keys().collect::<Vec<_>>()
                             );
                             if let Some(pids) = comp.find_bus_port_pin_ids(mname) {
-                                eprintln!(
+                                mcc_dbg!(
+                                    "inst::points",
                                     "[P2-4-XTAL-DBG]   find_bus_port_pin_ids({mname}) = {pids:?}"
                                 );
                                 return Ok(pids
@@ -1008,12 +1023,16 @@ impl McModuleInst {
                                     })
                                     .collect());
                             } else {
-                                eprintln!(
+                                mcc_dbg!(
+                                    "inst::points",
                                     "[P2-4-XTAL-DBG]   find_bus_port_pin_ids({mname}) = None"
                                 );
                             }
                         } else {
-                            eprintln!("[P2-4-XTAL-DBG]   component {caller} NOT FOUND");
+                            mcc_dbg!(
+                                "inst::points",
+                                "[P2-4-XTAL-DBG]   component {caller} NOT FOUND"
+                            );
                         }
                         // (B) cross-module component lookup
                         if let Some((sub_name, comp_name)) = caller.split_once('.') {
@@ -1039,17 +1058,21 @@ impl McModuleInst {
                         }
                         // (C) expand_port_lanes fallback
                         let qualified = format!("{caller}.{mname}");
-                        eprintln!("[P2-4-XTAL-DBG]   trying expand_port_lanes({qualified:?})");
+                        mcc_dbg!(
+                            "inst::points",
+                            "[P2-4-XTAL-DBG]   trying expand_port_lanes({qualified:?})"
+                        );
                         if let Some(lanes) = self.expand_port_lanes(&qualified) {
-                            eprintln!(
+                            mcc_dbg!(
+                                "inst::points",
                                 "[P2-4-XTAL-DBG]   expand_port_lanes hit: {:?}",
                                 lanes.iter().map(|p| &p.path).collect::<Vec<_>>()
                             );
                             return Ok(lanes);
                         }
-                        eprintln!("[P2-4-XTAL-DBG]   expand_port_lanes miss, falling back to get_right_points(phrase)");
+                        mcc_dbg!("inst::points", "[P2-4-XTAL-DBG]   expand_port_lanes miss, falling back to get_right_points(phrase)");
                     } else {
-                        eprintln!("[P2-4-XTAL-DBG] get_right_points Member: mname={mname:?}, extract_caller_inst_name returned None");
+                        mcc_dbg!("inst::points", "[P2-4-XTAL-DBG] get_right_points Member: mname={mname:?}, extract_caller_inst_name returned None");
                     }
                 }
                 self.get_right_points(phrase)
@@ -1257,7 +1280,7 @@ impl McModuleInst {
                     //    now they recover to pid. Run once and watch the printed aliases to
                     //    confirm P2 was indeed truly not-unioning before.
                     if let Some(ref pid) = r {
-                        eprintln!("[P2-RECOVER] {first_part}.{rest} -> {first_part}.{pid} (unresolved before fix)");
+                        mcc_dbg!("inst::points", "[P2-RECOVER] {first_part}.{rest} -> {first_part}.{pid} (unresolved before fix)");
                     }
                     r
                 });
@@ -1278,9 +1301,12 @@ impl McModuleInst {
                     // extract first-level member name
                     let member_name = rest.split('.').next().unwrap_or(rest);
                     if !bus.has_member(member_name) {
-                        eprintln!(
+                        mcc_dbg!(
+                            "inst::points",
                             "Warning: Bus '{}' has no member '{}', available: {:?}",
-                            first_part, member_name, bus.members
+                            first_part,
+                            member_name,
+                            bus.members
                         );
                     }
                 }
@@ -1320,9 +1346,11 @@ impl McModuleInst {
                     let pin = if suffix == "in" { "1" } else { "2" };
                     let path = format!("{isolated}.{pin}");
                     // ── [P4-PHANTOM] temp probe: who's leaking CLASS.in/out ──
-                    eprintln!(
+                    mcc_dbg!(
+                        "inst::points",
                         "[P4-PHANTOM] leaking element.name={:?} -> {}",
-                        element.name, path
+                        element.name,
+                        path
                     );
                     return NetPoint::with_owner(&path, &isolated, IOType::None);
                 }
@@ -1749,7 +1777,8 @@ impl McModuleInst {
                 1 => hits.remove(0),
                 _ => {
                     // ── [P2-AMBIG-PROBE] delete after verification: same-named member lands on multiple different pids ──
-                    eprintln!(
+                    mcc_dbg!(
+                        "inst::points",
                         "[P2-AMBIG] {inst}: member={member:?} -> pids {hits:?} (take smallest)"
                     );
                     hits.sort_by(|a, b| {

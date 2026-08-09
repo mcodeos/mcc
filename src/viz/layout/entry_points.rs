@@ -1043,7 +1043,7 @@ fn ep_from_layout(
                 .iter()
                 .any(|p| &p.pin_id == entry || &p.description == entry);
             if !matched {
-                eprintln!(
+                mcc_dbg!("viz",
                     "[layout] WARN: box '{}' layout {} references pin '{}' which does not exist on this box — ignored",
                     b.name, side_entries.0, entry
                 );

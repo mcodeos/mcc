@@ -107,14 +107,16 @@ impl McModuleInst {
             if external_is_left {
                 let shape_ok = left_match;
                 if !shape_ok {
-                    eprintln!(
+                    mcc_dbg!(
+                        "inst::mod",
                         "Warning: Group left shapes inconsistent, connection may be incorrect"
                     );
                 }
             } else {
                 let shape_ok = right_match;
                 if !shape_ok {
-                    eprintln!(
+                    mcc_dbg!(
+                        "inst::mod",
                         "Warning: Group right shapes inconsistent, connection may be incorrect"
                     );
                 }
@@ -238,7 +240,7 @@ impl McModuleInst {
                     .iter()
                     .map(|p| p.member_name.as_deref())
                     .collect();
-                eprintln!(
+                mcc_dbg!("inst::mod", 
                     "[P2-4-CONN] create_connection: left_size={left_size}, right_size={right_size}, \
                      left_paths={:?}, right_paths={:?}, left_member_names={mn_left:?}, right_member_names={mn_right:?}",
                     left_points.iter().map(|p| &p.path).collect::<Vec<_>>(),

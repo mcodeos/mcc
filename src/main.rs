@@ -105,6 +105,11 @@ fn main() -> ExitCode {
     };
     if need_logging {
         logging::init(cli.verbose, cli.quiet, cli.show_target);
+
+        // Bridge: notify logging layer when RPC trace.set changes per-target overrides.
+        mcc::cli::config::set_target_applier(Box::new(|base, targets| {
+            logging::set_targets(base, targets);
+        }));
     }
 
     // ── 3.5. Ensure data directory exists ─────────────────────────────────────
@@ -112,8 +117,26 @@ fn main() -> ExitCode {
         eprintln!("warning: Failed to create data directory: {}", e);
     }
 
-    // ── 3.6. Load trace config from file ─────────────────────────────
-    mcc::init_trace_config();
+    // ── 3.6. Load trace config from file (global + project) ──────────
+    let project_root = std::env::current_dir().ok();
+    mcc::init_trace_config(project_root.as_deref());
+
+    // ── 3.7. Apply -D debug-target flags (CLI > config file) ─────────
+    if !cli.debug_targets.is_empty() {
+        let base = mcc::cli::config::base_level(cli.verbose, cli.quiet);
+
+        // Start from config-file targets (set by init_trace_config), then
+        // override with CLI -D flags.
+        let mut merged = mcc::cli::config::get_debug_targets();
+        for (t, l) in mcc::cli::config::resolve_debug_targets(&cli.debug_targets) {
+            merged.insert(t, l);
+        }
+
+        let targets: Vec<(String, String)> = merged.into_iter().collect();
+        logging::set_targets(base, &targets);
+        // Keep the lib-side store in sync so trace.get RPC sees the same state.
+        mcc::cli::config::set_debug_targets(base, &targets);
+    }
 
     // ── 4. Dispatch to subcommands ────────────────────────────────────────────
     let need_mcc_init = match &cli.command {
@@ -411,6 +434,11 @@ fn run_internal_server(args: &[String]) -> ExitCode {
     // Register reload callback to enable real-time effect
     mcc::set_log_stream_applier(Box::new(|server, pass1, pass2| {
         logging::set_streams(server, pass1, pass2);
+    }));
+
+    // Bridge: notify logging layer when RPC trace.set changes per-target overrides.
+    mcc::cli::config::set_target_applier(Box::new(|base, targets| {
+        logging::set_targets(base, targets);
     }));
 
     match cmds::server::run_server_internal(host, port, &libs) {

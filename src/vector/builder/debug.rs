@@ -74,15 +74,15 @@ pub fn dump_input(inst: &McModuleInst) {
         return;
     }
     let p = format!("[VEC-IN ][{}]", inst.name);
-    eprintln!("{p} ── BEGIN ────────────────────────────────");
-    eprintln!("{} module       = {}", p, inst.def.name);
-    eprintln!("{} components   = {}", p, inst.components.len());
-    eprintln!("{} sub_modules  = {}", p, inst.sub_modules.len());
-    eprintln!("{} ports        = {}", p, inst.ports.len());
-    eprintln!("{} connections  = {}", p, inst.connections.len());
-    eprintln!("{} buses (labels) = {}", p, inst.get_buses().len());
-    eprintln!("{} labels       = {}", p, inst.get_labels().len());
-    eprintln!("{p} ── END ──────────────────────────────────");
+    mcc_dbg!("vec", "{p} ── BEGIN ────────────────────────────────");
+    mcc_dbg!("vec", "{} module       = {}", p, inst.def.name);
+    mcc_dbg!("vec", "{} components   = {}", p, inst.components.len());
+    mcc_dbg!("vec", "{} sub_modules  = {}", p, inst.sub_modules.len());
+    mcc_dbg!("vec", "{} ports        = {}", p, inst.ports.len());
+    mcc_dbg!("vec", "{} connections  = {}", p, inst.connections.len());
+    mcc_dbg!("vec", "{} buses (labels) = {}", p, inst.get_buses().len());
+    mcc_dbg!("vec", "{} labels       = {}", p, inst.get_labels().len());
+    mcc_dbg!("vec", "{p} ── END ──────────────────────────────────");
 }
 
 /// Print output snapshot at end of `convert_module`
@@ -91,11 +91,11 @@ pub fn dump_output(block: &McVecBlock) {
         return;
     }
     let p = format!("[VEC-OUT][{}]", block.name);
-    eprintln!("{p} ── BEGIN ────────────────────────────────");
-    eprintln!("{} bid          = {}", p, block.bid);
-    eprintln!("{} insts        = {}", p, block.insts.len());
-    eprintln!("{} nets         = {}", p, block.nets.len());
-    eprintln!("{} sub_blocks   = {}", p, block.blocks.len());
+    mcc_dbg!("vec", "{p} ── BEGIN ────────────────────────────────");
+    mcc_dbg!("vec", "{} bid          = {}", p, block.bid);
+    mcc_dbg!("vec", "{} insts        = {}", p, block.insts.len());
+    mcc_dbg!("vec", "{} nets         = {}", p, block.nets.len());
+    mcc_dbg!("vec", "{} sub_blocks   = {}", p, block.blocks.len());
 
     // Per-ConnectionType distribution
     let mut by_type: std::collections::HashMap<&'static str, usize> =
@@ -114,14 +114,15 @@ pub fn dump_output(block: &McVecBlock) {
     let mut types: Vec<_> = by_type.into_iter().collect();
     types.sort_by_key(|x| x.0);
     for (t, n) in types {
-        eprintln!("{p}   net[{t}] = {n}");
+        mcc_dbg!("vec", "{p}   net[{t}] = {n}");
     }
 
     // List each net's endpoint count (helps see "is it just 1 endpoint = isolated")
     for n in &block.nets {
         let total = n.total_points();
         let groups = n.nets.len();
-        eprintln!(
+        mcc_dbg!(
+            "vec",
             "{}   net #{} '{}' -> {} groups, {} total points [{}]",
             p,
             n.nid,
@@ -131,7 +132,7 @@ pub fn dump_output(block: &McVecBlock) {
             n.connection_type()
         );
     }
-    eprintln!("{p} ── END ──────────────────────────────────");
+    mcc_dbg!("vec", "{p} ── END ──────────────────────────────────");
 }
 
 /// Consistency check after `convert_module`
@@ -143,7 +144,8 @@ pub fn dump_diff(inst: &McModuleInst, block: &McVecBlock) {
 
     // Check 1: has connections but no nets
     if !inst.connections.is_empty() && block.nets.is_empty() {
-        eprintln!(
+        mcc_dbg!(
+            "vec",
             "{} ⚠ {} connections in pass2 but pass2→vec produced 0 nets",
             p,
             inst.connections.len()
@@ -153,7 +155,8 @@ pub fn dump_diff(inst: &McModuleInst, block: &McVecBlock) {
     // Check 2: components count vs insts count reconciliation
     let expect_insts = inst.components.len() + inst.sub_modules.len();
     if expect_insts != block.insts.len() {
-        eprintln!(
+        mcc_dbg!(
+            "vec",
             "{} ⚠ insts mismatch: pass2 has {} (components+submodules) but block has {}",
             p,
             expect_insts,
@@ -163,7 +166,8 @@ pub fn dump_diff(inst: &McModuleInst, block: &McVecBlock) {
 
     // Check 3: sub_modules count vs blocks count reconciliation
     if inst.sub_modules.len() != block.blocks.len() {
-        eprintln!(
+        mcc_dbg!(
+            "vec",
             "{} ⚠ blocks mismatch: pass2 has {} sub_modules but block has {} sub_blocks",
             p,
             inst.sub_modules.len(),
@@ -178,6 +182,9 @@ pub fn dump_diff(inst: &McModuleInst, block: &McVecBlock) {
         .filter(|n| matches!(n.connection_type(), ConnectionType::Isolated))
         .count();
     if isolated_count > 0 {
-        eprintln!("{p} ⚠ {isolated_count} isolated net(s) (< 2 groups, drawn as nothing)");
+        mcc_dbg!(
+            "vec",
+            "{p} ⚠ {isolated_count} isolated net(s) (< 2 groups, drawn as nothing)"
+        );
     }
 }

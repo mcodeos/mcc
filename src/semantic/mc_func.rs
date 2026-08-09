@@ -407,13 +407,17 @@ impl McFunction {
                         .map(|c| c.iter().map(|n| n.get_type()).collect())
                         .unwrap_or_default();
                     let node_str = body_node.to_string();
-                    eprintln!(
+                    mcc_dbg!("sem::fcall", 
                         "[BODY-RAW] node[{}] type={} child_types={child_types:?} to_string={node_str:?}",
                         idx, bt
                     );
                     idx += 1;
                 }
-                eprintln!("[BODY-RAW] total {} top-level body nodes", idx);
+                mcc_dbg!(
+                    "sem::fcall",
+                    "[BODY-RAW] total {} top-level body nodes",
+                    idx
+                );
             }
             for body_node in body_nodes.iter() {
                 match body_node.get_type() {
@@ -500,7 +504,8 @@ impl McFunction {
                             let parsed = McFuncConds::from_conds(&raw_conds, &mut wrapper);
                             if !parsed.if_blocks.is_empty() || !parsed.else_lines.is_empty() {
                                 if self.name.to_string().contains("i2c") {
-                                    eprintln!(
+                                    mcc_dbg!(
+                                        "sem::fcall",
                                         "[COND-PARSE] func={} if_blocks={} else_lines={}",
                                         self.name,
                                         parsed.if_blocks.len(),

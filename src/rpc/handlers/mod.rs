@@ -2290,6 +2290,12 @@ pub fn caps_json() -> serde_json::Value {
             "ai": {
                 "methods": ai_methods,
                 "overlay_dry_run": true,
+            },
+            "trace": {
+                "targets": crate::cli::config::get_known_debug_targets(),
+                "aliases": crate::cli::config::get_debug_aliases().into_iter().map(|(name, targets)| {
+                    json!({"name": name, "targets": targets})
+                }).collect::<Vec<_>>()
             }
         }
     })

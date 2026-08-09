@@ -289,7 +289,8 @@ impl McModuleInst {
     /// explicitly called and are skipped here.
     pub(super) fn auto_invoke_module_funcs(&mut self) {
         let funcs: Vec<_> = self.def.funcs.iter().cloned().collect();
-        eprintln!(
+        mcc_dbg!(
+            "inst::mod",
             "[P2-4-AUTO] module '{}' has {} funcs: {:?}",
             self.name,
             funcs.len(),
@@ -306,22 +307,26 @@ impl McModuleInst {
             if func.lines.is_empty() {
                 continue;
             }
-            eprintln!(
+            mcc_dbg!(
+                "inst::mod",
                 "[P2-4-AUTO] auto-invoking module func '{}' with {} body lines",
                 func.name,
                 func.lines.len()
             );
             for line in &func.lines {
-                eprintln!(
+                mcc_dbg!(
+                    "inst::mod",
                     "[P2-4-AUTO-DBG] module '{}' func '{}' processing line: {:?}",
                     self.name,
                     func.name,
                     std::mem::discriminant(line)
                 );
                 if let Err(e) = self.process_line(line) {
-                    eprintln!(
+                    mcc_dbg!(
+                        "inst::mod",
                         "[P2-4-AUTO-DBG] module '{}' func '{}' line FAILED: {e}",
-                        self.name, func.name
+                        self.name,
+                        func.name
                     );
                     self.record_warning(
                         913,
@@ -344,14 +349,26 @@ impl McModuleInst {
 
     /// Record a non-fatal error to the diagnostic collector
     pub(super) fn record_error(&mut self, code: u32, message: String) {
-        eprintln!("[inst:{}] ERROR #{}: {}", self.name, code, message);
+        mcc_dbg!(
+            "inst::mod",
+            "[inst:{}] ERROR #{}: {}",
+            self.name,
+            code,
+            message
+        );
         self.diagnostics
             .push(InstDiagnostic::error(code, &self.name, message));
     }
 
     /// Record a warning to the diagnostic collector
     pub(super) fn record_warning(&mut self, code: u32, message: String) {
-        eprintln!("[inst:{}] WARN #{}: {}", self.name, code, message);
+        mcc_dbg!(
+            "inst::mod",
+            "[inst:{}] WARN #{}: {}",
+            self.name,
+            code,
+            message
+        );
         self.diagnostics
             .push(InstDiagnostic::warning(code, &self.name, message));
     }
@@ -420,7 +437,8 @@ impl McModuleInst {
         *counter += 1;
         let name = format!("{type_name}_{counter}");
         if type_name.contains("CAP") || type_name.contains("RES") || type_name.starts_with("@") {
-            eprintln!(
+            mcc_dbg!(
+                "inst::mod",
                 "[AUTO-NAME] module={} type={type_name} counter={counter} name={name}",
                 self.name
             );
@@ -454,12 +472,13 @@ impl McModuleInst {
 
         // P2-4-US513-DEBUG
         if self.name == "mcu513" {
-            eprintln!("[P2-4-US513] build_net_table for mcu513:");
+            mcc_dbg!("inst::mod", "[P2-4-US513] build_net_table for mcu513:");
             let mut net_names: Vec<&String> = self.nets.keys().collect();
             net_names.sort();
             for net_name in net_names {
                 let points = &self.nets[net_name];
-                eprintln!(
+                mcc_dbg!(
+                    "inst::mod",
                     "[P2-4-US513]   net '{}': {:?}",
                     net_name,
                     points.iter().map(|p| p.path.clone()).collect::<Vec<_>>()

@@ -110,8 +110,7 @@ impl ValidationCheck for DuplicateCmieCheck {
 
             for (kind, uris) in &kind_uris {
                 // Filter out test files
-                let non_test: Vec<_> =
-                    uris.iter().filter(|u| !super::is_test_file(u)).collect();
+                let non_test: Vec<_> = uris.iter().filter(|u| !super::is_test_file(u)).collect();
                 if non_test.len() > 1 {
                     let kind_str = match kind {
                         CmieKind::Component => "component",

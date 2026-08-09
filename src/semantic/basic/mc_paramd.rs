@@ -78,7 +78,9 @@ impl McParamDeclares {
                     MCAST_DECLARE_UV => {
                         // volt::UV.VOLT = 5V — the name precedes the DECLARE_UV
                         // node by name.len() + 2 bytes (for the "::" separator).
-                        if let Some(paramd) = McParamDeclare::new(&inner, self.enclosing_component_name.as_ref()) {
+                        if let Some(paramd) =
+                            McParamDeclare::new(&inner, self.enclosing_component_name.as_ref())
+                        {
                             if let Some(name) = paramd.get_primary_name() {
                                 let inner_pos = inner.get_pos() as usize;
                                 let prefix_len = name.len() + 2; // "name::"
@@ -97,7 +99,9 @@ impl McParamDeclares {
                     MCAST_DECLARE => {
                         // diel::CAP = X7R — the name precedes the DECLARE
                         // node by name.len() + 2 bytes (for the "::" separator).
-                        if let Some(paramd) = McParamDeclare::new(&inner, self.enclosing_component_name.as_ref()) {
+                        if let Some(paramd) =
+                            McParamDeclare::new(&inner, self.enclosing_component_name.as_ref())
+                        {
                             if let Some(name) = paramd.get_primary_name() {
                                 let inner_pos = inner.get_pos() as usize;
                                 let prefix_len = name.len() + 2; // "name::"
@@ -160,7 +164,10 @@ impl McParamDeclares {
                         for current in &children {
                             let op_type = current.get_type();
                             if matches!(op_type, MCAST_ID | MCAST_IDA | MCAST_IDS) {
-                                if let Some(paramd) = McParamDeclare::new(current, self.enclosing_component_name.as_ref()) {
+                                if let Some(paramd) = McParamDeclare::new(
+                                    current,
+                                    self.enclosing_component_name.as_ref(),
+                                ) {
                                     if let Some(name) = paramd.get_primary_name() {
                                         let span = (current.get_pos() as usize)
                                             ..((current.get_pos() + current.get_len()) as usize);
@@ -188,7 +195,10 @@ impl McParamDeclares {
                                         inner
                                     }
                                 };
-                                if let Some(paramd) = McParamDeclare::new(&inner, self.enclosing_component_name.as_ref()) {
+                                if let Some(paramd) = McParamDeclare::new(
+                                    &inner,
+                                    self.enclosing_component_name.as_ref(),
+                                ) {
                                     let span = (current.get_pos() as usize)
                                         ..((current.get_pos() + current.get_len()) as usize);
                                     if let McParamDeclareKind::Multiple(members) = &paramd.kind {
@@ -212,7 +222,9 @@ impl McParamDeclares {
                 }
 
                 // Also parse as formal parameter
-                if let Some(paramd) = McParamDeclare::new(&param_node, self.enclosing_component_name.as_ref()) {
+                if let Some(paramd) =
+                    McParamDeclare::new(&param_node, self.enclosing_component_name.as_ref())
+                {
                     self.declares.push(paramd);
                 }
             }
@@ -523,7 +535,11 @@ fn ids_to_dotted_string(node: &AstNode) -> Option<String> {
         }
         current = child.get_next();
     }
-    if result.is_empty() { None } else { Some(result) }
+    if result.is_empty() {
+        None
+    } else {
+        Some(result)
+    }
 }
 
 impl McParamDeclare {
@@ -552,8 +568,7 @@ impl McParamDeclare {
                     // Check for default value (next sibling after the name node)
                     // e.g., diel = CAP.X7R → PARAM(IDS("diel"), IDS("CAP.X7R"))
                     if let Some(default_node) = subnode.get_next() {
-                        let default_str =
-                            ids_to_dotted_string(&default_node).unwrap_or_default();
+                        let default_str = ids_to_dotted_string(&default_node).unwrap_or_default();
                         // Check if default is EnumClass.Value format
                         if let Some(dot_pos) = default_str.find('.') {
                             let class_name = default_str[..dot_pos].to_string();
@@ -576,27 +591,22 @@ impl McParamDeclare {
                             // Bare default (no dot): resolve against all known enums.
                             // e.g., diel = X7R → search all enums for member "X7R".
                             // Prefer the same-named enum (namespace merging) when available.
-                            let prefer_class = enclosing_comp_name
-                                .and_then(|n| n.root_name());
-                            if let Some(class_name) =
-                                crate::db::cmie::cmie::resolve_bare_enum_value(
-                                    &default_str,
-                                    prefer_class.as_deref(),
-                                )
-                            {
+                            let prefer_class = enclosing_comp_name.and_then(|n| n.root_name());
+                            if let Some(class_name) = crate::db::cmie::cmie::resolve_bare_enum_value(
+                                &default_str,
+                                prefer_class.as_deref(),
+                            ) {
                                 param_type.kind = crate::semantic::basic::mc_param_type::McParamTypeKind::EnumClassDefault {
                                     class_name: class_name.clone(),
                                     default_val: Some(default_str.clone()),
                                 };
                                 return Some(Self {
                                     param_type,
-                                    kind: McParamDeclareKind::EnumClass(
-                                        McEnumClassDeclare {
-                                            name: name_ids,
-                                            class_name,
-                                            default_val: Some(default_str),
-                                        },
-                                    ),
+                                    kind: McParamDeclareKind::EnumClass(McEnumClassDeclare {
+                                        name: name_ids,
+                                        class_name,
+                                        default_val: Some(default_str),
+                                    }),
                                 });
                             }
                         }

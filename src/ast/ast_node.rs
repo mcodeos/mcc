@@ -488,7 +488,8 @@ impl AstNode {
                 }
 
                 // Final fallback: return a string representation of the node type
-                eprintln!(
+                mcc_dbg!(
+                    "parse::ast",
                     "DEBUG: Unknown node type {} at pos {}",
                     unsafe { (*self.ptr).type_ },
                     self.get_pos()

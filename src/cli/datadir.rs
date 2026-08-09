@@ -80,7 +80,11 @@ pub fn pid_file() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(".mcode/logs/mcc.pid"))
 }
 
-/// Ensure canonical directories exist + write index.json. Idempotent.
+/// Well-commented default `mcc.yaml` written on first run.
+const DEFAULT_MCC_YAML: &str = include_str!("../../mcc.yaml");
+
+/// Ensure canonical directories exist + write index.json + seed default config.
+/// Idempotent.
 pub fn ensure_dirs() -> std::io::Result<()> {
     for d in [logs_dir(), config_dir()] {
         if !d.exists() {
@@ -88,6 +92,17 @@ pub fn ensure_dirs() -> std::io::Result<()> {
             debug!(target: "mcc::dirs", path = ?d, "created");
         }
     }
+
+    // Seed default config file if absent
+    let cfg = config_dir().join("mcc.yaml");
+    if !cfg.exists() {
+        if let Err(e) = std::fs::write(&cfg, DEFAULT_MCC_YAML) {
+            debug!(target: "mcc::dirs", path = ?cfg, error = ?e, "failed to write default config (non-fatal)");
+        } else {
+            debug!(target: "mcc::dirs", path = ?cfg, "default mcc.yaml written");
+        }
+    }
+
     if let Err(e) = rebuild_index() {
         debug!(target: "mcc::dirs", error = ?e, "rebuild_index failed (non-fatal)");
     }

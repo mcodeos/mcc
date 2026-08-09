@@ -23,9 +23,10 @@
 //!   - pass1 report (using `mcc::pass1` module)
 //!   - pass2 report (using `mcc::pass2` module)
 //!
+use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tracing_subscriber::fmt::format::Writer;
@@ -37,6 +38,14 @@ static ALREADY_INIT: OnceLock<bool> = OnceLock::new();
 /// Runtime reloadable filter handle. Daemon can dynamically switch output streams
 /// (server logs, pass1/pass2 reports) using this handle.
 static RELOAD_HANDLE: OnceLock<reload::Handle<EnvFilter, Registry>> = OnceLock::new();
+
+/// Current per-target level overrides (set via `-D`, config, or RPC).
+/// Used by `get_targets()` to report the active debug configuration.
+static TARGETS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+
+fn targets_map() -> &'static Mutex<HashMap<String, String>> {
+    TARGETS.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 // ============================================================================
 // Time format for logging
@@ -167,6 +176,36 @@ pub fn set_streams(server_level: &str, pass1: bool, pass2: bool) -> bool {
         if pass2 { "info" } else { "off" },
     );
     reload_filter(&spec)
+}
+
+/// Apply per-target level overrides.  Each entry is `(target, level)` where
+/// `level` is one of `off | error | warn | info | debug | trace`.
+///
+/// Overrides are merged with the current base level and applied via
+/// `reload_filter`.  Call with an empty slice to clear all overrides.
+///
+/// Returns `true` if the filter was successfully applied.
+pub fn set_targets(base_level: &str, targets: &[(String, String)]) -> bool {
+    // Update the stored map
+    {
+        let mut map = targets_map().lock().unwrap();
+        map.clear();
+        for (t, l) in targets {
+            map.insert(t.clone(), l.clone());
+        }
+    }
+
+    // Build EnvFilter spec:  base_level, target1=level1, target2=level2, ...
+    let mut spec = base_level.to_string();
+    for (target, level) in targets {
+        spec.push_str(&format!(",{}={}", target, level));
+    }
+    reload_filter(&spec)
+}
+
+/// Return the current per-target overrides (empty if none have been set).
+pub fn get_targets() -> HashMap<String, String> {
+    targets_map().lock().unwrap().clone()
 }
 
 // ============================================================================

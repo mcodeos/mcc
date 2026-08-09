@@ -39,6 +39,18 @@ pub struct Cli {
     #[arg(long, global = true, value_name = "DIR")]
     pub cwd: Option<String>,
 
+    /// Enable debug output for specific targets (repeatable).
+    /// Syntax: `-D target=level`  (level defaults to debug if omitted).
+    /// Aliases: pass1, pass2, fcall, lapper, vec, viz, lsp, all.
+    /// Example: `-D mcc::sem::fcall -D pass2=info`
+    #[arg(
+        short = 'D',
+        long = "debug-target",
+        global = true,
+        value_name = "TARGET[=LEVEL]"
+    )]
+    pub debug_targets: Vec<String>,
+
     /// Generate shell auto-completion script
     #[arg(long = "completion", global = true, value_name = "SHELL")]
     pub completion: Option<String>,

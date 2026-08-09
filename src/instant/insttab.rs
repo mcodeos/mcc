@@ -934,11 +934,16 @@ impl InstTable {
 
     /// Print the table (for debugging)
     pub fn dump(&self) {
-        eprintln!(
+        mcc_dbg!(
+            "inst::table",
             "  {:<6} {:<40} {:<12} {:<16} IO",
-            "ID", "Path", "Kind", "Class"
+            "ID",
+            "Path",
+            "Kind",
+            "Class"
         );
-        eprintln!(
+        mcc_dbg!(
+            "inst::table",
             "  {:<6} {:<40} {:<12} {:<16} ────",
             "──────",
             "────────────────────────────────────────",
@@ -962,20 +967,31 @@ impl InstTable {
             } else {
                 &entry.class_name
             };
-            eprintln!(
+            mcc_dbg!(
+                "inst::table",
                 "  {:<6} {:<40} {:<12} {:<16} {}",
-                entry.id, entry.path, entry.kind, class_display, io_str
+                entry.id,
+                entry.path,
+                entry.kind,
+                class_display,
+                io_str
             );
         }
-        eprintln!("  ── Total: {} entries ──", self.entries.len());
+        mcc_dbg!(
+            "inst::table",
+            "  ── Total: {} entries ──",
+            self.entries.len()
+        );
 
         // Output network information
         if !self.nets.is_empty() {
-            eprintln!();
-            eprintln!("  {:<8} {:<24} Points", "NetID", "Name");
-            eprintln!(
+            mcc_dbg!("inst::table", "");
+            mcc_dbg!("inst::table", "  {:<8} {:<24} Points", "NetID", "Name");
+            mcc_dbg!(
+                "inst::table",
                 "  {:<8} {:<24} ──────────────────────────────",
-                "────────", "────────────────────────"
+                "────────",
+                "────────────────────────"
             );
             for net in self.nets.values() {
                 let point_strs: Vec<String> = net
@@ -988,14 +1004,15 @@ impl InstTable {
                             .unwrap_or_else(|| format!("#{pid}"))
                     })
                     .collect();
-                eprintln!(
+                mcc_dbg!(
+                    "inst::table",
                     "  {:<8} {:<24} [{}]",
                     net.id,
                     net.name,
                     point_strs.join(", ")
                 );
             }
-            eprintln!("  ── Total: {} nets ──", self.nets.len());
+            mcc_dbg!("inst::table", "  ── Total: {} nets ──", self.nets.len());
         }
     }
 
@@ -1035,9 +1052,14 @@ impl InstTable {
             let _ = std::fs::create_dir_all(parent);
         }
         if let Err(e) = std::fs::write(output_path, &content) {
-            eprintln!("[G4] Failed to write known_missing.md: {}", e);
+            mcc_dbg!(
+                "inst::table",
+                "[G4] Failed to write known_missing.md: {}",
+                e
+            );
         } else {
-            eprintln!(
+            mcc_dbg!(
+                "inst::table",
                 "[G4] known_missing.md written with {} entries",
                 all_records.len()
             );

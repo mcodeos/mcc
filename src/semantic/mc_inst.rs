@@ -1380,7 +1380,7 @@ impl McInstances {
                 }
                 let (mc_inst, insert_key) = match &cmie {
                     Some(McCMIE::Component(comp_def)) => {
-                        eprintln!(
+                        mcc_dbg!("sem::inst", 
                             "[P2-4-PARSE] inst='{inst_name}' class='{class_name}' -> Component (cmie=Component)",
                         );
                         // ── P1: besides class-level value params (CAP(1uF…)), also merge instance-level construction args (flash(V3V3)) ──
@@ -1394,7 +1394,7 @@ impl McInstances {
                         (McInstance::Component(Arc::new(mc2_comp)), inst_name)
                     }
                     Some(McCMIE::Module(mod_def)) => {
-                        eprintln!(
+                        mcc_dbg!("sem::inst",
                             "[P2-4-PARSE] inst='{inst_name}' class='{class_name}' -> Module (cmie=Module)",
                         );
                         (

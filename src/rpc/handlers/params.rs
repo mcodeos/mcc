@@ -77,8 +77,22 @@ pub(crate) struct ExportRpcParams {
 
 #[derive(Deserialize)]
 pub(crate) struct TraceSetParams {
+    /// Legacy: boolean flag name (e.g. "trace.enabled", "pass1").
+    /// New: tracing target path (e.g. "mcc::sem::fcall") or alias (e.g. "pass1").
     pub(crate) name: String,
-    pub(crate) value: bool,
+
+    /// Legacy: bool on/off.
+    /// New: tracing level string — one of off | error | warn | info | debug | trace.
+    #[serde(default)]
+    pub(crate) value: Option<serde_json::Value>,
+
+    /// Explicit level override (new API).  When set, `value` is ignored.
+    #[serde(default)]
+    pub(crate) level: Option<String>,
+
+    /// Base level for all targets not explicitly overridden.
+    #[serde(default)]
+    pub(crate) base: Option<String>,
 }
 
 #[derive(Default, Deserialize)]

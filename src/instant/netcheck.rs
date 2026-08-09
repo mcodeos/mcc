@@ -217,7 +217,7 @@ impl Report {
 
     pub fn print(&self) {
         // 用 eprintln 而不是 velog，保证在任何日志配置下都能看到
-        eprint!("{}", self.render());
+        mcc_dbg!("inst::mod", "{}", self.render());
     }
 }
 
