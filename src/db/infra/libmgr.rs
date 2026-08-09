@@ -137,12 +137,14 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
     collect_spacenames_by_prefix(&workspace::WORKSPACE.modules, &root_str, &mut lib_entry);
     collect_spacenames_by_prefix(&workspace::WORKSPACE.interfaces, &root_str, &mut lib_entry);
     collect_spacenames_by_prefix(&workspace::WORKSPACE.enums, &root_str, &mut lib_entry);
+    collect_spacenames_by_prefix(&workspace::WORKSPACE.defines, &root_str, &mut lib_entry);
 
     // Collect all definitions belonging to this library from system tables, register to blib's spacenames
     collect_spacenames_by_prefix_global(&global::mcc_components, &root_str, &mut lib_entry);
     collect_spacenames_by_prefix_global(&global::mcc_modules, &root_str, &mut lib_entry);
     collect_spacenames_by_prefix_global(&global::mcc_interfaces, &root_str, &mut lib_entry);
     collect_spacenames_by_prefix_global(&global::mcc_enums, &root_str, &mut lib_entry);
+    collect_spacenames_by_prefix_global(&global::mcc_defines, &root_str, &mut lib_entry);
 
     let symbol_count = lib_entry.spacenames.len();
 

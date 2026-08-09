@@ -11,7 +11,11 @@ pub fn build_netlist(tree: &McModuleInst, top: &str, format: u8) -> (String, Val
     collect_nets(tree, &mut nets);
     let nets: BTreeMap<String, Vec<String>> = nets
         .into_iter()
-        .filter(|(n, _)| n != "NC" && !n.starts_with("__net_"))
+        .filter(|(n, _)| {
+            n != "NC"
+                && !n.starts_with("__net_")
+                && !n.starts_with(crate::semantic::basic::mc_bus::McBus::ERROR_PREFIX)
+        })
         .collect();
     let count = nets.len();
     if format == 1 {

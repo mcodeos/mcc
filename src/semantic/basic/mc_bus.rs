@@ -70,6 +70,16 @@ impl McBus {
         &self.name
     }
 
+    /// Sentinel prefix used for error buses that should not appear in
+    /// netlist or LSP output (Defect 89).
+    pub(crate) const ERROR_PREFIX: &'static str = "<error:";
+
+    /// Returns true if this bus was created as a sentinel to represent an
+    /// error condition (e.g. empty endpoint list, shape mismatch).
+    pub(crate) fn is_error(&self) -> bool {
+        self.name.starts_with(Self::ERROR_PREFIX)
+    }
+
     pub(crate) fn add_member(&mut self, name: &str) {
         if !self.full_members.contains(&name.to_string()) {
             self.full_members.push(name.to_string());
