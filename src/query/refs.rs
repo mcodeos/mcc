@@ -103,7 +103,10 @@ fn register_lib_class_in_global_table(
     for entry in binding.iter() {
         if let Ok(sem) = entry.value().symbols.lock() {
             if let Ok(gt) = sem.global_table.lock() {
-                if let Some(&cid) = gt.class_name_to_id.get(&(mc_uri.clone(), class_name.to_string())) {
+                if let Some(&cid) = gt
+                    .class_name_to_id
+                    .get(&(mc_uri.clone(), class_name.to_string()))
+                {
                     return cid;
                 }
             }
@@ -119,8 +122,12 @@ fn register_lib_class_in_global_table(
         if let Ok(sem) = entry.value().symbols.lock() {
             if let Ok(mut gt) = sem.global_table.lock() {
                 // Only insert if not already present (avoid overwriting)
-                gt.class_name_to_id.entry((mc_uri.clone(), class_name.to_string())).or_insert(cid);
-                gt.class_id_to_span.entry(cid).or_insert((mc_uri.clone(), def_span.clone()));
+                gt.class_name_to_id
+                    .entry((mc_uri.clone(), class_name.to_string()))
+                    .or_insert(cid);
+                gt.class_id_to_span
+                    .entry(cid)
+                    .or_insert((mc_uri.clone(), def_span.clone()));
                 return cid;
             }
         }

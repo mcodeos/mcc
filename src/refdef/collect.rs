@@ -42,7 +42,7 @@ pub fn collect_funccall_arg_refs(
                     tracing::info!(target: "mcc::lsp",
                         "FCALL_ARG_REF: member='{name}' span=[{},{}] enclosing='{enclosing}' decl_id={}",
                         span.start, span.end,
-                        decl_id.map(|d| u32::from(d) as i64).unwrap_or(-1)
+                        decl_id.map(|d| u64::from(d) as i64).unwrap_or(-1)
                     );
                     if let Some(did) = decl_id {
                         result.push((span, did));
@@ -91,13 +91,13 @@ pub fn collect_funccall_arg_refs(
 ///   PortDef → PortRef, InstDef → InstRef, fallback → FuncParamRef
 pub fn resolve_arg_ref_kind(
     def_map: &std::collections::HashMap<
-        (crate::refdef::SymbolKind, u32),
+        (crate::refdef::SymbolKind, u64),
         crate::refdef::SourceLocation,
     >,
     decl_id: crate::ast::ast_semantic::DeclareId,
 ) -> crate::refdef::SymbolKind {
     use crate::refdef::SymbolKind;
-    let raw_id = u32::from(decl_id);
+    let raw_id = u64::from(decl_id);
 
     // Try specific def types first (higher confidence match)
     let candidates: &[(SymbolKind, SymbolKind)] = &[
