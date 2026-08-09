@@ -25,9 +25,44 @@ pub enum IdsSegment {
 
 impl IdsSegment {}
 
-#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+#[derive(Clone, Debug)]
 pub struct McIds {
     pub segments: Vec<IdsSegment>,
+}
+
+impl McIds {
+    /// Normalize segments for Eq/Hash: convert `DotIda` / `DotInt` to
+    /// `Curly`, so that `DC2.VDD` and `DC2{VDD}` are treated as the same
+    /// key (Defect 88).  This matches the semantic equivalence documented
+    /// in `McBus`.
+    fn normalized_eq_hash(&self) -> Vec<IdsSegment> {
+        self.segments
+            .iter()
+            .map(|seg| match seg {
+                IdsSegment::DotIda(ida) => {
+                    IdsSegment::Curly(vec![IdsSegment::Ida(ida.clone())])
+                }
+                IdsSegment::DotInt(n) => {
+                    IdsSegment::Curly(vec![IdsSegment::Int(n.clone())])
+                }
+                other => other.clone(),
+            })
+            .collect()
+    }
+}
+
+impl PartialEq for McIds {
+    fn eq(&self, other: &Self) -> bool {
+        self.normalized_eq_hash() == other.normalized_eq_hash()
+    }
+}
+
+impl Eq for McIds {}
+
+impl std::hash::Hash for McIds {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.normalized_eq_hash().hash(state);
+    }
 }
 
 impl From<&str> for McIds {

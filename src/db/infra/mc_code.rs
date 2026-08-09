@@ -1019,6 +1019,7 @@ impl McCode {
                 || node.is_type(MCAST_COMPONENT)
                 || node.is_type(MCAST_MODULE)
                 || node.is_type(MCAST_ENUM)
+                || node.is_type(MCAST_DEFINE)
             {
                 let subnodes = node.get_sub_node().expect(MISSING_SUBNODE);
                 if let Some(class_name) = McIds::new(
@@ -1051,6 +1052,7 @@ impl McCode {
                 || node.is_type(MCAST_COMPONENT)
                 || node.is_type(MCAST_MODULE)
                 || node.is_type(MCAST_ENUM)
+                || node.is_type(MCAST_DEFINE)
             {
                 let subnodes = node.get_sub_node().expect(MISSING_SUBNODE);
                 if let Some(name) = McIds::new(
@@ -1354,6 +1356,7 @@ impl McCode {
                 || node.is_type(MCAST_COMPONENT)
                 || node.is_type(MCAST_MODULE)
                 || node.is_type(MCAST_ENUM)
+                || node.is_type(MCAST_DEFINE)
             {
                 if let Some(subnodes) = node.get_sub_node() {
                     if let Some(name_node) = subnodes.iter().find(|x| x.is_type(MCAST_NAME)) {

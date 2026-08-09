@@ -128,8 +128,19 @@ fn check_closure_in_text(
                 continue;
             }
 
-            // Find closure body: either `{ ... }` or until end of phrase
-            let body_start = after_close.find('{').map(|p| p + 1);
+            // Find closure body: `{ ... }` must immediately follow `|...|`
+            // (ignoring whitespace and optional `->`).  Otherwise the first
+            // `{` could be a bus-member access like `DC2{VDD, GND}`, not
+            // the closure body (Defect 82).
+            let brace_pos = after_close.find('{');
+            let leading_text = after_close[..brace_pos.unwrap_or(after_close.len())].trim();
+            let is_closure = leading_text.is_empty() || leading_text == "->";
+            if !is_closure {
+                search_from = abs_pipe + 1;
+                continue;
+            }
+
+            let body_start = brace_pos.map(|p| p + 1);
             let body_end =
                 body_start.and_then(|start| after_close[start..].find('}').map(|e| start + e));
 

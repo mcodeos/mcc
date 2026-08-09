@@ -32,5 +32,3 @@ pub static mcc_enums: LazyLock<DashMap<McSpaceName, Arc<McEnumDef>>> = LazyLock:
 #[allow(non_upper_case_globals)]
 pub static mcc_defines: LazyLock<DashMap<McSpaceName, Arc<McDefineDef>>> =
     LazyLock::new(DashMap::new);
-#[allow(non_upper_case_globals)]
-pub(crate) static mcc_parsing_modules: LazyLock<DashMap<String, ()>> = LazyLock::new(DashMap::new);
