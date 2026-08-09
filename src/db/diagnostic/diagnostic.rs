@@ -331,6 +331,16 @@ pub fn dlog_trace(code: u32, msg: &str) {
 }
 pub fn dlog_error(code: u32, node: &AstNode, msg: &str) {
     let full_msg = format!("node={} {}", node.get_type(), msg);
+    let uri = crate::current_uri::get();
+    tracing::debug!(
+        target: "mcc::diagnostic",
+        code = code,
+        node_type = node.get_type(),
+        node_pos = node.get_pos(),
+        node_len = node.get_len(),
+        file = uri.as_str(),
+        "{full_msg}"
+    );
     diagnostic_log(
         code,
         DiagnosticLevel::Error,
@@ -343,12 +353,14 @@ pub fn dlog_error(code: u32, node: &AstNode, msg: &str) {
 pub fn dlog_warning(code: u32, node: &AstNode, msg: &str) {
     let full_msg = format!("node={} {}", node.get_type(), msg);
     // Log sub-node chain via tracing for debugging (gated by log level)
+    let uri = crate::current_uri::get();
     tracing::debug!(
         target: "mcc::diagnostic",
         code = code,
         node_type = node.get_type(),
         node_pos = node.get_pos(),
         node_len = node.get_len(),
+        file = uri.as_str(),
         "{full_msg}"
     );
     let mut cur = node.get_sub_node();
@@ -380,11 +392,13 @@ pub fn dlog_warning(code: u32, node: &AstNode, msg: &str) {
 /// Emit a warning diagnostic using raw position/length (no AstNode).
 /// Used when the AST node is unavailable (e.g., deferred validation in parse_nsp §11).
 pub fn dlog_warning_at(code: u32, pos: Position, len: u32, msg: &str) {
+    let uri = crate::current_uri::get();
     tracing::debug!(
         target: "mcc::diagnostic",
         code = code,
         pos = pos,
         len = len,
+        file = uri.as_str(),
         "{msg}"
     );
     diagnostic_log(code, DiagnosticLevel::Warning, pos, len, msg, &[]);
@@ -392,11 +406,13 @@ pub fn dlog_warning_at(code: u32, pos: Position, len: u32, msg: &str) {
 /// Emit an error diagnostic using raw position/length (no AstNode).
 /// Used for deferred validation (e.g., symbol conflict detection in parse_nsp §14).
 pub fn dlog_error_at(code: u32, pos: Position, len: u32, msg: &str) {
+    let uri = crate::current_uri::get();
     tracing::debug!(
         target: "mcc::diagnostic",
         code = code,
         pos = pos,
         len = len,
+        file = uri.as_str(),
         "{msg}"
     );
     diagnostic_log(code, DiagnosticLevel::Error, pos, len, msg, &[]);
