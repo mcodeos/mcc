@@ -349,16 +349,26 @@ impl DiagnosticManager {
 // DashMap helpers: clone_and_clear / fill
 // ============================================================================
 
+/// Transfer all entries from `map` into a new DashMap, leaving `map` empty.
+///
+/// Uses `remove` to transfer ownership of values, avoiding the Clone-based
+/// shallow copy that would produce dangling AstNode pointers (Defect 5).
+/// The `V: Clone` bound is retained for compatibility but is not actually used.
 fn clone_and_clear<K, V>(map: &DashMap<K, V>) -> DashMap<K, V>
 where
     K: Eq + std::hash::Hash + Clone,
     V: Clone,
 {
     let new_map = DashMap::with_capacity(map.len());
-    for entry in map.iter() {
-        new_map.insert(entry.key().clone(), entry.value().clone());
+    // Collect keys first, then remove+insert to transfer ownership.
+    // This avoids the Clone path for AstNode (owned=false copies that
+    // dangle when the original owned=true is dropped by clear()).
+    let keys: Vec<K> = map.iter().map(|e| e.key().clone()).collect();
+    for key in keys {
+        if let Some((_, v)) = map.remove(&key) {
+            new_map.insert(key, v);
+        }
     }
-    map.clear();
     new_map
 }
 

@@ -78,20 +78,20 @@ pub trait SymbolRegistry {
         name: &str,
         pos: u32,
         len: u32,
-    ) -> u32;
+    ) -> u64;
 
     /// Register a reference to a previously declared instance.
     fn register_instance_ref(
         &self,
         uri: &str,
-        decl_id: u32,
+        decl_id: u64,
         scope: Option<&str>,
         pos: u32,
         len: u32,
     );
 
     /// Look up an instance declaration by URI, scope, and name.
-    fn lookup_instance_decl(&self, uri: &str, name: &str, scope: Option<&str>) -> Option<u32>;
+    fn lookup_instance_decl(&self, uri: &str, name: &str, scope: Option<&str>) -> Option<u64>;
 
     /// Register a class definition at a span.
     fn register_declare_class(&self, uri: &str, class_name: &str, pos: u32, len: u32);
@@ -185,11 +185,11 @@ mod tests {
                 _: &str,
                 _: u32,
                 _: u32,
-            ) -> u32 {
+            ) -> u64 {
                 0
             }
-            fn register_instance_ref(&self, _: &str, _: u32, _: Option<&str>, _: u32, _: u32) {}
-            fn lookup_instance_decl(&self, _: &str, _: &str, _: Option<&str>) -> Option<u32> {
+            fn register_instance_ref(&self, _: &str, _: u64, _: Option<&str>, _: u32, _: u32) {}
+            fn lookup_instance_decl(&self, _: &str, _: &str, _: Option<&str>) -> Option<u64> {
                 None
             }
             fn register_declare_class(&self, _: &str, _: &str, _: u32, _: u32) {}

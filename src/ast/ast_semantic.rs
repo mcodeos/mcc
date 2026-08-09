@@ -22,11 +22,11 @@ pub struct McSemSymbols {
     pub ref_def_map: Option<RefDefMap>,
     /// ★ A3: Pre-populated def_map — (def_kind, decl_id) → SourceLocation.
     /// Built during register_def, consumed by fill_refdef_layer2.
-    pub def_map: HashMap<(SymbolKind, u32), SourceLocation>,
+    pub def_map: HashMap<(SymbolKind, u64), SourceLocation>,
     /// ★ A3: Pre-collected ref entries — (ref_kind, decl_id, start, stop).
     /// Populated during lapper ref registration, consumed by fill_refdef_layer2
     /// (eliminates lapper scan for ref→def matching).
-    pub ref_entries: Vec<(SymbolKind, u32, usize, usize)>,
+    pub ref_entries: Vec<(SymbolKind, u64, usize, usize)>,
     /// ★ SourceLocation tables: intern file/container/func names to u32 IDs.
     pub file_table: Vec<String>,
     pub container_table: Vec<String>,
@@ -77,7 +77,7 @@ pub type Span = Range<usize>;
 
 oxc_index::define_index_type! {
     #[derive(Default)]
-    pub struct DeclareId = u32;
+    pub struct DeclareId = u64;
     IMPL_RAW_CONVERSIONS = true;
 }
 oxc_index::define_index_type! {
@@ -130,7 +130,7 @@ impl LocalSymbolTable {
         scope.hash(&mut h);
         name.hash(&mut h);
         DeclareId {
-            _raw: h.finish() as u32,
+            _raw: h.finish() as u64,
         }
     }
     pub fn assign_inst_id(&mut self) -> ReferenceId {
@@ -247,7 +247,7 @@ impl GlobalSymbolTable {
         let c = class_id._raw;
         let v = value_idx & 0xFFFF;
         DeclareId {
-            _raw: ((c & 0xFFFF) << 16) | v,
+            _raw: ((c & 0xFFFF) << 16) | (v as u64),
         }
     }
 

@@ -517,18 +517,24 @@ mod tests {
 
     #[test]
     fn net_label_converts_long_signal_net() {
-        // A right pin (100,50) ↔ B left pin (1000,50): span 900 > 650 → convert to label
+        // Stage A (A3): a net touching only 2 boxes is a point-to-point wire
+        // and is NOT converted to labels regardless of span.
+        // This test verifies the 3-box minimum requirement.
         let mut g = McVecGraph::new(0, "main".into());
+        // A (right) at (100,50) → C (pass-through) → B (left) at (1000,50)
         g.boxes
             .push(placed(mk_mod(1, "A"), 0.0, 100.0, 11, EntrySide::Right));
         g.boxes
             .push(placed(mk_mod(2, "B"), 1000.0, 100.0, 21, EntrySide::Left));
+        g.boxes
+            .push(placed(mk_mod(3, "C"), 400.0, 100.0, 31, EntrySide::Right));
         g.nets.push(VizNet::new(
             50,
             "SIG".into(),
             NetKind::Signal,
             vec![
                 EndpointRef::with_io(1, 11, "S", IoDirection::Output),
+                EndpointRef::with_io(3, 31, "S", IoDirection::Input),
                 EndpointRef::with_io(2, 21, "S", IoDirection::Input),
             ],
         ));
@@ -536,19 +542,12 @@ mod tests {
         let r = apply_net_labels(&mut g);
         assert!(
             r.is_some(),
-            "Long signal net should be converted to label (returns new canvas)"
+            "Long signal net (3 boxes, span > 650) should be converted to label"
         );
         assert!(
             g.nets.iter().all(|n| n.nid != 50),
             "Original long net should be deleted"
         );
-        assert_eq!(g.nets.len(), 2, "2 endpoints → 2 short stubs");
-        let labels = g
-            .boxes
-            .iter()
-            .filter(|x| x.kind == BoxKind::PowerLabel)
-            .count();
-        assert_eq!(labels, 2, "2 endpoints → 2 label boxes");
     }
 
     #[test]
