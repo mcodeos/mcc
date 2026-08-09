@@ -48,7 +48,6 @@ use crate::{current_uri, mcb_loaded_libs, McComponent, McIds, McModule, McSpaceN
 use core::panic;
 use line_index::LineIndex;
 use rust_lapper::Interval;
-use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::fs;
@@ -60,13 +59,6 @@ use std::sync::{Arc, Mutex};
 /// Global deduplication flag: each parse cycle outputs AST visit only once
 /// Reset at the mcc_load_project entry point (mcb_reset_ast_visit_flag)
 pub static AST_VISIT_DONE: AtomicBool = AtomicBool::new(false);
-
-// Re-entrancy guard for parse_pass1_types: prevents mcb_get_cmie's
-// on-demand parsing from re-entering parse_pass1_types for a file
-// that is already being parsed higher up the call stack.
-thread_local! {
-    pub(crate) static PARSING_PASS1: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
-}
 
 pub fn mcb_reset_ast_visit_flag() {
     AST_VISIT_DONE.store(false, Ordering::SeqCst);
@@ -748,11 +740,13 @@ impl McCode {
         // Check whether prj_mcodes already has the file and spacenames are built
         if let Some(existing) = workspace::WORKSPACE.mcodes.get(&canonical_uri) {
             if !existing.spacenames.is_empty() {
-                // Reuse existing spacenames and uselist
+                // Reuse existing spacenames and uselist to avoid re-traversing
+                // the use graph. Do NOT set pass1_complete here — the current
+                // file's types haven't been registered yet; setting this flag
+                // would prevent mcb_add_recursive from calling parse_pass1_types,
+                // breaking all ClassRef→ClassDef goto-def mappings.
                 self.spacenames.clone_from(&existing.spacenames);
                 self.uselist.clone_from(&existing.uselist);
-                // Mark pass1 as complete (dependency file has been processed)
-                self.pass1_complete = true;
                 return;
             }
         }
@@ -1012,6 +1006,7 @@ impl McCode {
             if node.is_type(MCAST_INTERFACE)
                 || node.is_type(MCAST_COMPONENT)
                 || node.is_type(MCAST_MODULE)
+                || node.is_type(MCAST_ENUM)
             {
                 let subnodes = node.get_sub_node().expect(MISSING_SUBNODE);
                 if let Some(class_name) = McIds::new(
@@ -1032,7 +1027,7 @@ impl McCode {
                         cmies.push(class_name);
                     }
                 }
-            } //TODO enum
+            }
         }
         cmies
     }
@@ -1082,7 +1077,7 @@ impl McCode {
                                             uri: self.uri.clone(),
                                         })
                                         .and_modify(|_| {
-                                            dlog_error(1004, &node, "Duplicate module");
+                                            dlog_error(1503, &node, "Duplicate module");
                                         })
                                         .or_insert(Arc::new(mdl));
                                     return Some(McCMIE::Module(result.value().clone()));
@@ -1097,7 +1092,7 @@ impl McCode {
                                             uri: self.uri.clone(),
                                         })
                                         .and_modify(|_| {
-                                            dlog_error(1501, &node, "Duplicate interface");
+                                            dlog_error(1001, &node, "Duplicate interface");
                                         })
                                         .or_insert(Arc::new(ifs));
                                     return Some(McCMIE::Interface(result.value().clone()));
@@ -1143,7 +1138,7 @@ impl McCode {
                                         enums_guard
                                             .entry(space_name.clone())
                                             .and_modify(|_| {
-                                                dlog_error(1504, &node, "Duplicate enum");
+                                                dlog_error(1004, &node, "Duplicate enum");
                                             })
                                             .or_insert(arc_enum.clone());
                                     } else {
@@ -1172,16 +1167,13 @@ impl McCode {
     /// Phase 1a: only register component/interface/enum definitions to the global table
     /// This step does not parse module body, ensuring cross-file type definitions are ready first
     pub fn parse_pass1_types(&mut self) {
-        // Re-entrancy guard: if this file is already being parsed up the call
-        // stack (triggered from mcb_get_cmie's on-demand parsing), skip.
-        let already_parsing = PARSING_PASS1.with(|s| !s.borrow_mut().insert(self.uri.clone()));
-        if already_parsing {
-            return;
-        }
         for node in self.ast.iter() {
             match node.get_type() {
                 MCAST_INTERFACE => {
                     if let Some(ifs) = McInterface::new(&node, &self.uri) {
+                        let ifs_name_str = ifs.name.to_string();
+                        let ifs_span = ifs.span.clone();
+                        let self_uri = self.uri.clone();
                         let space_name = McSpaceName {
                             ident: ifs.name.clone(),
                             uri: self.uri.clone(),
@@ -1202,6 +1194,14 @@ impl McCode {
                                 })
                                 .or_insert(Arc::new(ifs));
                         }
+                        // ★ Fix: register interface in class_name_to_id so
+                        // lapper_global_classes can create ClassDef intervals.
+                        self.add_global_class(
+                            &self_uri,
+                            &ifs_name_str,
+                            ifs_span,
+                            crate::ContainerKind::Interface,
+                        );
                     }
                 }
                 MCAST_COMPONENT => {
@@ -1341,6 +1341,7 @@ impl McCode {
             if node.is_type(MCAST_INTERFACE)
                 || node.is_type(MCAST_COMPONENT)
                 || node.is_type(MCAST_MODULE)
+                || node.is_type(MCAST_ENUM)
             {
                 if let Some(subnodes) = node.get_sub_node() {
                     if let Some(name_node) = subnodes.iter().find(|x| x.is_type(MCAST_NAME)) {
@@ -1362,12 +1363,6 @@ impl McCode {
 
         // Mark Pass1 parse as complete
         self.pass1_complete = true;
-
-        // Mark Pass1 parse as complete
-        self.pass1_complete = true;
-
-        self.parse_pass1_modules();
-        PARSING_PASS1.with(|s| s.borrow_mut().remove(&self.uri));
     }
 
     /// Phase 1b: parse all module definitions (at this point all component/interface/enum are already registered)
@@ -1427,15 +1422,7 @@ impl McCode {
     }
 
     pub fn parse_pass1_modules(&mut self) {
-        // Re-entrancy guard: same as parse_pass1_types — mcb_get_cmie's
-        // on-demand parsing can trigger parse_pass1_modules for a file
-        // that is already being parsed higher up the call stack.
-        let already_parsing = PARSING_PASS1.with(|s| !s.borrow_mut().insert(self.uri.clone()));
-        if already_parsing {
-            return;
-        }
         if self.modules_parsed && !self.use_table_dirty {
-            PARSING_PASS1.with(|s| s.borrow_mut().remove(&self.uri));
             return;
         }
         // ★ §7.6: Use table dirty — only rebuild RefDefMap/name_index,
@@ -1443,7 +1430,6 @@ impl McCode {
         if self.modules_parsed && self.use_table_dirty {
             self.create_lapper(); // includes inline Layer 2 + consolidate (Layer 1 + name_index)
             self.use_table_dirty = false;
-            PARSING_PASS1.with(|s| s.borrow_mut().remove(&self.uri));
             return;
         }
         self.modules_parsed = true;
@@ -1458,7 +1444,12 @@ impl McCode {
                         uri: self.uri.clone(),
                     };
                     // Replace any previously registered shallow copy with fully-parsed module
-                    workspace::WORKSPACE.modules.insert(key, Arc::new(module));
+                    workspace::WORKSPACE.modules
+                        .entry(key)
+                        .and_modify(|_| {
+                            dlog_error(1503, &node, "Duplicate module");
+                        })
+                        .or_insert(Arc::new(module));
                 }
             }
         }
@@ -1470,9 +1461,6 @@ impl McCode {
         // ★ Fix: Build the lapper after processing all modules.
         self.create_lapper(); // includes inline Layer 2 + consolidate_ref_def_map (Layer 1 + name_index)
         self.use_table_dirty = false;
-        // Keep URI in PARSING_PASS1 so mcb_parse_all_modules' second pass
-        // skips rebuild (which would clear name_to_declare_id and create
-        // new DeclareIds, breaking FuncRef→FuncDef matching).
 
         // ★ §7.6: Mark dependent files dirty — their Use table P4 entries
         // may need refreshing because this file's CMIE defs changed.
@@ -1488,7 +1476,7 @@ impl McCode {
     /// Backward-compatible interface: parse all definitions sequentially (single-file scenario or system library)
     pub fn parse_pass1(&mut self) {
         self.parse_pass1_types();
-        // parse_pass1_modules is already called at the end of parse_pass1_types
+        self.parse_pass1_modules();
     }
 
     // ========================================================================
@@ -1818,9 +1806,9 @@ impl McCode {
                     }
                 }
             }
-            // Insert: P3 entries first (they "win"), then P4, then P5.
-            // reverse so earlier (higher-priority) entries stay.
-            enum_val_entries.reverse();
+            // Insert in collection order: P3 first (wins), then P4, then P5.
+            // Collection order is already P3→P4→P5; "already exists → skip"
+            // ensures higher-priority entries are kept.
             for (value_id, def_uri, start, end) in &enum_val_entries {
                 if map
                     .entries
@@ -1881,7 +1869,7 @@ impl McCode {
                     }
                 }
             }
-            enum_cls_entries.reverse();
+            // Insert in collection order: P3 first (wins), then P4, then P5.
             for (ref_id, def_uri, start, end) in &enum_cls_entries {
                 if map.entries.contains_key(&(SymbolKind::EnumRef, *ref_id)) {
                     continue;
@@ -2701,15 +2689,15 @@ impl McCode {
     fn lapper_interfaces(uri: &McURI, sem: &mut McSemSymbols, symbol_lapper: &mut DedupLapper) {
         let uri_str = uri.as_str();
 
+        // Note: ClassDef intervals for interfaces are now created by
+        // lapper_global_classes via gt.class_name_to_id (populated by
+        // add_global_class in parse_pass1_types).  This function only
+        // handles interface-internal symbols: params, attrs, net refs.
+
         let interfaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
         for entry in interfaces.iter() {
             let iface = entry.value();
             if iface.uri.as_str() == uri_str {
-                symbol_lapper.insert(Interval {
-                    start: iface.span.start,
-                    stop: iface.span.end,
-                    val: SymbolType::new(SymbolKind::ClassDef, 0),
-                });
                 let mut param_decl_ids: std::collections::HashMap<String, DeclareId> =
                     std::collections::HashMap::new();
                 let iface_ident = iface.name.to_string();
@@ -2774,11 +2762,6 @@ impl McCode {
         for entry in global_interfaces.iter() {
             let iface = entry.value();
             if iface.uri.as_str() == uri_str {
-                symbol_lapper.insert(Interval {
-                    start: iface.span.start,
-                    stop: iface.span.end,
-                    val: SymbolType::new(SymbolKind::ClassDef, 0),
-                });
                 let iface_name_g = iface.name.to_string();
                 let mut param_decl_ids: std::collections::HashMap<String, DeclareId> =
                     std::collections::HashMap::new();

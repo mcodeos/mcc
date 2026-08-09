@@ -7,6 +7,7 @@
 use super::{
     CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
 };
+use crate::semantic::basic::mc_param_type::McParamTypeKind;
 
 pub struct RefIntegrityCheck;
 
@@ -28,7 +29,9 @@ impl ValidationCheck for RefIntegrityCheck {
     }
 }
 
-/// B1 extension: unused parameters in component functions.
+/// B1: component functions that declare parameters but have an empty body
+/// (no lines, no instances). The function signature exists but no implementation
+/// is provided — likely incomplete or stub code.
 fn check_comp_func_unused_params(acc: &mut CheckAccumulator) {
     let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
@@ -48,7 +51,7 @@ fn check_comp_func_unused_params(acc: &mut CheckAccumulator) {
                     uri: Some(uri.clone()),
                     span: Some(func_span),
                     message: format!(
-                        "Function '{}' in component '{}' has unused params: [{}].",
+                        "Function '{}' in component '{}' has params [{}] but no body (empty implementation).",
                         func.name, comp_name, param_names
                     ),
                     code: 2303,
@@ -58,7 +61,9 @@ fn check_comp_func_unused_params(acc: &mut CheckAccumulator) {
     }
 }
 
-/// I2: flag component parameters declared without `::TYPE` annotation.
+/// I2: flag component parameters whose type could not be determined.
+/// Smart Param inference may resolve bare identifiers to Label/Idx/etc.;
+/// only warn when the kind remains Unknown after inference.
 fn check_bare_params(acc: &mut CheckAccumulator) {
     let comps = &crate::db::cmie::tables::WORKSPACE.components;
     for entry in comps.iter() {
@@ -69,7 +74,9 @@ fn check_bare_params(acc: &mut CheckAccumulator) {
         }
         let comp = entry.value();
         for declare in comp.params.iter() {
-            if !declare.has_type_constraint() && declare.get_primary_name().is_some() {
+            if declare.param_type.kind == McParamTypeKind::Unknown
+                && declare.get_primary_name().is_some()
+            {
                 if let Some(name) = declare.get_primary_name() {
                     // Skip role params — they're intentionally untyped keywords
                     if name == "role" {
@@ -81,7 +88,7 @@ fn check_bare_params(acc: &mut CheckAccumulator) {
                         uri: Some(uri.clone()),
                         span: Some(comp.span.start..comp.span.end),
                         message: format!(
-                            "Parameter '{}' in component '{}' has no type annotation. \
+                            "Parameter '{}' in component '{}' has no type annotation and its type could not be inferred. \
                              Consider adding ::INT, ::STRING, ::UV.VOLT, etc.",
                             name, comp_name
                         ),

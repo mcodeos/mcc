@@ -54,14 +54,20 @@ impl ValidationCheck for ImportsCheck {
             let mcode = entry.value();
 
             for mcu in &mcode.uselist {
+                // ★ Fix (Defect 76): Canonicalize the use-target URI so it matches
+                // DashMap keys. Without this, relative paths like "./power.mc"
+                // would miss in mcodes.get() and produce false "target file not
+                // loaded" / "symbol not found" errors (K4/K5 false positives).
+                let target_uri = crate::build::pass1::canonicalize_project_uri(&mcu.uri);
+
                 // ── K1: Self-import ──
-                if !super::is_test_file(self_uri) && mcu.uri == *self_uri {
+                if !super::is_test_file(self_uri) && target_uri == *self_uri {
                     acc.push(CheckResult {
                         check_name: "imports",
                         severity: CheckSeverity::Warning,
                         uri: Some(self_uri.clone()),
                         span: uri_spans.get(self_uri).cloned(),
-                        message: format!("File imports itself via 'use {}'.", mcu.uri),
+                        message: format!("File imports itself via 'use {}'.", target_uri),
                         code: 2001,
                     });
                 }
@@ -88,7 +94,7 @@ impl ValidationCheck for ImportsCheck {
                 }
 
                 // ── K3: Non-existent version ──
-                if mcu.version.is_some() && !all_uris.contains(&mcu.uri) {
+                if mcu.version.is_some() && !all_uris.contains(&target_uri) {
                     acc.push(CheckResult {
                         check_name: "imports",
                         severity: CheckSeverity::Error,
@@ -105,7 +111,7 @@ impl ValidationCheck for ImportsCheck {
                 // ── K4: Non-exported/non-existent symbol import ──
                 if let Some(ref impt_ids) = mcu.impt_ids {
                     // Look up the target file's spacenames to verify symbols exist
-                    if let Some(target_mcode) = mcodes.get(&mcu.uri) {
+                    if let Some(target_mcode) = mcodes.get(&target_uri) {
                         let target_spacenames = &target_mcode.spacenames;
                         for id in impt_ids {
                             let id_str = id.to_string();
@@ -146,7 +152,7 @@ impl ValidationCheck for ImportsCheck {
 
                     // ── K5: `pub use` of non-existent symbol ──
                     if mcu.public {
-                        if let Some(target_mcode) = mcodes.get(&mcu.uri) {
+                        if let Some(target_mcode) = mcodes.get(&target_uri) {
                             let target_spacenames = &target_mcode.spacenames;
                             for id in impt_ids {
                                 let id_str = id.to_string();
