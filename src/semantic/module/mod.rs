@@ -171,7 +171,7 @@ impl McModule {
                     MCAST_NET => {
                         if let Some(subnode) = clause.get_sub_node() {
                             // ── P2-DEBUG: print AST structure ──
-                            if self.name.to_string().contains("513") {
+                            if self.name.to_string().contains("513") || self.name.to_string() == "main" {
                                 let st = subnode.get_type();
                                 let children: Vec<(u16, String)> = subnode
                                     .get_sub_node()
@@ -183,7 +183,7 @@ impl McModule {
                                             .collect()
                                     })
                                     .unwrap_or_default();
-                                mcc_dbg!("sem::module", "[P2-NET-AST] module={} net_node_type={st} children={children:?}", self.name);
+                                eprintln!("[P2-NET-AST] module={} net_node_type={st} children={children:?}", self.name);
                             }
                             if subnode.get_type() == MCAST_DECLARE {
                                 self.insts.parse(&subnode, &self.uri);
