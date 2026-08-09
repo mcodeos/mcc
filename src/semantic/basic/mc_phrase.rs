@@ -996,15 +996,10 @@ impl McPhrase {
                 let subnode2 = subnode1.get_next().expect(MISSING_SUBNODE);
 
                 let left_opd = Self::new(&subnode1, context)?;
-                if !subnode2.is_type(MCAST_OPD_IDAN) {
-                    dlog_error(1103, &subnode2, "Expected IDAN node");
-                    return None;
-                }
-                let subnode2 = subnode2.get_sub_node().expect(MISSING_SUBNODE);
-                let right: Vec<String> = subnode2
-                    .iter()
-                    .flat_map(|n| n.to_id_or_ida_or_num())
-                    .collect();
+                // Grammar now allows mc_phrase (expressions) inside curly braces,
+                // not just IDAN. Extract string form for simple cases (identifiers/numbers);
+                // complex expressions return empty vec and fall through gracefully.
+                let right: Vec<String> = subnode2.to_id_or_ida_or_num();
 
                 let _left_kind = match &left_opd {
                     McPhrase::Endpoint(McEndpoint::Single(ir)) => match &ir.base {
@@ -1104,26 +1099,11 @@ impl McPhrase {
 
                 let left_opd = Self::new(&subnode1, context)?;
 
-                // ★ Fix: Extract right1/right2 before match so both arms can use them
-                if !subnode2.is_type(MCAST_OPD_IDAN) {
-                    dlog_error(1005, &subnode2, "Expected IDAN");
-                    return None;
-                }
-                let subnode2_inner = subnode2.get_sub_node().expect(MISSING_SUBNODE);
-                let right1: Vec<String> = subnode2_inner
-                    .iter()
-                    .flat_map(|n| n.to_id_or_ida_or_num())
-                    .collect();
-
-                if !subnode3.is_type(MCAST_OPD_IDAN) {
-                    dlog_error(1105, &subnode3, "Expected IDAN");
-                    return None;
-                }
-                let subnode3_inner = subnode3.get_sub_node().expect(MISSING_SUBNODE);
-                let right2: Vec<String> = subnode3_inner
-                    .iter()
-                    .flat_map(|n| n.to_id_or_ida_or_num())
-                    .collect();
+                // Grammar now allows mc_phrase (expressions) inside curly braces,
+                // not just IDAN. Extract string form for simple cases;
+                // complex expressions return empty vec and fall through gracefully.
+                let right1: Vec<String> = subnode2.to_id_or_ida_or_num();
+                let right2: Vec<String> = subnode3.to_id_or_ida_or_num();
 
                 // eprintln!("[CMN-DIAG] CURLY_MN left={} right1={:?} right2={:?}",
                 //     match &left_opd {
