@@ -964,10 +964,7 @@ impl McParamDeclare {
                 .default_val
                 .as_ref()
                 .map(|default| (ec.name.clone(), default.clone())),
-            McParamDeclareKind::Role {
-                name,
-                default_role,
-            } => default_role
+            McParamDeclareKind::Role { name, default_role } => default_role
                 .as_ref()
                 .map(|dr| (name.clone(), dr.to_string())),
             _ => None,
@@ -1001,10 +998,7 @@ impl McParamDeclare {
 impl std::fmt::Display for McParamDeclare {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.kind {
-            McParamDeclareKind::Role {
-                name,
-                default_role,
-            } => {
+            McParamDeclareKind::Role { name, default_role } => {
                 if let Some(ref dr) = default_role {
                     write!(f, "{name} = {dr}")
                 } else {

@@ -7,6 +7,7 @@ pub mod dynamic;
 use crate::db::context::DB;
 use crate::db::diagnostic::diagnostic::dlog_trace;
 use crate::db::diagnostic::diagnostic::{dlog_error, dlog_warning};
+use crate::query::refs::mcb_register_declare_class;
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_ida::IdaSegment;
 use crate::semantic::basic::mc_ids::IdsSegment;
@@ -53,7 +54,10 @@ pub struct McPins {
     /// §3.2.2: Source spans for pin IDs (e.g., "1", "2" in "1 = VDD").
     pub pin_id_spans: std::collections::HashMap<String, std::ops::Range<usize>>,
     /// §3.2.2: Source spans for pin interfaces (e.g., "UART.TTL" in "1::UART.TTL = VDD").
-    pub pin_iface_spans: std::collections::HashMap<String, std::ops::Range<usize>>,
+    /// Each entry is (iface_name, span). Multiple occurrences of the same
+    /// interface name are kept as separate entries so that F12 works on each
+    /// occurrence independently.
+    pub pin_iface_spans: Vec<(String, std::ops::Range<usize>)>,
     /// Whether a `pins = [...]` (base) was seen before any `pins += [...]` (N6 check).
     pub has_base_pins: bool,
     /// Pin ID ranges for overlap detection (H3 check).
@@ -112,7 +116,7 @@ impl McPins {
             names_to_id: BTreeMap::new(),
             pin_name_spans: std::collections::HashMap::new(),
             pin_id_spans: std::collections::HashMap::new(),
-            pin_iface_spans: std::collections::HashMap::new(),
+            pin_iface_spans: Vec::new(),
             pin_defs: BTreeMap::new(),
             current_line_idx: 0,
             has_base_pins: false,
@@ -305,34 +309,44 @@ impl McPins {
                 match subnode.get_type() {
                     MCAST_IOTYPE => {
                         iotype = IOType::new(&subnode);
-                        // §3.2.2: Track pin interface spans for LSP
-                        if let Some(iface_name) = subnode.to_string() {
-                            let span = (subnode.get_pos() as usize)
-                                ..((subnode.get_pos() + subnode.get_len()) as usize);
-                            self.pin_iface_spans.insert(iface_name, span);
-                        }
                     }
                     MCAST_PIN_ID => {
                         pinids = McPins::parse_pinid(&subnode);
-                        // §3.2.2: Track pin ID spans for LSP
-                        if let Some(ids) = subnode.to_string() {
-                            let span = (subnode.get_pos() as usize)
-                                ..((subnode.get_pos() + subnode.get_len()) as usize);
-                            self.pin_id_spans.insert(ids, span);
+                        // §3.2.2: Track pin ID spans for LSP.
+                        // subnode is MCAST_PIN_ID, whose `len` may have been
+                        // extended by mc_value_link (C-side) to include the
+                        // pin names after `=`.  Use the first child to get the
+                        // span of just the pin ID itself.
+                        if let Some(child) = subnode.get_sub_node() {
+                            if let Some(ids) = child.to_string() {
+                                let span = (child.get_pos() as usize)
+                                    ..((child.get_pos() + child.get_len()) as usize);
+                                self.pin_id_spans.insert(ids, span);
+                            }
                         }
                     }
                     MCAST_PIN_NAMES => {
                         pinnames = McPinNames::new(&subnode);
                         pinnames_node = Some(subnode.clone());
+                        // ★ Collect interface name spans for LSP goto-def (e.g. `I2C` in `I2C0::I2C(Master)`)
+                        if let Some(ref names) = pinnames {
+                            for (iface_name, span) in &names.iface_spans {
+                                self.pin_iface_spans
+                                    .push((iface_name.clone(), span.clone()));
+                            }
+                        }
                         // ★ G5: collect pin name spans for LSP
                         if let Some(ref names_node) = pinnames_node {
                             if let Some(child) = names_node.get_sub_node() {
                                 for pn in child.iter().filter(|n| n.get_type() == MCAST_PIN_NAME) {
                                     if let Some(id_node) = pn.get_sub_node() {
                                         if let Some(id) = id_node.to_string() {
-                                            let span = (id_node.get_pos() as usize)
-                                                ..((id_node.get_pos() + id_node.get_len())
-                                                    as usize);
+                                            // For mc_declare_b (:: syntax), the first
+                                            // linked child (MCAST_CLASS) may start AFTER
+                                            // later children (MCAST_INSTANCE) in the
+                                            // source.  Compute the true bounding span
+                                            // by walking the sub-node list.
+                                            let span = Self::compute_bounding_span(&id_node);
                                             self.pin_name_spans.insert(id, span);
                                         }
                                     }
@@ -348,8 +362,9 @@ impl McPins {
                             for (opt, opt_node) in
                                 names.options.iter().zip(names.option_nodes.iter())
                             {
-                                let span = (opt_node.get_pos() as usize)
-                                    ..((opt_node.get_pos() + opt_node.get_len()) as usize);
+                                // Use bounding span to handle mc_declare_b where
+                                // linked children are out of source order.
+                                let span = Self::compute_bounding_span(opt_node);
                                 match opt {
                                     McPinPort::Interface(iface) => {
                                         // For bus-form interface names (e.g.
@@ -1434,6 +1449,44 @@ impl McPins {
         }
         bindings
     }
+
+    /// Compute the true bounding span of an AST node by walking the linked
+    /// list of sub-nodes two levels deep.  `mc_value_link` (C-side) extends
+    /// the first node's `len` forward but never adjusts `pos` backward, so
+    /// when children are linked in an order that differs from source order
+    /// (e.g. `mc_declare_b` where `MCAST_CLASS` is linked before
+    /// `MCAST_INSTANCE` even though the instance appears first in source),
+    /// a node's own `pos`/`len` can be wrong.  Walking two levels catches
+    /// both the direct children and their immediate sub-nodes (grandchildren),
+    /// which is enough to handle the `mc_declare_b` case without recursing
+    /// into the full AST tree (which would produce overly wide spans).
+    fn compute_bounding_span(node: &AstNode) -> std::ops::Range<usize> {
+        let mut min_pos = node.get_pos() as usize;
+        let mut max_end = (node.get_pos() + node.get_len()) as usize;
+
+        // Level 1: direct children (sub → next chain)
+        if let Some(child) = node.get_sub_node() {
+            let mut cur = Some(child);
+            while let Some(c) = cur {
+                min_pos = min_pos.min(c.get_pos() as usize);
+                max_end = max_end.max((c.get_pos() + c.get_len()) as usize);
+
+                // Level 2: grandchildren (handles MCAST_DECLARE → MCAST_CLASS/MCAST_INSTANCE ordering)
+                if let Some(grandchild) = c.get_sub_node() {
+                    let mut gc = Some(grandchild);
+                    while let Some(g) = gc {
+                        min_pos = min_pos.min(g.get_pos() as usize);
+                        max_end = max_end.max((g.get_pos() + g.get_len()) as usize);
+                        gc = g.get_next();
+                    }
+                }
+
+                cur = c.get_next();
+            }
+        }
+
+        min_pos..max_end
+    }
 }
 
 // ============================================================================
@@ -1581,6 +1634,9 @@ pub struct McPinNames {
     pub has_param_ref: bool,
     /// AST nodes for each option (parallel to `options`), for accurate error location
     pub option_nodes: Vec<AstNode>,
+    /// Interface name spans extracted from pin name declarations (e.g. `I2C` in `I2C0::I2C(Master)`)
+    /// Used by LSP lapper for PinIfaceDef / goto-definition.
+    pub iface_spans: Vec<(String, std::ops::Range<usize>)>,
 }
 
 impl McPinNames {
@@ -1627,6 +1683,7 @@ impl McPinNames {
             options: Vec::new(),
             has_param_ref: false,
             option_nodes: Vec::new(),
+            iface_spans: Vec::new(),
         };
 
         for each_name_option in name_nodes.iter().filter(|n| n.get_type() == MCAST_PIN_NAME) {
@@ -1711,8 +1768,46 @@ impl McPinNames {
                                     let inst_id = McIds {
                                         segments: vec![IdsSegment::Ida(inst_ida)],
                                     };
+                                    // Record interface name span for LSP goto-def.
+                                    // The class name is the second ID in the MCAST_IDS linked list.
+                                    // Traverse children: skip first MCAST_ID, then find second.
+                                    let class_span: Option<std::ops::Range<usize>> = {
+                                        let mut count = 0;
+                                        let mut cur = opd_node.get_sub_node();
+                                        let mut span: Option<std::ops::Range<usize>> = None;
+                                        while let Some(c) = cur {
+                                            if c.get_type() == MCAST_ID || c.get_type() == MCAST_IDA
+                                            {
+                                                count += 1;
+                                                if count == 2 {
+                                                    span = Some(
+                                                        (c.get_pos() as usize)
+                                                            ..((c.get_pos() + c.get_len())
+                                                                as usize),
+                                                    );
+                                                    break;
+                                                }
+                                            }
+                                            cur = c.get_next();
+                                        }
+                                        if let Some(ref s) = span {
+                                            myself
+                                                .iface_spans
+                                                .push((class_id.to_string(), s.clone()));
+                                        }
+                                        span
+                                    };
                                     let lookup_uri =
                                         crate::current_uri::try_get().unwrap_or_default();
+                                    // ★ LSP: Register class reference for goto-definition on
+                                    // :: syntax inside pin names (e.g., I0::I2C).
+                                    if let Some(ref span) = class_span {
+                                        mcb_register_declare_class(
+                                            &lookup_uri,
+                                            &class_id.to_string(),
+                                            span.clone(),
+                                        );
+                                    }
                                     let lookup_result = resolve_cmie(&DB, &class_id, &lookup_uri);
                                     if let Some(McCMIE::Interface(iface_def)) = lookup_result {
                                         let mc2_iface = Mc2Interface::new(inst_id, iface_def);
@@ -1897,6 +1992,7 @@ impl McPinNames {
                             let mut inst_ids: Option<McIds> = None;
                             let mut inst_node: Option<AstNode> = None;
                             let mut params: Vec<McParamValue> = Vec::new();
+                            let mut class_span: Option<std::ops::Range<usize>> = None;
 
                             // Iterate over linked list structure
                             let mut current = exp_node.get_sub_node();
@@ -1908,6 +2004,27 @@ impl McPinNames {
                                         // Then traverse linked list inside CLASS to find MCAST_PARAMS
                                         if let Some(class_id_node) = node.get_sub_node() {
                                             class_name = McIds::new(&class_id_node);
+                                            // Record interface name span for LSP goto-def.
+                                            // class_id_node is MCAST_IDS, whose `len` may have
+                                            // been extended by mc_value_link (C-side) to include
+                                            // linked MCAST_PARAMS.  Use the first child token
+                                            // (MCAST_IDA) to get the span of just the class name.
+                                            if let Some(ref cn) = class_name {
+                                                let span = if let Some(id_token) =
+                                                    class_id_node.get_sub_node()
+                                                {
+                                                    (id_token.get_pos() as usize)
+                                                        ..((id_token.get_pos() + id_token.get_len())
+                                                            as usize)
+                                                } else {
+                                                    (class_id_node.get_pos() as usize)
+                                                        ..((class_id_node.get_pos()
+                                                            + class_id_node.get_len())
+                                                            as usize)
+                                                };
+                                                class_span = Some(span.clone());
+                                                myself.iface_spans.push((cn.to_string(), span));
+                                            }
                                         }
 
                                         // Also traverse the linked list from MCAST_CLASS to find params
@@ -1983,6 +2100,15 @@ impl McPinNames {
                             let inst_name = iname.clone();
 
                             let lookup_uri = crate::current_uri::try_get().unwrap_or_default();
+                            // ★ LSP: Register class reference for goto-definition on
+                            // ::Interface() syntax in pin names (e.g., I2C0::I2C(Master)).
+                            if let Some(ref span) = class_span {
+                                mcb_register_declare_class(
+                                    &lookup_uri,
+                                    &class_name.to_string(),
+                                    span.clone(),
+                                );
+                            }
                             let lookup_result = resolve_cmie(&DB, &class_name, &lookup_uri);
                             if let Some(McCMIE::Interface(iface_def)) = lookup_result {
                                 // Pass params to Mc2Interface (e.g., role parameter "DCE")
@@ -2062,6 +2188,7 @@ impl McPinNames {
                             // MCAST_OPD_FCALL structure: inst_name::CLASS(params)
                             let mut class_name: Option<McIds> = None;
                             let mut inst_ids: Option<McIds> = None;
+                            let mut class_span: Option<std::ops::Range<usize>> = None;
 
                             // Iterate over linked list structure
                             let mut current = exp_node.get_sub_node();
@@ -2070,6 +2197,12 @@ impl McPinNames {
                                     MCAST_NAME => {
                                         if let Some(class_id_node) = node.get_sub_node() {
                                             class_name = McIds::new(&class_id_node);
+                                            // Capture span for LSP goto-def registration
+                                            let span = (class_id_node.get_pos() as usize)
+                                                ..((class_id_node.get_pos()
+                                                    + class_id_node.get_len())
+                                                    as usize);
+                                            class_span = Some(span);
                                         }
                                     }
                                     MCAST_INSTANCE | MCAST_PARAMS_PRE => {
@@ -2091,6 +2224,15 @@ impl McPinNames {
                             let inst_name = iname.clone();
 
                             let lookup_uri = crate::current_uri::try_get().unwrap_or_default();
+                            // ★ LSP: Register class reference for goto-definition on
+                            // ::Interface() syntax in pin names (e.g., I2C0::I2C(Master)).
+                            if let Some(ref span) = class_span {
+                                mcb_register_declare_class(
+                                    &lookup_uri,
+                                    &class_name.to_string(),
+                                    span.clone(),
+                                );
+                            }
                             let mut lookup_result = resolve_cmie(&DB, &class_name, &lookup_uri);
                             let mut resolved_iface_name: Option<McIds> = None;
 

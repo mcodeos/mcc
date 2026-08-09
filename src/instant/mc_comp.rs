@@ -346,7 +346,9 @@ impl McComponentInst {
                         return Some(String::new());
                     }
                 }
-                crate::semantic::basic::mc_paramd::McParamDeclareKind::Role { name: ids, .. } => {
+                crate::semantic::basic::mc_paramd::McParamDeclareKind::Role {
+                    name: ids, ..
+                } => {
                     if ids.get_primary_name().as_deref() == Some(name) {
                         return Some(String::new());
                     }

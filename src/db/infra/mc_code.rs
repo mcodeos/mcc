@@ -91,7 +91,7 @@ pub struct McCode {
     /// ★ Cross-file class ref targets cached from create_lapper() for consolidate_ref_def_map().
     /// Replaces GlobalSymbolTable.declare_id_to_target_span (§8.2 removal).
     cross_file_targets: Vec<(
-        crate::ast::ast_semantic::ReferenceId,
+        crate::ast::ast_semantic::DeclareId,
         McURI,
         std::ops::Range<usize>,
     )>,
@@ -1722,9 +1722,13 @@ impl McCode {
                     if let Some((def_uri, span)) = gt.class_id_to_span.get(class_id) {
                         let fid = map.intern_file(def_uri);
                         let cid = map.intern_container("");
+                        // ★ Fix: use class_id (DeclareId) as key, matching
+                        // what the lapper and ref_entries use. Previously
+                        // used ref_id (ReferenceId) which is a different
+                        // counter — causing goto_def to resolve wrong classes.
                         map.insert(
                             SymbolKind::ClassRef,
-                            u32::from(*ref_id),
+                            u32::from(*class_id),
                             RefDefEntry {
                                 ref_kind: SymbolKind::ClassDef,
                                 ref_id: 0,
@@ -1751,12 +1755,14 @@ impl McCode {
             // resolves ClassRef (ReferenceId) → class_id → def_span.
 
             // 1c. cross-file class ref targets (cached from create_lapper, §8.2)
-            for (ref_id, def_uri, span) in &self.cross_file_targets {
+            // ★ Fix: cross_file_targets now stores DeclareId (class_id) instead
+            // of ReferenceId, matching the ID space used by the lapper.
+            for (class_id, def_uri, span) in &self.cross_file_targets {
                 let fid = map.intern_file(def_uri);
                 let cid = map.intern_container("");
                 map.insert(
                     SymbolKind::ClassRef,
-                    u32::from(*ref_id),
+                    u32::from(*class_id),
                     RefDefEntry {
                         ref_kind: SymbolKind::ClassDef,
                         ref_id: 0,
@@ -2136,6 +2142,10 @@ impl McCode {
             Ok(mut sem) => {
                 // ★ Dedup-aware lapper: rejects duplicate (kind, start, stop) on insert.
                 let mut symbol_lapper = DedupLapper::new();
+                // ★ Clear ref_entries to avoid duplicates when create_lapper is called
+                // multiple times (e.g., once from parse_pass1_modules and again from
+                // mcb_parse_all_modules as a robustness fallback).
+                sem.ref_entries.clear();
 
                 Self::lapper_global_classes(
                     &self.uri,
@@ -2203,6 +2213,12 @@ impl McCode {
 
                 // ★ DedupLapper already deduplicates on insert by (kind, start, stop).
                 sem.symbol_lapper = symbol_lapper.into_inner();
+                // ★ Dedup ref_entries: multiple push sites or data-level duplicates
+                // can produce identical (kind, decl_id, start, end) tuples. Sort and
+                // dedup to ensure each entry appears exactly once.
+                sem.ref_entries
+                    .sort_unstable_by_key(|(k, d, s, e)| (*k as u8, *d, *s, *e));
+                sem.ref_entries.dedup();
             }
             Err(e) => {
                 tracing::error!(target: "mcc::code", error = %e, "symbols mutex poisoned (create_lapper)")
@@ -2416,7 +2432,7 @@ impl McCode {
     fn lapper_global_classes(
         uri: &McURI,
         cross_file_targets: &mut Vec<(
-            crate::ast::ast_semantic::ReferenceId,
+            crate::ast::ast_semantic::DeclareId,
             McURI,
             std::ops::Range<usize>,
         )>,
@@ -2535,9 +2551,16 @@ impl McCode {
                                 (cid, target_uri, target_span)
                             };
 
-                            let refid =
+                            let _refid =
                                 gt.add_declare_class(&uri, decl_span.clone(), local_class_id);
-                            cross_file_targets.push((refid, ref_target_uri, ref_target_span));
+                            // ★ Fix: push class_id (DeclareId) instead of refid
+                            // (ReferenceId) so Layer 1c uses the same ID space as
+                            // the lapper and ref_entries.
+                            cross_file_targets.push((
+                                local_class_id,
+                                ref_target_uri,
+                                ref_target_span,
+                            ));
                         }
                     }
                 }
@@ -3024,24 +3047,6 @@ impl McCode {
                             .push((ref_kind, u32::from(decl_id), span.start, span.end));
                     }
                 }
-                for (span, port_name, scope) in func.insts.iter_net_refs() {
-                    let sp = crate::refdef::register::scope_path_from_scope_str(&uri, scope);
-                    let decl_id = crate::refdef::register::lookup_declare_id(
-                        &sem.local_table,
-                        port_name,
-                        &sp,
-                    );
-                    if let Some(decl_id) = decl_id {
-                        let ref_kind = Self::resolve_net_ref_kind(port_name, &func.insts);
-                        symbol_lapper.insert(Interval {
-                            start: span.start,
-                            stop: span.end,
-                            val: SymbolType::new(ref_kind, u32::from(decl_id)),
-                        });
-                        sem.ref_entries
-                            .push((ref_kind, u32::from(decl_id), span.start, span.end));
-                    }
-                }
                 let func_scope = func.insts.scope.clone().unwrap_or_else(|| fscope.clone());
                 for (name, _label_kind, span) in func.insts.iter_labels_with_span() {
                     let (d, _) = crate::refdef::register::register_def(
@@ -3101,7 +3106,17 @@ impl McCode {
                     val: SymbolType::new(def_kind, u32::from(d)),
                 });
             }
-            for (pin_name, pin_span) in Self::extract_pin_name_spans(comp) {
+            for (pin_name, mut pin_span) in Self::extract_pin_name_spans(comp) {
+                // ★ Fix: AST span excludes closing delimiter (parser token).
+                // Extend span to include trailing ) or } so PinNameDef names
+                // are complete (e.g., "I2C(Master)" not "I2C(Master").
+                if let Ok(content) = std::fs::read_to_string(std::path::Path::new(uri.as_str())) {
+                    if let Some(&ch) = content.as_bytes().get(pin_span.end) {
+                        if ch == b')' || ch == b'}' {
+                            pin_span.end += 1;
+                        }
+                    }
+                }
                 let (d, _) = crate::refdef::register::register_def(
                     &mut *sem,
                     &uri,

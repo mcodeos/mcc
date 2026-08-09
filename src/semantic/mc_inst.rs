@@ -716,16 +716,33 @@ impl McInstances {
                                     if pname.is_square_only() {
                                         let members = pname.expand();
                                         let next_node = opd_node.get_next();
-                                        let mut interface_name = None;
+                                        let mut interface_name: Option<String> = None;
+                                        let mut interface_span: Option<std::ops::Range<usize>> =
+                                            None;
                                         if let Some(n) = next_node {
                                             if n.get_type() == MCAST_OPD_DBCOLON {
                                                 if let Some(sub) = n.get_sub_node() {
                                                     interface_name =
                                                         Some(sub.to_string().unwrap_or_default());
+                                                    interface_span = Some(
+                                                        (sub.get_pos() as usize)
+                                                            ..((sub.get_pos() + sub.get_len())
+                                                                as usize),
+                                                    );
                                                 }
                                             }
                                         }
-                                        if let Some(iface_str) = interface_name {
+                                        if let Some(ref iface_str) = interface_name {
+                                            // ★ LSP: Register class reference for goto-definition on
+                                            // ::Interface() syntax in port declarations
+                                            // (e.g., ps [VDD, GND]::DC(3.3V)).
+                                            if let Some(ref span) = interface_span {
+                                                mcb_register_declare_class(
+                                                    uri,
+                                                    iface_str,
+                                                    span.clone(),
+                                                );
+                                            }
                                             if let Some(McCMIE::Interface(iface_def)) = resolve_cmie(
                                                 &DB,
                                                 &McIds::from(iface_str.as_str()),

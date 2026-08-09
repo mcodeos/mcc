@@ -103,7 +103,7 @@ impl McFuncCall {
                 if let Some((name, span)) = class_name {
                     let full_name = match inst_name {
                         Some(inst) => format!("{inst}.{name}"),
-                        None => name,
+                        None => name.clone(),
                     };
                     mcb_register_declare_class(context.uri(), &full_name, span);
                 }
@@ -118,18 +118,23 @@ impl McFuncCall {
                                 Some(inner)
                             };
                             if let Some(fc) = fcall_node {
-                                for fc_child in fc.iter() {
-                                    if fc_child.get_type() == MCAST_NAME {
-                                        if let Some(ids_node) = fc_child.get_sub_node() {
-                                            if let Some(ids) = McIds::new(&ids_node) {
-                                                let span = (ids_node.get_pos() as usize)
-                                                    ..((ids_node.get_pos() + ids_node.get_len())
-                                                        as usize);
-                                                mcb_register_declare_class(
-                                                    context.uri(),
-                                                    &ids.to_string(),
-                                                    span,
-                                                );
+                                // ★ Fix: fc.iter() walks the `next` sibling list, but MCAST_NAME
+                                // is a child of the fcall node (via `sub`). We need to iterate
+                                // the children of the fcall, not its siblings.
+                                if let Some(fc_sub) = fc.get_sub_node() {
+                                    for fc_child in fc_sub.iter() {
+                                        if fc_child.get_type() == MCAST_NAME {
+                                            if let Some(ids_node) = fc_child.get_sub_node() {
+                                                if let Some(ids) = McIds::new(&ids_node) {
+                                                    let span = (ids_node.get_pos() as usize)
+                                                        ..((ids_node.get_pos() + ids_node.get_len())
+                                                            as usize);
+                                                    mcb_register_declare_class(
+                                                        context.uri(),
+                                                        &ids.to_string(),
+                                                        span,
+                                                    );
+                                                }
                                             }
                                         }
                                     }
