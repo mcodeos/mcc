@@ -694,44 +694,50 @@ impl McParamDeclare {
 
                 // Try enum-class path first: diel::CAP = X7R
                 if let Some(class_name) = McParamType::extract_class_name_from_declare(&subnode) {
-                    // Extract instance name from MCAST_INSTANCE child
-                    let mut inst_name: Option<McIds> = None;
-                    let mut default_val: Option<String> = None;
-                    if let Some(decl_first_child) = subnode.get_sub_node() {
-                        for child in decl_first_child.iter() {
-                            if child.get_type() == MCAST_INSTANCE {
-                                if let Some(inner) = child.get_sub_node() {
-                                    // First child of INSTANCE is the param name
-                                    let name_node = if inner.get_type() == MCAST_OPD {
-                                        inner.get_sub_node().unwrap_or(inner.clone())
-                                    } else {
-                                        inner.clone()
-                                    };
-                                    if inst_name.is_none() {
-                                        inst_name = McIds::new(&name_node);
-                                    }
-                                    // Check next sibling for default value (MCAST_EXPRESSION)
-                                    let mut current = name_node.get_next();
-                                    while let Some(c) = current {
-                                        if c.get_type() == MCAST_EXPRESSION {
-                                            default_val = c.to_string();
-                                            break;
+                    // Only treat as enum-class if the class name is actually an enum.
+                    // Interface-typed params (e.g., USB_VBUS_1{VDD_3V, GND}::DC(3.3V))
+                    // should fall through to the component-instance path so that
+                    // bus_members can be extracted from curly/square segments.
+                    if crate::db::cmie::cmie::is_enum_class_name(&class_name) {
+                        // Extract instance name from MCAST_INSTANCE child
+                        let mut inst_name: Option<McIds> = None;
+                        let mut default_val: Option<String> = None;
+                        if let Some(decl_first_child) = subnode.get_sub_node() {
+                            for child in decl_first_child.iter() {
+                                if child.get_type() == MCAST_INSTANCE {
+                                    if let Some(inner) = child.get_sub_node() {
+                                        // First child of INSTANCE is the param name
+                                        let name_node = if inner.get_type() == MCAST_OPD {
+                                            inner.get_sub_node().unwrap_or(inner.clone())
+                                        } else {
+                                            inner.clone()
+                                        };
+                                        if inst_name.is_none() {
+                                            inst_name = McIds::new(&name_node);
                                         }
-                                        current = c.get_next();
+                                        // Check next sibling for default value (MCAST_EXPRESSION)
+                                        let mut current = name_node.get_next();
+                                        while let Some(c) = current {
+                                            if c.get_type() == MCAST_EXPRESSION {
+                                                default_val = c.to_string();
+                                                break;
+                                            }
+                                            current = c.get_next();
+                                        }
                                     }
                                 }
                             }
                         }
-                    }
-                    if let Some(name) = inst_name {
-                        return Some(Self {
-                            param_type,
-                            kind: McParamDeclareKind::EnumClass(McEnumClassDeclare {
-                                name,
-                                class_name,
-                                default_val,
-                            }),
-                        });
+                        if let Some(name) = inst_name {
+                            return Some(Self {
+                                param_type,
+                                kind: McParamDeclareKind::EnumClass(McEnumClassDeclare {
+                                    name,
+                                    class_name,
+                                    default_val,
+                                }),
+                            });
+                        }
                     }
                 }
 

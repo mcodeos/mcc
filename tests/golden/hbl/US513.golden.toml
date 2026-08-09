@@ -66,14 +66,14 @@ origin = "us513.mc:149"
 [[comp]]
 id = "cap4"
 class = "CAP"
-value = "1uF"
+value = "CAP"
 pins = 2
 origin = "us513.mc:153"
 
 [[comp]]
 id = "cap5"
 class = "CAP"
-value = "1uF"
+value = "CAP"
 pins = 2
 origin = "us513.mc:153"
 
