@@ -2465,51 +2465,112 @@ impl McCode {
                         .unwrap();
                     tracing::info!(target: "mcc::lsp", "  create_lapper: lsp.declare_class_refs for '{}' = {} entries", uri, decl_refs.get(uri).map(|v| v.len()).unwrap_or(0));
                     if let Some(refs) = decl_refs.remove(uri) {
-                        for (decl_span, mut class_id, mut target_uri, mut target_span) in refs {
-                            // ★ Fix: Re-resolve sentinel entries (class_id=0, target_uri="")
-                            // at lapper creation time when all dependency files have been
-                            // parsed and their classes are registered in global/workspace tables.
-                            // ★ class_id=0 is always a sentinel collision because
-                            // multiple classes may get DeclareId(0) from different
-                            // library files (each file's gt assigns sequential IDs
-                            // starting from 0). class_id=0 can never be reliably
-                            // resolved via class_id_to_span.
-                            if class_id == DeclareId::default() {
-                                if let Some(resolved) =
-                                    Self::resolve_class_ref_at_span(uri, &decl_span, &mut gt, &sem)
-                                {
-                                    class_id = resolved.0;
-                                    target_uri = resolved.1;
-                                    target_span = resolved.2;
-                                } else {
-                                    // ★ Fix: Skip entries that can't be re-resolved.
-                                    // Sentinel class_id=0 would map to whatever class got
-                                    // DeclareId(0) in the global table, creating incorrect
-                                    // goto-def jumps (e.g. CAP→MCU.US513_20_F).
-                                    continue;
-                                }
+                        for (decl_span, _class_id, target_uri, target_span) in refs {
+                            // ★ Fix (unified): Register each class ref with a
+                            // locally-unique DeclareId.
+                            //
+                            // _class_id from declare_class_refs is the class_id
+                            // from the DEFINING file's per-file table. Using it
+                            // directly in the current file's class_id_to_span
+                            // lookup collides with local classes that happen to
+                            // share the same id.
+                            //
+                            // Instead we extract the class name from the source
+                            // and register it in the local GlobalSymbolTable,
+                            // which assigns a unique DeclareId. target_uri and
+                            // target_span from declare_class_refs are already
+                            // correct (set by mcb_register_declare_class) —
+                            // no need to re-resolve via mcb_get_cmie.
+                            //
+                            // Sentinel (target_uri=""): class was NOT found
+                            // during registration. Fall back to late resolution
+                            // via resolve_class_ref_at_span.
+
+                            // Read class name from the reference span
+                            let content = std::fs::read_to_string(
+                                std::path::Path::new(uri.as_str()),
+                            )
+                            .ok();
+                            let class_name: String = content
+                                .as_ref()
+                                .and_then(|c| c.get(decl_span.start..decl_span.end))
+                                .map(|s| {
+                                    s.chars()
+                                        .take_while(|c| {
+                                            c.is_alphanumeric() || *c == '_' || *c == '.'
+                                        })
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+
+                            if class_name.is_empty() {
+                                continue;
                             }
-                            let refid = gt.add_declare_class(&uri, decl_span.clone(), class_id);
-                            cross_file_targets.push((refid, target_uri, target_span));
+
+                            let (local_class_id, ref_target_uri, ref_target_span) =
+                                if target_uri.is_empty() {
+                                    // Sentinel: unresolved during registration
+                                    if let Some(resolved) = Self::resolve_class_ref_at_span(
+                                        uri,
+                                        &decl_span,
+                                        &mut gt,
+                                        &sem,
+                                    ) {
+                                        (resolved.0, resolved.1, resolved.2)
+                                    } else {
+                                        continue;
+                                    }
+                                } else {
+                                    // Normal case: target_uri/target_span are
+                                    // already correct. Register in local table
+                                    // to get a locally-unique DeclareId.
+                                    let cid = {
+                                        let mut found = None;
+                                        for ((u, name), &existing_cid) in
+                                            gt.class_name_to_id.iter()
+                                        {
+                                            if name == &class_name && u == &target_uri
+                                            {
+                                                found = Some(existing_cid);
+                                                break;
+                                            }
+                                        }
+                                        found.unwrap_or_else(|| {
+                                            gt.add_class(
+                                                &target_uri,
+                                                &class_name,
+                                                target_span.clone(),
+                                            )
+                                        })
+                                    };
+                                    (cid, target_uri, target_span)
+                                };
+
+                            let refid =
+                                gt.add_declare_class(&uri, decl_span.clone(), local_class_id);
+                            cross_file_targets.push((refid, ref_target_uri, ref_target_span));
                         }
                     }
                 }
 
                 for ((loop_uri, span), refid) in gt.span_to_declare_class_id.iter() {
                     if loop_uri == uri {
-                        symbol_lapper.insert(Interval {
-                            start: span.start,
-                            stop: span.end,
-                            val: SymbolType::new(SymbolKind::ClassRef, u32::from(*refid)),
-                        });
-                        // ★ Fix: use class_id (DeclareId) in ref_entries, not refid (ReferenceId).
-                        // This ensures def_map lookup in fill_refdef_layer2 finds the ClassDef
-                        // entry that was registered with class_id above.
+                        // ★ Fix: use class_id (DeclareId) in BOTH lapper and ref_entries.
+                        // Previously lapper used refid while ref_entries used class_id.
+                        // This mismatch meant F12's map.lookup(ClassRef, refid) could
+                        // never find the RefDefMap entry keyed by (ClassRef, class_id).
+                        // fill_refdef_layer2 uses class_id as the key, so lapper must
+                        // also use class_id for the lookup to match.
                         let class_id = gt
                             .declare_id_to_class_id
                             .get(refid)
                             .copied()
                             .unwrap_or(DeclareId::new(0));
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::new(SymbolKind::ClassRef, u32::from(class_id)),
+                        });
                         sem.ref_entries.push((
                             SymbolKind::ClassRef,
                             u32::from(class_id),

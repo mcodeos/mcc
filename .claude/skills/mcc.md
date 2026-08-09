@@ -143,17 +143,18 @@ mcc build
 # Build with explicit entry file
 mcc build path/to/main.mc
 
-# Override top module
-mcc build --top my_top_module
+# Build with library and top module
+mcc build path/to/main.mc --lib mcode --top my_top_module
 
 # With visualization
 mcc build --viz
+mcc build path/to/main.mc --viz
+
+# JSON output
+mcc build path/to/main.mc -f json -o output.json
 
 # Include system library in output
 mcc build --include-system
-
-# Lock specific layouter
-mcc build --viz --layouter schematic_flow
 ```
 
 Uses `project.toml` / `manifest.toml` / `mcc.toml`:
@@ -173,43 +174,60 @@ mcode = "*"
 ### 2.4 `show` — Inspect Definitions
 
 ```bash
-# List all components
-mcc show component
+# List all components / modules / interfaces / enums (detail list)
+mcc show component               # List all components (with summary)
+mcc show module                  # List all modules
+mcc show interface               # List all interfaces
+mcc show enum                    # List all enums
 
-# Show component details
-mcc show component --name RES
+# Flat list (names only, suitable for scripting)
+mcc show component.list --lib mcode
+mcc show interface.list --lib mcode
 
-# List all interfaces
-mcc show interface
+# Show entity details (positional NAME, not --name)
+mcc show component RES --lib mcode
+mcc show component CAP --lib mcode
+mcc show module LP322DCDC -F example.mc
+mcc show enum CAP --lib mcode
 
-# Show pins of a component
-mcc show pins --name RES
+# Show sub-element details
+mcc show pins RES --lib mcode
+mcc show ports LP322DCDC -F example.mc
+mcc show labels LP322DCDC -F example.mc
+mcc show instances LP322DCDC -F example.mc
+mcc show instances LP322DCDC --type component -F example.mc   # Filter by kind
+mcc show nets LP322DCDC --top LP322DCDC -F example.mc
+mcc show attrs RES --lib mcode
+mcc show funcs CAP --lib mcode
+mcc show params CAP --lib mcode
+mcc show roles SPI --lib mcode
+mcc show values CAP --lib mcode
 
-# Show instances in a module
-mcc show instances -F example.mc -T main
-
-# Show all entities in a file
+# Show all entities in a file / list loaded files
 mcc show file -F example.mc
+mcc show files
 
 # Filter results
 mcc show component --filter "name=RES*"
 
-# Dump everything (debug)
-mcc show dump.all
+# Dump ALL parsed fields of an entity (debug input parsing issues)
+mcc show dump RES --lib mcode
+mcc show dump CAP --lib mcode
+mcc show dump DC --lib mcode --kind interface   # specify entity kind
 
-# F12 goto-def debug: dump all def/ref + RefDefMap (local, no server needed)
-mcc show lapper path/to/file.mc                # F12_DIAG text
-mcc show lapper --lib mcode path/to/file.mc    # with library
-mcc show lapper path/to/file.mc -f json-pretty # JSON
+# AST tree (debug parser output)
+mcc show ast -F path/to/file.mc
+
+# F12 goto-def debug: dump lapper symbols + RefDefMap (local, no server needed)
+mcc show lapper -F path/to/file.mc                # F12_DIAG text (default)
+mcc show lapper -F path/to/file.mc --lib mcode    # with library
+mcc show lapper -F path/to/file.mc -f json-pretty # JSON output
 ```
 
-```bash
-# Show labels on a module
-mcc show labels --name main -F example.mc
-```
-Show targets: `all`, `file`, `files`, `lapper`, `component`, `module`, `interface`, `enum`, `net`, `pins`, `ports`, `labels`, `instances`, `nets`, `attrs`, `funcs`, `params`, `roles`, `values`, `dump`
+Show targets: `all`, `file`, `files`, `lapper`, `ast`, `component`, `module`, `interface`, `enum`, `net`, `pins`, `ports`, `labels`, `instances`, `nets`, `attrs`, `funcs`, `params`, `roles`, `values`, `dump`
 
 > `show lapper` — see §6.6 for full debug workflow. Runs locally, outputs all symbol interval DEF/REF classifications and RefDefMap goto-def mappings.
+> `show sem` — RPC-based equivalent: `curl -s -X POST http://localhost:8080/rpc -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"sem","params":{"uri":"<path>"},"id":1}'`. Returns same lapper + RefDefMap data structure.
 
 ---
 
@@ -249,19 +267,20 @@ mcc query "kind=interface AND port_count>2" --json
 
 ```bash
 # Netlist
-mcc export netlist example.mc --top main
+mcc export netlist example.mc --top main --lib mcode
 
 # BOM (Bill of Materials)
-mcc export bom example.mc --top main
+mcc export bom example.mc --top main --lib mcode
 
 # SPICE netlist
-mcc export spice example.mc --top main
+mcc export spice example.mc --top main --lib mcode
 
 # KiCad schematic
-mcc export kicad example.mc --top main -o output.kicad_sch
+mcc export kicad example.mc --top main --lib mcode -o output.kicad_sch
 
-# JSON format
-mcc export netlist example.mc --top main --json
+# Format options
+mcc export netlist example.mc --top main -f json
+mcc export bom example.mc --top main -f csv
 ```
 
 ---
@@ -269,20 +288,14 @@ mcc export netlist example.mc --top main --json
 ### 2.7 `extract` — Extract Entities
 
 ```bash
-# All instances
-mcc extract instances example.mc --top main
-
-# All nets
-mcc extract nets example.mc --top main
-
-# Components only
-mcc extract components example.mc
-
-# Interfaces only
-mcc extract interfaces example.mc
+# All instances / nets / components / interfaces
+mcc extract instances example.mc --top main --lib mcode
+mcc extract nets example.mc --top main --lib mcode
+mcc extract components example.mc --lib mcode
+mcc extract interfaces example.mc --lib mcode
 
 # Filter by name pattern
-mcc extract instances example.mc --name "C*"
+mcc extract instances example.mc --name "C*" --lib mcode
 ```
 
 ---
@@ -297,7 +310,7 @@ mcc lib list
 mcc lib show mcode
 
 # Install a library from source
-mcc lib install /path/to/library
+mcc lib install mcode --from /path/to/mcode
 
 # Search available libraries
 mcc lib search mcode
@@ -346,17 +359,22 @@ mcc proj create my-project
 # Explain an error code
 mcc explain 1100
 
-# Go-to-definition
+# Go-to-definition (verify F12 jump target)
+mcc def DC --lib mcode
+mcc def CAP --lib mcode
 mcc def RES --lib mcode
 
-# Find references
-mcc refs RES --lib mcode
+# Find references (verify reference lookup)
+mcc refs DC --lib mcode
+mcc refs CAP --lib mcode
 
 # Electrical rule check
-mcc erc ./my-project --top main
+mcc erc ./my-project --lib mcode
+mcc erc ./my-project --top main --lib mcode
 
-# Convert .mc to JSON
+# Convert .mc to JSON/YAML
 mcc convert example.mc --to json -o example.json
+mcc convert example.mc --to yaml -o example.yaml
 
 # Generate design report
 mcc report ./my-project
@@ -403,32 +421,104 @@ Error format:
 
 ```bash
 # Health check
-curl -X POST http://127.0.0.1:8080/health
+curl -s -X POST http://127.0.0.1:8080/health
 
-# Server info
-curl -X POST http://127.0.0.1:8080/rpc \
+# Server info / list all methods
+curl -s -X POST http://127.0.0.1:8080/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"server.info","params":{},"id":1}'
-
-# List methods
-curl -X POST http://127.0.0.1:8080/rpc \
+curl -s -X POST http://127.0.0.1:8080/rpc \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"server.methods","params":{},"id":2}'
 
-# Parse a file
-curl -X POST http://127.0.0.1:8080/rpc \
+# Initialize (load system libs)
+curl -s -X POST http://127.0.0.1:8080/rpc \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"parse","params":{"uri":"file:///path/to/file.mc"},"id":3}'
+  -d '{"jsonrpc":"2.0","method":"init","params":{},"id":1}'
 
-# Show all components
-curl -X POST http://127.0.0.1:8080/rpc \
+# Parse a file / code snippet
+curl -s -X POST http://127.0.0.1:8080/rpc \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"show.component","params":{},"id":4}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"parse","params":{"entry":"/path/to/file.mc","libs":["mcode"]}}'
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"parse","params":{"entry":"/path/to/file.mc","content":"component FOO() { pins=[1=1,2=2] }","libs":["mcode"]}}'
 
-# Get diagnostics for a file
-curl -X POST http://127.0.0.1:8080/rpc \
+# Check file / code snippet
+curl -s -X POST http://127.0.0.1:8080/rpc \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"diagnostics","params":{"uri":"file:///path/to/file.mc"},"id":5}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"check","params":{"entry":"/path/to/file.mc","libs":["mcode"]}}'
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"check","params":{"entry":"/path/to/file.mc","content":"component FOO() { pins=[1=1,2=2] }","libs":["mcode"]}}'
+
+# Semantic tokens + lapper symbols (LSP core)
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"sem","params":{"uri":"/path/to/file.mc"}}'
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"sem","params":{"uri":"/path/to/file.mc","content":"use mcode\n\ncomponent MCU.FOO() { ... }"}}'
+
+# Go-to-definition / find references / hover / completion
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"def","params":{"name":"RES"}}'
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"refs","params":{"name":"CAP"}}'
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"hover","params":{"name":"RES","uri":"/path/to/file.mc"}}'
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"completion","params":{"uri":"/path/to/file.mc","line":100,"column":10}}'
+
+# Show component / dump
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"show.component","params":{"name":"RES"}}'
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"show.dump","params":{"name":"CAP"}}'
+
+# Get diagnostics / project symbols
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"diagnostics","params":{"uri":"/path/to/file.mc"},"id":5}'
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"project_symbols","params":{},"id":6}'
+
+# Search / query
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"defs.search","params":{"pattern":"RES","kind":"component"}}'
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"defs.query","params":{"expr":"kind=component AND name=RES*","limit":50}}'
+
+# Dynamic file management
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"add_file","params":{"uri":"/path/to/new_file.mc"}}'
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"remove_file","params":{"uri":"/path/to/file.mc"}}'
+
+# Build / export / ERC / report
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"build.full","params":{"entry":"/path/to/file.mc","top":"TOP","libs":["mcode"]}}'
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"export","params":{"kind":"netlist","entry":"/path/to/file.mc","top":"TOP","libs":["mcode"]}}'
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"erc","params":{}}'
+curl -s -X POST http://127.0.0.1:8080/rpc \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"report","params":{}}'
 ```
 
 ### RPC Methods Reference
@@ -494,11 +584,15 @@ curl -X POST http://127.0.0.1:8080/rpc \
 | `sem` | `uri`, `content?` | Semantic tokens + symbols |
 | `diagnostics` | `uri` | File diagnostics |
 | `project_symbols` | — | Project-wide symbol index |
-| `def` | `name`, `uri?` | Go-to-definition |
-| `refs` | `name`, `uri?` | Find all references |
-| `defs.search` | `query`, `kind?`, `limit?` | Text/regex/fuzzy search across definitions |
-| `defs.query` | `query` | Structured DSL query (e.g. `kind=component AND name=RES*`) |
-| `lookup` | `uri` | Lookup semantic info by URI |
+| `def` | `name` | Go-to-definition by name |
+| `refs` | `name` | Find all references by name |
+| `hover` | `name`, `uri` | Hover tooltip info |
+| `completion` | `uri`, `line`, `column` | Code completions at position |
+| `defs.search` | `pattern`, `kind?`, `regex?`, `fuzzy?`, `limit?` | Text/regex/fuzzy search across definitions |
+| `defs.query` | `expr`, `limit?` | Structured DSL query (e.g. `kind=component AND name=RES*`) |
+| `lookup` | `name` | Lookup by name |
+| `lookup_sub` | `parentUri`, `kind`, `name` | Scoped lookup |
+| `lookup_all` | — | All lookup entries |
 | `erc` | `uri?`, `top?` | Electrical rule check |
 
 #### Library
@@ -622,14 +716,19 @@ MC_VIZ_DUMP=1 mcc parse example.mc --viz --top main
 ### 5.3 Server Debugging
 
 ```bash
-# Foreground server with full tracing
-mcc start --port 8080 --log-level debug --lib mcode
+# Background daemon with library preload (most common)
+mcc start -d --port 8080 --lib mcode
+mcc start -d -l /tmp/mcc.log --lib mcode    # with log file
+
+# Foreground server with full tracing (debug mode)
+mcc start --port 8080 -vv --lib mcode
 
 # Check server health
-curl -X POST http://127.0.0.1:8080/health
+curl -s -X POST http://127.0.0.1:8080/health
 
 # Check if server is running
 mcc status
+mcc status --json
 
 # View PID
 cat ~/.mcode/logs/mcc.pid
@@ -709,13 +808,13 @@ mcc build --viz
 mcc show file -F src/main.mc
 
 # Find a component definition
-mcc show component --name RES
+mcc show component RES --lib mcode
 
 # Search for components matching a pattern
 mcc search "CAP" --kind component
 
 # Show instances (what's actually used)
-mcc show instances -F src/main.mc -T main
+mcc show instances TOP_MODULE --top TOP_MODULE -F src/main.mc
 
 # Export netlist
 mcc export netlist src/main.mc --top main --json
@@ -837,6 +936,38 @@ mcc show lapper --lib mcode src/us513.mc 2>/dev/null | grep "Ref(ClassRef"
 # 4. Compare two runs
 diff <(mcc show lapper file.mc 2>/dev/null | grep MAP) \
      <(mcc show lapper --lib mcode file.mc 2>/dev/null | grep MAP)
+```
+
+**JSON analysis — check if Lapper IDs match RefDefMap IDs (root cause of F12 failure):**
+
+```bash
+# If Lapper ClassRef IDs don't match RefDef ClassRef IDs → F12 goto-def fails
+mcc show lapper us513.mc --lib mcode -f json | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+# ClassRef kind=1: lapper interval id must match ref_def_map entry ref_id
+lapper_ids = {e['id'] for e in d['lapper'] if e['kind']==1}
+refdef_ids = {e['ref_id'] for e in d['ref_def_map']['entries'] if e['ref_kind']==1}
+print(f'Lapper ClassRef IDs: {sorted(lapper_ids)}')
+print(f'RefDef ClassRef IDs: {sorted(refdef_ids)}')
+print(f'Matched: {sorted(lapper_ids & refdef_ids)}')
+print(f'MISMATCHED: {sorted(lapper_ids - refdef_ids)}')  # Mismatch = F12 broken
+"
+```
+
+**Quick debug flow (F12 goto-def issues):**
+
+```bash
+# 1. Verify the definition exists and is correct
+mcc show interface DC --lib mcode
+mcc show component CAP --lib mcode
+
+# 2. Verify def returns the correct target
+mcc def DC --lib mcode
+mcc def CAP --lib mcode
+
+# 3. Inspect raw lapper + RefDefMap data (key step!)
+mcc show lapper us513.mc --lib mcode -f json | python3 -m json.tool
 ```
 
 ### 6.7 RPC-Based Debug Session

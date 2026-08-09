@@ -27,15 +27,6 @@ void add_token(mc_lex_token** p_tokens_tail, short class, short id, char* string
     token->tstring = strndup(string, len);
     token->next = NULL;
 
-    // P2-7-XTAL: trace tokens near the XTAL setup function body
-    {
-        // Print ALL tokens in the range 4000-8500 (should cover us513.mc including XTAL setup body)
-        if (pos >= 4000 && pos <= 8500) {
-            fprintf(stderr, "[P2-7-LEX-DBG] add_token: file=%s pos=%d len=%d tid=%d class=%d string='%.*s'\n",
-                    g_lex_file ? g_lex_file : "?", pos, len, id, class, len, string);
-        }
-    }
-
     if ((*p_tokens_tail) == NULL){
         g_token_head = token;
         *p_tokens_tail = token;
@@ -140,7 +131,7 @@ void lex(mc_lex_token** tokens, char *s)
                 case '*': goto yy21;
                 case '+': goto yy22;
                 case ',': goto yy24;
-                case '-': fprintf(stderr, "[P2-7-LEX-DBG] INIT state '-' at pos=%ld, next_byte=0x%02X\n", (long)(yy_start-yy_head), (unsigned char)yy_cursor[1]); goto yy26;
+                case '-': mprintf(MCC_LOG_TOKEN, "[LEX-DBG] INIT state '-' at pos=%ld, next_byte=0x%02X\n", (long)(yy_start-yy_head), (unsigned char)yy_cursor[1]); goto yy26;
                 case '.': goto yy28;
                 case '/': goto yy30;
                 case '0': goto yy32;
