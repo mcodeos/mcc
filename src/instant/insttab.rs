@@ -144,6 +144,43 @@ pub fn infer_member_role(
     (MemberRole::Signal, false)
 }
 
+/// Check if a name looks like Ground.
+fn is_ground_name(s: &str) -> bool {
+    let u = s.to_uppercase();
+    matches!(
+        u.as_str(),
+        "GND" | "AGND" | "DGND" | "PGND" | "VSS" | "GROUND" | "EARTH"
+    )
+}
+
+/// Check if a name looks like Power (not Ground).
+fn is_supply_name(s: &str) -> bool {
+    let u = s.to_uppercase();
+    if is_ground_name(&u) {
+        return false;
+    }
+    const EXACT: &[&str] = &[
+        "VCC", "VDD", "VBUS", "VPP", "AVDD", "DVDD", "POWER_SYS", "VBAT", "VIN", "VOUT",
+    ];
+    if EXACT.contains(&u.as_str()) {
+        return true;
+    }
+    if ["VCC", "VDD", "AVDD", "DVDD", "VBUS", "VBAT"]
+        .iter()
+        .any(|p| u.starts_with(p))
+    {
+        return true;
+    }
+    let bytes = u.as_bytes();
+    let digits = bytes.iter().filter(|b| b.is_ascii_digit()).count();
+    if u.contains('V') && digits >= 1 && u.len() <= 8 {
+        if !u.starts_with("VO") {
+            return true;
+        }
+    }
+    false
+}
+
 /// Extract voltage from interface params (first UValue param with Volt unit).
 pub fn extract_voltage_from_params(params: &[McParamValue]) -> Option<Volt> {
     for p in params {
@@ -381,6 +418,13 @@ impl InstTable {
         id
     }
 
+    /// Set member_info for an entry by ID.
+    pub fn set_member_info(&mut self, id: u32, member_info: MemberInfo) {
+        if let Some(entry) = self.entries.get_mut(&id) {
+            entry.member_info = Some(member_info);
+        }
+    }
+
     /// Convenience wrapper for tests — calls `register` with empty source info.
     #[cfg(test)]
     pub fn register_simple(
@@ -595,6 +639,12 @@ impl InstTable {
         } else {
             format!("{}.{}", prefix, inst.name)
         };
+        eprintln!(
+            "[FLATTEN] module={} prefix={prefix} sub_modules={} components={}",
+            my_path,
+            inst.sub_modules.len(),
+            inst.components.len()
+        );
         let my_id = self.register(
             my_path.clone(),
             InstKind::Module,
@@ -635,6 +685,60 @@ impl InstTable {
                     None,
                     inst.def_uri.to_string(),
                 );
+            }
+
+            // ── P2-4: register individual bus member ports ──
+            // Net points use plain member names (e.g. "VDD_3V3"), not bracket form.
+            // Without individual registration, resolve_netpoint_path can't find them
+            // and the port points are silently dropped from the InstTable nets.
+            // This causes port-only nets (e.g. V5V.VCC, MIC.P, DAC) to be invisible
+            // to netdiff and downstream consumers.
+            //
+            // ── P2-4: include port name prefix for non-bracket ports ──
+            // Bracket ports (e.g. [VDD_3V3, GND]) use flat member paths:
+            //   main.moddcdc.VDD_3V3
+            // Named ports (e.g. vin, vout, USB_VBUS_1) include port name:
+            //   main.modldo.vin.VCC
+            // This preserves the port→member relationship so netdiff can match
+            // golden references like "vin.VCC" and "USB_VBUS_1.VDD_3V".
+            for member in &port.bus_members {
+                let member_path = if port.name.contains('[') {
+                    // Bracket port: flat member path (e.g. [VDD_3V3, GND] → main.moddcdc.VDD_3V3)
+                    format!("{}.{}", my_path, member)
+                } else if port.name.contains('{') {
+                    // Curly port: extract base name prefix
+                    // e.g. vin{VCC, GND} → main.modldo.vin.VCC
+                    // e.g. {VCC, GND} → main.xxx.VCC (no base name, flat)
+                    let base = port.name.split('{').next().unwrap_or("");
+                    if base.is_empty() {
+                        format!("{}.{}", my_path, member)
+                    } else {
+                        format!("{}.{}.{}", my_path, base, member)
+                    }
+                } else {
+                    // Named port without brackets: include port name prefix
+                    format!("{}.{}.{}", my_path, port.name, member)
+                };
+                let member_id = self.register(
+                    member_path,
+                    InstKind::Port,
+                    Some(my_id),
+                    String::new(),
+                    port.iotype.clone(),
+                    None,
+                    inst.def_uri.to_string(),
+                );
+
+                // Set member_info for Ground/Power members so merge_ground_nets can find them
+                let (role, _inferred) = infer_member_role(
+                    member,
+                    &port.iotype,
+                    is_ground_name,
+                    is_supply_name,
+                );
+                if !matches!(role, MemberRole::Signal) {
+                    self.set_member_info(member_id, MemberInfo::new(role, None));
+                }
             }
         }
 
@@ -685,15 +789,26 @@ impl InstTable {
                         })
                         .cloned()
                         .unwrap_or_default();
-                    self.register(
+                    let pin_id = self.register(
                         pin_path,
                         InstKind::Pin,
                         Some(comp_id),
-                        pin_func_name,
+                        pin_func_name.clone(),
                         net_point.iotype.clone(),
                         net_point.src_pos,
                         inst.def_uri.to_string(),
                     );
+
+                    // Set member_info for Ground/Power pins so merge_ground_nets can find them
+                    let (role, _inferred) = infer_member_role(
+                        &pin_func_name,
+                        &net_point.iotype,
+                        is_ground_name,
+                        is_supply_name,
+                    );
+                    if !matches!(role, MemberRole::Signal) {
+                        self.set_member_info(pin_id, MemberInfo::new(role, None));
+                    }
                 }
             }
         }
@@ -813,8 +928,28 @@ impl InstTable {
         // order, so HashMap order would leak into net ids (and downstream pin ids).
         let mut net_names: Vec<&String> = inst.nets.keys().collect();
         net_names.sort();
+
+        // DEBUG: print nets for US513 and main modules
+        if module_path.contains("513") || module_path == "main" || module_path.contains("modldo") {
+            eprintln!(
+                "\n=== FLATTEN_NETS module={} nets count={} ===",
+                module_path,
+                net_names.len()
+            );
+            for net_name in &net_names {
+                let net_points = &inst.nets[net_name.as_str()];
+                let point_paths: Vec<&str> = net_points.iter().map(|np| np.path.as_str()).collect();
+                eprintln!(
+                    "  net '{}' ({} pts): {:?}",
+                    net_name,
+                    net_points.len(),
+                    point_paths
+                );
+            }
+        }
+
         for net_name in net_names {
-            let net_points = &inst.nets[net_name];
+            let net_points = &inst.nets[net_name.as_str()];
             let mut point_ids: Vec<u32> = Vec::new();
 
             for np in net_points {

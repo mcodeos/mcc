@@ -45,6 +45,12 @@ impl McModuleInst {
     /// contexts; strict declaration validation should be handled in a later
     /// lint layer (Iter 5+), not here.
     pub(super) fn ensure_bus(&mut self, name: &str, members: &[String]) -> Result<(), InstError> {
+        if name == "UART0" || name == "I2C0" || name == "SPI" {
+            eprintln!(
+                "[P2-ENSURE-BUS] module={} name={} members={:?}",
+                self.name, name, members
+            );
+        }
         if let Some(existing) = self.buses.get_mut(name) {
             existing.merge_members(members);
         } else {
@@ -198,7 +204,20 @@ impl McModuleInst {
                         } else {
                             for m in &elem.member {
                                 let path = format!("{}.{}", elem.name, m);
-                                points.push(NetPoint::with_owner(&path, &elem.name, IOType::None));
+                                // ── P2-4: expand bus port to member lanes ──
+                                // Submodule ports like MIC{P,N} are bus ports;
+                                // expand_port_lanes decomposes them into MIC.P / MIC.N
+                                // so the parent module sees individual member points
+                                // instead of the bare bus name leaking into unrelated nets.
+                                if let Some(lanes) = self.expand_port_lanes(&path) {
+                                    points.extend(lanes);
+                                } else {
+                                    points.push(NetPoint::with_owner(
+                                        &path,
+                                        &elem.name,
+                                        IOType::None,
+                                    ));
+                                }
                             }
                         }
                     }

@@ -61,10 +61,18 @@ impl McModuleInst {
                 .iter()
                 .flat_map(Self::param_value_to_node_elements)
                 .collect(),
+            McParamValue::Phrase(phrase) => {
+                // Net expression as parameter (e.g., [dc.VDD_3V3 -> wm7121.VCC])
+                // Return the left endpoint as the primary connection target.
+                // The -> connection itself is handled by wire_builtin_twopin.
+                phrase.get_left()
+            }
             _ => {
-                // FuncCall, Attribute, NetExpr - use Display as fallback
+                // FuncCall, Attribute - use Display as fallback
+                let name = format!("{value}");
+                eprintln!("[SUBST-FALLBACK] param_value={value:?} -> McBus name={name}");
                 vec![McBus {
-                    name: format!("{value}"),
+                    name,
                     member: Vec::new(),
                     full_members: Vec::new(),
                 }]

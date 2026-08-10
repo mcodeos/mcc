@@ -1277,6 +1277,9 @@ impl McPins {
         names: &[String],
         values: &[McAttrVal],
     ) {
+        if names.iter().any(|n| n.contains("GPIO")) {
+            eprintln!("[REG-PIN] pinid={pinid} names={names:?}");
+        }
         let values_arc = self.insert_values(values);
         // H3 (deferred): track pin definitions for cross-line overlap detection
         // self.pin_defs

@@ -182,9 +182,12 @@ impl McModuleInst {
                         if let Some(lanes) = self.expand_port_lanes(&path) {
                             points.extend(lanes);
                         } else if is_owned {
-                            points.push(NetPoint::with_owner(&path, &elements.name, IOType::None));
+                            points.push(
+                                NetPoint::with_owner(&path, &elements.name, IOType::None)
+                                    .with_member_name(m),
+                            );
                         } else {
-                            points.push(NetPoint::new(&path, IOType::None));
+                            points.push(NetPoint::new(&path, IOType::None).with_member_name(m));
                         }
                     }
                     return Ok(points);
@@ -241,9 +244,12 @@ impl McModuleInst {
                             // ── P2: component pin alias → pid (normalize at construction so union sees pid) ──
                             let path = self.normalize_one_inst_pin_path(&path).unwrap_or(path);
                             if elem_owned {
-                                points.push(NetPoint::with_owner(&path, &elem.name, IOType::None));
+                                points.push(
+                                    NetPoint::with_owner(&path, &elem.name, IOType::None)
+                                        .with_member_name(m),
+                                );
                             } else {
-                                points.push(NetPoint::new(&path, IOType::None));
+                                points.push(NetPoint::new(&path, IOType::None).with_member_name(m));
                             }
                         }
                     }
@@ -487,13 +493,17 @@ impl McModuleInst {
                         (m, Some(p))
                     } else {
                         // Scalar-named interface (e.g. V3V3::DC(3.3V)): extract from base pins
-                        let pin_names: Vec<String> = iface
+                        let mut pin_names: Vec<String> = iface
                             .base
                             .pins
                             .pins
                             .values()
                             .filter_map(|p| p.names.first().cloned())
                             .collect();
+                        // ── P2-4 fix: sort members for deterministic ordering ──
+                        // HashMap iteration is non-deterministic; sorting ensures
+                        // consistent zip matching when connecting two interfaces.
+                        pin_names.sort();
                         if pin_names.len() >= 2 {
                             let port_name = iface.name.to_string();
                             (pin_names, Some(port_name))
@@ -656,6 +666,9 @@ impl McModuleInst {
         &mut self,
         member: &McPhrase,
     ) -> Result<Vec<NetPoint>, InstError> {
+        if self.name.contains("modldo") {
+            eprintln!("[P2-4-GRP-ENTRY] get_right_points: member={member:?}");
+        }
         match member {
             McPhrase::Lead => {
                 let name = format!("(lead)_{:x}", member as *const McPhrase as usize);
@@ -705,9 +718,12 @@ impl McModuleInst {
                         if let Some(lanes) = self.expand_port_lanes(&path) {
                             points.extend(lanes);
                         } else if is_owned {
-                            points.push(NetPoint::with_owner(&path, &elements.name, IOType::None));
+                            points.push(
+                                NetPoint::with_owner(&path, &elements.name, IOType::None)
+                                    .with_member_name(m),
+                            );
                         } else {
-                            points.push(NetPoint::new(&path, IOType::None));
+                            points.push(NetPoint::new(&path, IOType::None).with_member_name(m));
                         }
                     }
                     return Ok(points);
@@ -756,9 +772,12 @@ impl McModuleInst {
                             // ── P2: component pin alias → pid (normalize at construction so union sees pid) ──
                             let path = self.normalize_one_inst_pin_path(&path).unwrap_or(path);
                             if elem_owned {
-                                points.push(NetPoint::with_owner(&path, &elem.name, IOType::None));
+                                points.push(
+                                    NetPoint::with_owner(&path, &elem.name, IOType::None)
+                                        .with_member_name(m),
+                                );
                             } else {
-                                points.push(NetPoint::new(&path, IOType::None));
+                                points.push(NetPoint::new(&path, IOType::None).with_member_name(m));
                             }
                         }
                     }
@@ -935,13 +954,25 @@ impl McModuleInst {
                         (m, Some(p))
                     } else {
                         // Scalar-named interface (e.g. V3V3::DC(3.3V)): extract from base pins
-                        let pin_names: Vec<String> = iface
+                        let mut pin_names: Vec<String> = iface
                             .base
                             .pins
                             .pins
                             .values()
                             .filter_map(|p| p.names.first().cloned())
                             .collect();
+                        // ── P2-4 fix: sort members for deterministic ordering ──
+                        // HashMap iteration is non-deterministic; sorting ensures
+                        // consistent zip matching when connecting two interfaces.
+                        eprintln!(
+                            "[P2-4-IFACE-MEMBERS] name={} before_sort={pin_names:?}",
+                            iface.name
+                        );
+                        pin_names.sort();
+                        eprintln!(
+                            "[P2-4-IFACE-MEMBERS] name={} after_sort={pin_names:?}",
+                            iface.name
+                        );
                         if pin_names.len() >= 2 {
                             let port_name = iface.name.to_string();
                             (pin_names, Some(port_name))
@@ -978,6 +1009,7 @@ impl McModuleInst {
                 for bus in right {
                     points.push(self.node_to_netpoint(&bus));
                 }
+                eprintln!("[P2-4-CATCHALL] get_right_points Endpoint catch-all: ep={ep:?} points={points:?}");
                 Ok(points)
             }
             // ── Iter-12.1 (D-class fix): Member variant interface parsing ──────────
@@ -1460,11 +1492,18 @@ impl McModuleInst {
             for (open, close) in [('{', '}'), ('[', ']')] {
                 if let (Some(o), Some(c)) = (s.find(open), s.rfind(close)) {
                     if c > o + 1 {
-                        return s[o + 1..c]
+                        let mut members: Vec<String> = s[o + 1..c]
                             .split(',')
                             .map(|x| x.trim().to_string())
                             .filter(|x| !x.is_empty())
                             .collect();
+                        // ── P2-4 fix: sort members for deterministic ordering ──
+                        // Without sorting, the original source order (e.g. [VDD_3V3, GND])
+                        // is preserved, which may differ from the sorted order on the peer
+                        // side (e.g. V3V3::DC(3.3V) → [GND, VCC] sorted). This causes
+                        // positional zip mismatches: VCC→GND, GND→VDD_3V3.
+                        members.sort();
+                        return members;
                     }
                 }
             }
@@ -1495,6 +1534,7 @@ impl McModuleInst {
         fn iotype_allowed(_io: &IOType) -> bool {
             true
         }
+        eprintln!("[P2-EXPAND-LANES] module={} name={}", self.name, name);
 
         // ── Case 1: `<sub>.<port>` form ──────────────────────────────
         if let Some((owner, port_name_raw)) = name.split_once('.') {
@@ -1514,6 +1554,7 @@ impl McModuleInst {
                                     .map(|m| {
                                         let path = format!("{owner}.{m}");
                                         NetPoint::with_owner(&path, owner, IOType::None)
+                                            .with_member_name(m)
                                     })
                                     .collect(),
                             );
@@ -1550,6 +1591,7 @@ impl McModuleInst {
                                 .map(|m| {
                                     let path = format!("{owner}.{port_base}.{m}");
                                     NetPoint::with_owner(&path, owner, port.iotype.clone())
+                                        .with_member_name(m)
                                 })
                                 .collect(),
                         );
@@ -1628,7 +1670,7 @@ impl McModuleInst {
                         .map(|m| {
                             let path = format!("{port_base}.{m}");
                             // current module's own port has no owner (it's net top-level label).
-                            NetPoint::new(&path, iotype.clone())
+                            NetPoint::new(&path, iotype.clone()).with_member_name(m)
                         })
                         .collect(),
                 );
@@ -1732,6 +1774,18 @@ impl McModuleInst {
 
         let (inst, member) = path.split_once('.')?;
         let comp = self.find_component(inst)?;
+        if self.name.contains("513") {
+            eprintln!(
+                "[P2-NORM] module={} path={path} inst={inst} member={member}",
+                self.name
+            );
+            if inst == "uC" {
+                eprintln!(
+                    "[P2-NORM-UC] names_to_id keys: {:?}",
+                    comp.def.pins.names_to_id.keys().collect::<Vec<_>>()
+                );
+            }
+        }
         // Already a pure pid (key in pins table) → leave alone
         if comp.def.pins.pins.contains_key(member) {
             return None;
@@ -1757,6 +1811,12 @@ impl McModuleInst {
             });
 
         let pid = if let Some(id) = resolved_instance_pin.or(direct) {
+            if self.name.contains("513") {
+                eprintln!(
+                    "[P2-NORM-RES] module={} path={path} -> pid={id} (direct)",
+                    self.name
+                );
+            }
             id
         } else {
             // 2. bare-alias fallback: curly-bus members (VOUT{Vout,GND}) only register
@@ -1766,15 +1826,35 @@ impl McModuleInst {
             for (pid, names) in comp.def.pins.pin_id_to_names.iter() {
                 let matched = names.iter().any(|n| {
                     let seg = n.rsplit('.').next().unwrap_or(n);
-                    n == member || n == last || seg == member || seg == last
+                    n == member
+                        || n == last
+                        || seg == member
+                        || seg == last
+                        // P2-10: Ida index suffix, e.g. "GPIO.2" matches "GPIO"
+                        || (member.starts_with(n)
+                            && member.as_bytes().get(n.len()) == Some(&b'.'))
                 });
                 if matched && !hits.contains(pid) {
                     hits.push(pid.clone());
                 }
             }
             match hits.len() {
-                0 => return None,
-                1 => hits.remove(0),
+                0 => {
+                    if self.name.contains("513") {
+                        eprintln!("[P2-NORM-MISS] module={} path={path} member={member} -> no match in names_to_id or pin_id_to_names", self.name);
+                    }
+                    return None;
+                }
+                1 => {
+                    let id = hits.remove(0);
+                    if self.name.contains("513") {
+                        eprintln!(
+                            "[P2-NORM-RES] module={} path={path} -> pid={id} (fallback)",
+                            self.name
+                        );
+                    }
+                    id
+                }
                 _ => {
                     // ── [P2-AMBIG-PROBE] delete after verification: same-named member lands on multiple different pids ──
                     mcc_dbg!(
