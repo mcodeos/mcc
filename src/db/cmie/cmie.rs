@@ -95,7 +95,7 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
                 let id_hit = decl_id.and_then(|did| {
                     map.get(
                         crate::ast::ast_semantic::SymbolKind::ClassRef,
-                        u64::from(did),
+                        u32::from(did),
                     )
                 });
                 // §5: name-based Use table lookup

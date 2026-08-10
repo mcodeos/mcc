@@ -16,15 +16,15 @@ use std::collections::HashMap;
 pub fn fill_refdef_layer2(
     map: &mut RefDefMap,
     scope_map: &HashMap<(usize, usize), String>,
-    def_map_src: &HashMap<(SymbolKind, u64), SourceLocation>,
-    ref_entries: &[(SymbolKind, u64, usize, usize)],
+    def_map_src: &HashMap<(SymbolKind, u32), SourceLocation>,
+    ref_entries: &[(SymbolKind, u32, usize, usize)],
     file_uri: &McURI,
     file_table: &[String],
 ) {
     // ★ Preserve original SourceLocation (including file_id for cross-file defs).
     // Old code mapped to (usize, usize) which dropped file_id and always used
     // file_uri — this broke cross-file FuncDef registered via register_def.
-    let def_map: HashMap<(SymbolKind, u64), &SourceLocation> =
+    let def_map: HashMap<(SymbolKind, u32), &SourceLocation> =
         def_map_src.iter().map(|(k, loc)| (*k, loc)).collect();
 
     // ★ A3: Match refs from pre-collected ref_entries instead of scanning lapper
@@ -157,10 +157,10 @@ pub fn fill_refdef_layer2(
 
     // ── LabelRef generation ──
     // ★ A3: Use def_map + ref_entries instead of lapper scans
-    let mut port_to_label: HashMap<u64, (u64, (usize, usize))> = HashMap::new();
+    let mut port_to_label: HashMap<u32, (u32, (usize, usize))> = HashMap::new();
     {
         // Build pos→label mapping from LabelDef entries in def_map
-        let mut pos_to_label: HashMap<(usize, usize), u64> = HashMap::new();
+        let mut pos_to_label: HashMap<(usize, usize), u32> = HashMap::new();
         for ((kind, lid), loc) in def_map.iter() {
             if *kind == SymbolKind::LabelDef {
                 let ds = loc.byte_start as usize;
@@ -214,9 +214,9 @@ pub fn fill_refdef_layer2(
     // ── BusRef generation (§3.2.3) ──
     // Same pattern as LabelRef: when a BusDef is co-located with a PortDef,
     // and a PortRef references that position, generate a BusRef→BusDef entry.
-    let mut port_to_bus: HashMap<u64, (u64, (usize, usize))> = HashMap::new();
+    let mut port_to_bus: HashMap<u32, (u32, (usize, usize))> = HashMap::new();
     {
-        let mut pos_to_bus: HashMap<(usize, usize), u64> = HashMap::new();
+        let mut pos_to_bus: HashMap<(usize, usize), u32> = HashMap::new();
         for ((kind, bid), loc) in def_map.iter() {
             if *kind == SymbolKind::BusDef {
                 let ds = loc.byte_start as usize;
@@ -269,9 +269,9 @@ pub fn fill_refdef_layer2(
     // ── LabelDef→BusDef upgrade (§3.2.4 #6) ──
     // When upgrade_label_to_bus promotes a Label to Bus, both LabelDef and
     // BusDef exist at the same position. Upgrade LabelRef→LabelDef to BusRef→BusDef.
-    let mut label_to_bus: HashMap<u64, (u64, (usize, usize))> = HashMap::new();
+    let mut label_to_bus: HashMap<u32, (u32, (usize, usize))> = HashMap::new();
     {
-        let mut pos_to_bus: HashMap<(usize, usize), u64> = HashMap::new();
+        let mut pos_to_bus: HashMap<(usize, usize), u32> = HashMap::new();
         for ((kind, bid), loc) in def_map.iter() {
             if *kind == SymbolKind::BusDef {
                 let ds = loc.byte_start as usize;
@@ -290,7 +290,7 @@ pub fn fill_refdef_layer2(
         }
     }
     if !label_to_bus.is_empty() {
-        let mut upgrades: Vec<(u64, u64, usize, usize)> = Vec::new();
+        let mut upgrades: Vec<(u32, u32, usize, usize)> = Vec::new();
         for &(ref_kind, decl_id, _ref_start, _ref_stop) in ref_entries {
             if ref_kind != SymbolKind::LabelRef && ref_kind != SymbolKind::PortRef {
                 continue;

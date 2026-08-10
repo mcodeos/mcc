@@ -234,10 +234,7 @@ impl InstFindInst for McModuleInst {
 /// - `["uC", "VDD"]` on module → `InstEntry::Port(pin_netpoint)`
 /// - `["mcu513", "uC"]` on module → `InstEntry::Component(uC_arc)`
 /// - `["mcu513"]` on parent module → `InstEntry::SubModule(mcu513_arc)`
-pub fn resolve_inst_chain(
-    chain: &[String],
-    scope: &dyn InstFindInst,
-) -> Option<InstEntry> {
+pub fn resolve_inst_chain(chain: &[String], scope: &dyn InstFindInst) -> Option<InstEntry> {
     if chain.is_empty() {
         return None;
     }

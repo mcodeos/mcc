@@ -352,7 +352,9 @@ impl McModuleInst {
                 dot_member: f.dot_member.clone(),
             }),
             McPhrase::Transposed(inner) => McPhrase::Transposed(Box::new(Self::substitute_phrase(
-                inner, bindings, expansion_ctx,
+                inner,
+                bindings,
+                expansion_ctx,
             ))),
             McPhrase::Lead => phrase.clone(),
             // --- Iter-2.3 ------------------------------------------------
