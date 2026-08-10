@@ -14,9 +14,7 @@
 //!   V4 — single-element range (3:3)
 //!   C5 — IDX key collision in module instances
 
-use super::{
-    CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
-};
+use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 use std::collections::HashMap;
 
 pub struct ExprsCheck;
@@ -32,7 +30,7 @@ impl ValidationCheck for ExprsCheck {
         CheckSeverity::Warning
     }
 
-    fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
+    fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         check_this_outside_instance(acc); // Q1
         check_pins_ref_not_found(acc); // Q2
         check_uscore_sole_endpoint(acc); // Q3

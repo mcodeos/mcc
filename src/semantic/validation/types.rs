@@ -9,9 +9,7 @@
 //!   E1 — Type mismatch in param binding (arg value vs declared param type)
 //!   E3 — Unit dimension mismatch (wrong physical unit in argument)
 
-use super::{
-    CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
-};
+use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 use std::collections::HashSet;
 
 pub struct TypesCheck;
@@ -27,7 +25,7 @@ impl ValidationCheck for TypesCheck {
         CheckSeverity::Warning
     }
 
-    fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
+    fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         check_closure_free_vars(acc); // Q7
         check_param_type_mismatch(acc); // E1 + E3
     }

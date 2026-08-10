@@ -4,9 +4,7 @@
 
 //! Within-file duplicate detection: pin names, enum values, overlapping pin ranges.
 
-use super::{
-    CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
-};
+use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 use std::collections::HashMap;
 
 pub struct DupWithinCheck;
@@ -22,7 +20,7 @@ impl ValidationCheck for DupWithinCheck {
         CheckSeverity::Warning
     }
 
-    fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
+    fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         // Check components
         {
             let comps = &crate::db::cmie::tables::WORKSPACE.components;

@@ -106,11 +106,10 @@ pub fn mcb_parse_all_modules() {
     // ★ Validation: run PostParse checks after all modules parsed.
     {
         use crate::db::diagnostic::diagnostic::{diagnostic_log, DiagnosticLevel};
-        use crate::semantic::validation::{CheckRegistry, PostParseContext};
-        let ctx = PostParseContext::new();
+        use crate::semantic::validation::CheckRegistry;
         let registry = CheckRegistry::with_defaults();
         let saved_uri = crate::current_uri::try_get();
-        for r in registry.run_post_parse(&ctx) {
+        for r in registry.run_post_parse() {
             // Switch current_uri to the file this diagnostic belongs to
             if let Some(ref uri) = r.uri {
                 crate::current_uri::set(&McURI::from(uri.as_str()));

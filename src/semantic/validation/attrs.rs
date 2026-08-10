@@ -11,9 +11,7 @@
 //!   N7 — `pins.X` where X is not a recognized pin group
 //!   N8 — overlapping `pins =` and `pins.N =` assignments
 
-use super::{
-    CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
-};
+use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 use std::collections::HashSet;
 
 pub struct AttrsCheck;
@@ -29,7 +27,7 @@ impl ValidationCheck for AttrsCheck {
         CheckSeverity::Warning
     }
 
-    fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
+    fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         let comps = &crate::db::cmie::tables::WORKSPACE.components;
         for entry in comps.iter() {
             let uri = entry.key().uri.to_string();

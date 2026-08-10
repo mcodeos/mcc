@@ -461,14 +461,18 @@ fn build_actual_modules(table: &InstTable, tree: &MccProjectTree) -> Vec<ActualM
                             if is_top_level {
                                 pin_to_net.insert(entry.path.clone(), net.name.clone());
                             } else {
-                                pin_to_net.entry(entry.path.clone()).or_insert_with(|| net.name.clone());
+                                pin_to_net
+                                    .entry(entry.path.clone())
+                                    .or_insert_with(|| net.name.clone());
                             }
                         }
                         InstKind::Port => {
                             if is_top_level {
                                 port_to_net.insert(entry.path.clone(), net.name.clone());
                             } else {
-                                port_to_net.entry(entry.path.clone()).or_insert_with(|| net.name.clone());
+                                port_to_net
+                                    .entry(entry.path.clone())
+                                    .or_insert_with(|| net.name.clone());
                             }
                         }
                         _ => {}

@@ -14,9 +14,7 @@
 //!   T1 — Bitwise operator (`&`/`|`) in condition context
 //!   C4-ext — Module port declared but never connected in any net
 
-use super::{
-    CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
-};
+use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 use std::collections::HashSet;
 
 pub struct BodyCheck;
@@ -32,7 +30,7 @@ impl ValidationCheck for BodyCheck {
         CheckSeverity::Warning
     }
 
-    fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
+    fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         check_mixed_path_separators(acc); // L1
         check_return_outside_function(acc); // P6
         check_return_with_literal(acc); // P7

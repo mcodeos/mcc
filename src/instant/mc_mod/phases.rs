@@ -146,7 +146,11 @@ impl McModuleInst {
             .map(|(k, (io, inst))| (k.to_string(), io.clone(), inst.clone()))
             .collect();
 
-        if self.name.contains("513") || self.name.contains("ldo") || self.name.contains("modldo") || self.name.contains("SPEAKER") {
+        if self.name.contains("513")
+            || self.name.contains("ldo")
+            || self.name.contains("modldo")
+            || self.name.contains("SPEAKER")
+        {
             eprintln!(
                 "[P2-4-IFACE] module={} insts count={} params count={}",
                 self.name,
@@ -211,7 +215,12 @@ impl McModuleInst {
             // 1. When creating PortInst, extract bus_members according to port form
             //    —— Iter-8: let N×1 bus ports expand according to declaration during endpoint resolution.
             let bus_members = extract_port_bus_members(inst, port_name);
-            if self.name.contains("513") || self.name.contains("ldo") || self.name.contains("modldo") || self.name.contains("speaker") || self.name.contains("SPEAKER") {
+            if self.name.contains("513")
+                || self.name.contains("ldo")
+                || self.name.contains("modldo")
+                || self.name.contains("speaker")
+                || self.name.contains("SPEAKER")
+            {
                 eprintln!(
                     "[P2-4-PORT] module={} port_name={} iotype={:?} bus_members={:?}",
                     self.name, port_name, iotype, bus_members
@@ -237,9 +246,7 @@ impl McModuleInst {
                 continue;
             }
 
-            let port_name = pd
-                .get_primary_name()
-                .unwrap_or_else(|| pd.display_name());
+            let port_name = pd.get_primary_name().unwrap_or_else(|| pd.display_name());
             let iotype = match pd.param_type.direction {
                 Some(McIoTy::Input) => IOType::In,
                 Some(McIoTy::Output) => IOType::Out,
@@ -275,7 +282,12 @@ impl McModuleInst {
                 _ => Vec::new(),
             };
 
-            if self.name.contains("513") || self.name.contains("ldo") || self.name.contains("modldo") || self.name.contains("speaker") || self.name.contains("SPEAKER") {
+            if self.name.contains("513")
+                || self.name.contains("ldo")
+                || self.name.contains("modldo")
+                || self.name.contains("speaker")
+                || self.name.contains("SPEAKER")
+            {
                 eprintln!(
                     "[P2-4-PARAM] module={} port_name={} iotype={:?} bus_members={:?}",
                     self.name, port_name, iotype, bus_members
@@ -449,11 +461,7 @@ impl McModuleInst {
             .collect();
 
         if self.name.contains("513") || self.name == "main" {
-            eprintln!(
-                "[P2-4-DECL] module={} has {} insts",
-                self.name,
-                items.len()
-            );
+            eprintln!("[P2-4-DECL] module={} has {} insts", self.name, items.len());
             for (k, _) in &items {
                 eprintln!("[P2-4-DECL]   inst: {k}");
             }
@@ -746,7 +754,10 @@ impl McModuleInst {
                 "[P2-4-BIND] inst={inst_name} ports_count={} formal_count={} ports={:?}",
                 ports.len(),
                 formal.len(),
-                ports.iter().map(|p| (&p.name, &p.bus_members)).collect::<Vec<_>>()
+                ports
+                    .iter()
+                    .map(|p| (&p.name, &p.bus_members))
+                    .collect::<Vec<_>>()
             );
         }
 

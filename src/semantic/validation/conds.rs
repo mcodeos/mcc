@@ -10,9 +10,7 @@
 //!   O3 — IO type on component pin (context-dependent warning)
 //!   O4 — `|` pin alternatives producing potentially conflicting net roles
 
-use super::{
-    CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
-};
+use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 
 pub struct CondsCheck;
 
@@ -27,7 +25,7 @@ impl ValidationCheck for CondsCheck {
         CheckSeverity::Warning
     }
 
-    fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
+    fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         check_empty_cond_body(acc); // T3
         check_missing_else(acc); // T4
         check_pin_io_context(acc); // O3

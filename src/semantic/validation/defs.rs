@@ -10,9 +10,7 @@
 //!   M2 — `.int` suffix on class name in wrong context (component)
 //!   M5 — `.int` suffix on enum/interface
 
-use super::{
-    CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
-};
+use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 use std::collections::HashSet;
 
 pub struct DefsCheck;
@@ -28,7 +26,7 @@ impl ValidationCheck for DefsCheck {
         CheckSeverity::Warning
     }
 
-    fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
+    fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         check_name_collision(acc); // A4
         check_missing_cmie(acc); // A5
         check_int_suffix(acc); // M2, M5
@@ -262,6 +260,42 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
                                 "Component '{}' param references class '{}' which is not loaded.",
                                 entry.key().ident,
                                 class_name
+                            ),
+                            code: 2702,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Check module instances reference valid classes
+    {
+        let modules = &crate::db::cmie::tables::WORKSPACE.modules;
+        for entry in modules.iter() {
+            let uri = entry.key().uri.to_string();
+            if super::is_test_file(&uri) {
+                continue;
+            }
+            let m = entry.value();
+            for (_inst_name, (_iotype, instance)) in m.insts.iter_with_iotype() {
+                let class_name: Option<String> = match instance {
+                    crate::McInstance::Component(c2) => Some(c2.base.name.to_string()),
+                    crate::McInstance::Module(m2) => Some(m2.base.name.to_string()),
+                    crate::McInstance::Interface(i2) => Some(i2.base.name.to_string()),
+                    _ => None,
+                };
+                if let Some(cn) = class_name {
+                    if !known.contains(&cn) && !cn.is_empty() {
+                        acc.push(CheckResult {
+                            check_name: "defs",
+                            severity: CheckSeverity::Warning,
+                            uri: Some(uri.clone()),
+                            span: Some(m.span.start..m.span.end),
+                            message: format!(
+                                "Module '{}' references class '{}' which is not loaded.",
+                                entry.key().ident,
+                                cn
                             ),
                             code: 2702,
                         });

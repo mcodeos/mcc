@@ -11,9 +11,7 @@
 //!   K4 — colon import of non-exported / non-existent symbol
 //!   K5 — `pub use` of private / non-existent symbol
 
-use super::{
-    CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
-};
+use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 use std::collections::HashSet;
 
 pub struct ImportsCheck;
@@ -29,7 +27,7 @@ impl ValidationCheck for ImportsCheck {
         CheckSeverity::Warning
     }
 
-    fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
+    fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         let mcodes = &crate::db::cmie::tables::WORKSPACE.mcodes;
 
         // Build URI → module span map for source locations

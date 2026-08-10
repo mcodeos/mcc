@@ -7,9 +7,7 @@
 //! Warns when a user file defines a component/interface/enum/module with the
 //! same name as one already defined in the system library or another file.
 
-use super::{
-    CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
-};
+use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 
 pub struct DuplicateCmieCheck;
 
@@ -24,7 +22,7 @@ impl ValidationCheck for DuplicateCmieCheck {
         CheckSeverity::Warning
     }
 
-    fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
+    fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         use std::collections::{HashMap, HashSet};
 
         /// CMIE kind for duplicate tracking.

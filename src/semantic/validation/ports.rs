@@ -4,9 +4,7 @@
 
 //! Port/instance level checks: C2-C5, D1-D3.
 
-use super::{
-    CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
-};
+use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 use std::collections::{HashMap, HashSet};
 
 pub struct PortInstanceCheck;
@@ -22,7 +20,7 @@ impl ValidationCheck for PortInstanceCheck {
         CheckSeverity::Warning
     }
 
-    fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
+    fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         let modules = &crate::db::cmie::tables::WORKSPACE.modules;
         for entry in modules.iter() {
             let mod_name = entry.key().ident.to_string();

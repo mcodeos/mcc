@@ -12,9 +12,7 @@
 //!   HW5 — Interface role with dangling peer reference
 //!   HW6 — Component with only single-type IO pins (all inputs, all outputs)
 
-use super::{
-    CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
-};
+use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 use std::collections::HashSet;
 
 pub struct HwCheck;
@@ -30,7 +28,7 @@ impl ValidationCheck for HwCheck {
         CheckSeverity::Warning
     }
 
-    fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
+    fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         check_power_pin_no_voltage(acc); // HW1
         check_pin_id_gaps(acc); // HW2
         check_pin_count_extremes(acc); // HW3
