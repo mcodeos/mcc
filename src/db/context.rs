@@ -61,7 +61,7 @@ impl SymbolRegistry for DbContext {
         name: &str,
         pos: u32,
         len: u32,
-    ) -> u64 {
+    ) -> u32 {
         let span = mk_span(pos, len);
         let mc_uri = McURI::from(uri);
         if let Some(mcode) = crate::db::cmie::tables::WORKSPACE.mcodes.get(&mc_uri) {
@@ -81,7 +81,7 @@ impl SymbolRegistry for DbContext {
     fn register_instance_ref(
         &self,
         uri: &str,
-        decl_id: u64,
+        decl_id: u32,
         _scope: Option<&str>,
         pos: u32,
         len: u32,
@@ -95,7 +95,7 @@ impl SymbolRegistry for DbContext {
         }
     }
 
-    fn lookup_instance_decl(&self, uri: &str, name: &str, scope: Option<&str>) -> Option<u64> {
+    fn lookup_instance_decl(&self, uri: &str, name: &str, scope: Option<&str>) -> Option<u32> {
         let mc_uri = McURI::from(uri);
         let scope_str = scope.unwrap_or("");
         // First try the exact file

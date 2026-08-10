@@ -566,7 +566,8 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
                         // Extract it from the def_loc span in the def file.
                         let def_file = map.files.get(entry.def_loc.file_id as usize)?;
                         let def_content =
-                            std::fs::read_to_string(std::path::Path::new(def_file.as_str())).ok()?;
+                            std::fs::read_to_string(std::path::Path::new(def_file.as_str()))
+                                .ok()?;
                         let ds = entry.def_loc.byte_start as usize;
                         let de = entry.def_loc.byte_end as usize;
                         def_content.get(ds..de).map(|s| s.to_string())

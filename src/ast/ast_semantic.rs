@@ -7,6 +7,7 @@ use rust_lapper::Lapper;
 use std::ops::Range;
 use std::{
     collections::HashMap,
+    sync::atomic::AtomicU32,
     sync::{Arc, Mutex},
 };
 
@@ -22,11 +23,11 @@ pub struct McSemSymbols {
     pub ref_def_map: Option<RefDefMap>,
     /// ★ A3: Pre-populated def_map — (def_kind, decl_id) → SourceLocation.
     /// Built during register_def, consumed by fill_refdef_layer2.
-    pub def_map: HashMap<(SymbolKind, u64), SourceLocation>,
+    pub def_map: HashMap<(SymbolKind, u32), SourceLocation>,
     /// ★ A3: Pre-collected ref entries — (ref_kind, decl_id, start, stop).
     /// Populated during lapper ref registration, consumed by fill_refdef_layer2
     /// (eliminates lapper scan for ref→def matching).
-    pub ref_entries: Vec<(SymbolKind, u64, usize, usize)>,
+    pub ref_entries: Vec<(SymbolKind, u32, usize, usize)>,
     /// ★ SourceLocation tables: intern file/container/func names to u32 IDs.
     pub file_table: Vec<String>,
     pub container_table: Vec<String>,
@@ -77,7 +78,7 @@ pub type Span = Range<usize>;
 
 oxc_index::define_index_type! {
     #[derive(Default)]
-    pub struct DeclareId = u64;
+    pub struct DeclareId = u32;
     IMPL_RAW_CONVERSIONS = true;
 }
 oxc_index::define_index_type! {
@@ -106,6 +107,9 @@ pub struct LocalSymbolTable {
     //.. pub class_id_reference_list : Vec<((McURI, String), Span)>,
 }
 
+/// Global sequential DeclareId counter — simple, collision-free u32.
+static GLOBAL_DECLARE_ID: AtomicU32 = AtomicU32::new(1);
+
 impl LocalSymbolTable {
     pub fn new() -> Self {
         LocalSymbolTable {
@@ -122,15 +126,11 @@ impl LocalSymbolTable {
         self.declare_inst_id_counter += 1;
         did
     }
-    /// ★ 14.2: Deterministic DeclareId via hash — stable across runs.
-    pub fn assign_declare_id_stable(uri: &McURI, scope: &str, name: &str) -> DeclareId {
-        use std::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        uri.as_str().hash(&mut h);
-        scope.hash(&mut h);
-        name.hash(&mut h);
+    /// Allocate next global sequential DeclareId. Stable within a run;
+    /// sequential allocation avoids hash collisions.
+    pub fn assign_declare_id_stable(_uri: &McURI, _scope: &str, _name: &str) -> DeclareId {
         DeclareId {
-            _raw: h.finish() as u64,
+            _raw: GLOBAL_DECLARE_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
         }
     }
     pub fn assign_inst_id(&mut self) -> ReferenceId {
@@ -247,7 +247,7 @@ impl GlobalSymbolTable {
         let c = class_id._raw;
         let v = value_idx & 0xFFFF;
         DeclareId {
-            _raw: ((c & 0xFFFF) << 16) | (v as u64),
+            _raw: ((c & 0xFFFF) << 16) | (v as u32),
         }
     }
 

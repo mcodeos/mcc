@@ -13,8 +13,8 @@
 //! The actual component / module / user_func / instance_method instantiation
 //! is in `funccall_inst.rs`, and iterated call expansion is in `iterated.rs`.
 
-use super::McModuleInst;
 use super::expand::{resolve_inst_chain, InstEntry};
+use super::McModuleInst;
 use crate::db::cmie::cmie::mcb_get_cmie;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint, PortInst};
@@ -383,7 +383,11 @@ impl McModuleInst {
                                 if !(func_arity == 0 && call_arity > 0) {
                                     let full_scope = scope_segments.join(".");
                                     return self.instantiate_instance_method(
-                                        &full_scope, &func_clone, params, left, right,
+                                        &full_scope,
+                                        &func_clone,
+                                        params,
+                                        left,
+                                        right,
                                     );
                                 }
                             }
@@ -394,7 +398,11 @@ impl McModuleInst {
                                 let func_clone = func.clone();
                                 let full_scope = scope_segments.join(".");
                                 return self.instantiate_instance_method(
-                                    &full_scope, &func_clone, params, left, right,
+                                    &full_scope,
+                                    &func_clone,
+                                    params,
+                                    left,
+                                    right,
                                 );
                             }
                         }

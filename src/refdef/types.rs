@@ -75,12 +75,12 @@ pub fn intern(table: &mut Vec<String>, s: &str) -> u32 {
 pub struct SymbolType {
     /// SymbolKind ordinal (u8). Maps to kind_names[] for serialization.
     pub kind: u8,
-    /// DeclareId or ReferenceId as raw u64 (was u32 — upgraded for Defect 52 hash collision fix).
-    pub id: u64,
+    /// DeclareId or ReferenceId as raw u32.
+    pub id: u32,
 }
 
 impl SymbolType {
-    pub fn new(kind: SymbolKind, id: u64) -> Self {
+    pub fn new(kind: SymbolKind, id: u32) -> Self {
         SymbolType {
             kind: kind as u8,
             id,
@@ -236,7 +236,7 @@ impl CmieKind {
 #[derive(Clone, Debug)]
 pub struct RefDefEntry {
     pub ref_kind: SymbolKind,
-    pub ref_id: u64,
+    pub ref_id: u32,
     pub def_loc: SourceLocation,
     pub def_kind: SymbolKind,
     /// CMIE table kind for O(1) direct DashMap lookup (0=Comp,1=Mod,2=Ifs,3=Enum,255=unknown)
@@ -249,14 +249,14 @@ pub struct RefDefEntry {
 #[derive(Clone, Debug, Default)]
 pub struct RefDefMap {
     /// (ref_kind, ref_id) → entry. Single-layer O(1) ID-based lookup.
-    pub entries: HashMap<(SymbolKind, u64), RefDefEntry>,
+    pub entries: HashMap<(SymbolKind, u32), RefDefEntry>,
     pub files: Vec<String>,
     pub containers: Vec<String>,
     /// ★ Use table: (file_uri, class_name) → entry for name-based P3/P4/P5 lookup.
     pub name_index: HashMap<(String, String), RefDefEntry>,
     /// ★ §15.2: Reverse index — (def_kind, file_id, byte_start, byte_end) → [(ref_kind, ref_id)].
     /// Built alongside entries for O(1) find-all-references and rename.
-    pub def_to_refs: HashMap<(SymbolKind, u32, u32, u32), Vec<(SymbolKind, u64)>>,
+    pub def_to_refs: HashMap<(SymbolKind, u32, u32, u32), Vec<(SymbolKind, u32)>>,
 }
 
 impl RefDefMap {
@@ -264,7 +264,7 @@ impl RefDefMap {
         Self::default()
     }
 
-    pub fn insert(&mut self, kind: SymbolKind, ref_id: u64, mut entry: RefDefEntry) {
+    pub fn insert(&mut self, kind: SymbolKind, ref_id: u32, mut entry: RefDefEntry) {
         entry.ref_kind = kind;
         entry.ref_id = ref_id;
         // ★ §15.2: Populate reverse index (def→refs)
@@ -285,7 +285,7 @@ impl RefDefMap {
     pub fn insert_with_name(
         &mut self,
         kind: SymbolKind,
-        ref_id: u64,
+        ref_id: u32,
         lookup_file_uri: &McURI,
         class_name: &str,
         mut entry: RefDefEntry,
@@ -308,7 +308,7 @@ impl RefDefMap {
             .insert((lookup_file_uri.to_string(), class_name.to_string()), entry);
     }
 
-    pub fn get(&self, kind: SymbolKind, ref_id: u64) -> Option<&RefDefEntry> {
+    pub fn get(&self, kind: SymbolKind, ref_id: u32) -> Option<&RefDefEntry> {
         self.entries.get(&(kind, ref_id))
     }
 
@@ -331,7 +331,7 @@ impl RefDefMap {
         file_id: u32,
         byte_start: u32,
         byte_end: u32,
-    ) -> &[(SymbolKind, u64)] {
+    ) -> &[(SymbolKind, u32)] {
         self.def_to_refs
             .get(&(def_kind, file_id, byte_start, byte_end))
             .map(|v| v.as_slice())

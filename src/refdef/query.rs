@@ -19,7 +19,7 @@ pub struct GotoDefResult {
 
 /// F12 goto-def: resolve (ref_kind, ref_id) → definition location.
 /// Returns None if the ref is not found in the map.
-pub fn goto_def(map: &RefDefMap, ref_kind: SymbolKind, ref_id: u64) -> Option<GotoDefResult> {
+pub fn goto_def(map: &RefDefMap, ref_kind: SymbolKind, ref_id: u32) -> Option<GotoDefResult> {
     map.get(ref_kind, ref_id).map(|entry| {
         let file_uri = map
             .files
@@ -64,17 +64,17 @@ pub fn find_refs(
     file_id: u32,
     byte_start: u32,
     byte_end: u32,
-) -> &[(SymbolKind, u64)] {
+) -> &[(SymbolKind, u32)] {
     map.get_refs_for_def(def_kind, file_id, byte_start, byte_end)
 }
 
 /// Look up an entry by (ref_kind, ref_id) — raw access for advanced consumers.
-pub fn lookup(map: &RefDefMap, ref_kind: SymbolKind, ref_id: u64) -> Option<&RefDefEntry> {
+pub fn lookup(map: &RefDefMap, ref_kind: SymbolKind, ref_id: u32) -> Option<&RefDefEntry> {
     map.get(ref_kind, ref_id)
 }
 
 /// Iterate all entries in the RefDefMap for diagnostic/debug purposes.
-pub fn iter_entries(map: &RefDefMap) -> impl Iterator<Item = (&(SymbolKind, u64), &RefDefEntry)> {
+pub fn iter_entries(map: &RefDefMap) -> impl Iterator<Item = (&(SymbolKind, u32), &RefDefEntry)> {
     map.entries.iter()
 }
 
