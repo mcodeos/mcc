@@ -41,7 +41,7 @@ use serde::{Deserialize, Serialize};
 pub struct Envelope {
     pub jsonrpc: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<u64>,
+    pub id: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result: Option<CommandResult>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -67,7 +67,7 @@ impl Envelope {
         }
     }
 
-    pub fn with_id(mut self, id: u64) -> Self {
+    pub fn with_id(mut self, id: u32) -> Self {
         self.id = Some(id);
         self
     }
@@ -333,7 +333,7 @@ pub struct NetEntry {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ConnectionEntry {
-    pub id: u64,
+    pub id: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub net_name: Option<String>,
     pub points: Vec<String>,

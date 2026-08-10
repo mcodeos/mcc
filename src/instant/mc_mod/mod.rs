@@ -93,12 +93,12 @@ pub struct McModuleInst {
     pub(super) auto_inst_counter: HashMap<String, u32>,
 
     /// Stable phrase ID counter for auto_inst_map (replaces pointer-based key).
-    pub(super) next_phrase_id: u64,
+    pub(super) next_phrase_id: u32,
 
     /// Mapping from FuncCall member to auto-created component instance name.
-    /// Key: stable u64 ID assigned via `assign_phrase_ids()` before processing.
+    /// Key: stable u32 ID assigned via `assign_phrase_ids()` before processing.
     /// Clone-safe: the ID is stored in McFuncCall.id and survives cloning.
-    pub(super) auto_inst_map: HashMap<u64, String>,
+    pub(super) auto_inst_map: HashMap<u32, String>,
 
     /// Instantiation diagnostic collector (non-fatal errors/warnings)
     ///

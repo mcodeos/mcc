@@ -2917,7 +2917,7 @@ impl McModuleInst {
 
     /// Assign stable IDs to all `McFuncCall` nodes in a phrase tree.
     /// IDs survive cloning, replacing the fragile pointer-based auto_inst_map key.
-    pub(super) fn assign_phrase_ids(phrase: &mut McPhrase, next_id: &mut u64) {
+    pub(super) fn assign_phrase_ids(phrase: &mut McPhrase, next_id: &mut u32) {
         match phrase {
             McPhrase::FuncCall(ref mut f) => {
                 if f.id == 0 {
@@ -2992,7 +2992,7 @@ impl McModuleInst {
 
     /// Get the stable ID for a FuncCall phrase.
     /// Returns 0 for non-FuncCall phrases (they never use auto_inst_map).
-    pub(super) fn member_key(member: &McPhrase) -> u64 {
+    pub(super) fn member_key(member: &McPhrase) -> u32 {
         match member {
             McPhrase::FuncCall(f) => f.id,
             _ => 0,
