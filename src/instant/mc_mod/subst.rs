@@ -14,6 +14,7 @@
 //! - `substitute_param_value`       —— recursively substitute inside McParamValue (FuncCall nested scenario)
 //! - `substitute_phrase` / `substitute_line` —— substitute throughout the McPhrase tree
 
+use super::expand::ExpansionContext;
 use super::McModuleInst;
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_closure::McClosure;
@@ -300,20 +301,20 @@ impl McModuleInst {
     fn substitute_phrase(
         phrase: &McPhrase,
         bindings: &McParamBindings,
-        this_name: Option<&str>,
+        expansion_ctx: Option<&ExpansionContext>,
     ) -> McPhrase {
         match phrase {
             McPhrase::Series(phrases, d) => McPhrase::Series(
                 phrases
                     .iter()
-                    .map(|p| Self::substitute_phrase(p, bindings, this_name))
+                    .map(|p| Self::substitute_phrase(p, bindings, expansion_ctx))
                     .collect(),
                 *d,
             ),
             McPhrase::Parallel(phrases) => McPhrase::Parallel(
                 phrases
                     .iter()
-                    .map(|p| Self::substitute_phrase(p, bindings, this_name))
+                    .map(|p| Self::substitute_phrase(p, bindings, expansion_ctx))
                     .collect(),
             ),
             McPhrase::Closure(c) => McPhrase::Closure(McClosure {
@@ -322,14 +323,14 @@ impl McModuleInst {
                 body: c
                     .body
                     .iter()
-                    .map(|p| Self::substitute_phrase(p, bindings, this_name))
+                    .map(|p| Self::substitute_phrase(p, bindings, expansion_ctx))
                     .collect(),
             }),
             McPhrase::Group(g) => McPhrase::Group(McGroup {
                 opds: g
                     .opds
                     .iter()
-                    .map(|p| Self::substitute_phrase(p, bindings, this_name))
+                    .map(|p| Self::substitute_phrase(p, bindings, expansion_ctx))
                     .collect(),
                 left_match: g.left_match,
                 right_match: g.right_match,
@@ -339,7 +340,7 @@ impl McModuleInst {
                 caller: f
                     .caller
                     .as_ref()
-                    .map(|c| Box::new(Self::substitute_phrase(c, bindings, this_name))),
+                    .map(|c| Box::new(Self::substitute_phrase(c, bindings, expansion_ctx))),
                 func_name: f.func_name.clone(),
                 params: f
                     .params
@@ -351,7 +352,7 @@ impl McModuleInst {
                 dot_member: f.dot_member.clone(),
             }),
             McPhrase::Transposed(inner) => McPhrase::Transposed(Box::new(Self::substitute_phrase(
-                inner, bindings, this_name,
+                inner, bindings, expansion_ctx,
             ))),
             McPhrase::Lead => phrase.clone(),
             // --- Iter-2.3 ------------------------------------------------
@@ -371,12 +372,13 @@ impl McModuleInst {
                 let mut elem = McBus::new(s);
 
                 // Check whether it's a this reference
-                if let Some(this) = this_name {
+                if let Some(ctx) = expansion_ctx {
                     if s == "this" || s.starts_with("this.") {
+                        let this_name = ctx.instance.name.as_str();
                         let new_name = if s == "this" {
-                            this.to_string()
+                            this_name.to_string()
                         } else {
-                            format!("{}.{}", this, &s[5..])
+                            format!("{}.{}", this_name, &s[5..])
                         };
                         elem = McBus::new(&new_name);
                     }
@@ -403,12 +405,13 @@ impl McModuleInst {
             })) => {
                 // Check whether the Bus name is a this reference
                 let mut bus_name = b.name.clone();
-                if let Some(this) = this_name {
+                if let Some(ctx) = expansion_ctx {
                     if b.name == "this" || b.name.starts_with("this.") {
+                        let this_name = ctx.instance.name.as_str();
                         bus_name = if b.name == "this" {
-                            this.to_string()
+                            this_name.to_string()
                         } else {
-                            format!("{}.{}", this, &b.name[5..])
+                            format!("{}.{}", this_name, &b.name[5..])
                         };
                     }
                 }
@@ -462,7 +465,7 @@ impl McModuleInst {
             McPhrase::Multiple(phrases) => McPhrase::Multiple(
                 phrases
                     .iter()
-                    .map(|p| Self::substitute_phrase(p, bindings, this_name))
+                    .map(|p| Self::substitute_phrase(p, bindings, expansion_ctx))
                     .collect(),
             ),
             McPhrase::Endpoint(McEndpoint::Node {
@@ -512,7 +515,7 @@ impl McModuleInst {
             }
             McPhrase::Endpoint(ref ep) => McPhrase::Endpoint(ep.clone()),
             McPhrase::Member(phrase, ep) => McPhrase::Member(
-                Box::new(Self::substitute_phrase(phrase, bindings, this_name)),
+                Box::new(Self::substitute_phrase(phrase, bindings, expansion_ctx)),
                 ep.clone(),
             ),
         }
@@ -522,8 +525,8 @@ impl McModuleInst {
     pub(super) fn substitute_line(
         phrase: &McPhrase,
         bindings: &McParamBindings,
-        this_name: Option<&str>,
+        expansion_ctx: Option<&ExpansionContext>,
     ) -> McPhrase {
-        Self::substitute_phrase(phrase, bindings, this_name)
+        Self::substitute_phrase(phrase, bindings, expansion_ctx)
     }
 }

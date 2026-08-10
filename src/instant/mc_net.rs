@@ -214,7 +214,7 @@ impl fmt::Display for NetPoint {
 ///              ↑       ↑
 ///         conn_0   conn_1
 /// ```
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ConnectionInst {
     /// Connection ID (auto-incremented)
     pub id: u32,

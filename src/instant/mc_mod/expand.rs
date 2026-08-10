@@ -7,6 +7,8 @@
 //!
 //! Phase 2.5 of the namespace refactoring plan.
 
+use std::sync::Arc;
+
 use super::super::mc_comp::McComponentInst;
 use super::super::mc_net::NetPoint;
 use super::McModuleInst;
@@ -18,34 +20,24 @@ use crate::semantic::basic::mc_param::McParamBindings;
 
 /// Pass2 analog of [`crate::McInstance`] — resolved instance in the
 /// instantiation phase.
+///
+/// Uses [`Arc`] for compound types ([`McComponentInst`], [`McModuleInst`])
+/// so that [`resolve_inst_chain`] can recursively call
+/// [`InstFindInst::find_inst`] on sub-modules without lifetime constraints.
 #[derive(Debug, Clone)]
 pub enum InstEntry {
-    /// A component instance (e.g. `R1`, `U1`)
-    Component(InstRef),
-    /// A sub-module instance
-    SubModule(InstRef),
-    /// A port connection point
+    /// A component instance (e.g. `R1`, `U1`) — holds the actual instance
+    /// for pin-level resolution.
+    Component(Arc<McComponentInst>),
+    /// A sub-module instance — holds the actual instance so
+    /// [`InstFindInst::find_inst`] can recurse arbitrarily deep.
+    SubModule(Arc<McModuleInst>),
+    /// A port connection point (terminal — no further DOT resolution)
     Port(NetPoint),
-    /// A label connection point
+    /// A label connection point (terminal — no further DOT resolution)
     Label(NetPoint),
-    /// A bus (collection of connection points)
+    /// A bus (collection of connection points; terminal)
     Bus(Vec<NetPoint>),
-}
-
-/// Lightweight reference to an instance — stores name and type tag
-/// without borrowing from the parent module.
-#[derive(Debug, Clone)]
-pub struct InstRef {
-    /// Instance name
-    pub name: String,
-    /// Type tag: "component" or "submodule"
-    pub kind: InstRefKind,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum InstRefKind {
-    Component,
-    SubModule,
 }
 
 // ============================================================================
@@ -54,6 +46,17 @@ pub enum InstRefKind {
 
 /// Pass2 namespace lookup trait — parallel to [`crate::HasFindInst`] but
 /// operates on instantiated types instead of semantic definition types.
+///
+/// # Design
+///
+/// The priority chain mirrors Pass1 [`HasFindInst`]:
+///   - [`McModuleInst`]: ports → labels → components → sub_modules → buses
+///   - [`McComponentInst`]: pins only
+///
+/// [`InstEntry::SubModule`] holds an [`Arc<McModuleInst>`], enabling
+/// recursive DOT-chain resolution via [`resolve_inst_chain`] with no
+/// depth limit — unlike the previous ad-hoc 2-level scope drilling in
+/// `funccall.rs`.
 pub trait InstFindInst {
     /// Look up a name in the instance namespace.
     fn find_inst(&self, name: &str) -> Option<InstEntry>;
@@ -106,6 +109,14 @@ impl<'a> ExpansionContext<'a> {
         for binding in self.param_bindings.iter() {
             if let Some(param_name) = binding.declare.get_primary_name() {
                 if param_name == name {
+                    // Warn when a func param shadows a component pin with the same name
+                    if self.instance.pins.get(name).is_some() {
+                        tracing::warn!(
+                            "Func param '{}' shadows pin of component '{}' in function body expansion — param takes priority",
+                            name,
+                            self.instance.name
+                        );
+                    }
                     // Param found — return as a NetPoint with owner = this instance
                     return Some(NetPoint::with_owner(
                         &format!("{}.{}", self.instance.name, name),
@@ -157,6 +168,7 @@ impl InstFindInst for McComponentInst {
 
 impl InstFindInst for McModuleInst {
     fn find_inst(&self, name: &str) -> Option<InstEntry> {
+        // Priority mirrors HasFindInst for McModule:
         // P1: ports
         for port in &self.ports {
             if port.name == name {
@@ -172,20 +184,14 @@ impl InstFindInst for McModuleInst {
         // P3: component instances
         for comp in &self.components {
             if comp.name == name {
-                return Some(InstEntry::Component(InstRef {
-                    name: comp.name.clone(),
-                    kind: InstRefKind::Component,
-                }));
+                return Some(InstEntry::Component(Arc::new(comp.clone())));
             }
         }
 
         // P4: sub-module instances
         for sub in &self.sub_modules {
             if sub.name == name {
-                return Some(InstEntry::SubModule(InstRef {
-                    name: sub.name.clone(),
-                    kind: InstRefKind::SubModule,
-                }));
+                return Some(InstEntry::SubModule(Arc::new(sub.clone())));
             }
         }
 
@@ -209,13 +215,14 @@ impl InstFindInst for McModuleInst {
 
 /// Recursively resolve a DOT-separated name chain against a starting scope.
 ///
-/// Each segment is resolved via [`InstFindInst::find_inst`], and the result
-/// becomes the scope for the next segment. Supports arbitrary nesting depth.
+/// Each segment is resolved via [`InstFindInst::find_inst`]. When the result
+/// is a [`InstEntry::SubModule`], the next segment is resolved against that
+/// sub-module's own [`InstFindInst`] impl — and so on, to arbitrary depth.
 ///
 /// # Arguments
 ///
-/// * `chain` — DOT-separated name segments (e.g. `["mcu513", "uC", "SPI"]`)
-/// * `scope` — Starting scope (typically a module instance or expansion context)
+/// * `chain` — DOT-separated name segments (e.g. `["mcu513", "uC", "VDD"]`)
+/// * `scope` — Starting scope (typically a [`McModuleInst`])
 ///
 /// # Returns
 ///
@@ -224,91 +231,39 @@ impl InstFindInst for McModuleInst {
 ///
 /// # Examples
 ///
-/// - `["uC", "VDD"]` on a module scope → Component pin NetPoint
-/// - `["mcu513", "uC", "SPI", "SCLK"]` → nested sub-module → component → bus → member
-pub fn resolve_inst_chain(chain: &[String], scope: &dyn InstFindInst) -> Option<InstEntry> {
+/// - `["uC", "VDD"]` on module → `InstEntry::Port(pin_netpoint)`
+/// - `["mcu513", "uC"]` on module → `InstEntry::Component(uC_arc)`
+/// - `["mcu513"]` on parent module → `InstEntry::SubModule(mcu513_arc)`
+pub fn resolve_inst_chain(
+    chain: &[String],
+    scope: &dyn InstFindInst,
+) -> Option<InstEntry> {
     if chain.is_empty() {
         return None;
     }
 
-    let mut current: Option<InstEntry> = None;
+    // Resolve first segment
+    let mut current = scope.find_inst(&chain[0])?;
 
-    for segment in chain.iter() {
-        let entry = scope.find_inst(segment)?;
-
-        match &entry {
-            InstEntry::Component(_) | InstEntry::SubModule(_) => {
-                // Compound types: return them for caller to handle member access
-                // (component pins, sub-module ports etc.)
-                current = Some(entry);
-                break;
+    // Recurse into remaining segments
+    for seg in &chain[1..] {
+        current = match &current {
+            // SubModule: recurse via its own InstFindInst impl
+            InstEntry::SubModule(sub) => sub.find_inst(seg)?,
+            // Component: resolve via its pins
+            InstEntry::Component(comp) => {
+                if let Some(pin) = comp.pins.get(seg) {
+                    InstEntry::Port(pin.clone())
+                } else {
+                    return None;
+                }
             }
+            // Terminal types: Port/Label/Bus don't support further DOT resolution
             InstEntry::Port(_) | InstEntry::Label(_) | InstEntry::Bus(_) => {
-                // Terminal types: port/label/bus don't have sub-members
-                current = Some(entry);
-                break;
+                return None;
             }
-        }
+        };
     }
 
-    // If no match found but we resolved some segments, return the entry
-    current
-}
-
-/// Resolve a DOT chain against a [`McModuleInst`] scope with full sub-module
-/// and component traversal support.
-///
-/// Unlike [`resolve_inst_chain`], this function can traverse into sub-module
-/// instances to resolve deeper chains like `"mcu513.uC.VDD"`.
-pub fn resolve_inst_chain_in_module(chain: &[String], module: &McModuleInst) -> Option<InstEntry> {
-    if chain.is_empty() {
-        return None;
-    }
-
-    let mut seg_idx = 0;
-    let mut current_module: Option<&McModuleInst> = Some(module);
-
-    while seg_idx < chain.len() && current_module.is_some() {
-        let mod_inst = current_module?;
-        let segment = &chain[seg_idx];
-
-        match mod_inst.find_inst(segment)? {
-            InstEntry::SubModule(_sub_ref) => {
-                // Find the actual sub-module instance for deeper traversal
-                if let Some(sub) = mod_inst.sub_modules.iter().find(|s| s.name == *segment) {
-                    current_module = Some(sub);
-                    seg_idx += 1;
-                    continue;
-                }
-                return Some(InstEntry::SubModule(InstRef {
-                    name: segment.clone(),
-                    kind: InstRefKind::SubModule,
-                }));
-            }
-            InstEntry::Component(comp_ref) => {
-                // Component: resolve remaining segments as pin access
-                if seg_idx + 1 < chain.len() {
-                    if let Some(comp) = mod_inst.components.iter().find(|c| c.name == comp_ref.name)
-                    {
-                        // Try direct pin name lookup for remaining segments
-                        let remaining = chain[seg_idx + 1..].join(".");
-                        if let Some(pin) = comp.pins.get(&remaining) {
-                            return Some(InstEntry::Port(pin.clone()));
-                        }
-                        // Try each remaining segment individually
-                        for member_seg in &chain[seg_idx + 1..] {
-                            if let Some(pin) = comp.pins.get(member_seg) {
-                                return Some(InstEntry::Port(pin.clone()));
-                            }
-                        }
-                    }
-                    return Some(InstEntry::Component(comp_ref));
-                }
-                return Some(InstEntry::Component(comp_ref));
-            }
-            other => return Some(other),
-        }
-    }
-
-    None
+    Some(current)
 }

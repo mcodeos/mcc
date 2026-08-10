@@ -23,6 +23,7 @@ use crate::semantic::module::Mc2Module;
 use crate::McAttrVal;
 use crate::McCMIE;
 use crate::McFunction;
+use crate::semantic::mc_func::HasFindInst;
 use crate::McURI;
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
@@ -274,6 +275,31 @@ impl McInstance {
             McInstance::Attr(_) => "Attr",
             McInstance::Func(_) => "Func",
             McInstance::EnumVal { .. } => "EnumVal",
+        }
+    }
+
+    /// Unified member resolution across container types (Phase 3.1).
+    ///
+    /// Given a member name, dispatches to the container's [`HasFindInst::find_inst`]
+    /// implementation. Supports Component (pin members), Interface (interface pins),
+    /// Bus (bus members), and Module (inst members).
+    ///
+    /// Returns `None` if the member is not found or the container type doesn't
+    /// support member resolution.
+    pub fn resolve_member(&self, member: &str) -> Option<McInstance> {
+        match self {
+            McInstance::Component(c) => c.base.find_inst(member),
+            McInstance::Module(m) => m.base.find_inst(member),
+            McInstance::Interface(i) => i.base.find_inst(member),
+            McInstance::Bus(b) => {
+                // Bus members are resolved by name within the member list
+                if b.member.iter().any(|m| m == member) {
+                    Some(McInstance::Label(member.to_string()))
+                } else {
+                    None
+                }
+            }
+            _ => None,
         }
     }
 }
