@@ -39,12 +39,8 @@ impl McIds {
         self.segments
             .iter()
             .map(|seg| match seg {
-                IdsSegment::DotIda(ida) => {
-                    IdsSegment::Curly(vec![IdsSegment::Ida(ida.clone())])
-                }
-                IdsSegment::DotInt(n) => {
-                    IdsSegment::Curly(vec![IdsSegment::Int(n.clone())])
-                }
+                IdsSegment::DotIda(ida) => IdsSegment::Curly(vec![IdsSegment::Ida(ida.clone())]),
+                IdsSegment::DotInt(n) => IdsSegment::Curly(vec![IdsSegment::Int(n.clone())]),
                 other => other.clone(),
             })
             .collect()

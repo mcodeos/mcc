@@ -91,7 +91,7 @@ pub struct McCode {
 
 ////////////////////////////////
 impl McCode {
-    fn collect_direct_uses(&self, current_path: &Path) -> Vec<McUse> {
+    pub(crate) fn collect_direct_uses(&self, current_path: &Path) -> Vec<McUse> {
         let mut uses = Vec::new();
         self.ast
             .iter()
@@ -839,7 +839,11 @@ impl McCode {
             }
 
             // (2). load idx from current file
-            let cmie_list = mcfile.parse_cmie_names();
+            let mut cmie_list = mcfile.parse_cmie_names();
+            // Defect 8: Sort alphabetically so that `use x as y` alias
+            // binding to cmie_list[0] is deterministic regardless of
+            // declaration order in the source file.
+            cmie_list.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
 
             // §14: detect symbol conflicts when two unprefixed uses share the same module name
             if mcuse.prefix == McUsePrefix::PathSystem {
@@ -1008,6 +1012,202 @@ impl McCode {
         }
 
         //3. self file cmie definitions
+        self.parse_cmie_names();
+    }
+
+    /// Compute spacenames from already-resolved dependencies in the workspace.
+    ///
+    /// Unlike `parse_nsp`, this method does NOT recursively traverse the use
+    /// graph. It assumes all dependencies have already been processed by
+    /// `mcb_add_recursive` and their spacenames are available in the workspace.
+    /// This eliminates the double traversal of the use dependency graph
+    /// (Defect 12).
+    ///
+    /// Prerequisites (caller must ensure):
+    /// 1. `self.uselist` is already populated via `collect_direct_uses`
+    /// 2. All dependencies in `self.uselist` are already in the workspace
+    ///    with their spacenames computed
+    pub fn parse_nsp_from_deps(&mut self) {
+        // Early exit: check if spacenames already computed in workspace
+        let canonical_uri = {
+            let path_buf = PathBuf::from(self.uri.clone());
+            path_buf
+                .canonicalize()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| self.uri.clone())
+        };
+
+        if let Some(existing) = workspace::WORKSPACE.mcodes.get(&canonical_uri) {
+            if !existing.spacenames.is_empty() {
+                self.spacenames.clone_from(&existing.spacenames);
+                self.uselist.clone_from(&existing.uselist);
+                return;
+            }
+        }
+
+        self.spacenames.clear();
+
+        let path_buf = PathBuf::from(self.uri.clone());
+        let Some(current_path) = path_buf.parent() else {
+            tracing::warn!(target: "mcc::code", uri = %self.uri, "cannot get parent path");
+            return;
+        };
+
+        // uselist already populated by caller (mcb_add_recursive)
+        let mut uses_stack: Vec<McUse> = self.uselist.iter().cloned().collect();
+        let mut visited_uses = HashSet::new();
+        // §14: track (module_name, (orig_uri, exported_symbols)) for conflict detection
+        let mut seen_modules: std::collections::HashMap<String, (String, HashSet<McIds>)> =
+            std::collections::HashMap::new();
+
+        while let Some(mcuse) = uses_stack.pop() {
+            let use_path = current_path.join(&mcuse.uri);
+            let canonical_use_uri = use_path
+                .canonicalize()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| mcuse.uri.clone());
+            if !visited_uses.insert(canonical_use_uri.clone()) {
+                continue;
+            }
+
+            // §11: check that unprefixed (system/third-party) use targets
+            // are declared in project.toml [dependencies] or loaded via global config.
+            if mcuse.prefix == McUsePrefix::PathSystem {
+                let lib_name = mcuse.orig_uri.split('/').next().unwrap_or("");
+                if !lib_name.is_empty() && !mcb_loaded_libs().contains(&lib_name.to_string()) {
+                    dlog_warning_at(
+                        800,
+                        mcuse.pos,
+                        mcuse.len,
+                        &format!(
+                            "use of undeclared dependency '{}': add it to project.toml [dependencies] or load via --lib",
+                            lib_name
+                        ),
+                    );
+                }
+            }
+
+            // Look up dependency's spacenames from workspace.
+            // All dependencies should already be in the workspace with
+            // spacenames computed, because mcb_add_recursive processes
+            // them in dependency order.
+            let dep_sn = match workspace::WORKSPACE.mcodes.get(&canonical_use_uri) {
+                Some(dep) => dep.spacenames.clone(),
+                None => {
+                    tracing::debug!(
+                        target: "mcc::code",
+                        uri = %canonical_use_uri,
+                        "use target not in workspace"
+                    );
+                    continue;
+                }
+            };
+
+            // Extract CMIE names: entries whose URI matches the dependency's own file
+            let mut cmie_list: Vec<McIds> = dep_sn
+                .iter()
+                .filter(|(_, v)| v.uri == canonical_use_uri)
+                .map(|(k, _)| k.clone())
+                .collect();
+            cmie_list.sort_by(|a, b| a.to_string().cmp(&b.to_string()));
+
+            // §14: detect symbol conflicts when two unprefixed uses share the same module name
+            if mcuse.prefix == McUsePrefix::PathSystem {
+                let module_name = mcuse.orig_uri.split('/').last().unwrap_or("");
+                if !module_name.is_empty() {
+                    if let Some((prev_uri, prev_symbols)) = seen_modules.get(module_name) {
+                        if prev_uri != &mcuse.orig_uri {
+                            let current_symbols: HashSet<McIds> =
+                                cmie_list.iter().cloned().collect();
+                            let overlap: Vec<_> =
+                                prev_symbols.intersection(&current_symbols).collect();
+                            if !overlap.is_empty() {
+                                let names: Vec<String> =
+                                    overlap.iter().map(|s| s.to_string()).collect();
+                                dlog_error_at(
+                                    801,
+                                    mcuse.pos,
+                                    mcuse.len,
+                                    &format!(
+                                        "symbol conflict in module '{}': {} collides with previous use from '{}'. Use 'as' alias to disambiguate",
+                                        module_name, names.join(", "), prev_uri
+                                    ),
+                                );
+                            }
+                        }
+                    } else {
+                        seen_modules.insert(
+                            module_name.to_string(),
+                            (mcuse.orig_uri.clone(), cmie_list.iter().cloned().collect()),
+                        );
+                    }
+                }
+            }
+
+            let is_default_import = mcuse.impt_ids.is_none();
+            let has_alias = mcuse.as_id.is_some();
+
+            // Register imports according to the six import forms
+            match &mcuse.impt_ids {
+                None => {
+                    for (i, cmie) in cmie_list.iter().enumerate() {
+                        let key = if has_alias && i == 0 {
+                            // Safety: has_alias guarantees as_id is Some
+                            McIds::from(mcuse.as_id.as_ref().unwrap().as_str())
+                        } else {
+                            cmie.clone()
+                        };
+                        self.spacenames
+                            .insert(key, McSpaceName::new(cmie, mcuse.uri.clone()));
+                    }
+                }
+                Some(classes) => {
+                    for (i, class) in classes.iter().enumerate() {
+                        if cmie_list.contains(class) {
+                            let key = if has_alias && i == 0 {
+                                McIds::from(mcuse.as_id.as_ref().unwrap().as_str())
+                            } else {
+                                class.clone()
+                            };
+                            self.spacenames
+                                .insert(key, McSpaceName::new(class, mcuse.uri.clone()));
+                        } else {
+                            dlog_warning_at(
+                                804,
+                                mcuse.pos,
+                                mcuse.len,
+                                &format!(
+                                    "imported symbol '{}' not found in '{}'",
+                                    class, mcuse.orig_uri
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+
+            // Cascade the dependency's spacenames — only for default imports
+            // without aliases.
+            if is_default_import && !has_alias {
+                for (key, value) in &dep_sn {
+                    if !self.spacenames.contains_key(key) {
+                        self.spacenames.insert(key.clone(), value.clone());
+                    }
+                }
+            }
+
+            // Pub use propagation: push dependency's public uses onto stack.
+            // The dependency's uselist is already populated in the workspace.
+            if let Some(dep) = workspace::WORKSPACE.mcodes.get(&canonical_use_uri) {
+                for mc_use in &dep.uselist {
+                    if mc_use.public {
+                        uses_stack.push(mc_use.clone());
+                    }
+                }
+            }
+        }
+
+        // Register self's CMIE names
         self.parse_cmie_names();
     }
 

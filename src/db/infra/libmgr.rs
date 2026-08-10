@@ -80,21 +80,11 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
         return false;
     }
 
-    // If already loaded, check if it has interfaces
+    // If already loaded, check if it has any definitions (i.e. was properly loaded)
     if mcc_blibs.contains_key(name) {
-        // Check if it has interfaces spacenames
         if let Some(blib) = mcc_blibs.get(name) {
-            let has_interfaces = blib.spacenames.keys().any(|ids| {
-                let name = format!("{}", ids);
-                name.contains("SPI")
-                    || name.contains("I2C")
-                    || name.contains("UART")
-                    || name.contains("GPIO")
-                    || name.contains("ADC")
-                    || name.contains("DAC")
-            });
-            if has_interfaces {
-                info!(target: "mcc::lib", name = name, "load: already has interfaces, skip");
+            if !blib.spacenames.is_empty() {
+                info!(target: "mcc::lib", name = name, "load: already loaded, skip");
                 return true;
             }
         }
@@ -207,10 +197,12 @@ pub fn mcb_unload_lib(name: &str) -> bool {
     remove_by_uris(&global::mcc_modules, &uris);
     remove_by_uris(&global::mcc_interfaces, &uris);
     remove_by_uris(&global::mcc_enums, &uris);
+    remove_by_uris(&global::mcc_defines, &uris);
     remove_by_uris(&workspace::WORKSPACE.components, &uris);
     remove_by_uris(&workspace::WORKSPACE.modules, &uris);
     remove_by_uris(&workspace::WORKSPACE.interfaces, &uris);
     remove_by_uris(&workspace::WORKSPACE.enums, &uris);
+    remove_by_uris(&workspace::WORKSPACE.defines, &uris);
 
     info!(target: "mcc::lib", name = name, "unloaded");
     true

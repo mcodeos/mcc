@@ -115,6 +115,9 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
     // ── 0. Initialize system root (same as parse command) ──
     mcc::mcc_set_system_root(std::path::Path::new(""));
     let project_root: PathBuf = resolve_project_root(args);
+    // Defect 9: set project root before loading libraries so that
+    // path resolution (e.g. mcc_relative_path) works during lib load.
+    mcc::mcc_set_project_root(&project_root);
     manifest::load_libs(&manifest::collect_libs(Some(&project_root), &args.lib));
 
     // ── 0.5. Pass 0 snapshot: lib load + manifest + project load phase diagnostics ──

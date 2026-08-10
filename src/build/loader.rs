@@ -142,11 +142,22 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
     trace!(target: "mcc::builder", file = %file_str, "load: parse_ast");
     mcfile.parse_ast();
 
-    // 5. Parse namespace (build spacenames and uselist)
-    trace!(target: "mcc::builder", file = %file_str, "load: parse_nsp");
-    mcfile.parse_nsp();
+    // 5. Collect direct uses (cheap scan, no recursive traversal).
+    //    This populates uselist so we know which dependencies to recurse into.
+    let current_path = match PathBuf::from(&file_str).parent() {
+        Some(p) => p.to_path_buf(),
+        None => {
+            warn!(target: "mcc::builder", file = %file_str, "load: cannot get parent path");
+            return;
+        }
+    };
+    mcfile.uselist = mcfile.collect_direct_uses(&current_path);
 
-    // 5.5. First insert file into prj_mcodes (so when parse_pass1_types() calls mcb_get_cmie to lookup Interface, it can find current file's spacenames in prj_mcodes)
+    // 5.5. First insert file into prj_mcodes (so dependency cycle detection works,
+    //      and when parse_pass1_types() calls mcb_get_cmie to lookup Interface,
+    //      it can find current file's spacenames in prj_mcodes).
+    //      Note: spacenames are empty at this point — they will be computed
+    //      in step 8 after all dependencies are loaded.
     workspace::WORKSPACE
         .mcodes
         .insert(canonical_uri.clone(), mcfile.clone());
@@ -154,7 +165,9 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
     // 6. Mark as loaded (before recursion to prevent circular dependencies)
     loaded.insert(canonical_uri.clone());
 
-    // 7. Recursively load all dependencies (this will first complete parse_pass1_types() for dependencies)
+    // 7. Recursively load all dependencies FIRST.
+    //    This ensures dependencies' spacenames are computed before we
+    //    compute the current file's spacenames.
     let deps: Vec<McURI> = mcfile.uselist.iter().map(|u| u.uri.clone()).collect();
     if !deps.is_empty() {
         trace!(target: "mcc::builder", file = %file_str, deps = deps.len(), "load: recurse into deps");
@@ -164,7 +177,14 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
         mcb_add_recursive(&dep_uri, loaded, is_system_lib);
     }
 
-    // 8. After all dependencies are loaded, parse this file's CMIE definitions
+    // 8. After all dependencies are loaded, compute this file's spacenames
+    //    using the dependencies' already-resolved spacenames from the workspace.
+    //    This is a non-recursive lookup — unlike the old parse_nsp() which
+    //    re-traversed the entire use graph independently (Defect 12).
+    trace!(target: "mcc::builder", file = %file_str, "load: parse_nsp_from_deps");
+    mcfile.parse_nsp_from_deps();
+
+    // 9. After all dependencies are loaded, parse this file's CMIE definitions
     // Check pass1_complete flag to determine if parsing is needed
     let need_parse = !mcfile.pass1_complete;
     if need_parse {
@@ -185,7 +205,7 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
         "load: done"
     );
 
-    // 9. Update project file table (replace pre-inserted empty file with parsed file)
+    // 10. Update project file table (replace pre-inserted empty file with parsed file)
     if let dashmap::Entry::Occupied(mut occupied_entry) =
         workspace::WORKSPACE.mcodes.entry(canonical_uri.clone())
     {
@@ -327,5 +347,14 @@ pub(crate) fn remove_defines(uri: &McURI) {
         .collect();
     for space_name in to_remove {
         global::mcc_enums.remove(&space_name);
+    }
+
+    let to_remove: Vec<McSpaceName> = global::mcc_defines
+        .iter()
+        .filter(|entry| entry.key().uri == *uri)
+        .map(|entry| entry.key().clone())
+        .collect();
+    for space_name in to_remove {
+        global::mcc_defines.remove(&space_name);
     }
 }

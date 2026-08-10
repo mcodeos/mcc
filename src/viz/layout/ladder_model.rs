@@ -417,10 +417,7 @@ fn build_ladder_core(
         let rb = lane_of.contains_key(&b);
         if ra != rb {
             let lane = if ra { lane_of[&a] } else { lane_of[&b] };
-            return Err(LadderBail::BridgeSameLane {
-                box_id: bid,
-                lane,
-            });
+            return Err(LadderBail::BridgeSameLane { box_id: bid, lane });
         }
     }
     // Only check reachability for nets in the subset
