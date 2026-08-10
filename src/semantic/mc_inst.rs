@@ -1222,6 +1222,11 @@ impl McInstances {
 
         // Look up definition using mcb_get_cmie
         let cmie = resolve_cmie(&DB, &class_ids, uri);
+        eprintln!(
+            "[P1-CMIE] class={} cmie={:?}",
+            class_ids.to_string(),
+            cmie.as_ref().map(|c| std::mem::discriminant(c))
+        );
 
         // ★ LSP: Register class reference for goto-definition
         let class_name = class_ids.to_string();
@@ -1274,13 +1279,13 @@ impl McInstances {
 
             // ── P1: collect this instance's construction args ──
             let ctor_args = collect_ctor_params(inst_node, &inst_id_node);
-            // eprintln!(
-            //     "[P1-ctor] inst='{}' ctor_args={} (id.next type={:?}, node.next type={:?})",
-            //     inst_str,
-            //     ctor_args.len(),
-            //     inst_id_node.get_next().map(|n| n.get_type()),
-            //     inst_node.get_next().map(|n| n.get_type()),
-            // );
+            eprintln!(
+                "[P1-ctor] inst='{}' ctor_args={} (id.next type={:?}, node.next type={:?})",
+                inst_str,
+                ctor_args.len(),
+                inst_id_node.get_next().map(|n| n.get_type()),
+                inst_node.get_next().map(|n| n.get_type()),
+            );
 
             for inst_name_ref in &names_to_create {
                 let inst_name = inst_name_ref.clone();
