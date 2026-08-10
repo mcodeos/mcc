@@ -40,6 +40,7 @@ pub fn mcb_init() {
     global::mcc_modules.clear();
     global::mcc_interfaces.clear();
     global::mcc_enums.clear();
+    global::mcc_defines.clear();
 
     workspace::WORKSPACE.clear_active();
     // System library loading is uniformly handled by mcb_init_system_lib()

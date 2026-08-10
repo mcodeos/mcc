@@ -219,6 +219,9 @@ impl WorkspaceManager {
         self.components.clear();
         self.interfaces.clear();
         self.enums.clear();
+        self.defines.clear();
+        self.reverse_deps.clear();
+        self.lsp.class_table.lock().unwrap().clear();
         self.diagnostics.lock().unwrap().clear();
     }
 
