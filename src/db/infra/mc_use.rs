@@ -90,6 +90,11 @@ impl McUse {
             "./" => McUsePrefix::PathCurrent,
             "../" => McUsePrefix::PathParent,
             _ => {
+                dlog_error(
+                    403,
+                    &pre_fix_node,
+                    "Unrecognized URI prefix — expected $, /, ./, or ../",
+                );
                 return None;
             }
         };
@@ -155,60 +160,25 @@ impl McUse {
             }
         };
 
-        // 3. Process the next 3 nodes
-        let node1 = module_file_node.get_next();
-        let node2 = node1.as_ref().and_then(|n| n.get_next());
-        let node3 = node2.as_ref().and_then(|n| n.get_next());
+        // 3. Process the next 3 nodes — collect by type, order-independent
+        let mut node1 = module_file_node.get_next();
+        let mut uri_version: Option<String> = None;
+        let mut uri_asid: Option<String> = None;
+        let mut uri_import_ids: Option<Vec<McIds>> = None;
 
-        let (uri_version, uri_asid, uri_import_ids) =
-            match (node1.as_ref(), node2.as_ref(), node3.as_ref()) {
-                // ---------------- Scenario 1: 3 nodes (node1 + node2 + node3) ----------------
-                (Some(n1), Some(n2), Some(n3)) => {
-                    let t1 = n1.get_type();
-                    let t2 = n2.get_type();
-                    let t3 = n3.get_type();
-                    match (t1, t2, t3) {
-                        (MCAST_URI_VERSION, MCAST_URI_ASID, MCAST_URI_IMPORT_IDS) => {
-                            (n1.to_string(), n2.to_string(), n3.subs_to_mcids_vec())
-                        }
-                        _ => (None, None, None),
-                    }
-                }
-
-                // ---------------- Scenario 2: 2 nodes (node1 + node2) ----------------
-                (Some(n1), Some(n2), None) => {
-                    let t1 = n1.get_type();
-                    let t2 = n2.get_type();
-                    match (t1, t2) {
-                        (MCAST_URI_VERSION, MCAST_URI_ASID) => {
-                            (n1.to_string(), n2.to_string(), None)
-                        }
-                        (MCAST_URI_ASID, MCAST_URI_IMPORT_IDS) => {
-                            (None, n1.to_string(), n2.subs_to_mcids_vec())
-                        }
-                        (MCAST_URI_VERSION, MCAST_URI_IMPORT_IDS) => {
-                            (n1.to_string(), None, n2.subs_to_mcids_vec())
-                        }
-                        _ => (None, None, None),
-                    }
-                }
-
-                // ---------------- Scenario 3: 1 node (node1 only) ----------------
-                (Some(n1), None, None) => {
-                    let t1 = n1.get_type();
-                    match t1 {
-                        MCAST_URI_VERSION => (n1.to_string(), None, None),
-                        MCAST_URI_ASID => (None, n1.to_string(), None),
-                        MCAST_URI_IMPORT_IDS => (None, None, n1.subs_to_mcids_vec()),
-                        _ => (None, None, None),
-                    }
-                }
-
-                // ---------------- Scenario 4: 0 nodes (fallback) ----------------
-                (None, None, None) => (None, None, None),
-
-                _ => (None, None, None),
+        for _ in 0..3 {
+            let n = match node1 {
+                Some(ref n) => n.clone(),
+                None => break,
             };
+            match n.get_type() {
+                MCAST_URI_VERSION => uri_version = n.to_string(),
+                MCAST_URI_ASID => uri_asid = n.to_string(),
+                MCAST_URI_IMPORT_IDS => uri_import_ids = n.subs_to_mcids_vec(),
+                _ => break,
+            }
+            node1 = n.get_next();
+        }
 
         let orig_uri = uri_path.clone();
 
@@ -266,9 +236,10 @@ impl McUse {
             final_filename.push_str(".mc");
         }
 
-        // 4. Only system libraries prepend "mcode/" prefix
+        // 4. System libraries: the system root already points to the library
+        //    directory, so no extra path prefix is needed.
         if self.prefix == McUsePrefix::PathSystem {
-            final_filename = format!("mcode/{final_filename}");
+            // System root is already the library root — no mcode/ prefix
         }
 
         // 5. Base path + versioned URI

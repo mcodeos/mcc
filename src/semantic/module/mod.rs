@@ -303,7 +303,7 @@ impl McModule {
                 });
                 if !has_recorded_ref && !has_ast_usage {
                     crate::db::diagnostic::diagnostic::diagnostic_log(
-                        1402,
+                        1405,
                         crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
                         span.start as u32,
                         (span.end - span.start) as u32,

@@ -64,6 +64,23 @@ pub(crate) fn pop_line_index() {
     CURRENT_LINE_INDEX.with(|cell| cell.borrow_mut().pop());
 }
 
+/// RAII guard that pushes a `LineIndex` on construction and pops on drop.
+/// Prevents manual push/pop pairing bugs.
+pub(crate) struct LineIndexGuard;
+
+impl LineIndexGuard {
+    pub(crate) fn new(uri: McURI, index: LineIndex) -> Self {
+        push_line_index(uri, index);
+        Self
+    }
+}
+
+impl Drop for LineIndexGuard {
+    fn drop(&mut self) {
+        pop_line_index();
+    }
+}
+
 /// Look up (line, col) for `pos` in the thread-local line index stack.
 /// Searches from most-recently-pushed to oldest. Returns `None` if no
 /// matching URI is found.
