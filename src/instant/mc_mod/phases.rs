@@ -661,7 +661,6 @@ impl McModuleInst {
         // NOTE: These post-processing steps are now invoked from instantiate() after
         // auto_invoke_module_funcs(), so they cover both regular lines and auto-invoked closures.
         // self.infer_bare_port_members_from_buses();  // moved to instantiate()
-        // self.normalize_component_pin_paths();        // moved to instantiate()
         // self.dedup_connections();                    // moved to instantiate()
         // self.check_unbound_param_ports();            // moved to instantiate()
     }
@@ -708,7 +707,7 @@ impl McModuleInst {
     /// 2. Sub-module port references — owner is a sub-module, verify port exists
     ///
     /// Logs diagnostic warnings for unresolved references.
-    /// Called after `normalize_component_pin_paths()` and before `build_net_table()`.
+    /// Called before `build_net_table()`.
     pub(super) fn validate_expanded_net_points(&self) {
         for conn in &self.connections {
             for pt in &conn.points {
@@ -755,31 +754,6 @@ impl McModuleInst {
                     // a net label or external reference — skip validation.
                 }
             }
-        }
-    }
-
-    pub(super) fn normalize_component_pin_paths(&mut self) {
-        // Collect rewrites first (immutable self), then apply them all (mutable self) to avoid borrow conflicts.
-        let mut rewrites: Vec<(usize, usize, String)> = Vec::new();
-        for (ci, conn) in self.connections.iter().enumerate() {
-            for (pi, pt) in conn.points.iter().enumerate() {
-                if let Some(new_path) = self.normalize_one_inst_pin_path(&pt.path) {
-                    rewrites.push((ci, pi, new_path));
-                }
-            }
-        }
-        for (ci, pi, new_path) in rewrites {
-            // ── [P2-SWEEP-LATE] delete after verification: if construction-time normalization
-            //    is complete, this should be **silent**. If it still prints, that path is
-            //    coming from a construction point other than get_left/right (funccall/bus.rs),
-            //    and that construction point also needs normalization added.
-            mcc_dbg!(
-                "inst::mod",
-                "[P2-SWEEP-LATE] {} -> {}",
-                self.connections[ci].points[pi].path,
-                new_path
-            );
-            self.connections[ci].points[pi].path = new_path;
         }
     }
 

@@ -14,6 +14,7 @@
 //! is in `funccall_inst.rs`, and iterated call expansion is in `iterated.rs`.
 
 use super::McModuleInst;
+use super::expand::{resolve_inst_chain, InstEntry};
 use crate::db::cmie::cmie::mcb_get_cmie;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint, PortInst};
@@ -356,108 +357,48 @@ impl McModuleInst {
         //     function defined in that module's type, expand the function body
         //     in the current module scope (with parameter substitution)
         //
-        // ── P0-3 fix: explicit scope chain resolution ─────────────────────────────
-        // Previously used "first segment name + single funcs table" for dispatch,
-        // couldn't distinguish "sub-module method" from "sub-module internal component method".
-        //
-        // Now resolve the complete scope chain from the left endpoint:
-        //   `mcu513.uC.i2c(0x36)` → scope=["mcu513","uC"], method="i2c"
-        // Drill down level by level by scope: sub_modules["mcu513"] → .components["uC"]
-        //   → .def.funcs.find("i2c")
-        // Also do double verification by parameter arity, to avoid mismatching
-        // no-arg version with arg version.
+        // ── P0-3 fix: unified scope chain resolution via InstFindInst ──────────
+        // Replaces ad-hoc 2-level scope drilling with resolve_inst_chain(),
+        // supporting arbitrary-depth nesting (module → sub_module → component → …).
         {
             // Infer caller scope chain from left endpoint
             let caller_path = left
                 .first()
                 .map(|elem| elem.name.clone())
                 .unwrap_or_default();
-            let scope_segments: Vec<&str> = caller_path.split('.').collect();
+            let scope_segments: Vec<String> =
+                caller_path.split('.').map(|s| s.to_string()).collect();
 
             if !scope_segments.is_empty() && !scope_segments[0].is_empty() {
-                // ── Depth 1: check if first segment is a sub-module ──
-                let first_seg = scope_segments[0];
-                let sub_mod_opt = self.sub_modules.iter().find(|m| m.name == first_seg);
-
-                if let Some(sub_mod) = sub_mod_opt {
-                    // ── Depth 2+: check for deeper scope (component method within sub-module) ──
-                    if scope_segments.len() >= 2 {
-                        let inner_seg = scope_segments[1];
-
-                        // Look up component inside sub-module
-                        let inner_comp_func = sub_mod
-                            .components
-                            .iter()
-                            .find(|c| c.name == inner_seg)
-                            .and_then(|comp| {
-                                comp.def.funcs.find(&name_str).map(|f| (comp, f.clone()))
-                            });
-
-                        if let Some((_comp, func_clone)) = inner_comp_func {
-                            // ── arity double verification ──
-                            // Component method (with-args version) takes priority over
-                            // module's same-name method (no-args version)
-                            let func_arity = func_clone.params.iter().count();
-                            let call_arity = params.len();
-                            let arity_ok =
-                                func_arity == call_arity || (func_arity == 0 && call_arity == 0);
-
-                            if arity_ok || func_arity > 0 {
-                                // Use the full scope path prefix (mcu513.uC.) instead of single segment
-                                let full_scope = format!("{first_seg}.{inner_seg}");
+                // Resolve the full scope chain via InstFindInst
+                if let Some(entry) = resolve_inst_chain(&scope_segments, &*self) {
+                    match entry {
+                        InstEntry::SubModule(sub_mod) => {
+                            // Sub-module's own method (e.g. mcu513.some_func())
+                            if let Some(func) = sub_mod.def.funcs.find(&name_str) {
+                                let func_clone = func.clone();
+                                let func_arity = func_clone.params.iter().count();
+                                let call_arity = params.len();
+                                // Don't dispatch no-arg version when caller passed args
+                                if !(func_arity == 0 && call_arity > 0) {
+                                    let full_scope = scope_segments.join(".");
+                                    return self.instantiate_instance_method(
+                                        &full_scope, &func_clone, params, left, right,
+                                    );
+                                }
+                            }
+                        }
+                        InstEntry::Component(comp) => {
+                            // Component method (e.g. uC.power(...), mcu513.uC.i2c(...))
+                            if let Some(func) = comp.def.funcs.find(&name_str) {
+                                let func_clone = func.clone();
+                                let full_scope = scope_segments.join(".");
                                 return self.instantiate_instance_method(
-                                    &full_scope,
-                                    &func_clone,
-                                    params,
-                                    left,
-                                    right,
+                                    &full_scope, &func_clone, params, left, right,
                                 );
                             }
                         }
-                    }
-
-                    // ── Depth 1: sub-module's own method ──
-                    let module_def = sub_mod.def.clone();
-                    if let Some(func) = module_def.funcs.find(&name_str) {
-                        let func_clone = func.clone();
-                        // ── arity verification: module-level func no-args version vs component-level with-args version ──
-                        let func_arity = func_clone.params.iter().count();
-                        let call_arity = params.len();
-                        // If the caller passed args but module-level func has no args,
-                        // and depth 2 path was already tried but didn't hit, don't
-                        // mistakenly dispatch to the no-args version
-                        if func_arity == 0 && call_arity > 0 {
-                            // fall through to PassThrough
-                        } else {
-                            return self.instantiate_instance_method(
-                                first_seg,
-                                &func_clone,
-                                params,
-                                left,
-                                right,
-                            );
-                        }
-                    }
-                }
-
-                // ── Check if caller is a component (not sub-module) ──
-                // e.g. in uC.power(...), uC is a component of the current module
-                let comp_def_opt = self
-                    .components
-                    .iter()
-                    .find(|c| c.name == first_seg)
-                    .map(|c| c.def.clone());
-
-                if let Some(comp_def) = comp_def_opt {
-                    if let Some(func) = comp_def.funcs.find(&name_str) {
-                        let func_clone = func.clone();
-                        return self.instantiate_instance_method(
-                            first_seg,
-                            &func_clone,
-                            params,
-                            left,
-                            right,
-                        );
+                        _ => {} // Port/Label/Bus — not applicable for func calls
                     }
                 }
             }

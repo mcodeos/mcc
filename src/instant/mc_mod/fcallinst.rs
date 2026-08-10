@@ -10,6 +10,7 @@
 //! - `instantiate_instance_method`         —— Instance method (`uC.power(...)`)
 //! - `prefix_instance_line/phrase/node_element` —— Label prefixing in instance method bodies
 
+use super::expand::ExpansionContext;
 use super::funccall::FuncCallInst;
 use super::FailedRecord;
 use super::McModuleInst;
@@ -448,7 +449,7 @@ impl McModuleInst {
                 let substituted = if bindings.is_empty() && caller_inst_name.is_none() {
                     line.clone()
                 } else {
-                    Self::substitute_line(line, &bindings, caller_inst_name)
+                    Self::substitute_line(line, &bindings, None)
                 };
                 self.process_line(&substituted)?;
             }
@@ -469,7 +470,7 @@ impl McModuleInst {
                         let substituted = if bindings.is_empty() && caller_inst_name.is_none() {
                             line.clone()
                         } else {
-                            Self::substitute_line(line, &bindings, caller_inst_name)
+                            Self::substitute_line(line, &bindings, None)
                         };
                         self.process_line(&substituted)?;
                     }
@@ -542,7 +543,7 @@ impl McModuleInst {
         let substituted = if bindings.is_empty() && this_name.is_none() {
             endpoint_phrase.clone()
         } else {
-            Self::substitute_line(endpoint_phrase, bindings, this_name)
+            Self::substitute_line(endpoint_phrase, bindings, None)
         };
 
         // 2. Resolve to McBus list
@@ -1014,11 +1015,17 @@ impl McModuleInst {
             // Do not reset auto_inst_map; let it accumulate line by line inside
             // the function body! This way components created in the previous line
             // can still be resolved correctly in subsequent lines!
+            // Build ExpansionContext for this line (lifetime scoped per iteration)
+            let expansion_ctx = self
+                .find_component(inst_name)
+                .map(|comp| ExpansionContext::new(comp, bindings, self));
             let substituted = if bindings.is_empty() {
                 line.clone()
             } else {
-                Self::substitute_line(line, bindings, Some(inst_name))
+                Self::substitute_line(line, bindings, expansion_ctx.as_ref())
             };
+            // Drop expansion_ctx before mutable self borrows below
+            drop(expansion_ctx);
             let prefixed = Self::prefix_instance_line_with_skip(&substituted, inst_name, &skip);
             // ── P2-7-XTAL: convert Labels that are known buses to Bus representations ──
             // When prefix_instance_line_with_skip creates prefixed Labels like
@@ -1075,11 +1082,15 @@ impl McModuleInst {
                     );
                 }
                 for (li, line) in matched_lines.iter().enumerate() {
+                    let expansion_ctx = self
+                        .find_component(inst_name)
+                        .map(|comp| ExpansionContext::new(comp, bindings, self));
                     let substituted = if bindings.is_empty() {
                         line.clone()
                     } else {
-                        Self::substitute_line(line, bindings, Some(inst_name))
+                        Self::substitute_line(line, bindings, expansion_ctx.as_ref())
                     };
+                    drop(expansion_ctx);
                     let prefixed =
                         Self::prefix_instance_line_with_skip(&substituted, inst_name, &skip);
                     let expanded = self.expand_bus_labels(&prefixed);

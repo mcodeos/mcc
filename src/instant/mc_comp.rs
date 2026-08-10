@@ -21,7 +21,7 @@ use std::sync::Arc;
 // ============================================================================
 
 /// Pass2 Instantiation - Component instance
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct McComponentInst {
     /// Component instance name
     pub name: String,
