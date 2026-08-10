@@ -559,6 +559,18 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
                             None
                         }
                     })
+                    .or_else(|| {
+                        // Fallback: for synthetic MAP entries (e.g., LabelRef
+                        // generated from PortRef+LabelDef co-location in
+                        // fill_refdef_layer2), the ref_name equals the def name.
+                        // Extract it from the def_loc span in the def file.
+                        let def_file = map.files.get(entry.def_loc.file_id as usize)?;
+                        let def_content =
+                            std::fs::read_to_string(std::path::Path::new(def_file.as_str())).ok()?;
+                        let ds = entry.def_loc.byte_start as usize;
+                        let de = entry.def_loc.byte_end as usize;
+                        def_content.get(ds..de).map(|s| s.to_string())
+                    })
                     .unwrap_or_else(|| "?".to_string());
                 out.push_str(&format!(
                     "F12_DIAG MAP: Ref({ref_kind}/{ref_ku}, id={ref_id:5}, name='{ref_name}') => Def({def_kind}/{def_ku}, span=[{start:5},{end:5}], file={def_file})\n",

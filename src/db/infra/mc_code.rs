@@ -2515,6 +2515,9 @@ impl McCode {
         for entry in crate::db::cmie::tables::WORKSPACE.components.iter() {
             if entry.key().uri.as_str() == uri.as_str() {
                 collect(&entry.value().params, &mut param_types);
+                for func in entry.value().funcs.iter() {
+                    collect(&func.params, &mut param_types);
+                }
             }
         }
         // Interfaces
@@ -3315,13 +3318,22 @@ impl McCode {
                 });
             }
             for (pin_name, mut pin_span) in Self::extract_pin_name_spans(comp) {
-                // ★ Fix: AST span excludes closing delimiter (parser token).
-                // Extend span to include trailing ) or } so PinNameDef names
-                // are complete (e.g., "I2C(Master)" not "I2C(Master").
+                // ★ Fix: AST span may exclude leading/trailing delimiters
+                // (parser tokens).  Extend span to cover them so PinNameDef
+                // names are complete.
                 if let Ok(content) = std::fs::read_to_string(std::path::Path::new(uri.as_str())) {
+                    // Trailing ) or } — e.g. "I2C(Master)" not "I2C(Master"
                     if let Some(&ch) = content.as_bytes().get(pin_span.end) {
                         if ch == b')' || ch == b'}' {
                             pin_span.end += 1;
+                        }
+                    }
+                    // Leading [ or { — e.g. "[VDD, GND]" not "VDD, GND]"
+                    if pin_span.start > 0 {
+                        if let Some(&ch) = content.as_bytes().get(pin_span.start - 1) {
+                            if ch == b'[' || ch == b'{' {
+                                pin_span.start -= 1;
+                            }
                         }
                     }
                 }
@@ -3484,6 +3496,61 @@ impl McCode {
         }
     }
 
+    /// Search cross-file global tables for an enum class by name.
+    /// Returns `(def_uri, def_span)` from the defining file's table.
+    /// Priority: P3 (current file) → P4 (other workspace files) → P5 (system libs).
+    fn find_enum_class_cross_file(
+        uri: &McURI,
+        sem: &McSemSymbols,
+        base_name: &str,
+    ) -> Option<(McURI, crate::ast::ast_semantic::Span)> {
+        // P3: current file's global table
+        if let Ok(gt) = sem.global_table.lock() {
+            for ((def_uri, name), class_id) in gt.enum_class_name_to_id.iter() {
+                if name == base_name {
+                    if let Some((_u, span)) = gt.enum_class_id_to_span.get(class_id) {
+                        return Some((def_uri.clone(), span.clone()));
+                    }
+                }
+            }
+        }
+
+        // P4: other workspace files
+        for entry in workspace::WORKSPACE.mcodes.iter() {
+            if entry.key() == uri {
+                continue;
+            }
+            if let Ok(ws_sym) = entry.value().symbols.lock() {
+                if let Ok(ws_gt) = ws_sym.global_table.lock() {
+                    for ((def_uri, name), class_id) in ws_gt.enum_class_name_to_id.iter() {
+                        if name == base_name {
+                            if let Some((_u, span)) = ws_gt.enum_class_id_to_span.get(class_id) {
+                                return Some((def_uri.clone(), span.clone()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // P5: system libraries
+        for entry in crate::db::infra::libmgr::mcc_blibs.iter() {
+            if let Ok(ws_sym) = entry.value().symbols.lock() {
+                if let Ok(ws_gt) = ws_sym.global_table.lock() {
+                    for ((def_uri, name), class_id) in ws_gt.enum_class_name_to_id.iter() {
+                        if name == base_name {
+                            if let Some((_u, span)) = ws_gt.enum_class_id_to_span.get(class_id) {
+                                return Some((def_uri.clone(), span.clone()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
     fn lapper_enum_refs(
         uri: &McURI,
         ast: &AstNode,
@@ -3535,7 +3602,8 @@ impl McCode {
                     parsed;
 
                 let (class_id, value_idx) = {
-                    let class_id = match sem.global_table.lock() {
+                    // Look up enum class_id: local table first, then cross-file.
+                    let local_id = match sem.global_table.lock() {
                         Ok(gt) => {
                             gt.lookup_enum_class(&uri, &base_name)
                                 .or_else(|| {
@@ -3543,9 +3611,24 @@ impl McCode {
                                         |((_uri, name), cid)| (name == &base_name).then_some(*cid),
                                     )
                                 })
-                                .unwrap_or_default()
                         }
                         Err(_) => continue 'outer,
+                    };
+                    let class_id = if local_id.map_or(false, |id| u64::from(id) != 0) {
+                        local_id.unwrap()
+                    } else {
+                        // Cross-file search: register enum class in local table
+                        // to get a locally-unique DeclareId (mirrors how
+                        // lapper_global_classes handles cross-file ClassRef).
+                        match (
+                            Self::find_enum_class_cross_file(uri, sem, &base_name),
+                            sem.global_table.lock(),
+                        ) {
+                            (Some((def_uri, def_span)), Ok(mut gt)) => {
+                                gt.add_enum_class(&def_uri, &base_name, def_span)
+                            }
+                            _ => DeclareId::default(),
+                        }
                     };
 
                     let mut idx = None;
@@ -3709,19 +3792,34 @@ impl McCode {
                     // Get the enum class to build value_id
                     let family_name = comp_ids.root_name().unwrap_or_default();
                     let class_id = {
-                        let gt = match sem.global_table.lock() {
-                            Ok(gt) => gt,
-                            Err(_) => continue,
+                        let local_id = {
+                            let gt = match sem.global_table.lock() {
+                                Ok(gt) => gt,
+                                Err(_) => continue,
+                            };
+                            gt.lookup_enum_class(uri, &family_name)
+                                .or_else(|| {
+                                    gt.enum_class_name_to_id
+                                        .iter()
+                                        .find_map(|((_uri, name), cid)| {
+                                            (name == &family_name).then_some(*cid)
+                                        })
+                                })
                         };
-                        gt.lookup_enum_class(uri, &family_name)
-                            .or_else(|| {
-                                gt.enum_class_name_to_id
-                                    .iter()
-                                    .find_map(|((_uri, name), cid)| {
-                                        (name == &family_name).then_some(*cid)
-                                    })
-                            })
-                            .unwrap_or_default()
+                        if local_id.map_or(false, |id| u64::from(id) != 0) {
+                            local_id.unwrap()
+                        } else {
+                            // Cross-file search + local registration
+                            match (
+                                Self::find_enum_class_cross_file(uri, sem, &family_name),
+                                sem.global_table.lock(),
+                            ) {
+                                (Some((def_uri, def_span)), Ok(mut gt)) => {
+                                    gt.add_enum_class(&def_uri, &family_name, def_span)
+                                }
+                                _ => DeclareId::default(),
+                            }
+                        }
                     };
                     if u64::from(class_id) == 0 {
                         continue;
@@ -3885,6 +3983,10 @@ impl McCode {
                                 .unwrap_or_default()
                         });
                         for (pname, pspan) in Self::extract_func_param_spans(&params_node) {
+                            // Func params default to LabelDef (func body labels).
+                            // Previously UnknownDef was used but the upgrade pass
+                            // (upgrade_unknown_defs) could not resolve them because
+                            // name_index only contains class-level names, not func params.
                             let (d, _) = crate::refdef::register::register_def(
                                 &mut *sem,
                                 &uri,
@@ -3892,12 +3994,12 @@ impl McCode {
                                 func_name.as_deref(),
                                 &pname,
                                 pspan.clone(),
-                                SymbolKind::UnknownDef,
+                                SymbolKind::LabelDef,
                             );
                             symbol_lapper.insert(Interval {
                                 start: pspan.start,
                                 stop: pspan.end,
-                                val: SymbolType::new(SymbolKind::UnknownDef, u64::from(d)),
+                                val: SymbolType::new(SymbolKind::LabelDef, u64::from(d)),
                             });
                         }
                     }

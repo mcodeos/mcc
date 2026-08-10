@@ -346,7 +346,11 @@ impl McPins {
                                             // later children (MCAST_INSTANCE) in the
                                             // source.  Compute the true bounding span
                                             // by walking the sub-node list.
-                                            let span = Self::compute_bounding_span(&id_node);
+                                            // Also include the parent MCAST_PIN_NAME's
+                                            // position to capture leading delimiters
+                                            // like '[' in "[VDD, GND]".
+                                            let mut span = Self::compute_bounding_span(&id_node);
+                                            span.start = span.start.min(pn.get_pos() as usize);
                                             self.pin_name_spans.insert(id, span);
                                         }
                                     }
