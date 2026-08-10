@@ -911,6 +911,14 @@ pub(crate) fn extract_from_uri(entry: &Path, top: Option<&str>, target: &str) ->
                                 crate::McInstance::Unresolved { class_name } => {
                                     ("unresolved", class_name.clone())
                                 }
+                                crate::McInstance::Pins => ("pins", "pins".into()),
+                                crate::McInstance::Attr(a) => ("attr", a.to_string()),
+                                crate::McInstance::Func(f) => ("func", f.name.to_string()),
+                                crate::McInstance::EnumVal {
+                                    enum_name,
+                                    value_name,
+                                    ..
+                                } => ("enumval", format!("{}.{}", enum_name, value_name)),
                             };
                             json!({ "name": name.to_string(), "kind": kind, "class": class })
                         })
@@ -1478,6 +1486,14 @@ pub(crate) fn inst_kind_class(inst: &crate::McInstance) -> (&'static str, String
             }
         }
         crate::McInstance::Unresolved { class_name } => ("unresolved", class_name.clone()),
+        crate::McInstance::Pins => ("pins", "pins".into()),
+        crate::McInstance::Attr(a) => ("attr", a.to_string()),
+        crate::McInstance::Func(f) => ("func", f.name.to_string()),
+        crate::McInstance::EnumVal {
+            enum_name,
+            value_name,
+            ..
+        } => ("enumval", format!("{}.{}", enum_name, value_name)),
     }
 }
 

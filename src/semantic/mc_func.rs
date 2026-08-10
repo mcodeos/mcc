@@ -62,6 +62,18 @@ impl McFuncReturn {
 pub trait HasFindInst {
     fn find_inst(&self, id: &str) -> Option<McInstance>;
     fn find_inst_mut(&mut self, id: &str) -> Option<&mut crate::McInstance>;
+
+    /// Primary name lookup method: search by priority chain and return both the
+    /// semantic instance and its source span (for LSP goto-definition).
+    ///
+    /// Default implementation delegates to [`find_inst`] with a `None` span.
+    /// Implementors should override this to provide accurate source spans.
+    fn find_inst_with_span(
+        &self,
+        id: &str,
+    ) -> Option<(McInstance, Option<std::ops::Range<usize>>)> {
+        self.find_inst(id).map(|inst| (inst, None))
+    }
     /// Add a label, optionally recording its source span for LSP goto-def.
     fn add_label(&mut self, name: String) -> Option<McPhrase> {
         self.add_label_at(name, None)
@@ -150,6 +162,18 @@ impl<'a> HasFindInst for FuncBodyContext<'a> {
 
     fn find_inst_mut(&mut self, id: &str) -> Option<&mut crate::McInstance> {
         self.parent.find_inst_mut(id)
+    }
+
+    fn find_inst_with_span(
+        &self,
+        id: &str,
+    ) -> Option<(McInstance, Option<std::ops::Range<usize>>)> {
+        // P1: func params first (no span for params)
+        if self.param_names.iter().any(|n| n == id) {
+            return Some((McInstance::Label(id.to_string()), None));
+        }
+        // P2+: delegate to parent (module/component)
+        self.parent.find_inst_with_span(id)
     }
 
     fn add_label_at(

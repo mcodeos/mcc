@@ -66,7 +66,11 @@ fn validate_inst_member_ref(
             McInstance::Bus(_)
             | McInstance::Label(_)
             | McInstance::List(_)
-            | McInstance::Unresolved { .. } => {
+            | McInstance::Unresolved { .. }
+            | McInstance::Pins
+            | McInstance::Attr(_)
+            | McInstance::Func(_)
+            | McInstance::EnumVal { .. } => {
                 let phrases: Vec<McPhrase> = members
                     .iter()
                     .map(|m| {

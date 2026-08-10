@@ -274,6 +274,14 @@ fn inst_kind_class(inst: &McInstance) -> (String, String) {
         }
         McInstance::List(l) => ("list".into(), l.name().to_string()),
         McInstance::Unresolved { class_name } => ("unresolved".into(), class_name.clone()),
+        McInstance::Pins => ("pins".into(), "pins".into()),
+        McInstance::Attr(a) => ("attr".into(), a.to_string()),
+        McInstance::Func(f) => ("func".into(), f.name.to_string()),
+        McInstance::EnumVal {
+            enum_name,
+            value_name,
+            ..
+        } => ("enumval".into(), format!("{}.{}", enum_name, value_name)),
     }
 }
 

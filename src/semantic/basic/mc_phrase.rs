@@ -155,11 +155,25 @@ impl McPhrase {
             MCAST_OPD_USCORE => Some(McPhrase::Lead),
 
             MCAST_OPD_THIS => {
-                let mut this_ids = McIds::from("this");
+                // this.X ≡ X (pins transparency) — resolve member through find_inst
                 if let Some(nextnode) = node.get_next() {
+                    let member_ids = McIds::new(&nextnode);
+                    if let Some(member) = member_ids {
+                        let member_str = member.to_string();
+                        if let Some(inst) = context.find_inst(&member_str) {
+                            return Some(McPhrase::Endpoint(McEndpoint::Single(
+                                McInstanceRef::new(inst),
+                            )));
+                        }
+                    }
+                    // fallback: existing behavior
+                    let mut this_ids = McIds::from("this");
                     this_ids.append(&nextnode);
+                    context.add_label(this_ids.to_string())
+                } else {
+                    // bare "this" — keep as label (2-pin passthrough handled later)
+                    context.add_label("this".to_string())
                 }
-                context.add_label(this_ids.to_string())
             }
 
             MCAST_OPD => {
@@ -453,7 +467,20 @@ impl McPhrase {
                                 }
                             }
                         }
-                        McOpd::This(ids) => context.add_label(ids.to_string()),
+                        McOpd::This(ids) => {
+                            // this.X ≡ X (pins transparency)
+                            if let Some((base, member)) = ids.as_dot_access() {
+                                if base == "this" {
+                                    if let Some(inst) = context.find_inst(&member) {
+                                        return Some(McPhrase::Endpoint(McEndpoint::Single(
+                                            McInstanceRef::new(inst),
+                                        )));
+                                    }
+                                }
+                            }
+                            // fallback: bare "this" or unresolved member
+                            context.add_label(ids.to_string())
+                        }
                         McOpd::Pins(ids) => context.add_label(ids.to_string()),
                         McOpd::Uscore => Some(McPhrase::Lead),
                     }
@@ -875,10 +902,22 @@ impl McPhrase {
                             component: _,
                             bus: _,
                         } => todo!(),
+                        McInstance::Pins => "Pins".into(),
+                        McInstance::Attr(a) => format!("Attr({a})"),
+                        McInstance::Func(f) => format!("Func({})", f.name),
+                        McInstance::EnumVal { value_name, .. } => format!("EnumVal({value_name})"),
                     },
                     _ => format!("{:?}", std::mem::discriminant(&left_opd)),
                 };
                 // eprintln!("[OPD-DOT] left_opd_kind={} right={:?}", left_kind, right);
+
+                // Pins transparency: .pins is a pure organizational namespace.
+                // `inst.pins.X ≡ inst.X` — skip the `pins` segment transparently.
+                // Exception: numeric index access `pins[8]` is handled by the
+                // bracket/index handler, not this DOT handler.
+                if right.len() == 1 && right[0] == "pins" {
+                    return Some(left_opd);
+                }
 
                 // Special case: if left is Label and right has one element,
                 // combine them into a single label (e.g., usbsock.VBUS -> "usbsock.VBUS")
@@ -1025,6 +1064,10 @@ impl McPhrase {
                             component: _,
                             bus: _,
                         } => todo!(),
+                        McInstance::Pins => "Pins".into(),
+                        McInstance::Attr(a) => format!("Attr({a})"),
+                        McInstance::Func(f) => format!("Func({})", f.name),
+                        McInstance::EnumVal { value_name, .. } => format!("EnumVal({value_name})"),
                     },
                     _ => format!("{:?}", std::mem::discriminant(&left_opd)),
                 };

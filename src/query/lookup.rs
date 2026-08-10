@@ -6,6 +6,7 @@ use crate::ast::ast_semantic::Span;
 use crate::db::cmie::cmie::mcb_get_cmie_with_uri;
 use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
+use crate::semantic::mc_func::HasFindInst;
 use crate::semantic::module::McModule;
 use crate::{McCMIE, McIds, McSpaceName, McURI};
 use std::ops::Range;
@@ -376,6 +377,159 @@ pub(crate) fn add_result(
     results.push(result);
 }
 
+// ============================================================================
+// ContainerRef + CmieKind — cross-library container discovery (Phase 4.5/5)
+// ============================================================================
+
+/// Kind of CMIE container — used to narrow the search scope in [`find_container`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CmieKind {
+    Component,
+    Module,
+    Interface,
+    Enum,
+    /// Search all container types (no narrowing).
+    Any,
+}
+
+impl CmieKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Component => "component",
+            Self::Module => "module",
+            Self::Interface => "interface",
+            Self::Enum => "enum",
+            Self::Any => "any",
+        }
+    }
+}
+
+/// Reference to a resolved CMIE container — result of [`find_container`].
+///
+/// Holds an owned [`Arc`] to the container, avoiding lifetime coupling with
+/// the DashMap iterator.
+///
+/// After obtaining a `ContainerRef`, callers delegate to
+/// [`HasFindInst::find_inst_with_span`] for member name resolution
+/// inside the container's internal namespace.
+pub enum ContainerRef {
+    Component(Arc<crate::semantic::component::McComponent>),
+    Module(Arc<crate::semantic::module::McModule>),
+    Interface(Arc<crate::semantic::mc_ifs::McInterface>),
+    Enum(Arc<crate::semantic::mc_enum::McEnumDef>),
+}
+
+impl ContainerRef {
+    /// Delegate to the container's [`HasFindInst::find_inst_with_span`].
+    pub fn find_inst_with_span(
+        &self,
+        name: &str,
+    ) -> Option<(crate::McInstance, Option<Range<usize>>)> {
+        match self {
+            ContainerRef::Component(c) => c.find_inst_with_span(name),
+            ContainerRef::Module(m) => m.find_inst_with_span(name),
+            ContainerRef::Interface(i) => i.find_inst_with_span(name),
+            ContainerRef::Enum(e) => e.find_inst_with_span(name),
+        }
+    }
+}
+
+/// Cross-library container discovery — the bridging function between global
+/// and CMIE-internal namespaces.
+///
+/// Search order:
+///   1. `workspace.*` CMIE tables (project definitions)
+///   2. `global::mcc_*` CMIE tables (system library definitions)
+///
+/// `kind_hint` narrows which DashMaps to search. Pass [`CmieKind::Any`] to
+/// search all four container types.
+pub fn find_container(name: &McIds, uri: &McURI, kind_hint: CmieKind) -> Option<ContainerRef> {
+    let uri_str = uri.as_str();
+    let cn = name.to_string();
+
+    // ── Layer 1: workspace tables ──
+    if matches!(kind_hint, CmieKind::Component | CmieKind::Any) {
+        for entry in workspace::WORKSPACE.components.iter() {
+            let key = entry.key();
+            if key.uri.as_str() == uri_str && key.ident.to_string() == cn {
+                return Some(ContainerRef::Component(entry.value().clone()));
+            }
+        }
+    }
+    if matches!(kind_hint, CmieKind::Module | CmieKind::Any) {
+        for entry in workspace::WORKSPACE.modules.iter() {
+            let key = entry.key();
+            if key.uri.as_str() == uri_str && key.ident.to_string() == cn {
+                return Some(ContainerRef::Module(entry.value().clone()));
+            }
+        }
+    }
+    if matches!(kind_hint, CmieKind::Interface | CmieKind::Any) {
+        for entry in workspace::WORKSPACE.interfaces.iter() {
+            let key = entry.key();
+            if key.uri.as_str() == uri_str && key.ident.to_string() == cn {
+                return Some(ContainerRef::Interface(entry.value().clone()));
+            }
+        }
+    }
+    if matches!(kind_hint, CmieKind::Enum | CmieKind::Any) {
+        for entry in workspace::WORKSPACE.enums.iter() {
+            let key = entry.key();
+            if key.uri.as_str() == uri_str && key.ident.to_string() == cn {
+                return Some(ContainerRef::Enum(entry.value().clone()));
+            }
+        }
+    }
+
+    // ── Layer 2: global (mcode system library) tables ──
+    if matches!(kind_hint, CmieKind::Component | CmieKind::Any) {
+        for entry in global::mcc_components.iter() {
+            let key = entry.key();
+            if key.uri.as_str() == uri_str && key.ident.to_string() == cn {
+                return Some(ContainerRef::Component(entry.value().clone()));
+            }
+        }
+    }
+    if matches!(kind_hint, CmieKind::Module | CmieKind::Any) {
+        for entry in global::mcc_modules.iter() {
+            let key = entry.key();
+            if key.uri.as_str() == uri_str && key.ident.to_string() == cn {
+                return Some(ContainerRef::Module(entry.value().clone()));
+            }
+        }
+    }
+    if matches!(kind_hint, CmieKind::Interface | CmieKind::Any) {
+        for entry in global::mcc_interfaces.iter() {
+            let key = entry.key();
+            if key.uri.as_str() == uri_str && key.ident.to_string() == cn {
+                return Some(ContainerRef::Interface(entry.value().clone()));
+            }
+        }
+    }
+    if matches!(kind_hint, CmieKind::Enum | CmieKind::Any) {
+        for entry in global::mcc_enums.iter() {
+            let key = entry.key();
+            if key.uri.as_str() == uri_str && key.ident.to_string() == cn {
+                return Some(ContainerRef::Enum(entry.value().clone()));
+            }
+        }
+    }
+
+    None
+}
+
+/// Map [`SubElementKind`] to [`CmieKind`] for narrowing container search.
+fn sub_kind_to_cmie_kind(kind: SubElementKind) -> CmieKind {
+    match kind {
+        SubElementKind::Pin => CmieKind::Component,
+        SubElementKind::Port => CmieKind::Module,
+        SubElementKind::Label => CmieKind::Module,
+        SubElementKind::Param => CmieKind::Any,
+        SubElementKind::Func => CmieKind::Any,
+        SubElementKind::EnumValue => CmieKind::Enum,
+    }
+}
+
 // === enum SubElementKind + impl ===
 /// Kinds of sub-elements that can be looked up within a parent container.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -423,6 +577,12 @@ impl SubElementKind {
 /// Phase 2 lookup: find a sub-element (pin, port, param, enum value, func, label)
 /// within a parent container identified by its definition URI and optional name.
 ///
+/// Uses [`find_container`] for cross-library container discovery, then delegates
+/// to [`HasFindInst::find_inst_with_span`] for member name resolution.
+///
+/// When `container_name` is [`None`], searches all containers of the matching
+/// kind at `parent_uri`.
+///
 /// Returns the byte range of the sub-element within the container's source file.
 pub fn lookup_sub_def(
     parent_uri: &McURI,
@@ -430,125 +590,85 @@ pub fn lookup_sub_def(
     kind: SubElementKind,
     name: &str,
 ) -> Option<Range<usize>> {
+    let cmie_kind = sub_kind_to_cmie_kind(kind);
+
+    // Try a single container resolution when the name is known
+    if let Some(cn) = container_name {
+        let ids = McIds::from(cn);
+        let container = find_container(&ids, parent_uri, cmie_kind)?;
+        let (inst, span) = container.find_inst_with_span(name)?;
+        return kind_matches_instance(kind, &inst).then_some(span)?;
+    }
+
+    // ── container_name is None: search all matching containers at this URI ──
     let uri_str = parent_uri.as_str();
+    let try_container = |container: &ContainerRef| {
+        let (inst, span) = container.find_inst_with_span(name)?;
+        kind_matches_instance(kind, &inst).then_some(span)?
+    };
 
-    // ── Components ──
-    for entry in workspace::WORKSPACE.components.iter() {
-        let key = entry.key();
-        if key.uri.as_str() != uri_str {
-            continue;
-        }
-        if let Some(cn) = container_name {
-            if key.ident.to_string() != cn {
-                continue;
+    if matches!(cmie_kind, CmieKind::Component | CmieKind::Any) {
+        for entry in workspace::WORKSPACE.components.iter() {
+            if entry.key().uri.as_str() == uri_str {
+                if let Some(span) = try_container(&ContainerRef::Component(entry.value().clone())) {
+                    return Some(span);
+                }
             }
         }
-        if let Some(span) = lookup_in_component(entry.value(), kind, name) {
-            return Some(span);
+        for entry in global::mcc_components.iter() {
+            if entry.key().uri.as_str() == uri_str {
+                if let Some(span) = try_container(&ContainerRef::Component(entry.value().clone())) {
+                    return Some(span);
+                }
+            }
         }
     }
-    for entry in global::mcc_components.iter() {
-        let key = entry.key();
-        if key.uri.as_str() != uri_str {
-            continue;
-        }
-        if let Some(cn) = container_name {
-            if key.ident.to_string() != cn {
-                continue;
+    if matches!(cmie_kind, CmieKind::Module | CmieKind::Any) {
+        for entry in workspace::WORKSPACE.modules.iter() {
+            if entry.key().uri.as_str() == uri_str {
+                if let Some(span) = try_container(&ContainerRef::Module(entry.value().clone())) {
+                    return Some(span);
+                }
             }
         }
-        if let Some(span) = lookup_in_component(entry.value(), kind, name) {
-            return Some(span);
+        for entry in global::mcc_modules.iter() {
+            if entry.key().uri.as_str() == uri_str {
+                if let Some(span) = try_container(&ContainerRef::Module(entry.value().clone())) {
+                    return Some(span);
+                }
+            }
         }
     }
-
-    // ── Modules ──
-    for entry in workspace::WORKSPACE.modules.iter() {
-        let key = entry.key();
-        if key.uri.as_str() != uri_str {
-            continue;
-        }
-        if let Some(cn) = container_name {
-            if key.ident.to_string() != cn {
-                continue;
+    if matches!(cmie_kind, CmieKind::Interface | CmieKind::Any) {
+        for entry in workspace::WORKSPACE.interfaces.iter() {
+            if entry.key().uri.as_str() == uri_str {
+                if let Some(span) = try_container(&ContainerRef::Interface(entry.value().clone())) {
+                    return Some(span);
+                }
             }
         }
-        if let Some(span) = lookup_in_module(entry.value(), kind, name) {
-            return Some(span);
+        for entry in global::mcc_interfaces.iter() {
+            if entry.key().uri.as_str() == uri_str {
+                if let Some(span) = try_container(&ContainerRef::Interface(entry.value().clone())) {
+                    return Some(span);
+                }
+            }
         }
     }
-    for entry in global::mcc_modules.iter() {
-        let key = entry.key();
-        if key.uri.as_str() != uri_str {
-            continue;
-        }
-        if let Some(cn) = container_name {
-            if key.ident.to_string() != cn {
-                continue;
+    if matches!(cmie_kind, CmieKind::Enum | CmieKind::Any) {
+        for entry in workspace::WORKSPACE.enums.iter() {
+            if entry.key().uri.as_str() == uri_str {
+                if let Some(span) = try_container(&ContainerRef::Enum(entry.value().clone())) {
+                    return Some(span);
+                }
             }
         }
-        if let Some(span) = lookup_in_module(entry.value(), kind, name) {
-            return Some(span);
-        }
-    }
-
-    // ── Interfaces ──
-    for entry in workspace::WORKSPACE.interfaces.iter() {
-        let key = entry.key();
-        if key.uri.as_str() != uri_str {
-            continue;
-        }
-        if let Some(cn) = container_name {
-            if key.ident.to_string() != cn {
-                continue;
+        for entry in global::mcc_enums.iter() {
+            if entry.key().uri.as_str() == uri_str {
+                if let Some(span) = try_container(&ContainerRef::Enum(entry.value().clone())) {
+                    return Some(span);
+                }
             }
-        }
-        if let Some(span) = lookup_in_interface(entry.value(), kind, name) {
-            return Some(span);
-        }
-    }
-    for entry in global::mcc_interfaces.iter() {
-        let key = entry.key();
-        if key.uri.as_str() != uri_str {
-            continue;
-        }
-        if let Some(cn) = container_name {
-            if key.ident.to_string() != cn {
-                continue;
-            }
-        }
-        if let Some(span) = lookup_in_interface(entry.value(), kind, name) {
-            return Some(span);
-        }
-    }
-
-    // ── Enums ──
-    for entry in workspace::WORKSPACE.enums.iter() {
-        let key = entry.key();
-        if key.uri.as_str() != uri_str {
-            continue;
-        }
-        if let Some(cn) = container_name {
-            if key.ident.to_string() != cn {
-                continue;
-            }
-        }
-        if let Some(span) = lookup_in_enum(entry.value(), kind, name) {
-            return Some(span);
-        }
-    }
-    for entry in global::mcc_enums.iter() {
-        let key = entry.key();
-        if key.uri.as_str() != uri_str {
-            continue;
-        }
-        if let Some(cn) = container_name {
-            if key.ident.to_string() != cn {
-                continue;
-            }
-        }
-        if let Some(span) = lookup_in_enum(entry.value(), kind, name) {
-            return Some(span);
         }
     }
 
@@ -583,87 +703,15 @@ pub(crate) fn find_param_port_span(
     None
 }
 
-// === fn lookup_in_component( ===
-/// Look up a sub-element within a [`McComponent`].
-pub(crate) fn lookup_in_component(
-    comp: &crate::semantic::component::McComponent,
-    kind: SubElementKind,
-    name: &str,
-) -> Option<Range<usize>> {
+/// Validate that a resolved [`McInstance`] variant matches the expected [`SubElementKind`].
+fn kind_matches_instance(kind: SubElementKind, inst: &crate::McInstance) -> bool {
     match kind {
-        SubElementKind::Pin => comp.pins.pin_name_spans.get(name).cloned(),
-        SubElementKind::Port | SubElementKind::Label => {
-            // Component-level insts (labels, buses)
-            comp.insts.get_port_span(name)
-        }
-        SubElementKind::Param => find_param_def_span(&comp.params, name),
-        SubElementKind::Func => {
-            // Function span: we don't have a span on McFunction, so return None.
-            // Callers should use the lapper entry for function definitions.
-            None
-        }
-        SubElementKind::EnumValue => None,
-    }
-}
-
-// === fn lookup_in_module(module: &McModule, kind: SubElementKind, name: &str) -> Opti ===
-/// Look up a sub-element within a [`McModule`].
-pub(crate) fn lookup_in_module(
-    module: &McModule,
-    kind: SubElementKind,
-    name: &str,
-) -> Option<Range<usize>> {
-    match kind {
-        SubElementKind::Pin => None,
-        SubElementKind::Port | SubElementKind::Label => {
-            // Module ports: try insts port_spans first, then params port_spans
-            if let Some(span) = module.insts.get_port_span(name) {
-                return Some(span);
-            }
-            find_param_port_span(&module.params, name)
-        }
-        SubElementKind::Param => find_param_def_span(&module.params, name),
-        SubElementKind::Func => {
-            // Function definition span — return None (use lapper)
-            None
-        }
-        SubElementKind::EnumValue => None,
-    }
-}
-
-// === fn lookup_in_interface( ===
-/// Look up a sub-element within a [`McInterface`].
-pub(crate) fn lookup_in_interface(
-    iface: &crate::semantic::mc_ifs::McInterface,
-    kind: SubElementKind,
-    name: &str,
-) -> Option<Range<usize>> {
-    match kind {
-        SubElementKind::Pin => iface.pins.pin_name_spans.get(name).cloned(),
-        SubElementKind::Port | SubElementKind::Label => find_param_port_span(&iface.params, name),
-        SubElementKind::Param => find_param_def_span(&iface.params, name),
-        SubElementKind::Func => None,
-        SubElementKind::EnumValue => None,
-    }
-}
-
-// === fn lookup_in_enum( ===
-/// Look up a sub-element within a [`McEnumDef`].
-pub(crate) fn lookup_in_enum(
-    enum_def: &crate::semantic::mc_enum::McEnumDef,
-    kind: SubElementKind,
-    name: &str,
-) -> Option<Range<usize>> {
-    match kind {
-        SubElementKind::EnumValue => {
-            for value in &enum_def.values {
-                if value.name.to_string() == name {
-                    return Some(value.span[0] as usize..value.span[1] as usize);
-                }
-            }
-            None
-        }
-        _ => None,
+        SubElementKind::Pin => matches!(inst, crate::McInstance::Label(_)),
+        SubElementKind::Port => matches!(inst, crate::McInstance::Label(_)),
+        SubElementKind::Label => matches!(inst, crate::McInstance::Label(_)),
+        SubElementKind::Param => matches!(inst, crate::McInstance::Label(_)),
+        SubElementKind::Func => matches!(inst, crate::McInstance::Func(_)),
+        SubElementKind::EnumValue => matches!(inst, crate::McInstance::EnumVal { .. }),
     }
 }
 

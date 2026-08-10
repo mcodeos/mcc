@@ -8,6 +8,7 @@ pub mod mc_pins; // mc_pins/mod.rs includes mc_pins/dynamic.rs
 
 use self::mc_attr::McAttributes;
 use self::mc_layout::McLayout;
+use self::mc_pins::McPinPort;
 use self::mc_pins::McPins;
 use super::{
     basic::mc_conds::{McCondition, McConds},
@@ -20,6 +21,8 @@ use super::{
 use crate::{
     ast::ast_node::AstNode,
     ast::c_macros::*,
+    db::cmie::tables as workspace,
+    db::infra::global,
     semantic::basic::mc_bus::{McBus, McList},
     semantic::basic::mc_ids::McIds,
     semantic::basic::mc_param::{McParamBindings, McParamValue},
@@ -29,6 +32,7 @@ use crate::{
     semantic::mc_inst::McInstances,
     McURI,
 };
+use std::ops::Range;
 use std::sync::Arc;
 
 /// A conditional pin block: a condition and its parsed pins
@@ -373,11 +377,59 @@ impl McComponent {
 }
 
 impl HasFindInst for McComponent {
-    fn find_inst(&self, _id: &str) -> Option<McInstance> {
-        None
+    fn find_inst(&self, id: &str) -> Option<McInstance> {
+        self.find_inst_with_span(id).map(|(inst, _)| inst)
     }
 
     fn find_inst_mut(&mut self, _id: &str) -> Option<&mut crate::McInstance> {
+        None
+    }
+
+    fn find_inst_with_span(
+        &self,
+        id: &str,
+    ) -> Option<(McInstance, Option<std::ops::Range<usize>>)> {
+        // P1 (highest): params — shadow everything else
+        for (name, span) in self.params.iter_defs_with_span() {
+            if name == id {
+                return Some((McInstance::Label(id.to_string()), Some(span)));
+            }
+        }
+        // P2: scoped enum values (enum with same name as component family)
+        if let Some((enum_name, span)) = find_scoped_enum_value(&self.name, id) {
+            return Some((
+                McInstance::EnumVal {
+                    enum_name,
+                    value_name: id.to_string(),
+                    span: Some(span.clone()),
+                },
+                Some(span),
+            ));
+        }
+        // P3: attrs
+        let attr_ids = McIds::from(id);
+        if let Some(attr) = self.attrs.find(&attr_ids) {
+            if let Some(val) = attr.values.first() {
+                return Some((McInstance::Attr(val.clone()), attr.key_span.clone()));
+            }
+        }
+        // P4: pin names — whole names (interface/bus/list names like "I2C0", "GPIO")
+        //     pins transparency: this.X ≡ X, so find_inst("VDD") directly searches pins
+        if let Some(port) = self.pins.names_to_id.get(id) {
+            let span = self.pins.pin_name_spans.get(id).cloned();
+            return Some((port_to_instance(port), span));
+        }
+        // P5: pin names — expanded (e.g. "I2C0.SCL", "GPIO3" from pin_id_to_names)
+        for names in self.pins.pin_id_to_names.values() {
+            if names.contains(&id.to_string()) {
+                let span = self.pins.pin_name_spans.get(id).cloned();
+                return Some((McInstance::Label(id.to_string()), span));
+            }
+        }
+        // P6 (lowest): funcs
+        if let Some(func) = self.funcs.find(id) {
+            return Some((McInstance::Func(Arc::new(func.clone())), None));
+        }
         None
     }
 
@@ -584,6 +636,63 @@ impl Mc2Component {
         }
         None
     }
+}
+
+// ── Phase 1 helpers ──
+
+/// Convert a [`McPinPort`] into a [`McInstance`] for the find_inst priority chain.
+fn port_to_instance(port: &McPinPort) -> McInstance {
+    match port {
+        McPinPort::NC => McInstance::Label("NC".to_string()),
+        McPinPort::Single(id) => McInstance::Label(id.clone()),
+        McPinPort::Multi(ids) => McInstance::List(McList::new_with_members("multi", ids.clone())),
+        McPinPort::MultiGroup(groups) => {
+            let all: Vec<String> = groups.iter().flatten().cloned().collect();
+            McInstance::List(McList::new_with_members("multi", all))
+        }
+        McPinPort::List(name, members) => {
+            McInstance::List(McList::new_with_members(name, members.clone()))
+        }
+        McPinPort::Bus(bus) => McInstance::Bus(bus.clone()),
+        McPinPort::Interface(iface) => McInstance::Interface(iface.clone()),
+    }
+}
+
+/// Search workspace and global enum tables for a scoped enum value.
+///
+/// A "scoped enum" is an enum whose name matches a component's **family name**
+/// (e.g. `enum CAP` makes `X7R` visible inside component `CAP_0603`).
+/// Returns `(enum_name, span)` if found.
+fn find_scoped_enum_value(family_name: &McIds, id: &str) -> Option<(String, Range<usize>)> {
+    let family = family_name.to_string();
+
+    // Search workspace enums first
+    for entry in workspace::WORKSPACE.enums.iter() {
+        let enum_def = entry.value();
+        if enum_def.name.to_string() == family {
+            for value in &enum_def.values {
+                if value.name.to_string() == id {
+                    return Some((family, value.span[0] as usize..value.span[1] as usize));
+                }
+            }
+            return None; // enum found but value not in it
+        }
+    }
+
+    // Fall back to global enums
+    for entry in global::mcc_enums.iter() {
+        let enum_def = entry.value();
+        if enum_def.name.to_string() == family {
+            for value in &enum_def.values {
+                if value.name.to_string() == id {
+                    return Some((family, value.span[0] as usize..value.span[1] as usize));
+                }
+            }
+            return None; // enum found but value not in it
+        }
+    }
+
+    None
 }
 
 impl std::fmt::Display for Mc2Component {

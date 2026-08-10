@@ -25,6 +25,70 @@ pub static LITERAL_POINT_DETAILS: std::sync::LazyLock<Mutex<Vec<(String, Option<
     std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
 
 // ============================================================================
+// Pin path normalization — unified canonical form
+// ============================================================================
+
+/// Normalize a pin path to canonical form.
+///
+/// Rules:
+/// - Remove `pins` segment (pins transparency): `uC.pins.VDD` → `uC.VDD`
+/// - Fold consecutive identical segments: `uC.VDD.VDD` → `uC.VDD`
+/// - Preserve `pins` when followed by numeric index (e.g. `uC.pins.8` keeps
+///   `pins` — the numeric index indicates ID-based access, not name-based)
+///
+/// Returns the normalized path, or the original if no changes were needed.
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!(normalize_pin_path("uC.pins.VDD"), "uC.VDD");
+/// assert_eq!(normalize_pin_path("uC.VDD"), "uC.VDD");
+/// assert_eq!(normalize_pin_path("uC.VDD.VDD"), "uC.VDD");
+/// assert_eq!(normalize_pin_path("uC.pins.8"), "uC.pins.8");
+/// assert_eq!(normalize_pin_path("R1.1"), "R1.1");
+/// ```
+pub fn normalize_pin_path(path: &str) -> String {
+    let segments: Vec<&str> = path.split('.').collect();
+    if segments.len() <= 1 {
+        return path.to_string();
+    }
+
+    let mut result: Vec<&str> = Vec::with_capacity(segments.len());
+    let mut changed = false;
+
+    for (i, &seg) in segments.iter().enumerate() {
+        // Pins transparency: skip "pins" segment UNLESS followed by a numeric
+        // index segment (e.g. "uC.pins.8" → "uC.pins.8", but "uC.pins.VDD" → "uC.VDD")
+        if seg == "pins" {
+            if let Some(next) = segments.get(i + 1) {
+                if next.chars().all(|c| c.is_ascii_digit()) {
+                    // Numeric index follows — keep both "pins" and the index
+                    result.push(seg);
+                    continue;
+                }
+            }
+            // Non-numeric or end-of-path — skip "pins" transparently
+            changed = true;
+            continue;
+        }
+
+        // Fold consecutive identical segments: "VDD.VDD" → "VDD"
+        if result.last() == Some(&seg) {
+            changed = true;
+            continue;
+        }
+
+        result.push(seg);
+    }
+
+    if changed {
+        result.join(".")
+    } else {
+        path.to_string()
+    }
+}
+
+// ============================================================================
 // NetPoint - Network Connection Point
 // ============================================================================
 
@@ -62,16 +126,18 @@ impl NetPoint {
     /// 隔离点不会进入并查集合并（NetTable::add_connection 过滤），
     /// 因此不会从 R01 扩散成 R06 巨网。
     pub fn new(path: &str, iotype: IOType) -> Self {
-        let actual_path = if path.contains(['{', '[', ',']) {
+        let normalized = normalize_pin_path(path);
+        let p = &normalized;
+        let actual_path = if p.contains(['{', '[', ',']) {
             let n = LITERAL_POINTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let quarantine = format!("@_phantom_{n}");
             LITERAL_POINT_DETAILS
                 .lock()
                 .unwrap()
-                .push((path.to_string(), None));
+                .push((p.to_string(), None));
             quarantine
         } else {
-            path.to_string()
+            p.to_string()
         };
         Self {
             path: actual_path,
@@ -84,16 +150,18 @@ impl NetPoint {
 
     /// Create a net point belonging to a component instance (pin/submodule port)   
     pub fn with_owner(path: &str, owner: &str, iotype: IOType) -> Self {
-        let actual_path = if path.contains(['{', '[', ',']) {
+        let normalized = normalize_pin_path(path);
+        let p = &normalized;
+        let actual_path = if p.contains(['{', '[', ',']) {
             let n = LITERAL_POINTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let quarantine = format!("@_phantom_{n}");
             LITERAL_POINT_DETAILS
                 .lock()
                 .unwrap()
-                .push((path.to_string(), None));
+                .push((p.to_string(), None));
             quarantine
         } else {
-            path.to_string()
+            p.to_string()
         };
         Self {
             path: actual_path,

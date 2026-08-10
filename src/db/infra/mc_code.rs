@@ -1866,12 +1866,6 @@ impl McCode {
                         }
                     }
                     crate::semantic::mc_inst::McInstance::Module(_m) => {
-                        // Could be a sub-instance or bus port — check if base is a Bus
-                        if let Some((_, inst)) = insts.insts().get(base) {
-                            if matches!(inst, crate::semantic::mc_inst::McInstance::Bus(_)) {
-                                return SymbolKind::BusRef;
-                            }
-                        }
                         return SymbolKind::InstRef;
                     }
                     crate::semantic::mc_inst::McInstance::Bus(_) => {
