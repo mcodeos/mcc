@@ -442,11 +442,54 @@ impl McModule {
 
 impl HasFindInst for McModule {
     fn find_inst(&self, id: &str) -> Option<McInstance> {
-        self.insts.get(id).cloned()
+        self.find_inst_with_span(id).map(|(inst, _)| inst)
     }
 
     fn find_inst_mut(&mut self, id: &str) -> Option<&mut crate::McInstance> {
         self.insts.get_mut(id)
+    }
+
+    fn find_inst_with_span(
+        &self,
+        id: &str,
+    ) -> Option<(McInstance, Option<std::ops::Range<usize>>)> {
+        // P1: param ports (IO params) — highest priority
+        for (name, span) in self.params.iter_ports_with_span() {
+            if name == id {
+                return Some((McInstance::Label(id.to_string()), Some(span)));
+            }
+        }
+        // P2: param defs (non-port params)
+        for (name, span) in self.params.iter_defs_with_span() {
+            if name == id {
+                return Some((McInstance::Label(id.to_string()), Some(span)));
+            }
+        }
+        // P3: ports (instances with IOType ≠ None, e.g. In, Out, Power)
+        if let Some((iotype, inst)) = self.insts.get_with_iotype(id) {
+            if !matches!(iotype, IOType::None) {
+                let span = self.insts.get_port_span(id);
+                return Some((inst.clone(), span));
+            }
+        }
+        // P4: explicit labels (McInstance::Label entries in insts)
+        for (name, _kind, span) in self.insts.iter_labels_with_span() {
+            if name == id {
+                return Some((McInstance::Label(id.to_string()), Some(span)));
+            }
+        }
+        // P5: remaining non-port, non-label insts (Component/Module/Interface/Bus/List)
+        if let Some((iotype, inst)) = self.insts.get_with_iotype(id) {
+            if matches!(iotype, IOType::None) && !matches!(inst, McInstance::Label(_)) {
+                let span = self.insts.get_port_span(id);
+                return Some((inst.clone(), span));
+            }
+        }
+        // P6: funcs
+        if let Some(func) = self.funcs.find(id) {
+            return Some((McInstance::Func(Arc::new(func.clone())), None));
+        }
+        None
     }
 
     fn add_label_at(
@@ -995,6 +1038,17 @@ impl std::fmt::Display for McModule {
                 McInstance::List(_) | McInstance::Unresolved { .. } => {
                     (inst.to_string(), "Unresolved".to_string(), 5)
                 }
+                McInstance::Pins => ("pins".to_string(), "Pins".to_string(), 6),
+                McInstance::Attr(_) => (inst.to_string(), "Attr".to_string(), 7),
+                McInstance::Func(_) => {
+                    let s = inst.to_string();
+                    (
+                        s.trim_start_matches("Func:").to_string(),
+                        "Func".to_string(),
+                        8,
+                    )
+                }
+                McInstance::EnumVal { .. } => (inst.to_string(), "EnumVal".to_string(), 9),
             };
             rows.push(InstRow {
                 io: io_str,

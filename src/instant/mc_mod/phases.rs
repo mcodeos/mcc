@@ -697,6 +697,67 @@ impl McModuleInst {
     /// prefixing, etc.); they bypass node_to_netpoint and so don't get parsed;
     /// whereas .Cap() etc. use the pid form. Different strings → union-find
     /// never merges. Here we collapse them in one pass before union.
+    // ========================================================================
+    // Post-expansion validation: verify NetPoint references
+    // ========================================================================
+
+    /// Validate all generated NetPoints after expansion.
+    ///
+    /// Checks:
+    /// 1. Component pin references — owner is a component, verify pin exists
+    /// 2. Sub-module port references — owner is a sub-module, verify port exists
+    ///
+    /// Logs diagnostic warnings for unresolved references.
+    /// Called after `normalize_component_pin_paths()` and before `build_net_table()`.
+    pub(super) fn validate_expanded_net_points(&self) {
+        for conn in &self.connections {
+            for pt in &conn.points {
+                if let Some(ref owner) = pt.owner {
+                    // Check component instance pins
+                    if let Some(comp) = self.find_component(owner) {
+                        // Extract the pin name from the path (after "owner.")
+                        let pin_name = pt
+                            .path
+                            .strip_prefix(&format!("{owner}."))
+                            .unwrap_or(&pt.path);
+                        // Check if pin exists in component's pin map
+                        if !pin_name.is_empty()
+                            && !comp.pins.contains_key(pin_name)
+                            && !comp.def.pins.names_to_id.contains_key(pin_name)
+                        {
+                            tracing::warn!(
+                                "[P2-VALIDATE] module='{}' conn={} — pin '{}' not found in component '{}' (path={})",
+                                self.name,
+                                conn.id,
+                                pin_name,
+                                owner,
+                                pt.path
+                            );
+                        }
+                    } else if let Some(_sub) = self.find_submodule(owner) {
+                        // Sub-module port reference — verify port exists in sub-module
+                        let port_name = pt
+                            .path
+                            .strip_prefix(&format!("{owner}."))
+                            .unwrap_or(&pt.path);
+                        if !port_name.is_empty() && !_sub.is_port(port_name) {
+                            tracing::warn!(
+                                "[P2-VALIDATE] module='{}' conn={} — port '{}' not found in sub-module '{}' (path={})",
+                                self.name,
+                                conn.id,
+                                port_name,
+                                owner,
+                                pt.path
+                            );
+                        }
+                    }
+                    // If owner is neither a component nor sub-module, it might be
+                    // a net label or external reference — skip validation.
+                }
+            }
+        }
+    }
+
     pub(super) fn normalize_component_pin_paths(&mut self) {
         // Collect rewrites first (immutable self), then apply them all (mutable self) to avoid borrow conflicts.
         let mut rewrites: Vec<(usize, usize, String)> = Vec::new();

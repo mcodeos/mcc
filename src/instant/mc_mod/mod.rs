@@ -23,6 +23,7 @@
 mod bus;
 mod condition;
 mod dump;
+mod expand;
 mod fcallinst;
 mod funccall;
 pub(crate) mod group;
@@ -260,6 +261,7 @@ impl McModuleInst {
         // 3.6 Post-processing (moved from instantiate_lines_resilient to cover auto-invoked closures)
         self.infer_bare_port_members_from_buses();
         self.normalize_component_pin_paths();
+        self.validate_expanded_net_points();
         self.dedup_connections();
         self.check_unbound_param_ports();
 

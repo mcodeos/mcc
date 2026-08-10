@@ -1540,6 +1540,12 @@ impl McModuleInst {
                     McInstance::BusRef { component, bus } => {
                         format!("BusRef(c={component},b={bus})")
                     }
+                    McInstance::Pins => "Pins".into(),
+                    McInstance::Attr(a) => format!("Attr({a})"),
+                    McInstance::Func(f) => format!("Func({})", f.name),
+                    McInstance::EnumVal { value_name, .. } => {
+                        format!("EnumVal({value_name})")
+                    }
                 },
                 McPhrase::Endpoint(McEndpoint::Node { input, output }) => {
                     format!("Node(in={},out={})", input.len(), output.len())

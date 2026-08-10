@@ -8,10 +8,10 @@ use crate::semantic::basic::mc_conds::McConds;
 use crate::{
     ast::{ast_node::AstNode, c_macros::*},
     semantic::{
-        basic::mc_param::McParamDeclares, basic::mc_role::McRole, component::mc_attr::McAttributes,
-        component::mc_pins::McPins,
+        basic::mc_param::McParamDeclares, basic::mc_phrase::McPhrase, basic::mc_role::McRole,
+        component::mc_attr::McAttributes, component::mc_pins::McPins, mc_func::HasFindInst,
     },
-    McIds, McURI,
+    McIds, McInstance, McURI,
 };
 
 #[derive(Debug, Clone)]
@@ -145,6 +145,106 @@ impl McInterface {
                 }
             }
         }
+    }
+}
+
+// ============================================================================
+// HasFindInst for McInterface — namespace lookup (Phase 4.5)
+// ============================================================================
+
+impl HasFindInst for McInterface {
+    fn find_inst(&self, id: &str) -> Option<McInstance> {
+        self.find_inst_with_span(id).map(|(inst, _)| inst)
+    }
+
+    fn find_inst_mut(&mut self, _id: &str) -> Option<&mut crate::McInstance> {
+        None // Interface body has no mutable net statements at Pass1
+    }
+
+    fn find_inst_with_span(
+        &self,
+        id: &str,
+    ) -> Option<(McInstance, Option<std::ops::Range<usize>>)> {
+        // P1: params
+        for (name, span) in self.params.iter_defs_with_span() {
+            if name == id {
+                return Some((McInstance::Label(id.to_string()), Some(span)));
+            }
+        }
+        // P2: pin names (via pin_name_spans)
+        if let Some(span) = self.pins.pin_name_spans.get(id) {
+            return Some((McInstance::Label(id.to_string()), Some(span.clone())));
+        }
+        None
+    }
+
+    fn add_label_at(
+        &mut self,
+        _name: String,
+        _span: Option<std::ops::Range<usize>>,
+    ) -> Option<McPhrase> {
+        None // No-ops for interface body (no net statements)
+    }
+
+    fn add_component(
+        &mut self,
+        _name: String,
+        _comp: crate::semantic::component::Mc2Component,
+    ) -> Option<McPhrase> {
+        None
+    }
+
+    fn add_module(
+        &mut self,
+        _name: String,
+        _module: crate::semantic::module::Mc2Module,
+    ) -> Option<McPhrase> {
+        None
+    }
+
+    fn add_bus(&mut self, _name: String, _members: Vec<String>) -> Option<McPhrase> {
+        None
+    }
+
+    fn add_list(&mut self, _name: String, _members: Vec<String>) -> Option<McPhrase> {
+        None
+    }
+
+    fn add_bus_member(&mut self, _base: &str, _member: String) -> Option<McPhrase> {
+        None
+    }
+
+    fn add_interface_member(
+        &mut self,
+        _component: &str,
+        _interface: &str,
+        _members: Vec<String>,
+    ) -> Option<McPhrase> {
+        None
+    }
+
+    fn check_bus_member(&mut self, _base: &str, _member: &str) -> Option<(String, String)> {
+        None
+    }
+
+    fn is_component_bus(&self, _base: &str, _member: &str) -> bool {
+        false
+    }
+
+    fn upgrade_label_to_bus(&mut self, _name: &str) -> bool {
+        false
+    }
+
+    fn uri(&self) -> &crate::McURI {
+        &self.uri
+    }
+
+    fn parse_declare(&mut self, _node: &AstNode) -> Vec<McInstance> {
+        Vec::new()
+    }
+
+    fn gen_anon_name(&mut self, _classname: &str) -> String {
+        String::new()
     }
 }
 

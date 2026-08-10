@@ -1145,6 +1145,14 @@ fn inst_kind_class(inst: &mcc::McInstance) -> (&'static str, String) {
             }
         }
         mcc::McInstance::Unresolved { class_name } => ("unresolved", class_name.clone()),
+        mcc::McInstance::Pins => ("pins", "pins".into()),
+        mcc::McInstance::Attr(a) => ("attr", a.to_string()),
+        mcc::McInstance::Func(f) => ("func", f.name.to_string()),
+        mcc::McInstance::EnumVal {
+            enum_name,
+            value_name,
+            ..
+        } => ("enumval", format!("{}.{}", enum_name, value_name)),
     }
 }
 

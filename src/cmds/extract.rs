@@ -117,6 +117,14 @@ fn extract_instances(uri: &McURI, top_name: &str, ident: &McIds, args: &ExtractA
                 }
                 McInstance::List(l) => ("list", l.name().to_string()),
                 McInstance::Unresolved { class_name } => ("unresolved", class_name.clone()),
+                McInstance::Pins => ("pins", "pins".into()),
+                McInstance::Attr(a) => ("attr", a.to_string()),
+                McInstance::Func(f) => ("func", f.name.to_string()),
+                McInstance::EnumVal {
+                    enum_name,
+                    value_name,
+                    ..
+                } => ("enumval", format!("{}.{}", enum_name, value_name)),
             };
             json!({ "name": name.to_string(), "kind": kind, "class": class })
         })

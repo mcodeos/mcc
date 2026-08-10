@@ -20,7 +20,9 @@ use crate::semantic::component::Mc2Component;
 use crate::semantic::context::resolve_cmie;
 use crate::semantic::mc_ifs::Mc2Interface;
 use crate::semantic::module::Mc2Module;
+use crate::McAttrVal;
 use crate::McCMIE;
+use crate::McFunction;
 use crate::McURI;
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
@@ -143,6 +145,23 @@ pub enum McInstance {
     Unresolved {
         class_name: String,
     },
+    /// "pins" keyword — transparent under pins transparency rules,
+    /// but preserved for explicit index-based access (e.g. `uC.pins[8]`).
+    Pins,
+    /// Component attribute value (e.g. `partno`, `package`).
+    Attr(McAttrVal),
+    /// Function reference — returned by `find_inst` for func names.
+    Func(Arc<McFunction>),
+    /// Scoped enum value — returned when a component's family enum value
+    /// is looked up by name (e.g. `X7R` from `enum CAP`).
+    EnumVal {
+        /// The enum definition name (e.g. "CAP").
+        enum_name: String,
+        /// The enum value name (e.g. "X7R").
+        value_name: String,
+        /// Source span of the value definition, for LSP goto-def.
+        span: Option<Range<usize>>,
+    },
 }
 
 impl McInstance {
@@ -158,6 +177,10 @@ impl McInstance {
             Component(c) => c.name.to_string(),
             Module(m) => m.name.to_string(),
             Unresolved { class_name } => class_name.clone(),
+            Pins => "pins".to_string(),
+            Attr(a) => a.to_string(),
+            Func(f) => f.name.to_string(),
+            EnumVal { value_name, .. } => value_name.clone(),
         }
     }
 
@@ -200,6 +223,10 @@ impl McInstance {
             McInstance::Component(c) => McBus::new(&c.name.to_string()),
             McInstance::Module(m) => McBus::new(&m.name.to_string()),
             McInstance::Unresolved { class_name } => McBus::new(class_name),
+            McInstance::Pins => McBus::new("pins"),
+            McInstance::Attr(a) => McBus::new(&a.to_string()),
+            McInstance::Func(f) => McBus::new(&f.name.to_string()),
+            McInstance::EnumVal { value_name, .. } => McBus::new(value_name),
         }
     }
 
@@ -226,7 +253,8 @@ impl McInstance {
             | McInstance::Bus(_)
             | McInstance::BusRef { .. }
             | McInstance::List(_)
-            | McInstance::Unresolved { .. } => true,
+            | McInstance::Unresolved { .. }
+            | McInstance::Pins => true,
             _ => false,
         }
     }
@@ -242,6 +270,10 @@ impl McInstance {
             McInstance::Component(_) => "Component",
             McInstance::Module(_) => "Module",
             McInstance::Unresolved { .. } => "Unresolved",
+            McInstance::Pins => "Pins",
+            McInstance::Attr(_) => "Attr",
+            McInstance::Func(_) => "Func",
+            McInstance::EnumVal { .. } => "EnumVal",
         }
     }
 }
@@ -1885,7 +1917,17 @@ impl std::fmt::Display for McInstance {
                 write!(f, "{}[{}]", list.name, members)
             }
             McInstance::Interface(i) => write!(f, "{i:?}"),
-            McInstance::Unresolved { class_name } => write!(f, "?{class_name}"),
+            McInstance::Unresolved { class_name } => write!(f, "Unresolved({class_name})"),
+            McInstance::Pins => write!(f, "pins"),
+            McInstance::Attr(a) => write!(f, "{a}"),
+            McInstance::Func(func) => write!(f, "Func:{}", func.name),
+            McInstance::EnumVal {
+                enum_name,
+                value_name,
+                ..
+            } => {
+                write!(f, "{enum_name}.{value_name}")
+            }
         }
     }
 }
