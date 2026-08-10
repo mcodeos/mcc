@@ -141,18 +141,12 @@ fn register_lib_class_in_global_table(
 ///
 /// Called when a class name is used in a declare statement (e.g., `MCU.US513_20_F uC`).
 /// Registers the class reference so LSP can jump from the reference to the class definition.
-pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, mut span: Span) {
-    // ★ Fix: The AST span for class references excludes the closing delimiter
-    // (MCPT_RPAREN or MCPT_RCURLY) because the parser consumes it as a separate
-    // token. Extend the span to include trailing ) or } so ClassRef names are
-    // complete (e.g., "Crystal2.DST310S(NC)" not "Crystal2.DST310S(NC").
-    if let Ok(content) = std::fs::read_to_string(std::path::Path::new(uri.as_str())) {
-        if let Some(&ch) = content.as_bytes().get(span.end) {
-            if ch == b')' || ch == b'}' {
-                span.end += 1;
-            }
-        }
-    }
+pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, raw_span: Span) {
+    // ★ Fix: mc_value_link (C-side) extends MCAST_IDS node `len` to include
+    // linked MCAST_PARAMS, so raw_span may cover "RES(10kΩ)" instead of "RES".
+    // class_name from McIds::to_string() is already correctly parsed without
+    // params, so reconstruct the span from class_name's length.
+    let span = raw_span.start..(raw_span.start + class_name.len());
 
     // Step 1: Find (class_id, target_uri, target_span) — try lsp.class_table first
     // Priority: same URI as reference > other URIs (for duplicate class definitions)
