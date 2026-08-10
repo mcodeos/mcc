@@ -28,7 +28,7 @@ use std::sync::Arc;
 pub struct McFuncCall {
     /// Stable ID for auto_inst_map (replaces pointer-based key).
     /// Assigned during instantiation; 0 = unassigned. Clone-safe since Copy.
-    pub id: u64,
+    pub id: u32,
     /// Caller operand
     pub caller: Option<Box<McPhrase>>,
     /// Function name

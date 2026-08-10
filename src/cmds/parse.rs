@@ -890,7 +890,7 @@ fn extract_connections(inst: &mcc::MccProjectTree) -> Vec<ConnectionEntry> {
 fn walk_connections(inst: &mcc::MccProjectTree, out: &mut Vec<ConnectionEntry>) {
     for conn in &inst.connections {
         out.push(ConnectionEntry {
-            id: conn.id as u64,
+            id: conn.id,
             net_name: conn.net_name.clone(),
             points: conn.points.iter().map(|p| p.path.clone()).collect(),
         });
