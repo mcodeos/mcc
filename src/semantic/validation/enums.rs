@@ -9,9 +9,7 @@
 //!   U3 — invalid enum member names (dotted, keyword-like, digit-start)
 //!   N3 — self-referential attribute value (key = same-name value)
 
-use super::{
-    CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
-};
+use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 use std::collections::HashSet;
 
 pub struct EnumsCheck;
@@ -27,7 +25,7 @@ impl ValidationCheck for EnumsCheck {
         CheckSeverity::Warning
     }
 
-    fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
+    fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         check_duplicate_enum_values(acc); // U2
         check_invalid_enum_member_names(acc); // U3
         check_self_ref_attr(acc); // N3

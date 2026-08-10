@@ -364,15 +364,19 @@ impl McParamDeclares {
                 body_node,
             );
             for name in &unused {
-                // Try exact match first, then substring match (def_spans may
-                // store the full form "rs485{A,B}" while display_name returns "rs485").
+                // Try exact match first, then match by base name (strip bus brackets).
+                // def_spans may store the full form "rs485{A,B}" while display_name returns "rs485".
                 let (pos, len) = self
                     .def_spans
                     .get(name)
                     .or_else(|| {
                         self.def_spans
                             .iter()
-                            .find(|(k, _)| k.contains(name.as_str()) || name.contains(k.as_str()))
+                            .find(|(k, _)| {
+                                // Compare base names: strip "{...}" suffix from the key
+                                let base = k.split('{').next().unwrap_or(k);
+                                base == name.as_str()
+                            })
                             .map(|(_, v)| v)
                     })
                     .and_then(|spans| spans.first())

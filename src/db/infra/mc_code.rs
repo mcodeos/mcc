@@ -1851,12 +1851,13 @@ impl McCode {
             if let Some((_iotype, inst)) = insts.insts().get(base) {
                 match inst {
                     crate::semantic::mc_inst::McInstance::Component(comp) => {
-                        // ★ Priority: pin name > pin id > sub-component
-                        if comp.base.pins.names_to_id.contains_key(member) {
-                            return SymbolKind::PinNameRef;
-                        }
+                        // ★ Priority: pin id > pin name > sub-component (§4.3)
+                        // Pure numeric members are pin ids, not names
                         if member.chars().all(|c| c.is_ascii_digit()) {
                             return SymbolKind::PinIdRef;
+                        }
+                        if comp.base.pins.names_to_id.contains_key(member) {
+                            return SymbolKind::PinNameRef;
                         }
                         // Sub-component or sub-instance declared inside the component
                         if comp.base.insts.contains(member) {

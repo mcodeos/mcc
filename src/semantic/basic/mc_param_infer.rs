@@ -297,9 +297,9 @@ pub fn aggregate_usages(param_name: &str, usages: &[UsageSite]) -> InferenceResu
                 }
             }
             UsageKind::FcallArg | UsageKind::CtorArg | UsageKind::ReturnValue => {
-                // Can't determine type from argument position alone — need callee info
-                // For now, keep as weak numeric signal
-                numeric_count += 1;
+                // Can't determine type from argument/return position alone —
+                // need callee signature info. Don't count as numeric to avoid
+                // incorrectly inferring params that only appear in function calls.
             }
             UsageKind::MemberAccess => {
                 label_count += 1;

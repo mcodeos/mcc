@@ -171,7 +171,9 @@ impl McModule {
                     MCAST_NET => {
                         if let Some(subnode) = clause.get_sub_node() {
                             // ── P2-DEBUG: print AST structure ──
-                            if self.name.to_string().contains("513") || self.name.to_string() == "main" {
+                            if self.name.to_string().contains("513")
+                                || self.name.to_string() == "main"
+                            {
                                 let st = subnode.get_type();
                                 let children: Vec<(u16, String)> = subnode
                                     .get_sub_node()

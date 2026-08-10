@@ -9,9 +9,7 @@
 //!   C4-ext — interface roles referenced in component must exist in the interface definition
 //!   F3 — deprecated CMIE usage (component extends deprecated interface/component)
 
-use super::{
-    CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
-};
+use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 use std::collections::HashSet;
 
 pub struct InterfaceCheck;
@@ -27,7 +25,7 @@ impl ValidationCheck for InterfaceCheck {
         CheckSeverity::Warning
     }
 
-    fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
+    fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         check_iface_pin_completeness(acc); // I4-ext
         check_iface_role_exists(acc); // C4-ext
         check_deprecated_cmie_usage(acc); // F3

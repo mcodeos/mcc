@@ -10,9 +10,7 @@
 //!   N10 — single-character or overly short instance names
 //!   N11 — pin names that are purely numeric (confusing with pin IDs)
 
-use super::{
-    CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
-};
+use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 use std::collections::HashSet;
 
 pub struct NamingCheck;
@@ -28,7 +26,7 @@ impl ValidationCheck for NamingCheck {
         CheckSeverity::Warning
     }
 
-    fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
+    fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         // Collect library CMIE names for shadow detection context
         let lib_names: HashSet<String> = {
             let mut s = HashSet::new();

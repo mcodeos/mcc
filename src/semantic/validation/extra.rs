@@ -1,7 +1,5 @@
 /// Extra checks: H3, I1, I3, J3, N5, N6, U1, U4, U5
-use super::{
-    CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
-};
+use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 use std::collections::HashSet;
 
 pub struct ExtraCheck;
@@ -17,7 +15,7 @@ impl ValidationCheck for ExtraCheck {
         CheckSeverity::Warning
     }
 
-    fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
+    fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         // Collect library names for J3 shadow detection
         let lib_names: HashSet<String> = {
             let mut s = HashSet::new();

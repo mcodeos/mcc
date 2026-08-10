@@ -4,11 +4,11 @@
 
 use super::mc_phrase::McPhrase;
 use crate::ast::ast_node::AstNode;
-use crate::db::diagnostic::diagnostic::dlog_trace;
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::mc_func::HasFindInst;
 use crate::semantic::mc_inst::McInstance;
+use tracing::warn;
 
 /// Group
 #[derive(Debug, Clone)]
@@ -56,7 +56,7 @@ impl McGroup {
         if self.left_match && !self.opds.is_empty() {
             self.opds[0].get_left()
         } else {
-            dlog_trace(1190, "Left shape mismatch in Group");
+            warn!(target: "mcc::group", "Left shape mismatch in Group");
             vec![McBus::new("<error:shape_mismatch>")]
         }
     }
@@ -66,7 +66,7 @@ impl McGroup {
         if self.right_match && !self.opds.is_empty() {
             self.opds[0].get_right()
         } else {
-            dlog_trace(1195, "Right shape mismatch in Group");
+            warn!(target: "mcc::group", "Right shape mismatch in Group");
             vec![McBus::new("<error:shape_mismatch>")]
         }
     }

@@ -59,16 +59,8 @@ pub struct CheckResult {
 }
 
 // ============================================================================
-// Post-Parse Context (available after all files loaded)
+// Post-Parse Check Infrastructure
 // ============================================================================
-
-pub struct PostParseContext;
-
-impl PostParseContext {
-    pub fn new() -> Self {
-        Self
-    }
-}
 
 /// Accumulator for collecting check results during a post-parse pass.
 pub struct CheckAccumulator {
@@ -92,7 +84,11 @@ impl CheckAccumulator {
 
 /// Returns true if the given URI belongs to a test file (unit test or test case).
 pub(crate) fn is_test_file(uri: &str) -> bool {
-    uri.contains("/unitest/") || uri.contains("/cases")
+    let path = std::path::Path::new(uri);
+    path.components().any(|c| {
+        let s = c.as_os_str().to_string_lossy();
+        s == "unitest" || s == "cases"
+    })
 }
 
 // ============================================================================
@@ -103,7 +99,7 @@ pub trait ValidationCheck: Send + Sync {
     fn name(&self) -> &'static str;
     fn phase(&self) -> CheckPhase;
     fn default_severity(&self) -> CheckSeverity;
-    fn run_post_parse(&self, _ctx: &PostParseContext, _acc: &mut CheckAccumulator) {}
+    fn run_post_parse(&self, _acc: &mut CheckAccumulator) {}
 }
 
 pub struct CheckRegistry {
@@ -142,11 +138,11 @@ impl CheckRegistry {
         self.checks.push(check);
     }
 
-    pub fn run_post_parse(&self, ctx: &PostParseContext) -> Vec<CheckResult> {
+    pub fn run_post_parse(&self) -> Vec<CheckResult> {
         let mut acc = CheckAccumulator::new();
         for check in &self.checks {
             if check.phase() == CheckPhase::PostParse {
-                check.run_post_parse(ctx, &mut acc);
+                check.run_post_parse(&mut acc);
             }
         }
         acc.results

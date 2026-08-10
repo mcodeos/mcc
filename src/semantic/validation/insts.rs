@@ -12,9 +12,7 @@
 //!   R7 — `role` keyword as param in component/module (non-interface)
 //!   R9 — non-constant / expression-like default value
 
-use super::{
-    CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
-};
+use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 use std::collections::HashSet;
 
 pub struct InstsCheck;
@@ -30,7 +28,7 @@ impl ValidationCheck for InstsCheck {
         CheckSeverity::Warning
     }
 
-    fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
+    fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         check_instance_param_mismatch(acc); // S1
         check_role_empty_body(acc); // R1
         check_role_name_conflict(acc); // R2

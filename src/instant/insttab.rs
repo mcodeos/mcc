@@ -160,7 +160,16 @@ fn is_supply_name(s: &str) -> bool {
         return false;
     }
     const EXACT: &[&str] = &[
-        "VCC", "VDD", "VBUS", "VPP", "AVDD", "DVDD", "POWER_SYS", "VBAT", "VIN", "VOUT",
+        "VCC",
+        "VDD",
+        "VBUS",
+        "VPP",
+        "AVDD",
+        "DVDD",
+        "POWER_SYS",
+        "VBAT",
+        "VIN",
+        "VOUT",
     ];
     if EXACT.contains(&u.as_str()) {
         return true;
@@ -730,12 +739,8 @@ impl InstTable {
                 );
 
                 // Set member_info for Ground/Power members so merge_ground_nets can find them
-                let (role, _inferred) = infer_member_role(
-                    member,
-                    &port.iotype,
-                    is_ground_name,
-                    is_supply_name,
-                );
+                let (role, _inferred) =
+                    infer_member_role(member, &port.iotype, is_ground_name, is_supply_name);
                 if !matches!(role, MemberRole::Signal) {
                     self.set_member_info(member_id, MemberInfo::new(role, None));
                 }

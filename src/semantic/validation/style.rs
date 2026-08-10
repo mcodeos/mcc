@@ -4,9 +4,7 @@
 
 //! Style/naming checks: J1-J5, F1-F3.
 
-use super::{
-    CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
-};
+use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 use std::collections::HashSet;
 
 pub struct StyleCheck;
@@ -22,7 +20,7 @@ impl ValidationCheck for StyleCheck {
         CheckSeverity::Info
     }
 
-    fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
+    fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         let mut lib_names: HashSet<String> = HashSet::new();
         {
             let comps = &crate::db::cmie::tables::WORKSPACE.components;

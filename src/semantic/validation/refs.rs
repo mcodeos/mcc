@@ -4,9 +4,7 @@
 
 //! Reference integrity checks: I1-I4.
 
-use super::{
-    CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, PostParseContext, ValidationCheck,
-};
+use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
 use crate::semantic::basic::mc_param_type::McParamTypeKind;
 
 pub struct RefIntegrityCheck;
@@ -22,7 +20,7 @@ impl ValidationCheck for RefIntegrityCheck {
         CheckSeverity::Warning
     }
 
-    fn run_post_parse(&self, _ctx: &PostParseContext, acc: &mut CheckAccumulator) {
+    fn run_post_parse(&self, acc: &mut CheckAccumulator) {
         check_bare_params(acc); // I2
         check_spec_refs(acc); // I1
         check_comp_func_unused_params(acc); // B1 for component funcs
@@ -119,24 +117,23 @@ fn check_spec_refs(acc: &mut CheckAccumulator) {
             let key = attr.id.to_string();
             if key.starts_with("spec.") {
                 for val in &attr.values {
-                    let vs = format!("{}", val);
-                    // Check if the value is a bare identifier matching a param name
-                    let word = vs.trim();
-                    if !word.is_empty()
-                        && !word.starts_with('"')
-                        && !word.starts_with('\'')
-                        && !word.chars().any(|c| c.is_ascii_digit() || c == '(')
-                        && !param_names.contains(word)
+                    // Use the parsed McAttrVal type instead of string heuristic.
+                    // AttrVariable is a bare identifier — check if it matches a known param.
+                    if let crate::semantic::component::mc_attr::McAttrVal::AttrVariable(opd, _) =
+                        val
                     {
-                        acc.push(CheckResult {
-                            check_name: "ref-integrity", severity: CheckSeverity::Error,
-                            uri: Some(uri.clone()), span: attr.key_span.clone(),
-                            message: format!(
-                                "Spec key '{}' in component '{}' references '{}' which is not a declared parameter.",
-                                key, comp_name, word
-                            ),
-                            code: 2301,
-                        });
+                        let word = opd.to_string();
+                        if !param_names.contains(&word) {
+                            acc.push(CheckResult {
+                                check_name: "ref-integrity", severity: CheckSeverity::Error,
+                                uri: Some(uri.clone()), span: attr.key_span.clone(),
+                                message: format!(
+                                    "Spec key '{}' in component '{}' references '{}' which is not a declared parameter.",
+                                    key, comp_name, word
+                                ),
+                                code: 2301,
+                            });
+                        }
                     }
                 }
             }

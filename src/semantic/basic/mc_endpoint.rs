@@ -259,6 +259,11 @@ impl McEndpoint {
         }
     }
 
+    /// Connect two endpoints in parallel.
+    ///
+    /// TODO: Currently delegates to `series()` — parallel connection semantics
+    /// (shared nodes, equivalent impedance) are not yet implemented. This means
+    /// the endpoint layer does not distinguish series vs parallel connections.
     pub fn parallel(&self, other: &McEndpoint) -> McEndpoint {
         self.series(other)
     }
