@@ -1693,7 +1693,8 @@ impl McCode {
 
         // ★ §7.6: Mark dependent files dirty — their Use table P4 entries
         // may need refreshing because this file's CMIE defs changed.
-        if let Some(deps) = workspace::WORKSPACE.reverse_deps.get(&self.uri) {
+        let canonical_self = crate::build::pass1::canonicalize_project_uri(&self.uri);
+        if let Some(deps) = workspace::WORKSPACE.reverse_deps.get(&canonical_self) {
             for dep_uri in deps.value().iter() {
                 if let Some(mut dep_file) = workspace::WORKSPACE.mcodes.get_mut(dep_uri) {
                     dep_file.use_table_dirty = true;

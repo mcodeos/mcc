@@ -24,8 +24,8 @@ use crate::db::infra::init::*;
 /// before power.mc modules are registered, causing "definition not found" errors.
 pub fn mcb_parse_all_modules() {
     // 1. Collect all URIs and their dependencies
-    let mut uri_deps: std::collections::HashMap<String, Vec<String>> =
-        std::collections::HashMap::new();
+    let mut uri_deps: std::collections::BTreeMap<String, Vec<String>> =
+        std::collections::BTreeMap::new();
     for entry in workspace::WORKSPACE.mcodes.iter() {
         let uri = entry.key().clone();
         // ★ Fix: Canonicalize dependency URIs so they match the map keys.
@@ -44,28 +44,47 @@ pub fn mcb_parse_all_modules() {
     // 2. Topological sort: dependencies first
     let mut sorted_uris = Vec::new();
     let mut visited = std::collections::HashSet::new();
+    let mut in_stack = std::collections::HashSet::new();
     let all_uris: Vec<String> = uri_deps.keys().cloned().collect();
 
     fn topo_visit(
         uri: &str,
-        uri_deps: &std::collections::HashMap<String, Vec<String>>,
+        uri_deps: &std::collections::BTreeMap<String, Vec<String>>,
         visited: &mut std::collections::HashSet<String>,
+        in_stack: &mut std::collections::HashSet<String>,
         sorted: &mut Vec<String>,
     ) {
         if visited.contains(uri) {
             return;
         }
+        if in_stack.contains(uri) {
+            // Circular dependency detected — log warning but continue
+            tracing::warn!(
+                target: "mcc::pass1",
+                uri = %uri,
+                "circular dependency detected in use graph; dependency order may be incorrect"
+            );
+            return;
+        }
+        in_stack.insert(uri.to_string());
         visited.insert(uri.to_string());
         if let Some(deps) = uri_deps.get(uri) {
             for dep in deps {
-                topo_visit(dep, uri_deps, visited, sorted);
+                topo_visit(dep, uri_deps, visited, in_stack, sorted);
             }
         }
+        in_stack.remove(uri);
         sorted.push(uri.to_string());
     }
 
-    for uri in &all_uris {
-        topo_visit(uri, &uri_deps, &mut visited, &mut sorted_uris);
+    for uri in all_uris.iter() {
+        topo_visit(
+            uri,
+            &uri_deps,
+            &mut visited,
+            &mut in_stack,
+            &mut sorted_uris,
+        );
     }
 
     // 3. Parse modules in dependency order
@@ -80,18 +99,19 @@ pub fn mcb_parse_all_modules() {
             // ★ The file was removed from `mcodes` during parsing, so diagnostic
             //   emission (e.g., E2008) cannot look up its `LineIndex` there.
             //   Push the line index onto the thread-local stack as a fallback.
-            if let Some(ref line_index) = mcfile.line_index {
-                crate::db::infra::context::push_line_index(uri.clone(), line_index.clone());
-            }
+            let _guard = mcfile.line_index.as_ref().map(|idx| {
+                crate::db::infra::context::LineIndexGuard::new(
+                    crate::McURI::from(uri.as_str()),
+                    idx.clone(),
+                )
+            });
             mcfile.parse_pass1_modules();
             // ★ Robustness: ensure lapper is built even when parse_pass1_modules
             //   returns early (e.g., modules_parsed flag already set). Without this,
             //   files loaded as dependencies via mcb_add_recursive may have an empty
             //   symbol_lapper after remove+insert cycles.
             mcfile.create_lapper();
-            if mcfile.line_index.is_some() {
-                crate::db::infra::context::pop_line_index();
-            }
+            // _guard drops here, automatically pops line_index
             workspace::WORKSPACE.mcodes.insert(uri, mcfile);
         } else {
             // File was in uri_deps but not in workspace — log as dlog
