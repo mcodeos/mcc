@@ -137,7 +137,6 @@ impl McModuleInst {
             {
                 let merged: McBus = iref.to_bus();
                 let elements = &merged;
-
                 if !elements.member.is_empty() {
                     // ── Iter-1.1 ─────────────────────────────────────────
                     // expand bracket-containing member literals (e.g., "pins[8:11]") to separate member list
@@ -493,17 +492,18 @@ impl McModuleInst {
                         (m, Some(p))
                     } else {
                         // Scalar-named interface (e.g. V3V3::DC(3.3V)): extract from base pins
-                        let mut pin_names: Vec<String> = iface
+                        let pin_names: Vec<String> = iface
                             .base
                             .pins
                             .pins
                             .values()
                             .filter_map(|p| p.names.first().cloned())
                             .collect();
-                        // ── P2-4 fix: sort members for deterministic ordering ──
-                        // HashMap iteration is non-deterministic; sorting ensures
-                        // consistent zip matching when connecting two interfaces.
-                        pin_names.sort();
+                        // ── P2-10 fix: do NOT sort pin_names alphabetically ──
+                        // BTreeMap already iterates in pin-ID order (1, 2, …),
+                        // which is the canonical interface definition order.
+                        // Alphabetical sort would reorder e.g. UART [TX, RX] → [RX, TX],
+                        // causing cross-wiring with the component side.
                         if pin_names.len() >= 2 {
                             let port_name = iface.name.to_string();
                             (pin_names, Some(port_name))
@@ -543,6 +543,18 @@ impl McModuleInst {
                 let left = ep.get_left();
                 let mut points = Vec::new();
                 for bus in left {
+                    // ── P2-10 fix: try expand_port_lanes for Label-type ports ──
+                    // Bare interface ports like `io UART0` are stored as Label
+                    // in the symbol table, not as Interface/Bus. Without this,
+                    // get_left_points returns a single scalar point instead of
+                    // expanding to member lanes, causing cross-wiring with
+                    // component arrays like res[1:2].
+                    if !bus.name.is_empty() && bus.member.is_empty() {
+                        if let Some(lanes) = self.expand_port_lanes(&bus.name) {
+                            points.extend(lanes);
+                            continue;
+                        }
+                    }
                     points.push(self.node_to_netpoint(&bus));
                 }
                 Ok(points)
@@ -954,25 +966,16 @@ impl McModuleInst {
                         (m, Some(p))
                     } else {
                         // Scalar-named interface (e.g. V3V3::DC(3.3V)): extract from base pins
-                        let mut pin_names: Vec<String> = iface
+                        let pin_names: Vec<String> = iface
                             .base
                             .pins
                             .pins
                             .values()
                             .filter_map(|p| p.names.first().cloned())
                             .collect();
-                        // ── P2-4 fix: sort members for deterministic ordering ──
-                        // HashMap iteration is non-deterministic; sorting ensures
-                        // consistent zip matching when connecting two interfaces.
-                        eprintln!(
-                            "[P2-4-IFACE-MEMBERS] name={} before_sort={pin_names:?}",
-                            iface.name
-                        );
-                        pin_names.sort();
-                        eprintln!(
-                            "[P2-4-IFACE-MEMBERS] name={} after_sort={pin_names:?}",
-                            iface.name
-                        );
+                        // ── P2-10 fix: do NOT sort pin_names alphabetically ──
+                        // BTreeMap already iterates in pin-ID order (1, 2, …),
+                        // which is the canonical interface definition order.
                         if pin_names.len() >= 2 {
                             let port_name = iface.name.to_string();
                             (pin_names, Some(port_name))
@@ -1009,7 +1012,6 @@ impl McModuleInst {
                 for bus in right {
                     points.push(self.node_to_netpoint(&bus));
                 }
-                eprintln!("[P2-4-CATCHALL] get_right_points Endpoint catch-all: ep={ep:?} points={points:?}");
                 Ok(points)
             }
             // ── Iter-12.1 (D-class fix): Member variant interface parsing ──────────
@@ -1319,7 +1321,17 @@ impl McModuleInst {
                 let resolved = resolved_pid
                     .map(|id| format!("{first_part}.{id}"))
                     .unwrap_or_else(|| canonicalize_path(&element.name));
-                return NetPoint::with_owner(&resolved, first_part, IOType::None);
+                // ── P2-4: preserve bus member name when resolving e.g. ldo.VIN.GND → ldo.2 ──
+                let member_name = if rest.contains('.') {
+                    rest.rsplit('.').next().map(|s| s.to_string())
+                } else {
+                    None
+                };
+                let mut np = NetPoint::with_owner(&resolved, first_part, IOType::None);
+                if let Some(mn) = member_name {
+                    np = np.with_member_name(&mn);
+                }
+                return np;
             }
             // 2.2 submodule port access
             if self.find_submodule(first_part).is_some() {
@@ -1492,17 +1504,15 @@ impl McModuleInst {
             for (open, close) in [('{', '}'), ('[', ']')] {
                 if let (Some(o), Some(c)) = (s.find(open), s.rfind(close)) {
                     if c > o + 1 {
-                        let mut members: Vec<String> = s[o + 1..c]
+                        let members: Vec<String> = s[o + 1..c]
                             .split(',')
                             .map(|x| x.trim().to_string())
                             .filter(|x| !x.is_empty())
                             .collect();
-                        // ── P2-4 fix: sort members for deterministic ordering ──
-                        // Without sorting, the original source order (e.g. [VDD_3V3, GND])
-                        // is preserved, which may differ from the sorted order on the peer
-                        // side (e.g. V3V3::DC(3.3V) → [GND, VCC] sorted). This causes
-                        // positional zip mismatches: VCC→GND, GND→VDD_3V3.
-                        members.sort();
+                        // ── P2-10 fix: preserve source order ──
+                        // Sorting alphabetically would reorder members,
+                        // causing cross-wiring with component arrays.
+                        // The P2-4 fix already sorts both sides at connection time in group.rs.
                         return members;
                     }
                 }
@@ -1534,7 +1544,6 @@ impl McModuleInst {
         fn iotype_allowed(_io: &IOType) -> bool {
             true
         }
-        eprintln!("[P2-EXPAND-LANES] module={} name={}", self.name, name);
 
         // ── Case 1: `<sub>.<port>` form ──────────────────────────────
         if let Some((owner, port_name_raw)) = name.split_once('.') {
@@ -1774,19 +1783,20 @@ impl McModuleInst {
 
         let (inst, member) = path.split_once('.')?;
         let comp = self.find_component(inst)?;
+        let debug_513 = self.name.contains("513") && inst == "uC" && member == "GPIO.2";
         if self.name.contains("513") {
             eprintln!(
                 "[P2-NORM] module={} path={path} inst={inst} member={member}",
                 self.name
             );
-            if inst == "uC" {
-                eprintln!(
-                    "[P2-NORM-UC] names_to_id keys: {:?}",
-                    comp.def.pins.names_to_id.keys().collect::<Vec<_>>()
-                );
-            }
         }
         // Already a pure pid (key in pins table) → leave alone
+        if self.name.contains("513") && inst == "uC" {
+            eprintln!(
+                "[P2-NORM-DBG] contains_key({member:?}) = {}",
+                comp.def.pins.pins.contains_key(member)
+            );
+        }
         if comp.def.pins.pins.contains_key(member) {
             return None;
         }
@@ -1822,21 +1832,34 @@ impl McModuleInst {
             // 2. bare-alias fallback: curly-bus members (VOUT{Vout,GND}) only register
             //    the dotted form "VOUT.Vout"; bare "Vout"/"GND" is not in names_to_id
             //    → reverse-look up the last segment in pin_id_to_names.
+            if self.name.contains("513") && inst == "uC" {
+                eprintln!("[P2-NORM-DBG2] entering fallback for member={member:?} last={last:?}");
+            }
             let mut hits: Vec<String> = Vec::new();
             for (pid, names) in comp.def.pins.pin_id_to_names.iter() {
                 let matched = names.iter().any(|n| {
                     let seg = n.rsplit('.').next().unwrap_or(n);
-                    n == member
+                    let m = n == member
                         || n == last
                         || seg == member
-                        || seg == last
-                        // P2-10: Ida index suffix, e.g. "GPIO.2" matches "GPIO"
+                        // P2-10: seg == last is too broad when last is purely numeric
+                        // (e.g. "2" matches GPIO3.2, GPIO5.2, GPIO7.2, etc.).
+                        // Only enable seg==last for non-numeric last segments
+                        // (e.g. "Vout", "GND", "FB").
+                        || (!last.chars().all(|c| c.is_ascii_digit()) && seg == last)
                         || (member.starts_with(n)
-                            && member.as_bytes().get(n.len()) == Some(&b'.'))
+                            && member.as_bytes().get(n.len()) == Some(&b'.'));
+                    if m && debug_513 {
+                        eprintln!("[P2-NORM-MATCH] pid={pid} n={n:?} seg={seg:?}");
+                    }
+                    m
                 });
                 if matched && !hits.contains(pid) {
                     hits.push(pid.clone());
                 }
+            }
+            if self.name.contains("513") && inst == "uC" {
+                eprintln!("[P2-NORM-DBG3] fallback hits for member={member:?}: {hits:?}");
             }
             match hits.len() {
                 0 => {

@@ -73,29 +73,6 @@ impl McModuleInst {
         let mut phrase = phrase.clone();
         Self::assign_phrase_ids(&mut phrase, &mut self.next_phrase_id);
         let members = self.phrase_to_members(&phrase);
-        if self.name.contains("513") || self.name.contains("moddcdc") || self.name == "speaker" {
-            mcc_dbg!(
-                "inst::mod",
-                "[PROC-LINE-MEMBERS] module={} n_members={}",
-                self.name,
-                members.len()
-            );
-            for (i, m) in members.iter().enumerate() {
-                let desc: String = match m {
-                    McPhrase::Series(_, _) => "Series".into(),
-                    McPhrase::Parallel(_) => "Parallel".into(),
-                    McPhrase::FuncCall(fc) => format!("FuncCall({})", fc.func_name),
-                    McPhrase::Multiple(_) => "Multiple".into(),
-                    McPhrase::Endpoint(_) => "Endpoint".into(),
-                    McPhrase::Transposed(_) => "Transposed".into(),
-                    McPhrase::Group(_) => "Group".into(),
-                    McPhrase::Closure(_) => "Closure".into(),
-                    McPhrase::Lead => "Lead".into(),
-                    McPhrase::Member(_, _) => "Member".into(),
-                };
-                mcc_dbg!("inst::mod", "[PROC-LINE-MEMBERS]   member[{i}]={desc}");
-            }
-        }
         if members.is_empty() {
             return Ok(());
         }
@@ -195,7 +172,20 @@ impl McModuleInst {
         // Only when this line actually contains `.Cap(_)` (params empty / all `_`) shunt, go through special
         // wiring below; lines without shunt fall through to original adjacency loop → zero impact on existing paths.
         let shunt: Vec<bool> = members.iter().map(Self::is_chain_cap_shunt).collect();
+        eprintln!(
+            "[SHUNT-DETECT] module={} members={:?} shunt={:?}",
+            self.name,
+            members
+                .iter()
+                .map(|m| format!("{:?}", std::mem::discriminant(m)))
+                .collect::<Vec<_>>(),
+            shunt
+        );
         if shunt.iter().any(|&s| s) {
+            eprintln!(
+                "[SHUNT-DETECT] module={} calling wire_chain_with_shunts",
+                self.name
+            );
             self.wire_chain_with_shunts(&members, &shunt, dir);
             return Ok(());
         }
@@ -323,11 +313,20 @@ impl McModuleInst {
                     _ => format!("{:?}", std::mem::discriminant(m)),
                 }
             };
-            // eprintln!("[SHUNT-PT] L={} L_pts={:?} | R={} R_pts={:?}",
-            //     kind(pair[0]),
-            //     raw_lp.iter().map(|p| p.path.clone()).collect::<Vec<_>>(),
-            //     kind(pair[1]),
-            //     raw_rp.iter().map(|p| p.path.clone()).collect::<Vec<_>>());
+            eprintln!(
+                "[SHUNT-PT] module={} L={} L_pts={:?} | R={} R_pts={:?}",
+                self.name,
+                _kind(pair[0]),
+                _raw_lp
+                    .iter()
+                    .map(|p| (p.path.clone(), p.member_name.clone()))
+                    .collect::<Vec<_>>(),
+                _kind(pair[1]),
+                _raw_rp
+                    .iter()
+                    .map(|p| (p.path.clone(), p.member_name.clone()))
+                    .collect::<Vec<_>>()
+            );
             let lp = self.shunt_chain_points(pair[0], true);
             let rp = self.shunt_chain_points(pair[1], false);
             if let Err(e) = self.create_connection(lp, rp, dir) {
@@ -385,12 +384,32 @@ impl McModuleInst {
                 );
                 continue;
             }
+            eprintln!(
+                "[SHUNT-RAIL] module={} rail_src={:?}",
+                self.name,
+                rail_src
+                    .iter()
+                    .map(|p| (p.path.clone(), p.member_name.clone()))
+                    .collect::<Vec<_>>()
+            );
             // rail = first non-ground point (all ground then fallback to first point)
+            // ── P2-4: prefer member_name for GND detection (e.g. ldo.VOUT.GND → member_name="GND") ──
             let rail = rail_src
                 .iter()
-                .find(|p| !lr_is_ground_name(lr_last_seg(&p.path)))
+                .find(|p| {
+                    if let Some(ref mn) = p.member_name {
+                        !lr_is_ground_name(mn)
+                    } else {
+                        !lr_is_ground_name(lr_last_seg(&p.path))
+                    }
+                })
                 .cloned()
                 .unwrap_or_else(|| rail_src[0].clone());
+            eprintln!(
+                "[SHUNT-RAIL] module={} selected_rail={:?}",
+                self.name,
+                (rail.path.clone(), rail.member_name.clone())
+            );
             // cap pin1
             let pin1 = self.get_left_points(m).unwrap_or_default();
             if pin1.is_empty() {

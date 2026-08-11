@@ -932,7 +932,13 @@ impl McModuleInst {
                 let mut bus_members: HashMap<String, Vec<String>> = HashMap::new();
 
                 // First pass: collect all dot-separated names (e.g. PBus.CLK → PBus)
-                for name in comp.def.pins.names_to_id.keys() {
+                // ── P2-10 fix: order members by interface declaration order ──
+                // BTreeMap key iteration order is alphabetical, causing UART0
+                // members to be collected as [RX, TX] instead of [TX, RX].
+                // For non-monotonic pin mappings (e.g. SPI on [10, 8, 11, 9]),
+                // pin-ID order is also wrong. Use the declaration order from
+                // the Multi port's pin IDs, then look up member names.
+                for (name, _port) in comp.def.pins.names_to_id.iter() {
                     if let Some(dot_pos) = name.find('.') {
                         let base = &name[..dot_pos];
                         let member = &name[dot_pos + 1..];
@@ -940,6 +946,54 @@ impl McModuleInst {
                             .entry(base.to_string())
                             .or_default()
                             .push(member.to_string());
+                    }
+                }
+                // For Multi ports with declaration order, reorder members
+                for (name, port) in comp.def.pins.names_to_id.iter() {
+                    if let crate::semantic::component::mc_pins::McPinPort::Multi(pids) = port {
+                        if pids.len() >= 2 && bus_members.contains_key(name) {
+                            // Reorder members by declaration order (pids)
+                            let mut ordered: Vec<String> = Vec::new();
+                            let prefix = format!("{name}.");
+                            for pid in pids {
+                                if let Some(member_names) = comp.def.pins.pin_id_to_names.get(pid) {
+                                    for n in member_names {
+                                        if let Some(m) = n.strip_prefix(&prefix) {
+                                            if !ordered.contains(&m.to_string()) {
+                                                ordered.push(m.to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if ordered.len() >= 2 {
+                                bus_members.insert(name.clone(), ordered);
+                            }
+                        }
+                    }
+                }
+                // ── P2-10 fix: For Interface ports, reorder members by the
+                // interface's pin declaration order (BTreeMap key order = pin ID order).
+                // Without this, BTreeMap iteration of names_to_id collects dot-separated
+                // member names alphabetically (e.g. UART0.RX before UART0.TX), causing
+                // cross-wiring with component arrays like res[1:2].
+                for (name, port) in comp.def.pins.names_to_id.iter() {
+                    if let crate::semantic::component::mc_pins::McPinPort::Interface(iface) = port {
+                        if bus_members.contains_key(name) {
+                            // Get member order from the interface's pin declaration
+                            let mut ordered: Vec<String> = Vec::new();
+                            // BTreeMap<pin_id, McPin> iterates in pin-ID order (1, 2, …)
+                            for pin in iface.base.pins.pins.values() {
+                                if let Some(first_name) = pin.names.first() {
+                                    if !ordered.contains(first_name) {
+                                        ordered.push(first_name.clone());
+                                    }
+                                }
+                            }
+                            if ordered.len() >= 2 {
+                                bus_members.insert(name.clone(), ordered);
+                            }
+                        }
                     }
                 }
 
@@ -966,9 +1020,6 @@ impl McModuleInst {
             }
         };
         for (iface_name, member_names) in &buses_to_register {
-            mcc_dbg!("inst::fcall", 
-                "[P2-4-CM] registering bus '{iface_name}' with members {member_names:?} for component '{inst_name}'"
-            );
             let _ = self.ensure_bus(iface_name, member_names);
             // ── P2-7-XTAL: also register prefixed bus name ──
             // When the function body references a component interface (e.g. XTAL),
@@ -976,9 +1027,6 @@ impl McModuleInst {
             // Register the prefixed name as a bus so lane-by-lane wiring can
             // expand it to individual pins.
             let prefixed_iface = format!("{inst_name}.{iface_name}");
-            mcc_dbg!("inst::fcall", 
-                "[P2-4-CM] registering bus '{prefixed_iface}' with members {member_names:?} for component '{inst_name}'"
-            );
             let _ = self.ensure_bus(&prefixed_iface, member_names);
         }
 
@@ -990,23 +1038,6 @@ impl McModuleInst {
                 func_def.name
             );
             return Ok(());
-        }
-        mcc_dbg!(
-            "inst::fcall",
-            "[P2-4-CM] run_component_method: {}.{} with {} body lines",
-            inst_name,
-            func_def.name,
-            func_def.lines.len()
-        );
-        for (i, line) in func_def.lines.iter().enumerate() {
-            mcc_dbg!(
-                "inst::fcall",
-                "[P2-4-CM] {}.{} line[{}]: {:?}",
-                inst_name,
-                func_def.name,
-                i,
-                line
-            );
         }
         // ── P4-b: Isolate anonymous instance entries for each body line in the same func ──
         let conn_start = self.connections.len(); // ← P4 backstop start point
@@ -1282,6 +1313,10 @@ impl McModuleInst {
         inst_name: &str,
         skip: &std::collections::HashSet<String>,
     ) -> McPhrase {
+        // P2-10: Build the instance prefix string once. Used to check whether
+        // a dotted name is already prefixed (e.g. "uC.GPIO.2") vs a bare pin
+        // alias that needs prefixing (e.g. "GPIO.2" → "uC.GPIO.2").
+        let inst_prefix = format!("{inst_name}.");
         match phrase {
             McPhrase::Series(phrases, d) => McPhrase::Series(
                 phrases
@@ -1372,7 +1407,10 @@ impl McModuleInst {
                 base: McInstance::Label(ref s),
                 ..
             })) => {
-                if skip.contains(s) || s.contains('.') || s.is_empty() {
+                // P2-10: Use starts_with(inst_prefix) instead of contains('.')
+                // to allow dotted pin aliases like "GPIO.2" to be prefixed,
+                // while still skipping already-prefixed names like "uC.GPIO.2".
+                if skip.contains(s) || s.starts_with(&inst_prefix) || s.is_empty() {
                     phrase.clone()
                 } else {
                     McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Label(
@@ -1386,7 +1424,7 @@ impl McModuleInst {
                 base: McInstance::Bus(ref b),
                 ..
             })) if b.member.is_empty() => {
-                if skip.contains(&b.name) || b.name.contains('.') || b.name.is_empty() {
+                if skip.contains(&b.name) || b.name.starts_with(&inst_prefix) || b.name.is_empty() {
                     phrase.clone()
                 } else {
                     let new_bus = McBus::new(&format!("{}.{}", inst_name, b.name));
@@ -1405,12 +1443,14 @@ impl McModuleInst {
                 base: McInstance::Bus(ref b),
                 ..
             })) => {
-                let prefixed_name =
-                    if skip.contains(&b.name) || b.name.contains('.') || b.name.is_empty() {
-                        b.name.clone()
-                    } else {
-                        format!("{}.{}", inst_name, b.name)
-                    };
+                let prefixed_name = if skip.contains(&b.name)
+                    || b.name.starts_with(&inst_prefix)
+                    || b.name.is_empty()
+                {
+                    b.name.clone()
+                } else {
+                    format!("{}.{}", inst_name, b.name)
+                };
                 let new_bus = McBus {
                     name: prefixed_name,
                     member: b.member.clone(),
@@ -1435,7 +1475,7 @@ impl McModuleInst {
                 ..
             })) => {
                 let cname = c.name.to_string();
-                if skip.contains(&cname) || cname.contains('.') || cname.is_empty() {
+                if skip.contains(&cname) || cname.starts_with(&inst_prefix) || cname.is_empty() {
                     phrase.clone()
                 } else {
                     let prefixed = format!("{inst_name}.{cname}");
@@ -1449,7 +1489,7 @@ impl McModuleInst {
                 ..
             })) => {
                 let mname = m.name.to_string();
-                if skip.contains(&mname) || mname.contains('.') || mname.is_empty() {
+                if skip.contains(&mname) || mname.starts_with(&inst_prefix) || mname.is_empty() {
                     phrase.clone()
                 } else {
                     let prefixed = format!("{inst_name}.{mname}");

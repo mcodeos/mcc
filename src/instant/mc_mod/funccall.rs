@@ -927,6 +927,24 @@ impl McModuleInst {
                         return Ok(vec![pwr[1].clone()]);
                     }
                 }
+                // ── P2-4: Cap() right point return pin1 (signal side) ──
+                // .Cap() is a decoupling cap: pin1=signal, pin2=GND.
+                // In a chain, the right point should be pin1 (signal pass-through),
+                // not pin2 (GND side). Otherwise connect_scalar_to_dc_bus shorts
+                // the power rail to GND through the cap's pin2.
+                let is_cap_call = match member {
+                    McPhrase::FuncCall(fc) => {
+                        let fname = fc.func_name.to_string();
+                        let last = fname.rsplit('.').next().unwrap_or("");
+                        last == "Cap"
+                    }
+                    _ => false,
+                };
+                if is_cap_call {
+                    if let Some(pin) = comp.get_left_pin() {
+                        return Ok(vec![pin]);
+                    }
+                }
                 // 2-pin or no IO annotation
                 if let Some(pin) = comp.get_right_pin() {
                     return Ok(vec![pin]);

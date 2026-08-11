@@ -934,25 +934,6 @@ impl InstTable {
         let mut net_names: Vec<&String> = inst.nets.keys().collect();
         net_names.sort();
 
-        // DEBUG: print nets for US513 and main modules
-        if module_path.contains("513") || module_path == "main" || module_path.contains("modldo") {
-            eprintln!(
-                "\n=== FLATTEN_NETS module={} nets count={} ===",
-                module_path,
-                net_names.len()
-            );
-            for net_name in &net_names {
-                let net_points = &inst.nets[net_name.as_str()];
-                let point_paths: Vec<&str> = net_points.iter().map(|np| np.path.as_str()).collect();
-                eprintln!(
-                    "  net '{}' ({} pts): {:?}",
-                    net_name,
-                    net_points.len(),
-                    point_paths
-                );
-            }
-        }
-
         for net_name in net_names {
             let net_points = &inst.nets[net_name.as_str()];
             let mut point_ids: Vec<u32> = Vec::new();
