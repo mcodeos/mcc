@@ -54,12 +54,64 @@ pub fn collect_funccall_arg_refs(
         MCAST_ID | MCAST_IDA | MCAST_IDS => {
             if let Some(ids) = crate::semantic::basic::mc_ids::McIds::new(arg_node) {
                 let name = ids.to_string();
-                let span = (arg_node.get_pos() as usize)
-                    ..((arg_node.get_pos() + arg_node.get_len()) as usize);
+                let start = arg_node.get_pos() as usize;
                 let sp = scope_path_from_scope_str(file_uri, enclosing);
-                let decl_id = lookup_declare_id(local_table, &name, &sp);
-                if let Some(did) = decl_id {
-                    result.push((span, did));
+                let base = ids.root_name().unwrap_or_else(|| name.clone());
+
+                // ★ §3.4.3 (rev): per-segment chain resolution.
+                //   - `MIC{P,N}` (named curly bus, whole reference): one ref on the
+                //     base span → BusDef(MIC). Members are not separately registered
+                //     here; the whole-bus reference points at the bus def.
+                //   - `MIC.P` (dot member): TWO refs — base segment `MIC` →
+                //     BusDef(MIC), member segment `P` → full-name lookup `MIC.P`
+                //     (member BusMemberDef registered at declaration), falling
+                //     back to the base `MIC` when the member isn't defined.
+                if let Some((bus, _members)) = ids.as_bus() {
+                    let base_span = start..(start + bus.len());
+                    let decl_id = lookup_declare_id(local_table, &bus, &sp);
+                    tracing::info!(target: "mcc::lsp",
+                        "FCALL_ARG_REF: member='{name}' (lookup='{bus}') span=[{},{}] enclosing='{enclosing}' decl_id={}",
+                        base_span.start, base_span.end,
+                        decl_id.map(|d| u32::from(d) as i64).unwrap_or(-1)
+                    );
+                    if let Some(did) = decl_id {
+                        result.push((base_span, did));
+                    }
+                } else if ids.count() >= 2 && !ids.is_square_only() {
+                    // Dot-member form: `MIC.P` → register base + member segments.
+                    let base_len = base.len();
+                    let member_start = start + base_len + 1;
+                    let member_end = start + name.len();
+                    let member_span = member_start..member_end;
+                    let base_span = start..(start + base_len);
+                    let base_start = base_span.start;
+                    let base_end = base_span.end;
+                    let base_id = lookup_declare_id(local_table, &base, &sp);
+                    if let Some(did) = base_id {
+                        result.push((base_span, did));
+                    }
+                    let member_id = lookup_declare_id(local_table, &name, &sp)
+                        .or_else(|| lookup_declare_id(local_table, &base, &sp));
+                    tracing::info!(target: "mcc::lsp",
+                        "FCALL_ARG_REF: member='{name}' (dot) base='{base}' base_span=[{},{}] member_span=[{},{}] decl_id={}",
+                        base_start, base_end, member_span.start, member_span.end,
+                        member_id.map(|d| u32::from(d) as i64).unwrap_or(-1)
+                    );
+                    if let Some(did) = member_id {
+                        result.push((member_span, did));
+                    }
+                } else {
+                    // Plain single identifier.
+                    let span = start..(start + name.len());
+                    let decl_id = lookup_declare_id(local_table, &name, &sp);
+                    tracing::info!(target: "mcc::lsp",
+                        "FCALL_ARG_REF: member='{name}' span=[{},{}] enclosing='{enclosing}' decl_id={}",
+                        span.start, span.end,
+                        decl_id.map(|d| u32::from(d) as i64).unwrap_or(-1)
+                    );
+                    if let Some(did) = decl_id {
+                        result.push((span, did));
+                    }
                 }
             }
         }
@@ -101,6 +153,8 @@ pub fn resolve_arg_ref_kind(
 
     // Try specific def types first (higher confidence match)
     let candidates: &[(SymbolKind, SymbolKind)] = &[
+        // ★ §3.4.3 (rev): bus member def is the most precise match.
+        (SymbolKind::BusMemberDef, SymbolKind::BusMemberRef),
         (SymbolKind::LabelDef, SymbolKind::LabelRef),
         (SymbolKind::BusDef, SymbolKind::BusRef),
         (SymbolKind::PinNameDef, SymbolKind::PinNameRef),

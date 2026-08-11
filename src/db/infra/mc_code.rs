@@ -1869,7 +1869,9 @@ impl McCode {
                         return SymbolKind::InstRef;
                     }
                     crate::semantic::mc_inst::McInstance::Bus(_) => {
-                        return SymbolKind::BusRef;
+                        // ★ §3.4.3 (rev): `MIC.P` member refs resolve to the
+                        // member def (precise span), not the whole bus.
+                        return SymbolKind::BusMemberRef;
                     }
                     crate::semantic::mc_inst::McInstance::Interface(iface) => {
                         if iface.base.pins.names_to_id.contains_key(member) {
@@ -1880,8 +1882,41 @@ impl McCode {
                 }
             }
         }
+        // Plain name (no dot): check if it's a Component/Module instance
+        // before defaulting to PortRef. This ensures instance references like
+        // `X6` in `X6.setup(...)` are classified as InstRef, not PortRef,
+        // so the tooltip shows "instance" instead of "label".
+        if let Some((_iotype, inst)) = insts.insts().get(port_name) {
+            if matches!(
+                inst,
+                crate::semantic::mc_inst::McInstance::Component(_)
+                    | crate::semantic::mc_inst::McInstance::Module(_)
+            ) {
+                return SymbolKind::InstRef;
+            }
+        }
         // Default: plain port ref
         SymbolKind::PortRef
+    }
+
+    /// ★ Phase 3 (cross-container member chain): ref kind for a member hit
+    /// resolved by `refdef::chain`. The chain knows the exact def kind, so we
+    /// use its "Ref" counterpart; `FuncParamRef` is the catch-all fallback
+    /// whose candidate def list in `fill_refdef_layer2` covers every kind.
+    fn chain_ref_kind(def_kind: SymbolKind) -> SymbolKind {
+        match def_kind {
+            SymbolKind::PinNameDef => SymbolKind::PinNameRef,
+            SymbolKind::PinIdDef => SymbolKind::PinIdRef,
+            SymbolKind::PinIfaceDef => SymbolKind::PinIfaceRef,
+            SymbolKind::BusDef => SymbolKind::BusRef,
+            SymbolKind::BusMemberDef => SymbolKind::BusMemberRef,
+            SymbolKind::LabelDef => SymbolKind::LabelRef,
+            SymbolKind::PortDef | SymbolKind::ParamDef => SymbolKind::PortRef,
+            SymbolKind::InstDef => SymbolKind::InstRef,
+            SymbolKind::FuncDef => SymbolKind::FuncRef,
+            SymbolKind::EnumValDef => SymbolKind::EnumValRef,
+            _ => SymbolKind::FuncParamRef,
+        }
     }
 
     /// Build RefDefMap from semantic tables.
@@ -2884,6 +2919,8 @@ impl McCode {
                                     stop: span.end,
                                     val: SymbolType::new(SymbolKind::InstDef, u32::from(d)),
                                 });
+                                tracing::info!(target: "mcc::lsp::audit",
+                                    "[AUDIT-InstDef] name={inst_name} span={span:?} decl_id={d:?}");
                             }
                         }
                     }
@@ -2905,6 +2942,8 @@ impl McCode {
                 stop: span.end,
                 val: SymbolType::new(SymbolKind::InstRef, u32::from(decl_id)),
             });
+            tracing::info!(target: "mcc::lsp::audit",
+                "[AUDIT-InstRef] inst_id={inst_id:?} span={span:?} decl_id={decl_id:?}");
             sem.ref_entries.push((
                 SymbolKind::InstRef,
                 u32::from(decl_id),
@@ -3074,8 +3113,14 @@ impl McCode {
             );
             let mod_ident = entry.key().ident.to_string();
             for (name, span) in m.params.iter_defs_with_span() {
-                // ★ Rule 6: untyped params → UnknownDef, typed → ParamDef
-                let def_kind = Self::param_def_kind(m.params.find(name));
+                // ★ Rule 6: untyped params → UnknownDef, typed → ParamDef.
+                // Square-vec members (e.g. VDD_3V3 inside `[VDD_3V3,GND]::DC(3.3V)`)
+                // register as LabelDef instead (§3.4.3 full registration).
+                let def_kind = if m.params.is_square_member(name) {
+                    SymbolKind::LabelDef
+                } else {
+                    Self::param_def_kind(m.params.find(name))
+                };
                 let (d, _) = crate::refdef::register::register_def(
                     &mut *sem,
                     &uri,
@@ -3090,6 +3135,8 @@ impl McCode {
                     stop: span.end,
                     val: SymbolType::new(def_kind, u32::from(d)),
                 });
+                tracing::info!(target: "mcc::lsp::audit",
+                    "[AUDIT-ParamDef] name={name} span={span:?} decl_id={d:?} kind={def_kind:?}");
             }
 
             let mod_ident2 = entry.key().ident.to_string();
@@ -3108,10 +3155,51 @@ impl McCode {
                     stop: span.end,
                     val: SymbolType::new(SymbolKind::PortDef, u32::from(d)),
                 });
+                tracing::info!(target: "mcc::lsp::audit",
+                    "[AUDIT-PortDef] name={name} span={span:?} decl_id={d:?}");
+            }
+            // ★ §3.4.3 (rev): named curly-bus member defs — expand each
+            // registered BusDef into per-member BusMemberDef lapper entries.
+            // Lookup key is the full member name `MIC.P`; span points at the
+            // member text so `MIC.P` resolves directly to `P` in `{P,N}`.
+            for bus in m.insts.iter_bus_defs() {
+                for (member_name, mspan) in &bus.members {
+                    let full = format!("{}.{}", bus.name, member_name);
+                    let (d, _) = crate::refdef::register::register_def(
+                        sem,
+                        &uri,
+                        &mod_ident2,
+                        None,
+                        &full,
+                        mspan.clone(),
+                        SymbolKind::BusMemberDef,
+                    );
+                    symbol_lapper.insert(Interval {
+                        start: mspan.start,
+                        stop: mspan.end,
+                        val: SymbolType::new(SymbolKind::BusMemberDef, u32::from(d)),
+                    });
+                    tracing::info!(target: "mcc::lsp::audit",
+                        "[AUDIT-BusMemberDef] name={full} span={mspan:?} decl_id={d:?}");
+                }
             }
             // ★ Square-vec member defs — register port_spans entries
             // not covered by iter_ports_with_span (IOType::None members).
+            // Skip Component/Module instances — they are already registered
+            // as InstDef by lapper_instance_decls_and_refs above.
             for (name, spans) in m.insts.port_spans() {
+                // Skip if this name is a Component/Module instance
+                if let Some((_io, inst)) = m.insts.insts().get(name) {
+                    if matches!(
+                        inst,
+                        crate::semantic::mc_inst::McInstance::Component(_)
+                            | crate::semantic::mc_inst::McInstance::Module(_)
+                    ) {
+                        tracing::info!(target: "mcc::lsp::audit",
+                            "[AUDIT-LabelDef-SKIP] name={name} (is Component/Module instance)");
+                        continue;
+                    }
+                }
                 for span in spans {
                     let (d, _) = crate::refdef::register::register_def(
                         sem,
@@ -3127,15 +3215,51 @@ impl McCode {
                         stop: span.end,
                         val: SymbolType::new(SymbolKind::LabelDef, u32::from(d)),
                     });
+                    tracing::info!(target: "mcc::lsp::audit",
+                        "[AUDIT-LabelDef] name={name} span={span:?} decl_id={d:?}");
                 }
             }
             for (span, port_name, scope) in m.insts.iter_net_refs() {
                 let sp = crate::refdef::register::scope_path_from_scope_str(&uri, scope);
                 let decl_id =
                     crate::refdef::register::lookup_declare_id(&sem.local_table, port_name, &sp);
-                if let Some(decl_id) = decl_id {
+                tracing::info!(target: "mcc::lsp::audit",
+                    "[AUDIT-NetRef] name={port_name} span={span:?} scope={scope} decl_id={decl_id:?}");
+                // ★ Phase 3 (cross-container member chain): full member names
+                // like `U_MCU.I2C0.SCL` are absent from the local table when
+                // their def lives in the class-definition file (e.g. an I2C
+                // interface pin in the mcode library). Fall back to structural
+                // member-chain resolution and register the member def with its
+                // cross-file SourceLocation so goto-def jumps to that file.
+                let mut ref_kind = Self::resolve_net_ref_kind(port_name, &m.insts);
+                let mut use_decl_id = decl_id;
+                if decl_id.is_none() {
+                    if let Some(hit) = crate::refdef::chain::resolve_member_chain(
+                        &uri,
+                        port_name,
+                        &m.insts,
+                        &m.params,
+                    ) {
+                        let (d, _) = crate::refdef::register::register_def(
+                            sem,
+                            &hit.uri,
+                            scope,
+                            None,
+                            &hit.name,
+                            hit.span.clone(),
+                            hit.def_kind,
+                        );
+                        ref_kind = Self::chain_ref_kind(hit.def_kind);
+                        use_decl_id = Some(d);
+                        tracing::info!(target: "mcc::lsp::audit",
+                            "[AUDIT-NetRef-Chain] name={port_name} → {} kind={ref_kind:?} def_uri={} def_span={:?} decl_id={d:?}",
+                            hit.name, hit.uri, hit.span);
+                    }
+                }
+                if let Some(decl_id) = use_decl_id {
                     // ★ §4.3 #22-#26: Dispatch inst.member refs to correct type
-                    let ref_kind = Self::resolve_net_ref_kind(port_name, &m.insts);
+                    tracing::info!(target: "mcc::lsp::audit",
+                        "[AUDIT-NetRef-Kind] name={port_name} ref_kind={ref_kind:?}");
                     symbol_lapper.insert(Interval {
                         start: span.start,
                         stop: span.end,
@@ -3248,7 +3372,10 @@ impl McCode {
                         &sp,
                     );
                     if let Some(decl_id) = decl_id {
-                        let ref_kind = Self::resolve_net_ref_kind(port_name, &func.insts);
+                        // ★ Use module insts for resolve_net_ref_kind because
+                        // function bodies can reference module-level instances
+                        // (e.g. uC) that are not in func.insts.
+                        let ref_kind = Self::resolve_net_ref_kind(port_name, &m.insts);
                         symbol_lapper.insert(Interval {
                             start: span.start,
                             stop: span.end,

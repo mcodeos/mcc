@@ -15,6 +15,9 @@
 //!   C4-ext — Module port declared but never connected in any net
 
 use super::{CheckAccumulator, CheckPhase, CheckResult, CheckSeverity, ValidationCheck};
+use crate::semantic::basic::mc_endpoint::McEndpoint;
+use crate::semantic::basic::mc_param::McParamValue;
+use crate::semantic::basic::mc_phrase::McPhrase;
 use std::collections::HashSet;
 
 pub struct BodyCheck;
@@ -569,44 +572,17 @@ fn check_unconnected_module_ports(acc: &mut CheckAccumulator) {
             continue;
         }
 
-        // Collect all names referenced in net connection lines
+        // Collect all names referenced in net connection lines and function bodies.
+        // Walk the McPhrase AST directly instead of formatting to text and splitting,
+        // because text-based splitting corrupts names when parentheses, brackets, or
+        // function-call commas are present (e.g. `GND)` instead of `GND`).
         let mut referenced: HashSet<String> = HashSet::new();
         for phrase in &m.lines {
-            let text = format!("{}", phrase);
-            // Split by `->` to get both sides, then split by `,` for multi-endpoint
-            for side in text.split("->") {
-                for endpoint in side.split(',') {
-                    let ep = endpoint.trim();
-                    if ep.is_empty() || ep == "_" {
-                        continue;
-                    }
-                    // Take the first dot-separated segment (instance name)
-                    if let Some((first, _rest)) = ep.split_once('.') {
-                        referenced.insert(first.trim().to_string());
-                    } else {
-                        referenced.insert(ep.to_string());
-                    }
-                }
-            }
+            collect_referenced_names(phrase, &mut referenced);
         }
-
-        // Also collect names referenced in function body lines
         for func in m.funcs.iter() {
             for phrase in &func.lines {
-                let text = format!("{}", phrase);
-                for side in text.split("->") {
-                    for endpoint in side.split(',') {
-                        let ep = endpoint.trim();
-                        if ep.is_empty() || ep == "_" {
-                            continue;
-                        }
-                        if let Some((first, _rest)) = ep.split_once('.') {
-                            referenced.insert(first.trim().to_string());
-                        } else {
-                            referenced.insert(ep.to_string());
-                        }
-                    }
-                }
+                collect_referenced_names(phrase, &mut referenced);
             }
         }
 
@@ -638,5 +614,95 @@ fn check_unconnected_module_ports(acc: &mut CheckAccumulator) {
                 });
             }
         }
+    }
+}
+
+// ============================================================================
+// AST-walking helpers for collecting referenced names from McPhrase trees.
+// Replaces the former text-based splitting approach that corrupted names when
+// parentheses, brackets, or function-call commas were present.
+// ============================================================================
+
+/// Recursively walk a `McPhrase` and collect all endpoint base names,
+/// including names passed as function-call arguments.
+fn collect_referenced_names(phrase: &McPhrase, names: &mut HashSet<String>) {
+    match phrase {
+        McPhrase::Lead => {}
+        McPhrase::Endpoint(ep) => collect_endpoint_names(ep, names),
+        McPhrase::Series(items, _) => {
+            for item in items {
+                collect_referenced_names(item, names);
+            }
+        }
+        McPhrase::Parallel(items) | McPhrase::Multiple(items) => {
+            for item in items {
+                collect_referenced_names(item, names);
+            }
+        }
+        McPhrase::Group(g) => {
+            for item in &g.opds {
+                collect_referenced_names(item, names);
+            }
+        }
+        McPhrase::Transposed(p) => collect_referenced_names(p, names),
+        McPhrase::Closure(c) => {
+            for line in &c.body {
+                collect_referenced_names(line, names);
+            }
+        }
+        McPhrase::FuncCall(fc) => {
+            if let Some(caller) = &fc.caller {
+                collect_referenced_names(caller, names);
+            }
+            // Ports can be passed as function-call arguments (e.g.
+            // `uC.power([VDD_3V3, GND], ...)`), so walk params too.
+            for param in &fc.params {
+                collect_param_names(param, names);
+            }
+        }
+        McPhrase::Member(inner, ep) => {
+            collect_referenced_names(inner, names);
+            collect_endpoint_names(ep, names);
+        }
+    }
+}
+
+/// Collect base names from an `McEndpoint`.
+fn collect_endpoint_names(ep: &McEndpoint, names: &mut HashSet<String>) {
+    match ep {
+        McEndpoint::Single(ref_) => {
+            names.insert(ref_.base.get_name());
+        }
+        McEndpoint::List(nodes) => {
+            for node in nodes {
+                collect_endpoint_names(node, names);
+            }
+        }
+        McEndpoint::Node { input, output } => {
+            for node in input.iter().chain(output.iter()) {
+                collect_endpoint_names(node, names);
+            }
+        }
+    }
+}
+
+/// Collect identifier names from function-call parameter values.
+fn collect_param_names(param: &McParamValue, names: &mut HashSet<String>) {
+    match param {
+        McParamValue::Ids(ids) => {
+            names.insert(ids.to_string());
+        }
+        McParamValue::Opd(opd) => {
+            names.insert(opd.to_string());
+        }
+        McParamValue::Phrase(p) => {
+            collect_referenced_names(p, names);
+        }
+        McParamValue::Set(items) => {
+            for item in items {
+                collect_param_names(item, names);
+            }
+        }
+        _ => {} // Constants, numbers, strings — not port references
     }
 }

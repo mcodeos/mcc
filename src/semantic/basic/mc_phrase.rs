@@ -777,6 +777,14 @@ impl McPhrase {
                                         dot_member: None,
                                     }));
                                 }
+                                // ★ LSP: Register inline named instances (e.g.
+                                // `res[1:2]::RES(0Ω)`, `C4::CAP()`) as real instances
+                                // with their spans. The 2-pin fast path above bypasses
+                                // context.parse_declare() below, so C4/C5/res1/res2
+                                // would never enter the insts table / port_spans,
+                                // making the lapper classify them as labels instead
+                                // of InstDef.
+                                context.parse_declare(node);
                                 return Some(if fcs.len() <= 1 {
                                     // Also handle empty names (e.g. `R1::RES(1M)` where
                                     // instance name is part of mc_ids via `::`)

@@ -113,6 +113,28 @@ impl McParamDeclares {
                                 let name_span = start..(start + name.len());
                                 self.store_def_span(&name, name_span);
                             }
+                            // ★ §3.4.3: typed square-vec params (e.g.
+                            // `[VDD_3V3,GND]::DC(3.3V)`) also register each member
+                            // with its precise span, so refs like
+                            // `uC.power([VDD_3V3,GND], ...)` resolve member-wise.
+                            if let Some((whole_name, whole_span)) =
+                                self.store_declare_square_member_spans(&inner)
+                            {
+                                // Override the whole-bracket span with the square-vec
+                                // node's exact byte range: the canonical name renders
+                                // with `", "` separators (e.g. `[VDD_3V3, GND]`) whose
+                                // width differs from the source text `[VDD_3V3,GND]`.
+                                if let Some(spans) = self.def_spans.get_mut(&whole_name) {
+                                    if let Some(last) = spans.last_mut() {
+                                        *last = whole_span.clone();
+                                    }
+                                }
+                                if let Some(spans) = self.port_spans.get_mut(&whole_name) {
+                                    if let Some(last) = spans.last_mut() {
+                                        *last = whole_span;
+                                    }
+                                }
+                            }
                             self.declares.push(paramd);
                             continue;
                         }
@@ -259,6 +281,70 @@ impl McParamDeclares {
             .entry(name.to_string())
             .or_default()
             .push(span);
+    }
+
+    /// ★ §3.4.3: store each member of a typed square-vec param with its precise
+    /// span, e.g. `[VDD_3V3,GND]::DC(3.3V)` → `VDD_3V3` and `GND` become
+    /// independently navigable defs. Returns the whole bracket's exact span
+    /// (as the canonical name + byte range) when a square-vec is found, so the
+    /// caller can override the approximate whole ParamDef span. No-op for
+    /// non-square-vec DECLARE params.
+    fn store_declare_square_member_spans(
+        &mut self,
+        decl_node: &AstNode,
+    ) -> Option<(String, Range<usize>)> {
+        let decl_first_child = decl_node.get_sub_node()?;
+        for child in decl_first_child.iter() {
+            if child.get_type() != MCAST_INSTANCE {
+                continue;
+            }
+            let Some(inner) = child.get_sub_node() else {
+                continue;
+            };
+            let ids_node = if inner.get_type() == MCAST_OPD {
+                inner.get_sub_node().unwrap_or(inner.clone())
+            } else {
+                inner.clone()
+            };
+            if !matches!(ids_node.get_type(), MCAST_SQUARE_VEC | MCAST_OPD_SQUARE_VEC) {
+                continue;
+            }
+            let mut current = ids_node.get_sub_node();
+            while let Some(phrase_node) = current {
+                let member = phrase_node
+                    .get_sub_node()
+                    .unwrap_or_else(|| phrase_node.clone());
+                if let Some(ids) = McIds::new(&member) {
+                    let member_span = (member.get_pos() as usize)
+                        ..((member.get_pos() + member.get_len()) as usize);
+                    self.store_def_span(&ids.to_string(), member_span);
+                }
+                current = phrase_node.get_next();
+            }
+            let whole_span =
+                (ids_node.get_pos() as usize)..((ids_node.get_pos() + ids_node.get_len()) as usize);
+            let whole_name = McIds::new(&ids_node)?.to_string();
+            return Some((whole_name, whole_span));
+        }
+        None
+    }
+
+    /// Check if `name` is a member of a square-vector parameter (e.g. `VDD_3V3`
+    /// inside `[VDD_3V3,GND]`). Such member defs register as LabelDef (§3.4.3),
+    /// while the whole bracket (e.g. `[VDD_3V3, GND]`) registers as ParamDef.
+    pub fn is_square_member(&self, name: &str) -> bool {
+        self.declares.iter().any(|d| {
+            let members = match &d.kind {
+                McParamDeclareKind::Multiple(ids) => {
+                    ids.iter().map(|m| m.to_string()).collect::<Vec<_>>()
+                }
+                McParamDeclareKind::Single(ids) if ids.is_square_only() => {
+                    ids.list_members().unwrap_or_default()
+                }
+                _ => return false,
+            };
+            members.iter().any(|m| m == name)
+        })
     }
 
     /// Check if a name is a known parameter port (Category A only, for net connectivity).

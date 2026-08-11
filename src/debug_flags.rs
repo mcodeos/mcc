@@ -95,6 +95,14 @@ macro_rules! mcc_dbg {
         tracing::debug!(target: "mcc::lsp::lapper", $($arg)*);
     };
 
+    // ── Ref / Def resolution ────────────────────────────────
+    ("refdef", $($arg:tt)*) => {
+        tracing::debug!(target: "mcc::refdef", $($arg)*);
+    };
+    ("refdef::chain", $($arg:tt)*) => {
+        tracing::debug!(target: "mcc::refdef::chain", $($arg)*);
+    };
+
     // ── CLI / Config ────────────────────────────────────────
     ("build", $($arg:tt)*) => {
         tracing::debug!(target: "mcc::build", $($arg)*);

@@ -532,7 +532,7 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
             }
             out.push_str(&format!("  files:     {:?}\n", map.files));
             out.push_str(&format!("  containers:{:?}\n", map.containers));
-            let kind_names: Vec<&str> = (0u8..=27)
+            let kind_names: Vec<&str> = (0u8..=29)
                 .map(|i| {
                     let k: SymbolKind = unsafe { std::mem::transmute(i) };
                     k.kind_name()
