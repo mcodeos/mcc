@@ -63,6 +63,12 @@ impl McIda {
                 if let Some(items) = Self::parse_square_content(&square_content) {
                     segments.push(IdaSegment::Square(items));
                 }
+            } else if *c == '\\' {
+                // §2.12: Escape character — `\+` → `+`, `\-` → `-`, `\x` → `x`
+                chars.next(); // Consume '\'
+                if let Some(next) = chars.next() {
+                    current_id.push(next);
+                }
             } else {
                 // Collect regular identifier characters
                 current_id.push(chars.next().unwrap());
