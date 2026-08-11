@@ -2807,22 +2807,29 @@ impl std::fmt::Display for McPhrase {
 // ============================================================================
 
 /// ── D8: AMBIGUOUS_PRECEDENCE detection ─────────────────────────────────
-/// Walk the AST subtree to check if the expression mixes `+`, `-`, `->`
-/// operators without explicit parentheses (Group), spanning more than 2
-/// leaf components. If so, emit a warning because the intended grouping
-/// may differ from the parser's precedence.
+/// Walk the AST subtree to check if the expression mixes `+` (parallel) with
+/// `-` or `->` (series) operators without explicit parentheses (Group),
+/// spanning more than 3 leaf components. If so, emit a warning because the
+/// intended grouping may differ from the parser's precedence.
 /// `loc_node` specifies the node for error location (use first operand to avoid trailing comments).
 fn check_ambiguous_precedence(node: &AstNode, loc_node: &AstNode) {
     let (leaf_count, has_plus, has_minus, has_arrow) = analyze_expr_tree(node);
-    let mixed = (has_plus as u8 + has_minus as u8 + has_arrow as u8) >= 2;
+    // Only flag as ambiguous when `+` (parallel) is mixed with `-` or `->` (series).
+    // Mixing `-` and `->` alone is NOT ambiguous — both are series operators that
+    // differ only in directionality, and left-to-right associativity gives a
+    // single unambiguous parse (e.g. `A - B -> C` is always `(A - B) -> C`).
+    let mixed = has_plus && (has_minus || has_arrow);
+    // The parser now creates GROUP nodes for `(expr)`, so explicit parentheses
+    // correctly reset the ambiguity scope in analyze_expr_tree. Only warn when
+    // there are more than 2 leaves and operators are genuinely mixed.
     if mixed && leaf_count > 2 {
         dlog_warning(
             2008,
             loc_node,
             &format!(
-                "AMBIGUOUS_PRECEDENCE: expression mixes +,-,-> operators without parentheses \
-                 and spans {leaf_count} components (>2). Consider adding explicit parentheses \
-                 (Group) to clarify the intended grouping."
+                "AMBIGUOUS_PRECEDENCE: expression mixes + (parallel) with - or -> (series) \
+                 operators without parentheses and spans {leaf_count} components (>2). \
+                 Consider adding explicit parentheses (Group) to clarify the intended grouping."
             ),
         );
     }
@@ -2879,30 +2886,29 @@ fn analyze_expr_tree(node: &AstNode) -> (usize, bool, bool, bool) {
             (1, false, false, false)
         }
         _ => {
-            // Leaf component: count as 1, recursively check children for nested operators
-            let mut total = 1usize;
+            // Leaf component: count as exactly 1, regardless of internal AST
+            // structure (e.g. GPIO[2] has IDA + SQUARE children, RES(100kΩ) has
+            // IDS + PARAMS children — all are part of the same logical leaf).
+            // Still propagate operator flags from children in case of nested
+            // expressions inside non-operator wrappers.
             let mut hp = false;
             let mut hm = false;
             let mut ha = false;
             if let Some(sub) = node.get_sub_node() {
-                let (c, p, m, a) = analyze_expr_tree(&sub);
-                // Don't add to total for non-operator children (they're part of this leaf)
+                let (_, p, m, a) = analyze_expr_tree(&sub);
                 hp |= p;
                 hm |= m;
                 ha |= a;
-                let _ = c; // child count absorbed into this leaf
-                           // Check siblings
                 let mut next = sub.get_next();
                 while let Some(n) = next {
-                    let (c, p, m, a) = analyze_expr_tree(&n);
-                    total += c;
+                    let (_, p, m, a) = analyze_expr_tree(&n);
                     hp |= p;
                     hm |= m;
                     ha |= a;
                     next = n.get_next();
                 }
             }
-            (total, hp, hm, ha)
+            (1, hp, hm, ha)
         }
     }
 }
