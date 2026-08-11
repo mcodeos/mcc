@@ -40,6 +40,10 @@ pub struct McPin {
     pub id: String,
     pub names: Vec<String>,
     pub values: Arc<Vec<McAttrVal>>,
+    /// §2.8: true if any name starts with `_` (active-low signal)
+    pub active_low: bool,
+    /// §2.19: true if this pin is NC (Not Connected)
+    pub is_nc: bool,
 }
 
 /// McPins definition
@@ -608,7 +612,8 @@ impl McPins {
                     }
 
                     McPinPort::List(list_name, members) => {
-                        // PDM[CLK, DATA] -> register list_name and each member
+                        // PDM[CLK, DATA] -> register each member with prefix
+                        // §2.1: bare prefix "PDM" does NOT exist as a pin name
                         // e.g. I[A,B,C,D] -> IA, IB, IC, ID
                         match &pinids {
                             McPinPort::Multi(pids) => {
@@ -618,9 +623,7 @@ impl McPins {
                                     let full_name = format!("{list_name}{name}");
                                     self.register_pin(iotype.clone(), pid, &[full_name], &values);
                                 }
-                                // also register list_name itself to names_to_id
-                                self.names_to_id
-                                    .insert(list_name.clone(), McPinPort::Multi(pids.clone()));
+                                // §2.1: Do NOT register bare prefix "PDM" to names_to_id
                             }
                             _ => {
                                 dlog_trace(1103, "Pin ID and name not match");
@@ -1281,21 +1284,29 @@ impl McPins {
         names: &[String],
         values: &[McAttrVal],
     ) {
-        if names.iter().any(|n| n.contains("GPIO")) {
-            eprintln!("[REG-PIN] pinid={pinid} names={names:?}");
-        }
         let values_arc = self.insert_values(values);
         // H3 (deferred): track pin definitions for cross-line overlap detection
         // self.pin_defs
         //     .entry(pinid.clone())
         //     .or_default()
         //     .push((iotype.clone(), names.to_vec(), self.current_line_idx));
+        // §2.8: detect active-low if any name starts with '_'
+        let active_low = names.iter().any(|n| n.starts_with('_'));
+        // §2.19: detect NC pin
+        let is_nc = names.iter().any(|n| n == "NC");
+
         // If pinid already exists, append names instead of overwriting
         if let Some(existing) = self.pins.get_mut(pinid) {
             for name in names {
                 if !existing.names.contains(name) {
                     existing.names.push(name.clone());
                 }
+            }
+            if active_low {
+                existing.active_low = true;
+            }
+            if is_nc {
+                existing.is_nc = true;
             }
         } else {
             self.pins.insert(
@@ -1305,6 +1316,8 @@ impl McPins {
                     id: pinid.to_string(),
                     names: names.to_vec(),
                     values: values_arc,
+                    active_low,
+                    is_nc,
                 },
             );
         }
@@ -1743,11 +1756,11 @@ impl McPinNames {
                                     );
                                 } else if pname.is_list() {
                                     // PDM[CLK, DATA] -> List (square bracket form)
-                                    // use list_members() to get members
-                                    let full_name = pname.to_string();
+                                    // §2.1: list_name is the bare prefix (e.g. "PDM"), NOT the full string with brackets
+                                    let list_name = pname.base_name();
                                     if let Some(members) = pname.list_members() {
                                         myself.push_option(
-                                            McPinPort::List(full_name, members),
+                                            McPinPort::List(list_name, members),
                                             err_node,
                                         );
                                     }

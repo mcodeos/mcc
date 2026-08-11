@@ -168,6 +168,7 @@ pub mod insts;
 pub mod interface;
 pub mod naming;
 pub mod nets;
+pub mod pins;
 pub mod ports;
 pub mod refs;
 pub mod style;

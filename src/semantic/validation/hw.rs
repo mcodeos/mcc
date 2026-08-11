@@ -253,7 +253,10 @@ fn check_pin_count_extremes(acc: &mut CheckAccumulator) {
         }
 
         // HW3b: Zero pins but not abstract (has params or attrs suggesting it should have pins)
+        // Skip components with dynamic pin definitions (§2.20) — their pins
+        // are resolved at instantiation time, so the template has 0 static pins.
         if pin_count == 0
+            && !comp.pins.has_dynamic_pins()
             && !comp.params.is_empty()
             && !comp.attrs.is_empty()
             && comp.funcs.is_empty()

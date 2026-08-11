@@ -297,7 +297,7 @@ fn check_component_structure(acc: &mut CheckAccumulator) {
         let comp = entry.value();
         let name = entry.key().ident.to_string();
         let has_params = !comp.params.is_empty();
-        let has_pins = !comp.pins.names_to_id.is_empty();
+        let has_pins = !comp.pins.names_to_id.is_empty() || comp.pins.has_dynamic_pins();
         let has_attrs = comp.attrs.len() > 0;
         let has_funcs = !comp.funcs.is_empty();
         // M1: completely empty

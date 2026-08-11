@@ -233,6 +233,10 @@ pub struct CheckArgs {
     #[arg(long)]
     pub nets: bool,
 
+    /// Run pin usage checks (unused pins, conflicting pin options)
+    #[arg(long)]
+    pub pins: bool,
+
     /// Output format
     #[arg(long, short = 'f', value_enum, default_value_t = OutputFormat::Text)]
     pub format: OutputFormat,

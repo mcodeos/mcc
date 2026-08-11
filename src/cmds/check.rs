@@ -111,8 +111,11 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
 
     // ── Nets flag: run pass2 and collect electrical checks ──
     if args.nets {
+        let mod_name = mcc::mcb_get_module_name_by_uri(&_uri)
+            .or_else(|| mcc::mcb_get_first_module_name())
+            .unwrap_or_else(|| "main".to_string());
         let entry = mcc::McSpaceName {
-            ident: mcc::McIds::from("main"),
+            ident: mcc::McIds::from(mod_name.as_str()),
             uri: _uri.clone(),
         };
         let mut errors = 0usize;
@@ -127,6 +130,39 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
                 for r in &net_results {
                     eprintln!("  [{}] {}: {}", r.severity, r.check, r.message);
                 }
+            }
+        }
+        return Ok(CheckOutcome {
+            exit_code: if errors > 0 { 1 } else { 0 },
+        });
+    }
+
+    // ── Pins flag: run pin usage checks ──
+    if args.pins {
+        let mod_name = mcc::mcb_get_module_name_by_uri(&_uri)
+            .or_else(|| mcc::mcb_get_first_module_name())
+            .unwrap_or_else(|| "main".to_string());
+        let entry = mcc::McSpaceName {
+            ident: mcc::McIds::from(mod_name.as_str()),
+            uri: _uri.clone(),
+        };
+        let mut errors = 0usize;
+        match mcc::mcb_pass2_flat(&entry, 1) {
+            Ok((_tree, table)) => {
+                let pin_results = mcc::check::pins::run_pin_checks(&table);
+                errors = pin_results.iter().filter(|r| r.severity == "error").count();
+                if !pin_results.is_empty() {
+                    eprintln!(
+                        "=== Pin Usage Checks ({} issues) ===",
+                        pin_results.len()
+                    );
+                    for r in &pin_results {
+                        eprintln!("  [{}] {}: {}", r.severity, r.check, r.message);
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Pin checks skipped: pass2 failed: {e}");
             }
         }
         return Ok(CheckOutcome {
