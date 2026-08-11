@@ -125,6 +125,30 @@ pub enum LabelKind {
     Inline,
 }
 
+/// ★ §3.4.3 (rev): a named curly-bus definition, registered as a whole with
+/// per-member precise spans. This is the "independent Rust class" the LSP
+/// lookup model is built on: `MIC` resolves to the whole [`BusDef`], `MIC.P`
+/// resolves to the member span. Populated in `parse_opd`, expanded into
+/// `BusMemberDef` lapper entries by `lapper_module_ports`.
+#[derive(Debug, Clone, Default)]
+pub struct BusDef {
+    /// Bus name (e.g. "MIC").
+    pub name: String,
+    /// Whole-bus span — covers the base identifier `MIC`, not the braces.
+    pub span: Range<usize>,
+    /// Member name → precise span at its declaration text (e.g. `P` in `{P,N}`).
+    pub members: Vec<(String, Range<usize>)>,
+}
+
+impl BusDef {
+    pub fn member_span(&self, member: &str) -> Option<Range<usize>> {
+        self.members
+            .iter()
+            .find(|(name, _)| name == member)
+            .map(|(_, span)| span.clone())
+    }
+}
+
 /// Identifier types within a module
 ///
 /// Used in symbol table to store various declared entities
@@ -318,6 +342,10 @@ pub struct McInstances {
     pub(crate) scope: Option<String>,
     /// Label kind registry: tracks whether a label is Explicit (declared) or Inline (net phrase).
     label_kinds: HashMap<String, LabelKind>,
+    /// ★ §3.4.3 (rev): named curly-bus definitions with per-member spans
+    /// (bus name → whole bus + member spans). Single source of truth for
+    /// member-level goto-def; expanded by lapper_module_ports.
+    bus_defs: BTreeMap<String, BusDef>,
 }
 
 impl McInstances {
@@ -328,6 +356,7 @@ impl McInstances {
             net_ref_spans: Vec::new(),
             scope: None,
             label_kinds: HashMap::new(),
+            bus_defs: BTreeMap::new(),
         }
     }
 
@@ -465,6 +494,33 @@ impl McInstances {
             .entry(name.to_string())
             .or_default()
             .push(span);
+    }
+
+    /// ★ §3.4.3 (rev): register a whole curly-bus definition with member spans.
+    pub(crate) fn register_bus_def(
+        &mut self,
+        name: &str,
+        span: Range<usize>,
+        members: Vec<(String, Range<usize>)>,
+    ) {
+        self.bus_defs.insert(
+            name.to_string(),
+            BusDef {
+                name: name.to_string(),
+                span,
+                members,
+            },
+        );
+    }
+
+    /// Get a registered bus def (whole + member spans).
+    pub fn bus_def(&self, name: &str) -> Option<&BusDef> {
+        self.bus_defs.get(name)
+    }
+
+    /// Iterate all registered bus defs.
+    pub fn iter_bus_defs(&self) -> impl Iterator<Item = &BusDef> {
+        self.bus_defs.values()
     }
 
     /// Iterate all ports with their spans (multiple entries per key for DOT patterns)
@@ -1280,11 +1336,6 @@ impl McInstances {
 
         // Look up definition using mcb_get_cmie
         let cmie = resolve_cmie(&DB, &class_ids, uri);
-        eprintln!(
-            "[P1-CMIE] class={} cmie={:?}",
-            class_ids.to_string(),
-            cmie.as_ref().map(|c| std::mem::discriminant(c))
-        );
 
         // ★ LSP: Register class reference for goto-definition
         let class_name = class_ids.to_string();
@@ -1337,13 +1388,6 @@ impl McInstances {
 
             // ── P1: collect this instance's construction args ──
             let ctor_args = collect_ctor_params(inst_node, &inst_id_node);
-            eprintln!(
-                "[P1-ctor] inst='{}' ctor_args={} (id.next type={:?}, node.next type={:?})",
-                inst_str,
-                ctor_args.len(),
-                inst_id_node.get_next().map(|n| n.get_type()),
-                inst_node.get_next().map(|n| n.get_type()),
-            );
 
             for inst_name_ref in &names_to_create {
                 let inst_name = inst_name_ref.clone();
@@ -1637,6 +1681,47 @@ impl McInstances {
             MCAST_IDS => {
                 if let Some(pname) = McIds::new(&opd_node) {
                     if let Some((busname, members)) = pname.as_bus() {
+                        // ★ §3.4.3 (rev): named curly bus `MIC{P,N}` registers a
+                        //   whole BusDef with per-member precise spans, so lookup
+                        //   `MIC` → whole bus, `MIC.P` → member text. Member node
+                        //   pos is reliable; len is NOT (mc_value_link extends the
+                        //   first child's len), so spans use pos + name length.
+                        if pname.is_curly_bracket() {
+                            // Whole-bus span covers the base identifier `MIC`
+                            // (decision: F12 on the base jumps to the name text).
+                            let whole_span = opd_node
+                                .get_sub_node()
+                                .filter(|n| n.get_type() == MCAST_ID)
+                                .map(|n| {
+                                    let p = n.get_pos() as usize;
+                                    p..(p + busname.len())
+                                })
+                                .unwrap_or_else(|| {
+                                    let p = opd_node.get_pos() as usize;
+                                    p..(p + busname.len())
+                                });
+                            let mut member_spans: Vec<(String, Range<usize>)> = Vec::new();
+                            let mut cur = opd_node.get_sub_node();
+                            while let Some(child) = cur {
+                                if matches!(
+                                    child.get_type(),
+                                    MCAST_OPD_CURLY | MCAST_OPD_CURLY_MN
+                                ) {
+                                    let mut mc = child.get_sub_node();
+                                    while let Some(m) = mc {
+                                        if let Some(mname) = m.to_string() {
+                                            let mstart = m.get_pos() as usize;
+                                            let mlen = mname.len();
+                                            member_spans
+                                                .push((mname, mstart..(mstart + mlen)));
+                                        }
+                                        mc = m.get_next();
+                                    }
+                                }
+                                cur = child.get_next();
+                            }
+                            self.register_bus_def(&busname, whole_span, member_spans);
+                        }
                         let inst = if pname.is_curly_bracket() {
                             McInstance::Bus(McBus::new_with_members(&busname, members))
                         } else {

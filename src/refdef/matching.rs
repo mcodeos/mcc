@@ -35,6 +35,9 @@ pub fn fill_refdef_layer2(
             SymbolKind::LabelRef => &[SymbolKind::LabelDef],
             SymbolKind::FuncRef => &[SymbolKind::FuncDef],
             SymbolKind::BusRef => &[SymbolKind::BusDef], // ★ §16: exact match
+            // ★ §3.4.3 (rev): bus member ref (`MIC.P` member segment) resolves
+            // to the member def (precise span), not the whole bus.
+            SymbolKind::BusMemberRef => &[SymbolKind::BusMemberDef],
             // FuncParamRef is the catch-all for funcall arguments whose
             // actual type (PinNameRef, LabelRef, InstRef, etc.) isn't
             // determined at lapper time.  Map to whatever def matches
@@ -55,6 +58,7 @@ pub fn fill_refdef_layer2(
                 SymbolKind::DefineDef,
                 SymbolKind::AttrDef,
                 SymbolKind::BusDef, // ★ R7: bus refs may resolve via FuncParamRef
+                SymbolKind::BusMemberDef, // ★ §3.4.3 (rev): member refs too
                 SymbolKind::UnknownDef, // ★ R7: untyped params
             ],
             SymbolKind::PinNameRef => &[SymbolKind::PinNameDef],

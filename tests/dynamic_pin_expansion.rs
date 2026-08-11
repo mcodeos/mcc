@@ -45,7 +45,8 @@ fn find_component<'a>(inst: &'a mcc::McModuleInst, name: &str) -> &'a mcc::McCom
 
 #[test]
 fn dynamic_pin_parameter_reference_expands() {
-    let inst = build(r#"
+    let inst = build(
+        r#"
 component HDR_SINGLE(cols::INT)
 {
     pins = [
@@ -59,7 +60,8 @@ module main
     J1.1 -> NET_1
     J1.5 -> NET_5
 }
-"#);
+"#,
+    );
 
     let comp = find_component(&inst, "J1");
     // cols=5 → pins 1..5 should exist
@@ -72,7 +74,8 @@ module main
 
 #[test]
 fn static_nested_range_expands() {
-    let inst = build(r#"
+    let inst = build(
+        r#"
 component HDR_2x3()
 {
     pins = [
@@ -86,7 +89,8 @@ module main
     J1.1 -> NET_R1C1
     J1.6 -> NET_R2C3
 }
-"#);
+"#,
+    );
 
     let comp = find_component(&inst, "J1");
     assert_eq!(comp.pin_count(), 6, "expected 6 pins for 2x3 header");
@@ -103,7 +107,8 @@ module main
 
 #[test]
 fn dynamic_pin_expression_and_nested_range_expands() {
-    let inst = build(r#"
+    let inst = build(
+        r#"
 component HDR_MULTI(rows::INT, cols::INT)
 {
     pins = [
@@ -117,7 +122,8 @@ module main
     J1.1 -> NET_R1C1
     J1.6 -> NET_R2C3
 }
-"#);
+"#,
+    );
 
     let comp = find_component(&inst, "J1");
     // rows=2, cols=3 → rows*cols=6 → pins 1..6
@@ -135,7 +141,8 @@ module main
 
 #[test]
 fn dynamic_pin_expression_different_dimensions() {
-    let inst = build(r#"
+    let inst = build(
+        r#"
 component HDR_MULTI(rows::INT, cols::INT)
 {
     pins = [
@@ -149,7 +156,8 @@ module main
     J1.1 -> NET_A
     J1.6 -> NET_B
 }
-"#);
+"#,
+    );
 
     let comp = find_component(&inst, "J1");
     // rows=3, cols=2 → rows*cols=6 → pins 1..6
@@ -167,7 +175,8 @@ module main
 
 #[test]
 fn dynamic_pin_parameter_reference_single_pin() {
-    let inst = build(r#"
+    let inst = build(
+        r#"
 component HDR_SINGLE(cols::INT)
 {
     pins = [
@@ -180,7 +189,8 @@ module main
     HDR_SINGLE(1) J1
     J1.1 -> NET_1
 }
-"#);
+"#,
+    );
 
     let comp = find_component(&inst, "J1");
     assert_eq!(comp.pin_count(), 1, "expected 1 pin for cols=1");
@@ -189,7 +199,8 @@ module main
 
 #[test]
 fn dynamic_pin_parameter_reference_large() {
-    let inst = build(r#"
+    let inst = build(
+        r#"
 component HDR_SINGLE(cols::INT)
 {
     pins = [
@@ -203,7 +214,8 @@ module main
     J1.1 -> NET_1
     J1.20 -> NET_20
 }
-"#);
+"#,
+    );
 
     let comp = find_component(&inst, "J1");
     assert_eq!(comp.pin_count(), 20, "expected 20 pins for cols=20");
@@ -239,7 +251,8 @@ fn build_and_check_pins(source: &str) -> Vec<mcc::check::pins::PinCheckResult> {
 
 #[test]
 fn pin_check_detects_unused_dynamic_pins() {
-    let results = build_and_check_pins(r#"
+    let results = build_and_check_pins(
+        r#"
 component HDR_SINGLE(cols::INT)
 {
     pins = [
@@ -253,24 +266,40 @@ module main
     J1.1 -> NET_1
     // Pins 2-5 intentionally unconnected
 }
-"#);
+"#,
+    );
 
-    let unused: Vec<&mcc::check::pins::PinCheckResult> = results
+    let unused: Vec<&mcc::check::pins::PinCheckResult> =
+        results.iter().filter(|r| r.check == "unused-pin").collect();
+    assert_eq!(
+        unused.len(),
+        4,
+        "expected 4 unused pins, got {}",
+        unused.len()
+    );
+    let pinids: Vec<&str> = unused
         .iter()
-        .filter(|r| r.check == "unused-pin")
+        .map(|r| {
+            // Extract pinid from message "Pin 'N' on ..."
+            r.message.split('\'').nth(1).unwrap_or("")
+        })
         .collect();
-    assert_eq!(unused.len(), 4, "expected 4 unused pins, got {}", unused.len());
-    let pinids: Vec<&str> = unused.iter().map(|r| {
-        // Extract pinid from message "Pin 'N' on ..."
-        r.message.split('\'').nth(1).unwrap_or("")
-    }).collect();
-    assert!(pinids.contains(&"2"), "pin 2 should be unused: {:?}", pinids);
-    assert!(pinids.contains(&"5"), "pin 5 should be unused: {:?}", pinids);
+    assert!(
+        pinids.contains(&"2"),
+        "pin 2 should be unused: {:?}",
+        pinids
+    );
+    assert!(
+        pinids.contains(&"5"),
+        "pin 5 should be unused: {:?}",
+        pinids
+    );
 }
 
 #[test]
 fn pin_check_no_false_positives_when_all_connected() {
-    let results = build_and_check_pins(r#"
+    let results = build_and_check_pins(
+        r#"
 component HDR_MULTI(rows::INT, cols::INT)
 {
     pins = [
@@ -286,18 +315,18 @@ module main
     J1.3 -> NET_R2C1
     J1.4 -> NET_R2C2
 }
-"#);
+"#,
+    );
 
-    let unused: Vec<&mcc::check::pins::PinCheckResult> = results
-        .iter()
-        .filter(|r| r.check == "unused-pin")
-        .collect();
+    let unused: Vec<&mcc::check::pins::PinCheckResult> =
+        results.iter().filter(|r| r.check == "unused-pin").collect();
     assert_eq!(unused.len(), 0, "expected 0 unused pins, got: {:?}", unused);
 }
 
 #[test]
 fn pin_check_detects_unused_static_nested_range() {
-    let results = build_and_check_pins(r#"
+    let results = build_and_check_pins(
+        r#"
 component HDR_2x3()
 {
     pins = [
@@ -312,14 +341,22 @@ module main
     J1.6 -> NET_R2C3
     // Pins 2-5 unconnected
 }
-"#);
+"#,
+    );
 
-    let unused: Vec<&mcc::check::pins::PinCheckResult> = results
-        .iter()
-        .filter(|r| r.check == "unused-pin")
-        .collect();
-    assert_eq!(unused.len(), 4, "expected 4 unused pins, got {}", unused.len());
+    let unused: Vec<&mcc::check::pins::PinCheckResult> =
+        results.iter().filter(|r| r.check == "unused-pin").collect();
+    assert_eq!(
+        unused.len(),
+        4,
+        "expected 4 unused pins, got {}",
+        unused.len()
+    );
     // Verify pin names appear in messages for static nested range
     let has_r1c2 = results.iter().any(|r| r.message.contains("R1C2"));
-    assert!(has_r1c2, "expected R1C2 in unused pin messages: {:?}", results);
+    assert!(
+        has_r1c2,
+        "expected R1C2 in unused pin messages: {:?}",
+        results
+    );
 }

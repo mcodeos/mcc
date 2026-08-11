@@ -121,10 +121,17 @@ pub enum SymbolKind {
     FuncParamRef = 24,
     /// ★ Bus definition — named group of nets (see §3.2.3).
     BusDef = 25,
-    /// ★ Bus member reference — e.g. `MIC.P`, `power.VCC` (see §3.2.3).
+    /// ★ Whole-bus reference — e.g. `MIC{P,N}` in a net (see §3.2.3).
     BusRef = 26,
     /// ★ Rule 6: untyped param provisional type (see §3.2.3, §3.5.1).
     UnknownDef = 27,
+    /// ★ §3.4.3 (rev): bus member definition — one member of a named curly
+    /// bus, registered with a precise span at its declaration text
+    /// (e.g. `P` inside `io MIC{P,N}`). Lookup key is the full name `MIC.P`.
+    BusMemberDef = 28,
+    /// ★ §3.4.3 (rev): bus member reference — e.g. the `P` segment of `MIC.P`.
+    /// Resolves to the member def (precise span), not the whole bus.
+    BusMemberRef = 29,
 }
 
 impl SymbolKind {
@@ -157,6 +164,8 @@ impl SymbolKind {
             "func_param_ref" => Some(Self::FuncParamRef),
             "bus_def" => Some(Self::BusDef),
             "bus_ref" => Some(Self::BusRef),
+            "bus_member_def" => Some(Self::BusMemberDef),
+            "bus_member_ref" => Some(Self::BusMemberRef),
             "unknown_def" => Some(Self::UnknownDef),
             _ => None,
         }
@@ -177,6 +186,7 @@ impl SymbolKind {
                 | Self::EnumValRef
                 | Self::FuncParamRef
                 | Self::BusRef
+                | Self::BusMemberRef
         )
     }
 
@@ -210,6 +220,8 @@ impl SymbolKind {
             Self::BusDef => "BusDef",
             Self::BusRef => "BusRef",
             Self::UnknownDef => "UnknownDef",
+            Self::BusMemberDef => "BusMemberDef",
+            Self::BusMemberRef => "BusMemberRef",
         }
     }
 }

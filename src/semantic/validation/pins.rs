@@ -15,7 +15,7 @@
 //! correctly for both static and dynamic (parameterized) component pins,
 //! without needing the template component definition.
 
-use crate::instant::insttab::{InstEntry, InstTable, InstKind};
+use crate::instant::insttab::{InstEntry, InstKind, InstTable};
 use crate::semantic::common::IOType;
 use std::collections::{HashMap, HashSet};
 
@@ -104,8 +104,9 @@ fn check_unused_pins(table: &InstTable, results: &mut Vec<PinCheckResult>) {
                 ("warning", "")
             };
             let (pos, uri) = entry_pos(entry);
-            let name_part =
-                pin_display_name(pinid, pin_name).map(|n| format!(" ({})", n)).unwrap_or_default();
+            let name_part = pin_display_name(pinid, pin_name)
+                .map(|n| format!(" ({})", n))
+                .unwrap_or_default();
             results.push(PinCheckResult {
                 check: "unused-pin",
                 severity,
@@ -150,7 +151,10 @@ fn check_conflicting_pins(table: &InstTable, results: &mut Vec<PinCheckResult>) 
                 continue;
             }
             let pinid = pinid_from_path(&pin.path);
-            pinid_to_names.entry(pinid).or_default().insert(pin.class_name.as_str());
+            pinid_to_names
+                .entry(pinid)
+                .or_default()
+                .insert(pin.class_name.as_str());
         }
 
         for (pinid, names) in &pinid_to_names {

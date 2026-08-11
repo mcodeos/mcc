@@ -170,23 +170,6 @@ impl McModule {
 
                     MCAST_NET => {
                         if let Some(subnode) = clause.get_sub_node() {
-                            // ── P2-DEBUG: print AST structure ──
-                            if self.name.to_string().contains("513")
-                                || self.name.to_string() == "main"
-                            {
-                                let st = subnode.get_type();
-                                let children: Vec<(u16, String)> = subnode
-                                    .get_sub_node()
-                                    .map(|c| {
-                                        c.iter()
-                                            .map(|n| {
-                                                (n.get_type(), n.to_string().unwrap_or_default())
-                                            })
-                                            .collect()
-                                    })
-                                    .unwrap_or_default();
-                                eprintln!("[P2-NET-AST] module={} net_node_type={st} children={children:?}", self.name);
-                            }
                             if subnode.get_type() == MCAST_DECLARE {
                                 self.insts.parse(&subnode, &self.uri);
                                 continue;
@@ -877,6 +860,75 @@ impl McModule {
             params.record_net_ref(span, &root, scope);
         } else {
             insts.record_net_ref(span, &root, scope);
+        }
+
+        // ★ §3.4.3 (rev): per-segment member refs — curly-bus members and
+        // dot members get their own refs so F12 lands on the member text.
+        // Member node pos is reliable; len is not (mc_value_link extension).
+        //
+        // Two curly forms are handled:
+        //   - `MIC{P,N}`        — McIds parses the whole bus (`as_bus` hits);
+        //   - `U_MCU{I2C0.SCL}` — McIds only parses the leading segment, so the
+        //     curly child carries the members; base = first segment (`root`).
+        if let Some(ids) = ids {
+            let base_from_bus = ids.as_bus().map(|(b, _members)| b);
+            let has_curly_child = node.get_sub_node().map_or(false, |sub| {
+                let mut cur = Some(sub);
+                loop {
+                    let Some(child) = cur else { break false };
+                    if matches!(child.get_type(), MCAST_OPD_CURLY | MCAST_OPD_CURLY_MN) {
+                        break true;
+                    }
+                    cur = child.get_next();
+                }
+            });
+            if base_from_bus.is_some() || has_curly_child {
+                // Register each curly member as `<base>.<member>` so F12 lands
+                // on the member text (`MIC.P`, `U_MCU.I2C0.SCL`).
+                let bus = base_from_bus.unwrap_or_else(|| root.clone());
+                let mut cur = node.get_sub_node();
+                while let Some(child) = cur {
+                    if matches!(
+                        child.get_type(),
+                        MCAST_OPD_CURLY | MCAST_OPD_CURLY_MN
+                    ) {
+                        let mut mc = child.get_sub_node();
+                        while let Some(m) = mc {
+                            if let Some(mname) = m.to_string() {
+                                let mstart = m.get_pos() as usize;
+                                insts.record_net_ref(
+                                    mstart..(mstart + mname.len()),
+                                    &format!("{bus}.{mname}"),
+                                    scope,
+                                );
+                            }
+                            mc = m.get_next();
+                        }
+                    }
+                    cur = child.get_next();
+                }
+            } else if ids.count() >= 2 {
+                // `MIC.P`: register the member segment (text after the dot).
+                let member_start = start + root.len() + 1;
+                let member_len = text.len().saturating_sub(root.len() + 1);
+                if member_len > 0 {
+                    insts.record_net_ref(member_start..(member_start + member_len), &text, scope);
+                }
+            } else {
+                // ★ Dot chain: `MIC.P`, `U_MCU.I2C0.SCL`. `node.to_string()`
+                // returns only the base segment (`U_MCU`), while `ids.to_string()`
+                // carries the full chain. Register the member segment(s) after
+                // the first dot so F12 lands on the member text and lapper can
+                // resolve it via the member chain (Phase 3).
+                let full = ids.to_string();
+                if !ids.is_square_only() && full.contains('.') {
+                    let member_start = start + root.len() + 1;
+                    let member_end = start + full.len();
+                    if member_end > member_start {
+                        insts.record_net_ref(member_start..member_end, &full, scope);
+                    }
+                }
+            }
         }
     }
 }

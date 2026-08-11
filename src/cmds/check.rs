@@ -152,10 +152,7 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
                 let pin_results = mcc::check::pins::run_pin_checks(&table);
                 errors = pin_results.iter().filter(|r| r.severity == "error").count();
                 if !pin_results.is_empty() {
-                    eprintln!(
-                        "=== Pin Usage Checks ({} issues) ===",
-                        pin_results.len()
-                    );
+                    eprintln!("=== Pin Usage Checks ({} issues) ===", pin_results.len());
                     for r in &pin_results {
                         eprintln!("  [{}] {}: {}", r.severity, r.check, r.message);
                     }
