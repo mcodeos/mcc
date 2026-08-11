@@ -45,12 +45,6 @@ impl McModuleInst {
     /// contexts; strict declaration validation should be handled in a later
     /// lint layer (Iter 5+), not here.
     pub(super) fn ensure_bus(&mut self, name: &str, members: &[String]) -> Result<(), InstError> {
-        if name == "UART0" || name == "I2C0" || name == "SPI" {
-            eprintln!(
-                "[P2-ENSURE-BUS] module={} name={} members={:?}",
-                self.name, name, members
-            );
-        }
         if let Some(existing) = self.buses.get_mut(name) {
             existing.merge_members(members);
         } else {

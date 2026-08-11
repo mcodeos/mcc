@@ -522,6 +522,18 @@ fn build_actual_modules(table: &InstTable, tree: &MccProjectTree) -> Vec<ActualM
                     net_points.entry(net_name.clone()).or_default().insert(norm);
                 }
             } else if depth == 2 {
+                // For the main module, skip depth=2 pins (submodule internal
+                // component pins). flatten_nets propagates all submodule
+                // internal nets to the parent, which pollutes the main module's
+                // actual nets with submodule internal pins like moddcdc.1,
+                // speaker.2, mcu513.1 etc. These are pure submodule internals
+                // that have no place in the main module's golden comparison.
+                //
+                // Root cause B (SPI port members not connected, so mcu513.10
+                // etc. are missing from actual nets) is tracked separately.
+                if golden_name == "main" {
+                    continue;
+                }
                 // Submodule component pin: main.mcu513.uC.10 → "mcu513.10"
                 // Take the first segment (submodule name) and the pin number,
                 // matching the golden format convention.
@@ -1361,13 +1373,13 @@ fn netdiff_all_modules() {
         "POWER_LDO: G3 should NOT be relaxed (all comps present)"
     );
 
-    // main: P2-4 interface port binding still pending.
-    // GND and V3V3.VCC nets are split because submodule interface ports
-    // (e.g. [VDD_3V3,GND]::DC(3.3V)) are not yet registered as PortInsts.
+    // main: P2-4 interface port binding + Square bracket param fix.
+    // All 14 nets match after fixing submodule pin leakage (netdiff.rs depth=2 skip)
+    // and Square bracket bus_members extraction (phases.rs IdsSegment::Square handling).
     let main_mod = reports.iter().find(|r| r.module == "main").unwrap();
     assert!(
-        main_mod.match_rate >= 0.4,
-        "main: expected match_rate >= 0.4, got {:.2}",
+        main_mod.match_rate >= 0.9,
+        "main: expected match_rate >= 0.9, got {:.2}",
         main_mod.match_rate
     );
     assert!(

@@ -29,16 +29,16 @@ pins = 2
 origin = "power.mc:67"
 
 [[net]]
-name = "vin.VCC"
-points = ["vin.VCC", "ldo.1", "ldo.3", "C10u.1"]
+name = "POWER_SYS"
+points = ["port.POWER_SYS", "ldo.1", "ldo.3", "C10u.1"]
 
 [[net]]
 name = "GND"
-points = ["vin.GND", "vout.GND", "ldo.2", "C10u.2", "C4u7.2"]
+points = ["port.GND", "ldo.2", "C10u.2", "C4u7.2"]
 
 [[net]]
-name = "vout.VCC"
-points = ["ldo.5", "C4u7.1", "vout.VCC"]
+name = "VCC"
+points = ["port.VCC", "ldo.5", "C4u7.1"]
 
 [[unconnected]]
 pin = "ldo.4"

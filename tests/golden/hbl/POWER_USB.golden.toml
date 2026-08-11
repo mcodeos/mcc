@@ -44,11 +44,11 @@ points = ["usbsock.1", "TP1.1", "R0603.1"]
 
 [[net]]
 name = "vin.POWER_SYS"
-points = ["R0603.2"]
+points = ["R0603.2", "vin.POWER_SYS"]
 
 [[net]]
 name = "vin.GND"
-points = ["usbsock.5", "usbsock.6", "usbsock.7", "usbsock.8", "usbsock.9", "TP3.1"]
+points = ["usbsock.5", "usbsock.6", "usbsock.7", "usbsock.8", "usbsock.9", "TP3.1", "vin.GND"]
 
 [[unconnected]]
 pin = "usbsock.2"
