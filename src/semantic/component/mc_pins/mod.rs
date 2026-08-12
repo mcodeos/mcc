@@ -1931,7 +1931,7 @@ impl McPinNames {
                                     if let Some(ref span) = class_span {
                                         mcb_register_declare_class(
                                             &lookup_uri,
-                                            &class_id.to_string(),
+                                            &class_id,
                                             span.clone(),
                                         );
                                     }
@@ -2241,11 +2241,7 @@ impl McPinNames {
                             // ★ LSP: Register class reference for goto-definition on
                             // ::Interface() syntax in pin names (e.g., I2C0::I2C(Master)).
                             if let Some(ref span) = class_span {
-                                mcb_register_declare_class(
-                                    &lookup_uri,
-                                    &class_name.to_string(),
-                                    span.clone(),
-                                );
+                                mcb_register_declare_class(&lookup_uri, &class_name, span.clone());
                             }
                             let lookup_result = resolve_cmie(&DB, &class_name, &lookup_uri);
                             if let Some(McCMIE::Interface(iface_def)) = lookup_result {
@@ -2374,11 +2370,7 @@ impl McPinNames {
                             // ★ LSP: Register class reference for goto-definition on
                             // ::Interface() syntax in pin names (e.g., I2C0::I2C(Master)).
                             if let Some(ref span) = class_span {
-                                mcb_register_declare_class(
-                                    &lookup_uri,
-                                    &class_name.to_string(),
-                                    span.clone(),
-                                );
+                                mcb_register_declare_class(&lookup_uri, &class_name, span.clone());
                             }
                             let mut lookup_result = resolve_cmie(&DB, &class_name, &lookup_uri);
                             let mut resolved_iface_name: Option<McIds> = None;

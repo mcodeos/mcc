@@ -2,6 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+use crate::McIds;
 use crate::McURI;
 use rust_lapper::Lapper;
 use std::ops::Range;
@@ -210,8 +211,8 @@ pub struct GlobalSymbolTable {
     class_id_counter: DeclareId,           // Global class ID counter
     declare_class_id_counter: ReferenceId, // Global reference ID counter
 
-    pub class_name_to_id: HashMap<(McURI, String), DeclareId>, // id
-    pub class_id_to_span: HashMap<DeclareId, (McURI, Span)>,   // Find class position in source code
+    pub class_name_to_id: HashMap<(McURI, McIds), DeclareId>, // id
+    pub class_id_to_span: HashMap<DeclareId, (McURI, Span)>,  // Find class position in source code
 
     pub declare_class_id_to_span: HashMap<ReferenceId, (McURI, Span)>, // Find reference ID position in source code
     pub span_to_declare_class_id: HashMap<(McURI, Span), ReferenceId>, //
@@ -219,7 +220,7 @@ pub struct GlobalSymbolTable {
 
     // ★ LSP: enum global storage
     // (uri, class_name) -> class_id
-    pub enum_class_name_to_id: HashMap<(McURI, String), DeclareId>,
+    pub enum_class_name_to_id: HashMap<(McURI, McIds), DeclareId>,
     // class_id -> (uri, span) — span of the `enum PKG { ... }` head
     pub enum_class_id_to_span: HashMap<DeclareId, (McURI, Span)>,
     // value_id (packed: class_id << 16 | value_idx) -> (uri, span) of the value row
@@ -268,12 +269,12 @@ impl GlobalSymbolTable {
     }
 
     /// Register an enum class definition (`enum PKG { ... }`).
-    pub fn add_enum_class(&mut self, uri: &McURI, class_name: &str, span: Span) -> DeclareId {
+    pub fn add_enum_class(&mut self, uri: &McURI, class_name: &McIds, span: Span) -> DeclareId {
         // Reuse class_id_counter so enum class ids do not collide with
         // component / interface / module ids used elsewhere.
         let cls_id = self.assign_class_id();
         self.enum_class_name_to_id
-            .insert((uri.clone(), class_name.to_string()), cls_id);
+            .insert((uri.clone(), class_name.clone()), cls_id);
         self.enum_class_id_to_span
             .insert(cls_id, (uri.clone(), span));
         cls_id
@@ -295,9 +296,9 @@ impl GlobalSymbolTable {
     }
 
     /// Look up enum class id by (uri, class_name). Returns None if absent.
-    pub fn lookup_enum_class(&self, uri: &McURI, class_name: &str) -> Option<DeclareId> {
+    pub fn lookup_enum_class(&self, uri: &McURI, class_name: &McIds) -> Option<DeclareId> {
         self.enum_class_name_to_id
-            .get(&(uri.clone(), class_name.to_string()))
+            .get(&(uri.clone(), class_name.clone()))
             .copied()
     }
 
@@ -311,7 +312,7 @@ impl GlobalSymbolTable {
         self.enum_value_id_to_span.get(&value_id)
     }
 
-    pub fn add_class(&mut self, uri: &McURI, class_name: &String, span: Span) -> DeclareId {
+    pub fn add_class(&mut self, uri: &McURI, class_name: &McIds, span: Span) -> DeclareId {
         let cls_id = self.assign_class_id();
         self.class_name_to_id
             .insert((uri.clone(), class_name.clone()), cls_id);

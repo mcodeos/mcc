@@ -140,6 +140,28 @@ impl McModule {
                         );
                         if is_enum || is_interface {
                             self.params.parse(&param_node);
+                            // ★ LSP: register the interface class ref of a
+                            // module port (`[VDD_3V3,GND]::DC(3.3V)` → `DC`) so
+                            // goto-def lands on the library `interface DC`
+                            // definition (same path as component pin ::ifaces).
+                            if is_interface {
+                                if let Some((class_name, class_span)) =
+                                    Self::extract_declare_class_span(&subnode)
+                                {
+                                    tracing::info!(target: "mcc::lsp::audit",
+                                        "[AUDIT-ModulePort-Iface] class={class_name} span={class_span:?} uri={}",
+                                        self.uri);
+                                    crate::query::refs::mcb_register_declare_class(
+                                        &self.uri,
+                                        &class_name,
+                                        class_span,
+                                    );
+                                } else {
+                                    tracing::info!(target: "mcc::lsp::audit",
+                                        "[AUDIT-ModulePort-Iface] extract failed, subnode_type={}",
+                                        subnode.get_type());
+                                }
+                            }
                         } else {
                             self.insts.parse(&subnode, &self.uri);
                         }
@@ -301,6 +323,28 @@ impl McModule {
             }
         }
     }
+    /// Extract the interface class name and its source span from an
+    /// interface-typed module port parameter, e.g. `[VDD_3V3,GND]::DC(3.3V)`
+    /// → (`McIds(DC)`, <span of "DC">). Mirrors `McParamType::classify_declare`.
+    /// The `McIds` is taken directly from the AST node so the multi-segment
+    /// structure is preserved for downstream registration / resolution.
+    fn extract_declare_class_span(node: &AstNode) -> Option<(McIds, std::ops::Range<usize>)> {
+        let first_child = node.get_sub_node()?;
+        for child in first_child.iter() {
+            if child.get_type() != MCAST_CLASS {
+                continue;
+            }
+            if let Some(name_node) = child.get_sub_node() {
+                if let Some(ids) = McIds::new(&name_node) {
+                    let span = (name_node.get_pos() as usize)
+                        ..((name_node.get_pos() + name_node.get_len()) as usize);
+                    return Some((ids, span));
+                }
+            }
+        }
+        None
+    }
+
     pub(crate) fn find_inst(&self, id: &str) -> Option<McInstance> {
         self.insts.get(id).cloned()
     }

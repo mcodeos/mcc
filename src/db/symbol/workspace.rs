@@ -9,6 +9,7 @@
 
 use crate::ast::ast_semantic::{DeclareId, Span};
 use crate::ContainerKind;
+use crate::McIds;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -19,8 +20,12 @@ use std::sync::Mutex;
 pub struct LspTables {
     /// (uri, kind, class_name) → (class_id, target_span)
     pub class_table: Mutex<HashMap<(String, ContainerKind, String), (DeclareId, Span)>>,
-    /// Declare class references: uri → [(decl_span, class_id, target_uri, target_span)]
-    pub declare_class_refs: Mutex<HashMap<String, Vec<(Span, DeclareId, String, Span)>>>,
+    /// Declare class references: uri → [(decl_span, class_id, target_uri,
+    /// target_span, class_name)]. `class_name` is the AST-derived `McIds`
+    /// captured at registration time, so lapper creation does not need to
+    /// re-read the source from disk (which fails for in-memory buffers /
+    /// virtual URIs) nor rebuild a flattened string.
+    pub declare_class_refs: Mutex<HashMap<String, Vec<(Span, DeclareId, String, Span, McIds)>>>,
 }
 
 impl LspTables {

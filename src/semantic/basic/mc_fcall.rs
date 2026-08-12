@@ -104,8 +104,8 @@ impl McFuncCall {
         // it's a method call → skip. Otherwise it's a class → register.
         if let Some(subnodes) = node.get_sub_node() {
             let mut has_instance = false;
-            let mut inst_name: Option<String> = None;
-            let mut class_name: Option<(String, std::ops::Range<usize>)> = None;
+            let mut inst_name: Option<McIds> = None;
+            let mut class_name: Option<(McIds, std::ops::Range<usize>)> = None;
             for child in subnodes.iter() {
                 match child.get_type() {
                     MCAST_INSTANCE => {
@@ -114,7 +114,7 @@ impl McFuncCall {
                             if inner.get_type() == MCAST_OPD {
                                 if let Some(opd_sub) = inner.get_sub_node() {
                                     if let Some(ids) = McIds::new(&opd_sub) {
-                                        inst_name = Some(ids.to_string());
+                                        inst_name = Some(ids);
                                     }
                                 }
                             }
@@ -123,10 +123,9 @@ impl McFuncCall {
                     MCAST_NAME => {
                         if let Some(ids_node) = child.get_sub_node() {
                             if let Some(ids) = McIds::new(&ids_node) {
-                                let name_str = ids.to_string();
                                 let span = (ids_node.get_pos() as usize)
                                     ..((ids_node.get_pos() + ids_node.get_len()) as usize);
-                                class_name = Some((name_str, span));
+                                class_name = Some((ids, span));
                             }
                         }
                     }
@@ -138,21 +137,23 @@ impl McFuncCall {
             let is_method_call = has_instance
                 && (inst_name
                     .as_ref()
-                    .is_some_and(|n| context.find_inst(n).is_some())
+                    .is_some_and(|n| context.find_inst(&n.to_string()).is_some())
                     || inst_name.is_none());
             // Instance constructor: no instance child but name IS known instance
             // (e.g. mic(V3V3) — name="mic" is a declared instance)
             let is_instance_constructor = !has_instance
                 && class_name
                     .as_ref()
-                    .is_some_and(|(n, _)| context.find_inst(n).is_some());
+                    .is_some_and(|(n, _)| context.find_inst(&n.to_string()).is_some());
             if !is_method_call && !is_instance_constructor {
                 if let Some((name, span)) = class_name {
-                    let full_name = match inst_name {
-                        Some(inst) => format!("{inst}.{name}"),
-                        None => name.clone(),
+                    // The dotted class name spans two AST children (instance +
+                    // name); rebuild the canonical single-Ida form for lookup.
+                    let full_name_ids = match &inst_name {
+                        Some(inst) => McIds::from(&format!("{inst}.{name}")),
+                        None => name,
                     };
-                    mcb_register_declare_class(context.uri(), &full_name, span);
+                    mcb_register_declare_class(context.uri(), &full_name_ids, span);
                 }
             } else if is_method_call && inst_name.is_none() {
                 // ★ Chained call: RES(100kΩ).Pullup() — register inner class name
@@ -178,7 +179,7 @@ impl McFuncCall {
                                                             as usize);
                                                     mcb_register_declare_class(
                                                         context.uri(),
-                                                        &ids.to_string(),
+                                                        &ids,
                                                         span,
                                                     );
                                                 }

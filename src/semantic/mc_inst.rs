@@ -853,14 +853,15 @@ impl McInstances {
                                     if pname.is_square_only() {
                                         let members = pname.expand();
                                         let next_node = opd_node.get_next();
-                                        let mut interface_name: Option<String> = None;
+                                        let mut interface_name: Option<McIds> = None;
                                         let mut interface_span: Option<std::ops::Range<usize>> =
                                             None;
                                         if let Some(n) = next_node {
                                             if n.get_type() == MCAST_OPD_DBCOLON {
                                                 if let Some(sub) = n.get_sub_node() {
-                                                    interface_name =
-                                                        Some(sub.to_string().unwrap_or_default());
+                                                    // McIds straight from the AST node — no
+                                                    // flattened-string rebuild.
+                                                    interface_name = McIds::new(&sub);
                                                     interface_span = Some(
                                                         (sub.get_pos() as usize)
                                                             ..((sub.get_pos() + sub.get_len())
@@ -869,22 +870,20 @@ impl McInstances {
                                                 }
                                             }
                                         }
-                                        if let Some(ref iface_str) = interface_name {
+                                        if let Some(iface_ids) = &interface_name {
                                             // ★ LSP: Register class reference for goto-definition on
                                             // ::Interface() syntax in port declarations
                                             // (e.g., ps [VDD, GND]::DC(3.3V)).
                                             if let Some(ref span) = interface_span {
                                                 mcb_register_declare_class(
                                                     uri,
-                                                    iface_str,
+                                                    iface_ids,
                                                     span.clone(),
                                                 );
                                             }
-                                            if let Some(McCMIE::Interface(iface_def)) = resolve_cmie(
-                                                &DB,
-                                                &McIds::from(iface_str.as_str()),
-                                                uri,
-                                            ) {
+                                            if let Some(McCMIE::Interface(iface_def)) =
+                                                resolve_cmie(&DB, iface_ids, uri)
+                                            {
                                                 let members_ids: Vec<IdsSegment> = members
                                                     .iter()
                                                     .map(|m| {
@@ -911,7 +910,7 @@ impl McInstances {
                                                     &opd_node,
                                                     &format!(
                                                         "Interface '{}' not found for bus '{}[{}]'",
-                                                        iface_str,
+                                                        iface_ids,
                                                         pname,
                                                         members.to_vec().join(",")
                                                     ),
@@ -1361,10 +1360,9 @@ impl McInstances {
         let cmie = resolve_cmie(&DB, &class_ids, uri);
 
         // ★ LSP: Register class reference for goto-definition
-        let class_name = class_ids.to_string();
         let class_span = (class_id_node.get_pos() as usize)
             ..((class_id_node.get_pos() + class_id_node.get_len()) as usize);
-        mcb_register_declare_class(uri, &class_name, class_span);
+        mcb_register_declare_class(uri, &class_ids, class_span);
 
         // Parse all instances
         for inst_node in &inst_nodes {
@@ -1528,7 +1526,7 @@ impl McInstances {
                 let (mc_inst, insert_key) = match &cmie {
                     Some(McCMIE::Component(comp_def)) => {
                         mcc_dbg!("sem::inst", 
-                            "[P2-4-PARSE] inst='{inst_name}' class='{class_name}' -> Component (cmie=Component)",
+                            "[P2-4-PARSE] inst='{inst_name}' class='{class_ids}' -> Component (cmie=Component)",
                         );
                         // ── P1: besides class-level value params (CAP(1uF…)), also merge instance-level construction args (flash(V3V3)) ──
                         let mut instance_params = instance_params;
@@ -1542,7 +1540,7 @@ impl McInstances {
                     }
                     Some(McCMIE::Module(mod_def)) => {
                         mcc_dbg!("sem::inst",
-                            "[P2-4-PARSE] inst='{inst_name}' class='{class_name}' -> Module (cmie=Module)",
+                            "[P2-4-PARSE] inst='{inst_name}' class='{class_ids}' -> Module (cmie=Module)",
                         );
                         (
                             // ── P1: bring construction args into module instance ──
