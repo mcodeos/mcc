@@ -15,7 +15,7 @@ use crate::output::compact;
 use anyhow::{Context, Result};
 use mcc::cli::{rpcclient::RpcClient, OutputFormat, ShowArgs, ShowTarget};
 use mcc::McURI;
-use serde_json::{json, Map, Value};
+use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
 use tracing::error;
@@ -41,11 +41,14 @@ pub fn run(args: &ShowArgs) -> Result<()> {
     run_local(args)
 }
 
-/// Map show targets to their RPC method + params. Returns `None` when
-/// `args.filter` is set — RPC list methods don't apply filters, so we must
-/// fall through to local to honor the filter (filter RPC parity deferred).
+/// Map show targets to their RPC method + params. Returns `None` when the
+/// command must fall through to local execution:
+///   * `--filter` is set — RPC list methods don't apply filters (parity deferred).
+///   * output format is `text` — RPC handlers only return JSON, so the aligned
+///     tables / .mc-like dumps are rendered locally. This also makes the
+///     default `-f text` output stable whether or not a server is running.
 fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
-    if args.filter.is_some() {
+    if args.format == OutputFormat::Text || args.filter.is_some() {
         return None;
     }
     match args.target {
@@ -1063,67 +1066,11 @@ fn dump_enum(name: &str, en: &mcc::McEnumDef) -> Value {
 // Rendering helpers
 // ============================================================================
 
-/// Build the JSON view of a `McPins` (pins + name/id mappings).
+/// Build the JSON view of a `McPins` (pins + interfaces + name/id mappings).
+/// Single implementation lives in `rpc::handlers` so the CLI and the server
+/// stay in parity.
 fn pins_json(pins: &mcc::McPins) -> Value {
-    let pin_list: Vec<Value> = pins
-        .pins
-        .iter()
-        .map(|(pin_id, pin)| {
-            let mut desc = String::new();
-            for val in pin.values.iter() {
-                if let mcc::McAttrVal::AttrLiteral(mcc::McLiteral::String(s)) = val {
-                    if !desc.is_empty() {
-                        desc.push(' ');
-                    }
-                    desc.push_str(&s.value);
-                }
-            }
-            let mut pin_json = json!({
-                "id": pin_id,
-                "iotype": format!("{:?}", pin.iotype),
-                "names": pin.names,
-            });
-            if !desc.is_empty() {
-                pin_json["description"] = json!(desc);
-            }
-            pin_json
-        })
-        .collect();
-
-    let mut names_to_id = Map::new();
-    for (k, v) in &pins.names_to_id {
-        names_to_id.insert(k.clone(), pinport_json(v));
-    }
-    let mut pin_id_to_names = Map::new();
-    for (k, v) in &pins.pin_id_to_names {
-        pin_id_to_names.insert(k.clone(), json!(v));
-    }
-
-    json!({
-        "pin_count": pins.pins.len(),
-        "pins": pin_list,
-        "names_to_id": Value::Object(names_to_id),
-        "pin_id_to_names": Value::Object(pin_id_to_names),
-    })
-}
-
-fn pinport_json(v: &mcc::McPinPort) -> Value {
-    match v {
-        mcc::McPinPort::Single(pid) => json!({ "kind": "Single", "pin": pid }),
-        mcc::McPinPort::Multi(pids) => json!({ "kind": "Multi", "pins": pids }),
-        mcc::McPinPort::MultiGroup(groups) => json!({ "kind": "MultiGroup", "groups": groups }),
-        mcc::McPinPort::List(name, items) => {
-            json!({ "kind": "List", "name": name, "items": items })
-        }
-        mcc::McPinPort::Bus(bus) => json!({ "kind": "Bus", "debug": format!("{:?}", bus) }),
-        mcc::McPinPort::Interface(iface) => json!({
-            "kind": "Interface",
-            "inst_name": iface.name.to_string(),
-            "base_name": iface.base_name(),
-            "registered_pins": iface.registered_pins,
-        }),
-        mcc::McPinPort::NC => json!({ "kind": "NC" }),
-    }
+    mcc::rpc::handlers::pins_json(pins)
 }
 
 fn inst_kind_class(inst: &mcc::McInstance) -> (&'static str, String) {
@@ -1252,6 +1199,112 @@ fn nets_map(top: &str) -> BTreeMap<String, Vec<String>> {
 // Output
 // ============================================================================
 
+/// Render a component/pins data object (`name`, `uri`, `pin_count`, `pins`)
+/// as an aligned text table. Returns `None` when the data has no `pins` array.
+fn render_pins_text(data: &Value) -> Option<String> {
+    let pins = data.get("pins")?.as_array()?;
+    let mut rows: Vec<(String, String, String, String)> = Vec::new();
+    for p in pins {
+        let id = p.get("id")?.as_str()?.to_string();
+        let io = p
+            .get("iotype")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let names: Vec<String> = p
+            .get("names")
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|n| n.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let ifaces: Vec<String> = p
+            .get("interfaces")
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(iface_display).collect())
+            .unwrap_or_default();
+        rows.push((id, io, names.join(", "), ifaces.join(" | ")));
+    }
+
+    let id_w = rows.iter().map(|r| r.0.len()).max().unwrap_or(4).max(4);
+    let io_w = rows.iter().map(|r| r.1.len()).max().unwrap_or(8).max(8);
+    let names_w = rows.iter().map(|r| r.2.len()).max().unwrap_or(40).max(40);
+    let name_w = rows.iter().map(|r| r.3.len()).max().unwrap_or(12).max(12);
+
+    let mut out = String::new();
+    if let Some(name) = data.get("name").and_then(|v| v.as_str()) {
+        out.push_str(&format!("component: {name}\n"));
+    }
+    if let Some(uri) = data.get("uri").and_then(|v| v.as_str()) {
+        out.push_str(&format!("uri: {uri}\n"));
+    }
+    if let Some(n) = data.get("pin_count").and_then(|v| v.as_u64()) {
+        out.push_str(&format!("pin_count: {n}\n"));
+    }
+    out.push('\n');
+    out.push_str(&format!(
+        "  {:<id_w$}  {:<io_w$}  {:<names_w$}  {}\n",
+        "id", "io", "names", "interfaces"
+    ));
+    out.push_str(&format!(
+        "  {}  {}  {}  {}\n",
+        "-".repeat(id_w),
+        "-".repeat(io_w),
+        "-".repeat(names_w),
+        "-".repeat(name_w.min(60)),
+    ));
+    for (id, io, names, ifaces) in &rows {
+        out.push_str(&format!(
+            "  {:<id_w$}  {:<io_w$}  {:<names_w$}  {}\n",
+            id, io, names, ifaces
+        ));
+    }
+    Some(out)
+}
+
+/// Format one interface entry of a pin. Interfaces render as
+/// `Name::Base(param1, param2)`, buses as `Name{CLK, DATA}`, and List groups
+/// as `Name[CLK, DATA]` to mirror the `.mc` source notation.
+fn iface_display(v: &Value) -> Option<String> {
+    let kind = v
+        .get("kind")
+        .and_then(|x| x.as_str())
+        .unwrap_or("Interface");
+    let inst = v.get("name").and_then(|x| x.as_str())?;
+    let members: Vec<String> = v
+        .get("members")
+        .and_then(|x| x.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|s| s.as_str().map(|x| x.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    match kind {
+        "Bus" => Some(format!("{}{{{}}}", inst, members.join(", "))),
+        "List" => Some(format!("{}[{}]", inst, members.join(", "))),
+        _ => {
+            let base = v.get("base").and_then(|x| x.as_str()).unwrap_or(inst);
+            let params: Vec<String> = v
+                .get("params")
+                .and_then(|x| x.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|s| s.as_str().map(|x| x.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            if params.is_empty() {
+                Some(format!("{inst}::{base}"))
+            } else {
+                Some(format!("{inst}::{base}({})", params.join(", ")))
+            }
+        }
+    }
+}
+
 fn output(data: &Value, args: &ShowArgs) -> Result<()> {
     let rendered = match args.format {
         OutputFormat::Json => data.to_string(),
@@ -1264,6 +1317,9 @@ fn output(data: &Value, args: &ShowArgs) -> Result<()> {
                 compact::render_entity(data)
             } else if data.get("type").and_then(|v| v.as_str()) == Some("dump_all") {
                 compact::render_all(data)
+            } else if let Some(t) = render_pins_text(data) {
+                // component / pins drill-down: aligned pin table
+                t
             } else if let Some(obj) = data.as_object() {
                 obj.iter()
                     .map(|(k, v)| format!("{}: {}", k, v))

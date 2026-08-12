@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use super::mc_ida::{IdaSegment, McIda};
+use super::mc_ida::{IdaSegment, McIda, SquareItem};
 use super::mc_literal::McInt;
 use crate::ast::ast_node::AstNode;
 use crate::ast::c_macros::*;
@@ -812,6 +812,46 @@ impl McIds {
             }
         }
         false
+    }
+
+    /// Square members embedded inside a single IDA segment (e.g.
+    /// `PDM[CLK, DATA]` tokenized as one IDA by the C parser). §2.1: such
+    /// names are List form — pins register as PDMCLK/PDMDATA and the bare
+    /// prefix `PDM` does not exist. Returns None for other shapes so callers
+    /// that only recognize outer-level Square segments are unaffected.
+    pub fn embedded_square_members(&self) -> Option<Vec<String>> {
+        if self.segments.len() != 1 {
+            return None;
+        }
+        let IdsSegment::Ida(ida) = &self.segments[0] else {
+            return None;
+        };
+        let mut members = Vec::new();
+        for seg in &ida.segments {
+            if let IdaSegment::Square(items) = seg {
+                for item in items {
+                    match item {
+                        SquareItem::Id(id) => members.push(id.clone()),
+                        SquareItem::Range(start, end) => {
+                            if let (Ok(from), Ok(to)) = (start.parse::<i64>(), end.parse::<i64>()) {
+                                if from <= to {
+                                    for i in from..=to {
+                                        members.push(i.to_string());
+                                    }
+                                }
+                            } else {
+                                members.push(format!("{start}:{end}"));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if members.is_empty() {
+            None
+        } else {
+            Some(members)
+        }
     }
 
     /// Get Square portion members (only valid when is_list() returns true)
