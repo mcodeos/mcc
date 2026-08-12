@@ -1784,7 +1784,7 @@ impl McModuleInst {
         let (inst, member) = path.split_once('.')?;
         let comp = self.find_component(inst)?;
         let debug_513 = self.name.contains("513") && inst == "uC" && member == "GPIO.2";
-        if self.name.contains("513") {
+        if self.name.contains("513") || self.name.to_uppercase().contains("SPEAKER") {
             eprintln!(
                 "[P2-NORM] module={} path={path} inst={inst} member={member}",
                 self.name

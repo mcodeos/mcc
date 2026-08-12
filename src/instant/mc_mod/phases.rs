@@ -230,12 +230,16 @@ impl McModuleInst {
                 }
                 McParamDeclareKind::Single(ids) => {
                     // Handle curly bracket form: vin{VCC, GND} → ["VCC", "GND"]
+                    // Handle square bracket form: [VDD_3V3, GND] → ["VDD_3V3", "GND"]
                     let mut members: Vec<String> = Vec::new();
                     for seg in &ids.segments {
-                        if let IdsSegment::Curly(curly_segs) = seg {
-                            for curly_seg in curly_segs {
-                                members.push(curly_seg.to_string());
+                        match seg {
+                            IdsSegment::Curly(curly_segs) | IdsSegment::Square(curly_segs) => {
+                                for curly_seg in curly_segs {
+                                    members.push(curly_seg.to_string());
+                                }
                             }
+                            _ => {}
                         }
                     }
                     members.sort();
