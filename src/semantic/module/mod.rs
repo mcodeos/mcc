@@ -11,6 +11,7 @@ use super::{
 };
 use crate::db::context::DB;
 use crate::db::diagnostic::diagnostic::dlog_error;
+use crate::refdef::types::ChainSegment;
 use crate::semantic::basic::mc_param_type::{McParamType, McParamTypeKind};
 use crate::semantic::component::Mc2Component;
 use crate::semantic::context::resolve_cmie;
@@ -791,7 +792,13 @@ impl McModule {
                 true
             }
             MCAST_OPD => {
-                if let Some(sub) = node.get_sub_node() {
+                // If this OPD contains dot separators between identifiers
+                // (e.g., `uC.i2c(0x36).I2C0`), return false so that
+                // try_record_chain_ref handles it with AST-structured segments
+                // instead of falling through to simple name recording.
+                if Self::has_dot_chain(node) {
+                    false
+                } else if let Some(sub) = node.get_sub_node() {
                     let inner_type = sub.get_type();
                     if matches!(
                         inner_type,
@@ -810,6 +817,14 @@ impl McModule {
         };
 
         if !handled {
+            // ★ Chain detection: MCAST_OPD with dotted segments like
+            // `uC.i2c(0x36).I2C0`. Record the full chain as a net-ref so
+            // the chain resolver can find the cross-container member def
+            // (e.g., the MCU pin I2C0::I2C(Master) rather than the local
+            // module port I2C0).
+            if node.get_type() == MCAST_OPD {
+                Self::try_record_chain_ref(node, insts, scope);
+            }
             let Some(sub) = node.get_sub_node() else {
                 return;
             };
@@ -821,6 +836,121 @@ impl McModule {
                     None => break,
                 }
             }
+        }
+    }
+
+    /// Check whether an MCAST_OPD node contains dot-separated identifiers
+    /// (i.e., it's a member-chain expression like `uC.i2c(0x36).I2C0`).
+    /// Returns `true` if at least one MCAST_OPD_DOT child separates
+    /// identifier nodes in the flat child list.
+    fn has_dot_chain(node: &AstNode) -> bool {
+        let mut current = node.get_sub_node();
+        while let Some(n) = current {
+            if n.get_type() == MCAST_OPD_DOT {
+                return true;
+            }
+            current = n.get_next();
+        }
+        false
+    }
+
+    /// Walk the AST children of a chain expression (MCAST_OPD) and extract
+    /// structured [`ChainSegment`]s. Records the chain via
+    /// [`McInstances::record_chain_ref`] so the chain resolver can use the
+    /// already-parsed structure instead of re-parsing brackets from raw text.
+    fn try_record_chain_ref(node: &AstNode, insts: &mut McInstances, scope: &str) {
+        let mut segments: Vec<ChainSegment> = Vec::new();
+        let mut chain_end: Option<usize> = None;
+
+        let mut current = node.get_sub_node();
+        while let Some(n) = current {
+            let ty = n.get_type();
+
+            // Stop at connection operators `->` or `-`.
+            if ty == MCAST_OPD_LEFTARROW || ty == MCAST_OPD_MINUS {
+                break;
+            }
+
+            // Skip punctuation nodes (dots, colons, etc.).
+            if ty == MCAST_OPD_DOT || ty == MCAST_OPD_COLON || ty == MCAST_OPD_DBCOLON {
+                current = n.get_next();
+                continue;
+            }
+
+            if ty == MCAST_ID || ty == MCAST_IDA || ty == MCAST_IDS {
+                if let Some(text) = n.to_string() {
+                    let end = n.get_pos() as usize + n.get_len() as usize;
+                    segments.push(ChainSegment::Ident(text));
+                    chain_end = Some(end);
+                }
+            } else if ty == MCAST_OPD_FCALL {
+                // Extract function name from first child (MCAST_ID).
+                if let Some(name_node) = n.get_sub_node() {
+                    if let Some(name) = name_node.to_string() {
+                        let end = n.get_pos() as usize + n.get_len() as usize;
+                        segments.push(ChainSegment::Fcall(name));
+                        chain_end = Some(end);
+                    }
+                }
+            } else if ty == MCAST_OPD {
+                // Nested MCAST_OPD wrapping the chain — recurse into it.
+                Self::walk_chain_children(&n, &mut segments, &mut chain_end);
+                break;
+            }
+
+            current = n.get_next();
+        }
+
+        // Need at least 2 segments for a cross-container chain (e.g., `uC.I2C0`).
+        if segments.len() < 2 {
+            return;
+        }
+        let chain_end = match chain_end {
+            Some(e) => e,
+            None => return,
+        };
+
+        let start = node.get_pos() as usize;
+        let span = start..chain_end;
+        insts.record_chain_ref(span, segments, scope);
+    }
+
+    /// Walk children of a nested MCAST_OPD node, collecting chain segments.
+    fn walk_chain_children(
+        node: &AstNode,
+        segments: &mut Vec<ChainSegment>,
+        chain_end: &mut Option<usize>,
+    ) {
+        let mut current = node.get_sub_node();
+        while let Some(n) = current {
+            let ty = n.get_type();
+
+            if ty == MCAST_OPD_LEFTARROW || ty == MCAST_OPD_MINUS {
+                break;
+            }
+
+            if ty == MCAST_OPD_DOT || ty == MCAST_OPD_COLON || ty == MCAST_OPD_DBCOLON {
+                current = n.get_next();
+                continue;
+            }
+
+            if ty == MCAST_ID || ty == MCAST_IDA || ty == MCAST_IDS {
+                if let Some(text) = n.to_string() {
+                    let end = n.get_pos() as usize + n.get_len() as usize;
+                    segments.push(ChainSegment::Ident(text));
+                    *chain_end = Some(end);
+                }
+            } else if ty == MCAST_OPD_FCALL {
+                if let Some(name_node) = n.get_sub_node() {
+                    if let Some(name) = name_node.to_string() {
+                        let end = n.get_pos() as usize + n.get_len() as usize;
+                        segments.push(ChainSegment::Fcall(name));
+                        *chain_end = Some(end);
+                    }
+                }
+            }
+
+            current = n.get_next();
         }
     }
 

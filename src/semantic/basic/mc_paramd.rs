@@ -683,49 +683,57 @@ impl McParamDeclare {
                     // Check for default value (next sibling after the name node)
                     // e.g., diel = CAP.X7R → PARAM(IDS("diel"), IDS("CAP.X7R"))
                     if let Some(default_node) = subnode.get_next() {
-                        let default_str = ids_to_dotted_string(&default_node).unwrap_or_default();
-                        // Check if default is EnumClass.Value format
-                        if let Some(dot_pos) = default_str.find('.') {
-                            let class_name = default_str[..dot_pos].to_string();
-                            let value_name = default_str[dot_pos + 1..].to_string();
-                            if crate::db::cmie::cmie::is_enum_class_name(&class_name) {
-                                param_type.kind = crate::semantic::basic::mc_param_type::McParamTypeKind::EnumClassDefault {
-                                    class_name: class_name.clone(),
-                                    default_val: Some(value_name.clone()),
-                                };
-                                return Some(Self {
-                                    param_type,
-                                    kind: McParamDeclareKind::EnumClass(McEnumClassDeclare {
-                                        name: name_ids,
-                                        class_name,
-                                        default_val: Some(value_name),
-                                    }),
-                                });
-                            }
-                        } else {
-                            // Bare default (no dot): resolve against all known enums.
-                            // e.g., diel = X7R → search all enums for member "X7R".
-                            // Prefer the same-named enum (namespace merging) when available.
-                            let prefer_class = enclosing_comp_name.and_then(|n| n.root_name());
-                            if let Some(class_name) = crate::db::cmie::cmie::resolve_bare_enum_value(
-                                &default_str,
-                                prefer_class.as_deref(),
-                            ) {
-                                param_type.kind = crate::semantic::basic::mc_param_type::McParamTypeKind::EnumClassDefault {
+                        if let Some(default_ids) = McIds::new(&default_node) {
+                            let default_str = default_ids.to_string();
+                            // Check if default is EnumClass.Value format (dotted)
+                            if default_ids.segments.len() > 1 {
+                                let class_name = default_ids.segments[0].to_string();
+                                let value_name: String = default_ids.segments[1..]
+                                    .iter()
+                                    .map(|s| s.to_string().trim_start_matches('.').to_string())
+                                    .collect::<Vec<_>>()
+                                    .join(".");
+                                if crate::db::cmie::cmie::is_enum_class_name(&class_name) {
+                                    param_type.kind = crate::semantic::basic::mc_param_type::McParamTypeKind::EnumClassDefault {
+                                        class_name: class_name.clone(),
+                                        default_val: Some(value_name.clone()),
+                                    };
+                                    return Some(Self {
+                                        param_type,
+                                        kind: McParamDeclareKind::EnumClass(McEnumClassDeclare {
+                                            name: name_ids,
+                                            class_name,
+                                            default_val: Some(value_name),
+                                        }),
+                                    });
+                                }
+                            } else {
+                                // Bare default (no dot): resolve against all known enums.
+                                // e.g., diel = X7R → search all enums for member "X7R".
+                                // Prefer the same-named enum (namespace merging) when available.
+                                let prefer_class = enclosing_comp_name.and_then(|n| n.root_name());
+                                if let Some(class_name) =
+                                    crate::db::cmie::cmie::resolve_bare_enum_value(
+                                        &default_str,
+                                        prefer_class.as_deref(),
+                                    )
+                                {
+                                    param_type.kind = crate::semantic::basic::mc_param_type::McParamTypeKind::EnumClassDefault {
                                     class_name: class_name.clone(),
                                     default_val: Some(default_str.clone()),
                                 };
-                                return Some(Self {
-                                    param_type,
-                                    kind: McParamDeclareKind::EnumClass(McEnumClassDeclare {
-                                        name: name_ids,
-                                        class_name,
-                                        default_val: Some(default_str),
-                                    }),
-                                });
+                                    return Some(Self {
+                                        param_type,
+                                        kind: McParamDeclareKind::EnumClass(McEnumClassDeclare {
+                                            name: name_ids,
+                                            class_name,
+                                            default_val: Some(default_str),
+                                        }),
+                                    });
+                                }
                             }
+                            // Non-enum default: falls through to Single below
                         }
-                        // Non-enum default: falls through to Single below
                     }
                     McParamDeclareKind::Single(name_ids)
                 } else {

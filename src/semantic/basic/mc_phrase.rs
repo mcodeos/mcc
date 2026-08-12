@@ -2325,12 +2325,12 @@ impl McPhrase {
 
                 // Try individual port lookups
                 let mut found_members: Vec<String> = Vec::new();
-                let mut not_found_refs: Vec<String> = Vec::new();
+                let mut not_found_refs: Vec<(String, String)> = Vec::new();
                 for (i, id) in member_names.iter().enumerate() {
                     if m.base.insts.find_port(id).is_some() {
                         found_members.push(id.clone());
                     } else {
-                        not_found_refs.push(format!("{}.{}", inst_name, member_names[i]));
+                        not_found_refs.push((inst_name.clone(), member_names[i].clone()));
                     }
                 }
 
@@ -2342,20 +2342,10 @@ impl McPhrase {
                     ))));
                 }
                 // Add not found references as separate Buses with the member
-                for ref_str in not_found_refs {
-                    let parts: Vec<&str> = ref_str.split('.').collect();
-                    if parts.len() == 2 {
-                        final_results.push(McPhrase::Endpoint(McEndpoint::Single(
-                            McInstanceRef::new(McInstance::Bus(McBus::new_with_members(
-                                parts[0],
-                                vec![parts[1].to_string()],
-                            ))),
-                        )));
-                    } else {
-                        final_results.push(McPhrase::Endpoint(McEndpoint::Single(
-                            McInstanceRef::new(McInstance::Label(ref_str)),
-                        )));
-                    }
+                for (base, member) in not_found_refs {
+                    final_results.push(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        McInstance::Bus(McBus::new_with_members(&base, vec![member])),
+                    ))));
                 }
 
                 if final_results.is_empty() {
@@ -2476,9 +2466,7 @@ impl McPhrase {
                                         &data.name,
                                         found
                                             .into_iter()
-                                            .map(|e| {
-                                                e.name.split('.').next_back().unwrap().to_string()
-                                            })
+                                            .map(|e| e.member.last().cloned().unwrap_or_default())
                                             .collect(),
                                     )),
                                 ))))

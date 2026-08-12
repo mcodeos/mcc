@@ -109,18 +109,20 @@ fn check_unresolvable_dotted_name(
         .attrs
         .iter()
         .map(|a| {
-            // First segment of a dotted name, or the whole name if no dots
-            a.id.to_string().split('.').next().unwrap_or("").to_string()
+            // First segment of a dotted name, or the whole name if single-segment.
+            a.id.segments
+                .first()
+                .map(|s| s.to_string())
+                .unwrap_or_default()
         })
         .collect();
 
     for attr in comp.attrs.iter() {
-        let attr_id = attr.id.to_string();
-        if !attr_id.contains('.') {
+        if attr.id.segments.len() <= 1 {
             continue;
         }
-        let first_seg = attr_id.split('.').next().unwrap_or("");
-        if first_seg != comp_name && !known_keys.contains(first_seg) && !first_seg.is_empty() {
+        let first_seg = attr.id.segments[0].to_string();
+        if first_seg != comp_name && !known_keys.contains(&first_seg) && !first_seg.is_empty() {
             acc.push(CheckResult {
                 check_name: "attrs",
                 severity: CheckSeverity::Error,
@@ -129,7 +131,7 @@ fn check_unresolvable_dotted_name(
                 message: format!(
                     "Attribute '{}' starts with '{}' which is not the component name \
                      or a recognized attribute group.",
-                    attr_id, first_seg
+                    attr.id, first_seg
                 ),
                 code: 2802,
             });
@@ -213,11 +215,14 @@ fn check_pins_group(comp: &crate::McComponent, uri: &str, acc: &mut CheckAccumul
 
 /// N8: Component has both bare `pins =` and `pins.N =` attributes — potential overlap.
 fn check_pins_overlap(comp: &crate::McComponent, uri: &str, acc: &mut CheckAccumulator) {
-    let has_bare_pins = comp.attrs.iter().any(|a| a.id.to_string() == "pins");
+    let has_bare_pins = comp
+        .attrs
+        .iter()
+        .any(|a| a.id.segments.len() == 1 && a.id.segments[0].to_string() == "pins");
     let has_dotted_pins = comp
         .attrs
         .iter()
-        .any(|a| a.id.to_string().starts_with("pins."));
+        .any(|a| a.id.segments.len() > 1 && a.id.segments[0].to_string() == "pins");
 
     if has_bare_pins && has_dotted_pins {
         acc.push(CheckResult {

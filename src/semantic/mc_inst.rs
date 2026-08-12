@@ -7,6 +7,7 @@ use crate::db::context::DB;
 use crate::db::diagnostic::diagnostic::{dlog_error, dlog_warning};
 use crate::message::MISSING_SUBNODE;
 use crate::query::refs::mcb_register_declare_class;
+use crate::refdef::types::ChainSegment;
 use crate::semantic::basic::mc_bus::{McBus, McList};
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::basic::mc_ida::McIda;
@@ -77,14 +78,9 @@ fn collect_ctor_params(inst_node: &AstNode, inst_id_node: &AstNode) -> Vec<McPar
                     }
                 }
                 MCAST_STRING => {
-                    let val = sub.to_string().unwrap_or_default();
-                    let clean_val = if val.starts_with('"') && val.ends_with('"') && val.len() >= 2
-                    {
-                        val[1..val.len() - 1].to_string()
-                    } else {
-                        val
-                    };
-                    out.push(McParamValue::String(McString::from(clean_val.as_str())));
+                    if let Some(s) = McString::new(&sub) {
+                        out.push(McParamValue::String(s));
+                    }
                 }
                 MCAST_OPD_NC => out.push(McParamValue::NC(String::from("NC"))),
                 MCAST_UVALUE => {
@@ -338,6 +334,9 @@ pub struct McInstances {
     port_spans: HashMap<String, Vec<Range<usize>>>,
     /// LSP: spans in module body that reference port definitions (span, port_name)
     net_ref_spans: Vec<(Range<usize>, String, String)>, // (span, port_name, scope)
+    /// LSP: AST-structured chain references (span, segments, scope).
+    /// Used for cross-container member resolution without text-based re-parsing.
+    chain_ref_spans: Vec<(Range<usize>, Vec<ChainSegment>, String)>,
     /// ★ LSP: Enclosing scope name (module/component/function name)
     pub(crate) scope: Option<String>,
     /// Label kind registry: tracks whether a label is Explicit (declared) or Inline (net phrase).
@@ -354,6 +353,7 @@ impl McInstances {
             insts: BTreeMap::new(),
             port_spans: HashMap::new(),
             net_ref_spans: Vec::new(),
+            chain_ref_spans: Vec::new(),
             scope: None,
             label_kinds: HashMap::new(),
             bus_defs: BTreeMap::new(),
@@ -573,6 +573,23 @@ impl McInstances {
 
     pub fn iter_net_refs(&self) -> impl Iterator<Item = &(Range<usize>, String, String)> {
         self.net_ref_spans.iter()
+    }
+
+    /// Record an AST-structured chain reference (for cross-container member resolution).
+    pub(crate) fn record_chain_ref(
+        &mut self,
+        span: Range<usize>,
+        segments: Vec<ChainSegment>,
+        scope: &str,
+    ) {
+        self.chain_ref_spans
+            .push((span, segments, scope.to_string()));
+    }
+
+    pub fn iter_chain_refs(
+        &self,
+    ) -> impl Iterator<Item = &(Range<usize>, Vec<ChainSegment>, String)> {
+        self.chain_ref_spans.iter()
     }
 
     /// Find a name within comma-separated text and return its byte span

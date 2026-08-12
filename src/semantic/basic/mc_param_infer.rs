@@ -94,10 +94,10 @@ fn collect_usages_recursive(param_name: &str, node: &AstNode, usages: &mut Vec<U
                 // Attribute: key = value
                 MCAST_ATTRIBUTE => {
                     if node_contains_name(&n, param_name) {
-                        let attr_name = extract_attr_name(&n);
-                        if is_spec_attr(&attr_name) {
+                        let (attr_name, spec_key) = extract_attr_info(&n);
+                        if let Some(key) = spec_key {
                             usages.push(UsageSite {
-                                kind: UsageKind::AttrValue(extract_spec_key(&attr_name)),
+                                kind: UsageKind::AttrValue(key),
                                 pos,
                             });
                         } else {
@@ -187,30 +187,33 @@ fn node_contains_name(node: &AstNode, name: &str) -> bool {
     false
 }
 
-/// Extract attribute name from MCAST_ATTRIBUTE node (e.g., "spec.resistance")
-fn extract_attr_name(node: &AstNode) -> String {
+/// Walk MCAST_ATTRIBUTE children to extract the dotted attribute identifier.
+/// Returns `(full_name, spec_key)` where `spec_key` is `Some` if the first
+/// segment is `"spec"` (e.g., `("spec.resistance", Some("resistance"))`).
+fn extract_attr_info(node: &AstNode) -> (String, Option<String>) {
+    let mut parts: Vec<String> = Vec::new();
     if let Some(child) = node.get_sub_node() {
         for n in child.iter() {
-            if n.get_type() == MCAST_ID || n.get_type() == MCAST_IDS || n.get_type() == MCAST_IDA {
-                return format!("{:?}", n);
+            let ty = n.get_type();
+            if ty == MCAST_ID || ty == MCAST_IDS || ty == MCAST_IDA {
+                parts.push(n.to_string().unwrap_or_default());
+            } else if ty == MCAST_OPD_DOT {
+                continue; // dot separator between ident segments
+            } else if !parts.is_empty() {
+                break; // hit non-ident token → end of attribute name
             }
         }
     }
-    String::new()
-}
-
-/// Check if this is a spec.X = Y style attribute
-fn is_spec_attr(attr_name: &str) -> bool {
-    attr_name.starts_with("spec.") || attr_name.contains('.')
-}
-
-/// Extract the key name from spec.X
-fn extract_spec_key(attr_name: &str) -> String {
-    if let Some(pos) = attr_name.find('.') {
-        attr_name[pos + 1..].to_string()
-    } else {
-        attr_name.to_string()
+    if parts.is_empty() {
+        return (String::new(), None);
     }
+    let full = parts.join(".");
+    let spec_key = if parts.len() > 1 && parts[0] == "spec" {
+        Some(parts[1..].join("."))
+    } else {
+        None
+    };
+    (full, spec_key)
 }
 
 // ============================================================================
