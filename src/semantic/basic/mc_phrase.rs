@@ -746,7 +746,7 @@ impl McPhrase {
                                 let class_span = (class_id_node.get_pos() as usize)
                                     ..((class_id_node.get_pos() + class_id_node.get_len())
                                         as usize);
-                                mcb_register_declare_class(context.uri(), &fname, class_span);
+                                mcb_register_declare_class(context.uri(), &class_ids, class_span);
                             }
                             let is_twopin =
                                 crate::vector::graph::naming::is_known_twopin_class(&fname);

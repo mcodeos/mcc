@@ -69,6 +69,34 @@ impl From<&str> for McIds {
     }
 }
 
+impl From<String> for McIds {
+    fn from(s: String) -> Self {
+        Self::from(s.as_str())
+    }
+}
+
+impl From<&String> for McIds {
+    fn from(s: &String) -> Self {
+        Self::from(s.as_str())
+    }
+}
+
+/// Wrap an AST-parsed `McIda` as a single `Ida` segment.
+///
+/// Definition-side class names (component / module / interface / enum) are
+/// `McIda` parsed from the AST; wrapping them preserves the internal segment
+/// structure without a `to_string()` display round-trip. Together with
+/// `From<&str>` this gives one canonical single-`Ida` form for definition
+/// names, so `class_name_to_id` lookups stay consistent regardless of which
+/// construction path produced the key.
+impl From<McIda> for McIds {
+    fn from(ida: McIda) -> Self {
+        Self {
+            segments: vec![IdsSegment::Ida(Box::new(ida))],
+        }
+    }
+}
+
 impl McIds {
     pub fn new(node: &AstNode) -> Option<Self> {
         // 1. MCAST_IDS

@@ -1319,7 +1319,7 @@ impl McCode {
                                     //   accessible here. Clone out everything we need first
                                     //   because add_* methods take &mut self.
                                     let self_uri = self.uri.clone();
-                                    let class_name_str = enum_def.name.to_string();
+                                    let class_name_ids = McIds::from(enum_def.name.clone());
                                     let class_span =
                                         enum_def.span[0] as usize..enum_def.span[1] as usize;
                                     let value_spans: Vec<(usize, usize)> = enum_def
@@ -1329,7 +1329,7 @@ impl McCode {
                                         .collect();
                                     if let Some(class_id) = self.add_enum_class(
                                         &self_uri,
-                                        &class_name_str,
+                                        &class_name_ids,
                                         class_span.clone(),
                                     ) {
                                         for (idx, (vs, ve)) in value_spans.iter().enumerate() {
@@ -1385,7 +1385,7 @@ impl McCode {
             match node.get_type() {
                 MCAST_INTERFACE => {
                     if let Some(ifs) = McInterface::new(&node, &self.uri) {
-                        let ifs_name_str = ifs.name.to_string();
+                        let ifs_name_ids = McIds::from(ifs.name.clone());
                         let ifs_span = ifs.span.clone();
                         let self_uri = self.uri.clone();
                         let space_name = McSpaceName {
@@ -1412,7 +1412,7 @@ impl McCode {
                         // lapper_global_classes can create ClassDef intervals.
                         self.add_global_class(
                             &self_uri,
-                            &ifs_name_str,
+                            &ifs_name_ids,
                             ifs_span,
                             crate::ContainerKind::Interface,
                         );
@@ -1423,6 +1423,7 @@ impl McCode {
                         // ★ First clone the needed data (name + uri) for global_table,
                         // then move comp into the Arc table
                         let comp_name_str = comp.name.to_string();
+                        let comp_name_ids = McIds::from(comp.name.clone());
                         // Compute the correct span from the component node's subtree.
                         // Direct node.get_pos() returns 0 for MCAST_COMPONENT top-level nodes
                         // (a parser limitation). Instead, find the MCAST_NAME child and
@@ -1473,7 +1474,7 @@ impl McCode {
                         // causing LSP goto_definition's symbol_lapper to always be empty.
                         self.add_global_class(
                             &self_uri,
-                            &comp_name_str,
+                            &comp_name_ids,
                             comp_span,
                             crate::ContainerKind::Component,
                         );
@@ -1483,7 +1484,7 @@ impl McCode {
                     if let Some(enum_def) = McEnumDef::new(&node, &self.uri) {
                         // ★ LSP: register class + values in global table before the move.
                         let self_uri = self.uri.clone();
-                        let class_name_str = enum_def.name.to_string();
+                        let class_name_ids = McIds::from(enum_def.name.clone());
                         let class_span = enum_def.span[0] as usize..enum_def.span[1] as usize;
                         let value_spans: Vec<(usize, usize)> = enum_def
                             .values
@@ -1491,7 +1492,7 @@ impl McCode {
                             .map(|v| (v.span[0] as usize, v.span[1] as usize))
                             .collect();
                         if let Some(class_id) =
-                            self.add_enum_class(&self_uri, &class_name_str, class_span.clone())
+                            self.add_enum_class(&self_uri, &class_name_ids, class_span.clone())
                         {
                             for (idx, (vs, ve)) in value_spans.iter().enumerate() {
                                 self.add_enum_value(&self_uri, class_id, idx as u32, *vs..*ve);
@@ -1654,7 +1655,7 @@ impl McCode {
             if node_type == MCAST_MODULE {
                 if let Some(module) = McModule::new(&node, &self.uri) {
                     let module_name = module.name.clone();
-                    let module_name_str = module_name.to_string();
+                    let module_name_ids = McIds::from(module_name.clone());
                     let module_span = module.span.clone();
                     let self_uri = self.uri.clone();
                     let key = McSpaceName {
@@ -1667,7 +1668,7 @@ impl McCode {
                     // module names without ClassDef entries in the lapper.
                     self.add_global_class(
                         &self_uri,
-                        &module_name_str,
+                        &module_name_ids,
                         module_span,
                         crate::ContainerKind::Module,
                     );
@@ -1717,7 +1718,7 @@ impl McCode {
     pub fn add_global_class(
         &mut self,
         uri: &McURI,
-        class_name: &String,
+        class_name: &McIds,
         span: Span,
         kind: crate::ContainerKind,
     ) -> Option<DeclareId> {
@@ -1741,8 +1742,10 @@ impl McCode {
         if let Some(class_id) = result {
             tracing::info!(target: "mcc::lsp", "  add_global_class: registered '{}' ({}) in '{}' -> class_id={:?}", class_name, kind.as_str(), uri, class_id);
             let mut table = workspace::WORKSPACE.lsp.class_table.lock().unwrap();
+            // class_table is a plain-name index (queried externally by &str),
+            // so flatten the McIds here at the boundary.
             table.insert(
-                (uri.to_string(), kind, class_name.clone()),
+                (uri.to_string(), kind, class_name.to_string()),
                 (class_id, span),
             );
         }
@@ -1771,7 +1774,7 @@ impl McCode {
     pub fn add_enum_class(
         &mut self,
         uri: &McURI,
-        class_name: &str,
+        class_name: &McIds,
         span: Span,
     ) -> Option<DeclareId> {
         let result = match self.symbols.lock() {
@@ -2327,7 +2330,7 @@ impl McCode {
                                 def_kind: SymbolKind::ClassDef,
                                 cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
                             };
-                            map.add_name_alias(&self.uri, class_name, entry);
+                            map.add_name_alias(&self.uri, &class_name.to_string(), entry);
                         }
                     }
                     for ((def_uri, class_name), class_id) in &gt.enum_class_name_to_id {
@@ -2349,7 +2352,7 @@ impl McCode {
                                 def_kind: SymbolKind::EnumDef,
                                 cmie_kind: CmieKind::Enum as u8,
                             };
-                            map.add_name_alias(&self.uri, class_name, entry);
+                            map.add_name_alias(&self.uri, &class_name.to_string(), entry);
                         }
                     }
                 }
@@ -2625,22 +2628,18 @@ impl McCode {
     /// been parsed, so we can search workspace + global library tables.
     /// If found, ensures the class is registered in `gt` and returns the real
     /// (class_id, target_uri, target_span). Returns None if still unresolved.
+    ///
+    /// `class_name` is the AST-derived `McIds` captured at registration time —
+    /// no disk re-read and no flattened-string rebuild needed (the latter
+    /// would collapse dotted names such as `MCU.US513_20_F` from `[Ida, DotIda]`
+    /// into a single `Ida`, breaking the structural `Eq` used by the tables).
     fn resolve_class_ref_at_span(
         ref_uri: &McURI,
-        ref_span: &std::ops::Range<usize>,
+        class_name: &McIds,
         gt: &mut crate::ast::ast_semantic::GlobalSymbolTable,
         _sem: &McSemSymbols,
     ) -> Option<(DeclareId, McURI, std::ops::Range<usize>)> {
-        // Read the file content to extract the class name from the reference span
-        let content = std::fs::read_to_string(std::path::Path::new(ref_uri.as_str())).ok()?;
-        let class_name = content.get(ref_span.start..ref_span.end)?;
-
-        // Trim constructor args (e.g., "CAP(1uF" → "CAP", "RES(0Ω" → "RES")
-        let clean_name: String = class_name
-            .chars()
-            .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '.')
-            .collect();
-        if clean_name.is_empty() {
+        if class_name.segments.is_empty() {
             return None;
         }
 
@@ -2651,8 +2650,7 @@ impl McCode {
         //   P3: Single DashMap.get via cmie_kind
         //   P4: Re-entry guard → name-only fallback
         //   P5: find_by_name_in_project_tables (final fallback)
-        let ids = crate::semantic::basic::mc_ids::McIds::from(clean_name.as_str());
-        if let Some(cmie) = crate::db::cmie::cmie::mcb_get_cmie(&ids, ref_uri) {
+        if let Some(cmie) = crate::db::cmie::cmie::mcb_get_cmie(class_name, ref_uri) {
             let (def_uri, def_span) = match &cmie {
                 crate::semantic::common::McCMIE::Component(c) => (c.uri.clone(), c.span.clone()),
                 crate::semantic::common::McCMIE::Module(m) => (m.uri.clone(), m.span.clone()),
@@ -2663,17 +2661,13 @@ impl McCode {
                 }
             };
             // Check if already registered; if so return existing id,
-            // otherwise register now.
-            let cid = {
-                let mut found = None;
-                for ((uri, name), &existing_cid) in gt.class_name_to_id.iter() {
-                    if name == &clean_name && uri == &def_uri {
-                        found = Some(existing_cid);
-                        break;
-                    }
-                }
-                found.unwrap_or_else(|| gt.add_class(&def_uri, &clean_name, def_span.clone()))
-            };
+            // otherwise register now. Key is (McURI, McIds): O(1) lookup via
+            // normalized McIds Eq/Hash (DotIda/Curly equivalence).
+            let cid = gt
+                .class_name_to_id
+                .get(&(def_uri.clone(), class_name.clone()))
+                .copied()
+                .unwrap_or_else(|| gt.add_class(&def_uri, class_name, def_span.clone()));
             return Some((cid, def_uri, def_span));
         }
 
@@ -2732,7 +2726,7 @@ impl McCode {
                         .unwrap();
                     tracing::info!(target: "mcc::lsp", "  create_lapper: lsp.declare_class_refs for '{}' = {} entries", uri, decl_refs.get(uri).map(|v| v.len()).unwrap_or(0));
                     if let Some(refs) = decl_refs.remove(uri) {
-                        for (decl_span, _class_id, target_uri, target_span) in refs {
+                        for (decl_span, _class_id, target_uri, target_span, class_name) in refs {
                             // ★ Fix (unified): Register each class ref with a
                             // locally-unique DeclareId.
                             //
@@ -2752,23 +2746,13 @@ impl McCode {
                             // Sentinel (target_uri=""): class was NOT found
                             // during registration. Fall back to late resolution
                             // via resolve_class_ref_at_span.
+                            //
+                            // ★ class_name is captured at registration time
+                            // (mcb_register_declare_class) instead of being
+                            // re-read from disk here — disk reads fail for
+                            // in-memory buffers / virtual URIs (LSP didOpen).
 
-                            // Read class name from the reference span
-                            let content =
-                                std::fs::read_to_string(std::path::Path::new(uri.as_str())).ok();
-                            let class_name: String = content
-                                .as_ref()
-                                .and_then(|c| c.get(decl_span.start..decl_span.end))
-                                .map(|s| {
-                                    s.chars()
-                                        .take_while(|c| {
-                                            c.is_alphanumeric() || *c == '_' || *c == '.'
-                                        })
-                                        .collect()
-                                })
-                                .unwrap_or_default();
-
-                            if class_name.is_empty() {
+                            if class_name.segments.is_empty() {
                                 continue;
                             }
 
@@ -2777,7 +2761,7 @@ impl McCode {
                             {
                                 // Sentinel: unresolved during registration
                                 if let Some(resolved) =
-                                    Self::resolve_class_ref_at_span(uri, &decl_span, &mut gt, &sem)
+                                    Self::resolve_class_ref_at_span(uri, &class_name, &mut gt, &sem)
                                 {
                                     (resolved.0, resolved.1, resolved.2)
                                 } else {
@@ -3688,7 +3672,7 @@ impl McCode {
         // P3: current file's global table
         if let Ok(gt) = sem.global_table.lock() {
             for ((def_uri, name), class_id) in gt.enum_class_name_to_id.iter() {
-                if name == base_name {
+                if name == &McIds::from(base_name) {
                     if let Some((_u, span)) = gt.enum_class_id_to_span.get(class_id) {
                         return Some((def_uri.clone(), span.clone()));
                     }
@@ -3704,7 +3688,7 @@ impl McCode {
             if let Ok(ws_sym) = entry.value().symbols.lock() {
                 if let Ok(ws_gt) = ws_sym.global_table.lock() {
                     for ((def_uri, name), class_id) in ws_gt.enum_class_name_to_id.iter() {
-                        if name == base_name {
+                        if name == &McIds::from(base_name) {
                             if let Some((_u, span)) = ws_gt.enum_class_id_to_span.get(class_id) {
                                 return Some((def_uri.clone(), span.clone()));
                             }
@@ -3719,7 +3703,7 @@ impl McCode {
             if let Ok(ws_sym) = entry.value().symbols.lock() {
                 if let Ok(ws_gt) = ws_sym.global_table.lock() {
                     for ((def_uri, name), class_id) in ws_gt.enum_class_name_to_id.iter() {
-                        if name == base_name {
+                        if name == &McIds::from(base_name) {
                             if let Some((_u, span)) = ws_gt.enum_class_id_to_span.get(class_id) {
                                 return Some((def_uri.clone(), span.clone()));
                             }
@@ -3785,13 +3769,15 @@ impl McCode {
                 let (class_id, value_idx) = {
                     // Look up enum class_id: local table first, then cross-file.
                     let local_id = match sem.global_table.lock() {
-                        Ok(gt) => gt.lookup_enum_class(&uri, &base_name).or_else(|| {
-                            gt.enum_class_name_to_id
-                                .iter()
-                                .find_map(|((_uri, name), cid)| {
-                                    (name == &base_name).then_some(*cid)
-                                })
-                        }),
+                        Ok(gt) => gt
+                            .lookup_enum_class(&uri, &McIds::from(&base_name))
+                            .or_else(|| {
+                                gt.enum_class_name_to_id
+                                    .iter()
+                                    .find_map(|((_uri, name), cid)| {
+                                        (name == &McIds::from(&base_name)).then_some(*cid)
+                                    })
+                            }),
                         Err(_) => continue 'outer,
                     };
                     let class_id = if local_id.map_or(false, |id| u32::from(id) != 0) {
@@ -3805,7 +3791,7 @@ impl McCode {
                             sem.global_table.lock(),
                         ) {
                             (Some((def_uri, def_span)), Ok(mut gt)) => {
-                                gt.add_enum_class(&def_uri, &base_name, def_span)
+                                gt.add_enum_class(&def_uri, &McIds::from(&base_name), def_span)
                             }
                             _ => DeclareId::default(),
                         }
@@ -3977,13 +3963,14 @@ impl McCode {
                                 Ok(gt) => gt,
                                 Err(_) => continue,
                             };
-                            gt.lookup_enum_class(uri, &family_name).or_else(|| {
-                                gt.enum_class_name_to_id
-                                    .iter()
-                                    .find_map(|((_uri, name), cid)| {
-                                        (name == &family_name).then_some(*cid)
-                                    })
-                            })
+                            gt.lookup_enum_class(uri, &McIds::from(&family_name))
+                                .or_else(|| {
+                                    gt.enum_class_name_to_id.iter().find_map(
+                                        |((_uri, name), cid)| {
+                                            (name == &McIds::from(&family_name)).then_some(*cid)
+                                        },
+                                    )
+                                })
                         };
                         if local_id.map_or(false, |id| u32::from(id) != 0) {
                             local_id.unwrap()
@@ -3993,9 +3980,11 @@ impl McCode {
                                 Self::find_enum_class_cross_file(uri, sem, &family_name),
                                 sem.global_table.lock(),
                             ) {
-                                (Some((def_uri, def_span)), Ok(mut gt)) => {
-                                    gt.add_enum_class(&def_uri, &family_name, def_span)
-                                }
+                                (Some((def_uri, def_span)), Ok(mut gt)) => gt.add_enum_class(
+                                    &def_uri,
+                                    &McIds::from(&family_name),
+                                    def_span,
+                                ),
                                 _ => DeclareId::default(),
                             }
                         }
