@@ -237,3 +237,57 @@ module main
         "func-body goto-def must land exactly on the uC io label `UART0`"
     );
 }
+
+/// Regression: the chain span recorded for a module-body reference like
+/// `uC.ADC{P,N}` must include the closing `}`. The parser's AST nodes exclude
+/// trailing delimiters (the curly node covers `P{N` without `}`), so the
+/// recorded span was previously one byte short and the hover/tooltip showed
+/// `uC.ADC{P,N` truncated.
+#[test]
+fn module_body_chain_span_includes_closing_brace() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+
+    let uri: McURI = "/mcc/chain-span.mc".to_string();
+    let source = r#"
+component MCU
+{
+    pins = [
+        io [16, 17, 21] = ADC::ADC.DIFF(Receiver)
+        io [6, 7] = UART0::UART.TTL(DCE) | UART2::UART.TTL(DTE)
+    ]
+}
+
+module main
+{
+    MIC{P,N} -> [C4::CAP(),C5::CAP()] -> uC.ADC{P,N}
+    MCU uC
+}
+"#;
+
+    mcc::mcc_load_from_string(&uri, source);
+    let instance = mcc::mcc_build(&McIds::from("main"), &uri).expect("build");
+
+    let chain_pos = source.find("uC.ADC{P,N}").expect("chain present");
+    let (span, _segments, _scope) = instance
+        .def
+        .insts
+        .iter_chain_refs()
+        .find(|(_, segs, _)| {
+            segs.iter().any(|s| {
+                matches!(
+                    s,
+                    mcc::refdef::ChainSegment::Group { base, members }
+                        if base == "ADC" && members.as_slice() == ["P", "N"]
+                )
+            })
+        })
+        .expect("chain `uC.ADC{P,N}` recorded");
+    assert_eq!(
+        *span,
+        chain_pos..chain_pos + "uC.ADC{P,N}".len(),
+        "recorded span must cover the whole `uC.ADC{{P,N}}` including the closing brace"
+    );
+}
