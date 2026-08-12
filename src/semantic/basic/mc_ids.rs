@@ -1029,6 +1029,32 @@ impl McIds {
         }
     }
 
+    /// Split a plain dot chain into its segment names — `uC.ADC.P` →
+    /// `["uC", "ADC", "P"]`. Returns `None` when a curly/square group is
+    /// present (the chain is not a plain dot chain) or a segment expands to
+    /// multiple names. Consumers use this instead of `to_string()` +
+    /// `split_once('.')` text re-parsing.
+    pub fn dot_chain_parts(&self) -> Option<Vec<String>> {
+        let mut parts = Vec::with_capacity(self.segments.len());
+        for seg in &self.segments {
+            match seg {
+                IdsSegment::Ida(ida) | IdsSegment::DotIda(ida) => {
+                    let expanded = ida.expand();
+                    if expanded.len() != 1 {
+                        return None;
+                    }
+                    parts.push(expanded[0].clone());
+                }
+                IdsSegment::Int(int) | IdsSegment::DotInt(int) => {
+                    parts.push(int.value.to_string());
+                }
+                // Curly / Square groups are not a plain dot chain.
+                _ => return None,
+            }
+        }
+        Some(parts)
+    }
+
     /// Detect if it is a DOT access pattern (e.g. DC2.VDD)
     /// Returns (base_name, member_name) if it is a DOT pattern, otherwise returns None
     pub fn as_dot_access(&self) -> Option<(String, String)> {
