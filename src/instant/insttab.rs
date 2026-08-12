@@ -648,12 +648,6 @@ impl InstTable {
         } else {
             format!("{}.{}", prefix, inst.name)
         };
-        eprintln!(
-            "[FLATTEN] module={} prefix={prefix} sub_modules={} components={}",
-            my_path,
-            inst.sub_modules.len(),
-            inst.components.len()
-        );
         let my_id = self.register(
             my_path.clone(),
             InstKind::Module,
@@ -811,12 +805,6 @@ impl InstTable {
                         is_ground_name,
                         is_supply_name,
                     );
-                    if inst.name.to_uppercase().contains("SPEAKER") && comp.name == "lpa" {
-                        eprintln!(
-                            "[FLATTEN-PIN] module={} comp={} pin={pin_name} func_name={pin_func_name} iotype={:?} role={:?}",
-                            inst.name, comp.name, net_point.iotype, role
-                        );
-                    }
                     if !matches!(role, MemberRole::Signal) {
                         self.set_member_info(pin_id, MemberInfo::new(role, None));
                     }
@@ -945,7 +933,30 @@ impl InstTable {
             let mut point_ids: Vec<u32> = Vec::new();
 
             for np in net_points {
-                for id in self.resolve_netpoint_path(&np.path, module_path) {
+                let mut ids = self.resolve_netpoint_path(&np.path, module_path);
+                // ── P2-2: register boundary connection pins on the fly ──
+                // When a boundary connection creates a pin like mcu513.10, it's not
+                // registered as a port or component pin in the InstTable. Register it
+                // as a Pin entry under the owner submodule so flatten_nets can resolve it.
+                if ids.is_empty() && np.owner.is_some() {
+                    if let Some(owner_name) = &np.owner {
+                        let full_path = format!("{module_path}.{}", np.path);
+                        let owner_full = format!("{module_path}.{owner_name}");
+                        if let Some(parent_id) = self.get_id_by_path(&owner_full) {
+                            let pin_id = self.register(
+                                full_path,
+                                InstKind::Pin,
+                                Some(parent_id),
+                                String::new(),
+                                np.iotype.clone(),
+                                np.src_pos,
+                                String::new(),
+                            );
+                            ids.push(pin_id);
+                        }
+                    }
+                }
+                for id in ids {
                     point_ids.push(id);
                 }
             }

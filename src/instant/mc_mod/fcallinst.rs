@@ -365,16 +365,51 @@ impl McModuleInst {
             }
             let connect_count = left_count.min(port_count);
             for i in 0..connect_count {
-                let left_point = self.node_to_netpoint(&left[i]);
-                let input_point = NetPoint::with_owner(
-                    &format!("{}.{}", inst_name, input_ports[i].name),
-                    &inst_name,
-                    IOType::In,
-                );
-                new_connections.push(ConnectionInst::new(
-                    self.next_conn_id(),
-                    vec![left_point, input_point],
-                ));
+                // ── P3-3: bus member lane-by-lane connection ──
+                // When the left argument is a bus with members (e.g. V5V with
+                // [VCC, GND]) and the input port has bus_members (e.g.
+                // USB_VBUS_1 with [VDD_3V, GND]), create individual member
+                // connections instead of a single bus-to-port connection.
+                // This ensures V5V.VCC ↔ speaker.USB_VBUS_1.VDD_3V (and
+                // GND ↔ GND) are properly unioned in the net table.
+                let left_members = left[i].get_full_members();
+                let port_members = &input_ports[i].bus_members;
+                if !left_members.is_empty() && !port_members.is_empty() {
+                    let count = left_members.len().min(port_members.len());
+                    // Extract port base name (strip e.g. {VDD_3V, GND}::DC(3.3V))
+                    let port_base = input_ports[i]
+                        .name
+                        .split(&['{', '['][..])
+                        .next()
+                        .unwrap_or(&input_ports[i].name);
+                    for j in 0..count {
+                        let left_point = NetPoint::with_owner(
+                            &format!("{}.{}", left[i].name(), left_members[j]),
+                            left[i].name(),
+                            IOType::None,
+                        );
+                        let input_point = NetPoint::with_owner(
+                            &format!("{inst_name}.{port_base}.{}", port_members[j]),
+                            &inst_name,
+                            IOType::In,
+                        );
+                        new_connections.push(ConnectionInst::new(
+                            self.next_conn_id(),
+                            vec![left_point, input_point],
+                        ));
+                    }
+                } else {
+                    let left_point = self.node_to_netpoint(&left[i]);
+                    let input_point = NetPoint::with_owner(
+                        &format!("{}.{}", inst_name, input_ports[i].name),
+                        &inst_name,
+                        IOType::In,
+                    );
+                    new_connections.push(ConnectionInst::new(
+                        self.next_conn_id(),
+                        vec![left_point, input_point],
+                    ));
+                }
             }
         }
 
@@ -826,19 +861,19 @@ impl McModuleInst {
                 (formal, declared, iotype, actual)
             })
             .collect();
-        for (formal, declared_port_name, _port_iotype, actual) in resolved {
+        for (_formal, declared_port_name, _port_iotype, actual) in resolved {
             let actual_elems = Self::param_value_to_node_elements(&actual);
             let mut left: Vec<NetPoint> = Vec::new();
             for e in &actual_elems {
                 let expanded = self.expand_node_element(e);
                 left.extend(expanded);
             }
-            // ── P2-2: use the formal name for the boundary connection ──
-            // This matches the submodule's internal bus registration (registered
-            // with the formal name in Phase A), ensuring the boundary connection
-            // and the submodule body use the same label.
-            let boundary_name = format!("{inst_name}.{formal}");
-            // Try to expand via component pin ID lookup (same as Phase A bus registration)
+            // ── P2-2: use the declared port name for the boundary connection ──
+            // Use the declared port name (e.g. "SPI") instead of the formal
+            // parameter name (e.g. "spi") to match the submodule's port declaration.
+            // Pin IDs are placed directly under the instance name (e.g. "mcu513.10")
+            // to align with the golden netlist format.
+            let boundary_name = format!("{inst_name}.{declared_port_name}");
             let pin_ids: Option<Vec<(String, String)>> =
                 self.find_submodule(inst_name).and_then(|sub| {
                     sub.components
@@ -849,7 +884,7 @@ impl McModuleInst {
                 if pids.len() == left.len() && pids.len() >= 2 {
                     pids.iter()
                         .map(|(member_name, pin_id)| {
-                            let path = format!("{boundary_name}.{pin_id}");
+                            let path = format!("{inst_name}.{pin_id}");
                             NetPoint::with_owner(&path, inst_name, IOType::None)
                                 .with_member_name(member_name)
                         })
@@ -861,6 +896,23 @@ impl McModuleInst {
                 self.expand_node_element(&McBus::new(&boundary_name))
             };
             self.create_connection(left, right, ConnDir::Undirected, None)?;
+
+            // ── P2-2: register boundary pin IDs as port members on the submodule ──
+            // The boundary connection creates pins like mcu513.10, which need to be
+            // registered as port entries in the InstTable for flatten_nets to resolve
+            // them. Without this, the pins are silently dropped from the actual nets.
+            if let Some(ref pids) = pin_ids {
+                if pids.len() >= 2 {
+                    if let Some(sub) = self.sub_modules.iter_mut().find(|s| s.name == inst_name) {
+                        if let Some(port) = sub.ports.iter_mut().find(|p| p.name == declared_port_name) {
+                            if port.bus_members.is_empty() {
+                                let members: Vec<String> = pids.iter().map(|(_, pid)| pid.clone()).collect();
+                                port.bus_members = members;
+                            }
+                        }
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -1236,14 +1288,22 @@ impl McModuleInst {
                 dot_member: f.dot_member.clone(),
                 resolved_return_shape: f.resolved_return_shape.clone(),
             }),
-            McPhrase::Endpoint(McEndpoint::Single(ref iref))
-                if matches!(iref.base, McInstance::Label(_)) =>
-            {
-                if let McInstance::Label(ref s) = iref.base {
+            // ── P3-1: expand Label or empty Bus to Bus with populated members ──
+            // Handles both Label (e.g. "X6.XTAL") and Bus with empty members
+            // (e.g. Bus("X6.XTAL") created by prefixing an Interface variant).
+            // Also handles single-member buses (e.g. GND → ["21"]) so that
+            // get_left_points can expand them to physical pin IDs.
+            McPhrase::Endpoint(McEndpoint::Single(ref iref)) => {
+                let name_opt: Option<&str> = match &iref.base {
+                    McInstance::Label(s) => Some(s.as_str()),
+                    McInstance::Bus(b) if b.member.is_empty() => Some(b.name.as_str()),
+                    _ => None,
+                };
+                if let Some(s) = name_opt {
                     if let Some(bus) = self.find_bus(s) {
                         if bus.members.len() >= 2 {
                             let new_bus = McBus {
-                                name: s.clone(),
+                                name: s.to_string(),
                                 member: bus.members.clone(),
                                 full_members: Vec::new(),
                             };
@@ -1504,14 +1564,44 @@ impl McModuleInst {
                     ))))
                 }
             }
+            // ── P3-1: List with members → prefix each member to physical pin ID ──
+            // McPinPort::Multi creates List("multi", [pid1, pid2, ...])
+            // representing a pin shared by multiple ports. Members are bare
+            // pin IDs; prefix with instance name so downstream resolution
+            // can map to physical pin paths (e.g. multi[21,21] → uC.21).
             McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
-                base: McInstance::List(_),
+                base: McInstance::List(ref l),
                 ..
-            }))
-            | McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
-                base: McInstance::Interface(_),
+            })) => {
+                if l.member.is_empty() {
+                    phrase.clone()
+                } else {
+                    let new_bus = McBus::new_with_members(inst_name, l.member.clone());
+                    McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                        McInstance::Bus(new_bus),
+                    )))
+                }
+            }
+            // ── P3-1: Interface variant must be prefixed like Component/Module ──
+            // When a component method body references its own interface port
+            // (e.g. XTAL in Crystal2.DST310S.setup), the Interface variant
+            // needs to be prefixed with the instance name (e.g. X6.XTAL) so
+            // that downstream expand_port_lanes can find the component and
+            // resolve physical pin IDs.
+            McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                base: McInstance::Interface(ref i),
                 ..
-            })) => phrase.clone(),
+            })) => {
+                let iname = i.name.to_string();
+                if skip.contains(&iname) || iname.starts_with(&inst_prefix) || iname.is_empty() {
+                    phrase.clone()
+                } else {
+                    let prefixed = format!("{inst_name}.{iname}");
+                    McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                        McBus::new(&prefixed),
+                    ))))
+                }
+            }
             McPhrase::Multiple(phrases) => McPhrase::Multiple(
                 phrases
                     .iter()
@@ -1543,6 +1633,21 @@ impl McModuleInst {
                         right_bus,
                     )))],
                 })
+            }
+            // ── P3-1: recursively prefix each item in a McEndpoint::List ──
+            // [VDD, GND] on the right side of -> in a component method body
+            // must be prefixed to [uC.VDD, uC.GND] so downstream resolution
+            // can map to physical pin IDs.
+            McPhrase::Endpoint(McEndpoint::List(ref items)) => {
+                let prefixed_items: Vec<McEndpoint> = items
+                    .iter()
+                    .map(|item| {
+                        let phrase = McPhrase::Endpoint(item.clone());
+                        Self::prefix_instance_phrase_with_skip(&phrase, inst_name, skip)
+                            .into_endpoint()
+                    })
+                    .collect();
+                McPhrase::Endpoint(McEndpoint::list(prefixed_items))
             }
             McPhrase::Endpoint(ref ep) => McPhrase::Endpoint(ep.clone()),
             McPhrase::Member(phrase, ep) => McPhrase::Member(

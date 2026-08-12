@@ -872,7 +872,7 @@ impl NetTable {
 
         // ── Iter-10.1: normalize path ──
         let canon_paths: Vec<String> = kept.iter().map(|p| canonicalize_path(&p.path)).collect();
-
+        
         if kept.len() == 1 {
             let p = kept[0];
             self.ensure_point(&canon_paths[0], p.owner.clone(), p.iotype.clone());

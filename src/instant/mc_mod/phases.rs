@@ -775,6 +775,21 @@ impl McModuleInst {
                 parse_bracket_members(&port.name)
             };
 
+            // ── P3-3: Extract port base name for proper path construction ──
+            // When port name is like "USB_VBUS_1{VDD_3V, GND}", the base is "USB_VBUS_1".
+            // When port name is like "[VDD_3V3, GND]", there's no base prefix.
+            // Connection paths must include the base name to match net table port resolution
+            // (e.g., speaker.USB_VBUS_1.VDD_3V instead of speaker.VDD_3V).
+            let port_base = if port.name.starts_with('[') {
+                String::new()
+            } else {
+                port.name
+                    .split(&['{', '['][..])
+                    .next()
+                    .unwrap_or("")
+                    .to_string()
+            };
+
             // ── Case 1: Equal-width multi-member → sort by member name then zip ──
             // P2-4: Sort both sides by member name for deterministic alignment.
             // Without sorting, arg_lanes (from McBus member iteration order) and
@@ -803,8 +818,13 @@ impl McModuleInst {
                 });
 
                 for (a, m) in sorted_arg_lanes.iter().zip(sorted_members.iter()) {
+                    let pt_path = if port_base.is_empty() {
+                        format!("{inst_name}.{m}")
+                    } else {
+                        format!("{inst_name}.{port_base}.{m}")
+                    };
                     let pp = NetPoint::with_owner(
-                        &format!("{inst_name}.{m}"),
+                        &pt_path,
                         inst_name,
                         port.iotype.clone(),
                     );
@@ -819,8 +839,13 @@ impl McModuleInst {
             if members.len() >= 2 && arg_lanes.len() == 1 && (members.len() - ground_cnt) == 1 {
                 let arg_pt = arg_lanes.into_iter().next().unwrap();
                 for m in &members {
+                    let pt_path = if port_base.is_empty() {
+                        format!("{inst_name}.{m}")
+                    } else {
+                        format!("{inst_name}.{port_base}.{m}")
+                    };
                     let port_pt = NetPoint::with_owner(
-                        &format!("{inst_name}.{m}"),
+                        &pt_path,
                         inst_name,
                         port.iotype.clone(),
                     );
