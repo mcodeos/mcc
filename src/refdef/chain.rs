@@ -619,14 +619,19 @@ pub fn resolve_member_chain_from_segments(
     insts: &McInstances,
     params: &McParamDeclares,
 ) -> Option<ChainHit> {
+    // `inst.f(..).member`: an Fcall segment is transparent — the function
+    // returns `this` (chaining off a non-`this` return is rejected by
+    // check_chain_validity/1316), so `.member` resolves against the receiver
+    // instance. Skipping the Fcall avoids rebuilding a broken "uC..I2C0"
+    // double-dot text (an empty segment would fail member resolution).
     let ref_text: String = segs
         .iter()
-        .map(|s| match s {
-            ChainSegment::Ident(name) => name.clone(),
+        .filter_map(|s| match s {
+            ChainSegment::Ident(name) => Some(name.clone()),
             ChainSegment::Group { base, members } => {
-                format!("{}{{{}}}", base, members.join(","))
+                Some(format!("{}{{{}}}", base, members.join(",")))
             }
-            ChainSegment::Fcall(_) => String::new(),
+            ChainSegment::Fcall(_) => None,
         })
         .collect::<Vec<_>>()
         .join(".");

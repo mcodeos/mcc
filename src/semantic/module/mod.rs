@@ -861,13 +861,16 @@ impl McModule {
         };
 
         if !handled {
-            // ★ Chain detection: MCAST_OPD with dotted segments like
-            // `uC.i2c(0x36).I2C0`. Record the full chain as a net-ref so
-            // the chain resolver can find the cross-container member def
-            // (e.g., the MCU pin I2C0::I2C(Master) rather than the local
-            // module port I2C0).
-            if node.get_type() == MCAST_OPD {
-                Self::try_record_chain_ref(node, insts, scope);
+            // ★ Chain detection: an MCAST_OPD / MCAST_OPD_DOT with dotted
+            // segments like `uC.i2c(0x36).I2C0` (root is MCAST_OPD_DOT whose
+            // sub is the fcall and next is the member). Record the full chain
+            // as a net-ref so the chain resolver can find the cross-container
+            // member def (e.g., the MCU pin I2C0::I2C(Master) rather than the
+            // local module port I2C0).
+            if matches!(node.get_type(), MCAST_OPD | MCAST_OPD_DOT)
+                && Self::try_record_chain_ref(node, insts, scope)
+            {
+                return;
             }
             let Some(sub) = node.get_sub_node() else {
                 return;
@@ -921,11 +924,12 @@ impl McModule {
         false
     }
 
-    /// Walk the AST children of a chain expression (MCAST_OPD) and extract
-    /// structured [`ChainSegment`]s. Records the chain via
+    /// Walk the AST children of a chain expression (MCAST_OPD / MCAST_OPD_DOT)
+    /// and extract structured [`ChainSegment`]s. Records the chain via
     /// [`McInstances::record_chain_ref`] so the chain resolver can use the
     /// already-parsed structure instead of re-parsing brackets from raw text.
-    fn try_record_chain_ref(node: &AstNode, insts: &mut McInstances, scope: &str) {
+    /// Returns `true` if the chain was recorded (≥2 segments).
+    fn try_record_chain_ref(node: &AstNode, insts: &mut McInstances, scope: &str) -> bool {
         let mut segments: Vec<ChainSegment> = Vec::new();
         let mut chain_end: Option<usize> = None;
         // Whether the last recorded segment came from a bracketed AST node
@@ -934,6 +938,10 @@ impl McModule {
         // node spans, so a curly group always needs one extra byte for `}`.
         let mut closing_delim = false;
 
+        // A chain whose root is MCAST_OPD_DOT has the receiver/fcall as its
+        // `sub` and the member as the fcall's `next` (e.g. `uC.i2c(0x36).I2C0`
+        // parses as DOT(sub=FCALL(uC.i2c(0x36)), next=IDS(I2C0))). Start the
+        // walk at the sub node; the fcall's `next` is traversed as siblings.
         let mut current = node.get_sub_node();
         while let Some(n) = current {
             let ty = n.get_type();
@@ -978,17 +986,7 @@ impl McModule {
             if ty == MCAST_ID || ty == MCAST_IDA || ty == MCAST_IDS {
                 Self::collect_ident_segments(&n, &mut segments, &mut chain_end, &mut closing_delim);
             } else if ty == MCAST_OPD_FCALL {
-                // Extract function name from first child (MCAST_ID).
-                if let Some(name_node) = n.get_sub_node() {
-                    if let Some(name) = name_node.to_string() {
-                        let end = n.get_pos() as usize + n.get_len() as usize;
-                        segments.push(ChainSegment::Fcall(name));
-                        chain_end = Some(end);
-                        // An fcall node is a bracketed AST node: `)` is
-                        // excluded from its span, so the chain needs +1.
-                        closing_delim = true;
-                    }
-                }
+                Self::collect_fcall_segments(&n, &mut segments, &mut chain_end, &mut closing_delim);
             } else if ty == MCAST_OPD {
                 // Nested MCAST_OPD wrapping the chain — recurse into it.
                 Self::walk_chain_children(&n, &mut segments, &mut chain_end, &mut closing_delim);
@@ -1000,11 +998,11 @@ impl McModule {
 
         // Need at least 2 segments for a cross-container chain (e.g., `uC.I2C0`).
         if segments.len() < 2 {
-            return;
+            return false;
         }
         let mut chain_end = match chain_end {
             Some(e) => e,
-            None => return,
+            None => return false,
         };
 
         // ★ The parser excludes closing delimiters from AST node spans: the
@@ -1020,6 +1018,57 @@ impl McModule {
         let start = node.get_pos() as usize;
         let span = start..chain_end;
         insts.record_chain_ref(span, segments, scope);
+        true
+    }
+
+    /// Collect chain segments from a `MCAST_INSTANCE` node (the receiver of a
+    /// method call, e.g. `uC` in `uC.i2c(0x36)`). The instance wraps an
+    /// MCAST_OPD whose sub is the identifier(s), so delegate to the ident
+    /// walker.
+    fn collect_instance_segments(
+        n: &AstNode,
+        segments: &mut Vec<ChainSegment>,
+        chain_end: &mut Option<usize>,
+        closing_delim: &mut bool,
+    ) {
+        if let Some(opd) = n.get_sub_node() {
+            if let Some(ids) = opd.get_sub_node() {
+                Self::collect_ident_segments(&ids, segments, chain_end, closing_delim);
+            }
+        }
+    }
+
+    /// Collect chain segments from an `MCAST_OPD_FCALL` node. A method call
+    /// `uC.i2c(0x36)` has children [MCAST_INSTANCE uC, MCAST_NAME i2c,
+    /// MCAST_PARAMS 0x36]: push the receiver instance as an Ident segment and
+    /// the function name as an Fcall segment (the resolver treats Fcall as a
+    /// transparent hop since the function returns `this`).
+    fn collect_fcall_segments(
+        n: &AstNode,
+        segments: &mut Vec<ChainSegment>,
+        chain_end: &mut Option<usize>,
+        closing_delim: &mut bool,
+    ) {
+        let end = n.get_pos() as usize + n.get_len() as usize;
+        let mut child = n.get_sub_node();
+        while let Some(c) = child {
+            match c.get_type() {
+                MCAST_INSTANCE => {
+                    Self::collect_instance_segments(&c, segments, chain_end, closing_delim);
+                }
+                MCAST_NAME => {
+                    if let Some(name) = c.to_string() {
+                        if !name.is_empty() {
+                            segments.push(ChainSegment::Fcall(name));
+                            *chain_end = Some(end);
+                            *closing_delim = true;
+                        }
+                    }
+                }
+                _ => {}
+            }
+            child = c.get_next();
+        }
     }
 
     /// Walk children of a nested MCAST_OPD node, collecting chain segments.
@@ -1065,14 +1114,7 @@ impl McModule {
             if ty == MCAST_ID || ty == MCAST_IDA || ty == MCAST_IDS {
                 Self::collect_ident_segments(&n, segments, chain_end, closing_delim);
             } else if ty == MCAST_OPD_FCALL {
-                if let Some(name_node) = n.get_sub_node() {
-                    if let Some(name) = name_node.to_string() {
-                        let end = n.get_pos() as usize + n.get_len() as usize;
-                        segments.push(ChainSegment::Fcall(name));
-                        *chain_end = Some(end);
-                        *closing_delim = true;
-                    }
-                }
+                Self::collect_fcall_segments(&n, segments, chain_end, closing_delim);
             }
 
             current = n.get_next();

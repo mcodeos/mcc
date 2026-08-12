@@ -3421,6 +3421,9 @@ impl McCode {
                         });
                         sem.ref_entries
                             .push((ref_kind, u32::from(d), span.start, span.end));
+                        tracing::info!(target: "mcc::lsp::audit",
+                            "[AUDIT-ChainRef] segments={segments:?} → {} kind={ref_kind:?} def_uri={} def_span={:?} decl_id={d:?}",
+                            hit.name, hit.uri, hit.span);
                     }
                 }
                 let func_scope = func.insts.scope.clone().unwrap_or_else(|| fscope.clone());
@@ -4670,5 +4673,97 @@ module main
                 loc.byte_end
             );
         }
+    }
+
+    /// Regression: a chain whose receiver is a method call returning `this`
+    /// (`uC.i2c(0x36).I2C0` → the uC instance's I2C0 pin) must be recorded as
+    /// a chain ref and resolve to the class-definition pin, not the local
+    /// module port.
+    ///
+    /// The chain root is MCAST_OPD_DOT (sub=FCALL, next=member), which
+    /// `try_record_chain_ref` previously did not handle — only MCAST_OPD
+    /// roots were recorded, so `uC.i2c(0x36).I2C0` fell through to plain
+    /// scoped net refs and `.I2C0` resolved to the module port I2C0.
+    #[test]
+    fn fcall_chain_member_resolves_to_instance_pin() {
+        let _guard = PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let uri: crate::McURI = "/mcc/fcallchain.mc".to_string();
+        let source = r#"
+interface I2C.SMBus(role)
+{
+    pins = [
+        1 = SDA
+        2 = SCL
+    ]
+    role Target { name = "I2C.SMBus Target" }
+    role Controller { name = "I2C.SMBus Controller" }
+}
+
+component MCU.X
+{
+    pins = [
+        io [1,2] = I2C0::I2C.SMBus(Target)
+        io [3,4] = XTAL
+    ]
+}
+
+module main
+{
+    io I2C0
+    MCU.X uC
+    uC.i2c(0x36).I2C0 -> I2C0
+}
+"#;
+        crate::mcc_load_from_string(&uri, source);
+
+        let mcode = workspace::WORKSPACE.mcodes.get(&uri).expect("file loaded");
+        let sem = mcode.symbols.lock().expect("symbols lock");
+
+        // Expected byte spans (source is pure ASCII here).
+        let chain_ref = source.find("uC.i2c(0x36).I2C0").unwrap()
+            ..source.find("uC.i2c(0x36).I2C0").unwrap() + "uC.i2c(0x36).I2C0".len();
+        let pin_def = source.find("I2C0::I2C.SMBus").unwrap()
+            ..source.find("I2C0::I2C.SMBus").unwrap() + "I2C0".len();
+        let module_port_def =
+            source.find("io I2C0").unwrap()..source.find("io I2C0").unwrap() + "I2C0".len();
+
+        // The chain ref span must cover the whole `uC.i2c(0x36).I2C0` text.
+        let chain_iv = sem
+            .symbol_lapper
+            .iter()
+            .find(|iv| iv.start == chain_ref.start && iv.stop == chain_ref.end)
+            .unwrap_or_else(|| {
+                let existing: Vec<_> = sem.symbol_lapper.iter().collect();
+                std::panic!(
+                    "lapper must contain a chain interval at {chain_ref:?}; got {existing:?}"
+                );
+            });
+        // `I2C0` is bound to the `I2C.SMBus` interface, so the chain member
+        // must surface as a PinIfaceRef (and its def as PinIfaceDef).
+        assert_eq!(
+            chain_iv.val.kind,
+            SymbolKind::PinIfaceRef as u8,
+            "chain interval must be a PinIfaceRef"
+        );
+
+        // The member text must map (via ref_def_map) to the I2C0 pin def in
+        // the MCU.X component, not to the module's own I2C0 port.
+        let rdm = sem.ref_def_map.as_ref().expect("ref_def_map built");
+        let entry = rdm
+            .entries
+            .get(&(SymbolKind::PinIfaceRef, chain_iv.val.id))
+            .expect("chain ref must have a ref_def_map entry");
+        assert_eq!(
+            entry.def_loc.byte_start as usize, pin_def.start,
+            "uC.i2c(0x36).I2C0 member must resolve to the MCU.X I2C0 pin def"
+        );
+        assert_ne!(
+            entry.def_loc.byte_start as usize, module_port_def.start,
+            "must NOT resolve to the module's own I2C0 port"
+        );
     }
 }
