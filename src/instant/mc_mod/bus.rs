@@ -251,6 +251,8 @@ impl McModuleInst {
                     } else {
                         format!("{}.{}", base_name, e.name)
                     };
+                    // ── P3-1: normalize alias to physical pin ID (e.g. uC.VDD → uC.5) ──
+                    let path = self.normalize_one_inst_pin_path(&path).unwrap_or(path);
                     NetPoint::with_owner(&path, base_name, IOType::None)
                 })
                 .collect());

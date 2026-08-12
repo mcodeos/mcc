@@ -172,20 +172,7 @@ impl McModuleInst {
         // Only when this line actually contains `.Cap(_)` (params empty / all `_`) shunt, go through special
         // wiring below; lines without shunt fall through to original adjacency loop → zero impact on existing paths.
         let shunt: Vec<bool> = members.iter().map(Self::is_chain_cap_shunt).collect();
-        eprintln!(
-            "[SHUNT-DETECT] module={} members={:?} shunt={:?}",
-            self.name,
-            members
-                .iter()
-                .map(|m| format!("{:?}", std::mem::discriminant(m)))
-                .collect::<Vec<_>>(),
-            shunt
-        );
         if shunt.iter().any(|&s| s) {
-            eprintln!(
-                "[SHUNT-DETECT] module={} calling wire_chain_with_shunts",
-                self.name
-            );
             self.wire_chain_with_shunts(&members, &shunt, dir);
             return Ok(());
         }
@@ -300,33 +287,6 @@ impl McModuleInst {
             .map(|(m, _)| m)
             .collect();
         for pair in non_shunt.windows(2) {
-            let _raw_lp = self.get_right_points(pair[0]).unwrap_or_default();
-            let _raw_rp = self.get_left_points(pair[1]).unwrap_or_default();
-            let _kind = |m: &McPhrase| -> String {
-                match m {
-                    McPhrase::Multiple(inner) => format!("Multiple(n={})", inner.len()),
-                    McPhrase::Endpoint(McEndpoint::Single(ir)) => match &ir.base {
-                        McInstance::Label(s) => format!("Label({s})"),
-                        McInstance::Bus(b) => format!("Bus({}, mem={:?})", b.name, b.member),
-                        _ => "Endpoint(other)".into(),
-                    },
-                    _ => format!("{:?}", std::mem::discriminant(m)),
-                }
-            };
-            eprintln!(
-                "[SHUNT-PT] module={} L={} L_pts={:?} | R={} R_pts={:?}",
-                self.name,
-                _kind(pair[0]),
-                _raw_lp
-                    .iter()
-                    .map(|p| (p.path.clone(), p.member_name.clone()))
-                    .collect::<Vec<_>>(),
-                _kind(pair[1]),
-                _raw_rp
-                    .iter()
-                    .map(|p| (p.path.clone(), p.member_name.clone()))
-                    .collect::<Vec<_>>()
-            );
             let lp = self.shunt_chain_points(pair[0], true);
             let rp = self.shunt_chain_points(pair[1], false);
             if let Err(e) = self.create_connection(lp, rp, dir, None) {
@@ -384,14 +344,6 @@ impl McModuleInst {
                 );
                 continue;
             }
-            eprintln!(
-                "[SHUNT-RAIL] module={} rail_src={:?}",
-                self.name,
-                rail_src
-                    .iter()
-                    .map(|p| (p.path.clone(), p.member_name.clone()))
-                    .collect::<Vec<_>>()
-            );
             // rail = first non-ground point (all ground then fallback to first point)
             // ── P2-4: prefer member_name for GND detection (e.g. ldo.VOUT.GND → member_name="GND") ──
             let rail = rail_src
@@ -405,11 +357,6 @@ impl McModuleInst {
                 })
                 .cloned()
                 .unwrap_or_else(|| rail_src[0].clone());
-            eprintln!(
-                "[SHUNT-RAIL] module={} selected_rail={:?}",
-                self.name,
-                (rail.path.clone(), rail.member_name.clone())
-            );
             // cap pin1
             let pin1 = self.get_left_points(m).unwrap_or_default();
             if pin1.is_empty() {
@@ -1127,6 +1074,22 @@ impl McModuleInst {
                     return vec![McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
                         McInstance::Bus(McBus::new_with_members(&inst_name, expanded)),
                     )))];
+                }
+
+                // ── P3-1: look up bus members from the bus table ──
+                // When an Interface endpoint has no explicit member access,
+                // try to populate members from the registered bus (e.g. XTAL → [X1, X2]).
+                // This ensures lane-by-lane wiring can expand the interface to
+                // individual physical pins.
+                if let Some(bus) = self.find_bus(&inst_name) {
+                    if !bus.members.is_empty() {
+                        return vec![McPhrase::Endpoint(McEndpoint::Single(
+                            McInstanceRef::new(McInstance::Bus(McBus::new_with_members(
+                                &inst_name,
+                                bus.members.clone(),
+                            ))),
+                        ))];
+                    }
                 }
 
                 vec![McPhrase::from(McInstance::Bus(McBus::new(&inst_name)))]

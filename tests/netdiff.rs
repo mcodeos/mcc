@@ -520,6 +520,20 @@ fn build_actual_modules(table: &InstTable, tree: &MccProjectTree) -> Vec<ActualM
                 if let Some((comp_leaf, pin_num)) = normalize_pin(pin_path, &comp_leaf_names) {
                     let norm = format!("{}.{}", comp_leaf, pin_num);
                     net_points.entry(net_name.clone()).or_default().insert(norm);
+                } else {
+                    // ── P2-2: handle submodule boundary pins ──
+                    // When a boundary connection creates a pin like mcu513.10,
+                    // the parent is a submodule name, not a component name.
+                    // Extract the pin number and parent directly.
+                    if let Some(pin_num) = extract_pin_number(pin_path) {
+                        if let Some(parent) = parent_leaf_name(pin_path) {
+                            let norm = format!("{}.{}", parent, pin_num);
+                            net_points
+                                .entry(net_name.clone())
+                                .or_default()
+                                .insert(norm);
+                        }
+                    }
                 }
             } else if depth == 2 {
                 // For the main module, skip depth=2 pins (submodule internal
@@ -561,6 +575,29 @@ fn build_actual_modules(table: &InstTable, tree: &MccProjectTree) -> Vec<ActualM
             }
             let remainder = &port_path[mod_prefix_len..];
             let depth = remainder.chars().filter(|&c| c == '.').count();
+
+            // ── P3-3: filter power bus port labels ──
+            // Power bus declarations like V5V::DC(5V) create port labels
+            // (V5V.VCC, V5V.GND) that are direct children of the module.
+            // These only exist at the top level (main module). For submodules,
+            // depth=1 port labels are the module's own ports (e.g., MIC.P,
+            // dc.GND) and should be kept.
+            // Filter: for the top-level module, skip depth=1 port points
+            // whose first segment is NOT a module instance.
+            if depth == 1 && is_top_level {
+                if let Some(dot) = remainder.find('.') {
+                    let first_seg = &remainder[..dot];
+                    let seg_path = format!("{}.{}", mod_path.trim_end_matches('.'), first_seg);
+                    let is_module = table
+                        .get_id_by_path(&seg_path)
+                        .and_then(|id| table.get_entry(id))
+                        .map(|e| e.kind == InstKind::Module)
+                        .unwrap_or(false);
+                    if !is_module {
+                        continue;
+                    }
+                }
+            }
 
             let norm = if depth == 0 {
                 // Module's own port member: POWER_DCDC.VDD_3V3 → "VDD_3V3"

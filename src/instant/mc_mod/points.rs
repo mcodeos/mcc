@@ -543,6 +543,31 @@ impl McModuleInst {
                 let left = ep.get_left();
                 let mut points = Vec::new();
                 for bus in left {
+                    // ── non-empty members → expand each member to physical pin ID ──
+                    if !bus.name.is_empty() && !bus.member.is_empty() {
+                        let is_owned = self.find_submodule(&bus.name).is_some()
+                            || self.find_component(&bus.name).is_some();
+                        for m in &bus.member {
+                            let path = format!("{}.{}", bus.name, m);
+                            if let Some(lanes) = self.expand_port_lanes(&path) {
+                                points.extend(lanes);
+                                continue;
+                            }
+                            let path =
+                                self.normalize_one_inst_pin_path(&path).unwrap_or(path);
+                            if let Some(lanes) = self.expand_port_lanes(&path) {
+                                points.extend(lanes);
+                            } else if is_owned {
+                                points.push(
+                                    NetPoint::with_owner(&path, &bus.name, IOType::None)
+                                        .with_member_name(m),
+                                );
+                            } else {
+                                points.push(NetPoint::new(&path, IOType::None).with_member_name(m));
+                            }
+                        }
+                        continue;
+                    }
                     // ── P2-10 fix: try expand_port_lanes for Label-type ports ──
                     // Bare interface ports like `io UART0` are stored as Label
                     // in the symbol table, not as Interface/Bus. Without this,
@@ -678,9 +703,6 @@ impl McModuleInst {
         &mut self,
         member: &McPhrase,
     ) -> Result<Vec<NetPoint>, InstError> {
-        if self.name.contains("modldo") {
-            eprintln!("[P2-4-GRP-ENTRY] get_right_points: member={member:?}");
-        }
         match member {
             McPhrase::Lead => {
                 let name = format!("(lead)_{:x}", member as *const McPhrase as usize);
@@ -1744,6 +1766,29 @@ impl McModuleInst {
                         }
                     }
                 }
+            } else {
+                // ── P3-1: port_name contains '.' → member access on bus port ──
+                // e.g., "X6.XTAL.X1" → owner="X6", port_name="XTAL.X1"
+                // → port_base="XTAL", member="X1" → physical pin "X6.1"
+                if let Some((port_base, member)) = port_name.split_once('.') {
+                    let port_base = strip_brace_suffix(port_base);
+                    if let Some(comp) = self.find_component(owner) {
+                        if let Some(pids) = comp.find_bus_port_pin_ids(port_base) {
+                            if let Some((_, pin_id)) = pids.iter().find(|(m, _)| m == member) {
+                                let path = format!("{owner}.{pin_id}");
+                                let iotype = comp
+                                    .def
+                                    .pins
+                                    .get_pin_io(pin_id)
+                                    .unwrap_or(IOType::None);
+                                return Some(vec![NetPoint::with_owner(
+                                    &path, owner, iotype,
+                                )
+                                .with_member_name(member)]);
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -1783,20 +1828,7 @@ impl McModuleInst {
 
         let (inst, member) = path.split_once('.')?;
         let comp = self.find_component(inst)?;
-        let debug_513 = self.name.contains("513") && inst == "uC" && member == "GPIO.2";
-        if self.name.contains("513") || self.name.to_uppercase().contains("SPEAKER") {
-            eprintln!(
-                "[P2-NORM] module={} path={path} inst={inst} member={member}",
-                self.name
-            );
-        }
         // Already a pure pid (key in pins table) → leave alone
-        if self.name.contains("513") && inst == "uC" {
-            eprintln!(
-                "[P2-NORM-DBG] contains_key({member:?}) = {}",
-                comp.def.pins.pins.contains_key(member)
-            );
-        }
         if comp.def.pins.pins.contains_key(member) {
             return None;
         }
@@ -1821,20 +1853,11 @@ impl McModuleInst {
             });
 
         let pid = if let Some(id) = resolved_instance_pin.or(direct) {
-            if self.name.contains("513") {
-                eprintln!(
-                    "[P2-NORM-RES] module={} path={path} -> pid={id} (direct)",
-                    self.name
-                );
-            }
             id
         } else {
             // 2. bare-alias fallback: curly-bus members (VOUT{Vout,GND}) only register
             //    the dotted form "VOUT.Vout"; bare "Vout"/"GND" is not in names_to_id
             //    → reverse-look up the last segment in pin_id_to_names.
-            if self.name.contains("513") && inst == "uC" {
-                eprintln!("[P2-NORM-DBG2] entering fallback for member={member:?} last={last:?}");
-            }
             let mut hits: Vec<String> = Vec::new();
             for (pid, names) in comp.def.pins.pin_id_to_names.iter() {
                 let matched = names.iter().any(|n| {
@@ -1849,33 +1872,16 @@ impl McModuleInst {
                         || (!last.chars().all(|c| c.is_ascii_digit()) && seg == last)
                         || (member.starts_with(n)
                             && member.as_bytes().get(n.len()) == Some(&b'.'));
-                    if m && debug_513 {
-                        eprintln!("[P2-NORM-MATCH] pid={pid} n={n:?} seg={seg:?}");
-                    }
                     m
                 });
                 if matched && !hits.contains(pid) {
                     hits.push(pid.clone());
                 }
             }
-            if self.name.contains("513") && inst == "uC" {
-                eprintln!("[P2-NORM-DBG3] fallback hits for member={member:?}: {hits:?}");
-            }
             match hits.len() {
-                0 => {
-                    if self.name.contains("513") {
-                        eprintln!("[P2-NORM-MISS] module={} path={path} member={member} -> no match in names_to_id or pin_id_to_names", self.name);
-                    }
-                    return None;
-                }
+                0 => return None,
                 1 => {
                     let id = hits.remove(0);
-                    if self.name.contains("513") {
-                        eprintln!(
-                            "[P2-NORM-RES] module={} path={path} -> pid={id} (fallback)",
-                            self.name
-                        );
-                    }
                     id
                 }
                 _ => {

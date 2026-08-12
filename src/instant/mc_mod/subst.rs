@@ -71,7 +71,6 @@ impl McModuleInst {
             _ => {
                 // FuncCall, Attribute - use Display as fallback
                 let name = format!("{value}");
-                eprintln!("[SUBST-FALLBACK] param_value={value:?} -> McBus name={name}");
                 vec![McBus {
                     name,
                     member: Vec::new(),
