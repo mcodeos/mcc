@@ -105,6 +105,12 @@ pub struct McPins {
     // Dynamic pin definitions (contain parameter references, need to be resolved at instantiation)
     // e.g.: 1:cols = 1:cols, where cols is component parameter
     pub dynamic_pins: Vec<dynamic::DynamicPinLine>,
+
+    /// Declared List pin groups (e.g. `PDM[CLK, DATA]`) with their expanded
+    /// pin ids, kept for display only. §2.1: the bare prefix (e.g. `PDM`) is
+    /// deliberately NOT registered in `names_to_id`; this table lets tools
+    /// render the original `PDM[CLK, DATA]` group.
+    pub list_groups: Vec<(String, Vec<String>, Vec<String>)>, // (list_name, members, pins)
 }
 
 impl Default for McPins {
@@ -128,6 +134,7 @@ impl McPins {
             pin_id_to_names: BTreeMap::new(),
             values_pool: Vec::new(),
             dynamic_pins: Vec::new(),
+            list_groups: Vec::new(),
         }
     }
 
@@ -680,6 +687,13 @@ impl McPins {
                                     );
                                 }
                                 // §2.1: Do NOT register bare prefix "PDM" to names_to_id
+                                // Keep the group for display so `show` can render
+                                // the original `PDM[CLK, DATA]` form.
+                                self.list_groups.push((
+                                    list_name.clone(),
+                                    members.clone(),
+                                    pids.clone(),
+                                ));
                             }
                             _ => {
                                 dlog_trace(1103, "Pin ID and name not match");
@@ -919,8 +933,17 @@ impl McPins {
                                             // for list form (e.g. [LX, GND]) and normal form, directly use declare.name
                                             declare.name.to_string()
                                         };
-                                        // use inst_pins to call merge_pins_with update registered_pins
-                                        let merged = declare.merge_pins_with(&inst_pins);
+                                        // use inst_pins to call merge_pins_with update registered_pins.
+                                        // Merge into an existing same-name interface when the
+                                        // instance name is reused across pin groups (e.g.
+                                        // `GPIO[5, 6]` on both [6,7] and [12,13]) so
+                                        // `registered_pins` accumulates both, not the last one.
+                                        let merged = match self.names_to_id.get(&iface_name) {
+                                            Some(McPinPort::Interface(existing_iface)) => {
+                                                existing_iface.merge_pins_with(&inst_pins)
+                                            }
+                                            _ => declare.merge_pins_with(&inst_pins),
+                                        };
                                         self.names_to_id.insert(
                                             iface_name,
                                             McPinPort::Interface(Arc::new(merged)),
@@ -1871,6 +1894,28 @@ impl McPinNames {
                                             err_node,
                                         );
                                     }
+                                } else if let Some(members) = pname.embedded_square_members() {
+                                    // §2.1: a single IDA embedding a square bracket
+                                    // (e.g. `PDM[CLK, DATA]` tokenized as one IDA by
+                                    // the C parser) is also List form: pins register
+                                    // as PDMCLK/PDMDATA and the bare prefix `PDM`
+                                    // does not exist.
+                                    if members.len() >= 2 {
+                                        let list_name = pname.base_name();
+                                        myself.push_option(
+                                            McPinPort::List(list_name, members),
+                                            err_node,
+                                        );
+                                    } else {
+                                        // Single-member square (e.g. `GPIO[2]`):
+                                        // keep the existing plain-name behavior
+                                        // since the exact string is referenced
+                                        // by net expressions.
+                                        myself.push_option(
+                                            McPinPort::Single(pname.to_string()),
+                                            err_node,
+                                        );
+                                    }
                                 } else if pname.segments.len() == 2
                                     && matches!(pname.segments[0], IdsSegment::Ida(_))
                                     && matches!(pname.segments[1], IdsSegment::Ida(_))
@@ -2505,6 +2550,15 @@ impl McPinNames {
 /// bus form concatenated to `XTAL.X1.X1 / XTAL.X1.X2 / XTAL.X2.X1 / XTAL.X2.X2`,
 /// list form concatenated to `VDD.VDD / VDD.GND / ...`, all wrong.
 pub(crate) fn derive_interface_subnames(inst_name: &McIds, iface_pins: &[String]) -> Vec<String> {
+    // §2.1: a square bracket embedded inside a single IDA segment (e.g.
+    // `GPIO[5, 6]` tokenized as one IDA by the C parser) is List form:
+    // each member concatenates onto the prefix — GPIO[5, 6] → GPIO5, GPIO6.
+    if let Some(members) = inst_name.embedded_square_members() {
+        if !members.is_empty() {
+            let prefix = inst_name.base_name();
+            return members.iter().map(|m| format!("{prefix}{m}")).collect();
+        }
+    }
     if inst_name.is_bus() {
         if let Some((busname, members)) = inst_name.as_bus() {
             return members.iter().map(|m| format!("{busname}.{m}")).collect();
@@ -2632,5 +2686,16 @@ mod subname_tests {
         let inst = plain_ids("DC1");
         let got = derive_interface_subnames(&inst, &[]);
         assert!(got.is_empty());
+    }
+
+    /// §2.1: `GPIO[5, 6]` tokenized as a single IDA by the C parser
+    /// (embedded square) is still List form → prefix + member: GPIO5, GPIO6.
+    #[test]
+    fn embedded_square_gpio_interface() {
+        let inst = McIds::from("GPIO[5, 6]");
+        assert!(inst.embedded_square_members().is_some());
+        let iface_pins = vec!["1".to_string(), "2".to_string()]; // GPIO(count=2) dynamic pins
+        let got = derive_interface_subnames(&inst, &iface_pins);
+        assert_eq!(got, vec!["GPIO5", "GPIO6"]);
     }
 }

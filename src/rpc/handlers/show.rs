@@ -186,41 +186,10 @@ pub fn handle_show_component(params: Option<Value>) -> RpcResult {
 
     match cmie {
         crate::McCMIE::Component(comp) => {
-            // Build detailed pin information
-            let pins: Vec<serde_json::Value> = comp
-                .pins
-                .pins
-                .iter()
-                .map(|(pin_id, pin)| {
-                    // Try to extract description from values
-                    let mut desc = String::new();
-                    for val in pin.values.iter() {
-                        if let crate::McAttrVal::AttrLiteral(crate::McLiteral::String(s)) = val {
-                            if !desc.is_empty() {
-                                desc.push(' ');
-                            }
-                            desc.push_str(&s.value);
-                        }
-                    }
-
-                    let mut pin_json = json!({
-                        "id": pin_id,
-                        "iotype": format!("{:?}", pin.iotype),
-                        "names": pin.names,
-                    });
-                    if !desc.is_empty() {
-                        pin_json["description"] = json!(desc);
-                    }
-                    pin_json
-                })
-                .collect();
-
-            Ok(json!({
-                "name": matched_name,
-                "uri": uri,
-                "pins": pins,
-                "pin_count": comp.pins.pins.len(),
-            }))
+            let mut data = pins_json(&comp.pins);
+            data["name"] = json!(matched_name);
+            data["uri"] = json!(uri);
+            Ok(data)
         }
         _ => Err(JsonRpcError::custom(
             -32002,
