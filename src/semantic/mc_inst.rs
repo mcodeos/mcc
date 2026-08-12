@@ -1703,17 +1703,14 @@ impl McInstances {
                             let mut member_spans: Vec<(String, Range<usize>)> = Vec::new();
                             let mut cur = opd_node.get_sub_node();
                             while let Some(child) = cur {
-                                if matches!(
-                                    child.get_type(),
-                                    MCAST_OPD_CURLY | MCAST_OPD_CURLY_MN
-                                ) {
+                                if matches!(child.get_type(), MCAST_OPD_CURLY | MCAST_OPD_CURLY_MN)
+                                {
                                     let mut mc = child.get_sub_node();
                                     while let Some(m) = mc {
                                         if let Some(mname) = m.to_string() {
                                             let mstart = m.get_pos() as usize;
                                             let mlen = mname.len();
-                                            member_spans
-                                                .push((mname, mstart..(mstart + mlen)));
+                                            member_spans.push((mname, mstart..(mstart + mlen)));
                                         }
                                         mc = m.get_next();
                                     }

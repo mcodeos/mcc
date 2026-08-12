@@ -638,8 +638,10 @@ impl<'a> McVecBuilder<'a> {
                     // Walk the chain, breaking it into electrical segments. An interior 2-terminal
                     // device closes the running segment with its incoming pin and opens the next
                     // segment with its outgoing pin.
-                    let mut segments: Vec<Vec<i64>> = Vec::new();
+                    // Track via device ID: the two-pin component that the segment crosses.
+                    let mut segments: Vec<(Vec<i64>, Option<i64>)> = Vec::new();
                     let mut current: Vec<i64> = Vec::new();
+                    let mut current_via: Option<i64> = None;
                     for (i, &node) in chain_ids.iter().enumerate() {
                         let is_interior = i != 0 && i != n - 1;
                         let thru = if is_interior {
@@ -650,29 +652,41 @@ impl<'a> McVecBuilder<'a> {
                         match thru {
                             Some((pin_in, pin_out)) => {
                                 current.push(pin_in);
-                                segments.push(std::mem::take(&mut current));
+                                segments.push((std::mem::take(&mut current), current_via));
                                 current.push(pin_out);
+                                current_via = Some(node);
                             }
                             None => current.push(node),
                         }
                     }
                     if !current.is_empty() {
-                        segments.push(current);
+                        segments.push((current, current_via));
                     }
 
                     // Emit each segment (≥ 2 endpoints) as its own uniquely-named group.
-                    for (k, seg) in segments.into_iter().enumerate() {
+                    for (k, (seg, seg_via)) in segments.into_iter().enumerate() {
                         if seg.len() < 2 {
                             continue;
                         }
                         let seg_name = segment_net_name(inst_table, &net_name, &seg, k);
                         let group = net_groups.entry(seg_name).or_default();
+                        let pair_dir = conn_dir_to_pair_dir(conn.dir);
                         for pair in seg.windows(2) {
-                            group.push(ConnPair::plain_with_dir(
-                                pair[0],
-                                pair[1],
-                                conn_dir_to_pair_dir(conn.dir),
-                            ));
+                            if let Some(lane) = conn.lane {
+                                group.push(ConnPair::laned_with_via(
+                                    pair[0],
+                                    pair[1],
+                                    LaneRef::new(lane, None),
+                                    pair_dir,
+                                    seg_via,
+                                ));
+                            } else if let Some(via) = seg_via {
+                                let mut p = ConnPair::plain_with_dir(pair[0], pair[1], pair_dir);
+                                p.via = Some(via);
+                                group.push(p);
+                            } else {
+                                group.push(ConnPair::plain_with_dir(pair[0], pair[1], pair_dir));
+                            }
                         }
                     }
                 } else {
@@ -682,12 +696,19 @@ impl<'a> McVecBuilder<'a> {
                         .flat_map(|pr| pr.ids.iter().copied())
                         .collect();
                     let group = net_groups.entry(net_name).or_default();
+                    let pair_dir = conn_dir_to_pair_dir(conn.dir);
                     for pair in all_ids.windows(2) {
-                        group.push(ConnPair::plain_with_dir(
-                            pair[0],
-                            pair[1],
-                            conn_dir_to_pair_dir(conn.dir),
-                        ));
+                        if let Some(lane) = conn.lane {
+                            group.push(ConnPair::laned_with_via(
+                                pair[0],
+                                pair[1],
+                                LaneRef::new(lane, None),
+                                pair_dir,
+                                None,
+                            ));
+                        } else {
+                            group.push(ConnPair::plain_with_dir(pair[0], pair[1], pair_dir));
+                        }
                     }
                 }
             }

@@ -24,8 +24,8 @@ use std::ops::Range;
 
 use crate::refdef::types::SymbolKind;
 use crate::semantic::basic::mc_paramd::McParamDeclares;
-use crate::semantic::mc_inst::{McInstance, McInstances};
 use crate::semantic::mc_func::HasFindInst;
+use crate::semantic::mc_inst::{McInstance, McInstances};
 use crate::McURI;
 
 /// Definition target of a resolved member chain.
@@ -187,10 +187,18 @@ impl Hop<'_> {
             Hop::BusMember { bus, member } => format!("BusMember{{{bus}.{member}}}"),
             Hop::ListMember { list, member } => format!("ListMember{{{list}[{member}]}}"),
             Hop::Param(name) => format!("Param{{{name}}}"),
-            Hop::CrossInst { key, inst, span, uri, .. } => format!(
+            Hop::CrossInst {
+                key,
+                inst,
+                span,
+                uri,
+                ..
+            } => format!(
                 "CrossInst{{{key}: {}{}{}}}",
                 inst.type_name(),
-                span.as_ref().map(|s| format!(" span={}..{}", s.start, s.end)).unwrap_or_default(),
+                span.as_ref()
+                    .map(|s| format!(" span={}..{}", s.start, s.end))
+                    .unwrap_or_default(),
                 format!(" uri={}", uri.as_str()),
             ),
         }
@@ -205,14 +213,15 @@ impl Hop<'_> {
 ///    member hop; multi-member group (`MIC{P,N}`, `GPIO[1:2]`) is a whole ref.
 /// 3. Idx-aware whole-name resolution (`GPIO1` → list member `1`).
 /// 4. Terminal parameter declaration.
-fn first_hop<'a>(
-    insts: &'a McInstances,
-    params: &McParamDeclares,
-    seg: &str,
-) -> Option<Hop<'a>> {
+fn first_hop<'a>(insts: &'a McInstances, params: &McParamDeclares, seg: &str) -> Option<Hop<'a>> {
     // 1. Exact key.
     if let Some(inst) = insts.get(seg) {
-        mcc_dbg!("refdef::chain", "[first_hop] exact key seg=\"{}\" → Inst{{{}}}", seg, inst.type_name());
+        mcc_dbg!(
+            "refdef::chain",
+            "[first_hop] exact key seg=\"{}\" → Inst{{{}}}",
+            seg,
+            inst.type_name()
+        );
         return Some(Hop::Inst {
             key: seg.to_string(),
             inst,
@@ -220,22 +229,45 @@ fn first_hop<'a>(
     }
     // 2. Grouped segment.
     if let Some((base, members)) = group_members(seg) {
-        mcc_dbg!("refdef::chain", "[first_hop] grouped seg=\"{}\" base=\"{}\" members={:?}", seg, base, members);
+        mcc_dbg!(
+            "refdef::chain",
+            "[first_hop] grouped seg=\"{}\" base=\"{}\" members={:?}",
+            seg,
+            base,
+            members
+        );
         if let Some((key, inst)) = lookup_base(insts, &base) {
             // Single-member group → member hop (e.g. `GPIO[1]`, `MIC{P}`).
             if members.len() == 1 {
                 if let Some(m) = member_of(inst, &members[0]) {
-                    mcc_dbg!("refdef::chain", "[first_hop] single-member group → {}", m.desc());
+                    mcc_dbg!(
+                        "refdef::chain",
+                        "[first_hop] single-member group → {}",
+                        m.desc()
+                    );
                     return Some(m);
                 }
-                mcc_dbg!("refdef::chain", "[first_hop] single-member group member \"{}\" NOT in {} — fallthrough", members[0], inst.type_name());
+                mcc_dbg!(
+                    "refdef::chain",
+                    "[first_hop] single-member group member \"{}\" NOT in {} — fallthrough",
+                    members[0],
+                    inst.type_name()
+                );
             }
             // Multi-member group → whole reference (e.g. `MIC{P,N}`).
             let hop = Hop::Inst { key, inst };
-            mcc_dbg!("refdef::chain", "[first_hop] multi-member group → {}", hop.desc());
+            mcc_dbg!(
+                "refdef::chain",
+                "[first_hop] multi-member group → {}",
+                hop.desc()
+            );
             return Some(hop);
         }
-        mcc_dbg!("refdef::chain", "[first_hop] grouped base MISS base=\"{}\" — fallthrough", base);
+        mcc_dbg!(
+            "refdef::chain",
+            "[first_hop] grouped base MISS base=\"{}\" — fallthrough",
+            base
+        );
     }
     // 3. Idx-aware whole-name resolution (e.g. `GPIO1` → `GPIO[1:2]`).
     if let Some(key) = insts.resolve_idx(seg) {
@@ -248,13 +280,23 @@ fn first_hop<'a>(
                             list: l.name.clone(),
                             member: member.to_string(),
                         };
-                        mcc_dbg!("refdef::chain", "[first_hop] idx digit form \"{}\" → {}", seg, hop.desc());
+                        mcc_dbg!(
+                            "refdef::chain",
+                            "[first_hop] idx digit form \"{}\" → {}",
+                            seg,
+                            hop.desc()
+                        );
                         return Some(hop);
                     }
                 }
             }
             let hop = Hop::Inst { key, inst };
-            mcc_dbg!("refdef::chain", "[first_hop] idx-aware \"{}\" → {}", seg, hop.desc());
+            mcc_dbg!(
+                "refdef::chain",
+                "[first_hop] idx-aware \"{}\" → {}",
+                seg,
+                hop.desc()
+            );
             return Some(hop);
         }
     }
@@ -262,10 +304,20 @@ fn first_hop<'a>(
     let pname = base_of(seg);
     if params.is_defined(pname) {
         let hop = Hop::Param(pname.to_string());
-        mcc_dbg!("refdef::chain", "[first_hop] param term \"{}\" → {}", seg, hop.desc());
+        mcc_dbg!(
+            "refdef::chain",
+            "[first_hop] param term \"{}\" → {}",
+            seg,
+            hop.desc()
+        );
         return Some(hop);
     }
-    mcc_dbg!("refdef::chain", "[first_hop] ALL MISS seg=\"{}\" pname=\"{}\" → None", seg, pname);
+    mcc_dbg!(
+        "refdef::chain",
+        "[first_hop] ALL MISS seg=\"{}\" pname=\"{}\" → None",
+        seg,
+        pname
+    );
     None
 }
 
@@ -273,21 +325,40 @@ fn first_hop<'a>(
 /// list whose base name matches (lists store `GPIO[1:2]`, base is `GPIO`).
 fn lookup_base<'a>(insts: &'a McInstances, base: &str) -> Option<(String, &'a McInstance)> {
     if let Some(inst) = insts.get(base) {
-        mcc_dbg!("refdef::chain", "[lookup_base] direct key base=\"{}\" → {}", base, inst.type_name());
+        mcc_dbg!(
+            "refdef::chain",
+            "[lookup_base] direct key base=\"{}\" → {}",
+            base,
+            inst.type_name()
+        );
         return Some((base.to_string(), inst));
     }
     if let Some(key) = insts.resolve_idx(base) {
         if let Some(inst) = insts.get(&key) {
-            mcc_dbg!("refdef::chain", "[lookup_base] idx base=\"{}\" → key=\"{}\" {}", base, key, inst.type_name());
+            mcc_dbg!(
+                "refdef::chain",
+                "[lookup_base] idx base=\"{}\" → key=\"{}\" {}",
+                base,
+                key,
+                inst.type_name()
+            );
             return Some((key, inst));
         }
     }
-    let found = insts.insts().iter().find_map(|(key, (_, inst))| match inst {
-        McInstance::List(l) if l.name == base => Some((key.clone(), inst)),
-        _ => None,
-    });
+    let found = insts
+        .insts()
+        .iter()
+        .find_map(|(key, (_, inst))| match inst {
+            McInstance::List(l) if l.name == base => Some((key.clone(), inst)),
+            _ => None,
+        });
     if let Some((key, _inst)) = &found {
-        mcc_dbg!("refdef::chain", "[lookup_base] list-name scan base=\"{}\" → key=\"{}\"", base, key);
+        mcc_dbg!(
+            "refdef::chain",
+            "[lookup_base] list-name scan base=\"{}\" → key=\"{}\"",
+            base,
+            key
+        );
     } else {
         mcc_dbg!("refdef::chain", "[lookup_base] ALL MISS base=\"{}\"", base);
     }
@@ -306,9 +377,15 @@ fn lookup_base<'a>(insts: &'a McInstances, base: &str) -> Option<(String, &'a Mc
 fn member_of(inst: &McInstance, member: &str) -> Option<Hop<'static>> {
     match inst {
         McInstance::Bus(b) => {
-            let found = b.member.iter().any(|m| m == member)
-                || b.full_members.iter().any(|m| m == member);
-            mcc_dbg!("refdef::chain", "[member_of] Bus \"{}\" member=\"{}\" found={}", b.name, member, found);
+            let found =
+                b.member.iter().any(|m| m == member) || b.full_members.iter().any(|m| m == member);
+            mcc_dbg!(
+                "refdef::chain",
+                "[member_of] Bus \"{}\" member=\"{}\" found={}",
+                b.name,
+                member,
+                found
+            );
             if found {
                 Some(Hop::BusMember {
                     bus: b.name.clone(),
@@ -320,7 +397,13 @@ fn member_of(inst: &McInstance, member: &str) -> Option<Hop<'static>> {
         }
         McInstance::List(l) => {
             let found = l.member.iter().any(|m| m == member);
-            mcc_dbg!("refdef::chain", "[member_of] List \"{}\" member=\"{}\" found={}", l.name, member, found);
+            mcc_dbg!(
+                "refdef::chain",
+                "[member_of] List \"{}\" member=\"{}\" found={}",
+                l.name,
+                member,
+                found
+            );
             if found {
                 Some(Hop::ListMember {
                     list: l.name.clone(),
@@ -348,7 +431,12 @@ fn member_of(inst: &McInstance, member: &str) -> Option<Hop<'static>> {
                     })
                 }
                 None => {
-                    mcc_dbg!("refdef::chain", "[member_of] Component \"{}\" member=\"{}\" MISS → None", c.name, member);
+                    mcc_dbg!(
+                        "refdef::chain",
+                        "[member_of] Component \"{}\" member=\"{}\" MISS → None",
+                        c.name,
+                        member
+                    );
                     None
                 }
             }
@@ -358,7 +446,16 @@ fn member_of(inst: &McInstance, member: &str) -> Option<Hop<'static>> {
             match base.find_inst_with_span(member) {
                 Some((m_inst, span)) => {
                     let kind = cross_def_kind(&m_inst);
-                    mcc_dbg!("refdef::chain", "[member_of] Module \"{}\" member=\"{}\" → {} kind={:?} span={:?} uri={}", m.name, member, m_inst.type_name(), kind, span, base.uri.as_str());
+                    mcc_dbg!(
+                        "refdef::chain",
+                        "[member_of] Module \"{}\" member=\"{}\" → {} kind={:?} span={:?} uri={}",
+                        m.name,
+                        member,
+                        m_inst.type_name(),
+                        kind,
+                        span,
+                        base.uri.as_str()
+                    );
                     Some(Hop::CrossInst {
                         key: format!("{}.{}", m.name, member),
                         inst: m_inst,
@@ -368,7 +465,12 @@ fn member_of(inst: &McInstance, member: &str) -> Option<Hop<'static>> {
                     })
                 }
                 None => {
-                    mcc_dbg!("refdef::chain", "[member_of] Module \"{}\" member=\"{}\" MISS → None", m.name, member);
+                    mcc_dbg!(
+                        "refdef::chain",
+                        "[member_of] Module \"{}\" member=\"{}\" MISS → None",
+                        m.name,
+                        member
+                    );
                     None
                 }
             }
@@ -388,13 +490,23 @@ fn member_of(inst: &McInstance, member: &str) -> Option<Hop<'static>> {
                     })
                 }
                 None => {
-                    mcc_dbg!("refdef::chain", "[member_of] Interface \"{}\" member=\"{}\" MISS → None", i.name, member);
+                    mcc_dbg!(
+                        "refdef::chain",
+                        "[member_of] Interface \"{}\" member=\"{}\" MISS → None",
+                        i.name,
+                        member
+                    );
                     None
                 }
             }
         }
         other => {
-            mcc_dbg!("refdef::chain", "[member_of] {} has no member table member=\"{}\" → None", inst.type_name(), member);
+            mcc_dbg!(
+                "refdef::chain",
+                "[member_of] {} has no member table member=\"{}\" → None",
+                inst.type_name(),
+                member
+            );
             let _ = other;
             None
         }
@@ -429,29 +541,53 @@ pub fn resolve_member_chain(
     params: &McParamDeclares,
 ) -> Option<ChainHit> {
     let segs = split_segments(ref_text);
-    mcc_dbg!("refdef", "[chain] resolve_member_chain uri=\"{}\" ref={:?} segs={:?}", uri, ref_text, segs);
+    mcc_dbg!(
+        "refdef",
+        "[chain] resolve_member_chain uri=\"{}\" ref={:?} segs={:?}",
+        uri,
+        ref_text,
+        segs
+    );
     let first = match segs.first() {
         Some(f) => f,
         None => {
-            mcc_dbg!("refdef::chain", "[chain] EMPTY segments for {:?} → None", ref_text);
+            mcc_dbg!(
+                "refdef::chain",
+                "[chain] EMPTY segments for {:?} → None",
+                ref_text
+            );
             return None;
         }
     };
     let mut hop = match first_hop(insts, params, first) {
         Some(h) => h,
         None => {
-            mcc_dbg!("refdef::chain", "[chain] first_hop MISS seg0={:?} → None", first);
+            mcc_dbg!(
+                "refdef::chain",
+                "[chain] first_hop MISS seg0={:?} → None",
+                first
+            );
             return None;
         }
     };
-    mcc_dbg!("refdef::chain", "[chain] first_hop HIT seg0={:?} → {}", first, hop.desc());
+    mcc_dbg!(
+        "refdef::chain",
+        "[chain] first_hop HIT seg0={:?} → {}",
+        first,
+        hop.desc()
+    );
     for seg in &segs[1..] {
         let next = match &hop {
             Hop::Inst { inst, .. } => resolve_next_member(inst, seg),
             Hop::CrossInst { inst, .. } => resolve_next_member(inst, seg),
             // A member or param has no deeper container in this version.
             Hop::BusMember { .. } | Hop::ListMember { .. } | Hop::Param(_) => {
-                mcc_dbg!("refdef::chain", "[chain] hop {} has no deeper container for seg={:?} → None", hop.desc(), seg);
+                mcc_dbg!(
+                    "refdef::chain",
+                    "[chain] hop {} has no deeper container for seg={:?} → None",
+                    hop.desc(),
+                    seg
+                );
                 return None;
             }
         };
@@ -461,7 +597,12 @@ pub fn resolve_member_chain(
                 hop = h;
             }
             None => {
-                mcc_dbg!("refdef::chain", "[chain] member MISS seg={:?} in hop={} → None", seg, hop.desc());
+                mcc_dbg!(
+                    "refdef::chain",
+                    "[chain] member MISS seg={:?} in hop={} → None",
+                    seg,
+                    hop.desc()
+                );
                 return None;
             }
         }
@@ -480,9 +621,13 @@ fn finalize_hit(
 ) -> Option<ChainHit> {
     match hop {
         Hop::Inst { key, inst } => whole_hit(uri, &key, inst, insts),
-        Hop::CrossInst { key, inst, def_kind, span, uri: def_uri } => {
-            cross_hit(&key, &inst, def_kind, span, &def_uri)
-        }
+        Hop::CrossInst {
+            key,
+            inst,
+            def_kind,
+            span,
+            uri: def_uri,
+        } => cross_hit(&key, &inst, def_kind, span, &def_uri),
         Hop::BusMember { bus, member } => bus_member_hit(uri, &bus, &member, insts),
         Hop::ListMember { list, member } => list_member_hit(uri, &list, &member, insts),
         Hop::Param(name) => param_hit(uri, &name, params),
@@ -530,7 +675,16 @@ fn cross_hit(
     uri: &McURI,
 ) -> Option<ChainHit> {
     let span = span.unwrap_or(0..0);
-    mcc_dbg!("refdef::chain", "[cross_hit] \"{}\" {} kind={:?} span={:?}..{:?} uri={}", key, inst.type_name(), def_kind, span.start, span.end, uri.as_str());
+    mcc_dbg!(
+        "refdef::chain",
+        "[cross_hit] \"{}\" {} kind={:?} span={:?}..{:?} uri={}",
+        key,
+        inst.type_name(),
+        def_kind,
+        span.start,
+        span.end,
+        uri.as_str()
+    );
     Some(ChainHit {
         name: key.to_string(),
         def_kind,
@@ -548,13 +702,24 @@ fn whole_hit(uri: &McURI, key: &str, inst: &McInstance, insts: &McInstances) -> 
         McInstance::Component(_) | McInstance::Module(_) => SymbolKind::InstDef,
         McInstance::Interface(_) => SymbolKind::PortDef,
         McInstance::BusRef { .. } => {
-            mcc_dbg!("refdef::chain", "[whole_hit] BusRef key=\"{}\" → Phase 3 needs class context → None", key);
+            mcc_dbg!(
+                "refdef::chain",
+                "[whole_hit] BusRef key=\"{}\" → Phase 3 needs class context → None",
+                key
+            );
             return None;
         }
         _ => SymbolKind::LabelDef,
     };
     let span = whole_span(key, inst, insts);
-    mcc_dbg!("refdef::chain", "[whole_hit] key=\"{}\" kind={:?} span={:?}..{:?}", key, kind, span.start, span.end);
+    mcc_dbg!(
+        "refdef::chain",
+        "[whole_hit] key=\"{}\" kind={:?} span={:?}..{:?}",
+        key,
+        kind,
+        span.start,
+        span.end
+    );
     Some(ChainHit {
         name: key.to_string(),
         def_kind: kind,
@@ -582,16 +747,17 @@ fn whole_span(key: &str, inst: &McInstance, insts: &McInstances) -> Range<usize>
 /// Bus member target: `MIC.P` → `BusMemberDef` with the precise member span.
 /// Falls back to `LabelDef` on the whole-bus span when the bus was registered
 /// without member spans.
-fn bus_member_hit(
-    uri: &McURI,
-    bus: &str,
-    member: &str,
-    insts: &McInstances,
-) -> Option<ChainHit> {
+fn bus_member_hit(uri: &McURI, bus: &str, member: &str, insts: &McInstances) -> Option<ChainHit> {
     let name = format!("{bus}.{member}");
     if let Some(d) = insts.bus_def(bus) {
         if let Some(span) = d.member_span(member) {
-            mcc_dbg!("refdef::chain", "[bus_member_hit] \"{}\" BusMemberDef span={:?}..{:?}", name, span.start, span.end);
+            mcc_dbg!(
+                "refdef::chain",
+                "[bus_member_hit] \"{}\" BusMemberDef span={:?}..{:?}",
+                name,
+                span.start,
+                span.end
+            );
             return Some(ChainHit {
                 name,
                 def_kind: SymbolKind::BusMemberDef,
@@ -612,7 +778,13 @@ fn bus_member_hit(
         .get(bus)
         .and_then(|v| v.first().cloned())
         .unwrap_or(0..0);
-    mcc_dbg!("refdef::chain", "[bus_member_hit] \"{}\" no bus_def → LabelDef fallback on port_span {:?}..{:?}", name, span.start, span.end);
+    mcc_dbg!(
+        "refdef::chain",
+        "[bus_member_hit] \"{}\" no bus_def → LabelDef fallback on port_span {:?}..{:?}",
+        name,
+        span.start,
+        span.end
+    );
     Some(ChainHit {
         name,
         def_kind: SymbolKind::LabelDef,
@@ -636,7 +808,13 @@ fn list_member_hit(uri: &McURI, list: &str, member: &str, insts: &McInstances) -
                 .and_then(|v| v.first().cloned())
         })
         .unwrap_or(0..0);
-    mcc_dbg!("refdef::chain", "[list_member_hit] \"{}\" LabelDef span={:?}..{:?}", bracket, span.start, span.end);
+    mcc_dbg!(
+        "refdef::chain",
+        "[list_member_hit] \"{}\" LabelDef span={:?}..{:?}",
+        bracket,
+        span.start,
+        span.end
+    );
     Some(ChainHit {
         name: bracket,
         def_kind: SymbolKind::LabelDef,
@@ -652,7 +830,13 @@ fn param_hit(uri: &McURI, name: &str, params: &McParamDeclares) -> Option<ChainH
         .find(|(n, _)| *n == name)
         .map(|(_, s)| s.clone())
         .unwrap_or(0..0);
-    mcc_dbg!("refdef::chain", "[param_hit] \"{}\" ParamDef span={:?}..{:?}", name, span.start, span.end);
+    mcc_dbg!(
+        "refdef::chain",
+        "[param_hit] \"{}\" ParamDef span={:?}..{:?}",
+        name,
+        span.start,
+        span.end
+    );
     Some(ChainHit {
         name: name.to_string(),
         def_kind: SymbolKind::ParamDef,
@@ -664,16 +848,16 @@ fn param_hit(uri: &McURI, name: &str, params: &McParamDeclares) -> Option<ChainH
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::ast_semantic::Span;
     use crate::semantic::basic::mc_bus::{McBus, McList};
     use crate::semantic::common::IOType;
     use crate::semantic::component::mc_attr::McAttributes;
     use crate::semantic::component::mc_layout::McLayout;
-    use crate::semantic::component::mc_pins::{McPins, McPinPort};
+    use crate::semantic::component::mc_pins::{McPinPort, McPins};
     use crate::semantic::component::{Mc2Component, McComponent};
     use crate::semantic::mc_func::McFunctions;
     use crate::semantic::mc_inst::McInstance;
     use crate::semantic::module::{Mc2Module, McModule};
-    use crate::ast::ast_semantic::Span;
     use crate::McIds;
     use std::sync::Arc;
 
@@ -685,10 +869,7 @@ mod tests {
         insts.register_bus_def(
             "MIC",
             100..103,
-            vec![
-                ("P".to_string(), 104..105),
-                ("N".to_string(), 106..107),
-            ],
+            vec![("P".to_string(), 104..105), ("N".to_string(), 106..107)],
         );
         insts.create(
             "MIC",
@@ -710,11 +891,7 @@ mod tests {
         );
         insts.store_port_span("GPIO[1:2]", 200..210);
         // Plain label V3V3.
-        insts.create(
-            "V3V3",
-            IOType::Power,
-            McInstance::Label("V3V3".to_string()),
-        );
+        insts.create("V3V3", IOType::Power, McInstance::Label("V3V3".to_string()));
         insts.store_port_span("V3V3", 300..304);
 
         let mut params = McParamDeclares::new();
@@ -851,11 +1028,12 @@ mod tests {
             span: 0..4,
         };
         // Pin I2C0 — a plain single pin.
-        comp.pins.names_to_id.insert(
-            "I2C0".to_string(),
-            McPinPort::Single("I2C0".to_string()),
-        );
-        comp.pins.pin_name_spans.insert("I2C0".to_string(), 100..104);
+        comp.pins
+            .names_to_id
+            .insert("I2C0".to_string(), McPinPort::Single("I2C0".to_string()));
+        comp.pins
+            .pin_name_spans
+            .insert("I2C0".to_string(), 100..104);
         // Pin ADC{P,N} — a named bus pin.
         comp.pins.names_to_id.insert(
             "ADC".to_string(),
@@ -870,7 +1048,9 @@ mod tests {
             "GPIO".to_string(),
             McPinPort::List("GPIO".to_string(), vec!["1".to_string(), "2".to_string()]),
         );
-        comp.pins.pin_name_spans.insert("GPIO".to_string(), 300..304);
+        comp.pins
+            .pin_name_spans
+            .insert("GPIO".to_string(), 300..304);
 
         let base = Arc::new(comp);
         let mc2 = Mc2Component::new("uC", base);
@@ -920,6 +1100,8 @@ mod tests {
         let (insts, params) = make_cross_insts();
         assert!(resolve_member_chain(&"main.mc".to_string(), "uC.NOPE", &insts, &params).is_none());
         // Unknown instance → None.
-        assert!(resolve_member_chain(&"main.mc".to_string(), "other.I2C0", &insts, &params).is_none());
+        assert!(
+            resolve_member_chain(&"main.mc".to_string(), "other.I2C0", &insts, &params).is_none()
+        );
     }
 }

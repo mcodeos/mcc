@@ -41,6 +41,53 @@ pub struct McFuncCall {
     pub right: Vec<McBus>,
     /// Chained member access (e.g., ".I2C0" in i2c(0x36).I2C0)
     pub dot_member: Option<String>,
+    /// ★ P4.1: Resolved return shape after Pass1b.
+    /// - `ReturnShape::This` → caller's left/right preserved (for `return this` / implicit)
+    /// - `ReturnShape::Label` → left empty, right = return value (for `return <expr>`)
+    pub resolved_return_shape: Option<ReturnShape>,
+}
+
+/// ★ P4.1: Fcall return shape resolved from McFunction.returns.
+#[derive(Debug, Clone)]
+pub enum ReturnShape {
+    /// `return this` or implicit → caller shape preserved (left + right from caller)
+    This { left: Vec<McBus>, right: Vec<McBus> },
+    /// `return <label/bus/expr>` → left empty, right = return value as bus vector
+    Label { bus: Vec<McBus> },
+}
+
+/// ★ P4.1: Extract right-side buses from a McPhrase (for Endpoint return shape).
+/// Uses phrase's own `right` representation; for labels/buses, returns a descriptive bus.
+fn get_right_bus_from_phrase(phrase: &McPhrase) -> Vec<McBus> {
+    match phrase {
+        McPhrase::Endpoint(ep) => {
+            // For endpoint return: derive bus from the endpoint type
+            match ep {
+                McEndpoint::Single(ir) => {
+                    let name = ir.to_string();
+                    vec![McBus::new(&name)]
+                }
+                McEndpoint::List(eps) => eps
+                    .iter()
+                    .flat_map(|ep| get_right_bus_from_phrase(&McPhrase::Endpoint(ep.clone())))
+                    .collect(),
+                McEndpoint::Node { input: _, output } => output
+                    .iter()
+                    .flat_map(|ep| get_right_bus_from_phrase(&McPhrase::Endpoint(ep.clone())))
+                    .collect(),
+            }
+        }
+        McPhrase::Lead => vec![McBus::new("lead")],
+        McPhrase::Multiple(phrases) => phrases
+            .iter()
+            .flat_map(|p| get_right_bus_from_phrase(p))
+            .collect(),
+        other => {
+            // For other phrase types, derive bus from the display name
+            let name = format!("{}", other);
+            vec![McBus::new(&name)]
+        }
+    }
 }
 
 impl McFuncCall {
@@ -434,6 +481,7 @@ impl McFuncCall {
                 left: vec![],
                 right: vec![],
                 dot_member: None,
+                resolved_return_shape: None,
             };
 
             // Create outer FuncCall: ClassName(params).MethodName(all_method_params)
@@ -445,6 +493,7 @@ impl McFuncCall {
                 left: vec![],
                 right: vec![],
                 dot_member: None,
+                resolved_return_shape: None,
             };
 
             // Create Series: pre_param -> funcall
@@ -531,6 +580,7 @@ impl McFuncCall {
                                             left: vec![],
                                             right: vec![],
                                             dot_member: None,
+                                            resolved_return_shape: None,
                                         })));
                                     }
                                 }
@@ -972,6 +1022,7 @@ impl McFuncCall {
                                                                 left,
                                                                 right,
                                                                 dot_member: None,
+                                                                resolved_return_shape: None,
                                                             },
                                                         ));
                                                     }
@@ -1272,7 +1323,31 @@ impl McFuncCall {
             left,
             right,
             dot_member: None,
+            resolved_return_shape: None,
         }))
+    }
+
+    /// ★ P4.1: Resolve return shape from McFunction.returns.
+    /// Called during Pass2 just before function body expansion.
+    ///
+    /// # Three-state rules (per eval.md §8.1):
+    /// - `Implicit` / `This` → `ReturnShape::This { left, right }` — preserves caller shape
+    /// - `Endpoint(ref phrase)` → `ReturnShape::Label { bus }` — left empty, right = phrase's right interface
+    pub fn resolve_return_shape(&mut self, func_returns: &McFuncReturn) {
+        let ret: &crate::semantic::mc_func::McFuncReturn = func_returns;
+        match ret {
+            McFuncReturn::Implicit | McFuncReturn::This => {
+                self.resolved_return_shape = Some(ReturnShape::This {
+                    left: self.left.clone(),
+                    right: self.right.clone(),
+                });
+            }
+            McFuncReturn::Endpoint(phrase) => {
+                // Endpoint return: derive bus from the returned phrase's right side
+                let bus = get_right_bus_from_phrase(phrase);
+                self.resolved_return_shape = Some(ReturnShape::Label { bus });
+            }
+        }
     }
 
     /// Validate that the caller (if it's an inner [`McFuncCall`]) returns
@@ -1448,6 +1523,7 @@ impl McFuncCall {
                 left: vec![],
                 right: vec![],
                 dot_member: None,
+                resolved_return_shape: None,
             })))
         } else {
             None

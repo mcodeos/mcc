@@ -775,6 +775,7 @@ impl McPhrase {
                                         left: left.clone(),
                                         right: right.clone(),
                                         dot_member: None,
+                                        resolved_return_shape: None,
                                     }));
                                 }
                                 return Some(if fcs.len() <= 1 {
@@ -789,6 +790,7 @@ impl McPhrase {
                                             left: left.clone(),
                                             right: right.clone(),
                                             dot_member: None,
+                                            resolved_return_shape: None,
                                         })
                                     })
                                 } else {
@@ -1388,7 +1390,32 @@ impl McPhrase {
                 );
 
                 // Infer shapes and upgrade phrases before checking connectivity
+                // ★ P4.3 single-port representative rule:
+                //   - `+` / `-` / `<-`: op1 is the shape representative (left side dominant)
+                //   - `->`: op2 is the shape representative (right side is destination)
+                //   This is enforced through check_inst_plusminus for op1 and already
+                //   implicit in how get_left/get_right shape inference works.
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
+
+                // ── P1.3: inst 1*1/1*2 constraint for +/- ──
+                if !check_inst_plusminus(&opd1) {
+                    dlog_error(
+                        1151,
+                        node,
+                        "Instance with 3+ pins cannot directly participate in `+` operation. \
+                         Use `->` for pass-through connection or `::` for type annotation.",
+                    );
+                    return None;
+                }
+                if !check_inst_plusminus(&opd2) {
+                    dlog_error(
+                        1151,
+                        node,
+                        "Instance with 3+ pins cannot directly participate in `+` operation. \
+                         Use `->` for pass-through connection or `::` for type annotation.",
+                    );
+                    return None;
+                }
 
                 if !is_connectable(&opd1.get_left(), &opd2.get_left())
                     || !is_connectable(&opd1.get_right(), &opd2.get_right())
@@ -1460,6 +1487,26 @@ impl McPhrase {
                 );
 
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
+
+                // ── P1.3: inst 1*1/1*2 constraint for +/- ──
+                if !check_inst_plusminus(&opd1) {
+                    dlog_error(
+                        1154,
+                        node,
+                        "Instance with 3+ pins cannot directly participate in `-` operation. \
+                         Use `->` for pass-through connection.",
+                    );
+                    return None;
+                }
+                if !check_inst_plusminus(&opd2) {
+                    dlog_error(
+                        1154,
+                        node,
+                        "Instance with 3+ pins cannot directly participate in `-` operation. \
+                         Use `->` for pass-through connection.",
+                    );
+                    return None;
+                }
 
                 if !is_connectable(&opd1.get_right(), &opd2.get_left()) {
                     dlog_error(1154, node, SHAPE_MISMATCH);
@@ -1750,7 +1797,104 @@ impl McPhrase {
             }
         }
     }
+}
 
+// ============================================================================
+// Shape defaults — eval.md §2 Pin shape default rules 1-4
+// ============================================================================
+
+/// Component pin shape descriptor, computed from component definition.
+/// Maps to eval.md §2 rules 1-4.
+struct CompPinShape {
+    kind: PinShapeKind,
+    /// Total static pin count (0 for dynamic-only pins)
+    #[allow(dead_code)]
+    static_count: usize,
+    /// Whether the component has `pins +=` definitions
+    #[allow(dead_code)]
+    has_dynamic: bool,
+}
+
+/// Shape kind per eval.md §2 rules.
+enum PinShapeKind {
+    /// Rule 1: 1-port label/pins → 1×1 (single bus, left=right=same name)
+    Single,
+    /// Rule 3: 2-pin device (RES/CAP/IND/DIO/LED/FUSE etc.) → 1×2
+    ///   - left bus = "{inst}.1" (pin 1)
+    ///   - right bus = "{inst}.2" (pin 2)
+    TwoPin,
+    /// Rule 4: 3+ pins → column vector
+    ///   - left: input pins (or power[0] if no inputs)
+    ///   - right: output pins (or power[1] if no outputs)
+    MultiPort,
+}
+
+/// Compute the default pin shape for a component instance.
+///
+/// Implements eval.md §2 rules:
+///   1. 1-port → Single (1×1)
+///   2. (IDX expansion → handled at instantiation phase, not here)
+///   3. 2-pin device (static or dynamic known 2-pin class) → TwoPin (1×2)
+///   4. 3+ pins → MultiPort (N×1 column vector)
+///
+/// Dynamic pins with unknown class shape → defers to instantiation stage.
+fn shape_defaults(c: &Mc2Component) -> CompPinShape {
+    let static_count = c.base.pins.count();
+    let has_dynamic = c.base.pins.has_dynamic_pins();
+    let class_name = c.base.name.to_string();
+    let is_known_2pin = crate::vector::graph::naming::is_known_twopin_class(&class_name);
+
+    let kind = match static_count {
+        // Rule 3: 0 static pins + dynamic + known 2-pin class → TwoPin
+        // (anonymous instances @CAP, @RES etc. also treated as TwoPin)
+        0 if has_dynamic && is_known_2pin => PinShapeKind::TwoPin,
+        // Rule 1: 0 or 1 static pin, no matching 2-pin class → Single
+        0 | 1 => PinShapeKind::Single,
+        // Rule 3: exactly 2 static pins → TwoPin
+        2 => PinShapeKind::TwoPin,
+        // Rule 4: 3+ static pins → MultiPort
+        _ => PinShapeKind::MultiPort,
+    };
+
+    // Dynamic pins with unknown shape (e.g. LPA/FLASH/SPEAKER):
+    // treat as Single at phrase stage, defer to instantiation stage
+    // for full shape determination.
+    let kind = if has_dynamic && !is_known_2pin {
+        PinShapeKind::Single
+    } else {
+        kind
+    };
+
+    CompPinShape {
+        kind,
+        static_count,
+        has_dynamic,
+    }
+}
+
+/// Check veccircuit.md constraint: instances with 3+ pins cannot directly
+/// participate in `+` (Parallel) or `-` (Series Undirected) operations.
+/// Returns true if the operand is allowed to participate.
+fn check_inst_plusminus(opd: &McPhrase) -> bool {
+    use McPhrase::*;
+    match opd {
+        Endpoint(McEndpoint::Single(McInstanceRef {
+            base: McInstance::Component(ref c),
+            ..
+        })) => {
+            let shape = shape_defaults(c);
+            !matches!(shape.kind, PinShapeKind::MultiPort)
+        }
+        // Transposed, Group, FuncCall etc. — allowed (shape will be validated at Pass2)
+        _ => true,
+    }
+}
+
+// ============================================================================
+// get_left / get_right
+// ============================================================================
+
+impl McPhrase {
     pub(crate) fn get_left(&self) -> Vec<McBus> {
         use IOType;
         match self {
@@ -1759,37 +1903,21 @@ impl McPhrase {
                 ..
             })) => {
                 let inst_name = c.name.to_string();
-                // ── Iter-7.5b ─────────────────────────────────────────────
-                // Same as line.rs phrase_to_members: only treat system library 2-pin dynamic classes
-                // (CAP/RES/IND/DIODE/LED/FUSE) or anonymous instances (@ prefix) as 2-pin,
-                // multi-pin dynamic components (LPA/FLASH/SPEAKER etc.) go through the original path.
-                //
-                // ── ★ P0-2: list moved to naming::is_known_twopin_class ──────
-                // Single source of truth, supports both dotted form (DIO.ESD) and aliases (ESD/ZENER/...).
-                let class_name = c.base.name.to_string();
-                let is_known_2pin_class =
-                    crate::vector::graph::naming::is_known_twopin_class(&class_name);
-                let is_anon_inst = inst_name.starts_with('@');
-                let static_count = c.base.pins.count();
-                let dyn_two_pin = static_count == 0
-                    && c.base.pins.has_dynamic_pins()
-                    && (is_known_2pin_class || is_anon_inst);
-
-                match (static_count, dyn_two_pin) {
-                    (2, _) | (_, true) => vec![McBus::new(&format!("{inst_name}.1"))],
-                    (0, _) | (1, _) => vec![McBus::new(&inst_name)],
-                    _ => {
+                let shape = shape_defaults(c);
+                match shape.kind {
+                    PinShapeKind::TwoPin => vec![McBus::new(&format!("{inst_name}.1"))],
+                    PinShapeKind::Single => vec![McBus::new(&inst_name)],
+                    PinShapeKind::MultiPort => {
                         let in_pins = c.base.pins.get_pins_by_io(&IOType::In);
                         let out_pins = c.base.pins.get_pins_by_io(&IOType::Out);
                         let ps_pins = c.base.pins.get_pins_by_io(&IOType::Power);
-
                         if !in_pins.is_empty() && !out_pins.is_empty() {
                             in_pins
                                 .iter()
                                 .map(|p| McBus::new(&format!("{inst_name}.{p}")))
                                 .collect()
                         } else if !ps_pins.is_empty() {
-                            vec![McBus::new(&format!("{}.{}", inst_name, ps_pins[0]))]
+                            vec![McBus::new(&format!("{inst_name}.{}", ps_pins[0]))]
                         } else {
                             vec![McBus::new(&inst_name)]
                         }
@@ -1891,35 +2019,21 @@ impl McPhrase {
                 ..
             })) => {
                 let inst_name = c.name.to_string();
-                // ── Iter-7.5b ─────────────────────────────────────────────
-                // Same as get_left: dynamic-pins treated as 2-pin (return .2), but only
-                // limited to known 2-pin class names or anonymous instances, not affecting multi-pin dynamic components.
-                //
-                // ── ★ P0-2: list moved to naming::is_known_twopin_class ──────
-                let class_name = c.base.name.to_string();
-                let is_known_2pin_class =
-                    crate::vector::graph::naming::is_known_twopin_class(&class_name);
-                let is_anon_inst = inst_name.starts_with('@');
-                let static_count = c.base.pins.count();
-                let dyn_two_pin = static_count == 0
-                    && c.base.pins.has_dynamic_pins()
-                    && (is_known_2pin_class || is_anon_inst);
-
-                match (static_count, dyn_two_pin) {
-                    (2, _) | (_, true) => vec![McBus::new(&format!("{inst_name}.2"))],
-                    (0, _) | (1, _) => vec![McBus::new(&inst_name)],
-                    _ => {
+                let shape = shape_defaults(c);
+                match shape.kind {
+                    PinShapeKind::TwoPin => vec![McBus::new(&format!("{inst_name}.2"))],
+                    PinShapeKind::Single => vec![McBus::new(&inst_name)],
+                    PinShapeKind::MultiPort => {
                         let in_pins = c.base.pins.get_pins_by_io(&IOType::In);
                         let out_pins = c.base.pins.get_pins_by_io(&IOType::Out);
                         let ps_pins = c.base.pins.get_pins_by_io(&IOType::Power);
-
                         if !in_pins.is_empty() && !out_pins.is_empty() {
                             out_pins
                                 .iter()
                                 .map(|p| McBus::new(&format!("{inst_name}.{p}")))
                                 .collect()
                         } else if !ps_pins.is_empty() && ps_pins.len() >= 2 {
-                            vec![McBus::new(&format!("{}.{}", inst_name, ps_pins[1]))]
+                            vec![McBus::new(&format!("{inst_name}.{}", ps_pins[1]))]
                         } else {
                             vec![McBus::new(&inst_name)]
                         }

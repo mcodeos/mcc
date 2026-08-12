@@ -888,10 +888,7 @@ impl McModule {
                 let bus = base_from_bus.unwrap_or_else(|| root.clone());
                 let mut cur = node.get_sub_node();
                 while let Some(child) = cur {
-                    if matches!(
-                        child.get_type(),
-                        MCAST_OPD_CURLY | MCAST_OPD_CURLY_MN
-                    ) {
+                    if matches!(child.get_type(), MCAST_OPD_CURLY | MCAST_OPD_CURLY_MN) {
                         let mut mc = child.get_sub_node();
                         while let Some(m) = mc {
                             if let Some(mname) = m.to_string() {
