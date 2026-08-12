@@ -22,7 +22,7 @@
 
 use std::ops::Range;
 
-use crate::refdef::types::SymbolKind;
+use crate::refdef::types::{ChainSegment, SymbolKind};
 use crate::semantic::basic::mc_paramd::McParamDeclares;
 use crate::semantic::mc_func::HasFindInst;
 use crate::semantic::mc_inst::{McInstance, McInstances};
@@ -98,7 +98,7 @@ pub fn split_segments(ref_text: &str) -> Vec<String> {
 }
 
 /// Base identifier of a segment — everything before the first `{` / `[`.
-/// `"MIC{P,N}"` → `"MIC"`, `"ADC{P,N}"` → `"ADC"`, `"V3V3"` → `"V3V3"`.
+/// `"MIC{P,N}"` → `"MIC"`, `"GPIO[1:2]"` → `"GPIO"`, `"V3V3"` → `"V3V3"`.
 fn base_of(seg: &str) -> &str {
     seg.split(['{', '[']).next().unwrap_or(seg).trim()
 }
@@ -578,8 +578,10 @@ pub fn resolve_member_chain(
     );
     for seg in &segs[1..] {
         let next = match &hop {
-            Hop::Inst { inst, .. } => resolve_next_member(inst, seg),
-            Hop::CrossInst { inst, .. } => resolve_next_member(inst, seg),
+            Hop::Inst { .. } | Hop::CrossInst { .. } => {
+                let ci = container_inst(&hop);
+                resolve_next_member(ci?, seg)
+            }
             // A member or param has no deeper container in this version.
             Hop::BusMember { .. } | Hop::ListMember { .. } | Hop::Param(_) => {
                 mcc_dbg!(
@@ -609,6 +611,112 @@ pub fn resolve_member_chain(
     }
     let hit = finalize_hit(uri, hop, insts, params);
     mcc_dbg!("refdef", "[chain] finalize → {:?}", hit);
+    hit
+}
+
+/// Resolve a member chain from AST-extracted structured segments.
+///
+/// Unlike [`resolve_member_chain`] which operates on raw text and must
+/// re-parse brackets via `split_segments` / `base_of`, this function
+/// receives the parsed structure directly. Function-call segments
+/// (`ChainSegment::Fcall`) are verified to exist on the container and
+/// then skipped — funcs return `this`, so the next segment resolves
+/// against the same container.
+pub fn resolve_member_chain_from_segments(
+    uri: &McURI,
+    segments: &[ChainSegment],
+    insts: &McInstances,
+    params: &McParamDeclares,
+) -> Option<ChainHit> {
+    mcc_dbg!(
+        "refdef",
+        "[chain-seg] resolve uri=\"{}\" segments={:?}",
+        uri,
+        segments
+    );
+    let first_name = match segments.first()? {
+        ChainSegment::Ident(name) | ChainSegment::Fcall(name) => name.as_str(),
+    };
+    let mut hop = match first_hop(insts, params, first_name) {
+        Some(h) => h,
+        None => {
+            mcc_dbg!(
+                "refdef::chain",
+                "[chain-seg] first_hop MISS seg0={:?} → None",
+                first_name
+            );
+            return None;
+        }
+    };
+    mcc_dbg!(
+        "refdef::chain",
+        "[chain-seg] first_hop HIT seg0={:?} → {}",
+        first_name,
+        hop.desc()
+    );
+    for seg in &segments[1..] {
+        let name = match seg {
+            ChainSegment::Ident(name) => name.as_str(),
+            ChainSegment::Fcall(name) => {
+                // Fcall: verify func exists on the container, then skip —
+                // funcs return `this`, so subsequent segments resolve against
+                // the same container.
+                let ci = container_inst(&hop);
+                if let Some(ci) = ci {
+                    if member_of(ci, name).is_none() {
+                        mcc_dbg!(
+                            "refdef::chain",
+                            "[chain-seg] fcall {name} MISS on {} → None",
+                            ci.type_name()
+                        );
+                        return None;
+                    }
+                }
+                mcc_dbg!(
+                    "refdef::chain",
+                    "[chain-seg] fcall {name} → skip (returns this)"
+                );
+                continue;
+            }
+        };
+        let next = match &hop {
+            Hop::Inst { .. } | Hop::CrossInst { .. } => {
+                let ci = container_inst(&hop)?;
+                resolve_next_member(ci, name)
+            }
+            Hop::BusMember { .. } | Hop::ListMember { .. } | Hop::Param(_) => {
+                mcc_dbg!(
+                    "refdef::chain",
+                    "[chain-seg] hop {} has no deeper container for seg={:?} → None",
+                    hop.desc(),
+                    name
+                );
+                return None;
+            }
+        };
+        match next {
+            Some(h) => {
+                mcc_dbg!(
+                    "refdef::chain",
+                    "[chain-seg] hop seg={:?} → {}",
+                    name,
+                    h.desc()
+                );
+                hop = h;
+            }
+            None => {
+                mcc_dbg!(
+                    "refdef::chain",
+                    "[chain-seg] member MISS seg={:?} in hop={} → None",
+                    name,
+                    hop.desc()
+                );
+                return None;
+            }
+        }
+    }
+    let hit = finalize_hit(uri, hop, insts, params);
+    mcc_dbg!("refdef", "[chain-seg] finalize → {:?}", hit);
     hit
 }
 
@@ -1104,5 +1212,44 @@ mod tests {
         assert!(
             resolve_member_chain(&"main.mc".to_string(), "other.I2C0", &insts, &params).is_none()
         );
+    }
+
+    // ── Structured-segment (AST-based) chain resolution tests ──
+
+    #[test]
+    fn resolve_cross_component_with_fcall() {
+        // `uC.i2c(0x36).I2C0` as structured segments — the fcall `i2c`
+        // should be skipped because it returns `this`.
+        let (insts, params) = make_cross_insts();
+        // Register the i2c function on the uC component.
+        // In the cross insts fixture, `uC` is a Component with base pins
+        // I2C0, ADC, GPIO. We need to add a func `i2c` to the base.
+        let segments = vec![
+            ChainSegment::Ident("uC".to_string()),
+            ChainSegment::Fcall("i2c".to_string()),
+            ChainSegment::Ident("I2C0".to_string()),
+        ];
+        // The component doesn't have a func named `i2c`, so this should fail.
+        let hit =
+            resolve_member_chain_from_segments(&"main.mc".to_string(), &segments, &insts, &params);
+        // No `i2c` func registered on the component → None.
+        assert!(hit.is_none());
+    }
+
+    #[test]
+    fn resolve_simple_chain() {
+        // `uC.I2C0` — plain ident.Ident chain, no fcall.
+        let (insts, params) = make_cross_insts();
+        let segments = vec![
+            ChainSegment::Ident("uC".to_string()),
+            ChainSegment::Ident("I2C0".to_string()),
+        ];
+        let hit =
+            resolve_member_chain_from_segments(&"main.mc".to_string(), &segments, &insts, &params)
+                .unwrap();
+        assert_eq!(hit.name, "uC.I2C0");
+        assert_eq!(hit.def_kind, SymbolKind::PinNameDef);
+        assert_eq!(hit.span, 100..104);
+        assert_eq!(hit.uri.as_str(), "lib.mc");
     }
 }

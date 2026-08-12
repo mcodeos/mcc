@@ -1176,23 +1176,23 @@ impl McFuncCall {
         };
 
         // === Iter 2: handle dot-notation func_name ===
-        let func_name = if func_name.to_string().contains('.') {
-            let name_str = func_name.to_string();
-            if let Some(dot_pos) = name_str.find('.') {
-                let inst_part = &name_str[..dot_pos];
-                let method_part = &name_str[dot_pos + 1..];
-                if caller.is_none() {
-                    if let Some(ident) = context.find_inst(inst_part) {
-                        caller = Some(Box::new(ident.into()));
-                        McIds::from(method_part)
-                    } else {
-                        func_name
-                    }
+        let func_name = if func_name.segments.len() > 1 {
+            let first = func_name.segments[0].to_string();
+            // Rebuild the method name from the remaining dot-prefixed segments.
+            let rest: String = func_name.segments[1..]
+                .iter()
+                .map(|s| s.to_string().trim_start_matches('.').to_string())
+                .collect::<Vec<_>>()
+                .join(".");
+            if caller.is_none() {
+                if let Some(ident) = context.find_inst(&first) {
+                    caller = Some(Box::new(ident.into()));
+                    McIds::from(rest.as_str())
                 } else {
-                    McIds::from(method_part)
+                    func_name
                 }
             } else {
-                func_name
+                McIds::from(rest.as_str())
             }
         } else {
             func_name

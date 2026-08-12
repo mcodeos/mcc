@@ -10,6 +10,24 @@
 use crate::McURI;
 use std::collections::HashMap;
 
+// ── ChainSegment ──
+
+/// A segment in a member-chain reference, extracted from the AST.
+///
+/// Unlike text-based `split_segments` / `base_of`, this carries the parsed
+/// structure directly — the AST already knows whether a segment is a plain
+/// identifier or a function call, so chain resolution should not re-parse
+/// brackets from raw text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ChainSegment {
+    /// A plain identifier segment (e.g., `uC`, `I2C0`, `MIC`).
+    Ident(String),
+    /// A function-call segment (e.g., `i2c(0x36)`). The name is the function
+    /// identifier; args are omitted because the func returns `this` and the
+    /// next segment resolves against the same container.
+    Fcall(String),
+}
+
 // ── SourceLocation ──
 
 /// ★ SourceLocation carries file_id/container_id/func_id/byte_start/byte_end

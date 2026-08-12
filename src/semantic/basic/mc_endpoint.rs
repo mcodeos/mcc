@@ -139,23 +139,6 @@ impl McInstanceRef {
         }
     }
 
-    pub fn from_string(s: &str) -> Self {
-        let parts: Vec<&str> = s.split('.').collect();
-        if parts.len() == 1 {
-            McInstanceRef::from_label(s)
-        } else {
-            let base_name = parts[0];
-            let members: Vec<McMember> = parts[1..]
-                .iter()
-                .map(|m| McMember::Single(m.to_string()))
-                .collect();
-            McInstanceRef {
-                base: McInstance::Label(base_name.to_string()),
-                members: vec![McMemberList { items: members }],
-            }
-        }
-    }
-
     pub fn to_bus(&self) -> crate::semantic::basic::mc_bus::McBus {
         use crate::semantic::basic::mc_bus::McBus;
         if let McInstance::Bus(bus) = &self.base {

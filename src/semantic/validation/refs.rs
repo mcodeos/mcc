@@ -114,8 +114,9 @@ fn check_spec_refs(acc: &mut CheckAccumulator) {
             .filter_map(|d| d.get_primary_name())
             .collect();
         for attr in comp.attrs.iter() {
-            let key = attr.id.to_string();
-            if key.starts_with("spec.") {
+            // Check if attr.id starts with "spec." using structured segments
+            let is_spec = attr.id.segments.len() > 1 && attr.id.segments[0].to_string() == "spec";
+            if is_spec {
                 for val in &attr.values {
                     // Use the parsed McAttrVal type instead of string heuristic.
                     // AttrVariable is a bare identifier — check if it matches a known param.
@@ -129,7 +130,7 @@ fn check_spec_refs(acc: &mut CheckAccumulator) {
                                 uri: Some(uri.clone()), span: attr.key_span.clone(),
                                 message: format!(
                                     "Spec key '{}' in component '{}' references '{}' which is not a declared parameter.",
-                                    key, comp_name, word
+                                    attr.id, comp_name, word
                                 ),
                                 code: 2301,
                             });
