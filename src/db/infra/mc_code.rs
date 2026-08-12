@@ -3266,6 +3266,36 @@ impl McCode {
                         .push((ref_kind, u32::from(decl_id), span.start, span.end));
                 }
             }
+            // ★ Chain references: AST-structured segments for cross-container
+            // member resolution (e.g. `uC.ADC{P,N}`, `uC.19`, `uC.i2c(0x36).I2C0`).
+            // Recorded by try_record_chain_ref from the AST; resolved here so
+            // goto-def / hover land on the member text.
+            for (span, segments, scope) in m.insts.iter_chain_refs() {
+                if let Some(hit) = crate::refdef::chain::resolve_member_chain_from_segments(
+                    &uri, segments, &m.insts, &m.params,
+                ) {
+                    let ref_kind = Self::chain_ref_kind(hit.def_kind);
+                    let (d, _) = crate::refdef::register::register_def(
+                        sem,
+                        &hit.uri,
+                        scope,
+                        None,
+                        &hit.name,
+                        hit.span.clone(),
+                        hit.def_kind,
+                    );
+                    symbol_lapper.insert(Interval {
+                        start: span.start,
+                        stop: span.end,
+                        val: SymbolType::new(ref_kind, u32::from(d)),
+                    });
+                    sem.ref_entries
+                        .push((ref_kind, u32::from(d), span.start, span.end));
+                    tracing::info!(target: "mcc::lsp::audit",
+                        "[AUDIT-ChainRef] segments={segments:?} → {} kind={ref_kind:?} def_uri={} def_span={:?} decl_id={d:?}",
+                        hit.name, hit.uri, hit.span);
+                }
+            }
             for (span, port_name, scope) in m.params.iter_net_refs() {
                 let sp = crate::refdef::register::scope_path_from_scope_str(&uri, scope);
                 let decl_id =
@@ -3380,6 +3410,33 @@ impl McCode {
                         });
                         sem.ref_entries
                             .push((ref_kind, u32::from(decl_id), span.start, span.end));
+                    }
+                }
+                // ★ Chain references inside func bodies (e.g. `spi + uC.SPI`
+                // in us513.mc loadFlash). Recorded into `func.insts` by
+                // try_record_chain_ref; resolve against module insts because
+                // func bodies reference module-level instances (e.g. uC).
+                for (span, segments, scope) in func.insts.iter_chain_refs() {
+                    if let Some(hit) = crate::refdef::chain::resolve_member_chain_from_segments(
+                        &uri, segments, &m.insts, &m.params,
+                    ) {
+                        let ref_kind = Self::chain_ref_kind(hit.def_kind);
+                        let (d, _) = crate::refdef::register::register_def(
+                            sem,
+                            &hit.uri,
+                            scope,
+                            None,
+                            &hit.name,
+                            hit.span.clone(),
+                            hit.def_kind,
+                        );
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::new(ref_kind, u32::from(d)),
+                        });
+                        sem.ref_entries
+                            .push((ref_kind, u32::from(d), span.start, span.end));
                     }
                 }
                 let func_scope = func.insts.scope.clone().unwrap_or_else(|| fscope.clone());
@@ -4443,4 +4500,186 @@ fn extract_dot_pair(value_node: &AstNode) -> Option<(String, String, u32, u32, u
         member_start,
         member_end,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The C parser (`mcc_load_from_string` → `mcc_lex`/`mcc_parse`) keeps
+    /// token/error state in process-global buffers, so it is not re-entrant.
+    /// Tests that drive it must be serialized to avoid cross-test corruption.
+    static PARSE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Regression: declareb instances inside net expressions must be registered
+    /// as LSP declarations (`res[1:2]::RES(0Ω)` → res1/res2, `C4::CAP()` → C4).
+    ///
+    /// The twopin early-return in `McPhrase::new` (MCAST_DECLARE) bypasses
+    /// `context.parse_declare()`, so instance names were never registered —
+    /// only the class ref was. This test asserts the declaration is present in
+    /// `name_to_declare_id` and that `lapper_module_ports` produced a LabelDef
+    /// interval at the instance-name span (what mcext goto-def consumes).
+    #[test]
+    fn declareb_inline_inst_registers_lsp_declaration() {
+        let _guard = PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let uri: crate::McURI = "/mcc/declareb-inst.mc".to_string();
+        let source = r#"
+module main
+{
+    UART0 - res[1:2]::RES(0Ω) - UART1
+    MIC{P,N} -> [C4::CAP(),C5::CAP()] -> ADC{P,N}
+}
+"#;
+        crate::mcc_load_from_string(&uri, source);
+
+        let mcode = workspace::WORKSPACE.mcodes.get(&uri).expect("file loaded");
+        let sem = mcode.symbols.lock().expect("symbols lock");
+        let lt = &sem.local_table;
+
+        // 1. Declarations present in name_to_declare_id.
+        let file_id = crate::ast::ast_semantic::intern(&mut sem.file_table.clone(), uri.as_str());
+        let scope_id = lt.scope_index.get("main").copied();
+        let (cid, fnid) = scope_id
+            .map(|(_, c, f)| (c, f))
+            .unwrap_or((u32::MAX, u32::MAX));
+        for name in ["res1", "res2", "C4", "C5"] {
+            let key = (file_id, cid, fnid, name.to_string());
+            assert!(
+                lt.name_to_declare_id.contains_key(&key),
+                "declareb instance '{name}' must have a declaration in name_to_declare_id"
+            );
+        }
+
+        // 2. Lapper has a def interval covering each instance-name span.
+        // res1/res2 share the `res[1:2]` span; C4/C5 have their own spans.
+        let expected: Vec<(&str, std::ops::Range<usize>)> = vec![
+            (
+                "res1",
+                source.find("res[1:2]").unwrap()..source.find("res[1:2]").unwrap() + 8,
+            ),
+            (
+                "res2",
+                source.find("res[1:2]").unwrap()..source.find("res[1:2]").unwrap() + 8,
+            ),
+            (
+                "C4",
+                source.find("C4::CAP").unwrap()..source.find("C4::CAP").unwrap() + 2,
+            ),
+            (
+                "C5",
+                source.find("C5::CAP").unwrap()..source.find("C5::CAP").unwrap() + 2,
+            ),
+        ];
+        for (name, span) in expected {
+            let found = sem.symbol_lapper.iter().any(|iv| {
+                iv.val.kind == SymbolKind::LabelDef as u8
+                    && iv.start == span.start
+                    && iv.stop == span.end
+            });
+            assert!(
+                found,
+                "lapper must contain a LabelDef interval for declareb instance '{name}' at {span:?}"
+            );
+        }
+    }
+
+    /// Regression: member chains in net expressions (`uC.ADC{P,N}`, `uC.19`)
+    /// must produce lapper REF intervals resolved to the class-definition pin.
+    ///
+    /// `try_record_chain_ref` stores these in `chain_ref_spans`, but the
+    /// consumption loop in `lapper_module_ports` / `lapper_function_params`
+    /// was dropped in the a520f3a merge — so goto-def on the member text
+    /// found no interval. This test asserts each chain ref is present in the
+    /// lapper and maps (via ref_def_map) to the pin in the component.
+    #[test]
+    fn module_member_chain_refs_resolve_in_lapper() {
+        let _guard = PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let uri: crate::McURI = "/mcc/chainref.mc".to_string();
+        let source = r#"
+component MCU.X
+{
+    pins = [
+        io [6,7] = UART0::UART.TTL(DCE)
+        io [16,17] = ADC::ADC.DIFF(Receiver)
+        io [18,19] = GPIO[0,1]
+    ]
+}
+
+module main
+{
+    io UART0, MIC{P,N}
+    out SPK
+    MCU.X uC
+    UART0 - uC.UART0
+    MIC{P,N} -> uC.ADC{P,N}
+    uC.19 -> SPK
+}
+"#;
+        crate::mcc_load_from_string(&uri, source);
+
+        let mcode = workspace::WORKSPACE.mcodes.get(&uri).expect("file loaded");
+        let sem = mcode.symbols.lock().expect("symbols lock");
+
+        // Expected byte spans (source is pure ASCII here).
+        let adc_ref = source.find("uC.ADC{P,N}").unwrap()
+            ..source.find("uC.ADC{P,N}").unwrap() + "uC.ADC{P,N}".len();
+        let p19_ref = source.find("uC.19").unwrap()..source.find("uC.19").unwrap() + "uC.19".len();
+        let uart0_ref =
+            source.find("uC.UART0").unwrap()..source.find("uC.UART0").unwrap() + "uC.UART0".len();
+        let adc_def = source.find("ADC").unwrap()..source.find("ADC").unwrap() + 3;
+        let pin19_def = source.find("18,19").unwrap()..source.find("18,19").unwrap() + 5;
+        let uart0_def = source.find("UART0").unwrap()..source.find("UART0").unwrap() + 5;
+
+        // 1. Each member chain must have a REF interval at its text span.
+        let mut ref_ids: Vec<(
+            std::ops::Range<usize>,
+            SymbolKind,
+            u32,
+            std::ops::Range<usize>,
+        )> = Vec::new();
+        for (ref_span, def_span) in [
+            (adc_ref.clone(), adc_def.clone()),
+            (p19_ref.clone(), pin19_def.clone()),
+            (uart0_ref.clone(), uart0_def.clone()),
+        ] {
+            let mut found: Option<(SymbolKind, u32)> = None;
+            for iv in sem.symbol_lapper.iter() {
+                if iv.start == ref_span.start && iv.stop == ref_span.end {
+                    let kind: SymbolKind = unsafe { std::mem::transmute(iv.val.kind) };
+                    if kind.is_ref() {
+                        found = Some((kind, iv.val.id));
+                    }
+                }
+            }
+            assert!(
+                found.is_some(),
+                "lapper must contain a REF interval for member chain at {ref_span:?}"
+            );
+            ref_ids.push((ref_span, found.unwrap().0, found.unwrap().1, def_span));
+        }
+
+        // 2. Each chain ref must map (via ref_def_map) to the pin def span.
+        let rdm = sem.ref_def_map.as_ref().expect("ref_def_map is built");
+        for (ref_span, kind, id, def_span) in &ref_ids {
+            let entry = rdm
+                .entries
+                .get(&(*kind, *id))
+                .expect("chain ref must have a ref_def_map entry");
+            let loc = &entry.def_loc;
+            assert!(
+                loc.byte_start as usize == def_span.start && loc.byte_end as usize == def_span.end,
+                "chain ref at {ref_span:?} (kind={kind:?} id={id}) must resolve to pin def {def_span:?}, got {}..{}",
+                loc.byte_start,
+                loc.byte_end
+            );
+        }
+    }
 }
