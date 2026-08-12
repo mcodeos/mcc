@@ -396,75 +396,88 @@ impl McPhrase {
                                         context.add_label(ids.to_string())
                                     }
                                 }
-                            } else {
-                                let id_str = ids.to_string();
-                                if let Some((base, rest)) = id_str.split_once('.') {
-                                    if let Some((bus_name, pin_name)) = rest.split_once('.') {
-                                        if context.is_component_bus(base, bus_name) {
-                                            let full_name = format!("{base}.{bus_name}");
-                                            let member_ref =
-                                                McBus::member_ref(&full_name, pin_name.to_string());
-                                            return Some(McPhrase::Endpoint(McEndpoint::Single(
-                                                McInstanceRef::new(McInstance::Bus(member_ref)),
-                                            )));
-                                        }
+                            } else if let Some(chain) = ids.dot_chain_parts() {
+                                // ★ Dot chain — structured segments straight from the
+                                // AST (`uC.ADC.P` → ["uC", "ADC", "P"]), no text re-parsing.
+                                //
+                                // `uC.ADC.P` (3+ segments): component-bus member access.
+                                if chain.len() >= 3 {
+                                    let base = &chain[0];
+                                    let bus_name = &chain[1];
+                                    if context.is_component_bus(base, bus_name) {
+                                        let pin_name = chain[2..].join(".");
+                                        let full_name = format!("{base}.{bus_name}");
+                                        let member_ref = McBus::member_ref(&full_name, pin_name);
+                                        return Some(McPhrase::Endpoint(McEndpoint::Single(
+                                            McInstanceRef::new(McInstance::Bus(member_ref)),
+                                        )));
                                     }
-                                    if context.find_inst(base).is_none() {
-                                        context.add_bus(base.to_string(), vec![rest.to_string()]);
-                                    } else {
-                                        // E1802: Check if base is a Component and rest is a valid pin
-                                        if let Some(McInstance::Component(c)) =
-                                            context.find_inst(base)
-                                        {
-                                            if c.find_pin(&rest).is_none() {
-                                                dlog_error(
-                                                    1802,
-                                                    &subnode,
-                                                    &format!(
-                                                        "Pin '{}' not found in component '{}'",
-                                                        rest, base
-                                                    ),
-                                                );
-                                                return None;
-                                            }
-                                        }
-                                        // ★ LSP: Register instance reference for dot-separated path
-                                        let span = (subnode.get_pos() as usize)
-                                            ..((subnode.get_pos() + subnode.get_len()) as usize);
-                                        if let Some(decl_id) =
-                                            crate::query::refs::mcb_lookup_instance_decl(
-                                                context.uri(),
-                                                base,
-                                                scope.as_deref(),
-                                            )
-                                        {
-                                            mcb_register_instance_ref(
-                                                context.uri(),
-                                                span,
-                                                decl_id,
-                                                scope.as_deref(),
-                                            );
-                                        }
-                                        context.upgrade_label_to_bus(base);
-                                        if let Some(McPhrase::Endpoint(McEndpoint::Single(
-                                            McInstanceRef {
-                                                base: McInstance::Bus(bus),
-                                                ..
-                                            },
-                                        ))) = context.add_bus_member(base, rest.to_string())
-                                        {
-                                            return Some(McPhrase::Endpoint(McEndpoint::Single(
-                                                McInstanceRef::new(McInstance::Bus(bus)),
-                                            )));
-                                        }
-                                    }
-                                    let member_ref = McBus::member_ref(base, rest.to_string());
-                                    Some(McPhrase::Endpoint(McEndpoint::Single(
-                                        McInstanceRef::new(McInstance::Bus(member_ref)),
-                                    )))
-                                } else {
-                                    context.add_label(id_str)
                                 }
+                                // Single segment — plain name.
+                                if chain.len() == 1 {
+                                    return Some(
+                                        context
+                                            .add_label(ids.to_string())
+                                            .unwrap_or_else(|| McPhrase::label(ids.to_string())),
+                                    );
+                                }
+                                // Two-segment dot access (`MIC.P`).
+                                let base = &chain[0];
+                                let rest = chain[1..].join(".");
+                                if context.find_inst(base).is_none() {
+                                    context.add_bus(base.to_string(), vec![rest.clone()]);
+                                } else {
+                                    // E1802: Check if base is a Component and rest is a valid pin
+                                    if let Some(McInstance::Component(c)) = context.find_inst(base)
+                                    {
+                                        if c.find_pin(&rest).is_none() {
+                                            dlog_error(
+                                                1802,
+                                                &subnode,
+                                                &format!(
+                                                    "Pin '{}' not found in component '{}'",
+                                                    rest, base
+                                                ),
+                                            );
+                                            return None;
+                                        }
+                                    }
+                                    // ★ LSP: Register instance reference for dot-separated path
+                                    let span = (subnode.get_pos() as usize)
+                                        ..((subnode.get_pos() + subnode.get_len()) as usize);
+                                    if let Some(decl_id) =
+                                        crate::query::refs::mcb_lookup_instance_decl(
+                                            context.uri(),
+                                            base,
+                                            scope.as_deref(),
+                                        )
+                                    {
+                                        mcb_register_instance_ref(
+                                            context.uri(),
+                                            span,
+                                            decl_id,
+                                            scope.as_deref(),
+                                        );
+                                    }
+                                    context.upgrade_label_to_bus(base);
+                                    if let Some(McPhrase::Endpoint(McEndpoint::Single(
+                                        McInstanceRef {
+                                            base: McInstance::Bus(bus),
+                                            ..
+                                        },
+                                    ))) = context.add_bus_member(base, rest.clone())
+                                    {
+                                        return Some(McPhrase::Endpoint(McEndpoint::Single(
+                                            McInstanceRef::new(McInstance::Bus(bus)),
+                                        )));
+                                    }
+                                }
+                                let member_ref = McBus::member_ref(base, rest);
+                                Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                                    McInstance::Bus(member_ref),
+                                ))))
+                            } else {
+                                context.add_label(ids.to_string())
                             }
                         }
                         McOpd::This(ids) => {

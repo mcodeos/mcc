@@ -1176,23 +1176,26 @@ impl McFuncCall {
         };
 
         // === Iter 2: handle dot-notation func_name ===
-        let func_name = if func_name.segments.len() > 1 {
-            let first = func_name.segments[0].to_string();
-            // Rebuild the method name from the remaining dot-prefixed segments.
-            let rest: String = func_name.segments[1..]
-                .iter()
-                .map(|s| s.to_string().trim_start_matches('.').to_string())
-                .collect::<Vec<_>>()
-                .join(".");
-            if caller.is_none() {
-                if let Some(ident) = context.find_inst(&first) {
-                    caller = Some(Box::new(ident.into()));
-                    McIds::from(rest.as_str())
+        // Structured segment extraction (`obj.method` → ["obj", "method"]),
+        // no `to_string()` + `trim_start_matches('.')` text re-processing.
+        // Non-plain chains (curly/square/array segments) keep the original name.
+        let func_name = if let Some(parts) = func_name.dot_chain_parts() {
+            if parts.len() > 1 {
+                let first = parts[0].clone();
+                // Rebuild the method name from the remaining segments.
+                let rest: String = parts[1..].join(".");
+                if caller.is_none() {
+                    if let Some(ident) = context.find_inst(&first) {
+                        caller = Some(Box::new(ident.into()));
+                        McIds::from(rest.as_str())
+                    } else {
+                        func_name
+                    }
                 } else {
-                    func_name
+                    McIds::from(rest.as_str())
                 }
             } else {
-                McIds::from(rest.as_str())
+                func_name
             }
         } else {
             func_name
