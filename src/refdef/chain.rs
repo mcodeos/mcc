@@ -518,6 +518,7 @@ fn member_of(inst: &McInstance, member: &str) -> Option<Hop<'static>> {
 /// `lapper_interfaces`).
 fn cross_def_kind(inst: &McInstance) -> SymbolKind {
     match inst {
+        McInstance::PinId(_) => SymbolKind::PinIdDef,
         McInstance::Label(_) => SymbolKind::PinNameDef,
         McInstance::Bus(_) => SymbolKind::BusDef,
         McInstance::List(_) => SymbolKind::LabelDef,

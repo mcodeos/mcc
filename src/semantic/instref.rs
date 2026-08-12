@@ -68,6 +68,7 @@ fn validate_inst_member_ref(
             | McInstance::List(_)
             | McInstance::Unresolved { .. }
             | McInstance::Pins
+            | McInstance::PinId(_)
             | McInstance::Attr(_)
             | McInstance::Func(_)
             | McInstance::EnumVal { .. } => {
