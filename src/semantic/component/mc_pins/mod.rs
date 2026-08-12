@@ -437,12 +437,22 @@ impl McPins {
             };
 
             for (opt_idx, optname) in names.options.iter().enumerate() {
+                let opt_span = names
+                    .option_nodes
+                    .get(opt_idx)
+                    .map(|n| Self::compute_bounding_span(n));
                 match optname {
                     McPinPort::NC => {
                         // Register corresponding pinid as NC
                         match &pinids {
                             McPinPort::Single(s) => {
-                                self.register_pin(iotype.clone(), s, &["NC".to_string()], &values);
+                                self.register_pin(
+                                    iotype.clone(),
+                                    s,
+                                    &["NC".to_string()],
+                                    &values,
+                                    opt_span.clone(),
+                                );
                             }
                             McPinPort::Multi(pids) => {
                                 for pid in pids {
@@ -451,6 +461,7 @@ impl McPins {
                                         pid,
                                         &["NC".to_string()],
                                         &values,
+                                        opt_span.clone(),
                                     );
                                 }
                             }
@@ -465,7 +476,13 @@ impl McPins {
                             // Handle dot-separated pin names like "IN.P" -> create Bus "IN" with member "P"
                             match &pinids {
                                 McPinPort::Single(s) => {
-                                    self.register_pin(iotype.clone(), s, &[name.clone()], &values);
+                                    self.register_pin(
+                                        iotype.clone(),
+                                        s,
+                                        &[name.clone()],
+                                        &values,
+                                        opt_span.clone(),
+                                    );
                                 }
                                 McPinPort::Multi(pids) => {
                                     for pid in pids {
@@ -474,6 +491,7 @@ impl McPins {
                                             pid,
                                             &[name.clone()],
                                             &values,
+                                            opt_span.clone(),
                                         );
                                     }
                                 }
@@ -505,7 +523,13 @@ impl McPins {
                             match &pinids {
                                 // 1 pid vs 1 name
                                 McPinPort::Single(s) => {
-                                    self.register_pin(iotype.clone(), s, &[name.clone()], &values);
+                                    self.register_pin(
+                                        iotype.clone(),
+                                        s,
+                                        &[name.clone()],
+                                        &values,
+                                        opt_span.clone(),
+                                    );
                                 }
                                 // n pids vs 1 name, all pinids registered with same name
                                 McPinPort::Multi(pids) => {
@@ -515,6 +539,7 @@ impl McPins {
                                             pid,
                                             &[name.clone()],
                                             &values,
+                                            opt_span.clone(),
                                         );
                                     }
                                 }
@@ -527,6 +552,7 @@ impl McPins {
                                                 pid,
                                                 &[name.clone()],
                                                 &values,
+                                                opt_span.clone(),
                                             );
                                         }
                                     }
@@ -542,7 +568,13 @@ impl McPins {
                         match &pinids {
                             // 1 pid vs n names: register the same pinid with all names (aliases)
                             McPinPort::Single(s) => {
-                                self.register_pin(iotype.clone(), s, names_vec, &values);
+                                self.register_pin(
+                                    iotype.clone(),
+                                    s,
+                                    names_vec,
+                                    &values,
+                                    opt_span.clone(),
+                                );
                             }
                             // n pids vs n name, pinid and name count should be 1:1, register 1:1
                             McPinPort::Multi(pids) => {
@@ -553,6 +585,7 @@ impl McPins {
                                         pid,
                                         &[name.clone()],
                                         &values,
+                                        opt_span.clone(),
                                     );
                                 }
                                 // Check if names share a common base (like GPIO1, GPIO2 sharing "GPIO")
@@ -601,6 +634,7 @@ impl McPins {
                                             pid,
                                             &[name.clone()],
                                             &values,
+                                            opt_span.clone(),
                                         );
                                     }
                                 }
@@ -621,7 +655,13 @@ impl McPins {
                                 let names_cycle = members.iter().cycle();
                                 for (pid, name) in pids.iter().zip(names_cycle) {
                                     let full_name = format!("{list_name}{name}");
-                                    self.register_pin(iotype.clone(), pid, &[full_name], &values);
+                                    self.register_pin(
+                                        iotype.clone(),
+                                        pid,
+                                        &[full_name],
+                                        &values,
+                                        opt_span.clone(),
+                                    );
                                 }
                                 // §2.1: Do NOT register bare prefix "PDM" to names_to_id
                             }
@@ -645,7 +685,13 @@ impl McPins {
                                     } else {
                                         format!("{}.{}", bus.name, member_name)
                                     };
-                                    self.register_pin(iotype.clone(), pid, &[full_name], &values);
+                                    self.register_pin(
+                                        iotype.clone(),
+                                        pid,
+                                        &[full_name],
+                                        &values,
+                                        opt_span.clone(),
+                                    );
                                     all_pin_ids.push(pid.clone());
                                 }
                                 // Also register bus name as a Bus containing all bus members
@@ -783,6 +829,7 @@ impl McPins {
                                         pid,
                                         &[name.clone()],
                                         &values,
+                                        opt_span.clone(),
                                     );
                                 }
 
@@ -876,6 +923,7 @@ impl McPins {
                                             pid,
                                             &[name.clone()],
                                             &values,
+                                            opt_span.clone(),
                                         );
                                     }
                                 }
@@ -883,7 +931,13 @@ impl McPins {
                             // single pin interface (e.g. GPIO, PWM): single pinid -> use first subname
                             McPinPort::Single(pid) => {
                                 let name = subname.first().cloned().unwrap_or_else(|| pid.clone());
-                                self.register_pin(iotype.clone(), pid, &[name], &values);
+                                self.register_pin(
+                                    iotype.clone(),
+                                    pid,
+                                    &[name],
+                                    &values,
+                                    opt_span.clone(),
+                                );
                             }
                             _ => {
                                 dlog_trace(1103, "Pin ID and name not match");
@@ -1283,6 +1337,7 @@ impl McPins {
         pinid: &String,
         names: &[String],
         values: &[McAttrVal],
+        span: Option<std::ops::Range<usize>>,
     ) {
         let values_arc = self.insert_values(values);
         // H3 (deferred): track pin definitions for cross-line overlap detection
@@ -1324,6 +1379,13 @@ impl McPins {
 
         // Allow lookup by pin "name" to a pin-id.
         for name in names {
+            // Register individual name span for LSP goto-def.
+            // Use entry().or_insert() to preserve spans from finer-grained
+            // sources (raw pin-name AST nodes) over the option-level span.
+            if let Some(ref s) = span {
+                self.pin_name_spans.entry(name.clone()).or_insert(s.clone());
+            }
+
             // update pin_id_to_names: pin -> names mapping
             self.pin_id_to_names
                 .entry(pinid.clone())

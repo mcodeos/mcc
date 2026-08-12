@@ -148,7 +148,23 @@ impl LocalSymbolTable {
     ) -> DeclareId {
         let scope_key = scope.unwrap_or("");
         let declare_id = if let Some(ref n) = name {
-            Self::assign_declare_id_stable(uri, scope_key, n)
+            // Check for an existing declaration with the same (file_id,
+            // container_id, func_id, name). If one exists, reuse its
+            // DeclareId so that PortRef (looked up earlier via
+            // lookup_declare_id) and PortDef (registered later via
+            // register_def) share the same id — otherwise fill_refdef_layer2
+            // can't match them.
+            let existing = self.name_to_declare_id.get(&(
+                loc.file_id,
+                loc.container_id,
+                loc.func_id,
+                n.clone(),
+            ));
+            if let Some((existing_id, _)) = existing {
+                *existing_id
+            } else {
+                Self::assign_declare_id_stable(uri, scope_key, n)
+            }
         } else {
             self.assign_declare_id()
         };

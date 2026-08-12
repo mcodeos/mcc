@@ -272,6 +272,10 @@ impl McParamDeclares {
     /// Store definition span for a parameter (called for ALL params during parse).
     /// Writes to both `def_spans` (never filtered, used for goto-def from any reference)
     /// and `port_spans` (filtered later for net connectivity only).
+    ///
+    /// When `name` contains bus notation (e.g. `"rs485{A,B}"`), both the full
+    /// form and the base name (`"rs485"`) are stored, so lookups by base name
+    /// (e.g. from `find_unused_params`) don't need a suffix-stripping fallback.
     pub(crate) fn store_def_span(&mut self, name: &str, span: Range<usize>) {
         self.def_spans
             .entry(name.to_string())
@@ -280,7 +284,22 @@ impl McParamDeclares {
         self.port_spans
             .entry(name.to_string())
             .or_default()
-            .push(span);
+            .push(span.clone());
+        // Also register base name (strip "{...}" suffix) to avoid
+        // suffix-stripping fallback in finalize().
+        if let Some(brace) = name.find('{') {
+            let base = &name[..brace];
+            if base != name {
+                self.def_spans
+                    .entry(base.to_string())
+                    .or_default()
+                    .push(span.clone());
+                self.port_spans
+                    .entry(base.to_string())
+                    .or_default()
+                    .push(span.clone());
+            }
+        }
     }
 
     /// ★ §3.4.3: store each member of a typed square-vec param with its precise
@@ -450,21 +469,11 @@ impl McParamDeclares {
                 body_node,
             );
             for name in &unused {
-                // Try exact match first, then match by base name (strip bus brackets).
-                // def_spans may store the full form "rs485{A,B}" while display_name returns "rs485".
+                // def_spans stores both the full form ("rs485{A,B}") and the
+                // base name ("rs485"), so direct lookup always works.
                 let (pos, len) = self
                     .def_spans
                     .get(name)
-                    .or_else(|| {
-                        self.def_spans
-                            .iter()
-                            .find(|(k, _)| {
-                                // Compare base names: strip "{...}" suffix from the key
-                                let base = k.split('{').next().unwrap_or(k);
-                                base == name.as_str()
-                            })
-                            .map(|(_, v)| v)
-                    })
                     .and_then(|spans| spans.first())
                     .map(|s| (s.start, s.end - s.start))
                     .unwrap_or((0, 0));
