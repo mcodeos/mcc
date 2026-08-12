@@ -884,6 +884,11 @@ impl McModule {
     fn try_record_chain_ref(node: &AstNode, insts: &mut McInstances, scope: &str) {
         let mut segments: Vec<ChainSegment> = Vec::new();
         let mut chain_end: Option<usize> = None;
+        // Whether the last recorded segment came from a bracketed AST node
+        // (curly group or fcall). Decided by the AST node type, not by
+        // string content — the parser excludes the closing delimiter from
+        // node spans, so a curly group always needs one extra byte for `}`.
+        let mut closing_delim = false;
 
         let mut current = node.get_sub_node();
         while let Some(n) = current {
@@ -901,17 +906,21 @@ impl McModule {
             //     (merged dotted form is handled inside collect_ident_segments)
             if ty == MCAST_OPD_DOT {
                 if let Some(sub) = n.get_sub_node() {
-                    // Use sub-node span end (pos+len) for accurate chain_end,
-                    // since the DOT node's len may not include the sub-node.
-                    let end = sub.get_pos() as usize + sub.get_len() as usize;
                     if sub.get_type() == MCAST_INT {
                         if let Some(num) = sub.to_string() {
                             segments.push(ChainSegment::Ident(num));
-                            chain_end = Some(end);
+                            chain_end = Some(sub.get_pos() as usize + sub.get_len() as usize);
+                            closing_delim = false;
                         }
-                    } else if let Some(text) = sub.to_string() {
-                        segments.push(ChainSegment::Ident(text));
-                        chain_end = Some(end);
+                    } else {
+                        // IDA / IDS — reuse the ident walker so curly groups
+                        // report their closing delimiter from the AST type.
+                        Self::collect_ident_segments(
+                            &sub,
+                            &mut segments,
+                            &mut chain_end,
+                            &mut closing_delim,
+                        );
                     }
                 }
                 current = n.get_next();
@@ -923,7 +932,7 @@ impl McModule {
             }
 
             if ty == MCAST_ID || ty == MCAST_IDA || ty == MCAST_IDS {
-                Self::collect_ident_segments(&n, &mut segments, &mut chain_end);
+                Self::collect_ident_segments(&n, &mut segments, &mut chain_end, &mut closing_delim);
             } else if ty == MCAST_OPD_FCALL {
                 // Extract function name from first child (MCAST_ID).
                 if let Some(name_node) = n.get_sub_node() {
@@ -931,11 +940,14 @@ impl McModule {
                         let end = n.get_pos() as usize + n.get_len() as usize;
                         segments.push(ChainSegment::Fcall(name));
                         chain_end = Some(end);
+                        // An fcall node is a bracketed AST node: `)` is
+                        // excluded from its span, so the chain needs +1.
+                        closing_delim = true;
                     }
                 }
             } else if ty == MCAST_OPD {
                 // Nested MCAST_OPD wrapping the chain — recurse into it.
-                Self::walk_chain_children(&n, &mut segments, &mut chain_end);
+                Self::walk_chain_children(&n, &mut segments, &mut chain_end, &mut closing_delim);
                 break;
             }
 
@@ -946,10 +958,20 @@ impl McModule {
         if segments.len() < 2 {
             return;
         }
-        let chain_end = match chain_end {
+        let mut chain_end = match chain_end {
             Some(e) => e,
             None => return,
         };
+
+        // ★ The parser excludes closing delimiters from AST node spans: the
+        // curly node for `uC.ADC{P,N}` covers the members only and the `}`
+        // lands right after them; an fcall's `)` lands right after its last
+        // argument. When the final segment came from such a node (decided by
+        // AST type above), extend the recorded span by one byte so
+        // hover/tooltip shows the whole `uC.ADC{P,N}` instead of `uC.ADC{P,N`.
+        if closing_delim {
+            chain_end += 1;
+        }
 
         let start = node.get_pos() as usize;
         let span = start..chain_end;
@@ -961,6 +983,7 @@ impl McModule {
         node: &AstNode,
         segments: &mut Vec<ChainSegment>,
         chain_end: &mut Option<usize>,
+        closing_delim: &mut bool,
     ) {
         let mut current = node.get_sub_node();
         while let Some(n) = current {
@@ -977,17 +1000,14 @@ impl McModule {
             //     (merged dotted form is handled inside collect_ident_segments)
             if ty == MCAST_OPD_DOT {
                 if let Some(sub) = n.get_sub_node() {
-                    // Use sub-node span end (pos+len) for accurate chain_end,
-                    // since the DOT node's len may not include the sub-node.
-                    let end = sub.get_pos() as usize + sub.get_len() as usize;
                     if sub.get_type() == MCAST_INT {
                         if let Some(num) = sub.to_string() {
                             segments.push(ChainSegment::Ident(num));
-                            *chain_end = Some(end);
+                            *chain_end = Some(sub.get_pos() as usize + sub.get_len() as usize);
+                            *closing_delim = false;
                         }
-                    } else if let Some(text) = sub.to_string() {
-                        segments.push(ChainSegment::Ident(text));
-                        *chain_end = Some(end);
+                    } else {
+                        Self::collect_ident_segments(&sub, segments, chain_end, closing_delim);
                     }
                 }
                 current = n.get_next();
@@ -999,13 +1019,14 @@ impl McModule {
             }
 
             if ty == MCAST_ID || ty == MCAST_IDA || ty == MCAST_IDS {
-                Self::collect_ident_segments(&n, segments, chain_end);
+                Self::collect_ident_segments(&n, segments, chain_end, closing_delim);
             } else if ty == MCAST_OPD_FCALL {
                 if let Some(name_node) = n.get_sub_node() {
                     if let Some(name) = name_node.to_string() {
                         let end = n.get_pos() as usize + n.get_len() as usize;
                         segments.push(ChainSegment::Fcall(name));
                         *chain_end = Some(end);
+                        *closing_delim = true;
                     }
                 }
             }
@@ -1021,6 +1042,7 @@ impl McModule {
         n: &AstNode,
         segments: &mut Vec<ChainSegment>,
         chain_end: &mut Option<usize>,
+        closing_delim: &mut bool,
     ) {
         let end = n.get_pos() as usize + n.get_len() as usize;
         if let Some(sub) = n.get_sub_node() {
@@ -1033,14 +1055,21 @@ impl McModule {
                         pending_dot = Some(t);
                     }
                 } else if st == MCAST_OPD_CURLY || st == MCAST_OPD_CURLY_MN {
-                    // Combine the pending dot member with the group:
-                    // "ADC" + "P,N" → "ADC{P,N}".
-                    let group = Self::collect_curly_members(&cur);
+                    // Combine the pending dot member with the group members:
+                    // "ADC" + [P, N] → Group { base: "ADC", members: [P, N] }.
+                    let members = Self::collect_curly_members(&cur);
                     let member = pending_dot.take().unwrap_or_default();
-                    segments.push(ChainSegment::Ident(format!("{member}{{{group}}}")));
+                    segments.push(ChainSegment::Group {
+                        base: member,
+                        members,
+                    });
+                    // A curly node is a bracketed AST node: its `}` is
+                    // excluded from the node span, so the chain needs +1.
+                    *closing_delim = true;
                 } else if let Some(t) = cur.to_string() {
                     // Base identifier (first child) or other member.
                     segments.push(ChainSegment::Ident(t));
+                    *closing_delim = false;
                 }
                 match cur.get_next() {
                     Some(nx) => cur = nx,
@@ -1050,23 +1079,34 @@ impl McModule {
             // Flush a pending dot member with no following group (e.g. `uC.ADC`).
             if let Some(d) = pending_dot {
                 segments.push(ChainSegment::Ident(d));
+                *closing_delim = false;
             }
             *chain_end = Some(end);
         } else if let Some(text) = n.to_string() {
             segments.push(ChainSegment::Ident(text));
             *chain_end = Some(end);
+            *closing_delim = false;
         }
     }
 
-    /// Collect the member names of a curly group node (`{P,N}` → "P,N").
-    fn collect_curly_members(curly: &AstNode) -> String {
+    /// Collect the member names of a curly group node (`{P,N}` → `["P", "N"]`).
+    /// Numeric ranges (`{1:3}`) are expanded to their individual members.
+    fn collect_curly_members(curly: &AstNode) -> Vec<String> {
         let mut members: Vec<String> = Vec::new();
         if let Some(sub) = curly.get_sub_node() {
             let mut cur = sub;
             loop {
-                let t = cur.to_string().unwrap_or_default();
-                if !t.is_empty() && t != "," {
-                    members.push(t);
+                if cur.get_type() == MCAST_OPD_COLON {
+                    // `{1:3}` range — expand to individual members.
+                    if let Some((from, to)) = Self::curly_range(&cur) {
+                        for i in from..=to {
+                            members.push(i.to_string());
+                        }
+                    }
+                } else if let Some(t) = cur.to_string() {
+                    if !t.is_empty() && t != "," {
+                        members.push(t);
+                    }
                 }
                 match cur.get_next() {
                     Some(nx) => cur = nx,
@@ -1074,7 +1114,15 @@ impl McModule {
                 }
             }
         }
-        members.join(",")
+        members
+    }
+
+    /// Parse a colon-range child of a curly group (`1:3`) into its bounds.
+    fn curly_range(node: &AstNode) -> Option<(i64, i64)> {
+        let sub = node.get_sub_node()?;
+        let from = sub.to_string()?.parse::<i64>().ok()?;
+        let to = sub.get_next()?.to_string()?.parse::<i64>().ok()?;
+        (from <= to).then_some((from, to))
     }
 
     fn record_scoped_net_ref(

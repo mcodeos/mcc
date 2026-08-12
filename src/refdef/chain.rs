@@ -97,6 +97,21 @@ pub fn split_segments(ref_text: &str) -> Vec<String> {
     segs
 }
 
+/// Convert text-format chain segments (from [`split_segments`]) into
+/// structured [`ChainSegment`]s. This is the only place the resolver still
+/// parses brackets from raw text — it feeds the AST-structured consumption
+/// path (`resolve_member_chain_from_segments`) so no downstream hop logic
+/// needs to re-parse `{`/`[` from strings.
+fn segments_from_text(ref_text: &str) -> Vec<ChainSegment> {
+    split_segments(ref_text)
+        .into_iter()
+        .map(|seg| match group_members(&seg) {
+            Some((base, members)) => ChainSegment::Group { base, members },
+            None => ChainSegment::Ident(seg),
+        })
+        .collect()
+}
+
 /// Base identifier of a segment — everything before the first `{` / `[`.
 /// `"MIC{P,N}"` → `"MIC"`, `"GPIO[1:2]"` → `"GPIO"`, `"V3V3"` → `"V3V3"`.
 fn base_of(seg: &str) -> &str {
@@ -143,6 +158,15 @@ fn group_members(seg: &str) -> Option<(String, Vec<String>)> {
         None
     } else {
         Some((base.to_string(), members))
+    }
+}
+
+/// Base name of a structured segment — `Ident`/`Fcall` name or `Group` base.
+/// Mirror of [`base_of`] for structured segments (no string re-parsing).
+fn segment_base(seg: &ChainSegment) -> &str {
+    match seg {
+        ChainSegment::Ident(name) | ChainSegment::Fcall(name) => name.as_str(),
+        ChainSegment::Group { base, .. } => base.as_str(),
     }
 }
 
@@ -208,35 +232,45 @@ impl Hop<'_> {
 /// Resolve the first hop for the initial segment.
 ///
 /// Priority:
-/// 1. Exact instance key (`MIC`, `GPIO[1:2]`, `V3V3`).
+/// 1. Exact instance key (`MIC`, `GPIO[1:2]`, `V3V3`) — plain identifiers only.
 /// 2. Grouped segment — single-member group (`GPIO[1]`, `MIC{P}`) becomes a
 ///    member hop; multi-member group (`MIC{P,N}`, `GPIO[1:2]`) is a whole ref.
 /// 3. Idx-aware whole-name resolution (`GPIO1` → list member `1`).
 /// 4. Terminal parameter declaration.
-fn first_hop<'a>(insts: &'a McInstances, params: &McParamDeclares, seg: &str) -> Option<Hop<'a>> {
-    // 1. Exact key.
-    if let Some(inst) = insts.get(seg) {
-        mcc_dbg!(
-            "refdef::chain",
-            "[first_hop] exact key seg=\"{}\" → Inst{{{}}}",
-            seg,
-            inst.type_name()
-        );
-        return Some(Hop::Inst {
-            key: seg.to_string(),
-            inst,
-        });
+///
+/// The segment is already structured (AST-extracted or converted by
+/// [`segments_from_text`]), so groups are matched directly instead of being
+/// re-parsed from text.
+fn first_hop<'a>(
+    insts: &'a McInstances,
+    params: &McParamDeclares,
+    seg: &ChainSegment,
+) -> Option<Hop<'a>> {
+    // 1. Exact key (groups resolve via their base — see 2).
+    if let ChainSegment::Ident(name) = seg {
+        if let Some(inst) = insts.get(name) {
+            mcc_dbg!(
+                "refdef::chain",
+                "[first_hop] exact key seg=\"{}\" → Inst{{{}}}",
+                name,
+                inst.type_name()
+            );
+            return Some(Hop::Inst {
+                key: name.clone(),
+                inst,
+            });
+        }
     }
     // 2. Grouped segment.
-    if let Some((base, members)) = group_members(seg) {
+    if let ChainSegment::Group { base, members } = seg {
         mcc_dbg!(
             "refdef::chain",
-            "[first_hop] grouped seg=\"{}\" base=\"{}\" members={:?}",
+            "[first_hop] grouped seg={:?} base=\"{}\" members={:?}",
             seg,
             base,
             members
         );
-        if let Some((key, inst)) = lookup_base(insts, &base) {
+        if let Some((key, inst)) = lookup_base(insts, base) {
             // Single-member group → member hop (e.g. `GPIO[1]`, `MIC{P}`).
             if members.len() == 1 {
                 if let Some(m) = member_of(inst, &members[0]) {
@@ -269,12 +303,13 @@ fn first_hop<'a>(insts: &'a McInstances, params: &McParamDeclares, seg: &str) ->
             base
         );
     }
+    let name = segment_base(seg);
     // 3. Idx-aware whole-name resolution (e.g. `GPIO1` → `GPIO[1:2]`).
-    if let Some(key) = insts.resolve_idx(seg) {
+    if let Some(key) = insts.resolve_idx(name) {
         if let Some(inst) = insts.get(&key) {
             // `GPIO1` (digit form) → member `1` of the `GPIO[1:2]` list.
             if let McInstance::List(l) = inst {
-                if let Some(member) = seg.strip_prefix(l.name.as_str()) {
+                if let Some(member) = name.strip_prefix(l.name.as_str()) {
                     if l.member.iter().any(|m| m == member) {
                         let hop = Hop::ListMember {
                             list: l.name.clone(),
@@ -283,7 +318,7 @@ fn first_hop<'a>(insts: &'a McInstances, params: &McParamDeclares, seg: &str) ->
                         mcc_dbg!(
                             "refdef::chain",
                             "[first_hop] idx digit form \"{}\" → {}",
-                            seg,
+                            name,
                             hop.desc()
                         );
                         return Some(hop);
@@ -294,27 +329,27 @@ fn first_hop<'a>(insts: &'a McInstances, params: &McParamDeclares, seg: &str) ->
             mcc_dbg!(
                 "refdef::chain",
                 "[first_hop] idx-aware \"{}\" → {}",
-                seg,
+                name,
                 hop.desc()
             );
             return Some(hop);
         }
     }
     // 4. Terminal parameter declaration.
-    let pname = base_of(seg);
+    let pname = base_of(name);
     if params.is_defined(pname) {
         let hop = Hop::Param(pname.to_string());
         mcc_dbg!(
             "refdef::chain",
             "[first_hop] param term \"{}\" → {}",
-            seg,
+            name,
             hop.desc()
         );
         return Some(hop);
     }
     mcc_dbg!(
         "refdef::chain",
-        "[first_hop] ALL MISS seg=\"{}\" pname=\"{}\" → None",
+        "[first_hop] ALL MISS seg={:?} pname=\"{}\" → None",
         seg,
         pname
     );
@@ -535,91 +570,31 @@ fn cross_def_kind(inst: &McInstance) -> SymbolKind {
 ///
 /// Single-container version — `ref_text` is resolved against `insts` (ports,
 /// buses, labels, instances) and `params` of the same module/component.
+///
+/// The raw text is converted to structured [`ChainSegment`]s here — the single
+/// place that still parses `{`/`[` brackets from text — then resolved by the
+/// shared structured path [`resolve_member_chain_from_segments`].
 pub fn resolve_member_chain(
     uri: &McURI,
     ref_text: &str,
     insts: &McInstances,
     params: &McParamDeclares,
 ) -> Option<ChainHit> {
-    let segs = split_segments(ref_text);
+    let segments = segments_from_text(ref_text);
     mcc_dbg!(
         "refdef",
-        "[chain] resolve_member_chain uri=\"{}\" ref={:?} segs={:?}",
+        "[chain] resolve_member_chain uri=\"{}\" ref={:?} segments={:?}",
         uri,
         ref_text,
-        segs
+        segments
     );
-    let first = match segs.first() {
-        Some(f) => f,
-        None => {
-            mcc_dbg!(
-                "refdef::chain",
-                "[chain] EMPTY segments for {:?} → None",
-                ref_text
-            );
-            return None;
-        }
-    };
-    let mut hop = match first_hop(insts, params, first) {
-        Some(h) => h,
-        None => {
-            mcc_dbg!(
-                "refdef::chain",
-                "[chain] first_hop MISS seg0={:?} → None",
-                first
-            );
-            return None;
-        }
-    };
-    mcc_dbg!(
-        "refdef::chain",
-        "[chain] first_hop HIT seg0={:?} → {}",
-        first,
-        hop.desc()
-    );
-    for seg in &segs[1..] {
-        let next = match &hop {
-            Hop::Inst { .. } | Hop::CrossInst { .. } => {
-                let ci = container_inst(&hop);
-                resolve_next_member(ci?, seg)
-            }
-            // A member or param has no deeper container in this version.
-            Hop::BusMember { .. } | Hop::ListMember { .. } | Hop::Param(_) => {
-                mcc_dbg!(
-                    "refdef::chain",
-                    "[chain] hop {} has no deeper container for seg={:?} → None",
-                    hop.desc(),
-                    seg
-                );
-                return None;
-            }
-        };
-        match next {
-            Some(h) => {
-                mcc_dbg!("refdef::chain", "[chain] hop seg={:?} → {}", seg, h.desc());
-                hop = h;
-            }
-            None => {
-                mcc_dbg!(
-                    "refdef::chain",
-                    "[chain] member MISS seg={:?} in hop={} → None",
-                    seg,
-                    hop.desc()
-                );
-                return None;
-            }
-        }
-    }
-    let hit = finalize_hit(uri, hop, insts, params);
-    mcc_dbg!("refdef", "[chain] finalize → {:?}", hit);
-    hit
+    resolve_member_chain_from_segments(uri, &segments, insts, params)
 }
 
 /// Resolve a member chain from AST-extracted structured segments.
 ///
-/// Unlike [`resolve_member_chain`] which operates on raw text and must
-/// re-parse brackets via `split_segments` / `base_of`, this function
-/// receives the parsed structure directly. Function-call segments
+/// The segments carry the parsed structure directly (see [`ChainSegment`]) —
+/// no `split_segments` / `base_of` re-parsing here. Function-call segments
 /// (`ChainSegment::Fcall`) are verified to exist on the container and
 /// then skipped — funcs return `this`, so the next segment resolves
 /// against the same container.
@@ -635,16 +610,20 @@ pub fn resolve_member_chain_from_segments(
         uri,
         segments
     );
-    let first_name = match segments.first()? {
-        ChainSegment::Ident(name) | ChainSegment::Fcall(name) => name.as_str(),
+    let first = match segments.first() {
+        Some(f) => f,
+        None => {
+            mcc_dbg!("refdef::chain", "[chain-seg] EMPTY segments → None");
+            return None;
+        }
     };
-    let mut hop = match first_hop(insts, params, first_name) {
+    let mut hop = match first_hop(insts, params, first) {
         Some(h) => h,
         None => {
             mcc_dbg!(
                 "refdef::chain",
                 "[chain-seg] first_hop MISS seg0={:?} → None",
-                first_name
+                first
             );
             return None;
         }
@@ -652,45 +631,42 @@ pub fn resolve_member_chain_from_segments(
     mcc_dbg!(
         "refdef::chain",
         "[chain-seg] first_hop HIT seg0={:?} → {}",
-        first_name,
+        first,
         hop.desc()
     );
     for seg in &segments[1..] {
-        let name = match seg {
-            ChainSegment::Ident(name) => name.as_str(),
-            ChainSegment::Fcall(name) => {
-                // Fcall: verify func exists on the container, then skip —
-                // funcs return `this`, so subsequent segments resolve against
-                // the same container.
-                let ci = container_inst(&hop);
-                if let Some(ci) = ci {
-                    if member_of(ci, name).is_none() {
-                        mcc_dbg!(
-                            "refdef::chain",
-                            "[chain-seg] fcall {name} MISS on {} → None",
-                            ci.type_name()
-                        );
-                        return None;
-                    }
+        if let ChainSegment::Fcall(name) = seg {
+            // Fcall: verify func exists on the container, then skip —
+            // funcs return `this`, so subsequent segments resolve against
+            // the same container.
+            let ci = container_inst(&hop);
+            if let Some(ci) = ci {
+                if member_of(ci, name).is_none() {
+                    mcc_dbg!(
+                        "refdef::chain",
+                        "[chain-seg] fcall {name} MISS on {} → None",
+                        ci.type_name()
+                    );
+                    return None;
                 }
-                mcc_dbg!(
-                    "refdef::chain",
-                    "[chain-seg] fcall {name} → skip (returns this)"
-                );
-                continue;
             }
-        };
+            mcc_dbg!(
+                "refdef::chain",
+                "[chain-seg] fcall {name} → skip (returns this)"
+            );
+            continue;
+        }
         let next = match &hop {
             Hop::Inst { .. } | Hop::CrossInst { .. } => {
                 let ci = container_inst(&hop)?;
-                resolve_next_member(ci, name)
+                resolve_next_member(ci, seg)
             }
             Hop::BusMember { .. } | Hop::ListMember { .. } | Hop::Param(_) => {
                 mcc_dbg!(
                     "refdef::chain",
                     "[chain-seg] hop {} has no deeper container for seg={:?} → None",
                     hop.desc(),
-                    name
+                    seg
                 );
                 return None;
             }
@@ -700,7 +676,7 @@ pub fn resolve_member_chain_from_segments(
                 mcc_dbg!(
                     "refdef::chain",
                     "[chain-seg] hop seg={:?} → {}",
-                    name,
+                    seg,
                     h.desc()
                 );
                 hop = h;
@@ -709,7 +685,7 @@ pub fn resolve_member_chain_from_segments(
                 mcc_dbg!(
                     "refdef::chain",
                     "[chain-seg] member MISS seg={:?} in hop={} → None",
-                    name,
+                    seg,
                     hop.desc()
                 );
                 return None;
@@ -757,11 +733,12 @@ fn container_inst<'a>(hop: &'a Hop<'a>) -> Option<&'a McInstance> {
 ///
 /// Phase 3: a single-member group (`uC.GPIO[1]`) first resolves the base
 /// container (`GPIO`), then the specific member (`1`); multi-member groups and
-/// dotted members resolve directly.
-fn resolve_next_member(inst: &McInstance, seg: &str) -> Option<Hop<'static>> {
-    match group_members(seg) {
-        Some((base, members)) if members.len() == 1 => {
-            let container = member_of(inst, &base)?;
+/// dotted members resolve directly. The segment is structured — `{`/`[` are
+/// never re-parsed from text here.
+fn resolve_next_member(inst: &McInstance, seg: &ChainSegment) -> Option<Hop<'static>> {
+    match seg {
+        ChainSegment::Group { base, members } if members.len() == 1 => {
+            let container = member_of(inst, base)?;
             match container_inst(&container) {
                 Some(c) => member_of(c, &members[0]),
                 None => {
@@ -770,7 +747,9 @@ fn resolve_next_member(inst: &McInstance, seg: &str) -> Option<Hop<'static>> {
                 }
             }
         }
-        _ => member_of(inst, base_of(seg)),
+        ChainSegment::Group { base, .. }
+        | ChainSegment::Ident(base)
+        | ChainSegment::Fcall(base) => member_of(inst, base),
     }
 }
 
@@ -1252,5 +1231,76 @@ mod tests {
         assert_eq!(hit.def_kind, SymbolKind::PinNameDef);
         assert_eq!(hit.span, 100..104);
         assert_eq!(hit.uri.as_str(), "lib.mc");
+    }
+
+    #[test]
+    fn resolve_chain_with_group() {
+        // `uC.ADC{P,N}` — the AST records the bracketed group as a structured
+        // `Group` segment; no text re-parsing is involved.
+        let (insts, params) = make_cross_insts();
+        let segments = vec![
+            ChainSegment::Ident("uC".to_string()),
+            ChainSegment::Group {
+                base: "ADC".to_string(),
+                members: vec!["P".to_string(), "N".to_string()],
+            },
+        ];
+        let hit =
+            resolve_member_chain_from_segments(&"main.mc".to_string(), &segments, &insts, &params)
+                .unwrap();
+        assert_eq!(hit.name, "uC.ADC");
+        assert_eq!(hit.def_kind, SymbolKind::BusDef);
+        assert_eq!(hit.span, 200..203);
+        assert_eq!(hit.uri.as_str(), "lib.mc");
+    }
+
+    #[test]
+    fn resolve_chain_with_single_member_group() {
+        // `uC.GPIO[1]` — single-member group: the base container (`GPIO` list
+        // pin) resolves, then the member `1`. The final `ListMember` hop needs
+        // the local insts `port_spans` for its def span; in the cross-container
+        // fixture those member spans live in the class definition, so the
+        // resolution gracefully returns None (same as the text path).
+        let (insts, params) = make_cross_insts();
+        let segments = vec![
+            ChainSegment::Ident("uC".to_string()),
+            ChainSegment::Group {
+                base: "GPIO".to_string(),
+                members: vec!["1".to_string()],
+            },
+        ];
+        let hit =
+            resolve_member_chain_from_segments(&"main.mc".to_string(), &segments, &insts, &params);
+        assert!(hit.is_none());
+    }
+
+    #[test]
+    fn segments_from_text_builds_groups() {
+        // The text entry must convert bracket forms into structured groups —
+        // the only place that still parses `{`/`[` from raw text.
+        assert_eq!(
+            segments_from_text("uC.ADC{P,N}"),
+            vec![
+                ChainSegment::Ident("uC".to_string()),
+                ChainSegment::Group {
+                    base: "ADC".to_string(),
+                    members: vec!["P".to_string(), "N".to_string()],
+                },
+            ]
+        );
+        assert_eq!(
+            segments_from_text("GPIO[1:2]"),
+            vec![ChainSegment::Group {
+                base: "GPIO".to_string(),
+                members: vec!["1".to_string(), "2".to_string()],
+            }]
+        );
+        assert_eq!(
+            segments_from_text("MIC.P"),
+            vec![
+                ChainSegment::Ident("MIC".to_string()),
+                ChainSegment::Ident("P".to_string()),
+            ]
+        );
     }
 }

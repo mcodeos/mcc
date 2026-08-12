@@ -16,12 +16,17 @@ use std::collections::HashMap;
 ///
 /// Unlike text-based `split_segments` / `base_of`, this carries the parsed
 /// structure directly — the AST already knows whether a segment is a plain
-/// identifier or a function call, so chain resolution should not re-parse
-/// brackets from raw text.
+/// identifier, a bracketed group, or a function call, so chain resolution
+/// must not re-parse brackets from raw text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ChainSegment {
     /// A plain identifier segment (e.g., `uC`, `I2C0`, `MIC`).
     Ident(String),
+    /// A bracketed group attached to a base segment, e.g. `ADC{P,N}` →
+    /// `Group { base: "ADC", members: ["P", "N"] }`, `GPIO[1:2]` →
+    /// `Group { base: "GPIO", members: ["1", "2"] }`. Members are extracted
+    /// from the AST node, so no string re-parsing is needed downstream.
+    Group { base: String, members: Vec<String> },
     /// A function-call segment (e.g., `i2c(0x36)`). The name is the function
     /// identifier; args are omitted because the func returns `this` and the
     /// next segment resolves against the same container.
