@@ -811,6 +811,12 @@ impl InstTable {
                         is_ground_name,
                         is_supply_name,
                     );
+                    if inst.name.to_uppercase().contains("SPEAKER") && comp.name == "lpa" {
+                        eprintln!(
+                            "[FLATTEN-PIN] module={} comp={} pin={pin_name} func_name={pin_func_name} iotype={:?} role={:?}",
+                            inst.name, comp.name, net_point.iotype, role
+                        );
+                    }
                     if !matches!(role, MemberRole::Signal) {
                         self.set_member_info(pin_id, MemberInfo::new(role, None));
                     }

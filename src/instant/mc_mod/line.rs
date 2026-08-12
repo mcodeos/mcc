@@ -510,11 +510,6 @@ impl McModuleInst {
             .max()
             .unwrap_or(0);
         crate::vlog!("[lane-by-lane] num_lanes={num_lanes}");
-        mcc_dbg!(
-            "inst::mod",
-            "[LL-ENTRY] module={} num_lanes={num_lanes}",
-            self.name
-        );
         if num_lanes == 0 {
             return Ok(());
         }
@@ -1208,6 +1203,36 @@ impl McModuleInst {
                 base: McInstance::Label(label),
                 ..
             })) => {
+                // ── P2-5 fix: parse curly bracket members from label name ──
+                // When a label like `USB_VBUS_1{VDD_3V, GND}` is parsed,
+                // the curly bracket members are part of the label name.
+                // Extract them and create a Multiple so lane-by-lane wiring
+                // can handle each lane independently.
+                if let Some(open) = label.find('{') {
+                    if label.ends_with('}') {
+                        let base = &label[..open];
+                        let members_str = &label[open + 1..label.len() - 1];
+                        let members: Vec<String> = members_str
+                            .split(',')
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                        if members.len() > 1 {
+                            // Preserve declaration order (no sorting) to match
+                            // the order used by component/interface bus members.
+                            let inner: Vec<McPhrase> = members
+                                .iter()
+                                .map(|m| {
+                                    let path = format!("{}.{}", base, m);
+                                    McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                                        McInstance::Bus(McBus::new(&path)),
+                                    )))
+                                })
+                                .collect();
+                            return vec![McPhrase::Multiple(inner)];
+                        }
+                    }
+                }
                 // ── P2-5: expand Label to Multiple when bus table has members ──
                 let from_bus = self
                     .buses

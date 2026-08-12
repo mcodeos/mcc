@@ -764,6 +764,22 @@ fn check_r03_r04_r06(table: &InstTable, idx: &Index, rep: &mut Report) {
 // 单测标本：speaker 的 `DIO`（类名残片，在 InstTable 里查不到）
 
 fn check_r07_ghost(table: &InstTable, idx: &Index, rep: &mut Report) {
+    // ★ P0.5-3: 预计算每个模块的直属 Component 子节点路径集合。
+    // 之前的判据"owner 在 entries 里就放行"是自证式 —— 幽灵的出生地就是 entries。
+    // 新判据：对于 owner 是 Component 的端点，owner 必须出现在该模块的
+    // children（kind==Component）中，而不只是"entries 里有这个字符串"。
+    // 非 Component 的 owner（Module/Bus/Port/Label）跳过，由 R08 等规则处理。
+    let mut module_components: BTreeMap<u32, BTreeSet<String>> = BTreeMap::new();
+    for m in table.get_modules() {
+        let comps: BTreeSet<String> = table
+            .children_of(m.id)
+            .iter()
+            .filter(|e| e.kind == InstKind::Component)
+            .map(|e| e.path.clone())
+            .collect();
+        module_components.insert(m.id, comps);
+    }
+
     // (module_id, owner_path) → 该 owner 引用的组件名集合
     let mut ghosts: BTreeMap<(u32, String), BTreeSet<String>> = BTreeMap::new();
     let mut scanned = 0usize;
@@ -779,35 +795,48 @@ fn check_r07_ghost(table: &InstTable, idx: &Index, rep: &mut Report) {
                 .map(|op| op.to_string())
                 .unwrap_or_else(|| leaf(&e.path).to_string());
 
-            scanned += 1;
-
-            // 第 2 步 · 找到这个端点所属的最近模块
+            // 第 2 步 · 找到端点所属的最近模块
             let module_id = match idx.nearest_module.get(p) {
                 Some(m) => *m,
                 None => continue,
             };
 
-            // 第 3 步 · 按 InstKind 白名单检查 owner 是否合法
-            // owner ∈ {Component, Module, Bus, Port} → 合法
-            // owner 解析不出任何 entry → 类名残片（如 DIO）→ ghost
-            let is_valid = table
+            // 第 3 步 · 查 owner 的注册类型
+            // 只有 Component 类型的 owner 才需要检查是否在模块的 children 中
+            // Module/Bus/Port/Label 类型的 owner 是合法的非 Component 引用，跳过
+            let owner_kind = table
                 .get_id_by_path(&owner)
                 .and_then(|oid| table.get_entry(oid))
-                .map(|oe| {
-                    matches!(
-                        oe.kind,
-                        InstKind::Component | InstKind::Module | InstKind::Bus | InstKind::Port
-                    )
-                })
-                .unwrap_or(false);
+                .map(|oe| oe.kind.clone());
 
-            if !is_valid {
-                // 提取组件名（owner 的最后一段）
-                let comp_name = leaf(&owner).to_string();
-                ghosts
-                    .entry((module_id, owner))
-                    .or_default()
-                    .insert(comp_name);
+            match owner_kind {
+                Some(InstKind::Component) => {
+                    scanned += 1;
+                    // Component 类型的 owner：必须出现在模块的 children 中
+                    let is_valid = module_components
+                        .get(&module_id)
+                        .map(|comps| comps.contains(&owner))
+                        .unwrap_or(false);
+                    if !is_valid {
+                        let comp_name = leaf(&owner).to_string();
+                        ghosts
+                            .entry((module_id, owner))
+                            .or_default()
+                            .insert(comp_name);
+                    }
+                }
+                Some(InstKind::Module | InstKind::Bus | InstKind::Port) => {
+                    // 合法引用，不是 ghost
+                }
+                Some(_) | None => {
+                    // Label/Pin 类型或解析不出任何 entry → 类名残片（如 DIO）
+                    scanned += 1;
+                    let comp_name = leaf(&owner).to_string();
+                    ghosts
+                        .entry((module_id, owner))
+                        .or_default()
+                        .insert(comp_name);
+                }
             }
         }
     }
@@ -855,6 +884,20 @@ fn check_r08_phantom_path(table: &InstTable, idx: &Index, rep: &mut Report) {
         !s.is_empty() && s.chars().all(|c| c.is_ascii_digit())
     }
 
+    // ★ P0.5-3: 预计算每个模块的直属实例子节点（Component + Module）路径集合。
+    // 与 R07 同理：之前的判据"中间段在 entries 里就放行"是自证式。
+    // 新判据：中间段必须是该模块的 children 中 kind∈{Component,Module} 的条目。
+    let mut module_children: BTreeMap<u32, BTreeSet<String>> = BTreeMap::new();
+    for m in table.get_modules() {
+        let children: BTreeSet<String> = table
+            .children_of(m.id)
+            .iter()
+            .filter(|e| matches!(e.kind, InstKind::Component | InstKind::Module))
+            .map(|e| e.path.clone())
+            .collect();
+        module_children.insert(m.id, children);
+    }
+
     let mut seen: BTreeSet<String> = BTreeSet::new();
     let mut scanned = 0usize;
 
@@ -877,25 +920,29 @@ fn check_r08_phantom_path(table: &InstTable, idx: &Index, rep: &mut Report) {
                 None => continue,
             };
 
-            // 中间段必须是已注册的 Component/Module 实例，不能只是字符串
-            let owner_is_proper = table
-                .get_id_by_path(owner)
-                .and_then(|oid| table.get_entry(oid))
-                .map(|oe| {
-                    matches!(
-                        oe.kind,
-                        InstKind::Component | InstKind::Module | InstKind::Port | InstKind::Bus
-                    )
-                })
+            // 第 3 步 · 找到端点所属的最近模块
+            let module_id = match idx.nearest_module.get(p) {
+                Some(m) => *m,
+                None => continue,
+            };
+
+            // 中间段必须是该模块的直属 Component/Module 子节点
+            let owner_is_proper = module_children
+                .get(&module_id)
+                .map(|children| children.contains(owner))
                 .unwrap_or(false);
 
             if owner_is_proper {
                 continue;
             }
 
-            // 中间段未注册或类型不对 → 检查上层是否存在
+            // 中间段未注册 → 检查上层（grandparent）是否在该模块的 children 中
             if let Some(grandparent) = owner_path(owner) {
-                if table.get_id_by_path(grandparent).is_some() {
+                let gp_is_proper = module_children
+                    .get(&module_id)
+                    .map(|children| children.contains(grandparent))
+                    .unwrap_or(false);
+                if gp_is_proper {
                     let key = format!("R08:{owner}");
                     if seen.insert(key) {
                         push(
