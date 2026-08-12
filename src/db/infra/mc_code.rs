@@ -3271,17 +3271,14 @@ impl McCode {
                 let decl_id =
                     crate::refdef::register::lookup_declare_id(&sem.local_table, port_name, &sp);
                 if let Some(decl_id) = decl_id {
+                    let ref_kind = Self::resolve_net_ref_kind(port_name, &m.insts);
                     symbol_lapper.insert(Interval {
                         start: span.start,
                         stop: span.end,
-                        val: SymbolType::new(SymbolKind::InstRef, u32::from(decl_id)),
+                        val: SymbolType::new(ref_kind, u32::from(decl_id)),
                     });
-                    sem.ref_entries.push((
-                        SymbolKind::InstRef,
-                        u32::from(decl_id),
-                        span.start,
-                        span.end,
-                    ));
+                    sem.ref_entries
+                        .push((ref_kind, u32::from(decl_id), span.start, span.end));
                 }
             }
             let mod_ident_label = entry.key().ident.to_string();

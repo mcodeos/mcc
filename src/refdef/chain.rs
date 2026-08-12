@@ -674,7 +674,7 @@ fn cross_hit(
     span: Option<Range<usize>>,
     uri: &McURI,
 ) -> Option<ChainHit> {
-    let span = span.unwrap_or(0..0);
+    let span = span?;
     mcc_dbg!(
         "refdef::chain",
         "[cross_hit] \"{}\" {} kind={:?} span={:?}..{:?} uri={}",
@@ -776,8 +776,7 @@ fn bus_member_hit(uri: &McURI, bus: &str, member: &str, insts: &McInstances) -> 
     let span = insts
         .port_spans()
         .get(bus)
-        .and_then(|v| v.first().cloned())
-        .unwrap_or(0..0);
+        .and_then(|v| v.first().cloned())?;
     mcc_dbg!(
         "refdef::chain",
         "[bus_member_hit] \"{}\" no bus_def → LabelDef fallback on port_span {:?}..{:?}",
@@ -806,8 +805,7 @@ fn list_member_hit(uri: &McURI, list: &str, member: &str, insts: &McInstances) -
                 .port_spans()
                 .get(list)
                 .and_then(|v| v.first().cloned())
-        })
-        .unwrap_or(0..0);
+        })?;
     mcc_dbg!(
         "refdef::chain",
         "[list_member_hit] \"{}\" LabelDef span={:?}..{:?}",
@@ -828,8 +826,7 @@ fn param_hit(uri: &McURI, name: &str, params: &McParamDeclares) -> Option<ChainH
     let span = params
         .iter_defs_with_span()
         .find(|(n, _)| *n == name)
-        .map(|(_, s)| s.clone())
-        .unwrap_or(0..0);
+        .map(|(_, s)| s.clone())?;
     mcc_dbg!(
         "refdef::chain",
         "[param_hit] \"{}\" ParamDef span={:?}..{:?}",
@@ -890,6 +887,10 @@ mod tests {
             )),
         );
         insts.store_port_span("GPIO[1:2]", 200..210);
+        // Register individual bracket-member spans and base name for list_member_hit.
+        insts.store_port_span("GPIO[1]", 201..202);
+        insts.store_port_span("GPIO[2]", 203..204);
+        insts.store_port_span("GPIO", 200..210);
         // Plain label V3V3.
         insts.create("V3V3", IOType::Power, McInstance::Label("V3V3".to_string()));
         insts.store_port_span("V3V3", 300..304);
