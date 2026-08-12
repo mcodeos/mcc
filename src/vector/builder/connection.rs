@@ -21,7 +21,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use super::super::model::netshape::{LaneRef, NetShape, PairDir};
+use super::super::model::netshape::{GroupRole, LaneRef, NetShape, PairDir};
 use super::super::model::{McVec, McVecNet};
 
 // ============================================================================
@@ -74,6 +74,23 @@ impl ConnPair {
             via: None,
         }
     }
+
+    /// Constructor with lane and via (pass-through device ID)
+    pub(crate) fn laned_with_via(
+        left: i64,
+        right: i64,
+        lane: LaneRef,
+        dir: PairDir,
+        via: Option<i64>,
+    ) -> Self {
+        Self {
+            left,
+            right,
+            lane: Some(lane),
+            dir,
+            via,
+        }
+    }
 }
 
 /// `net_name → connection pair list` grouping
@@ -107,10 +124,7 @@ pub(crate) fn merge_pairs_to_vecnet(nid: i64, net_name: String, pairs: &[ConnPai
             net_name,
             vec![McVec::single(pairs[0].left), McVec::single(pairs[0].right)],
         );
-        net.shape = Some(NetShape {
-            dir,
-            ..Default::default()
-        });
+        net.shape = Some(build_net_shape(dir, pairs, &net.nets));
         return net;
     }
 
@@ -129,15 +143,41 @@ pub(crate) fn merge_pairs_to_vecnet(nid: i64, net_name: String, pairs: &[ConnPai
         build_chain_topology(nid, net_name, pairs)
     };
 
-    // ★ M-1'-A: Attach direction info to non-lane nets for ShapeStats coverage
+    // ★ Fill NetShape for all non-lane branches
     if net.shape.is_none() {
-        net.shape = Some(NetShape {
-            dir,
-            ..Default::default()
-        });
+        net.shape = Some(build_net_shape(dir, pairs, &net.nets));
     }
 
     net
+}
+
+/// Build a complete NetShape from pairs and the already-computed vecs.
+fn build_net_shape(dir: PairDir, pairs: &[ConnPair], nets: &[McVec]) -> NetShape {
+    // groups: one entry per McVec, derived from vec length
+    let groups: Vec<GroupRole> = nets
+        .iter()
+        .map(|v| {
+            if v.len() == 1 {
+                GroupRole::Scalar
+            } else {
+                GroupRole::Broadcast(v.len())
+            }
+        })
+        .collect();
+
+    // series_chain: collect all pass-through device IDs from pairs
+    let series_chain: Vec<i64> = pairs.iter().filter_map(|p| p.via).collect();
+
+    // lane: take the first lane info from any pair
+    let lane: Option<LaneRef> = pairs.iter().find_map(|p| p.lane.clone());
+
+    NetShape {
+        groups,
+        dir,
+        lane,
+        series_chain,
+        src_pos: None,
+    }
 }
 
 // ============================================================================

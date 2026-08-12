@@ -3235,10 +3235,7 @@ impl McCode {
                 let mut use_decl_id = decl_id;
                 if decl_id.is_none() {
                     if let Some(hit) = crate::refdef::chain::resolve_member_chain(
-                        &uri,
-                        port_name,
-                        &m.insts,
-                        &m.params,
+                        &uri, port_name, &m.insts, &m.params,
                     ) {
                         let (d, _) = crate::refdef::register::register_def(
                             sem,

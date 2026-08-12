@@ -21,7 +21,6 @@
 
 use std::sync::OnceLock;
 
-use super::super::model::ConnectionType;
 use super::super::model::McVecBlock;
 use crate::instant::mc_mod::McModuleInst;
 
@@ -97,18 +96,11 @@ pub fn dump_output(block: &McVecBlock) {
     mcc_dbg!("vec", "{} nets         = {}", p, block.nets.len());
     mcc_dbg!("vec", "{} sub_blocks   = {}", p, block.blocks.len());
 
-    // Per-ConnectionType distribution
+    // Per-ConnectionType distribution (NetShape-based)
     let mut by_type: std::collections::HashMap<&'static str, usize> =
         std::collections::HashMap::new();
     for n in &block.nets {
-        let key = match n.connection_type() {
-            ConnectionType::OneToOne => "1:1",
-            ConnectionType::Broadcast(_) => "broadcast",
-            ConnectionType::NtoN(_) => "n:n",
-            ConnectionType::Chain => "chain",
-            ConnectionType::Complex => "complex",
-            ConnectionType::Isolated => "isolated",
-        };
+        let key = n.shape_type_key();
         *by_type.entry(key).or_insert(0) += 1;
     }
     let mut types: Vec<_> = by_type.into_iter().collect();
@@ -129,7 +121,7 @@ pub fn dump_output(block: &McVecBlock) {
             n.name,
             groups,
             total,
-            n.connection_type()
+            n.shape_type_name()
         );
     }
     mcc_dbg!("vec", "{p} ── END ──────────────────────────────────");
@@ -179,7 +171,7 @@ pub fn dump_diff(inst: &McModuleInst, block: &McVecBlock) {
     let isolated_count = block
         .nets
         .iter()
-        .filter(|n| matches!(n.connection_type(), ConnectionType::Isolated))
+        .filter(|n| n.shape_type_key() == "isolated")
         .count();
     if isolated_count > 0 {
         mcc_dbg!(

@@ -98,6 +98,10 @@ impl McVecNet {
     }
 
     /// Determine the connection topology type
+    #[deprecated(
+        since = "P3.2",
+        note = "Use shape_type_key() based on NetShape instead"
+    )]
     pub fn connection_type(&self) -> ConnectionType {
         if self.nets.len() < 2 {
             return ConnectionType::Isolated;
@@ -128,6 +132,63 @@ impl McVecNet {
         ConnectionType::Complex
     }
 
+    /// NetShape-based topology classification key (replaces `connection_type()`).
+    /// Returns a short string: "1:1", "n:n", "broadcast", "chain", "complex", "isolated".
+    pub fn shape_type_key(&self) -> &'static str {
+        if let Some(shape) = &self.shape {
+            let n = shape.groups.len();
+            if n < 2 {
+                return "isolated";
+            }
+            let counts: Vec<usize> = shape
+                .groups
+                .iter()
+                .map(|g| match g {
+                    super::netshape::GroupRole::Scalar => 1,
+                    super::netshape::GroupRole::Broadcast(k) => *k,
+                    super::netshape::GroupRole::BusLanes(n) => *n,
+                })
+                .collect();
+            if n == 2 {
+                if counts[0] == 1 && counts[1] == 1 {
+                    return "1:1";
+                }
+                if counts[0] == counts[1] && counts[0] > 1 {
+                    return "n:n";
+                }
+                return "broadcast";
+            }
+            if counts.iter().all(|&c| c == 1) {
+                return "chain";
+            }
+            return "complex";
+        }
+        // No shape provenance → fallback to legacy connection_type()
+        #[allow(deprecated)]
+        match self.connection_type() {
+            ConnectionType::OneToOne => "1:1",
+            ConnectionType::Broadcast(_) => "broadcast",
+            ConnectionType::NtoN(_) => "n:n",
+            ConnectionType::Chain => "chain",
+            ConnectionType::Complex => "complex",
+            ConnectionType::Isolated => "isolated",
+        }
+    }
+
+    /// NetShape-based topology classification for Display (replaces `connection_type()`).
+    pub fn shape_type_name(&self) -> String {
+        let key = self.shape_type_key();
+        if key == "chain" {
+            "Chain".to_string()
+        } else if key == "isolated" {
+            "Isolated".to_string()
+        } else if key == "complex" {
+            "Complex".to_string()
+        } else {
+            key.to_string()
+        }
+    }
+
     /// All endpoint IDs involved in this net (deduplicated, order preserved)
     pub fn all_point_ids(&self) -> Vec<i64> {
         let mut ids = Vec::new();
@@ -156,6 +217,6 @@ impl fmt::Display for McVecNet {
             }
             write!(f, "{vec}")?;
         }
-        write!(f, "  [{}]", self.connection_type())
+        write!(f, "  [{}]", self.shape_type_name())
     }
 }

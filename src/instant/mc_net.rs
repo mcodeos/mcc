@@ -225,8 +225,16 @@ pub struct ConnectionInst {
     /// Network name (first label owner or __net_N)
     pub net_name: Option<String>,
 
-    /// 源码连接符方向（来自 `->` / `-` / `+`）
+    /// Source connector direction (from `->` / `-` / `+`)
     pub dir: ConnDir,
+
+    /// Bus lane index (0=first lane, 1=second...). None for scalar connections.
+    pub lane: Option<u16>,
+
+    /// Name of the two-terminal device instance this connection "passes through"
+    /// (e.g. the R1 instance name in VCC→R1→GPIO). None for non-chain topologies.
+    /// Resolved to i64 ID in visit.rs and stored in ConnPair.
+    pub via: Option<String>,
 }
 
 impl ConnectionInst {
@@ -284,12 +292,26 @@ impl ConnectionInst {
             points,
             net_name,
             dir: ConnDir::Undirected,
+            lane: None,
+            via: None,
         }
     }
 
-    /// 设置源码连接符方向
+    /// Set source connector direction
     pub fn with_dir(mut self, dir: ConnDir) -> Self {
         self.dir = dir;
+        self
+    }
+
+    /// Set bus lane index (not called for scalar connections)
+    pub fn with_lane(mut self, lane: u16) -> Self {
+        self.lane = Some(lane);
+        self
+    }
+
+    /// Set pass-through device instance name
+    pub fn with_via(mut self, via: String) -> Self {
+        self.via = Some(via);
         self
     }
 

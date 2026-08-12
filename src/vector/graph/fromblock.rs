@@ -18,6 +18,7 @@ use std::collections::HashMap;
 
 use crate::instant::insttab::{InstEntry, InstKind, InstTable};
 
+use super::super::model::netshape::{GroupRole, NetShape};
 use super::super::model::{ConnectionType, McVecBlock, McVecNet};
 use super::boxdef::{BoxPin, CustomSymbol, IoSummary, McVecBox, PinLayout, VisualRole};
 use super::detect::{
@@ -1116,20 +1117,58 @@ fn generate_viznets_from_block(
         })
     };
 
-    /// 这个 net 真的是总线吗？—— `connection_type()` 只看形状，形状是网络合并的副产物，
-    /// 单独使用一定会把等电位点误判成总线。已知的两个坑：
-    ///   * fromblock.rs:1252 拆网络（节点被拆散）
-    ///   * fromblock.rs:1360 定 kind（节点被画成粗干线）
+    /// Extract N:N bus width from NetShape groups.
+    /// Returns `Some(n)` if shape represents a true N:N bus (both sides same width > 1),
+    /// `None` otherwise.
+    fn bus_width_from_shape(shape: &NetShape) -> Option<usize> {
+        if shape.groups.len() != 2 {
+            return None;
+        }
+        let left_n = match &shape.groups[0] {
+            GroupRole::Broadcast(n) => *n,
+            GroupRole::BusLanes(n) => *n,
+            GroupRole::Scalar => 1,
+        };
+        let right_n = match &shape.groups[1] {
+            GroupRole::Broadcast(n) => *n,
+            GroupRole::BusLanes(n) => *n,
+            GroupRole::Scalar => 1,
+        };
+        if left_n == right_n && left_n > 1 {
+            Some(left_n)
+        } else {
+            None
+        }
+    }
+
+    /// Is this net really a bus?
+    ///
+    /// NetShape-first: when shape is present, use groups to determine, no longer
+    /// rely on `connection_type()` shape inference. Only falls back to
+    /// `connection_type()` when shape is absent (legacy behavior).
     fn is_real_bus(
         net: &McVecNet,
         kind: &NetKind,
         touches_passive: &dyn Fn(&[i64]) -> bool,
     ) -> Option<usize> {
+        if matches!(kind, NetKind::Power | NetKind::Ground) {
+            return None;
+        }
+
+        // ★ P3.1: NetShape-first bus detection
+        if let Some(shape) = &net.shape {
+            if let Some(n) = bus_width_from_shape(shape) {
+                if n > 1 && !touches_passive(&net.all_point_ids()) {
+                    return Some(n);
+                }
+            }
+            return None; // shape present but not N:N → not a bus
+        }
+
+        // Legacy fallback: no shape provenance
+        #[allow(deprecated)]
         if let ConnectionType::NtoN(n) = net.connection_type() {
-            if n > 1
-                && !matches!(kind, NetKind::Power | NetKind::Ground)
-                && !touches_passive(&net.all_point_ids())
-            {
+            if n > 1 && !touches_passive(&net.all_point_ids()) {
                 return Some(n);
             }
         }
@@ -1264,6 +1303,7 @@ fn generate_viznets_from_block(
         //   connects into a 2-point Signal net, each goes its own orthogonal line, no more merged trunk.
         //   Note: collapsed ports (1 pin -> n flags) in main graph are Broadcast(n), not NtoN, so don't enter
         //   this branch -> doesn't affect main graph; only true "both sides expanded to n pins" gets split. Power/ground not split.
+        #[allow(deprecated)]
         if let ConnectionType::NtoN(_n) = net.connection_type() {
             let kind0 = naming::classify_net(&net.name);
             // ★ FIX：`connection_type()` 只比较两组的**长度**（net.rs:87），而这两组是

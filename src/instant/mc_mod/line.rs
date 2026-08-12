@@ -329,7 +329,7 @@ impl McModuleInst {
             );
             let lp = self.shunt_chain_points(pair[0], true);
             let rp = self.shunt_chain_points(pair[1], false);
-            if let Err(e) = self.create_connection(lp, rp, dir) {
+            if let Err(e) = self.create_connection(lp, rp, dir, None) {
                 self.record_warning(
                     912,
                     format!("Pass-through across `.Cap(_)` shunt failed: {e}"),
@@ -419,7 +419,7 @@ impl McModuleInst {
                 );
                 continue;
             }
-            if let Err(e) = self.create_connection(pin1, vec![rail], dir) {
+            if let Err(e) = self.create_connection(pin1, vec![rail], dir, None) {
                 self.record_warning(913, format!("`.Cap(_)` shunt pin1 → rail failed: {e}"));
             }
         }
@@ -602,7 +602,8 @@ impl McModuleInst {
                         all_pts.extend(all_bridges);
                         if all_pts.len() >= 2 {
                             let id = self.next_conn_id();
-                            self.connections.push(ConnectionInst::new(id, all_pts));
+                            self.connections
+                                .push(ConnectionInst::new(id, all_pts).with_lane(lane as u16));
                         }
                     }
                 }
@@ -624,7 +625,8 @@ impl McModuleInst {
                         all_pts.extend(leading.iter().cloned());
                         if all_pts.len() >= 2 {
                             let id = self.next_conn_id();
-                            self.connections.push(ConnectionInst::new(id, all_pts));
+                            self.connections
+                                .push(ConnectionInst::new(id, all_pts).with_lane(lane as u16));
                         }
                     }
                 }
@@ -658,9 +660,10 @@ impl McModuleInst {
                     let mut all_pts = vec![lp.clone(), rp.clone()];
                     all_pts.extend(bridge_pins.iter().cloned());
                     let id = self.next_conn_id();
-                    self.connections.push(ConnectionInst::new(id, all_pts));
+                    self.connections
+                        .push(ConnectionInst::new(id, all_pts).with_lane(lane as u16));
                 } else {
-                    self.create_connection(vec![lp], vec![rp], dir)?;
+                    self.create_connection(vec![lp], vec![rp], dir, Some(lane as u16))?;
                 }
             }
         }
@@ -1485,10 +1488,10 @@ impl McModuleInst {
                     .take(n)
                     .zip(right_points.into_iter().take(n))
                 {
-                    self.create_connection(vec![l], vec![r], dir)?;
+                    self.create_connection(vec![l], vec![r], dir, None)?;
                 }
             } else {
-                self.create_connection(left_points, right_points, dir)?;
+                self.create_connection(left_points, right_points, dir, None)?;
             }
         }
         Ok(())

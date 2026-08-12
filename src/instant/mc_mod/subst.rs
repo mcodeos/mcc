@@ -350,6 +350,7 @@ impl McModuleInst {
                 left: Self::substitute_node_elements(&f.left, bindings),
                 right: Self::substitute_node_elements(&f.right, bindings),
                 dot_member: f.dot_member.clone(),
+                resolved_return_shape: f.resolved_return_shape.clone(),
             }),
             McPhrase::Transposed(inner) => McPhrase::Transposed(Box::new(Self::substitute_phrase(
                 inner,
