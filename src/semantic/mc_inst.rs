@@ -169,6 +169,9 @@ pub enum McInstance {
     /// "pins" keyword — transparent under pins transparency rules,
     /// but preserved for explicit index-based access (e.g. `uC.pins[8]`).
     Pins,
+    /// Physical pin ID — a key in the component's pin_id_to_names table,
+    /// resolved during chain lookup (e.g. `uC.19`, `uC.W1`).
+    PinId(String),
     /// Component attribute value (e.g. `partno`, `package`).
     Attr(McAttrVal),
     /// Function reference — returned by `find_inst` for func names.
@@ -199,6 +202,7 @@ impl McInstance {
             Module(m) => m.name.to_string(),
             Unresolved { class_name } => class_name.clone(),
             Pins => "pins".to_string(),
+            PinId(id) => id.clone(),
             Attr(a) => a.to_string(),
             Func(f) => f.name.to_string(),
             EnumVal { value_name, .. } => value_name.clone(),
@@ -245,6 +249,7 @@ impl McInstance {
             McInstance::Module(m) => McBus::new(&m.name.to_string()),
             McInstance::Unresolved { class_name } => McBus::new(class_name),
             McInstance::Pins => McBus::new("pins"),
+            McInstance::PinId(id) => McBus::new(id),
             McInstance::Attr(a) => McBus::new(&a.to_string()),
             McInstance::Func(f) => McBus::new(&f.name.to_string()),
             McInstance::EnumVal { value_name, .. } => McBus::new(value_name),
@@ -292,6 +297,7 @@ impl McInstance {
             McInstance::Module(_) => "Module",
             McInstance::Unresolved { .. } => "Unresolved",
             McInstance::Pins => "Pins",
+            McInstance::PinId(_) => "PinId",
             McInstance::Attr(_) => "Attr",
             McInstance::Func(_) => "Func",
             McInstance::EnumVal { .. } => "EnumVal",
@@ -2044,6 +2050,7 @@ impl std::fmt::Display for McInstance {
             McInstance::Interface(i) => write!(f, "{i:?}"),
             McInstance::Unresolved { class_name } => write!(f, "Unresolved({class_name})"),
             McInstance::Pins => write!(f, "pins"),
+            McInstance::PinId(id) => write!(f, "pin:{id}"),
             McInstance::Attr(a) => write!(f, "{a}"),
             McInstance::Func(func) => write!(f, "Func:{}", func.name),
             McInstance::EnumVal {

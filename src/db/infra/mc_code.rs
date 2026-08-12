@@ -3433,6 +3433,33 @@ impl McCode {
                             .push((ref_kind, u32::from(decl_id), span.start, span.end));
                     }
                 }
+                // ★ Chain references inside func bodies (e.g. `spi + uC.SPI`
+                // in us513.mc loadFlash). Recorded into `func.insts` by
+                // try_record_chain_ref; resolve against module insts because
+                // func bodies reference module-level instances (e.g. uC).
+                for (span, segments, scope) in func.insts.iter_chain_refs() {
+                    if let Some(hit) = crate::refdef::chain::resolve_member_chain_from_segments(
+                        &uri, segments, &m.insts, &m.params,
+                    ) {
+                        let ref_kind = Self::chain_ref_kind(hit.def_kind);
+                        let (d, _) = crate::refdef::register::register_def(
+                            sem,
+                            &hit.uri,
+                            scope,
+                            None,
+                            &hit.name,
+                            hit.span.clone(),
+                            hit.def_kind,
+                        );
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::new(ref_kind, u32::from(d)),
+                        });
+                        sem.ref_entries
+                            .push((ref_kind, u32::from(d), span.start, span.end));
+                    }
+                }
                 let func_scope = func.insts.scope.clone().unwrap_or_else(|| fscope.clone());
                 for (name, _label_kind, span) in func.insts.iter_labels_with_span() {
                     let (d, _) = crate::refdef::register::register_def(

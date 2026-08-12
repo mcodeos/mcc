@@ -841,13 +841,36 @@ impl McModule {
 
     /// Check whether an MCAST_OPD node contains dot-separated identifiers
     /// (i.e., it's a member-chain expression like `uC.i2c(0x36).I2C0`).
-    /// Returns `true` if at least one MCAST_OPD_DOT child separates
-    /// identifier nodes in the flat child list.
+    /// Returns `true` if an MCAST_OPD_DOT appears as a flat child, inside a
+    /// nested MCAST_OPD (chain-tail operands), or merged into an ID/IDA/IDS
+    /// sub_node (`uC.ADC{P,N}` is one MCAST_IDS with a dotted sub_node).
     fn has_dot_chain(node: &AstNode) -> bool {
         let mut current = node.get_sub_node();
         while let Some(n) = current {
             if n.get_type() == MCAST_OPD_DOT {
                 return true;
+            }
+            // Chain-tail operands wrap their children in a nested MCAST_OPD
+            // (e.g. `MIC -> uC.ADC{P,N}` — the tail is nested), so recurse.
+            if n.get_type() == MCAST_OPD && Self::has_dot_chain(&n) {
+                return true;
+            }
+            // ID/IDA/IDS may merge the dot chain into their sub_node:
+            // `uC.ADC{P,N}` is one MCAST_IDS whose sub_node is
+            // [MCAST_ID "uC", MCAST_OPD_DOT "ADC", MCAST_OPD_CURLY "P{N}"].
+            if matches!(n.get_type(), MCAST_ID | MCAST_IDA | MCAST_IDS) {
+                if let Some(sub) = n.get_sub_node() {
+                    let mut sc = sub;
+                    loop {
+                        if sc.get_type() == MCAST_OPD_DOT {
+                            return true;
+                        }
+                        match sc.get_next() {
+                            Some(nx) => sc = nx,
+                            None => break,
+                        }
+                    }
+                }
             }
             current = n.get_next();
         }
@@ -871,18 +894,36 @@ impl McModule {
                 break;
             }
 
-            // Skip punctuation nodes (dots, colons, etc.).
-            if ty == MCAST_OPD_DOT || ty == MCAST_OPD_COLON || ty == MCAST_OPD_DBCOLON {
+            // Handle DOT member references:
+            //   - `.19`  → DOT wraps MCAST_INT    → extract "19"
+            //   - `.ADC` → DOT wraps MCAST_IDA/IDS → extract identifier text
+            //   - `.ADC{P,N}` → DOT wraps "ADC" + sibling MCAST_OPD_CURLY "P{N}"
+            //     (merged dotted form is handled inside collect_ident_segments)
+            if ty == MCAST_OPD_DOT {
+                if let Some(sub) = n.get_sub_node() {
+                    // Use sub-node span end (pos+len) for accurate chain_end,
+                    // since the DOT node's len may not include the sub-node.
+                    let end = sub.get_pos() as usize + sub.get_len() as usize;
+                    if sub.get_type() == MCAST_INT {
+                        if let Some(num) = sub.to_string() {
+                            segments.push(ChainSegment::Ident(num));
+                            chain_end = Some(end);
+                        }
+                    } else if let Some(text) = sub.to_string() {
+                        segments.push(ChainSegment::Ident(text));
+                        chain_end = Some(end);
+                    }
+                }
+                current = n.get_next();
+                continue;
+            }
+            if ty == MCAST_OPD_COLON || ty == MCAST_OPD_DBCOLON {
                 current = n.get_next();
                 continue;
             }
 
             if ty == MCAST_ID || ty == MCAST_IDA || ty == MCAST_IDS {
-                if let Some(text) = n.to_string() {
-                    let end = n.get_pos() as usize + n.get_len() as usize;
-                    segments.push(ChainSegment::Ident(text));
-                    chain_end = Some(end);
-                }
+                Self::collect_ident_segments(&n, &mut segments, &mut chain_end);
             } else if ty == MCAST_OPD_FCALL {
                 // Extract function name from first child (MCAST_ID).
                 if let Some(name_node) = n.get_sub_node() {
@@ -929,17 +970,36 @@ impl McModule {
                 break;
             }
 
-            if ty == MCAST_OPD_DOT || ty == MCAST_OPD_COLON || ty == MCAST_OPD_DBCOLON {
+            // Handle DOT member references:
+            //   - `.19`  → DOT wraps MCAST_INT    → extract "19"
+            //   - `.ADC` → DOT wraps MCAST_IDA/IDS → extract identifier text
+            //   - `.ADC{P,N}` → DOT wraps "ADC" + sibling MCAST_OPD_CURLY "P{N}"
+            //     (merged dotted form is handled inside collect_ident_segments)
+            if ty == MCAST_OPD_DOT {
+                if let Some(sub) = n.get_sub_node() {
+                    // Use sub-node span end (pos+len) for accurate chain_end,
+                    // since the DOT node's len may not include the sub-node.
+                    let end = sub.get_pos() as usize + sub.get_len() as usize;
+                    if sub.get_type() == MCAST_INT {
+                        if let Some(num) = sub.to_string() {
+                            segments.push(ChainSegment::Ident(num));
+                            *chain_end = Some(end);
+                        }
+                    } else if let Some(text) = sub.to_string() {
+                        segments.push(ChainSegment::Ident(text));
+                        *chain_end = Some(end);
+                    }
+                }
+                current = n.get_next();
+                continue;
+            }
+            if ty == MCAST_OPD_COLON || ty == MCAST_OPD_DBCOLON {
                 current = n.get_next();
                 continue;
             }
 
             if ty == MCAST_ID || ty == MCAST_IDA || ty == MCAST_IDS {
-                if let Some(text) = n.to_string() {
-                    let end = n.get_pos() as usize + n.get_len() as usize;
-                    segments.push(ChainSegment::Ident(text));
-                    *chain_end = Some(end);
-                }
+                Self::collect_ident_segments(&n, segments, chain_end);
             } else if ty == MCAST_OPD_FCALL {
                 if let Some(name_node) = n.get_sub_node() {
                     if let Some(name) = name_node.to_string() {
@@ -952,6 +1012,69 @@ impl McModule {
 
             current = n.get_next();
         }
+    }
+
+    /// Extract chain segments from an identifier node, handling the merged
+    /// dotted form where `uC.ADC{P,N}` is a single MCAST_IDS whose sub_node
+    /// is `[MCAST_ID "uC", MCAST_OPD_DOT "ADC", MCAST_OPD_CURLY "P{N}"]`.
+    fn collect_ident_segments(
+        n: &AstNode,
+        segments: &mut Vec<ChainSegment>,
+        chain_end: &mut Option<usize>,
+    ) {
+        let end = n.get_pos() as usize + n.get_len() as usize;
+        if let Some(sub) = n.get_sub_node() {
+            let mut pending_dot: Option<String> = None;
+            let mut cur = sub;
+            loop {
+                let st = cur.get_type();
+                if st == MCAST_OPD_DOT {
+                    if let Some(t) = cur.to_string() {
+                        pending_dot = Some(t);
+                    }
+                } else if st == MCAST_OPD_CURLY || st == MCAST_OPD_CURLY_MN {
+                    // Combine the pending dot member with the group:
+                    // "ADC" + "P,N" → "ADC{P,N}".
+                    let group = Self::collect_curly_members(&cur);
+                    let member = pending_dot.take().unwrap_or_default();
+                    segments.push(ChainSegment::Ident(format!("{member}{{{group}}}")));
+                } else if let Some(t) = cur.to_string() {
+                    // Base identifier (first child) or other member.
+                    segments.push(ChainSegment::Ident(t));
+                }
+                match cur.get_next() {
+                    Some(nx) => cur = nx,
+                    None => break,
+                }
+            }
+            // Flush a pending dot member with no following group (e.g. `uC.ADC`).
+            if let Some(d) = pending_dot {
+                segments.push(ChainSegment::Ident(d));
+            }
+            *chain_end = Some(end);
+        } else if let Some(text) = n.to_string() {
+            segments.push(ChainSegment::Ident(text));
+            *chain_end = Some(end);
+        }
+    }
+
+    /// Collect the member names of a curly group node (`{P,N}` → "P,N").
+    fn collect_curly_members(curly: &AstNode) -> String {
+        let mut members: Vec<String> = Vec::new();
+        if let Some(sub) = curly.get_sub_node() {
+            let mut cur = sub;
+            loop {
+                let t = cur.to_string().unwrap_or_default();
+                if !t.is_empty() && t != "," {
+                    members.push(t);
+                }
+                match cur.get_next() {
+                    Some(nx) => cur = nx,
+                    None => break,
+                }
+            }
+        }
+        members.join(",")
     }
 
     fn record_scoped_net_ref(
@@ -1218,6 +1341,7 @@ impl std::fmt::Display for McModule {
                     (inst.to_string(), "Unresolved".to_string(), 5)
                 }
                 McInstance::Pins => ("pins".to_string(), "Pins".to_string(), 6),
+                McInstance::PinId(id) => (id.clone(), "PinId".to_string(), 6),
                 McInstance::Attr(_) => (inst.to_string(), "Attr".to_string(), 7),
                 McInstance::Func(_) => {
                     let s = inst.to_string();

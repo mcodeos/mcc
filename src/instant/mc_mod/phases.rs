@@ -146,33 +146,6 @@ impl McModuleInst {
             .map(|(k, (io, inst))| (k.to_string(), io.clone(), inst.clone()))
             .collect();
 
-        if self.name.contains("513")
-            || self.name.contains("ldo")
-            || self.name.contains("modldo")
-            || self.name.contains("SPEAKER")
-        {
-            eprintln!(
-                "[P2-4-IFACE] module={} insts count={} params count={}",
-                self.name,
-                items.len(),
-                self.def.params.len()
-            );
-            for (k, io, inst) in &items {
-                eprintln!(
-                    "[P2-4-IFACE]   inst: {k} iotype={io:?} variant={:?}",
-                    std::mem::discriminant(inst)
-                );
-            }
-            for pd in self.def.params.iter() {
-                eprintln!(
-                    "[P2-4-IFACE]   param: {} is_port={} kind={:?}",
-                    pd.display_name(),
-                    pd.is_port(),
-                    pd.param_type.kind
-                );
-            }
-        }
-
         for (port_name, iotype, inst) in &items {
             // ── Bug fix ① ───────────────────────────────────────────
             // `self.def.insts` is a symbol table **shared by ports and body declarations**:
@@ -215,17 +188,6 @@ impl McModuleInst {
             // 1. When creating PortInst, extract bus_members according to port form
             //    —— Iter-8: let N×1 bus ports expand according to declaration during endpoint resolution.
             let bus_members = extract_port_bus_members(inst, port_name);
-            if self.name.contains("513")
-                || self.name.contains("ldo")
-                || self.name.contains("modldo")
-                || self.name.contains("speaker")
-                || self.name.contains("SPEAKER")
-            {
-                eprintln!(
-                    "[P2-4-PORT] module={} port_name={} iotype={:?} bus_members={:?}",
-                    self.name, port_name, iotype, bus_members
-                );
-            }
             let port = PortInst::with_members(port_name, iotype.clone(), bus_members.clone());
             self.ports.push(port);
 
@@ -281,18 +243,6 @@ impl McModuleInst {
                 }
                 _ => Vec::new(),
             };
-
-            if self.name.contains("513")
-                || self.name.contains("ldo")
-                || self.name.contains("modldo")
-                || self.name.contains("speaker")
-                || self.name.contains("SPEAKER")
-            {
-                eprintln!(
-                    "[P2-4-PARAM] module={} port_name={} iotype={:?} bus_members={:?}",
-                    self.name, port_name, iotype, bus_members
-                );
-            }
 
             let port = PortInst::with_members(&port_name, iotype.clone(), bus_members.clone());
             self.ports.push(port);
@@ -460,22 +410,7 @@ impl McModuleInst {
             .map(|(k, v)| (k.to_string(), v.clone()))
             .collect();
 
-        if self.name.contains("513") || self.name == "main" {
-            eprintln!("[P2-4-DECL] module={} has {} insts", self.name, items.len());
-            for (k, _) in &items {
-                eprintln!("[P2-4-DECL]   inst: {k}");
-            }
-        }
-
         for (_name, ident) in items {
-            if self.name.contains("513") {
-                mcc_dbg!(
-                    "inst::mod",
-                    "[P2-4-DECL] module={} processing decl: {:?}",
-                    self.name,
-                    std::mem::discriminant(&ident)
-                );
-            }
             match &ident {
                 McInstance::Component(c) => {
                     let inst =
@@ -532,10 +467,6 @@ impl McModuleInst {
                 }
                 McInstance::Module(m) => {
                     let inst_name = m.name.to_string();
-                    eprintln!(
-                        "[P2-4-MOD] module={} instantiating sub-module '{}' class='{}'",
-                        self.name, inst_name, m.base.name
-                    );
                     let mut inst = McModuleInst::new(&inst_name, m.base.clone());
                     // ★ Sub-module instantiation failure → record diagnostics, but keep instance
                     if let Err(e) = inst.instantiate() {
@@ -784,18 +715,6 @@ impl McModuleInst {
             .filter(|p| p.name.trim_start().starts_with('[') || !p.bus_members.is_empty())
             .collect();
 
-        if inst_name.contains("speaker") {
-            eprintln!(
-                "[P2-4-BIND] inst={inst_name} ports_count={} formal_count={} ports={:?}",
-                ports.len(),
-                formal.len(),
-                ports
-                    .iter()
-                    .map(|p| (&p.name, &p.bus_members))
-                    .collect::<Vec<_>>()
-            );
-        }
-
         let mut used = vec![false; formal.len()];
 
         for (ai, arg) in args.iter().enumerate() {
@@ -808,13 +727,6 @@ impl McModuleInst {
             let mut arg_lanes: Vec<NetPoint> = Vec::new();
             for e in &arg_elems {
                 arg_lanes.extend(self.expand_node_element(e));
-            }
-
-            if inst_name.contains("speaker") {
-                eprintln!(
-                    "[P2-4-BIND-ARG] inst={inst_name} ai={ai} arg_name={arg_name} arg_lanes={:?}",
-                    arg_lanes.iter().map(|np| &np.path).collect::<Vec<_>>()
-                );
             }
 
             // Choose formal port: ① voltage token match (order irrelevant); ② position fallback (next unused)
@@ -1050,14 +962,6 @@ impl McModuleInst {
             // ── Case 1: Equal-width multi-member -> sort by member name then zip ──
             // P2-4: Sort both sides by member name for deterministic alignment.
             if members.len() >= 2 && arg_lanes.len() == members.len() {
-                eprintln!(
-                    "[P2-4-BIND-CALL] inst={inst_name} arg_name={arg_name} \
-                     arg_lanes={:?} members={members:?}",
-                    arg_lanes
-                        .iter()
-                        .map(|p| (&p.path, &p.member_name))
-                        .collect::<Vec<_>>(),
-                );
                 // Sort members alphabetically (already sorted by extract_port_bus_members,
                 // but sort again for safety).
                 let mut sorted_members: Vec<&String> = members.iter().collect();
@@ -1076,15 +980,6 @@ impl McModuleInst {
                         .unwrap_or_else(|| b.path.rsplit('.').next().unwrap_or(&b.path));
                     a_name.cmp(b_name)
                 });
-
-                eprintln!(
-                    "[P2-4-BIND-CALL-SORTED] inst={inst_name} \
-                     sorted_arg_lanes={:?} sorted_members={sorted_members:?}",
-                    sorted_arg_lanes
-                        .iter()
-                        .map(|p| (&p.path, &p.member_name))
-                        .collect::<Vec<_>>(),
-                );
 
                 for (a, m) in sorted_arg_lanes.iter().zip(sorted_members.iter()) {
                     let mut pts = make_ports(m.as_str(), pio.clone());

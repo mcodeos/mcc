@@ -912,6 +912,7 @@ pub(crate) fn extract_from_uri(entry: &Path, top: Option<&str>, target: &str) ->
                                     ("unresolved", class_name.clone())
                                 }
                                 crate::McInstance::Pins => ("pins", "pins".into()),
+                                crate::McInstance::PinId(id) => ("pinid", id.clone()),
                                 crate::McInstance::Attr(a) => ("attr", a.to_string()),
                                 crate::McInstance::Func(f) => ("func", f.name.to_string()),
                                 crate::McInstance::EnumVal {
@@ -1487,6 +1488,7 @@ pub(crate) fn inst_kind_class(inst: &crate::McInstance) -> (&'static str, String
         }
         crate::McInstance::Unresolved { class_name } => ("unresolved", class_name.clone()),
         crate::McInstance::Pins => ("pins", "pins".into()),
+        crate::McInstance::PinId(id) => ("pinid", id.clone()),
         crate::McInstance::Attr(a) => ("attr", a.to_string()),
         crate::McInstance::Func(f) => ("func", f.name.to_string()),
         crate::McInstance::EnumVal {

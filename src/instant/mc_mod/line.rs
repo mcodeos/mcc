@@ -1563,6 +1563,7 @@ impl McModuleInst {
                         format!("BusRef(c={component},b={bus})")
                     }
                     McInstance::Pins => "Pins".into(),
+                    McInstance::PinId(id) => format!("PinId('{id}')"),
                     McInstance::Attr(a) => format!("Attr({a})"),
                     McInstance::Func(f) => format!("Func({})", f.name),
                     McInstance::EnumVal { value_name, .. } => {

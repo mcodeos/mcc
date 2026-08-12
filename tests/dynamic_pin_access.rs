@@ -1,7 +1,13 @@
 use mcc::{McIds, McURI};
+use std::sync::{Mutex, OnceLock};
+
+/// Global mutex to serialize tests that share mcc's global workspace state
+/// (same pattern as `tests/dynamic_pin_expansion.rs`).
+static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 #[test]
 fn conditional_pin_alias_resolves_to_physical_pin() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
     mcc::mcc_init_no_lib();
     mcc::mcc_set_system_root(std::path::Path::new(""));
     mcc::mcc_clear_workspace();
@@ -59,4 +65,175 @@ module main
         .find(|component| component.name == "U_WIDE")
         .expect("U_WIDE instance");
     assert_eq!(component.pin_name("2").as_deref(), Some("GPIO8"));
+}
+
+/// Regression: LSP goto-definition span for `label::Class(...)` pin declarations.
+///
+/// `io [16,17,21] = ADC::ADC.DIFF(Receiver)` must record the span of the io
+/// label `ADC` (the instance name, `label_pos..label_pos+3`), not the whole
+/// binding expression or the class name `ADC.DIFF`. The class/instance AST nodes
+/// are linked in reverse source order by mc_declare_b, so the span must come
+/// directly from the parsed instance node.
+#[test]
+fn declare_io_label_span_is_the_instance_name() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+
+    let uri: McURI = "/mcc/pin-name-span.mc".to_string();
+    let source = r#"
+interface ADC.DIFF(role)
+{
+    pins = [
+        1 = P, "Positive Input"
+        2 = N, "Negative Input"
+        3 = GND, "Ground"
+    ]
+    role Receiver { name = "ADC.DIFF Receiver" }
+    role Transmitter { name = "ADC.DIFF Transmitter" }
+}
+
+interface UART.TTL(role)
+{
+    pins = [
+        1 = TX, "Transmit"
+        2 = RX, "Receive"
+    ]
+    role DCE {
+        name = "UART.TTL DCE"
+        pins = [
+            1 = TX, "Transmit"
+            2 = RX, "Receive"
+        ]
+        peer = DTE
+    }
+    role DTE {
+        name = "UART.TTL DTE"
+        pins = [
+            1 = RX, "Receive"
+            2 = TX, "Transmit"
+        ]
+        peer = DCE
+    }
+}
+
+component MCU
+{
+    pins = [
+        io [16, 17, 21] = ADC::ADC.DIFF(Receiver)
+        io [6, 7] = UART0::UART.TTL(DCE) | UART2::UART.TTL(DTE)
+    ]
+}
+
+module main
+{
+    func loadFlash(spi)
+    {
+        spi + uC.UART0
+    }
+
+    MCU uC
+}
+"#;
+
+    mcc::mcc_load_from_string(&uri, source);
+    let instance = mcc::mcc_build(&McIds::from("main"), &uri).expect("build pin name span fixture");
+
+    let component = instance
+        .components
+        .iter()
+        .find(|component| component.name == "uC")
+        .expect("uC instance");
+
+    // `ADC::ADC.DIFF(Receiver)` — span must be the io label `ADC`, not the class
+    // or the whole binding expression.
+    let adc_label_pos = source
+        .find("ADC::ADC.DIFF")
+        .expect("io label `ADC` present in source");
+    let adc_span = component
+        .def
+        .pins
+        .pin_name_spans
+        .get("ADC")
+        .expect("pin name span for `ADC`");
+    assert_eq!(
+        *adc_span,
+        adc_label_pos..adc_label_pos + 3,
+        "goto-def must land exactly on the io label `ADC`, not the whole binding expression"
+    );
+
+    // `UART0::UART.TTL(DCE) | UART2::UART.TTL(DTE)` — multi-option form like
+    // `us513.mc` line 20. Each alternative's io label must keep its own precise
+    // span (the instance name), not share the last option's span or cover the
+    // whole binding expression.
+    let uart0_label_pos = source
+        .find("UART0::UART.TTL")
+        .expect("io label `UART0` present in source");
+    let uart0_span = component
+        .def
+        .pins
+        .pin_name_spans
+        .get("UART0")
+        .expect("pin name span for `UART0`");
+    assert_eq!(
+        *uart0_span,
+        uart0_label_pos..uart0_label_pos + 5,
+        "goto-def must land exactly on the io label `UART0`, not the whole binding expression"
+    );
+    let uart2_label_pos = source
+        .find("UART2::UART.TTL")
+        .expect("io label `UART2` present in source");
+    let uart2_span = component
+        .def
+        .pins
+        .pin_name_spans
+        .get("UART2")
+        .expect("pin name span for `UART2`");
+    assert_eq!(
+        *uart2_span,
+        uart2_label_pos..uart2_label_pos + 5,
+        "each alternative's goto-def must land exactly on its own io label"
+    );
+
+    // `spi + uC.UART0` inside `func loadFlash(spi)` — the chain `uC.UART0`
+    // must be recorded into the function's own insts (module-level instances
+    // are referenced from func bodies; us513.mc line 144 `spi + uC.SPI` is
+    // the same shape).
+    let func = instance
+        .def
+        .funcs
+        .iter()
+        .find(|f| f.name.to_string() == "loadFlash")
+        .expect("loadFlash func");
+    let uart0_chain = func
+        .insts
+        .iter_chain_refs()
+        .find(|(_, segments, _)| {
+            segments
+                .iter()
+                .any(|s| matches!(s, mcc::refdef::ChainSegment::Ident(n) if n == "uC"))
+                && segments
+                    .iter()
+                    .any(|s| matches!(s, mcc::refdef::ChainSegment::Ident(n) if n == "UART0"))
+        })
+        .expect("func body must record the `uC.UART0` chain ref");
+    assert_eq!(uart0_chain.1.len(), 2, "chain must be [uC, UART0]");
+
+    // Resolution side: the func-body chain resolves against MODULE insts
+    // (`uC` is a module instance, not a func-local one) and lands on the
+    // uC component's `UART0` io label with a precise span.
+    let hit = mcc::refdef::chain::resolve_member_chain_from_segments(
+        &uri,
+        &uart0_chain.1,
+        &instance.def.insts,
+        &instance.def.params,
+    )
+    .expect("func-body chain `uC.UART0` must resolve");
+    assert_eq!(hit.name, "uC.UART0");
+    assert_eq!(
+        hit.span,
+        uart0_label_pos..uart0_label_pos + 5,
+        "func-body goto-def must land exactly on the uC io label `UART0`"
+    );
 }

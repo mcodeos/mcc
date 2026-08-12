@@ -325,7 +325,19 @@ impl McPins {
                             if let Some(ids) = child.to_string() {
                                 let span = (child.get_pos() as usize)
                                     ..((child.get_pos() + child.get_len()) as usize);
-                                self.pin_id_spans.insert(ids, span);
+                                self.pin_id_spans.insert(ids, span.clone());
+                                // §4.3: For range pin IDs like [18,19], also store
+                                // individual entries so that chain lookup for uC.19
+                                // can find a span (using the full range span).
+                                if let Some(ref parsed) = pinids {
+                                    if let McPinPort::Multi(pids) = parsed {
+                                        for pid in pids {
+                                            self.pin_id_spans
+                                                .entry(pid.clone())
+                                                .or_insert(span.clone());
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -348,13 +360,11 @@ impl McPins {
                                             // For mc_declare_b (:: syntax), the first
                                             // linked child (MCAST_CLASS) may start AFTER
                                             // later children (MCAST_INSTANCE) in the
-                                            // source.  Compute the true bounding span
-                                            // by walking the sub-node list.
-                                            // Also include the parent MCAST_PIN_NAME's
-                                            // position to capture leading delimiters
-                                            // like '[' in "[VDD, GND]".
-                                            let mut span = Self::compute_bounding_span(&id_node);
-                                            span.start = span.start.min(pn.get_pos() as usize);
+                                            // source.  Use the leading identifier span
+                                            // (source-first identifier leaf of the AST)
+                                            // so goto-def lands exactly on the name
+                                            // (e.g. `ADC` in `ADC::ADC.DIFF(Receiver)`).
+                                            let span = Self::leading_ident_span(&id_node);
                                             self.pin_name_spans.insert(id, span);
                                         }
                                     }
@@ -364,15 +374,18 @@ impl McPins {
                         // ★ Also record spans using the registered key (inst_id) for
                         // interface bindings like `I2C0::I2C(Master)`, where the
                         // `names_to_id` key differs from the raw pin-name string.
-                        // The option_nodes parallel array gives the precise AST node
-                        // for each option (including alternatives after `|`).
+                        // Use the precise name span recorded during parsing
+                        // (`McPinNames::name_spans`) — the parse result — instead of
+                        // recomputing a bounding box over the whole binding expression.
                         if let Some(names) = &pinnames {
-                            for (opt, opt_node) in
-                                names.options.iter().zip(names.option_nodes.iter())
-                            {
-                                // Use bounding span to handle mc_declare_b where
-                                // linked children are out of source order.
-                                let span = Self::compute_bounding_span(opt_node);
+                            for (opt_idx, opt) in names.options.iter().enumerate() {
+                                let opt_node = names.option_nodes.get(opt_idx);
+                                let span = names
+                                    .name_spans
+                                    .get(opt_idx)
+                                    .cloned()
+                                    .or_else(|| opt_node.map(Self::leading_ident_span))
+                                    .unwrap_or_default();
                                 match opt {
                                     McPinPort::Interface(iface) => {
                                         // For bus-form interface names (e.g.
@@ -437,10 +450,13 @@ impl McPins {
             };
 
             for (opt_idx, optname) in names.options.iter().enumerate() {
+                // Use the leading identifier span (precise name) instead of the
+                // whole option bounding span, so goto-def lands on the name
+                // itself (e.g. `ADC` in `ADC::ADC.DIFF(Receiver)`).
                 let opt_span = names
                     .option_nodes
                     .get(opt_idx)
-                    .map(|n| Self::compute_bounding_span(n));
+                    .map(|n| Self::leading_ident_span(n));
                 match optname {
                     McPinPort::NC => {
                         // Register corresponding pinid as NC
@@ -1532,42 +1548,47 @@ impl McPins {
         bindings
     }
 
-    /// Compute the true bounding span of an AST node by walking the linked
-    /// list of sub-nodes two levels deep.  `mc_value_link` (C-side) extends
-    /// the first node's `len` forward but never adjusts `pos` backward, so
-    /// when children are linked in an order that differs from source order
-    /// (e.g. `mc_declare_b` where `MCAST_CLASS` is linked before
-    /// `MCAST_INSTANCE` even though the instance appears first in source),
-    /// a node's own `pos`/`len` can be wrong.  Walking two levels catches
-    /// both the direct children and their immediate sub-nodes (grandchildren),
-    /// which is enough to handle the `mc_declare_b` case without recursing
-    /// into the full AST tree (which would produce overly wide spans).
-    fn compute_bounding_span(node: &AstNode) -> std::ops::Range<usize> {
-        let mut min_pos = node.get_pos() as usize;
-        let mut max_end = (node.get_pos() + node.get_len()) as usize;
-
-        // Level 1: direct children (sub → next chain)
-        if let Some(child) = node.get_sub_node() {
-            let mut cur = Some(child);
-            while let Some(c) = cur {
-                min_pos = min_pos.min(c.get_pos() as usize);
-                max_end = max_end.max((c.get_pos() + c.get_len()) as usize);
-
-                // Level 2: grandchildren (handles MCAST_DECLARE → MCAST_CLASS/MCAST_INSTANCE ordering)
-                if let Some(grandchild) = c.get_sub_node() {
-                    let mut gc = Some(grandchild);
-                    while let Some(g) = gc {
-                        min_pos = min_pos.min(g.get_pos() as usize);
-                        max_end = max_end.max((g.get_pos() + g.get_len()) as usize);
-                        gc = g.get_next();
+    /// Return the precise span of the leading identifier token of an AST node.
+    ///
+    /// This walks the identifier leaves (`MCAST_ID`/`MCAST_IDA`/`MCAST_INT`) of
+    /// the AST and returns the one that appears first in the source (smallest
+    /// `pos`).  For `label::Class(...)` declarations (`mc_declare_b`) the C-side
+    /// links `MCAST_CLASS` before `MCAST_INSTANCE`, so a plain first-DFS visit
+    /// would pick the class name; taking the source-first leaf instead lands on
+    /// the io label, e.g. `ADC` in `io ... = ADC::ADC.DIFF(Receiver)`, or `VDD`
+    /// in `[VDD, GND]::DC(3.3V)`.
+    fn leading_ident_span(node: &AstNode) -> std::ops::Range<usize> {
+        let mut stack: Vec<AstNode> = vec![node.clone()];
+        let mut best: Option<std::ops::Range<usize>> = None;
+        while let Some(n) = stack.pop() {
+            match n.get_type() {
+                MCAST_ID | MCAST_IDA | MCAST_INT => {
+                    let span = (n.get_pos() as usize)..((n.get_pos() + n.get_len()) as usize);
+                    if best.as_ref().map_or(true, |b| b.start > span.start) {
+                        best = Some(span);
+                    }
+                    continue;
+                }
+                _ => {}
+            }
+            if let Some(sub) = n.get_sub_node() {
+                let mut children: Vec<AstNode> = Vec::new();
+                let mut cur = sub;
+                loop {
+                    children.push(cur.clone());
+                    match cur.get_next() {
+                        Some(nx) => cur = nx,
+                        None => break,
                     }
                 }
-
-                cur = c.get_next();
+                for c in children.into_iter().rev() {
+                    stack.push(c);
+                }
             }
         }
-
-        min_pos..max_end
+        best.unwrap_or_else(|| {
+            (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize)
+        })
     }
 }
 
@@ -1716,16 +1737,39 @@ pub struct McPinNames {
     pub has_param_ref: bool,
     /// AST nodes for each option (parallel to `options`), for accurate error location
     pub option_nodes: Vec<AstNode>,
+    /// Precise source span of the pin name for each option (parallel to `options`).
+    /// This is the span of the name as written in the source, e.g. `ADC` in
+    /// `io ... = ADC::ADC.DIFF(Receiver)` (the io label, not the class `ADC.DIFF`),
+    /// or `VDD` in `ps ... = [VDD, GND]::DC(3.3V)`. Recorded directly from the AST
+    /// node that was parsed as the option's name, so LSP goto-definition does not
+    /// need to re-derive it from the whole binding expression.
+    pub name_spans: Vec<std::ops::Range<usize>>,
     /// Interface name spans extracted from pin name declarations (e.g. `I2C` in `I2C0::I2C(Master)`)
     /// Used by LSP lapper for PinIfaceDef / goto-definition.
     pub iface_spans: Vec<(String, std::ops::Range<usize>)>,
 }
 
 impl McPinNames {
-    /// Push an option and record its AST node (from the enclosing MCAST_PIN_NAME)
+    /// Push an option and record its AST node (from the enclosing MCAST_PIN_NAME).
+    /// The precise name span defaults to the source-first identifier of `node`;
+    /// callers that parsed a dedicated name node (e.g. `inst_node` in a
+    /// `label::Class(...)` declaration) should use `push_option_with_span` instead.
     fn push_option(&mut self, port: McPinPort, node: &AstNode) {
+        let name_span = McPins::leading_ident_span(node);
+        self.push_option_with_span(port, node, name_span);
+    }
+
+    /// Like `push_option`, but with the name span taken directly from the AST name
+    /// node (the parse result), so goto-definition lands exactly on the name.
+    fn push_option_with_span(
+        &mut self,
+        port: McPinPort,
+        node: &AstNode,
+        name_span: std::ops::Range<usize>,
+    ) {
         self.options.push(port);
         self.option_nodes.push(node.clone());
+        self.name_spans.push(name_span);
     }
 
     pub fn has_param_ref(&self) -> bool {
@@ -1765,6 +1809,7 @@ impl McPinNames {
             options: Vec::new(),
             has_param_ref: false,
             option_nodes: Vec::new(),
+            name_spans: Vec::new(),
             iface_spans: Vec::new(),
         };
 
@@ -2182,6 +2227,17 @@ impl McPinNames {
                             let inst_name = iname.clone();
 
                             let lookup_uri = crate::current_uri::try_get().unwrap_or_default();
+                            // The io label (e.g. `ADC` in `ADC::ADC.DIFF(Receiver)`) is the
+                            // instance node's own IDS child — record its span directly so
+                            // goto-definition lands on the name, not the class or the whole
+                            // binding expression.
+                            let inst_span: Option<std::ops::Range<usize>> = inst_node
+                                .as_ref()
+                                .and_then(|n| n.get_sub_node())
+                                .map(|ids| {
+                                    (ids.get_pos() as usize)
+                                        ..((ids.get_pos() + ids.get_len()) as usize)
+                                });
                             // ★ LSP: Register class reference for goto-definition on
                             // ::Interface() syntax in pin names (e.g., I2C0::I2C(Master)).
                             if let Some(ref span) = class_span {
@@ -2196,9 +2252,11 @@ impl McPinNames {
                                 // Pass params to Mc2Interface (e.g., role parameter "DCE")
                                 let mc2_iface =
                                     Mc2Interface::with_ids_and_params(inst_name, iface_def, params);
-                                myself.push_option(
+                                myself.push_option_with_span(
                                     McPinPort::Interface(Arc::new(mc2_iface)),
                                     err_node,
+                                    inst_span
+                                        .unwrap_or_else(|| McPins::leading_ident_span(err_node)),
                                 );
                             } else if lookup_result.is_some() {
                                 let class_str = class_name.to_string();
@@ -2271,6 +2329,7 @@ impl McPinNames {
                             let mut class_name: Option<McIds> = None;
                             let mut inst_ids: Option<McIds> = None;
                             let mut class_span: Option<std::ops::Range<usize>> = None;
+                            let mut inst_span: Option<std::ops::Range<usize>> = None;
 
                             // Iterate over linked list structure
                             let mut current = exp_node.get_sub_node();
@@ -2290,6 +2349,12 @@ impl McPinNames {
                                     MCAST_INSTANCE | MCAST_PARAMS_PRE => {
                                         if let Some(inst_id_node) = node.get_sub_node() {
                                             inst_ids = McIds::new(&inst_id_node);
+                                            inst_span = Some(
+                                                (inst_id_node.get_pos() as usize)
+                                                    ..((inst_id_node.get_pos()
+                                                        + inst_id_node.get_len())
+                                                        as usize),
+                                            );
                                         }
                                     }
                                     _ => {}
@@ -2344,9 +2409,12 @@ impl McPinNames {
                             if let Some(McCMIE::Interface(iface_def)) = lookup_result {
                                 let iface_name = resolved_iface_name.unwrap_or(inst_name);
                                 let mc2_iface = Mc2Interface::new(iface_name, iface_def);
-                                myself
-                                    .options
-                                    .push(McPinPort::Interface(Arc::new(mc2_iface)));
+                                myself.push_option_with_span(
+                                    McPinPort::Interface(Arc::new(mc2_iface)),
+                                    &exp_node,
+                                    inst_span
+                                        .unwrap_or_else(|| McPins::leading_ident_span(&exp_node)),
+                                );
                             } else {
                                 dlog_error(
                                     1707,
@@ -2399,16 +2467,24 @@ impl McPinNames {
                 // Replace all Single entries with one Multi entry
                 // Keep the first node position for the merged Multi (if any)
                 if let Some(merged_node) = myself.option_nodes.first().cloned() {
+                    let merged_span = myself
+                        .name_spans
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| McPins::leading_ident_span(&merged_node));
                     myself
                         .options
                         .retain(|p| !matches!(p, McPinPort::Single(_)));
                     myself.option_nodes.clear();
+                    myself.name_spans.clear();
                     myself.options.push(McPinPort::Multi(all_singles));
                     myself.option_nodes.push(merged_node);
+                    myself.name_spans.push(merged_span);
                 } else {
                     myself
                         .options
                         .retain(|p| !matches!(p, McPinPort::Single(_)));
+                    myself.name_spans.clear();
                     myself.options.push(McPinPort::Multi(all_singles));
                 }
             }

@@ -426,7 +426,20 @@ impl HasFindInst for McComponent {
                 return Some((McInstance::Label(id.to_string()), span));
             }
         }
-        // P6 (lowest): funcs
+        // P6: physical pin IDs — keys of pin_id_to_names (e.g. "19" for `[18,19] = ...`,
+        //     also "W1", "A0" etc.). Used by chain resolution for `uC.19` type references.
+        if self.pins.pin_id_to_names.contains_key(id) {
+            let span = self.pins.pin_id_spans.get(id).cloned();
+            return Some((McInstance::PinId(id.to_string()), span));
+        }
+        // P7: IO bus / interface instances defined in the component body
+        //     (e.g. `io [16,17,21] = ADC::ADC.DIFF(Receiver)` stores "ADC" as
+        //     an Instance). Used by chain resolution for `uC.ADC{P,N}`.
+        if let Some(inst) = self.insts.get(id) {
+            let span = self.insts.get_port_span(id);
+            return Some((inst.clone(), span));
+        }
+        // P8 (lowest): funcs
         if let Some(func) = self.funcs.find(id) {
             return Some((McInstance::Func(Arc::new(func.clone())), None));
         }
