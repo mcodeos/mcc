@@ -188,3 +188,41 @@ fn emitted_codes_are_registered() {
 
     drop(lock);
 }
+
+/// E2902 (SHAPE_TRANSPOSE_LIMIT): transpose operand shape guard (eval.md §5.5).
+/// A 3+ row operand (e.g. `([A, B, C] - X)'`) must be rejected, while legal
+/// transposes (component `CAP C1'`, series `(A - B)'`) must stay clean.
+#[test]
+fn transpose_shape_limit_emitted_and_legal_transposes_pass() {
+    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+
+    // Bad: series whose left endpoint is a 3-row vector — cannot be transposed.
+    let bad = "module main { ([A, B, C] - X)' }";
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+    let uri = "/mcc/transpose-bad.mc".to_string();
+    mcc::mcc_load_from_string(&uri, bad);
+    let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
+    let codes: HashSet<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
+    assert!(
+        codes.contains(&mcc::errcodes::SHAPE_TRANSPOSE_LIMIT),
+        "E2902 not emitted for 3-row transpose operand; got codes: {codes:?}"
+    );
+
+    // Good: component and series transposes stay legal.
+    let good = "module main { (A - B)'\nCAP C1' }";
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+    let uri = "/mcc/transpose-good.mc".to_string();
+    mcc::mcc_load_from_string(&uri, good);
+    let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
+    let codes: HashSet<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
+    assert!(
+        !codes.contains(&mcc::errcodes::SHAPE_TRANSPOSE_LIMIT),
+        "E2902 false positive on legal transposes; got codes: {codes:?}"
+    );
+
+    drop(lock);
+}
