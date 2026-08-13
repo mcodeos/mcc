@@ -2287,6 +2287,10 @@ pub static METHODS: &[MethodMeta] = &[
         consumer: "cli",
     },
     MethodMeta {
+        name: "build.viz",
+        consumer: "cli",
+    },
+    MethodMeta {
         name: "parse",
         consumer: "cli",
     },
@@ -2566,6 +2570,7 @@ pub fn register_all(
     builder = builder.register_method("trace.get", handle_trace_get);
     // Build
     builder = builder.register_method("build.full", handle_build_full);
+    builder = builder.register_method("build.viz", handle_build_viz);
     builder = builder.register_method("parse", handle_parse);
     // Show — lists
     builder = builder.register_method("show.component", handle_show_component);
