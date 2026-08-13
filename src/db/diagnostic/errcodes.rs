@@ -357,6 +357,23 @@ pub const NOT_SUPPORTED_YET: u32 = 2171;
 pub const SYMBOL_NOT_FOUND: u32 = 2172;
 
 // ============================================================================
+// Pass2: vector shape validation (2900-2949)
+// ============================================================================
+
+/// Shape row count mismatch (eval.md §3) recovered by broadcast/truncation.
+/// Emitted at Pass2 instantiation when the §3 matching constraint table
+/// rejects the pair (1-row vs N-row / N vs M) but the generator still
+/// recovers (broadcast fan-out / truncate by min). Not emitted for legal
+/// group semantics (DC power bus role-aligned / interface member passthrough).
+pub const CONN_SHAPE_ROW_MISMATCH_RECOVERED: u32 = 2901;
+
+/// Transpose operand shape out of range (eval.md §5.5): only 1*1 / 1*2 / 2*1 / 2*2
+/// are transposable. Emitted at Pass1 (McPhrase) when the operand's derived row
+/// count is known and >= 3 (e.g. `[A, B, C]'`), i.e. the operator would "merge"
+/// an already-broken-apart expression, which is not meaningful.
+pub const SHAPE_TRANSPOSE_LIMIT: u32 = 2902;
+
+// ============================================================================
 // Pass1c: component definition (pins / attrs / units) (3000-3049)
 // ============================================================================
 
@@ -1463,6 +1480,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(INST_LANE_FUNCCALL_FAILED, "Failed to instantiate a FuncCall during lane-by-lane wiring.", "Failed to instantiate FuncCall in lane-by-lane wiring: {0}"),
     entry!(INST_LANE_TRANSPOSED_FAILED, "Failed to instantiate a Transposed member during lane-by-lane wiring.", "Failed to instantiate Transposed in lane-by-lane: {0}"),
     entry!(CONN_SHAPE_MISMATCH_TRUNCATED, "Connection shape mismatch; truncated to the smaller side.", "Shape mismatch: left={0}, right={1}, truncating to min({2})"),
+    entry!(CONN_SHAPE_ROW_MISMATCH_RECOVERED, "Vector shape row mismatch (eval.md §3) recovered by truncation.", "Vector shape mismatch: left {0} vs right {1}, truncating to min({2})"),
+    entry!(SHAPE_TRANSPOSE_LIMIT, "Transpose operand must be 1*1 / 1*2 / 2*1 / 2*2 (eval.md §5.5).", "Transpose operand has {0} rows; only 1*1, 1*2, 2*1 or 2*2 shapes can be transposed."),
     entry!(CONN_PARALLEL_DIM_MISMATCH, "Parallel '+' operand dimension mismatch; operand merged into the anchor's left net.", "Parallel '+' operand dimension mismatch (anchor={0}x1, opd[{1}]={2}x1 left / {3}x1 right): merging operand into anchor's left net."),
     entry!(CONN_GROUP_SHAPE_MISMATCH, "Group connection shape mismatch; truncated by branch count.", "Group shape mismatch: {0} external points vs {1} group points ({2} branches), truncating"),
     entry!(INST_INPUT_PIN_COUNT_MISMATCH, "Component input pin count mismatch in a function call.", "Component '{0}' ({1}) input pin count mismatch: {2} connections vs {3} input pins"),

@@ -13,7 +13,7 @@ use crate::db::diagnostic::diagnostic::{diagnostic_log, DiagnosticLevel};
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_phrase::McPhrase;
-use crate::semantic::common::ConnDir;
+use crate::semantic::common::{ConnDir, Shape, ShapeMatcher};
 
 /// D5 BUS_ORDER_MISMATCH: process-level count of mismatched bus bits.
 /// When all pairs in a bus connection have mismatched member names, D5 fires and
@@ -139,6 +139,24 @@ impl McModuleInst {
             return Ok(());
         }
 
+        // ── §3 形状匹配判定（eval.md）────────────────────────────────
+        // 端点层形状为 N×1（每个 NetPoint 一行）。行数相同 → §3 允许，
+        // 走 1:1 配对（by-name / 排序 zip）；行数不同 → §3 拒绝，由下方
+        // 恢复分支处理：1:N 广播（组 / DC 总线 / 接口展开语义）或
+        // N:M 截断（真错位 → E2901 诊断）。
+        let lhs_shape = Shape::vvec(left_size);
+        let rhs_shape = Shape::vvec(right_size);
+        let shape_match = ShapeMatcher::match_shape(lhs_shape, rhs_shape);
+        mcc_dbg!(
+            "inst::mod",
+            "[P2-4-CONN] create_connection shape check: {lhs_shape} x {rhs_shape} -> {}",
+            if shape_match.is_ok() {
+                "ok"
+            } else {
+                "row-mismatch"
+            }
+        );
+
         // Helper to create ConnectionInst with consistent lane+dir
         let mk_conn = |id, pts: Vec<NetPoint>, dir: ConnDir, lane: Option<u16>| -> ConnectionInst {
             let mut conn = ConnectionInst::new(id, pts).with_dir(dir);
@@ -214,7 +232,7 @@ impl McModuleInst {
             }
         }
 
-        if left_size == right_size {
+        if shape_match.is_ok() {
             // ── P2-1: BUS BY NAME matching ──────────────────────────────────
             // When both sides have member_name set (from bus port expansion),
             // match by member name instead of position. This fixes SPI misalignment
@@ -403,14 +421,15 @@ impl McModuleInst {
                 }
             }
         } else {
-            // ★ Degraded to warning: do not abort, truncate connection by min(left, right)
+            // §3 行数不匹配（N×1 vs M×1，N、M ≥ 2）：降级为警告，截断到 min。
+            // 不再静默截断 —— E2901 明确给出两侧形状。
             self.record_warning(
-                crate::errcodes::CONN_SHAPE_MISMATCH_TRUNCATED,
+                crate::errcodes::CONN_SHAPE_ROW_MISMATCH_RECOVERED,
                 crate::errcodes::format_msg(
-                    crate::errcodes::CONN_SHAPE_MISMATCH_TRUNCATED,
+                    crate::errcodes::CONN_SHAPE_ROW_MISMATCH_RECOVERED,
                     &[
-                        &left_size as &dyn std::fmt::Display,
-                        &right_size as &dyn std::fmt::Display,
+                        &lhs_shape as &dyn std::fmt::Display,
+                        &rhs_shape as &dyn std::fmt::Display,
                         &left_size.min(right_size) as &dyn std::fmt::Display,
                     ],
                 ),

@@ -8,7 +8,7 @@ use super::super::{
     basic::mc_endpoint::{McEndpoint, McInstanceRef},
     basic::mc_fcall::McFuncCall,
     basic::mc_group::McGroup,
-    common::{ConnDir, IOType, McCMIE},
+    common::{ConnDir, IOType, McCMIE, Shape, ShapeError, ShapeMatcher},
     component::Mc2Component,
     mc_func::HasFindInst,
     mc_inst::McInstance,
@@ -1429,32 +1429,44 @@ impl McPhrase {
                     opd1_node.get_type(),
                     opd1_node.to_string()
                 );
-                match McPhrase::new(&opd1_node, context)? {
-                    McPhrase::Series(phrases, _) => Some(McPhrase::Transposed(Box::new(
-                        McPhrase::Series(phrases, ConnDir::Undirected),
-                    ))),
+                // 归一化：Series 分支原样保留（`(A - B)'` 转置整条串联链）
+                let opd1 = match McPhrase::new(&opd1_node, context)? {
+                    McPhrase::Series(phrases, _) => McPhrase::Series(phrases, ConnDir::Undirected),
+                    other => other,
+                };
+                // 结构性拒绝：总线 / 多重 / 标签 / 嵌套转置不可再转置
+                if matches!(
+                    &opd1,
                     McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
                         base: McInstance::Bus(_),
                         ..
-                    }))
-                    | McPhrase::Multiple(_)
-                    | McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
-                        base: McInstance::Label(_),
-                        ..
-                    }))
-                    | McPhrase::Transposed(_) => {
-                        dlog_error(
-                            crate::errcodes::CONN_CANNOT_TRANSPOSE,
-                            node,
-                            &crate::errcodes::format_msg(
-                                crate::errcodes::CONN_CANNOT_TRANSPOSE,
-                                &[],
-                            ),
-                        );
-                        None
-                    }
-                    opd1 => Some(McPhrase::Transposed(Box::new(opd1))),
+                    })) | McPhrase::Multiple(_)
+                        | McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                            base: McInstance::Label(_),
+                            ..
+                        }))
+                        | McPhrase::Transposed(_)
+                ) {
+                    dlog_error(
+                        crate::errcodes::CONN_CANNOT_TRANSPOSE,
+                        node,
+                        &crate::errcodes::format_msg(crate::errcodes::CONN_CANNOT_TRANSPOSE, &[]),
+                    );
+                    return None;
                 }
+                // Pass1 安全逻辑（eval.md §5.5）：行数 ≥ 3 的形状禁止转置
+                if let Err(rows) = check_transpose_allowed(&opd1) {
+                    dlog_error(
+                        crate::errcodes::SHAPE_TRANSPOSE_LIMIT,
+                        node,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::SHAPE_TRANSPOSE_LIMIT,
+                            &[&rows],
+                        ),
+                    );
+                    return None;
+                }
+                Some(McPhrase::Transposed(Box::new(opd1)))
             }
 
             MCAST_OPD_CARET => {
@@ -3385,29 +3397,53 @@ fn infer_shape_and_upgrade(
     }
 }
 
+/// 从端点点集推导向量形状（Pass1 阶段，eval.md §1/§2）。
+///
+/// - 空集 → [`Shape::unknown`]（未解析，如 FuncCall 返回值）；
+/// - 每个 `McBus` 元素是一行；带成员的 bus（`RS485{A,B}`）按成员数算 N 行；
+/// - 端点阶段列数恒为 1：二端器件 `get_left/right` 只暴露单点，
+///   `1*2` 行向量形状在短语层不可见，Pass2 才完整展开。
+fn shape_of_bus_list(elems: &[McBus]) -> Shape {
+    if elems.is_empty() {
+        return Shape::unknown();
+    }
+    let rows: usize = elems.iter().map(|e| e.size()).sum();
+    Shape::new(rows.max(1), 1)
+}
+
+/// Pass1 转置安全守卫（eval.md §5.5）：被转置的运算数只能携带
+/// 1*1 / 1*2 / 2*1 / 2*2 形状，即短语层可推导的行数 ∈ {1, 2}。
+///
+/// - 左/右点集为空（FuncCall 返回值未解析等）→ 通配放行；
+/// - 含 `<error` 占位标记 → 通配放行（沿用 [`is_connectable`] 的宽松语义）；
+/// - 行数 ≥ 3（如 `[A, B, C]'`）→ `Err(行数)`，即"已拆开的表达式再合并"，
+///   返回 Err 由调用方报 E2902 并拒绝转置。
+fn check_transpose_allowed(opd: &McPhrase) -> Result<(), usize> {
+    let left = opd.get_left();
+    let right = opd.get_right();
+    if left.is_empty() || right.is_empty() {
+        return Ok(());
+    }
+    if left
+        .iter()
+        .chain(right.iter())
+        .any(|b| b.name.contains("<error"))
+    {
+        return Ok(());
+    }
+    let rows = shape_of_bus_list(&left)
+        .rows
+        .max(shape_of_bus_list(&right).rows);
+    if rows >= 3 {
+        Err(rows)
+    } else {
+        Ok(())
+    }
+}
+
 fn is_connectable(lhs: &[McBus], rhs: &[McBus]) -> bool {
     // Empty shape means "unknown/unresolved" (e.g. FuncCall return value), treated as connectable
     if lhs.is_empty() || rhs.is_empty() {
-        return true;
-    }
-
-    // Fast path: shape fully matches
-    if is_same_shape(lhs, rhs) {
-        return true;
-    }
-
-    let left_size: usize = lhs.iter().map(|each| each.size()).sum();
-    let right_size: usize = rhs.iter().map(|each| each.size()).sum();
-
-    // Compatible when sizes are equal
-    if left_size == right_size {
-        return true;
-    }
-
-    // Size <= 1 is treated as a wildcard: Label, single pin, unresolved reference, etc. at the phrase stage
-    // have no determined shape yet; the actual shape is only determined at the instantiation stage,
-    // and should not be blocked here.
-    if left_size <= 1 || right_size <= 1 {
         return true;
     }
 
@@ -3418,19 +3454,25 @@ fn is_connectable(lhs: &[McBus], rhs: &[McBus]) -> bool {
         return true;
     }
 
-    false
-}
+    let lhs_shape = shape_of_bus_list(lhs);
+    let rhs_shape = shape_of_bus_list(rhs);
 
-fn is_same_shape(lhs: &[McBus], rhs: &[McBus]) -> bool {
-    if lhs.len() != rhs.len() {
-        return false;
+    // 单点（1 行）在短语阶段形状未定（可能是 1*1 节点，也可能是广播锚点、
+    // 待展开的接口），保持放行（原有 wildcard 语义），Pass2 再校验真实形状。
+    if lhs_shape.rows <= 1 || rhs_shape.rows <= 1 {
+        return true;
     }
 
-    // After flattening: compare whether member counts are the same
-    // member.len() == 0 means single wire, member.len() > 0 means bus
-    lhs.iter()
-        .zip(rhs.iter())
-        .all(|(l, r)| l.member.len() == r.member.len())
+    match ShapeMatcher::match_shape(lhs_shape, rhs_shape) {
+        Ok(_) => true,
+        Err(ShapeError::RowMismatch { lhs: l, rhs: r }) => {
+            dlog_trace(
+                0,
+                &format!("[vec] shape mismatch at phrase stage: {l} vs {r}"),
+            );
+            false
+        }
+    }
 }
 
 // ============================================================================
