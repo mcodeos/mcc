@@ -207,8 +207,8 @@ struct TerminalGraph {
 }
 
 impl TerminalGraph {
-    fn any_node(&self) -> i64 {
-        *self.incident.keys().next().unwrap()
+    fn any_node(&self) -> Option<i64> {
+        self.incident.keys().next().copied()
     }
 
     /// Neighbour terminals of `t` (the other end of each band incident to `t`).
@@ -284,7 +284,11 @@ impl TerminalGraph {
     /// Star / two-terminal are degenerate cases — byte-identical to the old
     /// centre-based layout. Chain (3+ terminals) is the new supported shape.
     fn linear_order(&self) -> Vec<i64> {
-        let start = self.any_node();
+        let Some(start) = self.any_node() else {
+            // No terminal pairs — nothing to order. Callers treat the empty
+            // order as "no chain" and fall back to per-island placement.
+            return Vec::new();
+        };
         let a = self.bfs_farthest(start);
         let b = self.bfs_farthest(a);
         let mut order = self.path_between(a, b);
@@ -306,9 +310,10 @@ impl TerminalGraph {
                 .find(|n| order_set.contains(n))
                 .copied()
             {
-                let at = order.iter().position(|x| *x == anchor).unwrap();
-                // Insert to the right of the anchor
-                order.insert(at + 1, t);
+                if let Some(at) = order.iter().position(|x| *x == anchor) {
+                    // Insert to the right of the anchor
+                    order.insert(at + 1, t);
+                }
             }
         }
 
@@ -350,12 +355,15 @@ fn build_terminal_graph_from_pairs(
 /// Left = earlier in the chain, right = later. This naturally handles
 /// 2-terminal, star, and chain topologies without special cases.
 fn ordered_terminals_by_chain(a: i64, b: i64, order: &[i64]) -> (i64, i64) {
-    let pos_a = order.iter().position(|&t| t == a).unwrap();
-    let pos_b = order.iter().position(|&t| t == b).unwrap();
-    if pos_a < pos_b {
-        (a, b)
-    } else {
-        (b, a)
+    match (
+        order.iter().position(|&t| t == a),
+        order.iter().position(|&t| t == b),
+    ) {
+        (Some(pos_a), Some(pos_b)) if pos_a < pos_b => (a, b),
+        (Some(_), Some(_)) => (b, a),
+        // Terminal missing from the chain — keep the source ordering instead
+        // of panicking (can happen when a branch node is not on any chain).
+        _ => (a, b),
     }
 }
 
@@ -1563,5 +1571,19 @@ mod tests {
             vec![EndpointRef::new(101, 3, "3"), EndpointRef::new(102, 3, "3")],
         ));
         g
+    }
+
+    /// Empty terminal graph (e.g. islands whose terminals all failed
+    /// `find_terminals`) must not panic (P1-8).
+    #[test]
+    fn empty_terminal_graph_does_not_panic() {
+        let tg = TerminalGraph {
+            incident: std::collections::BTreeMap::new(),
+            ends: Vec::new(),
+        };
+        assert!(tg.linear_order().is_empty());
+        // Missing terminals fall back to source order instead of panicking.
+        assert_eq!(ordered_terminals_by_chain(1, 2, &[]), (1, 2));
+        assert_eq!(ordered_terminals_by_chain(1, 2, &[2, 3]), (1, 2));
     }
 }

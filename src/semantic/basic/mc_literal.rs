@@ -81,6 +81,7 @@ impl std::fmt::Display for McLiteral {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             McLiteral::Int(i) => write!(f, "{i}"),
+            McLiteral::Hex(h) => write!(f, "{h}"),
             McLiteral::Float(fl) => write!(f, "{fl}"),
             McLiteral::String(s) => write!(f, "{s}"),
             McLiteral::Const(c) => write!(f, "{c}"),
@@ -276,6 +277,7 @@ impl std::fmt::Debug for McConst {
 #[derive(Debug, Clone)]
 pub enum McLiteral {
     Int(McInt),
+    Hex(McHex),
     Float(McFloat),
     String(McString),
     Const(McConst),
@@ -287,7 +289,7 @@ impl McLiteral {
         match node.get_type() {
             MCAST_INT => McInt::new(node).map(McLiteral::Int),
             MCAST_FLOAT => McFloat::new(node).map(McLiteral::Float),
-            MCAST_HEX => McInt::new(node).map(McLiteral::Int),
+            MCAST_HEX => McHex::new(node).map(McLiteral::Hex),
             MCAST_STRING => McString::new(node).map(McLiteral::String),
             MCAST_CONST => McConst::new(node).map(McLiteral::Const),
             MCAST_UVALUE => McUnitValue::new(node).map(McLiteral::Uval),

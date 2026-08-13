@@ -299,6 +299,17 @@ impl McPins {
             return;
         };
 
+        // ── P1-3/B5: `pins.subcls = [...]` — mca.y produces
+        // MCAST_ATTRIBUTE_PIN [mc_id(subcls), pin_lines...], but the sub-class
+        // name is silently dropped here. Report instead of ignoring it.
+        if let Some(subcls) = plinenodes.iter().find(|n| n.get_type() != MCAST_PIN_LINE) {
+            dlog_warning(
+                crate::db::diagnostic::errcodes::NOT_SUPPORTED_YET,
+                &subcls,
+                "pins.subcls = [...] is parsed but not supported yet; the sub-class name is ignored",
+            );
+        }
+
         for pnode in plinenodes.iter().filter(|n| n.get_type() == MCAST_PIN_LINE) {
             // H3 (deferred): track line index for overlap detection
             // self.current_line_idx = self.pin_ranges.len();

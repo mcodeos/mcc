@@ -40,6 +40,18 @@ pub enum McCondition {
         left: McCondOperand,
         right: McCondOperand,
     },
+    /// Bitwise AND condition: `if (address & 0x01)` — true when the
+    /// bitwise result is non-zero.
+    BitAnd {
+        left: McCondOperand,
+        right: McCondOperand,
+    },
+    /// Bitwise OR condition: `if (address | 0x01)` — true when the
+    /// bitwise result is non-zero.
+    BitOr {
+        left: McCondOperand,
+        right: McCondOperand,
+    },
     In {
         left: McCondOperand,
         values: Vec<String>,
@@ -146,6 +158,8 @@ impl McConds {
                 || node_type == MCAST_JUDGE_GREATERTHAN
                 || node_type == MCAST_JUDGE_LESSEQTHAN
                 || node_type == MCAST_JUDGE_GREATEREQTHAN
+                || node_type == MCAST_JUDGE_BITAND
+                || node_type == MCAST_JUDGE_BITOR
                 || node_type == MCAST_JUDGE_IN
             {
                 condition_node = Some(child);
@@ -219,6 +233,8 @@ impl McConds {
                 || child_type == MCAST_JUDGE_GREATERTHAN
                 || child_type == MCAST_JUDGE_LESSEQTHAN
                 || child_type == MCAST_JUDGE_GREATEREQTHAN
+                || child_type == MCAST_JUDGE_BITAND
+                || child_type == MCAST_JUDGE_BITOR
                 || child_type == MCAST_JUDGE_IN
             {
                 condition_node = Some(child);
@@ -270,6 +286,8 @@ impl McConds {
             MCAST_JUDGE_GREATERTHAN => Some(">"),
             MCAST_JUDGE_LESSEQTHAN => Some("<="),
             MCAST_JUDGE_GREATEREQTHAN => Some(">="),
+            MCAST_JUDGE_BITAND => Some("&"),
+            MCAST_JUDGE_BITOR => Some("|"),
             MCAST_JUDGE_IN => Some("in"),
             _ => None,
         };
@@ -384,6 +402,8 @@ impl McConds {
             ">" => Some(McCondition::Gt { left, right }),
             "<=" => Some(McCondition::LtEq { left, right }),
             ">=" => Some(McCondition::GtEq { left, right }),
+            "&" => Some(McCondition::BitAnd { left, right }),
+            "|" => Some(McCondition::BitOr { left, right }),
             _ => None,
         }
     }
@@ -466,6 +486,24 @@ impl McConds {
             return values.iter().any(|v| v == &left_val);
         }
 
+        // Bitwise conditions (`if (address & 0x01)` / `if (address | 0x01)`):
+        // resolve both operands to integers, apply the bitwise operation, and
+        // treat a non-zero result as true.
+        if let McCondition::BitAnd { left, right } | McCondition::BitOr { left, right } = cond {
+            let left_val = Self::resolve_operand(left, params);
+            let right_val = Self::resolve_operand(right, params);
+            let (Some(l), Some(r)) = (Self::parse_int(&left_val), Self::parse_int(&right_val))
+            else {
+                return false; // Non-numeric operands -> condition not satisfied
+            };
+            let result = if matches!(cond, McCondition::BitAnd { .. }) {
+                l & r
+            } else {
+                l | r
+            };
+            return result != 0;
+        }
+
         let (left_val, right_val) = match cond {
             McCondition::Eq { left, right } => (
                 Self::resolve_operand(left, params),
@@ -491,6 +529,7 @@ impl McConds {
                 Self::resolve_operand(left, params),
                 Self::resolve_operand(right, params),
             ),
+            McCondition::BitAnd { .. } | McCondition::BitOr { .. } => unreachable!(),
             McCondition::In { .. } => unreachable!(),
         };
 
@@ -515,7 +554,18 @@ impl McConds {
                 let cmp = Self::compare_values(&left_val, &right_val);
                 cmp == std::cmp::Ordering::Greater || cmp == std::cmp::Ordering::Equal
             }
+            McCondition::BitAnd { .. } | McCondition::BitOr { .. } => unreachable!(),
             McCondition::In { .. } => unreachable!(),
+        }
+    }
+
+    /// Parse an integer operand, supporting decimal and `0x`/`0X` hex forms.
+    fn parse_int(s: &str) -> Option<i64> {
+        let s = s.trim();
+        if let Some(hex) = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")) {
+            i64::from_str_radix(hex, 16).ok()
+        } else {
+            s.parse::<i64>().ok()
         }
     }
 

@@ -52,6 +52,8 @@ pub const ENUM_NOT_FOUND: u32 = 1103;
 pub const INSTANCE_NOT_FOUND: u32 = 1105;
 /// IDS (dotted name) resolution failed.
 pub const IDS_RESOLVE_FAILED: u32 = 1106;
+/// Syntax is parsed but not yet supported by the semantic layer; the declaration is ignored.
+pub const NOT_SUPPORTED_YET: u32 = 1107;
 
 // ============================================================================
 // Module body: connection / net errors
@@ -129,6 +131,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(ENUM_NOT_FOUND, "Enum name could not be resolved to a definition."),
     entry!(INSTANCE_NOT_FOUND, "Instance reference not found in the module's symbol table."),
     entry!(IDS_RESOLVE_FAILED, "Dotted name (IDS) resolution failed — a segment could not be found."),
+    entry!(NOT_SUPPORTED_YET, "This syntax is parsed but not yet supported by the semantic layer; the declaration is ignored."),
     // Connection / net
     entry!(SHAPE_MISMATCH, "Cannot connect — the left and right sides have different shapes (e.g., pin count mismatch)."),
     entry!(INVALID_IO_TYPE, "Invalid IO type for a port declaration. Allowed: in, out, inout, power, analog."),

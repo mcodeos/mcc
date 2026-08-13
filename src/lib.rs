@@ -93,6 +93,9 @@ pub use query::search as search_api;
 pub use query::search::dsl as query_api;
 
 // ── Semantic params / types ──
+pub use semantic::basic::mc_conds::{
+    McCond, McCondBlock, McCondOperand, McCondition, McConds, McFuncConds,
+};
 pub use semantic::basic::mc_param::{
     McParamBindings, McParamDeclare, McParamDeclares, McParamValue,
 };
