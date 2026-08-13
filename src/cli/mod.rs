@@ -73,7 +73,7 @@ pub enum Command {
     /// Extract various targets (corresponding to design doc §9)
     Extract(ExtractArgs),
 
-    /// Show detailed information for specified component/module/interface
+    /// Show detailed information for a definition (component/module/interface/enum) or its internals (pins/ports/nets/funcs/params/...)
     Show(ShowArgs),
 
     /// Search across loaded definitions (text/regex/fuzzy)
@@ -258,10 +258,10 @@ pub enum OutputFormat {
 /// Instance Tree pin list sorting mode
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 pub enum PinSortMode {
-    /// Sort by pinid number ascending (default). Example: 1, 2, 3, ..., 25, 26
+    // Sort by pinid number ascending (default). Example: 1, 2, 3, ..., 25, 26
     PinId,
-    /// Sort by interface name grouping. Example: all I2C first, then all SPI, then all GPIO ...
-    /// Within same interface, still sort by pinid ascending
+    // Sort by interface name grouping. Example: all I2C first, then all SPI, then all GPIO ...
+    // Within same interface, still sort by pinid ascending
     Interface,
 }
 
@@ -311,13 +311,13 @@ pub struct ExtractArgs {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 pub enum ExtractTarget {
-    /// Extract all instances
+    // Extract all instances
     Instances,
-    /// Extract netlist
+    // Extract netlist
     Nets,
-    /// Extract component definitions
+    // Extract component definitions
     Components,
-    /// Extract interface definitions
+    // Extract interface definitions
     Interfaces,
 }
 
@@ -368,51 +368,53 @@ pub struct ShowArgs {
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 pub enum ShowTarget {
     // ── Overview / containers ──────────────────────────────────────────────
-    /// Overview of all definitions in scope (counts + name lists)
+    // Overview of all definitions in scope (counts + name lists)
     All,
-    /// Show all elements in a file (<name> is the file path)
+    // Show all elements in a file (<name> is the file path)
     File,
-    /// List all loaded files with their module/component counts
+    // List all loaded files with their module/component counts
     Files,
-    /// List all components, or show one component's details
+    // List all components, or show one component's details
     Component,
-    /// List all modules, or show one module's details
+    // List all modules, or show one module's details
     Module,
-    /// List all interfaces, or show one interface's details
+    // List all interfaces, or show one interface's details
     Interface,
-    /// List all enums, or show one enum's details
+    // List all enums, or show one enum's details
     Enum,
-    /// List/show net details (Pass2, uses --top)
+    // List/show net details (Pass2, uses --top)
     Net,
-    /// Dump LSP lapper intervals for a file (semantic tokens + symbols)
+    // Dump LSP lapper intervals for a file (semantic tokens + symbols)
     Lapper,
-    /// Print AST tree for a file
+    // Print AST tree for a file
     Ast,
 
     // ── Entity internals drill-down (<name> = owning entity, required) ──────
-    /// Pins of a component / interface
+    // Pins of a component / interface
     Pins,
-    /// Ports (in/out/io) of a module
+    // Ports (in/out/io) of a module
     Ports,
-    /// Labels of a module
+    // Labels of a module
     Labels,
-    /// Sub-instances of a component / module (filter with --type)
+    // Sub-instances of a component / module (filter with --type)
     Instances,
-    /// Netlist of a module (Pass2)
+    // Netlist of a module (Pass2), or connection-line nets of a func body
+    // (dot-qualified `OWNER.FUNC`, no Pass2)
     Nets,
-    /// Attributes of a component / interface
+    // Attributes of a component / interface
     Attrs,
-    /// Functions of a component / module
+    // Functions of a component / module
     Funcs,
-    /// Parameter declarations of a component / module / interface
+    // Parameter declarations of a component / module / interface / func
+    // (funcs are dot-qualified `OWNER.FUNC`)
     Params,
-    /// Roles of an interface
+    // Roles of an interface
     Roles,
-    /// Values of an enum
+    // Values of an enum
     Values,
 
-    /// Dump ALL parsed fields of an entity (component/module/interface/enum)
-    /// for debugging input parsing issues.
+    // Dump ALL parsed fields of an entity (component/module/interface/enum)
+    // for debugging input parsing issues.
     Dump,
 }
 
@@ -469,15 +471,15 @@ pub struct SearchArgs {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 pub enum SearchKind {
-    /// Component definitions
+    // Component definitions
     Component,
-    /// Module definitions
+    // Module definitions
     Module,
-    /// Interface definitions
+    // Interface definitions
     Interface,
-    /// Enum definitions
+    // Enum definitions
     Enum,
-    /// Instances inside a top module (requires --top)
+    // Instances inside a top module (requires --top)
     Instance,
 }
 
@@ -550,13 +552,13 @@ pub struct ExportArgs {
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 pub enum ExportKind {
-    /// SPICE-like text netlist (nets → points)
+    // SPICE-like text netlist (nets → points)
     Netlist,
-    /// Bill of materials (CSV / text / JSON)
+    // Bill of materials (CSV / text / JSON)
     Bom,
-    /// SPICE deck (hierarchical .SUBCKT + X lines)
+    // SPICE deck (hierarchical .SUBCKT + X lines)
     Spice,
-    /// KiCad s-expression netlist (M8)
+    // KiCad s-expression netlist (M8)
     #[value(name = "kicad")]
     KiCad,
 }

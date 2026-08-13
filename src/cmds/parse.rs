@@ -1260,7 +1260,7 @@ fn param_cls(d: &McParamDeclare) -> Option<String> {
         McParamTypeKind::CompoundUnit { unit_type, .. } => Some(unit_type.to_string()),
         McParamTypeKind::EnumClass { class_name } => Some(class_name.clone()),
         McParamTypeKind::EnumClassDefault { class_name, .. } => Some(class_name.clone()),
-        McParamTypeKind::Interface { class_name } => Some(class_name.clone()),
+        McParamTypeKind::Interface { class_name, .. } => Some(class_name.clone()),
         McParamTypeKind::InterfaceWithRole { class_name, .. } => Some(class_name.clone()),
         McParamTypeKind::ComponentInstance { class_name } => Some(class_name.clone()),
         McParamTypeKind::BasicString { .. } => Some("STRING".into()),

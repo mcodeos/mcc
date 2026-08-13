@@ -1404,6 +1404,48 @@ pub(crate) fn find_def_by_name(name: &str) -> Option<(crate::McCMIE, String)> {
     crate::lsp::gotodef::find_def_by_name_raw(name)
 }
 
+/// Split a dot-qualified entity path into `(owner, member)`.
+///
+/// Used to reference funcs, which are nested inside a module/component and
+/// therefore not top-level definitions: `main.setup` → `("main", "setup")`.
+///
+/// The owner is everything before the **last** dot, so dotted class names work
+/// too: `MCU.US513_20_F.i2c` → `("MCU.US513_20_F", "i2c")`.
+pub fn split_owner_member(name: &str) -> Option<(&str, &str)> {
+    name.rsplit_once('.')
+}
+
+/// Resolve a dot-qualified function path `OWNER.FUNC` where OWNER is a loaded
+/// Module or Component. Returns a clone of the function, or `None` when the
+/// name is not a (owner, func) pair, the owner is not found, or the owner has
+/// no such function.
+pub fn find_func_by_path(name: &str) -> Option<crate::semantic::mc_func::McFunction> {
+    let (owner, member) = split_owner_member(name)?;
+    let (cmie, _) = find_def_by_name(owner)?;
+    match &cmie {
+        crate::McCMIE::Component(c) => c.funcs.find(member).cloned(),
+        crate::McCMIE::Module(m) => m.funcs.find(member).cloned(),
+        _ => None,
+    }
+}
+
+/// Build a phrase-level net map from a function body (no Pass2 — funcs depend
+/// on parameters and a calling context that are not available standalone).
+///
+/// Each connection line in `func.lines` becomes one net entry named `line_N`
+/// (1-based), whose points are the endpoint names referenced by that line.
+pub fn func_nets_map(func: &crate::semantic::mc_func::McFunction) -> BTreeMap<String, Vec<String>> {
+    let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (i, line) in func.lines.iter().enumerate() {
+        let mut names: std::collections::HashSet<String> = std::collections::HashSet::new();
+        crate::semantic::validation::body::collect_referenced_names(line, &mut names);
+        let mut points: Vec<String> = names.into_iter().collect();
+        points.sort();
+        nets.insert(format!("line_{}", i + 1), points);
+    }
+    nets
+}
+
 /// Build the pin JSON view (pins + interfaces + name/id mappings). Single
 /// implementation shared by the RPC handlers and the local CLI `show`
 /// commands so both stay in parity.
@@ -1693,14 +1735,13 @@ pub(crate) fn attrval_json(v: &crate::McAttrVal) -> Value {
 // ============================================================================
 
 /// Convert a McParamDeclare to a JSON object with smart parameter metadata.
-pub(crate) fn param_declare_to_json(
-    d: &crate::semantic::basic::mc_paramd::McParamDeclare,
-) -> Value {
+pub fn param_declare_to_json(d: &crate::semantic::basic::mc_paramd::McParamDeclare) -> Value {
     let name = d.get_primary_name().unwrap_or_default();
     let is_port = d.is_port();
     let has_default = d.has_default_value();
     let default_val = d.param_type.default_value().map(|s| s.to_string());
     let class_name = d.get_class_name();
+    let iface_params: Vec<String> = d.param_type.interface_params().to_vec();
     json!({
         "name": name,
         "type": d.param_type.category_name(),
@@ -1708,6 +1749,7 @@ pub(crate) fn param_declare_to_json(
         "has_default": has_default,
         "default": default_val,
         "class": class_name,
+        "params": iface_params,
     })
 }
 

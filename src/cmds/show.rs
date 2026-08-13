@@ -8,7 +8,9 @@
 //!   * containers  : `all` / `file` / `component` / `module` / `interface` / `enum` / `net`
 //!                   (omit <name> → list; give <name> → detail)
 //!   * drill-down  : `pins` / `ports` / `labels` / `instances` / `nets` / `attrs`
-//!                   / `funcs` / `params` / `roles` / `values` (<name> = owning entity)
+//!                   / `funcs` / `params` / `roles` / `values` (<name> = owning entity;
+//!                   funcs are referenced dot-qualified as `OWNER.FUNC` for
+//!                   `params` and `nets`)
 
 use crate::cmds::filter;
 use crate::output::compact;
@@ -677,11 +679,58 @@ fn drill_ports(name: &str, args: &ShowArgs) -> Result<()> {
     };
     let ports: Vec<Value> = module
         .insts
-        .iter_ports()
-        .map(|(pname, io)| json!({ "name": pname, "iotype": format!("{:?}", io) }))
+        .insts()
+        .iter()
+        .filter(|(_, (io_type, _))| {
+            !matches!(
+                io_type,
+                mcc::IOType::None | mcc::IOType::Return | mcc::IOType::NonCon | mcc::IOType::Label
+            )
+        })
+        .map(|(pname, (io_type, inst))| {
+            let (ptype, members) = port_type_members(inst);
+            json!({
+                "name": pname,
+                "iotype": format!("{:?}", io_type),
+                "type": ptype,
+                "members": members,
+            })
+        })
         .collect();
     let data = json!({ "name": name, "port_count": ports.len(), "ports": ports });
     output(&data, args)
+}
+
+/// Extract a port's type and sub-members from its instance:
+/// - Interface ports: type = interface class name with params (e.g. `I2C(Master)`),
+///   members = registered chip pin IDs when available.
+/// - List/Bus ports: type = `list` / `bus`, members = declared member names
+///   (e.g. `MIC{P,N}` → `P, N`).
+/// - Component/Module ports: type = the class name.
+/// - Bare ports: type = `pin`.
+fn port_type_members(inst: &mcc::McInstance) -> (String, Vec<String>) {
+    match inst {
+        mcc::McInstance::Interface(i) => {
+            let base = i.base_name();
+            let params: Vec<String> = i.params.iter().map(|p| p.to_string()).collect();
+            let ty = if params.is_empty() {
+                base
+            } else {
+                format!("{base}({})", params.join(", "))
+            };
+            let members = if i.registered_pins.is_empty() {
+                i.insts.iter().map(|m| m.id.to_string()).collect()
+            } else {
+                i.registered_pins.clone()
+            };
+            (ty, members)
+        }
+        mcc::McInstance::List(_) => ("list".to_string(), inst.members()),
+        mcc::McInstance::Bus(_) => ("bus".to_string(), inst.members()),
+        mcc::McInstance::Component(c) => (c.name.to_string(), Vec::new()),
+        mcc::McInstance::Module(m) => (m.name.to_string(), Vec::new()),
+        _ => ("pin".to_string(), Vec::new()),
+    }
 }
 
 fn drill_labels(name: &str, args: &ShowArgs) -> Result<()> {
@@ -712,6 +761,18 @@ fn drill_instances(name: &str, args: &ShowArgs) -> Result<()> {
 }
 
 fn drill_nets(name: &str, args: &ShowArgs) -> Result<()> {
+    // Func body nets: `OWNER.FUNC` — connection-line-level nets (no Pass2,
+    // funcs depend on parameters and a calling context).
+    if let Some(func) = mcc::rpc::handlers::find_func_by_path(name) {
+        let nets = mcc::rpc::handlers::func_nets_map(&func);
+        let items: Vec<Value> = nets
+            .iter()
+            .map(|(n, points)| json!({ "name": n, "points": points }))
+            .collect();
+        let data = json!({ "name": name, "kind": "func", "count": items.len(), "nets": items });
+        return output(&data, args);
+    }
+
     // `nets <module>` uses the entity as the top module.
     let top = args.top.clone().unwrap_or_else(|| name.to_string());
     let nets = nets_map(&top);
@@ -757,15 +818,37 @@ fn drill_funcs(name: &str, args: &ShowArgs) -> Result<()> {
 }
 
 fn drill_params(name: &str, args: &ShowArgs) -> Result<()> {
+    // Func params: `OWNER.FUNC` (dot-qualified; funcs are not top-level defs).
+    if let Some(func) = mcc::rpc::handlers::find_func_by_path(name) {
+        let items: Vec<Value> = func.params.iter().map(|d| param_json(d)).collect();
+        let data = json!({ "name": name, "kind": "func", "count": items.len(), "params": items });
+        return output(&data, args);
+    }
     let cmie = def_or_exit(name);
     let params = match &cmie {
-        mcc::McCMIE::Component(c) => c.params.names_full(),
-        mcc::McCMIE::Module(m) => m.params.names_full(),
-        mcc::McCMIE::Interface(i) => i.params.names_full(),
+        mcc::McCMIE::Component(c) => &c.params,
+        mcc::McCMIE::Module(m) => &m.params,
+        mcc::McCMIE::Interface(i) => &i.params,
         _ => not_applicable("params", name),
     };
-    let data = json!({ "name": name, "count": params.len(), "params": params });
+    let items: Vec<Value> = params.iter().map(param_json).collect();
+    let arity = params.arity();
+    let data = json!({
+        "name": name,
+        "count": items.len(),
+        "required": arity.required,
+        "optional": arity.optional,
+        "params": items
+    });
     output(&data, args)
+}
+
+/// One parameter declaration as JSON, mirroring the RPC `show.params` shape.
+/// `name` uses the display form so compound params render as `[VDD_3V3, GND]`.
+fn param_json(d: &mcc::McParamDeclare) -> Value {
+    let mut j = mcc::rpc::handlers::param_declare_to_json(d);
+    j["name"] = json!(d.display_name());
+    j
 }
 
 fn drill_roles(name: &str, args: &ShowArgs) -> Result<()> {
@@ -1202,10 +1285,83 @@ fn nets_map(top: &str) -> BTreeMap<String, Vec<String>> {
 /// Render a component/pins data object (`name`, `uri`, `pin_count`, `pins`)
 /// as an aligned text table. Returns `None` when the data has no `pins` array.
 fn render_pins_text(data: &Value) -> Option<String> {
-    let pins = data.get("pins")?.as_array()?;
+    let pins = data.get("pins")?;
+    if pins.as_array().is_none() {
+        return None;
+    }
+
+    let mut out = String::new();
+    if let Some(name) = data.get("name").and_then(|v| v.as_str()) {
+        out.push_str(&format!("component: {name}\n"));
+    }
+    if let Some(uri) = data.get("uri").and_then(|v| v.as_str()) {
+        out.push_str(&format!("uri: {uri}\n"));
+    }
+    if let Some(n) = data.get("pin_count").and_then(|v| v.as_u64()) {
+        out.push_str(&format!("pin_count: {n}\n"));
+    }
+    out.push('\n');
+    out.push_str(&render_pins_table(pins));
+    Some(out)
+}
+
+/// Render an attrs drill-down as an aligned table (text format only).
+fn render_attrs_text(data: &Value) -> Option<String> {
+    let attrs = data.get("attrs")?.as_array()?;
+    let mut rows: Vec<(String, String)> = Vec::new();
+    for a in attrs {
+        let name = a.get("name")?.as_str()?.to_string();
+        let values: Vec<String> = a
+            .get("values")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .map(|v| match v.as_str() {
+                        Some(s) => s.to_string(),
+                        None => v.to_string(),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        rows.push((name, values.join(", ")));
+    }
+
+    let name_w = rows.iter().map(|r| r.0.len()).max().unwrap_or(10).max(10);
+    let val_w = rows.iter().map(|r| r.1.len()).max().unwrap_or(30).max(30);
+
+    let mut out = String::new();
+    if let Some(name) = data.get("name").and_then(|v| v.as_str()) {
+        out.push_str(&format!("{name}\n"));
+    }
+    if let Some(n) = data.get("count").and_then(|v| v.as_u64()) {
+        out.push_str(&format!("attr_count: {n}\n"));
+    }
+    out.push('\n');
+    out.push_str(&format!("  {:<name_w$}  {}\n", "name", "values"));
+    out.push_str(&format!(
+        "  {}  {}\n",
+        "-".repeat(name_w),
+        "-".repeat(val_w.min(80)),
+    ));
+    for (name, values) in &rows {
+        out.push_str(&format!("  {:<name_w$}  {}\n", name, values));
+    }
+    Some(out)
+}
+
+/// Render a pin list (as produced by `pins_json`) as an aligned table.
+/// Header/divider/rows only — callers add the entity title lines.
+fn render_pins_table(pins: &Value) -> String {
+    let Some(pins) = pins.as_array() else {
+        return String::new();
+    };
     let mut rows: Vec<(String, String, String, String)> = Vec::new();
     for p in pins {
-        let id = p.get("id")?.as_str()?.to_string();
+        let id = p
+            .get("id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         let io = p
             .get("iotype")
             .and_then(|v| v.as_str())
@@ -1234,16 +1390,6 @@ fn render_pins_text(data: &Value) -> Option<String> {
     let name_w = rows.iter().map(|r| r.3.len()).max().unwrap_or(12).max(12);
 
     let mut out = String::new();
-    if let Some(name) = data.get("name").and_then(|v| v.as_str()) {
-        out.push_str(&format!("component: {name}\n"));
-    }
-    if let Some(uri) = data.get("uri").and_then(|v| v.as_str()) {
-        out.push_str(&format!("uri: {uri}\n"));
-    }
-    if let Some(n) = data.get("pin_count").and_then(|v| v.as_u64()) {
-        out.push_str(&format!("pin_count: {n}\n"));
-    }
-    out.push('\n');
     out.push_str(&format!(
         "  {:<id_w$}  {:<io_w$}  {:<names_w$}  {}\n",
         "id", "io", "names", "interfaces"
@@ -1261,6 +1407,231 @@ fn render_pins_text(data: &Value) -> Option<String> {
             id, io, names, ifaces
         ));
     }
+    out
+}
+
+/// Render an aligned text table from string rows. Column widths adapt to the
+/// widest header/cell. Used by the `show` drill-downs in text format.
+fn render_table(headers: &[&str], rows: &[Vec<String>]) -> String {
+    let cols = headers.len();
+    let widths: Vec<usize> = (0..cols)
+        .map(|c| {
+            let h = headers[c].len();
+            rows.iter().map(|r| r[c].len()).max().unwrap_or(h).max(h)
+        })
+        .collect();
+    let mut out = String::new();
+    let hdr: Vec<String> = (0..cols)
+        .map(|c| format!("{:<w$}", headers[c], w = widths[c]))
+        .collect();
+    out.push_str(&format!("  {}\n", hdr.join("  ")));
+    out.push_str(&format!(
+        "  {}\n",
+        widths
+            .iter()
+            .map(|w| "-".repeat(*w))
+            .collect::<Vec<_>>()
+            .join("  ")
+    ));
+    for r in rows {
+        let cells: Vec<String> = (0..cols)
+            .map(|c| format!("{:<w$}", r[c], w = widths[c]))
+            .collect();
+        out.push_str(&format!("  {}\n", cells.join("  ")));
+    }
+    out
+}
+
+/// Render any `show` drill-down as readable text: an aligned table (object
+/// arrays) or a per-line list (string arrays), headed by the entity name and a
+/// count line. JSON output is unaffected — this fires only for text format.
+fn render_drill_text(data: &Value) -> Option<String> {
+    let name = data.get("name")?.as_str()?;
+
+    // Count line: drill-downs use port_count / label_count / count.
+    let count_key = ["port_count", "label_count", "count"]
+        .iter()
+        .find(|k| data.get(**k).is_some())?;
+    let count = data.get(count_key)?.as_u64()?;
+
+    let body: String = if let Some(arr) = data.get("ports").and_then(|v| v.as_array()) {
+        let rows: Vec<Vec<String>> = arr
+            .iter()
+            .map(|p| {
+                let members = p
+                    .get("members")
+                    .and_then(|v| v.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|m| m.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    })
+                    .unwrap_or_default();
+                vec![
+                    p.get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    p.get("iotype")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    p.get("type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    members,
+                ]
+            })
+            .collect();
+        render_table(&["name", "iotype", "type", "members"], &rows)
+    } else if let Some(arr) = data.get("instances").and_then(|v| v.as_array()) {
+        let rows: Vec<Vec<String>> = arr
+            .iter()
+            .map(|i| {
+                vec![
+                    i.get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    i.get("kind")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    i.get("class")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                ]
+            })
+            .collect();
+        render_table(&["name", "kind", "class"], &rows)
+    } else if let Some(arr) = data.get("funcs").and_then(|v| v.as_array()) {
+        let rows: Vec<Vec<String>> = arr
+            .iter()
+            .map(|f| {
+                let params = f
+                    .get("params")
+                    .and_then(|v| v.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|p| p.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    })
+                    .unwrap_or_default();
+                vec![
+                    f.get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    params,
+                ]
+            })
+            .collect();
+        render_table(&["name", "params"], &rows)
+    } else if let Some(arr) = data.get("nets").and_then(|v| v.as_array()) {
+        let rows: Vec<Vec<String>> = arr
+            .iter()
+            .map(|n| {
+                let points = n
+                    .get("points")
+                    .and_then(|v| v.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|p| p.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    })
+                    .unwrap_or_default();
+                vec![
+                    n.get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    points,
+                ]
+            })
+            .collect();
+        render_table(&["name", "points"], &rows)
+    } else if let Some(arr) = data.get("roles").and_then(|v| v.as_array()) {
+        // Each role: heading followed by its pins table.
+        let mut body = String::new();
+        for r in arr {
+            let rname = r
+                .get("name")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            body.push_str(&format!("role: {rname}\n"));
+            if let Some(pins) = r.get("pins").and_then(|p| p.get("pins")) {
+                body.push_str(&render_pins_table(pins));
+            }
+            body.push('\n');
+        }
+        body
+    } else if let Some(arr) = data.get("params").and_then(|v| v.as_array()) {
+        // Parameter declarations: name / type / default table. The type column
+        // shows the concrete interface class with its constructor params
+        // (e.g. `DC(3.3V)`) and falls back to the semantic category
+        // (e.g. `A1-Label`) when no class is bound.
+        let rows: Vec<Vec<String>> = arr
+            .iter()
+            .map(|p| {
+                let class = p.get("class").and_then(|v| v.as_str()).unwrap_or("");
+                let params = p
+                    .get("params")
+                    .and_then(|v| v.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|v| v.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    })
+                    .unwrap_or_default();
+                let ty = if class.is_empty() {
+                    p.get("type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string()
+                } else if params.is_empty() {
+                    class.to_string()
+                } else {
+                    format!("{class}({params})")
+                };
+                vec![
+                    p.get("name")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    ty,
+                    p.get("default")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                ]
+            })
+            .collect();
+        render_table(&["name", "type", "default"], &rows)
+    } else if let Some(arr) = data
+        .get("labels")
+        .or_else(|| data.get("values"))
+        .and_then(|v| v.as_array())
+    {
+        // Simple string lists: one entry per line.
+        arr.iter()
+            .filter_map(|v| v.as_str())
+            .map(|s| format!("  {s}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n"
+    } else {
+        return None;
+    };
+
+    let mut out = format!("{name}\n{count_key}: {count}\n\n");
+    out.push_str(&body);
     Some(out)
 }
 
@@ -1312,13 +1683,27 @@ fn output(data: &Value, args: &ShowArgs) -> Result<()> {
         OutputFormat::Yaml => serde_yaml::to_string(data).unwrap_or_default(),
         OutputFormat::Csv => data.to_string(),
         OutputFormat::Text => {
-            // Detect dump output and render in compact .mc-like format
-            if data.get("kind").and_then(|v| v.as_str()).is_some() {
+            // Detect dump output and render in compact .mc-like format.
+            // `kind == "func"` drill-downs (show params/nets OWNER.FUNC) are
+            // excluded here so they render like the other drill-downs below
+            // (list / table) instead of compact's single-line entity form.
+            if data
+                .get("kind")
+                .and_then(|v| v.as_str())
+                .is_some_and(|k| k != "func")
+            {
                 compact::render_entity(data)
             } else if data.get("type").and_then(|v| v.as_str()) == Some("dump_all") {
                 compact::render_all(data)
             } else if let Some(t) = render_pins_text(data) {
                 // component / pins drill-down: aligned pin table
+                t
+            } else if let Some(t) = render_attrs_text(data) {
+                // attrs drill-down: aligned name/values table
+                t
+            } else if let Some(t) = render_drill_text(data) {
+                // other drill-downs (ports/labels/instances/nets/funcs/params/
+                // roles/values): aligned tables or per-line lists
                 t
             } else if let Some(obj) = data.as_object() {
                 obj.iter()

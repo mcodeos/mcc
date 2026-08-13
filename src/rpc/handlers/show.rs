@@ -637,6 +637,17 @@ pub fn handle_show_nets(params: Option<Value>) -> RpcResult {
         .as_ref()
         .ok_or_else(|| JsonRpcError::custom(-32602, "show.nets: need to specify name"))?;
 
+    // Func body nets: `OWNER.FUNC` — connection-line-level nets (no Pass2,
+    // funcs depend on parameters and a calling context).
+    if let Some(func) = find_func_by_path(name) {
+        let nets = func_nets_map(&func);
+        let items: Vec<Value> = nets
+            .iter()
+            .map(|(n, points)| json!({ "name": n, "points": points }))
+            .collect();
+        return Ok(json!({ "name": name, "kind": "func", "count": items.len(), "nets": items }));
+    }
+
     let top = p.top.as_ref().unwrap_or(name);
     let top_uri = crate::mcb_iter_modules()
         .iter()
@@ -756,6 +767,24 @@ pub fn handle_show_params(params: Option<Value>) -> RpcResult {
         .name
         .as_ref()
         .ok_or_else(|| JsonRpcError::custom(-32602, "show.params: need to specify name"))?;
+
+    // Func params: `OWNER.FUNC` (dot-qualified; funcs are not top-level defs).
+    if let Some(func) = find_func_by_path(name) {
+        let list: Vec<Value> = func
+            .params
+            .iter()
+            .map(|d| param_declare_to_json(d))
+            .collect();
+        let arity = func.params.arity();
+        return Ok(json!({
+            "name": name,
+            "kind": "func",
+            "count": list.len(),
+            "required": arity.required,
+            "optional": arity.optional,
+            "params": list
+        }));
+    }
 
     let (cmie, _) = find_def_by_name(name)
         .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;

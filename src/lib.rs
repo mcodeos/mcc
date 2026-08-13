@@ -986,31 +986,53 @@ pub use crate::cli::config::set_log_stream_applier;
 pub use crate::cli::config::{get_runtime_trace, set_trace_stdout_suppressed};
 pub use crate::db::infra::mc_code::mcb_reset_ast_visit_flag;
 
-/// Load trace config from global + project config files.
-/// Called by binary at startup, before `-D` CLI flags are applied.
+/// Load trace config from global + project config files into runtime state
+/// **without** applying its level/targets to the active logging filter.
+///
+/// Use this for ordinary CLI commands: a file-configured `trace.level: debug`
+/// (or per-target overrides) must not flood a plain `mcc show` / `mcc parse`
+/// with INFO/DEBUG logs. Debug output is opt-in via `-v` / `-D` (or RPC
+/// `trace.set`), which apply the file config explicitly.
 ///
 /// Priority: project.toml > mcc.yaml (handled by `merge_configs`).
-/// Later, `-D` flags override both via the applier bridge.
-pub fn init_trace_config(project_root: Option<&std::path::Path>) {
+pub fn load_trace_config(project_root: Option<&std::path::Path>) {
     use crate::cli::config::{
         get_runtime_trace, load_global_config, load_project_config, merge_configs,
-        set_debug_targets,
     };
 
     let global = load_global_config().unwrap_or_default();
     let local = project_root.and_then(|p| load_project_config(p).ok().flatten());
     let merged = merge_configs(&global, local.as_ref());
 
-    // Update runtime trace for legacy flag compat
+    // Update runtime trace for legacy flag compat / `trace.get` queries.
     if let Ok(mut trace) = get_runtime_trace().write() {
         *trace = merged.trace.clone();
     }
+}
+
+/// Load trace config from global + project config files and apply its
+/// per-target level overrides to the active logging filter.
+///
+/// Only call this when the user explicitly asked for debug output (`-v` /
+/// `-D`); otherwise prefer [`load_trace_config`] so file-configured levels
+/// don't bury ordinary CLI results under engine logs.
+///
+/// Priority: project.toml > mcc.yaml (handled by `merge_configs`).
+/// Later, `-D` flags override both via the applier bridge.
+pub fn init_trace_config(project_root: Option<&std::path::Path>) {
+    use crate::cli::config::set_debug_targets;
+
+    load_trace_config(project_root);
+
+    let Ok(merged_trace) = get_runtime_trace().read() else {
+        return;
+    };
+    let merged_trace = merged_trace.clone();
 
     // Apply per-target overrides from merged config
-    if !merged.trace.targets.is_empty() {
-        let base = merged.trace.level.as_deref().unwrap_or("warn");
-        let targets: Vec<(String, String)> = merged
-            .trace
+    if !merged_trace.targets.is_empty() {
+        let base = merged_trace.level.as_deref().unwrap_or("warn");
+        let targets: Vec<(String, String)> = merged_trace
             .targets
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))

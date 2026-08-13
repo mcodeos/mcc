@@ -1000,7 +1000,10 @@ impl McParamDeclare {
     /// Get the class/interface name if this is an interface-typed param (A3-A5).
     pub fn get_class_name(&self) -> Option<String> {
         match &self.param_type.kind {
-            crate::semantic::basic::mc_param_type::McParamTypeKind::Interface { class_name }
+            crate::semantic::basic::mc_param_type::McParamTypeKind::Interface {
+                class_name,
+                ..
+            }
             | crate::semantic::basic::mc_param_type::McParamTypeKind::InterfaceWithRole {
                 class_name,
                 ..
