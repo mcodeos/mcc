@@ -184,10 +184,11 @@ impl McUse {
                 // support yet (§4.3 P2-use).
                 other => {
                     dlog_warning(
-                        crate::db::diagnostic::errcodes::NOT_SUPPORTED_YET,
+                        crate::db::diagnostic::errcodes::USE_TRAILING_NODE,
                         &n,
-                        &format!(
-                            "unexpected trailing node {other:?} in USE statement; it is ignored"
+                        &crate::db::diagnostic::errcodes::format_msg(
+                            crate::db::diagnostic::errcodes::USE_TRAILING_NODE,
+                            &[&format!("{:?}", other)],
                         ),
                     );
                     break;
@@ -271,7 +272,10 @@ impl McUse {
                     dlog_warning(
                         crate::db::diagnostic::errcodes::USE_TARGET_NOT_FOUND,
                         fnode,
-                        &format!("use target not found: {file_display}"),
+                        &crate::db::diagnostic::errcodes::format_msg(
+                            crate::db::diagnostic::errcodes::USE_TARGET_NOT_FOUND,
+                            &[&file_display],
+                        ),
                     );
                 } else {
                     debug!(

@@ -101,9 +101,15 @@ impl McModuleInst {
             self.create_connection(external_points, group_points, ConnDir::Undirected, None)?;
         } else {
             // ★ Degraded to warning: connect as much as possible, truncate by min
-            self.record_warning(crate::errcodes::CONN_GROUP_SHAPE_MISMATCH,
-                format!(
-                    "Group shape mismatch: {external_size} external points vs {group_size} group points ({branch_count} branches), truncating"
+            self.record_warning(
+                crate::errcodes::CONN_GROUP_SHAPE_MISMATCH,
+                crate::errcodes::format_msg(
+                    crate::errcodes::CONN_GROUP_SHAPE_MISMATCH,
+                    &[
+                        &external_size as &dyn std::fmt::Display,
+                        &group_size as &dyn std::fmt::Display,
+                        &branch_count as &dyn std::fmt::Display,
+                    ],
                 ),
             );
             let min_size = external_size.min(group_size);

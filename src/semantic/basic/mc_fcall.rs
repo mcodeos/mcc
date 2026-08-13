@@ -1081,7 +1081,10 @@ impl McFuncCall {
                                         dlog_error(
                                             crate::errcodes::FUNC_CALL_MISSING_NAME,
                                             node,
-                                            "Missing function name in function call",
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::FUNC_CALL_MISSING_NAME,
+                                                &[],
+                                            ),
                                         );
                                         return None;
                                     }
@@ -1091,7 +1094,10 @@ impl McFuncCall {
                                 dlog_error(
                                     crate::errcodes::FUNC_CALL_MISSING_NAME,
                                     node,
-                                    "Missing function name in function call (seq context)",
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::FUNC_CALL_MISSING_NAME,
+                                        &[],
+                                    ),
                                 );
                                 return None;
                             }
@@ -1106,7 +1112,10 @@ impl McFuncCall {
                                     dlog_error(
                                         crate::errcodes::FUNC_CALL_MISSING_NAME,
                                         node,
-                                        "Missing function name in function call",
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::FUNC_CALL_MISSING_NAME,
+                                            &[],
+                                        ),
                                     );
                                     return None;
                                 }
@@ -1116,7 +1125,10 @@ impl McFuncCall {
                         dlog_error(
                             crate::errcodes::FUNC_CALL_MISSING_NAME,
                             node,
-                            "Missing function name in function call",
+                            &crate::errcodes::format_msg(
+                                crate::errcodes::FUNC_CALL_MISSING_NAME,
+                                &[],
+                            ),
                         );
                         return None;
                     }
@@ -1159,7 +1171,10 @@ impl McFuncCall {
                                 dlog_error(
                                     crate::errcodes::FUNC_CALL_MISSING_NAME,
                                     node,
-                                    "Missing function name in function call",
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::FUNC_CALL_MISSING_NAME,
+                                        &[],
+                                    ),
                                 );
                                 return None;
                             }
@@ -1168,7 +1183,10 @@ impl McFuncCall {
                             dlog_error(
                                 crate::errcodes::FUNC_CALL_MISSING_NAME,
                                 node,
-                                "Missing function name in function call (seq context)",
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::FUNC_CALL_MISSING_NAME,
+                                    &[],
+                                ),
                             );
                             return None;
                         }
@@ -1176,7 +1194,10 @@ impl McFuncCall {
                             dlog_error(
                                 crate::errcodes::FUNC_CALL_MISSING_NAME,
                                 node,
-                                "Missing function name in function call",
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::FUNC_CALL_MISSING_NAME,
+                                    &[],
+                                ),
                             );
                             return None;
                         }
@@ -1185,7 +1206,7 @@ impl McFuncCall {
                     dlog_error(
                         crate::errcodes::FUNC_CALL_MISSING_NAME,
                         node,
-                        "Missing function name in function call",
+                        &crate::errcodes::format_msg(crate::errcodes::FUNC_CALL_MISSING_NAME, &[]),
                     );
                     return None;
                 }
@@ -1431,12 +1452,12 @@ impl McFuncCall {
         }
 
         debug_assert!(matches!(ret, McFuncReturn::Endpoint(_)));
-        dlog_error(crate::errcodes::FCALL_PARSE_FAILED,
+        dlog_error(
+            crate::errcodes::FCALL_PARSE_FAILED,
             node,
-            &format!(
-                "Cannot chain `.{outer_method}` after `{inner_name}(...)`: function `{inner_name}` returns a \
-                 bus/label (endpoint), not `this`. Only functions that return \
-                 `this` can be chained.",
+            &crate::errcodes::format_msg(
+                crate::errcodes::FCALL_PARSE_FAILED,
+                &[&outer_method, &inner_name, &inner_name],
             ),
         );
     }

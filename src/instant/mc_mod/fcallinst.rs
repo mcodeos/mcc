@@ -218,9 +218,16 @@ impl McModuleInst {
                 let left_count = left.len();
                 let pin_count = input_pins.len();
                 if left_count != pin_count {
-                    self.record_warning(crate::errcodes::INST_INPUT_PIN_COUNT_MISMATCH,
-                        format!(
-                            "Component '{inst_name}' ({type_name}) input pin count mismatch: {left_count} connections vs {pin_count} input pins"
+                    self.record_warning(
+                        crate::errcodes::INST_INPUT_PIN_COUNT_MISMATCH,
+                        crate::errcodes::format_msg(
+                            crate::errcodes::INST_INPUT_PIN_COUNT_MISMATCH,
+                            &[
+                                &inst_name,
+                                &type_name,
+                                &left_count as &dyn std::fmt::Display,
+                                &pin_count as &dyn std::fmt::Display,
+                            ],
                         ),
                     );
                 }
@@ -238,9 +245,16 @@ impl McModuleInst {
                 let right_count = right.len();
                 let pin_count = output_pins.len();
                 if right_count != pin_count {
-                    self.record_warning(crate::errcodes::INST_OUTPUT_PIN_COUNT_MISMATCH,
-                        format!(
-                            "Component '{inst_name}' ({type_name}) output pin count mismatch: {right_count} connections vs {pin_count} output pins"
+                    self.record_warning(
+                        crate::errcodes::INST_OUTPUT_PIN_COUNT_MISMATCH,
+                        crate::errcodes::format_msg(
+                            crate::errcodes::INST_OUTPUT_PIN_COUNT_MISMATCH,
+                            &[
+                                &inst_name,
+                                &type_name,
+                                &right_count as &dyn std::fmt::Display,
+                                &pin_count as &dyn std::fmt::Display,
+                            ],
                         ),
                     );
                 }
@@ -329,7 +343,10 @@ impl McModuleInst {
         if let Err(e) = sub_inst.instantiate() {
             self.record_error(
                 crate::errcodes::INST_INLINE_MODULE_FAILED,
-                format!("Inline module '{inst_name}' ({type_name}) instantiation failed: {e}"),
+                crate::errcodes::format_msg(
+                    crate::errcodes::INST_INLINE_MODULE_FAILED,
+                    &[&inst_name, &type_name, &e],
+                ),
             );
         }
         self.merge_diagnostics_from(&sub_inst);
@@ -354,9 +371,16 @@ impl McModuleInst {
             let left_count = left.len();
             let port_count = input_ports.len();
             if left_count != port_count {
-                self.record_warning(crate::errcodes::INST_INPUT_PORT_COUNT_MISMATCH,
-                    format!(
-                        "Module '{inst_name}' ({type_name}) input port count mismatch: {left_count} connections vs {port_count} input ports"
+                self.record_warning(
+                    crate::errcodes::INST_INPUT_PORT_COUNT_MISMATCH,
+                    crate::errcodes::format_msg(
+                        crate::errcodes::INST_INPUT_PORT_COUNT_MISMATCH,
+                        &[
+                            &inst_name,
+                            &type_name,
+                            &left_count as &dyn std::fmt::Display,
+                            &port_count as &dyn std::fmt::Display,
+                        ],
                     ),
                 );
             }
@@ -380,9 +404,16 @@ impl McModuleInst {
             let right_count = right.len();
             let port_count = output_ports.len();
             if right_count != port_count {
-                self.record_warning(crate::errcodes::INST_OUTPUT_PORT_COUNT_MISMATCH,
-                    format!(
-                        "Module '{inst_name}' ({type_name}) output port count mismatch: {right_count} connections vs {port_count} output ports"
+                self.record_warning(
+                    crate::errcodes::INST_OUTPUT_PORT_COUNT_MISMATCH,
+                    crate::errcodes::format_msg(
+                        crate::errcodes::INST_OUTPUT_PORT_COUNT_MISMATCH,
+                        &[
+                            &inst_name,
+                            &type_name,
+                            &right_count as &dyn std::fmt::Display,
+                            &port_count as &dyn std::fmt::Display,
+                        ],
                     ),
                 );
             }

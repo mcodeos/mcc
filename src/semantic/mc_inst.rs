@@ -5,7 +5,7 @@
 use crate::ast::{ast_node::AstNode, c_macros::*};
 use crate::db::context::DB;
 use crate::db::diagnostic::diagnostic::{dlog_error, dlog_warning};
-use crate::message::MISSING_SUBNODE;
+
 use crate::query::refs::mcb_register_declare_class;
 use crate::refdef::types::ChainSegment;
 use crate::semantic::basic::mc_bus::{McBus, McList};
@@ -750,7 +750,11 @@ impl McInstances {
         }
 
         let Some(subnode) = node.get_sub_node() else {
-            dlog_error(crate::errcodes::INST_MISSING_SUBNODE, node, MISSING_SUBNODE);
+            dlog_error(
+                crate::errcodes::INST_MISSING_SUBNODE,
+                node,
+                &crate::errcodes::format_msg(crate::errcodes::INST_MISSING_SUBNODE, &[]),
+            );
             return;
         };
 
@@ -1250,9 +1254,12 @@ impl McInstances {
                                                     }
                                                     _ => {
                                                         dlog_error(
-                                                            crate::errcodes::PIN_NAME_COUNT_ERROR,
+                                                            crate::errcodes::PORT_NAME_COUNT_ERROR,
                                                             &opd_node,
-                                                            "Port name count error",
+                                                            &crate::errcodes::format_msg(
+                                                                crate::errcodes::PORT_NAME_COUNT_ERROR,
+                                                                &[],
+                                                            ),
                                                         );
                                                     }
                                                 }
@@ -1330,7 +1337,7 @@ impl McInstances {
             dlog_error(
                 crate::errcodes::NAME_MISSING_SUBNODE,
                 node,
-                "Missing sub node",
+                &crate::errcodes::format_msg(crate::errcodes::NAME_MISSING_SUBNODE, &[]),
             );
             return;
         };
@@ -1672,7 +1679,10 @@ impl McInstances {
                         dlog_warning(
                             crate::errcodes::INST_CLASS_UNRESOLVED,
                             &class_node,
-                            &format!("unresolved class '{class_name}' — library not loaded?"),
+                            &crate::errcodes::format_msg(
+                                crate::errcodes::INST_CLASS_UNRESOLVED,
+                                &[&class_name],
+                            ),
                         );
                         (
                             McInstance::Unresolved {
@@ -1918,9 +1928,12 @@ impl McInstances {
                                     }
                                     _ => {
                                         dlog_error(
-                                            crate::errcodes::PIN_NAME_COUNT_ERROR,
+                                            crate::errcodes::PORT_NAME_COUNT_ERROR,
                                             &opd_node,
-                                            "Port name count error",
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::PORT_NAME_COUNT_ERROR,
+                                                &[],
+                                            ),
                                         );
                                     }
                                 }

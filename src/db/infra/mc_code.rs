@@ -803,12 +803,13 @@ impl McCode {
             if mcuse.prefix == McUsePrefix::PathSystem {
                 let lib_name = mcuse.orig_uri.split('/').next().unwrap_or("");
                 if !lib_name.is_empty() && !mcb_loaded_libs().contains(&lib_name.to_string()) {
-                    dlog_warning_at(crate::errcodes::USE_DEP_NOT_DECLARED,
+                    dlog_warning_at(
+                        crate::errcodes::USE_DEP_NOT_DECLARED,
                         mcuse.pos,
                         mcuse.len,
-                        &format!(
-                            "use of undeclared dependency '{}': add it to project.toml [dependencies] or load via --lib",
-                            lib_name
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::USE_DEP_NOT_DECLARED,
+                            &[&lib_name],
                         ),
                     );
                 }
@@ -858,12 +859,13 @@ impl McCode {
                             if !overlap.is_empty() {
                                 let names: Vec<String> =
                                     overlap.iter().map(|s| s.to_string()).collect();
-                                dlog_error_at(crate::errcodes::USE_SYMBOL_CONFLICT,
+                                dlog_error_at(
+                                    crate::errcodes::USE_SYMBOL_CONFLICT,
                                     mcuse.pos,
                                     mcuse.len,
-                                    &format!(
-                                        "symbol conflict in module '{}': {} collides with previous use from '{}'. Use 'as' alias to disambiguate",
-                                        module_name, names.join(", "), prev_uri
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::USE_SYMBOL_CONFLICT,
+                                        &[&module_name, &names.join(", "), &prev_uri],
                                     ),
                                 );
                             }
@@ -963,9 +965,9 @@ impl McCode {
                                 crate::errcodes::USE_IMPORTED_NOT_FOUND,
                                 mcuse.pos,
                                 mcuse.len,
-                                &format!(
-                                    "imported symbol '{}' not found in '{}'",
-                                    class, mcuse.orig_uri
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::USE_IMPORTED_NOT_FOUND,
+                                    &[&class, &mcuse.orig_uri],
                                 ),
                             );
                         }
@@ -1074,12 +1076,13 @@ impl McCode {
             if mcuse.prefix == McUsePrefix::PathSystem {
                 let lib_name = mcuse.orig_uri.split('/').next().unwrap_or("");
                 if !lib_name.is_empty() && !mcb_loaded_libs().contains(&lib_name.to_string()) {
-                    dlog_warning_at(crate::errcodes::USE_DEP_NOT_DECLARED,
+                    dlog_warning_at(
+                        crate::errcodes::USE_DEP_NOT_DECLARED,
                         mcuse.pos,
                         mcuse.len,
-                        &format!(
-                            "use of undeclared dependency '{}': add it to project.toml [dependencies] or load via --lib",
-                            lib_name
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::USE_DEP_NOT_DECLARED,
+                            &[&lib_name],
                         ),
                     );
                 }
@@ -1122,12 +1125,13 @@ impl McCode {
                             if !overlap.is_empty() {
                                 let names: Vec<String> =
                                     overlap.iter().map(|s| s.to_string()).collect();
-                                dlog_error_at(crate::errcodes::USE_SYMBOL_CONFLICT,
+                                dlog_error_at(
+                                    crate::errcodes::USE_SYMBOL_CONFLICT,
                                     mcuse.pos,
                                     mcuse.len,
-                                    &format!(
-                                        "symbol conflict in module '{}': {} collides with previous use from '{}'. Use 'as' alias to disambiguate",
-                                        module_name, names.join(", "), prev_uri
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::USE_SYMBOL_CONFLICT,
+                                        &[&module_name, &names.join(", "), &prev_uri],
                                     ),
                                 );
                             }
@@ -1173,9 +1177,9 @@ impl McCode {
                                 crate::errcodes::USE_IMPORTED_NOT_FOUND,
                                 mcuse.pos,
                                 mcuse.len,
-                                &format!(
-                                    "imported symbol '{}' not found in '{}'",
-                                    class, mcuse.orig_uri
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::USE_IMPORTED_NOT_FOUND,
+                                    &[&class, &mcuse.orig_uri],
                                 ),
                             );
                         }
@@ -1433,9 +1437,12 @@ impl McCode {
                                 // McCMIE (component/module/interface/enum only).
                                 // Report the mismatch instead of panicking.
                                 dlog_error(
-                                    crate::errcodes::CMIE_LOAD_REJECTED,
+                                    crate::errcodes::CMIE_IS_DEFINE,
                                     &node,
-                                    &format!("'{name}' is a define; not loadable as a CMIE"),
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::CMIE_IS_DEFINE,
+                                        &[&name],
+                                    ),
                                 );
                                 return None;
                             }

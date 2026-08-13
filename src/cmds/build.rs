@@ -1077,7 +1077,7 @@ module top {
 "#;
         let diags = build_fixture_with_graph(fixture);
         assert!(
-            has_code(&diags, mcc::errcodes::GHOST_PORT),
+            has_code(&diags, mcc::errcodes::GHOST_PORT_BOX),
             "D4 GHOST_PORT should fire for placeholder pins. Diags: {:?}",
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
         );

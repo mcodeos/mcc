@@ -4,7 +4,7 @@
 
 use crate::db::diagnostic::diagnostic::dlog_warning;
 use crate::{
-    ast::{ast_node::AstNode, c_macros::*, error::message::*},
+    ast::{ast_node::AstNode, c_macros::*},
     McIds,
 };
 
@@ -28,13 +28,17 @@ impl McLayout {
                 dlog_warning(
                     crate::errcodes::LAYOUT_MISSING_SUBNODE,
                     node,
-                    MISSING_SUBNODE,
+                    &crate::errcodes::format_msg(crate::errcodes::LAYOUT_MISSING_SUBNODE, &[]),
                 );
                 return None;
             }
         };
         if !sub_node1.is_type(MCAST_ATT_ID) {
-            dlog_warning(crate::errcodes::LAYOUT_TYPE_MISMATCH, node, TYPE_MISMATCH);
+            dlog_warning(
+                crate::errcodes::LAYOUT_TYPE_MISMATCH,
+                node,
+                &crate::errcodes::format_msg(crate::errcodes::LAYOUT_TYPE_MISMATCH, &[]),
+            );
             return None;
         }
         let sub_node2 = match sub_node1.get_next() {
@@ -43,7 +47,7 @@ impl McLayout {
                 dlog_warning(
                     crate::errcodes::LAYOUT_SET_MISSING_SUBNODE,
                     node,
-                    MISSING_SUBNODE,
+                    &crate::errcodes::format_msg(crate::errcodes::LAYOUT_SET_MISSING_SUBNODE, &[]),
                 );
                 return None;
             }
@@ -55,7 +59,7 @@ impl McLayout {
                 dlog_warning(
                     crate::errcodes::LAYOUT_VALUES_TYPE_MISMATCH,
                     node,
-                    TYPE_MISMATCH,
+                    &crate::errcodes::format_msg(crate::errcodes::LAYOUT_VALUES_TYPE_MISMATCH, &[]),
                 );
                 return None;
             }
@@ -66,7 +70,7 @@ impl McLayout {
                 dlog_warning(
                     crate::errcodes::LAYOUT_NAME_MISSING_SUBNODE,
                     node,
-                    MISSING_SUBNODE,
+                    &crate::errcodes::format_msg(crate::errcodes::LAYOUT_NAME_MISSING_SUBNODE, &[]),
                 );
                 return None;
             }

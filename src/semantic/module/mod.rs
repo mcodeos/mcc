@@ -17,7 +17,7 @@ use crate::semantic::component::Mc2Component;
 use crate::semantic::context::resolve_cmie;
 use crate::semantic::mc_func::McFuncReturn;
 use crate::{
-    ast::{ast_node::AstNode, c_macros::*, error::message::*},
+    ast::{ast_node::AstNode, c_macros::*},
     semantic::basic::mc_param::McParamDeclares,
     IOType, McCMIE, McIds, McParamValue, McURI,
 };
@@ -57,7 +57,7 @@ impl McModule {
                 dlog_error(
                     crate::errcodes::MODULE_MISSING_SUBNODE,
                     node,
-                    MISSING_SUBNODE,
+                    &crate::errcodes::format_msg(crate::errcodes::MODULE_MISSING_SUBNODE, &[]),
                 );
                 return None;
             };
@@ -96,7 +96,7 @@ impl McModule {
             dlog_error(
                 crate::errcodes::MODULE_MISSING_SUBNODE,
                 node,
-                MISSING_SUBNODE,
+                &crate::errcodes::format_msg(crate::errcodes::MODULE_MISSING_SUBNODE, &[]),
             );
             None
         }
@@ -356,9 +356,9 @@ impl McModule {
                         crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
                         span.start as u32,
                         (span.end - span.start) as u32,
-                        &format!(
-                            "Port '{}' in '{}' is declared but never used in any net connection.",
-                            port_name, mod_name
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::PORT_NEVER_USED,
+                            &[&port_name, &mod_name],
                         ),
                         &[],
                     );
