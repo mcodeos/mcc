@@ -50,7 +50,7 @@ module main
 }
 "#;
     let result = parse(source);
-    let forbidden = [1402, 2310, 2401, 2403, 2410, 2801, 3105];
+    let forbidden = [5641, 5151, 5154, 5351, 5352, 4108];
     assert!(
         diagnostics(&result)
             .iter()
@@ -93,7 +93,7 @@ module main
 }
 "#;
     let result = parse(source);
-    let forbidden = [1402, 3001, 3002, 3402];
+    let forbidden = [5641, 5451, 5452, 5552];
     assert!(
         diagnostics(&result)
             .iter()
@@ -117,7 +117,12 @@ module main
 }
 "#;
     let result = parse(source);
-    assert!(!has_code(&result, 2204), "unexpected E2204: {result}");
+    assert!(
+        !diagnostics(&result).iter().any(|d| d["message"]
+            .as_str()
+            .is_some_and(|m| m.to_lowercase().contains("parenthes"))),
+        "unexpected empty-parens hint: {result}"
+    );
 }
 
 #[test]
@@ -136,11 +141,10 @@ module main
 "#;
     let result = parse(source);
     assert!(
-        has_code(&result, 1802),
+        has_code(&result, 3179),
         "missing invalid-member diagnostic: {}",
         result["result"]["pass0"]["diagnostics"]
     );
-    assert!(!has_code(&result, 2403));
 }
 
 #[test]
@@ -159,7 +163,7 @@ module main
     let result = parse(source);
     let diagnostic = diagnostics(&result)
         .iter()
-        .find(|diagnostic| diagnostic["code"].as_u64() == Some(2801))
+        .find(|diagnostic| diagnostic["code"].as_u64() == Some(5352))
         .expect("constructor mismatch diagnostic");
     let message = diagnostic["message"].as_str().expect("diagnostic message");
     assert!(message.contains("component 'PARAMETERIZED'"), "{message}");
@@ -181,7 +185,7 @@ module main
 "#;
     let result = parse(source);
     assert!(
-        has_code(&result, 3402),
+        has_code(&result, 5552),
         "missing scalar type mismatch diagnostic: {}",
         result["result"]["pass0"]["diagnostics"]
     );
@@ -211,8 +215,7 @@ module main
 }
 "#;
     let result = parse(source);
-    assert!(!has_code(&result, 2403), "unexpected E2403: {result}");
-    assert!(!has_code(&result, 3105), "unexpected E3105: {result}");
+    assert!(!has_code(&result, 4108), "unexpected E4108: {result}");
 }
 
 #[test]
@@ -238,9 +241,8 @@ module main
 }
 "#;
     let result = parse(source);
-    assert!(!has_code(&result, 2403), "unexpected E2403: {result}");
-    assert!(!has_code(&result, 2801), "unexpected E2801: {result}");
-    assert!(!has_code(&result, 3105), "unexpected E3105: {result}");
+    assert!(!has_code(&result, 5352), "unexpected E5352: {result}");
+    assert!(!has_code(&result, 4108), "unexpected E4108: {result}");
 }
 
 #[test]
@@ -257,8 +259,8 @@ module main
 }
 "#;
     let result = parse(source);
-    assert!(!has_code(&result, 2801), "unexpected E2801: {result}");
-    assert!(!has_code(&result, 2806), "unexpected E2806: {result}");
+    assert!(!has_code(&result, 5352), "unexpected E5352: {result}");
+    assert!(!has_code(&result, 5357), "unexpected E5357: {result}");
 }
 
 #[test]
@@ -292,5 +294,5 @@ module main
 }
 "#;
     let result = parse(source);
-    assert!(!has_code(&result, 3101), "unexpected E3101: {result}");
+    assert!(!has_code(&result, 4102), "unexpected E4102: {result}");
 }

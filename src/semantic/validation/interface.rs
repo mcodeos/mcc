@@ -108,7 +108,7 @@ fn check_iface_pin_completeness(acc: &mut CheckAccumulator) {
                         bound_iface_pins.len(),
                         missing.join(", ")
                     ),
-                    code: 3101,
+                    code: crate::errcodes::IFACE_PINS_NOT_ALL_BOUND,
                 });
             }
         }
@@ -186,7 +186,7 @@ fn check_iface_role_exists(acc: &mut CheckAccumulator) {
                                     })
                                     .unwrap_or_default()
                             ),
-                            code: 3102,
+                            code: crate::errcodes::IFACE_ROLE_NOT_FOUND,
                         });
                     }
                 }
@@ -203,7 +203,7 @@ fn check_iface_role_exists(acc: &mut CheckAccumulator) {
                                  which is not loaded.",
                                 comp.name, pname, class_name
                             ),
-                            code: 3103,
+                            code: crate::errcodes::IFACE_NOT_LOADED,
                         });
                     }
                 }
@@ -267,7 +267,7 @@ fn check_deprecated_cmie_usage(acc: &mut CheckAccumulator) {
                                 "Component '{}' uses interface '{}' which is deprecated.",
                                 comp.name, iface_name
                             ),
-                            code: 3104,
+                            code: crate::errcodes::IFACE_DEPRECATED_CMIE,
                         });
                     }
                 }
@@ -289,7 +289,7 @@ fn check_deprecated_cmie_usage(acc: &mut CheckAccumulator) {
                                     "Component '{}': param '{}' references '{}' which is deprecated.",
                                     comp.name, pname, class_name
                                 ),
-                                code: 3104,
+                                code: crate::errcodes::IFACE_DEPRECATED_CMIE,
                             });
                         }
                     }
@@ -327,7 +327,7 @@ fn check_deprecated_cmie_usage(acc: &mut CheckAccumulator) {
                             entry.key().ident,
                             class_name
                         ),
-                        code: 3104,
+                        code: crate::errcodes::IFACE_DEPRECATED_CMIE,
                     });
                 }
             }
@@ -521,7 +521,7 @@ fn check_phrase_member_refs(
                                 class_name,
                                 summarize_names(pins)
                             ),
-                            code: 3105,
+                            code: crate::errcodes::NET_INPUT_UNCONNECTED,
                         });
                     }
                     continue; // Found in component pins — done
@@ -540,7 +540,7 @@ fn check_phrase_member_refs(
                                  interface '{}'.",
                                 mod_name, first, port_name, port_name, class_name
                             ),
-                            code: 3105,
+                            code: crate::errcodes::NET_INPUT_UNCONNECTED,
                         });
                     }
                     continue;
@@ -559,7 +559,7 @@ fn check_phrase_member_refs(
                                  module '{}'.",
                                 mod_name, first, port_name, port_name, class_name
                             ),
-                            code: 3105,
+                            code: crate::errcodes::NET_INPUT_UNCONNECTED,
                         });
                     }
                 }

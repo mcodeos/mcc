@@ -36,7 +36,11 @@ impl McEnumDef {
         let subnodes = match node.get_sub_node() {
             Some(nodes) => nodes,
             None => {
-                dlog_error(1001, node, "Missing subnodes for enum");
+                dlog_error(
+                    crate::errcodes::ENUM_MISSING_SUBNODES,
+                    node,
+                    "Missing subnodes for enum",
+                );
                 return None;
             }
         };
@@ -45,7 +49,11 @@ impl McEnumDef {
         let name_node: AstNode = match subnodes.iter().find(|x: &AstNode| x.is_type(MCAST_NAME)) {
             Some(node) => node,
             None => {
-                dlog_error(1001, &subnodes, "Missing name for enum");
+                dlog_error(
+                    crate::errcodes::ENUM_MISSING_NAME,
+                    &subnodes,
+                    "Missing name for enum",
+                );
                 return None;
             }
         };
@@ -53,7 +61,11 @@ impl McEnumDef {
         let name_ids = match name_node.get_sub_node() {
             Some(nodes) => nodes,
             None => {
-                dlog_error(1001, &name_node, "Missing name ids for enum");
+                dlog_error(
+                    crate::errcodes::ENUM_MISSING_NAME_IDS,
+                    &name_node,
+                    "Missing name ids for enum",
+                );
                 return None;
             }
         };
@@ -67,7 +79,11 @@ impl McEnumDef {
         {
             Some(node) => node,
             None => {
-                dlog_error(1001, &subnodes, "Missing values for enum");
+                dlog_error(
+                    crate::errcodes::ENUM_MISSING_VALUES,
+                    &subnodes,
+                    "Missing values for enum",
+                );
                 return None;
             }
         };

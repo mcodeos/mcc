@@ -196,7 +196,11 @@ impl McIds {
             MCAST_IDS => {
                 // Original logic: handle MCAST_IDS case
                 let Some(ids_subnodes) = node.get_sub_node() else {
-                    dlog_error(1101, node, "IDS has no nodes.");
+                    dlog_error(
+                        crate::errcodes::NAME_IDS_NO_NODES,
+                        node,
+                        "IDS has no nodes.",
+                    );
                     return None;
                 };
 
@@ -219,7 +223,11 @@ impl McIds {
 
                         MCAST_OPD_DOT => {
                             let Some(subnode) = each.get_sub_node() else {
-                                dlog_error(1101, &each, "Missing subnode");
+                                dlog_error(
+                                    crate::errcodes::NAME_MISSING_SUBNODE,
+                                    &each,
+                                    "Missing subnode",
+                                );
                                 continue;
                             };
                             match subnode.get_type() {
@@ -289,7 +297,11 @@ impl McIds {
 
     fn parse_curly(node: &AstNode) -> Option<IdsSegment> {
         let Some(curly_subnodes) = node.get_sub_node() else {
-            dlog_error(1101, node, "Missing subnode");
+            dlog_error(
+                crate::errcodes::NAME_MISSING_SUBNODE,
+                node,
+                "Missing subnode",
+            );
             return None;
         };
 
@@ -308,13 +320,21 @@ impl McIds {
 
                         let left_int = McInt::new(&left)
                             .ok_or_else(|| {
-                                dlog_error(1102, &left, "Failed to process left side of range");
+                                dlog_error(
+                                    crate::errcodes::NAME_RANGE_SIDE_FAILED,
+                                    &left,
+                                    "Failed to process left side of range",
+                                );
                             })
                             .ok()?;
 
                         let right_int = McInt::new(&right)
                             .ok_or_else(|| {
-                                dlog_error(1102, &right, "Failed to process right side of range");
+                                dlog_error(
+                                    crate::errcodes::NAME_RANGE_SIDE_FAILED,
+                                    &right,
+                                    "Failed to process right side of range",
+                                );
                             })
                             .ok()?;
 
@@ -334,7 +354,11 @@ impl McIds {
     /// Parse square bracket vector, e.g. [VDD, GND]
     fn parse_square(node: &AstNode) -> Option<IdsSegment> {
         let Some(square_subnodes) = node.get_sub_node() else {
-            dlog_error(1101, node, "Missing subnode for square vector");
+            dlog_error(
+                crate::errcodes::NAME_SQUARE_VECTOR_MISSING_SUBNODE,
+                node,
+                "Missing subnode for square vector",
+            );
             return None;
         };
 

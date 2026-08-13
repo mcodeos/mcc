@@ -67,7 +67,7 @@ fn check_reserved_attr_name(comp: &crate::McComponent, uri: &str, acc: &mut Chec
                         entry_key_ident(comp),
                         kw
                     ),
-                    code: 2801,
+                    code: crate::errcodes::ATTR_RESERVED_KEYWORD,
                 });
                 continue;
             }
@@ -87,7 +87,7 @@ fn check_reserved_attr_name(comp: &crate::McComponent, uri: &str, acc: &mut Chec
                             entry_key_ident(comp),
                             seg
                         ),
-                        code: 2801,
+                        code: crate::errcodes::ATTR_RESERVED_KEYWORD,
                     });
                 }
             }
@@ -133,7 +133,7 @@ fn check_unresolvable_dotted_name(
                      or a recognized attribute group.",
                     attr.id, first_seg
                 ),
-                code: 2802,
+                code: crate::errcodes::ROLE_EMPTY_BODY,
             });
         }
     }
@@ -154,7 +154,7 @@ fn check_nesting_depth(comp: &crate::McComponent, uri: &str, acc: &mut CheckAccu
                         "Attribute '{}' has nested depth {} (>16). Consider flattening.",
                         attr.id, depth
                     ),
-                    code: 2804,
+                    code: crate::errcodes::ATTR_NESTING_TOO_DEEP,
                 });
             }
         }
@@ -206,7 +206,7 @@ fn check_pins_group(comp: &crate::McComponent, uri: &str, acc: &mut CheckAccumul
                         group,
                         entry_key_ident(comp)
                     ),
-                    code: 2805,
+                    code: crate::errcodes::ATTR_PIN_GROUP_UNDEFINED,
                 });
             }
         }
@@ -235,7 +235,7 @@ fn check_pins_overlap(comp: &crate::McComponent, uri: &str, acc: &mut CheckAccum
                  These may conflict.",
                 entry_key_ident(comp)
             ),
-            code: 2806,
+            code: crate::errcodes::PINS_PLUS_AND_PINS_CONFLICT,
         });
     }
 }

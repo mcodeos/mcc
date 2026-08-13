@@ -241,7 +241,10 @@ impl McModuleInst {
 
         // 1. Instantiate interface (ports) — rarely fails
         if let Err(e) = self.instantiate_interface() {
-            self.record_error(900, format!("Interface instantiation failed: {e}"));
+            self.record_error(
+                crate::errcodes::INST_IFACE_INSTANTIATE_FAILED,
+                format!("Interface instantiation failed: {e}"),
+            );
         }
 
         // 2. Process instances declared in the symbol table (components and sub-modules) — per-instance fault tolerance
@@ -328,7 +331,7 @@ impl McModuleInst {
                         func.name
                     );
                     self.record_warning(
-                        913,
+                        crate::errcodes::INST_FUNC_BODY_LINE_FAILED,
                         format!(
                             "Module-level function '{}' body line failed: {e}",
                             func.name

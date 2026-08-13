@@ -48,7 +48,7 @@ fn check_duplicate_ports(mod_name: &str, m: &crate::McModule, acc: &mut CheckAcc
                     "Port name '{}' appears {} times in module '{}'. Duplicate port names are ambiguous.",
                     name, count, mod_name
                 ),
-                code: 2402,
+                code: crate::errcodes::PORT_DUPLICATE_NAME,
             });
         }
     }
@@ -82,7 +82,7 @@ fn check_param_inst_overlap(mod_name: &str, m: &crate::McModule, acc: &mut Check
                     "Name '{}' in '{}' is both a value parameter and an instance.",
                     n, mod_name
                 ),
-                code: 2410,
+                code: crate::errcodes::NAME_PARAM_AND_INSTANCE,
             });
         }
     }
@@ -129,7 +129,7 @@ fn check_duplicate_instances(mod_name: &str, m: &crate::McModule, acc: &mut Chec
                     "Instance '{}' is declared {} times in module '{}'.",
                     name, count, mod_name
                 ),
-                code: 2401,
+                code: crate::errcodes::INST_DECLARED_MULTIPLE,
             });
         }
     }

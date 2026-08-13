@@ -5,7 +5,7 @@
 // Integration tests for the pass1 AST coverage fixes (P1-1 / P1-2):
 //
 // P1-1: arithmetic operators (`*` / `/` / `~` / `:`) on connection lines used
-//       to fall into the generic E1110 "Unexpected AST node type" message.
+//       to fall into the generic E4008 "Unexpected AST node type" message.
 //       Now they report an operator-specific "not supported in connection
 //       lines" diagnostic instead of being mistaken for an AST shape bug.
 //
@@ -48,16 +48,16 @@ module main
     setup(uri, source);
     let _ = mcc::mcc_build(&McIds::from("main"), &uri.to_string());
 
-    // P1-1: `*` must produce the operator-specific E1110 message, not the
+    // P1-1: `*` must produce the operator-specific E4008 message, not the
     // generic "Unexpected AST node type" text.
     let diags = mcc::mcc_diagnose_all();
     let has_specific = diags
         .iter()
-        .any(|d| d.code == 1110 && d.msg.contains("not supported in connection lines"));
+        .any(|d| d.code == 4008 && d.msg.contains("not supported in connection lines"));
     assert!(
         has_specific,
-        "expected operator-specific E1110, got: {:?}",
-        diags.iter().filter(|d| d.code == 1110).collect::<Vec<_>>()
+        "expected operator-specific E4008, got: {:?}",
+        diags.iter().filter(|d| d.code == 4008).collect::<Vec<_>>()
     );
 
     drop(lock);
@@ -99,13 +99,13 @@ module main
         comp.params.names()
     );
 
-    // No parse-stage E1110/E1101 style errors from the dot access.
+    // No parse-stage E4008/E2121 style errors from the dot access.
     assert!(
-        !has_code(1110),
-        "dot access in param value must not report E1110: {:?}",
+        !has_code(4008),
+        "dot access in param value must not report E4008: {:?}",
         mcc::mcc_diagnose_all()
             .iter()
-            .filter(|d| d.code == 1110)
+            .filter(|d| d.code == 4008)
             .collect::<Vec<_>>()
     );
 

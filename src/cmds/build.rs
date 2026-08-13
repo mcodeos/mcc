@@ -974,7 +974,7 @@ module top {
             build_err
         );
         assert!(
-            has_code(&diags, 2001),
+            has_code(&diags, mcc::errcodes::SORT_HAZARD),
             "D1 SORT_HAZARD should fire for non-monotonic pins [5,2]. Diags: {:?}",
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
         );
@@ -992,7 +992,7 @@ module top {
 "#;
         let diags = build_fixture_with_graph(fixture);
         assert!(
-            has_code(&diags, 2002),
+            has_code(&diags, mcc::errcodes::FLOATING_PLACEHOLDER),
             "D2 FLOATING_PLACEHOLDER should fire for unbound '_'. Diags: {:?}",
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
         );
@@ -1014,7 +1014,7 @@ module top {
 "#;
         let diags = build_fixture_with_graph(fixture);
         assert!(
-            has_code(&diags, 2003),
+            has_code(&diags, mcc::errcodes::NET_MERGED_SHORT),
             "D3 MERGED_SHORT should fire for duplicate bracket entries. Diags: {:?}",
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
         );
@@ -1049,7 +1049,7 @@ module top {
             build_err
         );
         assert!(
-            !has_code(&diags, 2003),
+            !has_code(&diags, mcc::errcodes::NET_MERGED_SHORT),
             "D3 MERGED_SHORT should NOT fire for legit fan-out. Diags: {:?}",
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
         );
@@ -1077,7 +1077,7 @@ module top {
 "#;
         let diags = build_fixture_with_graph(fixture);
         assert!(
-            has_code(&diags, 2004),
+            has_code(&diags, mcc::errcodes::GHOST_PORT),
             "D4 GHOST_PORT should fire for placeholder pins. Diags: {:?}",
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
         );
@@ -1111,7 +1111,7 @@ module top {
             build_err
         );
         assert!(
-            has_code(&diags, 2005) || mismatched > 0,
+            has_code(&diags, mcc::errcodes::NET_BUS_ORDER_MISMATCH) || mismatched > 0,
             "D5 BUS_ORDER_MISMATCH should fire for A↔X, B↔Y. mismatched={} diags: {:?}",
             mismatched,
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
@@ -1196,7 +1196,7 @@ module top {
 "#;
         let (diags, build_err) = build_fixture(fixture);
         assert!(
-            has_code(&diags, 2006),
+            has_code(&diags, mcc::errcodes::NET_DROPPED_STATEMENT),
             "D6 DROPPED_STATEMENT should fire for indexed alias. Build err: {:?}. Diags: {:?}",
             build_err,
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
@@ -1216,7 +1216,7 @@ module top {
 "#;
         let (diags, build_err) = build_fixture(fixture);
         assert!(
-            has_code(&diags, 2007),
+            has_code(&diags, mcc::errcodes::PULLUP_DEGENERATE),
             "D7 PULLUP_DEGENERATE should fire for signal-signal bridge. Build err: {:?}. Diags: {:?}",
             build_err,
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
@@ -1236,7 +1236,7 @@ module top {
 "#;
         let (diags, build_err) = build_fixture(fixture);
         assert!(
-            has_code(&diags, 2008),
+            has_code(&diags, mcc::errcodes::CONN_AMBIGUOUS_PRECEDENCE),
             "D8 AMBIGUOUS_PRECEDENCE should fire for mixed operators. Build err: {:?}. Diags: {:?}",
             build_err,
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()

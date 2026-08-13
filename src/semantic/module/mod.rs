@@ -54,7 +54,11 @@ impl McModule {
                 .and_then(|n| McIds::new(&n));
 
             let Some(body) = subnodes.iter().find(|x| x.is_type(MCAST_BODY)) else {
-                dlog_error(804, node, MISSING_SUBNODE);
+                dlog_error(
+                    crate::errcodes::MODULE_MISSING_SUBNODE,
+                    node,
+                    MISSING_SUBNODE,
+                );
                 return None;
             };
 
@@ -89,7 +93,11 @@ impl McModule {
 
             Some(module)
         } else {
-            dlog_error(804, node, MISSING_SUBNODE);
+            dlog_error(
+                crate::errcodes::MODULE_MISSING_SUBNODE,
+                node,
+                MISSING_SUBNODE,
+            );
             None
         }
     }
@@ -173,7 +181,11 @@ impl McModule {
                     }
                     _ => {
                         // Unknown type, try to parse as data parameter
-                        dlog_error(803, &subnode, "Unexpected type in module param");
+                        dlog_error(
+                            crate::errcodes::MODULE_PARAM_TYPE_UNEXPECTED,
+                            &subnode,
+                            "Unexpected type in module param",
+                        );
                     }
                 }
             }
@@ -224,11 +236,15 @@ impl McModule {
                                     self.lines.push(net);
                                 }
                                 None => {
-                                    dlog_error(1301, &clause, "connection line failed to parse");
+                                    dlog_error(
+                                        crate::errcodes::CONN_LINE_PARSE_FAILED,
+                                        &clause,
+                                        "connection line failed to parse",
+                                    );
                                 }
                             }
                         } else {
-                            dlog_error(1300, &clause, "Empty NET");
+                            dlog_error(crate::errcodes::FUNC_EMPTY_NET, &clause, "Empty NET");
                         }
                     }
 
@@ -242,17 +258,25 @@ impl McModule {
                     }
 
                     MCAST_ROLE => {
-                        dlog_error(801, &clause, "Module does not support role definition.");
+                        dlog_error(
+                            crate::errcodes::MODULE_ROLE_UNSUPPORTED,
+                            &clause,
+                            "Module does not support role definition.",
+                        );
                     }
                     MCAST_ATTRIBUTE_PIN | MCAST_ATTRIBUTE_PINADD => {
                         dlog_error(
-                            801,
+                            crate::errcodes::MODULE_PINS_UNSUPPORTED,
                             &clause,
                             "Module does not support PINS directly. Use in/out/io declarations.",
                         );
                     }
                     _ => {
-                        dlog_error(1402, &clause, "Unexpected clause type in module body");
+                        dlog_error(
+                            crate::errcodes::UNEXPECTED_CLAUSE_TYPE,
+                            &clause,
+                            "Unexpected clause type in module body",
+                        );
                     }
                 }
             }
@@ -309,7 +333,7 @@ impl McModule {
                 });
                 if !has_recorded_ref && !has_ast_usage {
                     crate::db::diagnostic::diagnostic::diagnostic_log(
-                        1405,
+                        crate::errcodes::PORT_NEVER_USED,
                         crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
                         span.start as u32,
                         (span.end - span.start) as u32,

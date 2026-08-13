@@ -475,7 +475,7 @@ impl McModuleInst {
                     // ★ Sub-module instantiation failure → record diagnostics, but keep instance
                     if let Err(e) = inst.instantiate() {
                         self.record_error(
-                            901,
+                            crate::errcodes::INST_SUBMODULE_INSTANTIATE_FAILED,
                             format!("Sub-module '{}' instantiation failed: {}", m.name, e),
                         );
                     }
@@ -586,7 +586,10 @@ impl McModuleInst {
 
             if let Err(e) = self.process_line(line) {
                 // ★ Single connection line failure doesn't interrupt, record diagnostics then continue processing subsequent lines
-                self.record_warning(910, format!("Connection line #{idx} failed: {e}"));
+                self.record_warning(
+                    crate::errcodes::INST_LINE_PARSE_FAILED,
+                    format!("Connection line #{idx} failed: {e}"),
+                );
             }
         }
         // Clear after loop to avoid stale span leaking into post-line checks
@@ -759,7 +762,7 @@ impl McModuleInst {
                 Some(pi) => pi,
                 None => {
                     self.record_warning(
-                        940,
+                        crate::errcodes::INST_ARG_NO_FORMAL_PORT,
                         format!(
                         "Instance '{inst_name}' arg{ai} '{arg_name}' has no formal port to bind"),
                     );
@@ -948,8 +951,7 @@ impl McModuleInst {
                             formal.len(),
                         ),
                     );
-                    self.record_warning(
-                        940,
+                    self.record_warning(crate::errcodes::INST_ARG_NO_FORMAL_PORT,
                         format!(
                             "Instance '{inst_name}' arg '{arg_name}' has no formal port to bind (module='{}', {bound}/{} formal ports already bound)",
                             self.name,
@@ -1126,7 +1128,7 @@ impl McModuleInst {
         // ③ At this point self has no immutable borrow, record diagnostic with &mut self
         for (inst, key_name) in unbound {
             self.record_warning(
-                942,
+                crate::errcodes::INST_POWER_PORT_UNBOUND,
                 format!(
                     "Sub-module instance '{inst}' DC power port '{key_name}' is never connected \
                      (missing power argument?)"
@@ -1164,7 +1166,7 @@ impl McModuleInst {
             Ok(b) => b,
             Err(e) => {
                 self.record_warning(
-                    941,
+                    crate::errcodes::INST_CTOR_PARAM_BIND_FAILED,
                     format!("Constructor '{last}' on '{inst_name}' param bind: {e:?}"),
                 );
                 return;
@@ -1199,7 +1201,10 @@ impl McModuleInst {
             let substituted = Self::substitute_line(line, &bindings, None);
             let prefixed = Self::prefix_instance_line_with_skip(&substituted, inst_name, &skip);
             if let Err(e) = self.process_line(&prefixed) {
-                self.record_warning(942, format!("Constructor '{last}' body line failed: {e}"));
+                self.record_warning(
+                    crate::errcodes::INST_CTOR_BODY_LINE_FAILED,
+                    format!("Constructor '{last}' body line failed: {e}"),
+                );
             }
         }
         // ── P4 backstop: strip host-synthesized interface endpoints leaked during body processing ──

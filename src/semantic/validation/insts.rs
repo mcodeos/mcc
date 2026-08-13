@@ -79,7 +79,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                                 "Instance '{}' of component '{}' passes {} args, but '{}' declares {} param(s).",
                                 inst_name, class_name, call_arg_count, class_name, def_param_count
                             ),
-                            code: 2801,
+                            code: crate::errcodes::INST_ARG_COUNT_MISMATCH,
                         });
                     } else if call_arg_count < def_param_count {
                         // Count required: only params that have NO unit type AND NO default value.
@@ -100,7 +100,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                                     inst_name, class_name, call_arg_count, class_name, required,
                                     def_param_count, def_param_count - required
                                 ),
-                                code: 2801,
+                                code: crate::errcodes::INST_ARG_COUNT_MISMATCH,
                             });
                         }
                     }
@@ -122,7 +122,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                                 "Instance '{}' of module '{}' passes {} args, but '{}' declares {} param(s).",
                                 inst_name, class_name, call_arg_count, class_name, def_param_count
                             ),
-                            code: 2801,
+                            code: crate::errcodes::INST_ARG_COUNT_MISMATCH,
                         });
                     } else if call_arg_count < def_param_count {
                         let required = module_params
@@ -140,7 +140,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                                     inst_name, class_name, call_arg_count, class_name, required,
                                     def_param_count, def_param_count - required
                                 ),
-                                code: 2801,
+                                code: crate::errcodes::INST_ARG_COUNT_MISMATCH,
                             });
                         }
                     }
@@ -169,7 +169,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                                 "Instance '{}' of interface '{}' passes {} args, but '{}' declares {} param(s).",
                                 inst_name, class_name, call_arg_count, class_name, def_param_count
                             ),
-                            code: 2801,
+                            code: crate::errcodes::INST_ARG_COUNT_MISMATCH,
                         });
                     } else if call_arg_count < def_param_count {
                         let required = i2
@@ -189,7 +189,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                                     inst_name, class_name, call_arg_count, class_name, required,
                                     def_param_count, def_param_count - required
                                 ),
-                                code: 2801,
+                                code: crate::errcodes::INST_ARG_COUNT_MISMATCH,
                             });
                         }
                     }
@@ -244,7 +244,7 @@ fn check_role_empty_body(acc: &mut CheckAccumulator) {
                         "Role '{}' in interface '{}' has an empty body (no pins, attrs, or clauses).",
                         role.name, iface.name
                     ),
-                    code: 2802,
+                    code: crate::errcodes::ROLE_EMPTY_BODY,
                 });
             }
         }
@@ -288,7 +288,7 @@ fn check_role_name_conflict(acc: &mut CheckAccumulator) {
                         "Role '{}' in interface '{}' shares a name with a pin/port.",
                         role_name, iface.name
                     ),
-                    code: 2803,
+                    code: crate::errcodes::ROLE_NAME_SHADOWS,
                 });
             }
             if param_names.contains(&role_name) {
@@ -301,7 +301,7 @@ fn check_role_name_conflict(acc: &mut CheckAccumulator) {
                         "Role '{}' in interface '{}' shares a name with a parameter.",
                         role_name, iface.name
                     ),
-                    code: 2803,
+                    code: crate::errcodes::ROLE_NAME_SHADOWS,
                 });
             }
         }
@@ -339,7 +339,7 @@ fn check_func_param_iotype(acc: &mut CheckAccumulator) {
                                     func.name, entry.key().ident, pname,
                                     d.param_type.direction.unwrap().as_str()
                                 ),
-                                code: 2804,
+                                code: crate::errcodes::ATTR_NESTING_TOO_DEEP,
                             });
                         }
                     }
@@ -372,7 +372,7 @@ fn check_func_param_iotype(acc: &mut CheckAccumulator) {
                                     func.name, entry.key().ident, pname,
                                     d.param_type.direction.unwrap().as_str()
                                 ),
-                                code: 2804,
+                                code: crate::errcodes::ATTR_NESTING_TOO_DEEP,
                             });
                         }
                     }
@@ -414,7 +414,7 @@ fn check_role_param_outside_interface(acc: &mut CheckAccumulator) {
                                 entry.key().ident,
                                 pname
                             ),
-                            code: 2805,
+                            code: crate::errcodes::ATTR_PIN_GROUP_UNDEFINED,
                         });
                     }
                 }
@@ -445,7 +445,7 @@ fn check_role_param_outside_interface(acc: &mut CheckAccumulator) {
                                 entry.key().ident,
                                 pname
                             ),
-                            code: 2805,
+                            code: crate::errcodes::ATTR_PIN_GROUP_UNDEFINED,
                         });
                     }
                 }
@@ -515,7 +515,7 @@ fn check_non_constant_default(acc: &mut CheckAccumulator) {
                             entry.key().ident,
                             def_val
                         ),
-                        code: 2806,
+                        code: crate::errcodes::PINS_PLUS_AND_PINS_CONFLICT,
                     });
                 }
             }

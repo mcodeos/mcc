@@ -1020,7 +1020,7 @@ fn build_mc_vec_graph_inner(
         for p in &b.pins {
             if p.id >= 8_000_000_000 {
                 crate::db::diagnostic::diagnostic::diagnostic_log(
-                    2004,
+                    crate::errcodes::GHOST_PORT,
                     crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
                     0,
                     1,
@@ -1371,8 +1371,7 @@ fn generate_viznets_from_block(
                 // Fire when a net endpoint can't be mapped to any box in the
                 // current layer. This includes placeholder pins (id ≥ 8e9) and
                 // pins whose InstTable entry exists but isn't mapped to any box.
-                crate::db::diagnostic::diagnostic::diagnostic_log(
-                    2004,
+                crate::db::diagnostic::diagnostic::diagnostic_log(crate::errcodes::GHOST_PORT,
                     crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
                     0,
                     1,

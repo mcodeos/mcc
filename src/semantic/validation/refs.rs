@@ -52,7 +52,7 @@ fn check_comp_func_unused_params(acc: &mut CheckAccumulator) {
                         "Function '{}' in component '{}' has params [{}] but no body (empty implementation).",
                         func.name, comp_name, param_names
                     ),
-                    code: 2303,
+                    code: crate::errcodes::FUNC_PARAMS_NO_BODY,
                 });
             }
         }
@@ -90,7 +90,7 @@ fn check_bare_params(acc: &mut CheckAccumulator) {
                              Consider adding ::INT, ::STRING, ::UV.VOLT, etc.",
                             name, comp_name
                         ),
-                        code: 2302,
+                        code: crate::errcodes::REF_INTEGRITY,
                     });
                 }
             }
@@ -132,7 +132,7 @@ fn check_spec_refs(acc: &mut CheckAccumulator) {
                                     "Spec key '{}' in component '{}' references '{}' which is not a declared parameter.",
                                     attr.id, comp_name, word
                                 ),
-                                code: 2301,
+                                code: crate::errcodes::SPEC_KEY_UNDECLARED_PARAM,
                             });
                         }
                     }

@@ -52,8 +52,7 @@ impl McModuleInst {
         if !self.failed_classes.is_empty()
             && Self::phrase_contains_failed_class(phrase, &self.failed_classes)
         {
-            self.record_warning(
-                910,
+            self.record_warning(crate::errcodes::INST_LINE_SKIP_FAILED_CLASS,
                 format!("Line references a component class whose instantiation failed; skipping entire line."),
             );
             return Ok(());
@@ -147,7 +146,7 @@ impl McModuleInst {
                     }
                     if let Err(e) = self.process_line(&pair) {
                         self.record_warning(
-                            911,
+                            crate::errcodes::INST_BUILTIN_TWOPIN_EXPAND_FAILED,
                             format!("Expanded builtin twopin pair failed: {e}"),
                         );
                     }
@@ -158,7 +157,10 @@ impl McModuleInst {
 
             // Normal processing for non-expanded members
             if let Err(e) = self.process_member_internal(&members[i]) {
-                self.record_warning(911, format!("Member processing failed: {e}"));
+                self.record_warning(
+                    crate::errcodes::INST_MEMBER_PROCESS_FAILED,
+                    format!("Member processing failed: {e}"),
+                );
             }
             i += 1;
         }
@@ -220,7 +222,7 @@ impl McModuleInst {
 
             if let Err(e) = self.try_connect_adjacent(left_member, right_member, dir) {
                 self.record_warning(
-                    912,
+                    crate::errcodes::INST_ADJACENT_CONNECT_FAILED,
                     format!(
                         "Connection between members #{} and #{} failed: {}",
                         i,
@@ -331,7 +333,7 @@ impl McModuleInst {
             let rp = self.shunt_chain_points(pair[1], false);
             if let Err(e) = self.create_connection(lp, rp, dir, None) {
                 self.record_warning(
-                    912,
+                    crate::errcodes::INST_ADJACENT_CONNECT_FAILED,
                     format!("Pass-through across `.Cap(_)` shunt failed: {e}"),
                 );
             }
@@ -348,7 +350,7 @@ impl McModuleInst {
             // doesn't exist in auto_inst_map yet.
             if let Err(e) = self.process_member_internal(m) {
                 self.record_warning(
-                    913,
+                    crate::errcodes::INST_SHUNT_PROCESS_FAILED,
                     format!("`.Cap(_)` shunt: failed to create component: {e}"),
                 );
                 continue;
@@ -378,7 +380,7 @@ impl McModuleInst {
             };
             if rail_src.is_empty() {
                 self.record_warning(
-                    913,
+                    crate::errcodes::INST_SHUNT_PROCESS_FAILED,
                     "`.Cap(_)` shunt: no neighbor to derive a rail; only pin2 → GND wired"
                         .to_string(),
                 );
@@ -414,13 +416,16 @@ impl McModuleInst {
             let pin1 = self.get_left_points(m).unwrap_or_default();
             if pin1.is_empty() {
                 self.record_warning(
-                    913,
+                    crate::errcodes::INST_SHUNT_PROCESS_FAILED,
                     "`.Cap(_)` shunt: cannot resolve pin1; only pin2 → GND wired".to_string(),
                 );
                 continue;
             }
             if let Err(e) = self.create_connection(pin1, vec![rail], dir, None) {
-                self.record_warning(913, format!("`.Cap(_)` shunt pin1 → rail failed: {e}"));
+                self.record_warning(
+                    crate::errcodes::INST_SHUNT_PROCESS_FAILED,
+                    format!("`.Cap(_)` shunt pin1 → rail failed: {e}"),
+                );
             }
         }
     }
@@ -523,7 +528,7 @@ impl McModuleInst {
             if let McPhrase::Transposed(_) = member {
                 if let Err(e) = self.process_member_internal(member) {
                     self.record_warning(
-                        915,
+                        crate::errcodes::INST_LANE_TRANSPOSED_FAILED,
                         format!("Failed to instantiate Transposed in lane-by-lane: {e}"),
                     );
                 }
@@ -570,7 +575,7 @@ impl McModuleInst {
                 if matches!(elem, McPhrase::FuncCall(_)) {
                     if let Err(e) = self.process_member_internal(elem) {
                         self.record_warning(
-                            914,
+                            crate::errcodes::INST_LANE_FUNCCALL_FAILED,
                             format!("Failed to instantiate FuncCall in lane-by-lane wiring: {e}"),
                         );
                     }
@@ -1832,8 +1837,7 @@ impl McModuleInst {
                 // Dimension mismatch (double-end but different widths): degrade
                 // to "merge all to left net" + warning
                 if !dim_mismatch_warned {
-                    self.record_warning(
-                        921,
+                    self.record_warning(crate::errcodes::CONN_PARALLEL_DIM_MISMATCH,
                         format!(
                             "Parallel '+' operand dimension mismatch (anchor={}x1, opd[{}]={}x1 left / {}x1 right): \
                              merging operand into anchor's left net.",
@@ -1954,7 +1958,7 @@ impl McModuleInst {
             let rref: &McPhrase = rn.as_ref().unwrap_or(&elems[k + 1]);
             if let Err(err) = self.try_connect_adjacent(lref, rref, dir) {
                 self.record_warning(
-                    912,
+                    crate::errcodes::INST_ADJACENT_CONNECT_FAILED,
                     format!(
                         "Group/Parallel-branch Series member #{}~#{} connect failed: {}",
                         k,
@@ -2539,8 +2543,7 @@ impl McModuleInst {
                                 } else {
                                     "sub-module"
                                 };
-                                self.record_warning(
-                                    940,
+                                self.record_warning(crate::errcodes::INST_METHOD_FALLBACK,
                                     format!(
                                         "Method '{func_name_str}' not defined in {owner_kind} '{inst_name}'; \
                                          chain link skipped, no body expanded."

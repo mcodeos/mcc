@@ -743,7 +743,11 @@ impl McParamDeclare {
                     }
                     McParamDeclareKind::Single(name_ids)
                 } else {
-                    dlog_error(1304, node, "Invalid param name.");
+                    dlog_error(
+                        crate::errcodes::PARAM_NAME_INVALID,
+                        node,
+                        "Invalid param name.",
+                    );
                     return None;
                 }
             }
@@ -762,7 +766,11 @@ impl McParamDeclare {
                 if !phrases.is_empty() {
                     McParamDeclareKind::Multiple(phrases)
                 } else {
-                    dlog_error(1305, node, "Invalid param set.");
+                    dlog_error(
+                        crate::errcodes::PARAM_SET_INVALID,
+                        node,
+                        "Invalid param set.",
+                    );
                     return None;
                 }
             }
@@ -787,7 +795,11 @@ impl McParamDeclare {
                 if !phrases.is_empty() {
                     McParamDeclareKind::Multiple(phrases)
                 } else {
-                    dlog_error(1305, node, "Invalid param set.");
+                    dlog_error(
+                        crate::errcodes::PARAM_SET_INVALID,
+                        node,
+                        "Invalid param set.",
+                    );
                     return None;
                 }
             }
@@ -796,7 +808,11 @@ impl McParamDeclare {
                 if let Some(uval) = McUnitValueDeclare::new(&subnode) {
                     McParamDeclareKind::UValue(uval)
                 } else {
-                    dlog_error(1307, node, "Invalid param uval.");
+                    dlog_error(
+                        crate::errcodes::PARAM_UVAL_INVALID,
+                        node,
+                        "Invalid param uval.",
+                    );
                     return None;
                 }
             }
@@ -889,7 +905,7 @@ impl McParamDeclare {
                 match inst_ids_list.len() {
                     0 => {
                         dlog_error(
-                            1310,
+                            crate::errcodes::PARAM_NAME_EXTRACT_FAILED,
                             node,
                             "Failed to extract parameter name from MCAST_DECLARE",
                         );
@@ -901,7 +917,11 @@ impl McParamDeclare {
             }
 
             _ => {
-                dlog_error(1303, node, "Invalid param declare node.");
+                dlog_error(
+                    crate::errcodes::PARAM_DECLARE_INVALID,
+                    node,
+                    "Invalid param declare node.",
+                );
                 return None;
             }
         };

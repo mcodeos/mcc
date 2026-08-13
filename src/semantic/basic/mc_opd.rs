@@ -69,7 +69,11 @@ impl McOpd {
             }
         }
         let Some(snode) = node.get_sub_node() else {
-            dlog_error(1101, node, "Missing subnode");
+            dlog_error(
+                crate::errcodes::NAME_MISSING_SUBNODE,
+                node,
+                "Missing subnode",
+            );
             return None;
         };
 

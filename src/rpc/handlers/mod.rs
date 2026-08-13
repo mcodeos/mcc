@@ -29,6 +29,9 @@
 //!   - 32105  entry file not found
 //!   - 32106  dependency not loaded
 //!   - 32107  Pass1 / Pass2 failed
+//!   - 32110  Pass1 (parse) failed
+//!   - 32111  Pass2 (build) failed
+//!   - 32112  component / module / entity / file not found
 
 use super::protocol::{JsonRpcError, RpcResult};
 use crate::db::cmie::tables as workspace;
@@ -747,7 +750,7 @@ pub(crate) fn remove_overlay(uri: &McURI) {
 /// Run Pass2 ERC: single-point nets, unconnected ports, net stats.
 pub(crate) fn run_erc() -> RpcResult {
     let top = crate::mcb_get_first_module_name()
-        .ok_or_else(|| JsonRpcError::custom(-32003, "semantic: no modules found"))?;
+        .ok_or_else(|| JsonRpcError::custom(32112, "semantic: no modules found"))?;
 
     let uri = crate::McURI::from(top.as_str());
     let ident = crate::McIds::from(top.as_str());
@@ -755,8 +758,8 @@ pub(crate) fn run_erc() -> RpcResult {
     let inst = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         crate::mcc_build(&ident, &uri)
     }))
-    .map_err(|_| JsonRpcError::custom(-32002, "semantic: build panicked"))?
-    .map_err(|e| JsonRpcError::custom(-32002, &format!("semantic: build failed: {e}")))?;
+    .map_err(|_| JsonRpcError::custom(32111, "semantic: build panicked"))?
+    .map_err(|e| JsonRpcError::custom(32111, &format!("semantic: build failed: {e}")))?;
 
     let mut diags: Vec<Value> = Vec::new();
 
@@ -771,8 +774,9 @@ pub(crate) fn run_erc() -> RpcResult {
         .collect();
 
     for net in &single_point {
+        let code = crate::errcodes::ERC_SINGLE_POINT_NET;
         diags.push(json!({
-            "code": 5001,
+            "code": code,
             "severity": "warning",
             "message": format!("single-point net: '{net}' has only one connection — may be unconnected"),
             "check": "single_point_net",
@@ -789,8 +793,9 @@ pub(crate) fn run_erc() -> RpcResult {
 
     for port in &inst.ports {
         if !all_net_paths.contains(port.name.as_str()) {
+            let code = crate::errcodes::ERC_UNCONNECTED_PORT;
             diags.push(json!({
-                "code": 5002,
+                "code": code,
                 "severity": "warning",
                 "message": format!("unconnected port: '{}' is not connected to any net", port.name),
                 "check": "unconnected_port",
@@ -823,8 +828,9 @@ pub(crate) fn run_erc() -> RpcResult {
         if drivers.len() > 1 {
             multi_drive += 1;
             let names: Vec<_> = drivers.iter().map(|d| d.path.as_str()).collect();
+            let code = crate::errcodes::ERC_MULTI_DRIVE_NET;
             diags.push(json!({
-                "code": 5003,
+                "code": code,
                 "severity": "error",
                 "check": "multi_drive",
                 "message": format!(
@@ -835,8 +841,9 @@ pub(crate) fn run_erc() -> RpcResult {
             }));
         } else if drivers.is_empty() && points.len() > 1 {
             floating += 1;
+            let code = crate::errcodes::ERC_FLOATING_NET;
             diags.push(json!({
-                "code": 5004,
+                "code": code,
                 "severity": "warning",
                 "check": "floating_net",
                 "message": format!(

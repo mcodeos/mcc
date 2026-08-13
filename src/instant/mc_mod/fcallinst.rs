@@ -218,8 +218,7 @@ impl McModuleInst {
                 let left_count = left.len();
                 let pin_count = input_pins.len();
                 if left_count != pin_count {
-                    self.record_warning(
-                        930,
+                    self.record_warning(crate::errcodes::INST_INPUT_PIN_COUNT_MISMATCH,
                         format!(
                             "Component '{inst_name}' ({type_name}) input pin count mismatch: {left_count} connections vs {pin_count} input pins"
                         ),
@@ -239,8 +238,7 @@ impl McModuleInst {
                 let right_count = right.len();
                 let pin_count = output_pins.len();
                 if right_count != pin_count {
-                    self.record_warning(
-                        931,
+                    self.record_warning(crate::errcodes::INST_OUTPUT_PIN_COUNT_MISMATCH,
                         format!(
                             "Component '{inst_name}' ({type_name}) output pin count mismatch: {right_count} connections vs {pin_count} output pins"
                         ),
@@ -330,7 +328,7 @@ impl McModuleInst {
         //    ★ On failure, record a diagnostic but keep the instance
         if let Err(e) = sub_inst.instantiate() {
             self.record_error(
-                932,
+                crate::errcodes::INST_INLINE_MODULE_FAILED,
                 format!("Inline module '{inst_name}' ({type_name}) instantiation failed: {e}"),
             );
         }
@@ -356,8 +354,7 @@ impl McModuleInst {
             let left_count = left.len();
             let port_count = input_ports.len();
             if left_count != port_count {
-                self.record_warning(
-                    933,
+                self.record_warning(crate::errcodes::INST_INPUT_PORT_COUNT_MISMATCH,
                     format!(
                         "Module '{inst_name}' ({type_name}) input port count mismatch: {left_count} connections vs {port_count} input ports"
                     ),
@@ -383,8 +380,7 @@ impl McModuleInst {
             let right_count = right.len();
             let port_count = output_ports.len();
             if right_count != port_count {
-                self.record_warning(
-                    934,
+                self.record_warning(crate::errcodes::INST_OUTPUT_PORT_COUNT_MISMATCH,
                     format!(
                         "Module '{inst_name}' ({type_name}) output port count mismatch: {right_count} connections vs {port_count} output ports"
                     ),

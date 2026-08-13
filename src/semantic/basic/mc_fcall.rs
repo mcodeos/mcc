@@ -1079,7 +1079,7 @@ impl McFuncCall {
                                         }
                                     } else {
                                         dlog_error(
-                                            1301,
+                                            crate::errcodes::FUNC_CALL_MISSING_NAME,
                                             node,
                                             "Missing function name in function call",
                                         );
@@ -1089,7 +1089,7 @@ impl McFuncCall {
                             },
                             McPhrase::Series(_, _) => {
                                 dlog_error(
-                                    1301,
+                                    crate::errcodes::FUNC_CALL_MISSING_NAME,
                                     node,
                                     "Missing function name in function call (seq context)",
                                 );
@@ -1104,7 +1104,7 @@ impl McFuncCall {
                                     }
                                 } else {
                                     dlog_error(
-                                        1301,
+                                        crate::errcodes::FUNC_CALL_MISSING_NAME,
                                         node,
                                         "Missing function name in function call",
                                     );
@@ -1113,7 +1113,11 @@ impl McFuncCall {
                             }
                         }
                     } else {
-                        dlog_error(1301, node, "Missing function name in function call");
+                        dlog_error(
+                            crate::errcodes::FUNC_CALL_MISSING_NAME,
+                            node,
+                            "Missing function name in function call",
+                        );
                         return None;
                     }
                 } else if let Some(ref caller_opd) = caller {
@@ -1152,25 +1156,37 @@ impl McFuncCall {
                                 members: _,
                             })) => McIds::from(m.name.to_string().as_str()),
                             _ => {
-                                dlog_error(1301, node, "Missing function name in function call");
+                                dlog_error(
+                                    crate::errcodes::FUNC_CALL_MISSING_NAME,
+                                    node,
+                                    "Missing function name in function call",
+                                );
                                 return None;
                             }
                         },
                         McPhrase::Series(_, _) => {
                             dlog_error(
-                                1301,
+                                crate::errcodes::FUNC_CALL_MISSING_NAME,
                                 node,
                                 "Missing function name in function call (seq context)",
                             );
                             return None;
                         }
                         _ => {
-                            dlog_error(1301, node, "Missing function name in function call");
+                            dlog_error(
+                                crate::errcodes::FUNC_CALL_MISSING_NAME,
+                                node,
+                                "Missing function name in function call",
+                            );
                             return None;
                         }
                     }
                 } else {
-                    dlog_error(1301, node, "Missing function name in function call");
+                    dlog_error(
+                        crate::errcodes::FUNC_CALL_MISSING_NAME,
+                        node,
+                        "Missing function name in function call",
+                    );
                     return None;
                 }
             }
@@ -1415,8 +1431,7 @@ impl McFuncCall {
         }
 
         debug_assert!(matches!(ret, McFuncReturn::Endpoint(_)));
-        dlog_error(
-            1316,
+        dlog_error(crate::errcodes::FCALL_PARSE_FAILED,
             node,
             &format!(
                 "Cannot chain `.{outer_method}` after `{inner_name}(...)`: function `{inner_name}` returns a \

@@ -75,8 +75,9 @@ fn run_local(args: &ErcArgs) -> Result<()> {
             continue;
         }
         if points.len() <= 1 {
+            let code = mcc::errcodes::ERC_SINGLE_POINT_NET;
             diags.push(json!({
-                "code": 5001,
+                "code": code,
                 "severity": "warning",
                 "check": "single_point_net",
                 "message": format!("single-point net: '{name}' has only one connection"),
@@ -94,8 +95,9 @@ fn run_local(args: &ErcArgs) -> Result<()> {
 
     for port in &inst.ports {
         if !all_paths.contains(port.name.as_str()) {
+            let code = mcc::errcodes::ERC_UNCONNECTED_PORT;
             diags.push(json!({
-                "code": 5002,
+                "code": code,
                 "severity": "warning",
                 "check": "unconnected_port",
                 "message": format!("unconnected port: '{}' is not connected to any net", port.name),
@@ -127,8 +129,9 @@ fn run_local(args: &ErcArgs) -> Result<()> {
         if drivers.len() > 1 {
             multi_drive += 1;
             let names: Vec<_> = drivers.iter().map(|d| d.path.as_str()).collect();
+            let code = mcc::errcodes::ERC_MULTI_DRIVE_NET;
             diags.push(json!({
-                "code": 5003,
+                "code": code,
                 "severity": "error",
                 "check": "multi_drive",
                 "message": format!(
@@ -139,8 +142,9 @@ fn run_local(args: &ErcArgs) -> Result<()> {
             }));
         } else if drivers.is_empty() && points.len() > 1 {
             floating += 1;
+            let code = mcc::errcodes::ERC_FLOATING_NET;
             diags.push(json!({
-                "code": 5004,
+                "code": code,
                 "severity": "warning",
                 "check": "floating_net",
                 "message": format!("floating net: '{}' has no driver", name),

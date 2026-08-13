@@ -101,8 +101,7 @@ impl McModuleInst {
             self.create_connection(external_points, group_points, ConnDir::Undirected, None)?;
         } else {
             // ★ Degraded to warning: connect as much as possible, truncate by min
-            self.record_warning(
-                922,
+            self.record_warning(crate::errcodes::CONN_GROUP_SHAPE_MISMATCH,
                 format!(
                     "Group shape mismatch: {external_size} external points vs {group_size} group points ({branch_count} branches), truncating"
                 ),
@@ -196,7 +195,14 @@ impl McModuleInst {
                          connection. The same two points are connected more than once, \
                          merging into a short."
                     );
-                    diagnostic_log(2003, DiagnosticLevel::Error, pos, len, &msg, &[]);
+                    diagnostic_log(
+                        crate::errcodes::NET_MERGED_SHORT,
+                        DiagnosticLevel::Error,
+                        pos,
+                        len,
+                        &msg,
+                        &[],
+                    );
                     break;
                 }
             }
@@ -297,7 +303,14 @@ impl McModuleInst {
                              This may indicate bus member order misalignment between the two sides.",
                             left_size, mismatches.join(", ")
                         );
-                        diagnostic_log(2005, DiagnosticLevel::Error, pos, len, &msg, &[]);
+                        diagnostic_log(
+                            crate::errcodes::NET_BUS_ORDER_MISMATCH,
+                            DiagnosticLevel::Error,
+                            pos,
+                            len,
+                            &msg,
+                            &[],
+                        );
                     }
                 }
                 for ((_, l), (_, r)) in left_sorted.iter().zip(right_sorted.iter()) {
@@ -386,7 +399,7 @@ impl McModuleInst {
         } else {
             // ★ Degraded to warning: do not abort, truncate connection by min(left, right)
             self.record_warning(
-                920,
+                crate::errcodes::CONN_SHAPE_MISMATCH_TRUNCATED,
                 format!(
                     "Shape mismatch: left={}, right={}, truncating to min({})",
                     left_size,

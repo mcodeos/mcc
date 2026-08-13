@@ -91,7 +91,7 @@ impl McUse {
             "../" => McUsePrefix::PathParent,
             _ => {
                 dlog_error(
-                    403,
+                    crate::db::diagnostic::errcodes::USE_URI_PREFIX_INVALID,
                     &pre_fix_node,
                     "Unrecognized URI prefix — expected $, /, ./, or ../",
                 );
@@ -155,7 +155,11 @@ impl McUse {
                 }
             }
             _ => {
-                dlog_error(402, &module_file_node, "Invalid path in USE");
+                dlog_error(
+                    crate::errcodes::USE_PATH_INVALID,
+                    &module_file_node,
+                    "Invalid path in USE",
+                );
                 return None;
             }
         };
@@ -264,7 +268,11 @@ impl McUse {
                 // Log warning with dlog_warning if file_node is available
                 if let Some(fnode) = file_node {
                     let file_display = absolute_file_path.display();
-                    dlog_warning(403, fnode, &format!("use target not found: {file_display}"));
+                    dlog_warning(
+                        crate::db::diagnostic::errcodes::USE_TARGET_NOT_FOUND,
+                        fnode,
+                        &format!("use target not found: {file_display}"),
+                    );
                 } else {
                     debug!(
                         target: "mcc::use",

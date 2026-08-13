@@ -396,8 +396,7 @@ impl McModuleInst {
                 right.len(),
             ),
         );
-        self.record_warning(
-            944,
+        self.record_warning(crate::errcodes::INST_METHOD_FALLBACK,
             format!(
                 "Unrecognized function call '{name_str}' in module '{}' — treated as pass-through (class not loaded or name misspelled)",
                 self.name,
@@ -645,8 +644,7 @@ impl McModuleInst {
             let t1_is_rail = is_rail(&targets[0]);
             let t2_is_rail = is_rail(&targets[1]);
             if !t1_is_rail && !t2_is_rail {
-                crate::db::diagnostic::diagnostic::diagnostic_log(
-                    2007,
+                crate::db::diagnostic::diagnostic::diagnostic_log(crate::errcodes::PULLUP_DEGENERATE,
                     crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
                     0,
                     0,
