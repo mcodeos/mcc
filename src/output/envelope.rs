@@ -86,28 +86,28 @@ pub struct RpcError {
 }
 
 impl RpcError {
-    /// -32001: Pass1 (parse) error
+    /// 32110: Pass1 (parse) error
     pub fn parse_error(msg: impl Into<String>) -> Self {
         Self {
-            code: -32001,
+            code: 32110,
             message: msg.into(),
             data: None,
         }
     }
 
-    /// -32002: Pass2 (build/instantiate) phase error
+    /// 32111: Pass2 (build/instantiate) phase error
     pub fn build_error(msg: impl Into<String>) -> Self {
         Self {
-            code: -32002,
+            code: 32111,
             message: msg.into(),
             data: None,
         }
     }
 
-    /// -32003: User input file / path not found
+    /// 32112: User input file / path not found
     pub fn not_found(msg: impl Into<String>) -> Self {
         Self {
-            code: -32003,
+            code: 32112,
             message: msg.into(),
             data: None,
         }
@@ -539,7 +539,7 @@ mod tests {
     fn envelope_err_serializes_with_code() {
         let env = Envelope::err(RpcError::parse_error("bad token"));
         let json = serde_json::to_string(&env).unwrap();
-        assert!(json.contains("\"code\":-32001"));
+        assert!(json.contains("\"code\":32110"));
         assert!(json.contains("\"message\":\"bad token\""));
         assert!(!json.contains("\"result\""));
     }

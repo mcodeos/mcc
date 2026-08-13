@@ -25,18 +25,26 @@ impl McLayout {
         let sub_node1 = match node.get_sub_node() {
             Some(n) => n,
             None => {
-                dlog_warning(2001, node, MISSING_SUBNODE);
+                dlog_warning(
+                    crate::errcodes::LAYOUT_MISSING_SUBNODE,
+                    node,
+                    MISSING_SUBNODE,
+                );
                 return None;
             }
         };
         if !sub_node1.is_type(MCAST_ATT_ID) {
-            dlog_warning(2002, node, TYPE_MISMATCH);
+            dlog_warning(crate::errcodes::LAYOUT_TYPE_MISMATCH, node, TYPE_MISMATCH);
             return None;
         }
         let sub_node2 = match sub_node1.get_next() {
             Some(n) => n,
             None => {
-                dlog_warning(2003, node, MISSING_SUBNODE);
+                dlog_warning(
+                    crate::errcodes::LAYOUT_SET_MISSING_SUBNODE,
+                    node,
+                    MISSING_SUBNODE,
+                );
                 return None;
             }
         };
@@ -44,14 +52,22 @@ impl McLayout {
             if sub_node2.is_type(MCAST_ATT_VALUES) {
                 return None;
             } else {
-                dlog_warning(2004, node, TYPE_MISMATCH);
+                dlog_warning(
+                    crate::errcodes::LAYOUT_VALUES_TYPE_MISMATCH,
+                    node,
+                    TYPE_MISMATCH,
+                );
                 return None;
             }
         }
         let sub_node1_ids_node = match sub_node1.get_sub_node() {
             Some(n) => n,
             None => {
-                dlog_warning(2005, node, MISSING_SUBNODE);
+                dlog_warning(
+                    crate::errcodes::LAYOUT_NAME_MISSING_SUBNODE,
+                    node,
+                    MISSING_SUBNODE,
+                );
                 return None;
             }
         };
@@ -63,7 +79,7 @@ impl McLayout {
                 Some(n) => n,
                 None => {
                     dlog_warning(
-                        2006,
+                        crate::errcodes::LAYOUT_EDGE_MISSING_SUBNODE,
                         node,
                         "While building layout: Missing subnode for edge",
                     );
@@ -80,46 +96,74 @@ impl McLayout {
 
             for each_edge in first_edge_node.iter() {
                 if !each_edge.is_type(MCAST_ATTRIBUTE) {
-                    dlog_warning(2007, node, "Type mismatch in layout edge");
+                    dlog_warning(
+                        crate::errcodes::LAYOUT_EDGE_TYPE_MISMATCH,
+                        node,
+                        "Type mismatch in layout edge",
+                    );
                     return None;
                 }
 
                 let name_node = match each_edge.get_sub_node() {
                     Some(n) => n,
                     None => {
-                        dlog_warning(2008, node, "Missing subnode for layout edge name");
+                        dlog_warning(
+                            crate::errcodes::LAYOUT_EDGE_NAME_MISSING_SUBNODE,
+                            node,
+                            "Missing subnode for layout edge name",
+                        );
                         return None;
                     }
                 };
                 let value_node = match name_node.get_next() {
                     Some(n) => n,
                     None => {
-                        dlog_warning(2009, node, "Missing subnode for layout value");
+                        dlog_warning(
+                            crate::errcodes::LAYOUT_VALUE_MISSING_SUBNODE,
+                            node,
+                            "Missing subnode for layout value",
+                        );
                         return None;
                     }
                 };
 
                 if !value_node.is_type(MCAST_ATT_VALUES) {
-                    dlog_warning(2010, node, "Type mismatch in layout value");
+                    dlog_warning(
+                        crate::errcodes::LAYOUT_VALUE_TYPE_MISMATCH,
+                        node,
+                        "Type mismatch in layout value",
+                    );
                     return None;
                 }
 
                 let set_node = match value_node.get_sub_node() {
                     Some(n) => n,
                     None => {
-                        dlog_warning(2011, node, "Missing subnode for layout set");
+                        dlog_warning(
+                            crate::errcodes::LAYOUT_SET_SUBNODE_MISSING,
+                            node,
+                            "Missing subnode for layout set",
+                        );
                         return None;
                     }
                 };
                 if set_node.get_next().is_some() {
-                    dlog_warning(2012, node, "Malformed layout: unexpected extra nodes");
+                    dlog_warning(
+                        crate::errcodes::LAYOUT_EXTRA_NODES,
+                        node,
+                        "Malformed layout: unexpected extra nodes",
+                    );
                     return None;
                 }
 
                 let first_value = match set_node.get_sub_node() {
                     Some(n) => n,
                     None => {
-                        dlog_warning(2013, node, "Missing subnode for layout values");
+                        dlog_warning(
+                            crate::errcodes::LAYOUT_VALUES_MISSING_SUBNODE,
+                            node,
+                            "Missing subnode for layout values",
+                        );
                         return None;
                     }
                 };
@@ -129,14 +173,22 @@ impl McLayout {
                     let int_node = match x.get_sub_node() {
                         Some(n) => n,
                         None => {
-                            dlog_warning(2014, node, "CONST node missing subnode INT");
+                            dlog_warning(
+                                crate::errcodes::LAYOUT_CONST_MISSING_INT,
+                                node,
+                                "CONST node missing subnode INT",
+                            );
                             return None;
                         }
                     };
                     let val = match int_node.to_u32() {
                         Some(v) => v,
                         None => {
-                            dlog_warning(2015, node, "Parse error in layout pin number");
+                            dlog_warning(
+                                crate::errcodes::LAYOUT_PIN_NUMBER_PARSE,
+                                node,
+                                "Parse error in layout pin number",
+                            );
                             return None;
                         }
                     };
@@ -146,7 +198,11 @@ impl McLayout {
                 let name_id_node = match name_node.get_sub_node() {
                     Some(n) => n,
                     None => {
-                        dlog_warning(2016, node, "Missing subnode for layout edge name id");
+                        dlog_warning(
+                            crate::errcodes::LAYOUT_EDGE_NAME_ID_MISSING_SUBNODE,
+                            node,
+                            "Missing subnode for layout edge name id",
+                        );
                         return None;
                     }
                 };
@@ -162,11 +218,15 @@ impl McLayout {
                     } else if name == "bottom" {
                         ret.bottom = all_values;
                     } else {
-                        dlog_warning(2017, node, "Invalid edge. Edges should be one of: \"left\", \"right\", \"top\", \"bottom\"");
+                        dlog_warning(crate::errcodes::LAYOUT_EDGE_INVALID, node, "Invalid edge. Edges should be one of: \"left\", \"right\", \"top\", \"bottom\"");
                         return None;
                     }
                 } else {
-                    dlog_warning(2018, node, "Malformed layout: edge name not an ID");
+                    dlog_warning(
+                        crate::errcodes::LAYOUT_EDGE_NAME_NOT_ID,
+                        node,
+                        "Malformed layout: edge name not an ID",
+                    );
                     return None;
                 }
             }

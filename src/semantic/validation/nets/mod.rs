@@ -90,7 +90,7 @@ fn check_driver_conflict(table: &InstTable, results: &mut Vec<NetCheckResult>) {
                     names.join(", ")
                 ),
                 net_name: net.name.clone(),
-                code: 3101,
+                code: crate::errcodes::NET_MULTI_DRIVE,
                 pos,
                 uri,
             });
@@ -119,7 +119,7 @@ fn check_undriven_nets(table: &InstTable, results: &mut Vec<NetCheckResult>) {
                 severity: "warning",
                 message: format!("Net '{}' has inputs but no output/power driver.", net.name),
                 net_name: net.name.clone(),
-                code: 3102,
+                code: crate::errcodes::NET_NO_DRIVER,
                 pos,
                 uri,
             });
@@ -142,7 +142,7 @@ fn check_floating_inputs(table: &InstTable, results: &mut Vec<NetCheckResult>) {
                 severity: "warning",
                 message: format!("Input '{}' is not connected to any net.", entry.path),
                 net_name: entry.path.clone(),
-                code: 3105,
+                code: crate::errcodes::NET_INPUT_UNCONNECTED,
                 pos,
                 uri,
             });
@@ -165,7 +165,7 @@ fn check_nc_connected(table: &InstTable, results: &mut Vec<NetCheckResult>) {
                             entry.path, net.name
                         ),
                         net_name: net.name.clone(),
-                        code: 3106,
+                        code: crate::errcodes::NET_NC_CONNECTED,
                         pos,
                         uri,
                     });
@@ -190,7 +190,7 @@ fn check_unconnected_outputs(table: &InstTable, results: &mut Vec<NetCheckResult
                 severity: "warning",
                 message: format!("Output '{}' drives nothing.", entry.path),
                 net_name: entry.path.clone(),
-                code: 3107,
+                code: crate::errcodes::NET_OUTPUT_UNDRIVEN,
                 pos,
                 uri,
             });
@@ -250,7 +250,7 @@ fn check_voltage_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>) 
                         n1.name, v1, n2.name, v2
                     ),
                     net_name: format!("{}+{}", n1.name, n2.name),
-                    code: 3103,
+                    code: crate::errcodes::NET_VOLTAGE_MISMATCH,
                     pos,
                     uri,
                 });
@@ -286,7 +286,7 @@ fn check_unwired_instances(table: &InstTable, results: &mut Vec<NetCheckResult>)
                         entry.path
                     ),
                     net_name: entry.path.clone(),
-                    code: 3109,
+                    code: crate::errcodes::NET_INSTANCE_UNCONNECTED,
                     pos,
                     uri,
                 });
@@ -318,7 +318,7 @@ fn check_backfeed(table: &InstTable, results: &mut Vec<NetCheckResult>) {
                     net.name
                 ),
                 net_name: net.name.clone(),
-                code: 3108,
+                code: crate::errcodes::NET_BACKFEED_RISK,
                 pos,
                 uri,
             });
@@ -353,7 +353,7 @@ fn check_port_io_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>) 
                     net.name, out_count
                 ),
                 net_name: net.name.clone(),
-                code: 3110,
+                code: crate::errcodes::NET_OUTPUTS_NO_INPUT,
                 pos,
                 uri,
             });
@@ -380,7 +380,7 @@ fn check_power_nets(table: &InstTable, results: &mut Vec<NetCheckResult>) {
             severity: "info",
             message: format!("Design has {} power nets. Review for consolidation.", count),
             net_name: String::new(),
-            code: 3199,
+            code: crate::errcodes::NET_POWER_NET_COUNT,
             pos: 0,
             uri: String::new(),
         });
@@ -420,7 +420,7 @@ fn check_unused_module_ports(table: &InstTable, results: &mut Vec<NetCheckResult
                     entry.path, entry.io_type
                 ),
                 net_name: entry.path.clone(),
-                code: 3111,
+                code: crate::errcodes::NET_MODULE_PORT_UNCONNECTED,
                 pos,
                 uri,
             });
@@ -442,7 +442,7 @@ fn check_single_point_nets(table: &InstTable, results: &mut Vec<NetCheckResult>)
                         net.name, entry.path
                     ),
                     net_name: net.name.clone(),
-                    code: 3112,
+                    code: crate::errcodes::NET_DANGLING_ENDPOINT,
                     pos,
                     uri,
                 });
@@ -485,7 +485,7 @@ fn check_pin_count_mismatch(table: &InstTable, results: &mut Vec<NetCheckResult>
                         entry.path, connected_pins, def_pin_count
                     ),
                     net_name: entry.path.clone(),
-                    code: 3113,
+                    code: crate::errcodes::NET_PARTIAL_CONNECTION,
                     pos,
                     uri,
                 });
@@ -512,7 +512,7 @@ fn check_floating_outputs(table: &InstTable, results: &mut Vec<NetCheckResult>) 
                     entry.path
                 ),
                 net_name: entry.path.clone(),
-                code: 3114,
+                code: crate::errcodes::NET_BIDIR_UNCONNECTED,
                 pos,
                 uri,
             });

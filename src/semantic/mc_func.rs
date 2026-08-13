@@ -498,8 +498,7 @@ impl McFunction {
                                     let line_txt = subnode
                                         .to_string()
                                         .unwrap_or_else(|| "<unprintable>".to_string());
-                                    dlog_warning(
-                                        1309,
+                                    dlog_warning(crate::errcodes::FUNC_LINE_DROPPED,
                                         &subnode,
                                         &format!(
                                             "Connection line dropped (McPhrase::new returned None): `{line_txt}`"
@@ -508,7 +507,7 @@ impl McFunction {
                                 }
                             }
                         } else {
-                            dlog_error(1300, &body_node, "Empty NET");
+                            dlog_error(crate::errcodes::FUNC_EMPTY_NET, &body_node, "Empty NET");
                         }
                     }
 
@@ -541,7 +540,11 @@ impl McFunction {
                         }
                     }
                     _ => {
-                        dlog_error(1308, &body_node, "Invalid function body node.");
+                        dlog_error(
+                            crate::errcodes::FUNC_BODY_INVALID,
+                            &body_node,
+                            "Invalid function body node.",
+                        );
                     }
                 }
             }
@@ -597,7 +600,7 @@ impl McFunction {
         // 1. Reject multiple returns. A function may have at most one.
         if !matches!(self.returns, McFuncReturn::Implicit) {
             dlog_error(
-                1313,
+                crate::errcodes::FUNC_MULTIPLE_RETURNS,
                 body_node,
                 "Multiple `return` statements are not allowed; \
                  a function may have at most one return.",
@@ -607,7 +610,11 @@ impl McFunction {
 
         // 2. Locate the IOTYPE_RETURN marker.
         let Some(marker) = Self::find_return_marker(wrapper) else {
-            dlog_error(1305, body_node, "Malformed return statement.");
+            dlog_error(
+                crate::errcodes::FUNC_RETURN_MALFORMED,
+                body_node,
+                "Malformed return statement.",
+            );
             return;
         };
 
@@ -638,7 +645,7 @@ impl McFunction {
             }
             None => {
                 dlog_error(
-                    1307,
+                    crate::errcodes::FUNC_RETURN_EXPR_INVALID,
                     body_node,
                     "Invalid `return` expression: expected `this` or a label/bus.",
                 );

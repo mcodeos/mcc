@@ -284,7 +284,7 @@ impl McPhrase {
                                 // eprintln!("[PHRASE_DEBUG] curly: validate_inst_reference -> None");
                                 if let Some((name, members)) = ids.as_bus() {
                                     if context.find_inst(&name).is_some() {
-                                        dlog_error(1705, node, &format!("Name '{}' is already an instance, cannot create bus with members [{}]", name, members.join(", ")));
+                                        dlog_error(crate::errcodes::BUS_NAME_ALREADY_INSTANCE, node, &format!("Name '{}' is already an instance, cannot create bus with members [{}]", name, members.join(", ")));
                                         return None;
                                     } else {
                                         let name_clone = name.clone();
@@ -314,16 +314,14 @@ impl McPhrase {
                                         if let Some(result) = aim {
                                             return Some(result);
                                         }
-                                        dlog_error(
-                                            1700,
+                                        dlog_error(crate::errcodes::IFACE_MEMBER_NOT_FOUND,
                                             node,
                                             &format!(
                                                 "Interface '{interface}.{full_name}' not found in component '{component}'"
                                             ),
                                         );
                                     } else {
-                                        dlog_error(
-                                            1702,
+                                        dlog_error(crate::errcodes::IFACE_CURLY_MEMBER_INVALID,
                                             node,
                                             &format!(
                                                 "Component '{component}' not found for interface '{component}.{interface}'"
@@ -380,8 +378,7 @@ impl McPhrase {
                                                 if context.find_inst(expanded_name).is_none()
                                                     && context.find_inst(&ids.to_string()).is_none()
                                                 {
-                                                    dlog_error(
-                                                        2006,
+                                                    dlog_error(crate::errcodes::NET_DROPPED_STATEMENT,
                                                         node,
                                                         &format!(
                                                             "DROPPED_STATEMENT: indexed alias '{}' expands to '{}' which is not a known instance. \
@@ -432,7 +429,7 @@ impl McPhrase {
                                     {
                                         if c.find_pin(&rest).is_none() {
                                             dlog_error(
-                                                1802,
+                                                crate::errcodes::COMPONENT_PIN_NOT_FOUND,
                                                 &subnode,
                                                 &format!(
                                                     "Pin '{}' not found in component '{}'",
@@ -507,7 +504,11 @@ impl McPhrase {
             MCAST_ID | MCAST_IDA | MCAST_IDS => {
                 let data = node.to_id_or_ida();
                 if data.is_empty() {
-                    dlog_error(1100, node, "Failed to extract ID/IDA data");
+                    dlog_error(
+                        crate::errcodes::NAME_ID_EXTRACT_FAILED,
+                        node,
+                        "Failed to extract ID/IDA data",
+                    );
                     return None;
                 }
 
@@ -545,7 +546,7 @@ impl McPhrase {
                                     // E1802: Check if the member is a valid pin in the component
                                     if c.find_pin(member).is_none() {
                                         dlog_error(
-                                            1802,
+                                            crate::errcodes::COMPONENT_PIN_NOT_FOUND,
                                             node,
                                             &format!(
                                                 "Pin '{}' not found in component '{}'",
@@ -889,7 +890,11 @@ impl McPhrase {
                         }
                     }
                     // Still nothing found — log and return None
-                    dlog_error(1101, node, "Failed to parse DECLARE");
+                    dlog_error(
+                        crate::errcodes::NAME_DECLARE_PARSE_FAILED,
+                        node,
+                        "Failed to parse DECLARE",
+                    );
                     None
                 } else if result.len() == 1 {
                     match result.remove(0) {
@@ -1001,7 +1006,7 @@ impl McPhrase {
                                     let member = &right[0];
                                     if c.find_pin(member).is_none() {
                                         dlog_error(
-                                            1802,
+                                            crate::errcodes::COMPONENT_PIN_NOT_FOUND,
                                             node,
                                             &format!(
                                                 "Pin '{}' not found in component '{}'",
@@ -1021,7 +1026,7 @@ impl McPhrase {
                             if right.len() == 1 {
                                 let member = &right[0];
                                 dlog_error(
-                                    1802,
+                                    crate::errcodes::COMPONENT_PIN_NOT_FOUND,
                                     node,
                                     &format!(
                                         "Pin '{}' not found in component '{}'",
@@ -1046,7 +1051,7 @@ impl McPhrase {
                                     let member = &right[0];
                                     if !m.base.insts.find_port(member).is_some() {
                                         dlog_error(
-                                            1803,
+                                            crate::errcodes::MODULE_PORT_NOT_FOUND,
                                             node,
                                             &format!(
                                                 "Port '{}' not found in module '{}'",
@@ -1066,7 +1071,7 @@ impl McPhrase {
                             if right.len() == 1 {
                                 let member = &right[0];
                                 dlog_error(
-                                    1803,
+                                    crate::errcodes::MODULE_PORT_NOT_FOUND,
                                     node,
                                     &format!(
                                         "Port '{}' not found in module '{}'",
@@ -1169,8 +1174,7 @@ impl McPhrase {
                             if context.find_inst(expanded_name).is_none()
                                 && context.find_inst(&ids.to_string()).is_none()
                             {
-                                dlog_error(
-                                    2006,
+                                dlog_error(crate::errcodes::NET_DROPPED_STATEMENT,
                                     node,
                                     &format!(
                                         "DROPPED_STATEMENT: indexed alias '{}' expands to '{}' which is not a known instance. \
@@ -1310,8 +1314,7 @@ impl McPhrase {
                                 .collect();
 
                             if !left_members.is_empty() || !right_members.is_empty() {
-                                dlog_error(
-                                    1106,
+                                dlog_error(crate::errcodes::NAME_DEF_NOT_FOUND_LABEL_FALLBACK,
                                     node,
                                     &format!(
                                         "CURLY_MN: '{name}' definition not found, using label fallback"
@@ -1338,7 +1341,11 @@ impl McPhrase {
                             }
                         }
                         // eprintln!("[CMN-DIAG] → None(1006) name={:?}", name);
-                        dlog_error(1006, node, "CURLY_MN requires Component or Module");
+                        dlog_error(
+                            crate::errcodes::CURLY_MN_WRONG_BASE,
+                            node,
+                            "CURLY_MN requires Component or Module",
+                        );
                         None
                     }
                 }
@@ -1366,7 +1373,11 @@ impl McPhrase {
                         ..
                     }))
                     | McPhrase::Transposed(_) => {
-                        dlog_error(1150, node, CANNOT_TRANSPOSE);
+                        dlog_error(
+                            crate::errcodes::CONN_CANNOT_TRANSPOSE,
+                            node,
+                            CANNOT_TRANSPOSE,
+                        );
                         None
                     }
                     opd1 => Some(McPhrase::Transposed(Box::new(opd1))),
@@ -1455,7 +1466,7 @@ impl McPhrase {
                 // ── P1.3: inst 1*1/1*2 constraint for +/- ──
                 if !check_inst_plusminus(&opd1) {
                     dlog_error(
-                        1151,
+                        crate::errcodes::CONN_PARALLEL_INVALID,
                         node,
                         "Instance with 3+ pins cannot directly participate in `+` operation. \
                          Use `->` for pass-through connection or `::` for type annotation.",
@@ -1464,7 +1475,7 @@ impl McPhrase {
                 }
                 if !check_inst_plusminus(&opd2) {
                     dlog_error(
-                        1151,
+                        crate::errcodes::CONN_PARALLEL_INVALID,
                         node,
                         "Instance with 3+ pins cannot directly participate in `+` operation. \
                          Use `->` for pass-through connection or `::` for type annotation.",
@@ -1475,7 +1486,11 @@ impl McPhrase {
                 if !is_connectable(&opd1.get_left(), &opd2.get_left())
                     || !is_connectable(&opd1.get_right(), &opd2.get_right())
                 {
-                    dlog_error(1151, node, "Shape mismatch in parallel connection");
+                    dlog_error(
+                        crate::errcodes::CONN_PARALLEL_SHAPE_MISMATCH,
+                        node,
+                        "Shape mismatch in parallel connection",
+                    );
                     return None;
                 }
 
@@ -1486,7 +1501,11 @@ impl McPhrase {
                     }
                     (opd1 @ Transposed(_), opd2) => {
                         if opd2.get_left().iter().map(|e| e.size()).sum::<usize>() != 2 {
-                            dlog_error(1102, node, "Transposed connection size mismatch");
+                            dlog_error(
+                                crate::errcodes::CONN_TRANSPOSE_SIZE_MISMATCH,
+                                node,
+                                "Transposed connection size mismatch",
+                            );
                             return None;
                         }
                         let mut ret_line_members = vec![opd1];
@@ -1499,7 +1518,11 @@ impl McPhrase {
                     }
                     (opd1, opd2 @ Transposed(_)) => {
                         if opd1.get_right().iter().map(|e| e.size()).sum::<usize>() != 2 {
-                            dlog_error(1153, node, "Transposed connection size mismatch");
+                            dlog_error(
+                                crate::errcodes::CONN_TRANSPOSE_SIZE_MISMATCH,
+                                node,
+                                "Transposed connection size mismatch",
+                            );
                             return None;
                         }
                         if let Series(mut line, _) = opd1 {
@@ -1546,7 +1569,7 @@ impl McPhrase {
                 // ── P1.3: inst 1*1/1*2 constraint for +/- ──
                 if !check_inst_plusminus(&opd1) {
                     dlog_error(
-                        1154,
+                        crate::errcodes::CONN_SERIES_INVALID,
                         node,
                         "Instance with 3+ pins cannot directly participate in `-` operation. \
                          Use `->` for pass-through connection.",
@@ -1555,7 +1578,7 @@ impl McPhrase {
                 }
                 if !check_inst_plusminus(&opd2) {
                     dlog_error(
-                        1154,
+                        crate::errcodes::CONN_SERIES_INVALID,
                         node,
                         "Instance with 3+ pins cannot directly participate in `-` operation. \
                          Use `->` for pass-through connection.",
@@ -1564,7 +1587,7 @@ impl McPhrase {
                 }
 
                 if !is_connectable(&opd1.get_right(), &opd2.get_left()) {
-                    dlog_error(1154, node, SHAPE_MISMATCH);
+                    dlog_error(crate::errcodes::CONN_SERIES_INVALID, node, SHAPE_MISMATCH);
                     return None;
                 }
 
@@ -1614,7 +1637,11 @@ impl McPhrase {
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
 
                 if !is_connectable(&opd1.get_right(), &opd2.get_left()) {
-                    dlog_error(1155, node, "Shape mismatch in -> connection");
+                    dlog_error(
+                        crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
+                        node,
+                        "Shape mismatch in -> connection",
+                    );
                     return None;
                 }
 
@@ -1678,7 +1705,11 @@ impl McPhrase {
 
                 // Check if opd2.right can connect to opd1.left
                 if !is_connectable(&opd2.get_right(), &opd1.get_left()) {
-                    dlog_error(1106, node, "Shape mismatch in <- connection");
+                    dlog_error(
+                        crate::errcodes::NAME_DEF_NOT_FOUND_LABEL_FALLBACK,
+                        node,
+                        "Shape mismatch in <- connection",
+                    );
                     return None;
                 }
 
@@ -1770,7 +1801,7 @@ impl McPhrase {
                     return context.add_label(s);
                 }
                 dlog_error(
-                    1003,
+                    crate::errcodes::INST_EXPR_PARSE_FAILED,
                     node,
                     "Failed to parse MCAST_INSTANCE in expression context",
                 );
@@ -1852,7 +1883,7 @@ impl McPhrase {
                     _ => ":",
                 };
                 dlog_error(
-                    1110,
+                    crate::errcodes::CONN_OPERATOR_UNSUPPORTED,
                     node,
                     &format!(
                         "node={} Operator '{op}' is not supported in connection lines; \
@@ -1865,7 +1896,7 @@ impl McPhrase {
 
             _ => {
                 dlog_error(
-                    1110,
+                    crate::errcodes::PHRASE_AST_TYPE_UNEXPECTED,
                     node,
                     &format!(
                         "node={} Unexpected AST node type {} in McPhrase::new",
@@ -3006,7 +3037,7 @@ fn check_ambiguous_precedence(node: &AstNode, loc_node: &AstNode) {
     // there are more than 2 leaves and operators are genuinely mixed.
     if mixed && leaf_count > 2 {
         dlog_warning(
-            2008,
+            crate::errcodes::CONN_AMBIGUOUS_PRECEDENCE,
             loc_node,
             &format!(
                 "AMBIGUOUS_PRECEDENCE: expression mixes + (parallel) with - or -> (series) \

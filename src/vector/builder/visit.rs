@@ -424,8 +424,7 @@ impl<'a> McVecBuilder<'a> {
                     if let Some(pr) = per_point.get(i) {
                         if pr.ids.is_empty() {
                             let pos = p.src_pos.unwrap_or(0) as u32;
-                            diagnostic_log(
-                                2002,
+                            diagnostic_log(crate::errcodes::FLOATING_PLACEHOLDER,
                                 DiagnosticLevel::Error,
                                 pos,
                                 1,
@@ -480,7 +479,7 @@ impl<'a> McVecBuilder<'a> {
                                 .and_then(|p| p.src_pos)
                                 .unwrap_or(0) as u32;
                             diagnostic_log(
-                                2003,
+                                crate::errcodes::NET_MERGED_SHORT,
                                 DiagnosticLevel::Error,
                                 pos,
                                 1,

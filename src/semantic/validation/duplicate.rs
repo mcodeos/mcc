@@ -128,7 +128,7 @@ impl ValidationCheck for DuplicateCmieCheck {
                                  The latter shadows the former.",
                                 kind_str, name, first, other
                             ),
-                            code: 2100,
+                            code: crate::errcodes::DUP_CMIE_CROSS_FILE,
                         });
                     }
                 }

@@ -68,7 +68,7 @@ fn check_this_outside_instance(acc: &mut CheckAccumulator) {
                              'this' is only valid inside instance/function contexts.",
                             text.trim()
                         ),
-                        code: 2901,
+                        code: crate::errcodes::EXPR_THIS_TOP_LEVEL,
                     });
                     break; // One diagnostic per phrase
                 }
@@ -119,7 +119,7 @@ fn check_uscore_sole_endpoint(acc: &mut CheckAccumulator) {
                          This connection has no effect.",
                         text.trim()
                     ),
-                    code: 2902,
+                    code: crate::errcodes::EXPR_PLACEHOLDER_ONLY,
                 });
             }
         }
@@ -205,7 +205,7 @@ fn check_expr_overflow(
                         "Attribute '{}' in '{}' has large integer value {} which may indicate overflow or mistaken input.",
                         attr_id, comp_name, int_val.value
                     ),
-                    code: 2905,
+                    code: crate::errcodes::ATTR_LARGE_INT,
                 });
             }
         }
@@ -220,7 +220,7 @@ fn check_expr_overflow(
                         "Attribute '{}' in '{}' has infinite float value.",
                         attr_id, comp_name
                     ),
-                    code: 2905,
+                    code: crate::errcodes::ATTR_INFINITE_FLOAT,
                 });
             }
         }
@@ -303,7 +303,7 @@ fn check_expr_range(
                         "Reversed range {{{}:{}}} in '{}'. Did you mean {{{}:{}}}?",
                         l.value, r.value, comp_name, r.value, l.value
                     ),
-                    code: 2906,
+                    code: crate::errcodes::RANGE_REVERSED,
                 });
             } else if l.value == r.value {
                 // V4: single-element range
@@ -316,7 +316,7 @@ fn check_expr_range(
                         "Single-element range {{{}:{}}} in '{}'. This expands to one element.",
                         l.value, r.value, comp_name
                     ),
-                    code: 2907,
+                    code: crate::errcodes::RANGE_SINGLE_ELEMENT,
                 });
             }
         }
@@ -359,7 +359,7 @@ fn check_idx_key_collision(acc: &mut CheckAccumulator) {
                         base,
                         full_names.join(", ")
                     ),
-                    code: 2908,
+                    code: crate::errcodes::IDX_MULTIPLE_SLICE_SPEC,
                 });
             }
         }
@@ -434,7 +434,7 @@ fn check_pins_ref_not_found(acc: &mut CheckAccumulator) {
                                          is not a defined pin name.",
                                         comp.name, suffix, suffix
                                     ),
-                                    code: 2307,
+                                    code: crate::errcodes::EXPR_PINS_X_UNDEFINED,
                                 });
                             }
                         }
@@ -544,7 +544,7 @@ fn scan_pins_refs(
                                 format!("{} names", valid_names.len())
                             }
                         ),
-                        code: 2307,
+                        code: crate::errcodes::EXPR_PINS_X_UNDEFINED,
                     });
                 }
             }

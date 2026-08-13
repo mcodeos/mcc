@@ -3,7 +3,8 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 // Integration test: an `enum` and a `component` sharing the same base name in
-// one file must coexist without E0501 "Definition already exists" (P0-3).
+// one file must coexist without DEF_ALREADY_EXISTS (1051, formerly E0501)
+// (P0-3).
 //
 // Regression: `parse_cmie_names` collected all declaration names into a single
 // list without tracking their types, so `enum CAP` + `component CAP` (as in
@@ -71,7 +72,7 @@ fn component_component_same_name_still_errors() {
     mcc::mcc_clear_workspace();
 
     let uri: McURI = "/mcc/dup-component.mc".to_string();
-    // Two components with the same name must still trigger E0501 (501).
+    // Two components with the same name must still trigger DEF_ALREADY_EXISTS (1051).
     let source = r#"
 component DUP { pins = [ 1 = 1 ] }
 component DUP { pins = [ 1 = 1 ] }
@@ -84,10 +85,10 @@ module main
     mcc::mcc_load_from_string(&uri, source);
     let _ = mcc::mcc_build(&McIds::from("main"), &uri);
 
-    let has_501 = mcc::mcc_diagnose_all().iter().any(|d| d.code == 501);
+    let has_501 = mcc::mcc_diagnose_all().iter().any(|d| d.code == 1051);
     assert!(
         has_501,
-        "duplicate component definitions must be reported as E0501"
+        "duplicate component definitions must be reported as DEF_ALREADY_EXISTS"
     );
 
     drop(lock);

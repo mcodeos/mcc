@@ -66,7 +66,7 @@ fn check_lowercase_components(acc: &mut CheckAccumulator, _lib_names: &HashSet<S
                         "Component '{}' starts with lowercase (convention: UPPER_SNAKE).",
                         name
                     ),
-                    code: 2201,
+                    code: crate::errcodes::NAME_COMPONENT_LOWERCASE,
                 });
             }
         }

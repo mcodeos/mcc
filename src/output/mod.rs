@@ -336,6 +336,6 @@ mod tests {
         let e = Envelope::err(RpcError::parse_error("bad"));
         let s = render_envelope_text(&e, false);
         assert!(s.contains("✗ Error"));
-        assert!(s.contains("-32001"));
+        assert!(s.contains("32110"));
     }
 }

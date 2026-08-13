@@ -213,7 +213,7 @@ impl AstNode {
 
     pub fn to_u32(&self) -> Option<u32> {
         if self.is_null() {
-            dlog_error(205, self, AST_EMPTY);
+            dlog_error(crate::errcodes::AST_NODE_EMPTY, self, AST_EMPTY);
             return None;
         }
         let mc_value = unsafe { &*self.get_ptr() };
@@ -226,13 +226,17 @@ impl AstNode {
                     .map_err(|_| "Invalid UTF-8 string")
                     .ok()
                 else {
-                    dlog_error(206, self, "Invalid UTF-8 string");
+                    dlog_error(
+                        crate::errcodes::AST_UTF8_ERROR,
+                        self,
+                        "Invalid UTF-8 string",
+                    );
                     return None;
                 };
                 u32::from_str(rust_str).map_err(|_| "Parse failed").ok()
             }
             _ => {
-                dlog_error(207, self, TYPE_MISMATCH);
+                dlog_error(crate::errcodes::AST_TYPE_MISMATCH, self, TYPE_MISMATCH);
                 None
             }
         }
@@ -241,7 +245,7 @@ impl AstNode {
     /// node of certain types to String
     pub fn to_string(&self) -> Option<String> {
         if self.is_null() {
-            dlog_error(201, self, AST_EMPTY);
+            dlog_error(crate::errcodes::AST_NODE_EMPTY, self, AST_EMPTY);
             return None;
         }
         let mc_value = unsafe { &*self.get_ptr() };
@@ -252,7 +256,11 @@ impl AstNode {
             | MCAST_ID => match self.data_as_cstr()?.to_str() {
                 Ok(s) => Some(s.to_string()),
                 Err(e) => {
-                    dlog_error(203, self, &format!("UTF-8 encoding error: {e}"));
+                    dlog_error(
+                        crate::errcodes::AST_UTF8_ERROR,
+                        self,
+                        &format!("UTF-8 encoding error: {e}"),
+                    );
                     None
                 }
             },

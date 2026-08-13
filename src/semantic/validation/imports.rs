@@ -66,7 +66,7 @@ impl ValidationCheck for ImportsCheck {
                         uri: Some(self_uri.clone()),
                         span: uri_spans.get(self_uri).cloned(),
                         message: format!("File imports itself via 'use {}'.", target_uri),
-                        code: 2001,
+                        code: crate::errcodes::USE_SELF_IMPORT,
                     });
                 }
 
@@ -86,7 +86,7 @@ impl ValidationCheck for ImportsCheck {
                                 "'use {} as {}' — alias '{}' collides with an existing name.",
                                 mcu.uri, alias, alias
                             ),
-                            code: 2002,
+                            code: crate::errcodes::USE_ALIAS_COLLISION,
                         });
                     }
                 }
@@ -102,7 +102,7 @@ impl ValidationCheck for ImportsCheck {
                             "'use {}' — versioned file not found. The target may not exist.",
                             mcu.uri
                         ),
-                        code: 2003,
+                        code: crate::errcodes::USE_VERSIONED_TARGET_NOT_FOUND,
                     });
                 }
 
@@ -126,7 +126,7 @@ impl ValidationCheck for ImportsCheck {
                                         "'use {} import({})' — symbol '{}' not found in target file.",
                                         mcu.uri, id_str, id_str
                                     ),
-                                    code: 2004,
+                                    code: crate::errcodes::USE_IMPORT_SYMBOL_NOT_FOUND,
                                 });
                             }
                         }
@@ -143,7 +143,7 @@ impl ValidationCheck for ImportsCheck {
                                     "'use {} import({})' — target file not loaded; symbol '{}' unresolvable.",
                                     mcu.uri, id_str, id_str
                                 ),
-                                code: 2004,
+                                code: crate::errcodes::USE_IMPORT_SYMBOL_NOT_FOUND,
                             });
                         }
                     }
@@ -167,7 +167,7 @@ impl ValidationCheck for ImportsCheck {
                                             "'pub use {} import({})' — symbol '{}' not found in target; cannot re-export.",
                                             mcu.uri, id_str, id_str
                                         ),
-                                        code: 2005,
+                                        code: crate::errcodes::USE_REEXPORT_SYMBOL_NOT_FOUND,
                                     });
                                 }
                             }

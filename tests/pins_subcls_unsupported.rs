@@ -5,8 +5,8 @@
 // Integration test for the P1-3 top-level declaration fix (B5):
 // `pins.subcls = [...]` is parsed by mca.y (MCAST_ATTRIBUTE_PIN with an
 // mc_id sub-class child) but was silently dropped by McPins::parse. It must
-// now report E1107 (NOT_SUPPORTED_YET) instead of silently ignoring the
-// sub-class name.
+// now report NOT_SUPPORTED_YET (2171, formerly E1107) instead of silently
+// ignoring the sub-class name.
 
 use mcc::McIds;
 use std::sync::{Mutex, OnceLock};
@@ -41,13 +41,13 @@ module main
     result.expect("build failed");
 
     let diags = mcc::mcc_diagnose_all();
-    let has_1107 = diags
+    let has_2171 = diags
         .iter()
-        .any(|d| d.code == 1107 && d.msg.contains("pins.subcls"));
+        .any(|d| d.code == 2171 && d.msg.contains("pins.subcls"));
     assert!(
-        has_1107,
-        "pins.subcls must report E1107 (not silently drop), got: {:?}",
-        diags.iter().filter(|d| d.code == 1107).collect::<Vec<_>>()
+        has_2171,
+        "pins.subcls must report NOT_SUPPORTED_YET (not silently drop), got: {:?}",
+        diags.iter().filter(|d| d.code == 2171).collect::<Vec<_>>()
     );
 
     drop(lock);

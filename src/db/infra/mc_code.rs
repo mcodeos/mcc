@@ -39,6 +39,7 @@ use crate::ast::ast_token::McSemTokens;
 use crate::ast::error::message::MISSING_SUBNODE;
 use crate::db::cmie::tables as workspace;
 use crate::db::diagnostic::diagnostic::{dlog_error, dlog_error_at, dlog_warning_at};
+use crate::db::diagnostic::errcodes;
 use crate::db::infra::global;
 use crate::db::infra::mc_use::{McUse, McUsePrefix};
 use crate::semantic::mc_enum::McEnumDef;
@@ -333,10 +334,11 @@ impl McCode {
                     dlog_ptr = entry.next;
                 }
                 // Dedup: at overlapping positions, keep the highest code (most specific)
+                // Parser errors are below PARSER_WARNING_CODE_BASE; warnings are more specific.
                 raw.sort_by_key(|e| (e.2, e.3)); // sort by pos, then len
                 let mut last_end: u32 = 0;
                 for (code, level, pos, len, msg) in &raw {
-                    if *pos < last_end && *code < 1100 {
+                    if *pos < last_end && *code < errcodes::PARSER_WARNING_CODE_BASE {
                         continue; // skip less-specific error at same position
                     }
                     last_end = pos.saturating_add(*len);
@@ -452,7 +454,7 @@ impl McCode {
                 raw.sort_by_key(|e| (e.2, e.3));
                 let mut last_end: u32 = 0;
                 for (code, level, pos, len, msg) in &raw {
-                    if *pos < last_end && *code < 1100 {
+                    if *pos < last_end && *code < errcodes::PARSER_WARNING_CODE_BASE {
                         continue;
                     }
                     last_end = pos.saturating_add(*len);
@@ -707,7 +709,7 @@ impl McCode {
                 raw.sort_by_key(|e| (e.2, e.3));
                 let mut last_end: u32 = 0;
                 for (code, level, pos, len, msg) in &raw {
-                    if *pos < last_end && *code < 1100 {
+                    if *pos < last_end && *code < errcodes::PARSER_WARNING_CODE_BASE {
                         continue;
                     }
                     last_end = pos.saturating_add(*len);
@@ -801,8 +803,7 @@ impl McCode {
             if mcuse.prefix == McUsePrefix::PathSystem {
                 let lib_name = mcuse.orig_uri.split('/').next().unwrap_or("");
                 if !lib_name.is_empty() && !mcb_loaded_libs().contains(&lib_name.to_string()) {
-                    dlog_warning_at(
-                        800,
+                    dlog_warning_at(crate::errcodes::USE_DEP_NOT_DECLARED,
                         mcuse.pos,
                         mcuse.len,
                         &format!(
@@ -857,8 +858,7 @@ impl McCode {
                             if !overlap.is_empty() {
                                 let names: Vec<String> =
                                     overlap.iter().map(|s| s.to_string()).collect();
-                                dlog_error_at(
-                                    801,
+                                dlog_error_at(crate::errcodes::USE_SYMBOL_CONFLICT,
                                     mcuse.pos,
                                     mcuse.len,
                                     &format!(
@@ -960,7 +960,7 @@ impl McCode {
                                 .insert(key, McSpaceName::new(class, mcuse.uri.clone()));
                         } else {
                             dlog_warning_at(
-                                804,
+                                crate::errcodes::USE_IMPORTED_NOT_FOUND,
                                 mcuse.pos,
                                 mcuse.len,
                                 &format!(
@@ -1074,8 +1074,7 @@ impl McCode {
             if mcuse.prefix == McUsePrefix::PathSystem {
                 let lib_name = mcuse.orig_uri.split('/').next().unwrap_or("");
                 if !lib_name.is_empty() && !mcb_loaded_libs().contains(&lib_name.to_string()) {
-                    dlog_warning_at(
-                        800,
+                    dlog_warning_at(crate::errcodes::USE_DEP_NOT_DECLARED,
                         mcuse.pos,
                         mcuse.len,
                         &format!(
@@ -1123,8 +1122,7 @@ impl McCode {
                             if !overlap.is_empty() {
                                 let names: Vec<String> =
                                     overlap.iter().map(|s| s.to_string()).collect();
-                                dlog_error_at(
-                                    801,
+                                dlog_error_at(crate::errcodes::USE_SYMBOL_CONFLICT,
                                     mcuse.pos,
                                     mcuse.len,
                                     &format!(
@@ -1172,7 +1170,7 @@ impl McCode {
                                 .insert(key, McSpaceName::new(class, mcuse.uri.clone()));
                         } else {
                             dlog_warning_at(
-                                804,
+                                crate::errcodes::USE_IMPORTED_NOT_FOUND,
                                 mcuse.pos,
                                 mcuse.len,
                                 &format!(
@@ -1242,7 +1240,11 @@ impl McCode {
                                 && (Self::is_enum_decl(*t) != Self::is_enum_decl(decl_type))
                         });
                         if !exempt {
-                            dlog_error(501, &node, "Definition already exists");
+                            dlog_error(
+                                crate::errcodes::DEF_ALREADY_EXISTS,
+                                &node,
+                                "Definition already exists",
+                            );
                         }
                     } else {
                         self.spacenames.insert(
@@ -1295,7 +1297,11 @@ impl McCode {
                                             uri: self.uri.clone(),
                                         })
                                         .and_modify(|_| {
-                                            dlog_error(1002, &node, "Duplicate component");
+                                            dlog_error(
+                                                crate::errcodes::DUP_COMPONENT,
+                                                &node,
+                                                "Duplicate component",
+                                            );
                                         })
                                         .or_insert(Arc::new(comp));
                                     return Some(McCMIE::Component(result.value().clone()));
@@ -1312,7 +1318,11 @@ impl McCode {
                                             uri: self.uri.clone(),
                                         })
                                         .and_modify(|_| {
-                                            dlog_error(1503, &node, "Duplicate module");
+                                            dlog_error(
+                                                crate::errcodes::DUP_MODULE,
+                                                &node,
+                                                "Duplicate module",
+                                            );
                                         })
                                         .or_insert(Arc::new(mdl));
                                     return Some(McCMIE::Module(result.value().clone()));
@@ -1327,7 +1337,11 @@ impl McCode {
                                             uri: self.uri.clone(),
                                         })
                                         .and_modify(|_| {
-                                            dlog_error(1001, &node, "Duplicate interface");
+                                            dlog_error(
+                                                crate::errcodes::DUP_INTERFACE,
+                                                &node,
+                                                "Duplicate interface",
+                                            );
                                         })
                                         .or_insert(Arc::new(ifs));
                                     return Some(McCMIE::Interface(result.value().clone()));
@@ -1373,7 +1387,11 @@ impl McCode {
                                         enums_guard
                                             .entry(space_name.clone())
                                             .and_modify(|_| {
-                                                dlog_error(1004, &node, "Duplicate enum");
+                                                dlog_error(
+                                                    crate::errcodes::DUP_ENUM,
+                                                    &node,
+                                                    "Duplicate enum",
+                                                );
                                             })
                                             .or_insert(arc_enum.clone());
                                     } else {
@@ -1381,7 +1399,11 @@ impl McCode {
                                         enums_guard
                                             .entry(space_name.clone())
                                             .and_modify(|_| {
-                                                dlog_error(1004, &node, "Duplicate enum");
+                                                dlog_error(
+                                                    crate::errcodes::DUP_ENUM,
+                                                    &node,
+                                                    "Duplicate enum",
+                                                );
                                             })
                                             .or_insert(arc_enum.clone());
                                     }
@@ -1393,7 +1415,7 @@ impl McCode {
                                 // McCMIE (component/module/interface/enum only).
                                 // Report the mismatch instead of panicking.
                                 dlog_error(
-                                    503,
+                                    crate::errcodes::CMIE_LOAD_REJECTED,
                                     &node,
                                     &format!("'{name}' is a define; not loadable as a CMIE"),
                                 );
@@ -1405,7 +1427,7 @@ impl McCode {
                             // rather than panicking (P1-10).
                             _ => {
                                 dlog_error(
-                                    503,
+                                    crate::errcodes::CMIE_LOAD_REJECTED,
                                     &node,
                                     &format!(
                                         "Unexpected declaration type {} for CMIE load",
@@ -1442,7 +1464,11 @@ impl McCode {
                             global::mcc_interfaces
                                 .entry(space_name)
                                 .and_modify(|_| {
-                                    dlog_error(1001, &node, "Duplicate interface");
+                                    dlog_error(
+                                        crate::errcodes::DUP_INTERFACE,
+                                        &node,
+                                        "Duplicate interface",
+                                    );
                                 })
                                 .or_insert(Arc::new(ifs));
                         } else {
@@ -1450,7 +1476,11 @@ impl McCode {
                                 .interfaces
                                 .entry(space_name)
                                 .and_modify(|_| {
-                                    dlog_error(1001, &node, "Duplicate interface");
+                                    dlog_error(
+                                        crate::errcodes::DUP_INTERFACE,
+                                        &node,
+                                        "Duplicate interface",
+                                    );
                                 })
                                 .or_insert(Arc::new(ifs));
                         }
@@ -1500,7 +1530,11 @@ impl McCode {
                                 global::mcc_components
                                     .entry(space_name)
                                     .and_modify(|_| {
-                                        dlog_error(1002, &node, "Duplicate component");
+                                        dlog_error(
+                                            crate::errcodes::DUP_COMPONENT,
+                                            &node,
+                                            "Duplicate component",
+                                        );
                                     })
                                     .or_insert(Arc::new(comp));
                             } else {
@@ -1508,7 +1542,11 @@ impl McCode {
                                     .components
                                     .entry(space_name)
                                     .and_modify(|_| {
-                                        dlog_error(1002, &node, "Duplicate component");
+                                        dlog_error(
+                                            crate::errcodes::DUP_COMPONENT,
+                                            &node,
+                                            "Duplicate component",
+                                        );
                                     })
                                     .or_insert(Arc::new(comp));
                             }
@@ -1553,7 +1591,7 @@ impl McCode {
                             global::mcc_enums
                                 .entry(space_name)
                                 .and_modify(|_| {
-                                    dlog_error(1004, &node, "Duplicate enum");
+                                    dlog_error(crate::errcodes::DUP_ENUM, &node, "Duplicate enum");
                                 })
                                 .or_insert(Arc::new(enum_def));
                         } else {
@@ -1561,7 +1599,7 @@ impl McCode {
                                 .enums
                                 .entry(space_name)
                                 .and_modify(|_| {
-                                    dlog_error(1004, &node, "Duplicate enum");
+                                    dlog_error(crate::errcodes::DUP_ENUM, &node, "Duplicate enum");
                                 })
                                 .or_insert(Arc::new(enum_def));
                         }
@@ -1579,7 +1617,11 @@ impl McCode {
                             global::mcc_defines
                                 .entry(space_name)
                                 .and_modify(|_| {
-                                    dlog_error(1505, &node, "Duplicate define");
+                                    dlog_error(
+                                        crate::errcodes::DUP_DEFINE,
+                                        &node,
+                                        "Duplicate define",
+                                    );
                                 })
                                 .or_insert(Arc::new(def));
                         } else {
@@ -1587,7 +1629,11 @@ impl McCode {
                                 .defines
                                 .entry(space_name)
                                 .and_modify(|_| {
-                                    dlog_error(1505, &node, "Duplicate define");
+                                    dlog_error(
+                                        crate::errcodes::DUP_DEFINE,
+                                        &node,
+                                        "Duplicate define",
+                                    );
                                 })
                                 .or_insert(Arc::new(def));
                         }
@@ -1723,7 +1769,7 @@ impl McCode {
                         .modules
                         .entry(key)
                         .and_modify(|_| {
-                            dlog_error(1503, &node, "Duplicate module");
+                            dlog_error(crate::errcodes::DUP_MODULE, &node, "Duplicate module");
                         })
                         .or_insert(Arc::new(module));
                 }
@@ -4374,7 +4420,7 @@ impl McCode {
                                         ));
                                     } else {
                                         dlog_error(
-                                            1501,
+                                            crate::errcodes::MODULE_METHOD_NOT_FOUND,
                                             node,
                                             &format!(
                                                 "function '{}' not found in class '{}'",
@@ -4453,46 +4499,48 @@ impl McCode {
     }
 
     /// Look up the human-readable message for a parser diagnostic code.
+    /// Codes follow the unified numbering (Pass1b parser cluster 2080-2116);
+    /// keep in sync with `errcodes.rs` descriptions.
     fn dlog_parser_message(code: u32) -> &'static str {
         match code {
-            // Errors (E1002–E1031)
-            1002 => "Invalid top-level declaration",
-            1003 => "Invalid clause in body",
-            1004 => "Invalid pin declaration",
-            1005 => "Pin ID must be a constant integer, not an expression",
-            1006 => "Pin name must be a constant identifier, not an expression",
-            1007 => "Net endpoint must be a port/label, not a literal",
-            1008 => "Invalid net/connection expression",
-            1009 => "Invalid if/else condition block",
-            1010 => "Invalid role block",
-            1011 => "Invalid function definition",
-            1012 => "Invalid pins declaration",
-            1013 => "Invalid import statement",
-            1014 => "Invalid condition body",
-            1015 => "Invalid instance declaration (:: syntax)",
-            1016 => "Invalid body",
-            1017 => "Invalid condition expression",
-            1018 => "Invalid parameter declaration",
-            1019 => "Invalid import path",
-            1020 => "Invalid expression list",
-            1021 => "Invalid operand list",
-            1022 => "Invalid parameter list",
-            1023 => "Invalid parameter declaration list",
-            1024 => "Invalid attribute value list",
-            1025 => "Invalid attribute line list",
-            1026 => "Invalid pin name list",
-            1027 => "Invalid instance list",
-            1028 => "Invalid else-if chain",
-            1029 => "Invalid identifier list",
-            1030 => "Invalid path in import",
-            1031 => "Invalid expression",
-            // Warnings (W1101–W1106)
-            1101 => "Single '|' as binary operator outside pin context",
-            1102 => "'±' as binary operator outside tolerance context",
-            1103 => "Transpose (') on a literal has no effect",
-            1104 => "Caret (^) on a literal has no effect",
-            1105 => "Empty body — no clauses defined",
-            1106 => "Empty pins declaration",
+            // Errors (2081–2110)
+            2081 => "Invalid top-level declaration",
+            2082 => "Invalid clause in a body",
+            2083 => "Invalid pin declaration",
+            2084 => "Pin ID must be a constant integer, not an expression",
+            2085 => "Pin name must be a constant identifier, not an expression",
+            2086 => "Net endpoint must be a port/label, not a literal",
+            2087 => "Invalid net/connection expression",
+            2088 => "Invalid if/else condition block",
+            2089 => "Invalid role block",
+            2090 => "Invalid function definition",
+            2091 => "Invalid pins declaration",
+            2092 => "Invalid import statement",
+            2093 => "Invalid condition body",
+            2094 => "Invalid instance declaration (:: syntax)",
+            2095 => "Invalid body",
+            2096 => "Invalid condition expression",
+            2097 => "Invalid parameter declaration",
+            2098 => "Invalid import path",
+            2099 => "Invalid expression list",
+            2100 => "Invalid operand list",
+            2101 => "Invalid parameter list",
+            2102 => "Invalid parameter declaration list",
+            2103 => "Invalid attribute value list",
+            2104 => "Invalid attribute line list",
+            2105 => "Invalid pin name list",
+            2106 => "Invalid instance list",
+            2107 => "Invalid else-if chain",
+            2108 => "Invalid identifier list",
+            2109 => "Invalid path in import",
+            2110 => "Invalid expression",
+            // Warnings (2111–2116)
+            2111 => "Single '|' used as a binary operator outside a pin context",
+            2112 => "'±' used as a binary operator outside a tolerance context",
+            2113 => "Transpose (') on a literal has no effect",
+            2114 => "Caret (^) on a literal has no effect",
+            2115 => "Empty body — no clauses defined",
+            2116 => "Empty pins declaration",
             _ => "Syntax error",
         }
     }

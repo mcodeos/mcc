@@ -115,7 +115,7 @@ fn check_unused_pins(table: &InstTable, results: &mut Vec<PinCheckResult>) {
                     pinid, name_part, entry.path, suffix
                 ),
                 instance_path: entry.path.clone(),
-                code: 3201,
+                code: crate::errcodes::PIN_UNCONNECTED,
                 pos,
                 uri,
             });
@@ -172,7 +172,7 @@ fn check_conflicting_pins(table: &InstTable, results: &mut Vec<PinCheckResult>) 
                         used_list.join(", ")
                     ),
                     instance_path: entry.path.clone(),
-                    code: 3202,
+                    code: crate::errcodes::PIN_CONFLICTING_OPTIONS,
                     pos,
                     uri,
                 });

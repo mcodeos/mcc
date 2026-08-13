@@ -136,7 +136,7 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
                         .collect::<Vec<_>>()
                         .join(", ")
                 ),
-                code: 3301,
+                code: crate::errcodes::HW_POWER_PINS_EXCESS,
             });
         }
     }
@@ -212,7 +212,7 @@ fn check_pin_id_gaps(acc: &mut CheckAccumulator) {
                     gap_list.join(", "),
                     suffix
                 ),
-                code: 3302,
+                code: crate::errcodes::HW_PIN_NUMBER_GAP,
             });
         }
     }
@@ -248,7 +248,7 @@ fn check_pin_count_extremes(acc: &mut CheckAccumulator) {
                      high pin counts may indicate a data entry error.",
                     comp.name, pin_count
                 ),
-                code: 3303,
+                code: crate::errcodes::HW_PIN_COUNT_HIGH,
             });
         }
 
@@ -272,7 +272,7 @@ fn check_pin_count_extremes(acc: &mut CheckAccumulator) {
                      or marking it as abstract.",
                     comp.name
                 ),
-                code: 3304,
+                code: crate::errcodes::HW_ZERO_PINS_WITH_PARAMS,
             });
         }
     }
@@ -329,7 +329,7 @@ fn check_consecutive_nc_pins(acc: &mut CheckAccumulator) {
                                  Verify these are intentional (e.g., reserved/test points).",
                                 comp.name, run_count, start
                             ),
-                            code: 3305,
+                            code: crate::errcodes::HW_NC_PINS_CONTIGUOUS,
                         });
                     }
                 }
@@ -350,7 +350,7 @@ fn check_consecutive_nc_pins(acc: &mut CheckAccumulator) {
                          Verify these are intentional.",
                         comp.name, run_count, start
                     ),
-                    code: 3305,
+                    code: crate::errcodes::HW_NC_PINS_CONTIGUOUS,
                 });
             }
         }
@@ -406,7 +406,7 @@ fn check_role_peer_dangling(acc: &mut CheckAccumulator) {
                                             .join(", ")
                                     }
                                 ),
-                                code: 3306,
+                                code: crate::errcodes::HW_IFACE_ROLE_UNBOUND,
                             });
                         }
                     }
@@ -488,7 +488,7 @@ fn check_single_ioc_type_component(acc: &mut CheckAccumulator) {
                      Verify the pin definitions are complete.",
                     comp.name, pin_count, io_desc
                 ),
-                code: 3307,
+                code: crate::errcodes::HW_ALL_SAME_IO_TYPE,
             });
         }
     }
@@ -527,7 +527,7 @@ fn check_component_metadata(acc: &mut CheckAccumulator) {
                      Consider adding `name = \"Human Readable Name\"` for BOM/documentation.",
                     comp.name
                 ),
-                code: 3308,
+                code: crate::errcodes::HW_MISSING_NAME_ATTR,
             });
         }
 
@@ -542,7 +542,7 @@ fn check_component_metadata(acc: &mut CheckAccumulator) {
                      Adding a description helps library maintainability.",
                     comp.name
                 ),
-                code: 3309,
+                code: crate::errcodes::HW_NAME_WITHOUT_DESC,
             });
         }
     }
@@ -587,7 +587,7 @@ fn check_func_param_pin_shadow(acc: &mut CheckAccumulator) {
                                 func.name,
                                 pname
                             ),
-                            code: 3310,
+                            code: crate::errcodes::HW_FUNC_PARAM_SHADOWS_PIN,
                         });
                     }
                 }
@@ -642,7 +642,7 @@ fn check_unused_interface(acc: &mut CheckAccumulator) {
                      Consider using it in a component definition or removing it.",
                     name
                 ),
-                code: 3311,
+                code: crate::errcodes::HW_IFACE_NEVER_BOUND,
             });
         }
     }

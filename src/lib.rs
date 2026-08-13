@@ -146,10 +146,9 @@ pub fn mcc_log_global_diag(d: &GlobalDiag) {
             crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning
         }
     };
-    // code 1402: unused param/port; 1403: untyped param
     let code: u32 = match d.kind {
-        GlobalDiagKind::Unused => 1402,
-        GlobalDiagKind::Untyped => 1403,
+        GlobalDiagKind::Unused => crate::errcodes::UNUSED_PARAM_OR_PORT,
+        GlobalDiagKind::Untyped => crate::errcodes::UNTYPED_PARAM,
     };
     crate::db::diagnostic::diagnostic::diagnostic_log(
         code,

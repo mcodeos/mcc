@@ -77,7 +77,7 @@ pub fn handle_explain(params: Option<Value>) -> RpcResult {
                 "description": info.description,
             })),
             None => Err(JsonRpcError::custom(
-                -32003,
+                32112,
                 &format!("unknown error code: {code}"),
             )),
         },

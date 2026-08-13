@@ -75,7 +75,7 @@ fn check_lowercase_components(acc: &mut CheckAccumulator) {
                         "Component '{}' starts with lowercase. Convention is UPPER_SNAKE.",
                         name
                     ),
-                    code: 2201,
+                    code: crate::errcodes::NAME_COMPONENT_LOWERCASE,
                 });
             }
         }
@@ -164,7 +164,7 @@ fn check_mixed_pin_naming(acc: &mut CheckAccumulator) {
                     comp.name,
                     styles.join(", ")
                 ),
-                code: 2205,
+                code: crate::errcodes::NAME_PIN_MIXED_CONVENTION,
             });
         }
     }
@@ -205,7 +205,7 @@ fn check_short_instance_names(acc: &mut CheckAccumulator) {
                         entry.key().ident,
                         name
                     ),
-                    code: 2206,
+                    code: crate::errcodes::NAME_INSTANCE_SINGLE_CHAR,
                 });
             }
         }
@@ -252,7 +252,7 @@ fn check_numeric_pin_names(acc: &mut CheckAccumulator) {
                      Consider adding functional names for clarity.",
                     comp.name, numeric_count, pin_count
                 ),
-                code: 2207,
+                code: crate::errcodes::NAME_PIN_NUMERIC,
             });
         }
     }
@@ -286,7 +286,7 @@ fn check_lib_name_shadow(acc: &mut CheckAccumulator, lib_names: &HashSet<String>
                         entry.key().ident,
                         port_name
                     ),
-                    code: 2208,
+                    code: crate::errcodes::NAME_PORT_INST_SHADOWS_CMIE,
                 });
             }
         }
@@ -306,7 +306,7 @@ fn check_lib_name_shadow(acc: &mut CheckAccumulator, lib_names: &HashSet<String>
                             entry.key().ident,
                             pname
                         ),
-                        code: 2209,
+                        code: crate::errcodes::NAME_PARAM_SHADOWS_CMIE,
                     });
                 }
             }

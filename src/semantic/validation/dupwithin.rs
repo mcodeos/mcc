@@ -69,7 +69,7 @@ fn check_pin_name_duplicates(
                     entries.len(),
                     comp_name
                 ),
-                code: 2151,
+                code: crate::errcodes::DUP_WITHIN,
             });
         }
     }
@@ -97,7 +97,7 @@ fn check_enum_value_duplicates(
                     "Enum value '{}' appears {} times in enum '{}'.",
                     name, count, enum_name
                 ),
-                code: 2152,
+                code: crate::errcodes::DUP_ENUM_VALUE,
             });
         }
     }
