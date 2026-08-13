@@ -1,0 +1,66 @@
+{
+  "diagnostics": [
+    {
+      "code": 2115,
+      "location": {
+        "column": 1,
+        "file": "/Users/dan/work/mo/mcc/tests/corpus/alias_user.mc",
+        "len": 1,
+        "line": 1,
+        "pos": 248
+      },
+      "message": "Empty body \u2014 no clauses defined",
+      "phase": "pass0",
+      "severity": "warning"
+    },
+    {
+      "code": 2115,
+      "location": {
+        "column": 1,
+        "file": "/Users/dan/work/mo/mcc/tests/corpus/alias_target.mc",
+        "len": 1,
+        "line": 1,
+        "pos": 109
+      },
+      "message": "Empty body \u2014 no clauses defined",
+      "phase": "pass0",
+      "severity": "warning"
+    },
+    {
+      "code": 5459,
+      "location": {
+        "column": 8,
+        "file": "/Users/dan/work/mo/mcc/tests/corpus/alias_user.mc",
+        "len": 4,
+        "line": 7,
+        "pos": 241
+      },
+      "message": "Module 'main' has no params, instances, net lines, or functions. Is this a stub?",
+      "phase": "pass0",
+      "severity": "warning"
+    },
+    {
+      "code": 5252,
+      "location": {
+        "column": 10,
+        "file": "/Users/dan/work/mo/mcc/tests/corpus/alias_target.mc",
+        "len": 4,
+        "line": 3,
+        "pos": 96
+      },
+      "message": "Function 'init' has an empty body.",
+      "phase": "pass0",
+      "severity": "warning"
+    }
+  ],
+  "summary": {
+    "component_count": 0,
+    "elapsed_ms": 0,
+    "errors": 0,
+    "instance_count": 1,
+    "interface_count": 0,
+    "module_count": 2,
+    "net_count": 0,
+    "warnings": 4
+  }
+}
