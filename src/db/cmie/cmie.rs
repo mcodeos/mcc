@@ -172,8 +172,16 @@ pub(crate) fn resolve_cmie_member(
                 }
             }
         }
-        // TODO: Interface ports
-        _ => {}
+        McCMIE::Interface(iface) => {
+            // Interface member pins: resolve to the precise pin span
+            // (goto-definition) instead of falling through silently.
+            if let Some(range) = iface.pins.pin_name_spans.get(member_name) {
+                return Some((iface.uri.clone(), range.clone(), SymbolKind::PinNameRef));
+            }
+            if let Some(range) = iface.pins.pin_id_spans.get(member_name) {
+                return Some((iface.uri.clone(), range.clone(), SymbolKind::PinIdRef));
+            }
+        }
     }
     None
 }

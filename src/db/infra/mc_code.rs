@@ -45,7 +45,6 @@ use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
 use crate::{ast::ast_node::AstNode, ast::c_macros::*, semantic::common::McCMIE};
 use crate::{current_uri, mcb_loaded_libs, McComponent, McIds, McModule, McSpaceName, McURI};
-use core::panic;
 use line_index::LineIndex;
 use rust_lapper::Interval;
 use std::collections::BTreeMap;
@@ -1214,6 +1213,10 @@ impl McCode {
     /// List of class names defined in this file
     pub fn parse_cmie_names(&mut self) -> Vec<McIds> {
         let mut cmies: Vec<McIds> = Vec::<McIds>::new();
+        // (name, declaration node type) — needed to exempt legal
+        // enum + component/interface same-name coexistence (§2.3 of
+        // same-name-enum-component.md: enum+component namespaces merge).
+        let mut cmie_types: Vec<(McIds, u16)> = Vec::new();
         for node in self.ast.iter() {
             if node.is_type(MCAST_INTERFACE)
                 || node.is_type(MCAST_COMPONENT)
@@ -1221,6 +1224,7 @@ impl McCode {
                 || node.is_type(MCAST_ENUM)
                 || node.is_type(MCAST_DEFINE)
             {
+                let decl_type = node.get_type();
                 let subnodes = node.get_sub_node().expect(MISSING_SUBNODE);
                 if let Some(class_name) = McIds::new(
                     &subnodes
@@ -1231,18 +1235,35 @@ impl McCode {
                         .expect(MISSING_SUBNODE),
                 ) {
                     if cmies.contains(&class_name) {
-                        dlog_error(501, &node, "Definition already exists");
+                        // P0-3: enum + component/interface sharing a name is
+                        // legal (namespace merge). Other collisions still error.
+                        let exempt = cmie_types.iter().any(|(existing, t)| {
+                            *existing == class_name
+                                && (Self::is_enum_decl(*t) != Self::is_enum_decl(decl_type))
+                        });
+                        if !exempt {
+                            dlog_error(501, &node, "Definition already exists");
+                        }
                     } else {
                         self.spacenames.insert(
                             class_name.clone(),
                             McSpaceName::new(&class_name, self.uri.clone()),
                         );
-                        cmies.push(class_name);
+                        cmies.push(class_name.clone());
                     }
+                    cmie_types.push((class_name, decl_type));
                 }
             }
         }
         cmies
+    }
+
+    /// True when the declaration AST type is an `enum`.
+    ///
+    /// Used by [`parse_cmie_names`] to exempt legal enum + component/interface
+    /// same-name coexistence (§2.3 of same-name-enum-component.md).
+    fn is_enum_decl(decl_type: u16) -> bool {
+        decl_type == MCAST_ENUM
     }
 
     /// Load a single CMIE from mcode base lib and add to global tables
@@ -1367,7 +1388,32 @@ impl McCode {
                                     return Some(McCMIE::Enum(arc_enum));
                                 }
                             }
-                            _ => panic!(),
+                            MCAST_DEFINE => {
+                                // P1-10: a define cannot be represented as an
+                                // McCMIE (component/module/interface/enum only).
+                                // Report the mismatch instead of panicking.
+                                dlog_error(
+                                    503,
+                                    &node,
+                                    &format!("'{name}' is a define; not loadable as a CMIE"),
+                                );
+                                return None;
+                            }
+                            // Defensive fallback: the outer scan guard only admits
+                            // the five declaration types above, so this arm is
+                            // unreachable in practice. Keep it diagnostic-based
+                            // rather than panicking (P1-10).
+                            _ => {
+                                dlog_error(
+                                    503,
+                                    &node,
+                                    &format!(
+                                        "Unexpected declaration type {} for CMIE load",
+                                        node.get_type()
+                                    ),
+                                );
+                                return None;
+                            }
                         }
                     }
                 }
@@ -1880,6 +1926,11 @@ impl McCode {
                         if iface.base.pins.names_to_id.contains_key(member) {
                             return SymbolKind::PinNameRef;
                         }
+                    }
+                    crate::semantic::mc_inst::McInstance::BusRef { .. } => {
+                        // `comp.bus.member` — the base resolved to a bus ref,
+                        // so the member is a bus member, not a port.
+                        return SymbolKind::BusMemberRef;
                     }
                     _ => {}
                 }
@@ -2886,7 +2937,8 @@ impl McCode {
             for (inst_name, (_iotype, inst)) in m.insts.insts() {
                 match inst {
                     crate::semantic::mc_inst::McInstance::Component(_)
-                    | crate::semantic::mc_inst::McInstance::Module(_) => {
+                    | crate::semantic::mc_inst::McInstance::Module(_)
+                    | crate::semantic::mc_inst::McInstance::Interface(_) => {
                         if let Some(spans) = m.insts.port_spans().get(inst_name) {
                             for span in spans {
                                 let (d, _) = crate::refdef::register::register_def(

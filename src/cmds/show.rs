@@ -318,8 +318,34 @@ fn find_def(name: &str) -> Option<mcc::McCMIE> {
     None
 }
 
+/// Find a component definition by name, bypassing the RefDefMap ambiguity
+/// that arises when a component and an enum share the same name+URI
+/// (e.g. `enum CAP` + `component CAP` in mcode/cap.mc, P0-3).
+fn find_component_def(name: &str) -> Option<mcc::McCMIE> {
+    for (n, u) in mcc::mcb_iter_components() {
+        if n == name {
+            if let Some(c) =
+                mcc::get_component_def(&mcc::McIds::from(n.as_str()), &mcc::McURI::from(u.as_str()))
+            {
+                return Some(c);
+            }
+        }
+    }
+    None
+}
+
 fn def_or_exit(name: &str) -> mcc::McCMIE {
     match find_def(name) {
+        Some(c) => c,
+        None => {
+            error!(target: "mcc::show", "definition not found: {}\nhint: load a file with -F, a library with --lib, or start a server", name);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn component_def_or_exit(name: &str) -> mcc::McCMIE {
+    match find_component_def(name) {
         Some(c) => c,
         None => {
             error!(target: "mcc::show", "definition not found: {}\nhint: load a file with -F, a library with --lib, or start a server", name);
@@ -506,7 +532,7 @@ fn list_kind(kind: Kind, args: &ShowArgs) -> Result<()> {
 }
 
 fn show_component(name: &str, args: &ShowArgs) -> Result<()> {
-    let cmie = def_or_exit(name);
+    let cmie = component_def_or_exit(name);
     let mcc::McCMIE::Component(comp) = cmie else {
         error!(target: "mcc::show", "'{}' is not a Component", name);
         std::process::exit(1);

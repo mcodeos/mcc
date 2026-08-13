@@ -427,6 +427,7 @@ fn attrval_to_string(v: &crate::McAttrVal) -> Option<String> {
     match v {
         AttrLiteral(crate::McLiteral::String(s)) => Some(s.value.clone()),
         AttrLiteral(crate::McLiteral::Int(i)) => Some(i.to_string()),
+        AttrLiteral(crate::McLiteral::Hex(h)) => Some(h.to_string()),
         AttrLiteral(crate::McLiteral::Float(f)) => Some(f.to_string()),
         AttrLiteral(crate::McLiteral::Const(c)) => Some(c.to_string()),
         AttrLiteral(crate::McLiteral::Uval(u)) => Some(format!("{}", u.value())),

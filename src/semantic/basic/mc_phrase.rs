@@ -946,10 +946,9 @@ impl McPhrase {
                         McInstance::Interface(i) => format!("Interface('{}')", i.name),
                         McInstance::List(l) => format!("List('{}', mem={:?})", l.name, l.member),
                         McInstance::Unresolved { class_name } => format!("?{class_name}"),
-                        McInstance::BusRef {
-                            component: _,
-                            bus: _,
-                        } => todo!(),
+                        McInstance::BusRef { component, bus } => {
+                            format!("BusRef('{component}.{bus}')")
+                        }
                         McInstance::Pins => "Pins".into(),
                         McInstance::PinId(id) => format!("PinId('{id}')"),
                         McInstance::Attr(a) => format!("Attr({a})"),
@@ -1109,10 +1108,9 @@ impl McPhrase {
                         McInstance::Interface(i) => format!("Interface('{}')", i.name),
                         McInstance::List(l) => format!("List('{}', mem={:?})", l.name, l.member),
                         McInstance::Unresolved { class_name } => format!("?{class_name}"),
-                        McInstance::BusRef {
-                            component: _,
-                            bus: _,
-                        } => todo!(),
+                        McInstance::BusRef { component, bus } => {
+                            format!("BusRef('{component}.{bus}')")
+                        }
                         McInstance::Pins => "Pins".into(),
                         McInstance::PinId(id) => format!("PinId('{id}')"),
                         McInstance::Attr(a) => format!("Attr({a})"),
@@ -1203,20 +1201,29 @@ impl McPhrase {
 
                 let left_opd = Self::new(&subnode1, context)?;
 
-                // Grammar now allows mc_phrase (expressions) inside curly braces,
-                // not just IDAN. Extract string form for simple cases;
-                // complex expressions return empty vec and fall through gracefully.
-                let right1: Vec<String> = subnode2.to_id_or_ida_or_num();
-                let right2: Vec<String> = subnode3.to_id_or_ida_or_num();
-
-                // eprintln!("[CMN-DIAG] CURLY_MN left={} right1={:?} right2={:?}",
-                //     match &left_opd {
-                //         McPhrase::Endpoint(McEndpoint::Single(r)) =>
-                //             format!("Endpoint({:?})", std::mem::discriminant(&r.base)),
-                //         McPhrase::Member(..) => "Member".to_string(),
-                //         McPhrase::Multiple(_) => "Multiple".to_string(),
-                //         other => format!("{:?}", std::mem::discriminant(other)),
-                //     }, right1, right2);
+                // mca.y wraps each `mc_idans` inside curly braces in an
+                // OPD_IDAN node so the `|` boundary survives mc_value_link3's
+                // next-chain flattening (otherwise the left option list absorbs
+                // the right side's ids). Extract all id/ida/int elements by
+                // walking each wrapper's own chain; complex expressions return
+                // empty vec and fall through gracefully.
+                //
+                // Walk the chain with `get_next()` explicitly: `AstNodeIter`
+                // (from `.iter()`) silently truncates the traversal when its
+                // pointer-safety guard trips (e.g. a misaligned `next`), which
+                // dropped trailing option members like `DAC_OUT, SPK_MUTE`.
+                let mut right1: Vec<String> = Vec::new();
+                let mut cur = subnode2.get_sub_node();
+                while let Some(n) = cur {
+                    right1.extend(n.to_id_or_ida_or_num());
+                    cur = n.get_next();
+                }
+                let mut right2: Vec<String> = Vec::new();
+                cur = subnode3.get_sub_node();
+                while let Some(n) = cur {
+                    right2.extend(n.to_id_or_ida_or_num());
+                    cur = n.get_next();
+                }
 
                 match left_opd {
                     left_opd @ McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
@@ -1830,6 +1837,31 @@ impl McPhrase {
                 None
             }
             MCAST_IOTYPE_RETURN => None,
+
+            // ── P1-1: arithmetic / range operators on connection lines ──────
+            // mca.y accepts `A * B` / `A / B` / `A ~ B` / `A : B` as mc_phrase,
+            // but only `+` (parallel) and `-` / `->` (series) have connection
+            // semantics. These four fall through to the generic E1110 today;
+            // give an operator-specific diagnostic instead so the dropped line
+            // is not confused with an AST shape bug.
+            MCAST_OPD_MULTI | MCAST_OPD_DIVID | MCAST_OPD_TILDE | MCAST_OPD_COLON => {
+                let op = match node.get_type() {
+                    MCAST_OPD_MULTI => "*",
+                    MCAST_OPD_DIVID => "/",
+                    MCAST_OPD_TILDE => "~",
+                    _ => ":",
+                };
+                dlog_error(
+                    1110,
+                    node,
+                    &format!(
+                        "node={} Operator '{op}' is not supported in connection lines; \
+                         use '+' for parallel, '-' / '->' for series",
+                        node.get_type()
+                    ),
+                );
+                None
+            }
 
             _ => {
                 dlog_error(

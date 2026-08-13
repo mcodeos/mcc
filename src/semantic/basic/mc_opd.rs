@@ -5,6 +5,8 @@
 use crate::ast::ast_node::AstNode;
 use crate::ast::c_macros::*;
 use crate::db::diagnostic::diagnostic::dlog_error;
+use crate::semantic::basic::mc_ida::McIda;
+use crate::semantic::basic::mc_ids::IdsSegment;
 use crate::McIds;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -39,6 +41,29 @@ impl McOpd {
                     }
                 }
                 return None;
+            } else if matches!(
+                node_type,
+                MCAST_OPD_DOT | MCAST_OPD_CURLY | MCAST_OPD_CURLY_MN
+            ) {
+                // ── P1-2: top-level DOT/CURLY operands ─────────────────────
+                // McExpression::new routes OPD_DOT (`a.b`) / OPD_CURLY
+                // (`a{B,C}`) / OPD_CURLY_MN directly here; they previously
+                // fell through to `_ => None` and the expression was silently
+                // dropped (A3 gap). Rebuild the id chain from the sub-nodes.
+                let mut segments = Vec::new();
+                let mut cur = node.get_sub_node();
+                while let Some(n) = cur {
+                    if let Some(ids) = McIds::new(&n) {
+                        segments.extend(ids.segments);
+                    } else if let Some(text) = n.to_string() {
+                        segments.push(IdsSegment::Ida(Box::new(McIda::from(text.as_str()))));
+                    }
+                    cur = n.get_next();
+                }
+                if segments.is_empty() {
+                    return None;
+                }
+                return Some(McOpd::Id(McIds { segments }));
             } else {
                 return None;
             }

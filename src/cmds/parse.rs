@@ -525,9 +525,17 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                 let out_path = if let Some(ref p) = args.output {
                     Path::new(p).to_path_buf()
                 } else {
-                    let p = Path::new(args.target.as_ref().unwrap());
-                    let stem = p.file_stem().unwrap().to_string_lossy();
-                    let parent = p.parent().unwrap_or(Path::new(""));
+                    // `--code` mode has no target file; fall back to a stable name.
+                    let p = args
+                        .target
+                        .as_ref()
+                        .map_or_else(|| "snippet.mc".to_string(), |t| t.clone());
+                    let path = Path::new(&p);
+                    let stem = path
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "output".to_string());
+                    let parent = path.parent().unwrap_or(Path::new(""));
                     parent.join(format!("{}.html", stem))
                 };
                 let path_str = out_path.to_string_lossy().to_string();
