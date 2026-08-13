@@ -318,9 +318,12 @@ impl McModuleInst {
                 }
                 McCMIE::Interface(_) => {
                     // Interface cannot be used as FuncCall construction.
-                    // Log (mirroring the Enum arm) but keep the original
-                    // fall-through control flow to the user-func / instance-method
-                    // lookup below, so behavior stays unchanged.
+                    // Deliberately do NOT return here: fall through to the
+                    // user-func / instance-method lookup below (the caller may
+                    // still be a legitimate method call whose name collides
+                    // with an Interface type). The fall-through is structural —
+                    // code after the match runs only when no arm returned —
+                    // so keep it explicit for future readers.
                     mcc_dbg!(
                         "inst::fcall",
                         "[WARN] Cannot instantiate Interface '{func_name}' as FuncCall"
@@ -360,76 +363,16 @@ impl McModuleInst {
         }
 
         // 2.5 Phase 2.3: Instance method call (uC.power(...), flash.init(...))
-        //     When caller is a declared sub-module instance and func_name is a
-        //     function defined in that module's type, expand the function body
-        //     in the current module scope (with parameter substitution)
-        //
-        // ── P0-3 fix: unified scope chain resolution via InstFindInst ──────────
-        // Replaces ad-hoc 2-level scope drilling with resolve_inst_chain(),
-        // supporting arbitrary-depth nesting (module → sub_module → component → …).
-        {
-            // Infer caller scope chain from left endpoint
-            let caller_path = left
-                .first()
-                .map(|elem| elem.name.clone())
-                .unwrap_or_default();
-            let scope_segments: Vec<String> =
-                caller_path.split('.').map(|s| s.to_string()).collect();
-
-            if !scope_segments.is_empty() && !scope_segments[0].is_empty() {
-                // Resolve the full scope chain via InstFindInst
-                if let Some(entry) = resolve_inst_chain(&scope_segments, &*self) {
-                    match entry {
-                        InstEntry::SubModule(sub_mod) => {
-                            // Sub-module's own method (e.g. mcu513.some_func())
-                            if let Some(func) = sub_mod.def.funcs.find(&name_str) {
-                                let func_clone = func.clone();
-                                let func_arity = func_clone.params.iter().count();
-                                let call_arity = params.len();
-                                // Don't dispatch no-arg version when caller passed args
-                                if !(func_arity == 0 && call_arity > 0) {
-                                    let full_scope = scope_segments.join(".");
-                                    return self.instantiate_instance_method(
-                                        &full_scope,
-                                        &func_clone,
-                                        params,
-                                        left,
-                                        right,
-                                    );
-                                }
-                            }
-                        }
-                        InstEntry::Component(comp) => {
-                            // Component method (e.g. uC.power(...), mcu513.uC.i2c(...))
-                            if let Some(func) = comp.def.funcs.find(&name_str) {
-                                let func_clone = func.clone();
-                                let full_scope = scope_segments.join(".");
-                                return self.instantiate_instance_method(
-                                    &full_scope,
-                                    &func_clone,
-                                    params,
-                                    left,
-                                    right,
-                                );
-                            }
-                        }
-                        _ => {
-                            // Port/Label/Bus — not applicable for func calls.
-                            // Log the attempted chain for troubleshooting; control
-                            // still falls through to the final PassThrough warning
-                            // (944) at the end of this function.
-                            crate::db::diagnostic::diagnostic::dlog_trace(
-                                944,
-                                &format!(
-                                    "instantiate_funccall: instance-method chain '{}' resolved to a port/label/bus terminal — method call '{name_str}' not applicable (module='{}')",
-                                    scope_segments.join("."),
-                                    self.name,
-                                ),
-                            );
-                        }
-                    }
-                }
-            }
+        //     When the caller is a declared sub-module/component instance and
+        //     func_name is a method of that instance's type, expand the method
+        //     body in the current module scope (with parameter substitution).
+        //     Unified scope-chain resolution via InstFindInst (P0-3) supports
+        //     arbitrary-depth nesting (module → sub_module → component → …).
+        //     `try_resolve_instance_method` returns Ok(None) when the caller
+        //     isn't a sub-module/component or the type has no such method —
+        //     we then continue to the final PassThrough handling below.
+        if let Some(fc) = self.try_resolve_instance_method(&name_str, params, left, right)? {
+            return Ok(fc);
         }
 
         // Unrecognized FuncCall → PassThrough (preserve existing behavior: endpoint direct mapping)
@@ -461,6 +404,143 @@ impl McModuleInst {
             ),
         );
         Ok(FuncCallInst::PassThrough)
+    }
+
+    /// Phase 2.3: Instance method call (uC.power(...), flash.init(...))
+    ///
+    /// Resolves the caller scope chain via `resolve_inst_chain` (P0-3 unified
+    /// InstFindInst resolution, supporting arbitrary-depth nesting) and expands
+    /// `func_name` when it is a method defined on the resolved instance's type.
+    ///
+    /// Returns:
+    ///   - `Ok(Some(inst))` — method found and instantiated
+    ///   - `Ok(None)`       — caller isn't a sub-module/component, or the type
+    ///     has no such method. The caller decides how to report the miss (the
+    ///     final PassThrough warning 944 in `instantiate_funccall` covers it).
+    fn try_resolve_instance_method(
+        &mut self,
+        name_str: &str,
+        params: &[McParamValue],
+        left: &[McBus],
+        right: &[McBus],
+    ) -> Result<Option<FuncCallInst>, InstError> {
+        // Infer caller scope chain from left endpoint
+        let caller_path = left
+            .first()
+            .map(|elem| elem.name.clone())
+            .unwrap_or_default();
+        let scope_segments: Vec<String> = caller_path.split('.').map(|s| s.to_string()).collect();
+        if scope_segments.is_empty() || scope_segments[0].is_empty() {
+            // No caller on the left endpoint — nothing to resolve.
+            crate::db::diagnostic::diagnostic::dlog_trace(
+                944,
+                &format!(
+                    "try_resolve_instance_method: no caller scope on left endpoint (caller_path='{caller_path}') — method '{name_str}' cannot be resolved (module='{}')",
+                    self.name,
+                ),
+            );
+            return Ok(None);
+        }
+
+        // Resolve the full scope chain via InstFindInst. `entry` is owned, so
+        // the `&self` borrow ends here and `&mut self` calls below are legal.
+        let Some(entry) = resolve_inst_chain(&scope_segments, &*self) else {
+            // Scope chain doesn't resolve to a declared instance — the caller
+            // is probably a typo or an undeclared instance name.
+            crate::db::diagnostic::diagnostic::dlog_trace(
+                944,
+                &format!(
+                    "try_resolve_instance_method: scope chain '{}' does not resolve to any declared instance — method '{name_str}' cannot be resolved (module='{}')",
+                    scope_segments.join("."),
+                    self.name,
+                ),
+            );
+            return Ok(None);
+        };
+        let full_scope = scope_segments.join(".");
+
+        match entry {
+            InstEntry::SubModule(sub_mod) => {
+                // Sub-module's own method (e.g. mcu513.some_func())
+                if let Some(func) = sub_mod.def.funcs.find(name_str) {
+                    let func_clone = func.clone();
+                    let func_arity = func_clone.params.iter().count();
+                    let call_arity = params.len();
+                    // Don't dispatch no-arg version when caller passed args
+                    if !(func_arity == 0 && call_arity > 0) {
+                        crate::db::diagnostic::diagnostic::dlog_trace(
+                            944,
+                            &format!(
+                                "try_resolve_instance_method: resolved '{full_scope}.{name_str}' (sub-module method) — instantiating in module '{}'",
+                                self.name,
+                            ),
+                        );
+                        return Ok(Some(self.instantiate_instance_method(
+                            &full_scope,
+                            &func_clone,
+                            params,
+                            left,
+                            right,
+                        )?));
+                    }
+                    crate::db::diagnostic::diagnostic::dlog_trace(
+                        944,
+                        &format!(
+                            "try_resolve_instance_method: sub-module '{full_scope}' method '{name_str}' has arity 0 but the call passed {call_arity} args — not dispatched (module='{}')",
+                            self.name,
+                        ),
+                    );
+                } else {
+                    crate::db::diagnostic::diagnostic::dlog_trace(
+                        944,
+                        &format!(
+                            "try_resolve_instance_method: sub-module '{full_scope}' has no method '{name_str}' (module='{}')",
+                            self.name,
+                        ),
+                    );
+                }
+            }
+            InstEntry::Component(comp) => {
+                // Component method (e.g. uC.power(...), mcu513.uC.i2c(...))
+                if let Some(func) = comp.def.funcs.find(name_str) {
+                    let func_clone = func.clone();
+                    crate::db::diagnostic::diagnostic::dlog_trace(
+                        944,
+                        &format!(
+                            "try_resolve_instance_method: resolved '{full_scope}.{name_str}' (component method) — instantiating in module '{}'",
+                            self.name,
+                        ),
+                    );
+                    return Ok(Some(self.instantiate_instance_method(
+                        &full_scope,
+                        &func_clone,
+                        params,
+                        left,
+                        right,
+                    )?));
+                }
+                crate::db::diagnostic::diagnostic::dlog_trace(
+                    944,
+                    &format!(
+                        "try_resolve_instance_method: component '{full_scope}' has no method '{name_str}' (module='{}')",
+                        self.name,
+                    ),
+                );
+            }
+            _ => {
+                // Port/Label/Bus — not applicable for func calls. Log the
+                // attempted chain for troubleshooting; the final PassThrough
+                // warning (944) in `instantiate_funccall` still applies.
+                crate::db::diagnostic::diagnostic::dlog_trace(
+                    944,
+                    &format!(
+                        "instantiate_funccall: instance-method chain '{full_scope}' resolved to a port/label/bus terminal — method call '{name_str}' not applicable (module='{}')",
+                        self.name,
+                    ),
+                );
+            }
+        }
+        Ok(None)
     }
 
     /// Look up user-defined function in current module's function table

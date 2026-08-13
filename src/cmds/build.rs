@@ -1118,6 +1118,69 @@ module top {
         );
     }
 
+    // ── Arity-0 gate (line.rs instance-method dispatch) ────────────────
+    // A no-arg instance method called with arguments must NOT be dispatched:
+    // dispatching it would silently drop the caller's args and wrongly expand
+    // the no-arg body (e.g. `A -> GND_PIN` would short the pin to ground).
+    // NOTE: use a *component* method here — module-level arity-0 funcs are
+    // auto-invoked during instantiate (P2-8), which would mask the gate.
+
+    #[test]
+    fn arity_gate_noarg_method_with_args_not_dispatched() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let fixture = r#"
+component CMP {
+    pins = [
+        1 = A
+        2 = GND_PIN
+    ]
+    func noarg() {
+        A -> GND_PIN
+    }
+}
+module top {
+    CMP c1
+    VCC -> c1.A
+    c1.noarg(VCC)
+}
+"#;
+        mcc::mcc_init_no_lib();
+        mcc::mcc_set_system_root(std::path::Path::new(""));
+        let uri = "/mcc/snippet.mc".to_string();
+        mcc::mcc_clear_workspace();
+        mcc::mcc_load_from_string(&uri, fixture);
+        let ident = McIds::from("top");
+        let inst = mcc::mcc_build(&ident, &uri).expect("mcc_build");
+        let diags = mcc::mcc_diagnose_all();
+
+        // Debug dump of every net so a regression shows exactly what got wired.
+        let net_dump: Vec<String> = inst
+            .nets
+            .iter()
+            .map(|(name, pts)| {
+                format!(
+                    "{name}=[{}]",
+                    pts.iter()
+                        .map(|p| format!("{}.{}", p.path, p.member_name.as_deref().unwrap_or("")))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            })
+            .collect();
+        eprintln!("TOP nets: {net_dump:?}");
+
+        // The arity-0 gate must intercept: the no-arg body `A -> GND_PIN` must
+        // NOT be expanded, so no single net may contain both c1.A and GND_PIN.
+        let shorted = inst.nets.values().any(|pts| {
+            pts.iter().any(|p| p.path == "c1.A") && pts.iter().any(|p| p.path.ends_with("GND_PIN"))
+        });
+        assert!(
+            !shorted,
+            "arity-0 method called with args was dispatched — body `A -> GND_PIN` expanded, pin shorted: {net_dump:?}. diags: {:?}",
+            diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
+        );
+    }
+
     // ── D6 DROPPED_STATEMENT ────────────────────────────────────────────
 
     #[test]

@@ -2349,21 +2349,32 @@ impl McModuleInst {
                                 comp_func.is_some()
                             );
                             if let Some(func_def) = comp_func {
-                                mcc_dbg!(
-                                    "inst::mod",
-                                    "[P2-4-DBG] func_def name={}, lines={}, params={}",
-                                    func_def.name,
-                                    func_def.lines.len(),
-                                    func_def.params.iter().count()
-                                );
-                                let key = Self::member_key(phrase);
-                                let result = self.instantiate_instance_method(
-                                    &inst_name, &func_def, &fc.params, &fc.left, &fc.right,
-                                )?;
-                                if matches!(result, FuncCallInst::PassThrough) {
-                                    self.auto_inst_map.insert(key, inst_name.clone());
+                                // arity guard: only dispatch when formals and
+                                // actuals agree (mirrors the dotted-chain guard
+                                // below). A no-arg method called with args would
+                                // otherwise silently drop the args and wrongly
+                                // expand the body.
+                                let func_arity = func_def.params.iter().count();
+                                let call_arity = fc.params.len();
+                                if (func_arity > 0 && call_arity > 0)
+                                    || (func_arity == 0 && call_arity == 0)
+                                {
+                                    mcc_dbg!(
+                                        "inst::mod",
+                                        "[P2-4-DBG] func_def name={}, lines={}, params={}",
+                                        func_def.name,
+                                        func_def.lines.len(),
+                                        func_def.params.iter().count()
+                                    );
+                                    let key = Self::member_key(phrase);
+                                    let result = self.instantiate_instance_method(
+                                        &inst_name, &func_def, &fc.params, &fc.left, &fc.right,
+                                    )?;
+                                    if matches!(result, FuncCallInst::PassThrough) {
+                                        self.auto_inst_map.insert(key, inst_name.clone());
+                                    }
+                                    return Ok(());
                                 }
-                                return Ok(());
                             }
 
                             // Sub-module instance method
@@ -2373,14 +2384,23 @@ impl McModuleInst {
                                 .find(|m| m.name == inst_name)
                                 .and_then(|m| m.def.funcs.find(&func_name_str).cloned());
                             if let Some(func_def) = sub_func {
-                                let key = Self::member_key(phrase);
-                                let result = self.instantiate_instance_method(
-                                    &inst_name, &func_def, &fc.params, &fc.left, &fc.right,
-                                )?;
-                                if matches!(result, FuncCallInst::PassThrough) {
-                                    self.auto_inst_map.insert(key, inst_name.clone());
+                                // arity guard (mirrors the component-method and
+                                // dotted-chain guards): don't dispatch a no-arg
+                                // method called with args.
+                                let func_arity = func_def.params.iter().count();
+                                let call_arity = fc.params.len();
+                                if (func_arity > 0 && call_arity > 0)
+                                    || (func_arity == 0 && call_arity == 0)
+                                {
+                                    let key = Self::member_key(phrase);
+                                    let result = self.instantiate_instance_method(
+                                        &inst_name, &func_def, &fc.params, &fc.left, &fc.right,
+                                    )?;
+                                    if matches!(result, FuncCallInst::PassThrough) {
+                                        self.auto_inst_map.insert(key, inst_name.clone());
+                                    }
+                                    return Ok(());
                                 }
-                                return Ok(());
                             }
 
                             // ── P1 fix: dotted scope-chain drill down ──────────────
