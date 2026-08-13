@@ -78,6 +78,13 @@ mcc parse example.mc -D fcall=debug -vv
 mcc parse example.mc -D pass1=trace -D inst::dump=debug
 ```
 
+**Default logging is quiet.** Plain CLI runs (no `-v` / `-D`) emit warnings only
+(`warn` level). The file-configured `trace.level` / `trace.targets` in
+`~/.mcode/config/mcc.yaml` are loaded into runtime state for `trace.get` but are
+**not applied to CLI runs** — otherwise a file-configured `level: debug` would
+bury command results under INFO/DEBUG logs. File config takes effect only when
+you explicitly pass `-v` / `-D`, or via RPC `trace.set` on a server.
+
 ### RPC Debug Control
 
 ```json
@@ -240,6 +247,13 @@ mcc show params CAP --lib mcode
 mcc show roles SPI --lib mcode
 mcc show values CAP --lib mcode
 
+# Func sub-elements: funcs are NESTED (not top-level defs), so reference
+# them as OWNER.FUNC (dot-qualified; dotted class names work too, e.g.
+# MCU.US513_20_F.i2c → owner "MCU.US513_20_F", func "i2c").
+mcc show params US513.loadFlash -F example.mc        # func parameters (["spi"])
+mcc show nets US513.loadFlash -F example.mc          # func body line-level nets (no Pass2; each connection line → line_N)
+mcc show funcs US513 -F example.mc                   # list funcs of a module/component
+
 # Show all entities in a file / list loaded files
 mcc show file -F example.mc
 mcc show files
@@ -262,6 +276,8 @@ mcc show lapper -F path/to/file.mc -f json-pretty # JSON output
 ```
 
 Show targets: `all`, `file`, `files`, `lapper`, `ast`, `component`, `module`, `interface`, `enum`, `net`, `pins`, `ports`, `labels`, `instances`, `nets`, `attrs`, `funcs`, `params`, `roles`, `values`, `dump`
+
+> `nets` / `params` also accept `OWNER.FUNC` (dot-qualified func inside a module/component). `show nets <func>` reports func-body connection-line nets named `line_N` (no Pass2 — funcs depend on parameters and a calling context).
 
 > `show lapper` — see §6.6 for full debug workflow. Runs locally, outputs all symbol interval DEF/REF classifications and RefDefMap goto-def mappings.
 > `show sem` — RPC-based equivalent: `curl -s -X POST http://localhost:8080/rpc -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"sem","params":{"uri":"<path>"},"id":1}'`. Returns same lapper + RefDefMap data structure.
@@ -731,8 +747,13 @@ MCC_SYSTEM_ROOT=./mc RUST_BACKTRACE=1 cargo run -- mc/projects/hbl/hbl.mc
 ### 5.2 Logging
 
 ```bash
-# Increasing verbosity
-mcc parse example.mc               # warnings only
+# Default (no flags): warnings only. File-configured trace.level/targets are
+# NOT applied to CLI runs — debug output is explicit opt-in:
+mcc show pins RES --lib mcode            # clean result, no engine logs
+mcc -D sem:class show pins RES --lib mcode   # one module at debug level
+mcc -D pass1=trace parse example.mc      # alias + file config, explicit
+
+# Increasing verbosity (overrides the default warn level)
 mcc parse example.mc -v            # info
 mcc parse example.mc -vv           # debug
 mcc parse example.mc -vvv          # trace (very verbose)
@@ -1151,14 +1172,20 @@ tail -f ~/.mcode/logs/mcc-server.log
 
 ```yaml
 trace:
-  enabled: false
-  ast: false
-  lexer: false
-  parser: false
-  visit: false
-  pass1: false
-  pass2: false
-  server: false
+  # Base level: off | error | warn | info | debug | trace
+  # Applied only when CLI runs with -v / -D (or via RPC trace.set).
+  # Plain CLI commands (mcc show/parse/check ...) stay at the -v/-q-derived
+  # default (warn) so results are not buried under INFO/DEBUG logs.
+  level: warn
+  # Per-module overrides (mcc::sem::fcall: debug). Enabled per-run with -D:
+  #   mcc -D sem:class parse example.mc
+  # targets:
+  #   mcc::sem::fcall: debug
+  enabled: null
+  ast: null
+  lexer: null
+  parser: null
+  visit: null
 
 parser:
   sort_pins: "pinid"  # pinid | interface

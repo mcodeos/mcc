@@ -321,7 +321,49 @@ impl McModule {
                     );
                 }
             }
+
+            // ★ Inline labels: register bare names referenced in net lines that
+            // are not ports/params/instances as Inline labels, so `show
+            // instances` lists them (e.g. `GND` in `... -> GND`).
+            let mut net_labels: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
+            for line in &self.lines {
+                crate::semantic::validation::body::collect_net_label_names(line, &mut net_labels);
+            }
+            for name in net_labels {
+                if !Self::is_plain_label_candidate(&name) {
+                    continue;
+                }
+                if self.insts.contains(&name) || self.params.contains(&name) {
+                    continue;
+                }
+                self.insts
+                    .create_inst(&name, McInstance::Label(name.clone()));
+                self.insts
+                    .set_label_kind(&name, crate::semantic::mc_inst::LabelKind::Inline);
+            }
         }
+    }
+
+    /// A bare identifier eligible to become an inline net label: no member
+    /// separators (`.`/`{`), not an anonymous or bracketed name, not a
+    /// reserved keyword.
+    fn is_plain_label_candidate(name: &str) -> bool {
+        if name.is_empty()
+            || name == "this"
+            || name == "lead"
+            || name.starts_with('@')
+            || name.starts_with('[')
+            || name.starts_with('(')
+            || name.contains('.')
+            || name.contains('{')
+            || name.contains('(')
+            || name.contains(',')
+            || name.contains(char::is_whitespace)
+        {
+            return false;
+        }
+        true
     }
     /// Extract the interface class name and its source span from an
     /// interface-typed module port parameter, e.g. `[VDD_3V3,GND]::DC(3.3V)`

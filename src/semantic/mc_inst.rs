@@ -209,10 +209,11 @@ impl McInstance {
         }
     }
 
-    /// Get member list
+    /// Get member list (Bus/List member names; e.g. `MIC{P,N}` → `["P","N"]`).
     pub fn members(&self) -> Vec<String> {
         match self {
             McInstance::Bus(b) => b.member.clone(),
+            McInstance::List(l) => l.member.clone(),
             _ => Vec::new(),
         }
     }
