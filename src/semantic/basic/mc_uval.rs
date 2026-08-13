@@ -312,7 +312,7 @@ fn extract_value_and_unit<'a>(node: &'a AstNode, data: &'a str) -> Option<(f64, 
         dlog_error(
             crate::errcodes::UVAL_FORMAT_INVALID,
             node,
-            "Invalid unit value format.",
+            &crate::errcodes::format_msg(crate::errcodes::UVAL_FORMAT_INVALID, &[]),
         );
         return None;
     };
@@ -339,7 +339,7 @@ fn extract_value_and_unit<'a>(node: &'a AstNode, data: &'a str) -> Option<(f64, 
         dlog_error(
             crate::errcodes::UVAL_FORMAT_INVALID,
             node,
-            "Invalid float format.",
+            &crate::errcodes::format_msg(crate::errcodes::UVAL_FORMAT_INVALID, &[]),
         );
         return None;
     };
@@ -363,7 +363,10 @@ fn parse_volt_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_VARIANT_INVALID,
                 node,
-                "Invalid Unit.",
+                &crate::errcodes::format_msg(
+                    crate::errcodes::UVAL_UNIT_VARIANT_INVALID,
+                    &[&unit_str],
+                ),
             );
             return None;
         }
@@ -395,7 +398,10 @@ fn parse_amp_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_VARIANT_INVALID,
                 node,
-                "Invalid Unit.",
+                &crate::errcodes::format_msg(
+                    crate::errcodes::UVAL_UNIT_VARIANT_INVALID,
+                    &[&unit_str],
+                ),
             );
             return None;
         }
@@ -426,7 +432,7 @@ fn parse_capc_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_UNSUPPORTED,
                 node,
-                "Invalid Unit.",
+                &crate::errcodes::format_msg(crate::errcodes::UVAL_UNIT_UNSUPPORTED, &[&unit_str]),
             );
             return None;
         }
@@ -457,7 +463,7 @@ fn parse_induct_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_UNSUPPORTED,
                 node,
-                "Invalid Unit.",
+                &crate::errcodes::format_msg(crate::errcodes::UVAL_UNIT_UNSUPPORTED, &[&unit_str]),
             );
             return None;
         }
@@ -491,7 +497,7 @@ fn parse_time_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_UNSUPPORTED,
                 node,
-                "Invalid Unit.",
+                &crate::errcodes::format_msg(crate::errcodes::UVAL_UNIT_UNSUPPORTED, &[&unit_str]),
             );
             return None;
         }
@@ -527,7 +533,7 @@ fn parse_length_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_UNSUPPORTED,
                 node,
-                "Invalid Unit.",
+                &crate::errcodes::format_msg(crate::errcodes::UVAL_UNIT_UNSUPPORTED, &[&unit_str]),
             );
             return None;
         }
@@ -570,7 +576,7 @@ fn parse_power_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_UNSUPPORTED,
                 node,
-                "Invalid Unit.",
+                &crate::errcodes::format_msg(crate::errcodes::UVAL_UNIT_UNSUPPORTED, &[&unit_str]),
             );
             return None;
         }
@@ -600,7 +606,7 @@ fn parse_resist_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_UNSUPPORTED,
                 node,
-                "Invalid Unit.",
+                &crate::errcodes::format_msg(crate::errcodes::UVAL_UNIT_UNSUPPORTED, &[&unit_str]),
             );
             return None;
         }
@@ -626,7 +632,7 @@ fn parse_temperature_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_UNSUPPORTED,
                 node,
-                "Invalid Unit.",
+                &crate::errcodes::format_msg(crate::errcodes::UVAL_UNIT_UNSUPPORTED, &[&unit_str]),
             );
             return None;
         }
@@ -657,7 +663,7 @@ fn parse_freq_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_UNSUPPORTED,
                 node,
-                "Invalid Unit.",
+                &crate::errcodes::format_msg(crate::errcodes::UVAL_UNIT_UNSUPPORTED, &[&unit_str]),
             );
             return None;
         }
@@ -685,7 +691,10 @@ fn parse_gain_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
                 dlog_error(
                     crate::errcodes::UVAL_UNIT_UNSUPPORTED,
                     node,
-                    "Invalid Unit.",
+                    &crate::errcodes::format_msg(
+                        crate::errcodes::UVAL_UNIT_UNSUPPORTED,
+                        &[&unit_str],
+                    ),
                 );
                 return None;
             }
@@ -707,7 +716,7 @@ fn parse_ppm_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_UNSUPPORTED,
                 node,
-                "Invalid Unit.",
+                &crate::errcodes::format_msg(crate::errcodes::UVAL_UNIT_UNSUPPORTED, &[&unit_str]),
             );
             return None;
         }
@@ -734,7 +743,7 @@ fn parse_percent_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_UNSUPPORTED,
                 node,
-                "Invalid Unit.",
+                &crate::errcodes::format_msg(crate::errcodes::UVAL_UNIT_UNSUPPORTED, &[&unit_str]),
             );
             return None;
         }
@@ -768,7 +777,7 @@ fn parse_comm_speed_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_UNSUPPORTED,
                 node,
-                "Invalid Unit.",
+                &crate::errcodes::format_msg(crate::errcodes::UVAL_UNIT_UNSUPPORTED, &[&unit_str]),
             );
             return None;
         }
@@ -817,7 +826,7 @@ fn parse_data_size_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_UNSUPPORTED,
                 node,
-                "Invalid Unit.",
+                &crate::errcodes::format_msg(crate::errcodes::UVAL_UNIT_UNSUPPORTED, &[&unit_str]),
             );
             return None;
         }
@@ -859,7 +868,7 @@ fn parse_sps_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_UNSUPPORTED,
                 node,
-                "Invalid Unit.",
+                &crate::errcodes::format_msg(crate::errcodes::UVAL_UNIT_UNSUPPORTED, &[&unit_str]),
             );
             return None;
         }
@@ -1091,7 +1100,7 @@ fn parse_conductance_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_UNSUPPORTED,
                 node,
-                "Invalid Unit.",
+                &crate::errcodes::format_msg(crate::errcodes::UVAL_UNIT_UNSUPPORTED, &[&unit_str]),
             );
             return None;
         }
@@ -1153,7 +1162,7 @@ fn parse_responsivity_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
         dlog_error(
             crate::errcodes::UVAL_UNIT_UNSUPPORTED,
             node,
-            "Invalid Unit.",
+            &crate::errcodes::format_msg(crate::errcodes::UVAL_UNIT_UNSUPPORTED, &[&unit_str]),
         );
         return None;
     }
@@ -1181,7 +1190,10 @@ fn parse_angle_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_VARIANT_INVALID,
                 node,
-                "Invalid angle unit.",
+                &crate::errcodes::format_msg(
+                    crate::errcodes::UVAL_UNIT_VARIANT_INVALID,
+                    &[&unit_str],
+                ),
             );
             None
         }
@@ -1224,7 +1236,10 @@ fn parse_angular_rate_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_VARIANT_INVALID,
                 node,
-                "Invalid angular rate unit.",
+                &crate::errcodes::format_msg(
+                    crate::errcodes::UVAL_UNIT_VARIANT_INVALID,
+                    &[&unit_str],
+                ),
             );
             None
         }
@@ -1242,7 +1257,7 @@ fn parse_energy_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_UNSUPPORTED,
                 node,
-                "Invalid energy unit.",
+                &crate::errcodes::format_msg(crate::errcodes::UVAL_UNIT_UNSUPPORTED, &[&unit_str]),
             );
             return None;
         }
@@ -1267,7 +1282,7 @@ fn parse_efield_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_UNSUPPORTED,
                 node,
-                "Invalid electric field unit.",
+                &crate::errcodes::format_msg(crate::errcodes::UVAL_UNIT_UNSUPPORTED, &[&unit_str]),
             );
             return None;
         }
@@ -1292,7 +1307,7 @@ fn parse_hfield_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_UNSUPPORTED,
                 node,
-                "Invalid magnetic field strength unit.",
+                &crate::errcodes::format_msg(crate::errcodes::UVAL_UNIT_UNSUPPORTED, &[&unit_str]),
             );
             return None;
         }
@@ -1318,7 +1333,10 @@ fn parse_flux_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_VARIANT_INVALID,
                 node,
-                "Invalid magnetic flux unit.",
+                &crate::errcodes::format_msg(
+                    crate::errcodes::UVAL_UNIT_VARIANT_INVALID,
+                    &[&unit_str],
+                ),
             );
             return None;
         }
@@ -1345,7 +1363,10 @@ fn parse_bfield_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_VARIANT_INVALID,
                 node,
-                "Invalid magnetic flux density unit.",
+                &crate::errcodes::format_msg(
+                    crate::errcodes::UVAL_UNIT_VARIANT_INVALID,
+                    &[&unit_str],
+                ),
             );
             return None;
         }
@@ -1370,7 +1391,10 @@ fn parse_slew_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_VARIANT_INVALID,
                 node,
-                "Invalid slew rate unit.",
+                &crate::errcodes::format_msg(
+                    crate::errcodes::UVAL_UNIT_VARIANT_INVALID,
+                    &[&unit_str],
+                ),
             );
             return None;
         }
@@ -1414,7 +1438,10 @@ fn parse_charge_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
             dlog_error(
                 crate::errcodes::UVAL_UNIT_VARIANT_INVALID,
                 node,
-                "Invalid charge unit.",
+                &crate::errcodes::format_msg(
+                    crate::errcodes::UVAL_UNIT_VARIANT_INVALID,
+                    &[&unit_str],
+                ),
             );
             return None;
         }

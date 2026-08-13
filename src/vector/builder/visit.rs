@@ -486,16 +486,15 @@ impl<'a> McVecBuilder<'a> {
                                 DiagnosticLevel::Error,
                                 pos,
                                 1,
-                                &format!(
-                                    "MERGED_SHORT: net '{}' (module '{}') has {} point(s) \
-                                     resolving to the same node (id={}). Paths: {:?}. \
-                                     This may indicate a bracket expansion duplicate or a port \
-                                     declared without bit width causing signal merging.",
-                                    net_name,
-                                    module_path,
-                                    paths.len(),
-                                    id,
-                                    unique_paths
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::NET_MERGED_SHORT,
+                                    &[
+                                        &net_name,
+                                        &module_path,
+                                        &paths.len() as &dyn std::fmt::Display,
+                                        &id as &dyn std::fmt::Display,
+                                        &format!("{:?}", unique_paths),
+                                    ],
                                 ),
                                 &[],
                             );

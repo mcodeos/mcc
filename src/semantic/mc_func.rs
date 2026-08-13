@@ -498,10 +498,12 @@ impl McFunction {
                                     let line_txt = subnode
                                         .to_string()
                                         .unwrap_or_else(|| "<unprintable>".to_string());
-                                    dlog_warning(crate::errcodes::FUNC_LINE_DROPPED,
+                                    dlog_warning(
+                                        crate::errcodes::FUNC_LINE_DROPPED,
                                         &subnode,
-                                        &format!(
-                                            "Connection line dropped (McPhrase::new returned None): `{line_txt}`"
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::FUNC_LINE_DROPPED,
+                                            &[&line_txt],
                                         ),
                                     );
                                 }

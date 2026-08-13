@@ -18,10 +18,7 @@ use crate::{
     ast::{ast_node::AstNode, c_macros::*, error::message::*},
     db::{
         context::DB,
-        diagnostic::diagnostic::{
-            dlog_error, dlog_trace, dlog_warning,
-            message_templates::{CANNOT_TRANSPOSE, SHAPE_MISMATCH},
-        },
+        diagnostic::diagnostic::{dlog_error, dlog_trace, dlog_warning},
     },
     query::refs::{mcb_register_declare_class, mcb_register_instance_ref},
     semantic::{
@@ -194,10 +191,6 @@ impl McPhrase {
                         McOpd::Id(ids) => {
                             let ids_str = ids.to_string();
                             let _is_curly = ids.is_curly_bracket();
-                            if ids_str.contains("ldo") {
-                                eprintln!("[PHRASE-DBG-ID] McPhrase::new Id ids={ids_str:?} is_square={} is_curly={} dot_chain={:?}",
-                                    ids.is_square_bracket(), ids.is_curly_bracket(), ids.dot_chain_parts());
-                            }
                             // eprintln!(
                             //     "[PHRASE_DEBUG] OPD Id: ids={:?}, is_curly={}",
                             //     ids_str, is_curly
@@ -328,17 +321,21 @@ impl McPhrase {
                                         if let Some(result) = aim {
                                             return Some(result);
                                         }
-                                        dlog_error(crate::errcodes::IFACE_MEMBER_NOT_FOUND,
+                                        dlog_error(
+                                            crate::errcodes::IFACE_MEMBER_NOT_FOUND,
                                             node,
-                                            &format!(
-                                                "Interface '{interface}.{full_name}' not found in component '{component}'"
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::IFACE_MEMBER_NOT_FOUND,
+                                                &[&interface, &full_name, &component],
                                             ),
                                         );
                                     } else {
-                                        dlog_error(crate::errcodes::IFACE_CURLY_MEMBER_INVALID,
+                                        dlog_error(
+                                            crate::errcodes::IFACE_CURLY_MEMBER_INVALID,
                                             node,
-                                            &format!(
-                                                "Component '{component}' not found for interface '{component}.{interface}'"
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::IFACE_CURLY_MEMBER_INVALID,
+                                                &[&component, &component, &interface],
                                             ),
                                         );
                                     }
@@ -392,13 +389,12 @@ impl McPhrase {
                                                 if context.find_inst(expanded_name).is_none()
                                                     && context.find_inst(&ids.to_string()).is_none()
                                                 {
-                                                    dlog_error(crate::errcodes::NET_DROPPED_STATEMENT,
+                                                    dlog_error(
+                                                        crate::errcodes::NET_DROPPED_STATEMENT,
                                                         node,
-                                                        &format!(
-                                                            "DROPPED_STATEMENT: indexed alias '{}' expands to '{}' which is not a known instance. \
-                                                             The statement may produce no nets or constraints.",
-                                                            ids.to_string(),
-                                                            expanded_name
+                                                        &crate::errcodes::format_msg(
+                                                            crate::errcodes::NET_DROPPED_STATEMENT,
+                                                            &[&ids.to_string(), &expanded_name],
                                                         ),
                                                     );
                                                 }
@@ -442,12 +438,24 @@ impl McPhrase {
                                     if let Some(McInstance::Component(c)) = context.find_inst(base)
                                     {
                                         if c.find_pin(&rest).is_none() {
+                                            let available: Vec<&str> = c
+                                                .base
+                                                .pins
+                                                .names_to_id
+                                                .keys()
+                                                .map(|s| s.as_str())
+                                                .collect();
                                             dlog_error(
                                                 crate::errcodes::COMPONENT_PIN_NOT_FOUND,
                                                 &subnode,
-                                                &format!(
-                                                    "Pin '{}' not found in component '{}'",
-                                                    rest, base
+                                                &crate::errcodes::format_msg(
+                                                    crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                                                    &[
+                                                        &rest as &dyn std::fmt::Display,
+                                                        base as &dyn std::fmt::Display,
+                                                        &available.join(", ")
+                                                            as &dyn std::fmt::Display,
+                                                    ],
                                                 ),
                                             );
                                             return None;
@@ -559,12 +567,23 @@ impl McPhrase {
                                 if let Some(McInstance::Component(c)) = base_inst_opt {
                                     // E1802: Check if the member is a valid pin in the component
                                     if c.find_pin(member).is_none() {
+                                        let available: Vec<&str> = c
+                                            .base
+                                            .pins
+                                            .names_to_id
+                                            .keys()
+                                            .map(|s| s.as_str())
+                                            .collect();
                                         dlog_error(
                                             crate::errcodes::COMPONENT_PIN_NOT_FOUND,
                                             node,
-                                            &format!(
-                                                "Pin '{}' not found in component '{}'",
-                                                member, base
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                                                &[
+                                                    &member as &dyn std::fmt::Display,
+                                                    &base as &dyn std::fmt::Display,
+                                                    &available.join(", ") as &dyn std::fmt::Display,
+                                                ],
                                             ),
                                         );
                                         return None;
@@ -1022,12 +1041,23 @@ impl McPhrase {
                                 if right.len() == 1 {
                                     let member = &right[0];
                                     if c.find_pin(member).is_none() {
+                                        let available: Vec<&str> = c
+                                            .base
+                                            .pins
+                                            .names_to_id
+                                            .keys()
+                                            .map(|s| s.as_str())
+                                            .collect();
                                         dlog_error(
                                             crate::errcodes::COMPONENT_PIN_NOT_FOUND,
                                             node,
-                                            &format!(
-                                                "Pin '{}' not found in component '{}'",
-                                                member, inst_name
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                                                &[
+                                                    member as &dyn std::fmt::Display,
+                                                    &inst_name as &dyn std::fmt::Display,
+                                                    &available.join(", ") as &dyn std::fmt::Display,
+                                                ],
                                             ),
                                         );
                                         return None;
@@ -1042,12 +1072,18 @@ impl McPhrase {
                             // E1802: pin not found in component
                             if right.len() == 1 {
                                 let member = &right[0];
+                                let available: Vec<&str> =
+                                    c.base.pins.names_to_id.keys().map(|s| s.as_str()).collect();
                                 dlog_error(
                                     crate::errcodes::COMPONENT_PIN_NOT_FOUND,
                                     node,
-                                    &format!(
-                                        "Pin '{}' not found in component '{}'",
-                                        member, inst_name
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                                        &[
+                                            member as &dyn std::fmt::Display,
+                                            &inst_name as &dyn std::fmt::Display,
+                                            &available.join(", ") as &dyn std::fmt::Display,
+                                        ],
                                     ),
                                 );
                                 return None;
@@ -1067,12 +1103,22 @@ impl McPhrase {
                                 if right.len() == 1 {
                                     let member = &right[0];
                                     if !m.base.insts.find_port(member).is_some() {
+                                        let available: Vec<&str> = m
+                                            .base
+                                            .insts
+                                            .iter_ports()
+                                            .map(|(name, _)| name)
+                                            .collect();
                                         dlog_error(
                                             crate::errcodes::MODULE_PORT_NOT_FOUND,
                                             node,
-                                            &format!(
-                                                "Port '{}' not found in module '{}'",
-                                                member, inst_name
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::MODULE_PORT_NOT_FOUND,
+                                                &[
+                                                    member as &dyn std::fmt::Display,
+                                                    &inst_name as &dyn std::fmt::Display,
+                                                    &available.join(", ") as &dyn std::fmt::Display,
+                                                ],
                                             ),
                                         );
                                         return None;
@@ -1087,12 +1133,18 @@ impl McPhrase {
                             // E1803: port not found in module
                             if right.len() == 1 {
                                 let member = &right[0];
+                                let available: Vec<&str> =
+                                    m.base.insts.iter_ports().map(|(name, _)| name).collect();
                                 dlog_error(
                                     crate::errcodes::MODULE_PORT_NOT_FOUND,
                                     node,
-                                    &format!(
-                                        "Port '{}' not found in module '{}'",
-                                        member, inst_name
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::MODULE_PORT_NOT_FOUND,
+                                        &[
+                                            member as &dyn std::fmt::Display,
+                                            &inst_name as &dyn std::fmt::Display,
+                                            &available.join(", ") as &dyn std::fmt::Display,
+                                        ],
                                     ),
                                 );
                                 return None;
@@ -1191,13 +1243,12 @@ impl McPhrase {
                             if context.find_inst(expanded_name).is_none()
                                 && context.find_inst(&ids.to_string()).is_none()
                             {
-                                dlog_error(crate::errcodes::NET_DROPPED_STATEMENT,
+                                dlog_error(
+                                    crate::errcodes::NET_DROPPED_STATEMENT,
                                     node,
-                                    &format!(
-                                        "DROPPED_STATEMENT: indexed alias '{}' expands to '{}' which is not a known instance. \
-                                         The statement may produce no nets or constraints.",
-                                        ids.to_string(),
-                                        expanded_name
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::NET_DROPPED_STATEMENT,
+                                        &[&ids.to_string(), &expanded_name],
                                     ),
                                 );
                             }
@@ -1331,10 +1382,12 @@ impl McPhrase {
                                 .collect();
 
                             if !left_members.is_empty() || !right_members.is_empty() {
-                                dlog_error(crate::errcodes::NAME_DEF_NOT_FOUND_LABEL_FALLBACK,
+                                dlog_error(
+                                    crate::errcodes::NAME_DEF_NOT_FOUND_LABEL_FALLBACK,
                                     node,
-                                    &format!(
-                                        "CURLY_MN: '{name}' definition not found, using label fallback"
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::NAME_DEF_NOT_FOUND_LABEL_FALLBACK,
+                                        &[&name],
                                     ),
                                 );
                                 return Some(McPhrase::Endpoint(McEndpoint::Node {
@@ -1393,7 +1446,10 @@ impl McPhrase {
                         dlog_error(
                             crate::errcodes::CONN_CANNOT_TRANSPOSE,
                             node,
-                            CANNOT_TRANSPOSE,
+                            &crate::errcodes::format_msg(
+                                crate::errcodes::CONN_CANNOT_TRANSPOSE,
+                                &[],
+                            ),
                         );
                         None
                     }
@@ -1609,7 +1665,14 @@ impl McPhrase {
                 }
 
                 if !is_connectable(&opd1.get_right(), &opd2.get_left()) {
-                    dlog_error(crate::errcodes::CONN_SERIES_INVALID, node, SHAPE_MISMATCH);
+                    dlog_error(
+                        crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
+                        node,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
+                            &[],
+                        ),
+                    );
                     return None;
                 }
 
@@ -1913,10 +1976,12 @@ impl McPhrase {
                 dlog_error(
                     crate::errcodes::CONN_OPERATOR_UNSUPPORTED,
                     node,
-                    &format!(
-                        "node={} Operator '{op}' is not supported in connection lines; \
-                         use '+' for parallel, '-' / '->' for series",
-                        node.get_type()
+                    &crate::errcodes::format_msg(
+                        crate::errcodes::CONN_OPERATOR_UNSUPPORTED,
+                        &[
+                            &node.get_type() as &dyn std::fmt::Display,
+                            &op as &dyn std::fmt::Display,
+                        ],
                     ),
                 );
                 None
@@ -2751,8 +2816,11 @@ impl McPhrase {
                     ))));
                 } else {
                     dlog_trace(
-                        1175,
-                        &format!("Member '{member_name}' not found in interface"),
+                        crate::errcodes::PHRASE_IFACE_MEMBER_NOT_FOUND,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::PHRASE_IFACE_MEMBER_NOT_FOUND,
+                            &[&member_name],
+                        ),
                     );
                     return None;
                 }
@@ -3069,10 +3137,9 @@ fn check_ambiguous_precedence(node: &AstNode, loc_node: &AstNode) {
         dlog_warning(
             crate::errcodes::CONN_AMBIGUOUS_PRECEDENCE,
             loc_node,
-            &format!(
-                "AMBIGUOUS_PRECEDENCE: expression mixes + (parallel) with - or -> (series) \
-                 operators without parentheses and spans {leaf_count} components (>2). \
-                 Consider adding explicit parentheses (Group) to clarify the intended grouping."
+            &crate::errcodes::format_msg(
+                crate::errcodes::CONN_AMBIGUOUS_PRECEDENCE,
+                &[&leaf_count as &dyn std::fmt::Display],
             ),
         );
     }

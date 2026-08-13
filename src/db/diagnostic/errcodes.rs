@@ -148,6 +148,9 @@ pub const ENUM_MISSING_VALUES: u32 = 1058;
 /// Malformed IO type node in a pin/port declaration.
 pub const MALFORMED_IOTYPE: u32 = 1059;
 
+/// The name is a define; a define cannot be loaded as a CMIE.
+pub const CMIE_IS_DEFINE: u32 = 1060;
+
 // ============================================================================
 // Pass1b: use statements (2000-2049)
 // ============================================================================
@@ -178,6 +181,9 @@ pub const USE_REEXPORT_SYMBOL_NOT_FOUND: u32 = 2008;
 
 /// A use path mixes '.' and '/' separators.
 pub const USE_MIXED_PATH_SEPARATORS: u32 = 2009;
+
+/// Unexpected trailing node in a USE statement; it is ignored.
+pub const USE_TRAILING_NODE: u32 = 2010;
 
 // ============================================================================
 // Pass1b: use-stage diagnostics (2050-2079)
@@ -378,6 +384,9 @@ pub const ATTR_TYPE_MISMATCH: u32 = 3021;
 /// Attribute type is not supported.
 pub const ATTR_TYPE_NOT_SUPPORTED: u32 = 3022;
 
+/// Attribute node is missing a required subnode.
+pub const ATTR_MISSING_SUBNODE: u32 = 3023;
+
 /// Invalid value type in a KVS node.
 pub const KVS_VALUE_TYPE_INVALID: u32 = 3041;
 
@@ -455,6 +464,12 @@ pub const PARAM_INSTANCE_EXPECTED: u32 = 3108;
 /// Failed to extract the parameter name.
 pub const PARAM_NAME_EXTRACT_FAILED: u32 = 3109;
 
+/// Instance::class lookup failed; the binding is treated as a plain pin alias.
+pub const PARAM_INST_LOOKUP_FAILED: u32 = 3110;
+
+/// Interface pin count does not match the number of declared pin IDs.
+pub const PARAM_DECLARE_IFACE_PINS: u32 = 3111;
+
 /// Missing function name in a function call.
 pub const FUNC_CALL_MISSING_NAME: u32 = 3131;
 
@@ -530,6 +545,9 @@ pub const IFACE_MEMBER_LOOKUP_FAILED: u32 = 3178;
 
 /// Pin(s) not found in the component or interface.
 pub const COMPONENT_PIN_NOT_FOUND: u32 = 3179;
+
+/// Interface has no top-level pin definitions (all pins are inside role blocks); no pin-to-member mapping is created.
+pub const IFACE_NO_TOPLEVEL_PINS: u32 = 3180;
 
 // ============================================================================
 // Pass2: connection / shape (4000-4049)
@@ -619,6 +637,9 @@ pub const CONN_AMBIGUOUS_PRECEDENCE: u32 = 4027;
 // ============================================================================
 // Pass2: netlist heuristics (D-series / layout) (4050-4099)
 // ============================================================================
+
+/// A box has a placeholder pin not mapped to any real component pin.
+pub const GHOST_PORT_BOX: u32 = 4050;
 
 /// Multiple points resolve to the same node — possible short circuit (E2003).
 pub const NET_MERGED_SHORT: u32 = 4051;
@@ -757,6 +778,9 @@ pub const NET_POWER_NET_COUNT: u32 = 4118;
 // Pass2: instantiation checks (4150-4199)
 // ============================================================================
 
+/// A chain link was skipped because the method is not defined on the instance.
+pub const INST_CHAIN_LINK_SKIPPED: u32 = 4150;
+
 /// Instance argument has no formal port to bind.
 pub const INST_ARG_NO_FORMAL_PORT: u32 = 4151;
 
@@ -828,6 +852,9 @@ pub const INST_CTOR_BODY_LINE_FAILED: u32 = 4173;
 
 /// Constructor parameter binding failed.
 pub const INST_CTOR_PARAM_BIND_FAILED: u32 = 4174;
+
+/// Instance argument has no formal port to bind (with module/bound details).
+pub const INST_ARG_UNBOUND_DETAILED: u32 = 4175;
 
 // ============================================================================
 // Pass3: duplicate validation (5000-5049)
@@ -1208,6 +1235,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(ENUM_MISSING_NAME_IDS, "Enum definition is missing its name ids.", "Missing name ids for enum"),
     entry!(ENUM_MISSING_VALUES, "Enum definition is missing its values.", "Missing values for enum"),
     entry!(MALFORMED_IOTYPE, "Malformed IO type node in a pin/port declaration.", "Malformed IOTYPE node"),
+    entry!(CMIE_IS_DEFINE, "The name is a define; a define cannot be loaded as a CMIE.", "'{0}' is a define; not loadable as a CMIE"),
     // ---- section ----
     entry!(USE_PATH_INVALID, "Invalid path in a use statement.", "Invalid path in USE"),
     entry!(USE_URI_PREFIX_INVALID, "Unrecognized URI prefix — expected $, /, ./, or ../.", "Unrecognized URI prefix — expected $, /, ./, or ../"),
@@ -1218,10 +1246,11 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(USE_IMPORT_SYMBOL_NOT_FOUND, "A symbol listed in use import(...) was not found in the target file.", "A symbol listed in use import(...) was not found in the target file."),
     entry!(USE_REEXPORT_SYMBOL_NOT_FOUND, "A symbol in pub use import(...) was not found and cannot be re-exported.", "A symbol in pub use import(...) was not found and cannot be re-exported."),
     entry!(USE_MIXED_PATH_SEPARATORS, "A use path mixes '.' and '/' separators.", "A use path mixes '.' and '/' separators."),
+    entry!(USE_TRAILING_NODE, "Unexpected trailing node in a USE statement; it is ignored.", "unexpected trailing node {0} in USE statement; it is ignored"),
     // ---- section ----
-    entry!(USE_DEP_NOT_DECLARED, "Use of an undeclared dependency — add it to project.toml [dependencies] or load via --lib.", "Use of an undeclared dependency — add it to project.toml [dependencies] or load via --lib."),
-    entry!(USE_SYMBOL_CONFLICT, "An imported symbol conflicts with an existing name.", "An imported symbol conflicts with an existing name."),
-    entry!(USE_IMPORTED_NOT_FOUND, "The imported symbol was not found in the target file.", "The imported symbol was not found in the target file."),
+    entry!(USE_DEP_NOT_DECLARED, "Use of an undeclared dependency — add it to project.toml [dependencies] or load via --lib.", "use of undeclared dependency '{0}': add it to project.toml [dependencies] or load via --lib"),
+    entry!(USE_SYMBOL_CONFLICT, "An imported symbol conflicts with an existing name.", "symbol conflict in module '{0}': {1} collides with previous use from '{2}'. Use 'as' alias to disambiguate"),
+    entry!(USE_IMPORTED_NOT_FOUND, "The imported symbol was not found in the target file.", "imported symbol '{0}' not found in '{1}'"),
     // ---- section ----
     entry!(PARSER_SYNTAX_ERROR, "Generic syntax error.", "Generic syntax error."),
     entry!(PARSER_TOP_INVALID, "Invalid top-level declaration.", "Invalid top-level declaration."),
@@ -1260,38 +1289,39 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PARSER_CARET_ON_LITERAL, "Caret (^) on a literal has no effect.", "Caret (^) on a literal has no effect."),
     entry!(PARSER_EMPTY_BODY, "Empty body — no clauses defined.", "Empty body — no clauses defined."),
     entry!(PARSER_EMPTY_PINS, "Empty pins declaration.", "Empty pins declaration."),
-    entry!(AST_NODE_EMPTY, "AST node is null/empty where a value was expected.", "AST node is null/empty where a value was expected."),
+    entry!(AST_NODE_EMPTY, "AST node is null/empty where a value was expected.", "AST: Node is empty"),
     entry!(AST_UTF8_ERROR, "AST node contains invalid UTF-8 data.", "Invalid UTF-8 string"),
-    entry!(AST_TYPE_MISMATCH, "AST node has an unexpected type.", "AST node has an unexpected type."),
+    entry!(AST_TYPE_MISMATCH, "AST node has an unexpected type.", "AST: Node type mismatch"),
     // ---- section ----
     entry!(NAME_IDS_NO_NODES, "IDS has no nodes.", "IDS has no nodes."),
     entry!(NAME_MISSING_SUBNODE, "Missing subnode in a name reference.", "Missing subnode in a name reference."),
     entry!(NAME_DECLARE_PARSE_FAILED, "Failed to parse a DECLARE node.", "Failed to parse DECLARE"),
     entry!(NAME_SQUARE_VECTOR_MISSING_SUBNODE, "Missing subnode for a square vector.", "Missing subnode for square vector"),
-    entry!(NAME_RANGE_SIDE_FAILED, "Failed to process a side of a range.", "Failed to process a side of a range."),
-    entry!(NAME_DEF_NOT_FOUND_LABEL_FALLBACK, "Definition not found; falling back to a label.", "Shape mismatch in <- connection"),
+    entry!(NAME_RANGE_SIDE_FAILED, "Failed to process a side of a range.", "Failed to process {0} side of a range."),
+    entry!(NAME_DEF_NOT_FOUND_LABEL_FALLBACK, "Definition not found; falling back to a label.", "CURLY_MN: '{0}' definition not found, using label fallback"),
     entry!(NAME_ID_EXTRACT_FAILED, "Failed to extract ID/IDA data from a node.", "Failed to extract ID/IDA data"),
     entry!(NOT_SUPPORTED_YET, "This syntax is parsed but not yet supported by the semantic layer; the declaration is ignored.", "pins.subcls = [...] is parsed but not supported yet; the sub-class name is ignored"),
     // ---- section ----
     entry!(PIN_ID_NAME_MISMATCH, "Pin ID and pin name do not match.", "Pin ID and name not match"),
     entry!(PIN_ID_COUNT_ERROR, "Pin id count error.", "Pin id count error"),
-    entry!(PINS_PLUS_WITHOUT_BASE, "pins += is used without a prior pins = definition.", "pins += is used without a prior pins = definition."),
+    entry!(PINS_PLUS_WITHOUT_BASE, "pins += is used without a prior pins = definition.", "pins += used without prior pins = definition"),
     entry!(PIN_NAME_TYPE_UNSUPPORTED, "Pin name has an unsupported type.", "Pin name not support type"),
-    entry!(PIN_NAME_COUNT_ERROR, "Pin/port name count error.", "Pin/port name count error."),
+    entry!(PIN_NAME_COUNT_ERROR, "Pin/port name count error.", "Pin name count error."),
     entry!(PORT_NAME_TYPE_UNSUPPORTED, "Port name has an unsupported type.", "Port name not support type"),
     entry!(PORT_NAME_COUNT_ERROR, "Port name count error.", "Port name count error"),
     entry!(PIN_EXPR_TYPE_MISMATCH, "Pin expression node has an unexpected type.", "Pin expression node has an unexpected type."),
     entry!(ATTR_TYPE_MISMATCH, "Attribute node type mismatch.", "Attribute node type mismatch."),
     entry!(ATTR_TYPE_NOT_SUPPORTED, "Attribute type is not supported.", "Attribute type not support (node_type={0})"),
+    entry!(ATTR_MISSING_SUBNODE, "Attribute node is missing a required subnode.", "Attribute node is missing a required subnode."),
     entry!(KVS_VALUE_TYPE_INVALID, "Invalid value type in a KVS node.", "Invalid value type in KVS node."),
     entry!(UVAL_VALUE_TYPE_INVALID, "Invalid unit value type.", "Invalid unit value type."),
     entry!(UVAL_DATA_NODE_INVALID, "Invalid unit value data node.", "Invalid unit value data node."),
     entry!(UVAL_UNIT_INVALID, "Invalid unit.", "Invalid unit."),
     entry!(UVAL_VALUE_INVALID, "Invalid unit value.", "Invalid value."),
-    entry!(UVAL_UNIT_UNSUPPORTED, "The unit is not supported.", "The unit is not supported."),
+    entry!(UVAL_UNIT_UNSUPPORTED, "The unit is not supported.", "Unsupported unit '{0}'."),
     entry!(UVAL_MISSING_DATA_NODE, "Missing unit value data node.", "missing unit value data node."),
     entry!(UVAL_FORMAT_INVALID, "Invalid unit value or float format.", "Invalid unit value or float format."),
-    entry!(UVAL_UNIT_VARIANT_INVALID, "Invalid unit variant (angle, charge, magnetic flux, slew rate, ...).", "Invalid unit variant (angle, charge, magnetic flux, slew rate, ...)."),
+    entry!(UVAL_UNIT_VARIANT_INVALID, "Invalid unit variant (angle, charge, magnetic flux, slew rate, ...).", "Invalid unit variant '{0}'."),
     // ---- section ----
     entry!(MODULE_MISSING_SUBNODE, "Missing subnode in a module body clause.", "Missing subnode in a module body clause."),
     entry!(MODULE_PINS_UNSUPPORTED, "Module does not support PINS directly; use in/out/io declarations.", "Module does not support PINS directly. Use in/out/io declarations."),
@@ -1308,6 +1338,8 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(PARAM_CLASS_EXPECTED, "Expected a class in the declaration unit value.", "Expected MCAST_CLASS in MCAST_DECLARE_UV."),
     entry!(PARAM_INSTANCE_EXPECTED, "Expected an instance in the declaration unit value.", "Expected MCAST_INSTANCE in MCAST_DECLARE_UV."),
     entry!(PARAM_NAME_EXTRACT_FAILED, "Failed to extract the parameter name.", "Failed to extract parameter name from MCAST_DECLARE"),
+    entry!(PARAM_INST_LOOKUP_FAILED, "Instance::class lookup failed; the binding is treated as a plain pin alias.", "'{0}::{1}' lookup failed; treating '{0}' as plain pin alias. If you intended an interface binding, check that '{1}' is defined (and `use`d, if from a library)."),
+    entry!(PARAM_DECLARE_IFACE_PINS, "Interface pin count does not match the number of declared pin IDs.", "Interface '{0}' declares {1} pin(s) (members: {2}) but {3} pin ID(s) given; the counts must match. Use a range like `a:b` to declare exactly {1} pin(s)."),
     entry!(FUNC_CALL_MISSING_NAME, "Missing function name in a function call.", "Missing function name in a function call."),
     entry!(CONN_LINE_PARSE_FAILED, "A connection line failed to parse.", "connection line failed to parse"),
     entry!(FUNC_BODY_INVALID, "Invalid function body node.", "Invalid function body node."),
@@ -1328,15 +1360,16 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(IFACE_CURLY_MEMBER_INVALID, "Cannot access interface members using curly-bracket syntax.", "Component '{0}' not found for interface '{1}.{2}'"),
     entry!(IFACE_COMPONENT_NOT_FOUND, "Component not found for the interface reference.", "Cannot access members on interface '{0}' using curly bracket syntax"),
     entry!(IFACE_BUS_NOT_FOUND, "Interface not found for a bus reference.", "Interface '{0}' not found for bus '{1}[{2}]'"),
-    entry!(MODULE_PORT_NOT_FOUND, "Port(s) not found in the module.", "Port(s) not found in the module."),
+    entry!(MODULE_PORT_NOT_FOUND, "Port(s) not found in the module.", "Port(s) '{0}' not found in module '{1}'. Available ports: [{2}]"),
     entry!(BUS_NAME_ALREADY_INSTANCE, "Name is already an instance; cannot create a bus with these members.", "Name '{0}' is already an instance, cannot create bus with members [{1}]"),
     entry!(IFACE_PIN_NOT_FOUND, "Pin(s) not found in the interface.", "Pin(s) '{0}' not found in interface '{1}'. Available pins: [{2}]"),
     entry!(IFACE_MEMBER_LOOKUP_FAILED, "Interface member lookup failed.", "Interface '{0}' not found (looked up from '{1}'); check that it is defined and imported via `use`."),
-    entry!(COMPONENT_PIN_NOT_FOUND, "Pin(s) not found in the component or interface.", "Pin(s) not found in the component or interface."),
+    entry!(COMPONENT_PIN_NOT_FOUND, "Pin(s) not found in the component or interface.", "Pin(s) '{0}' not found in component '{1}'. Available pins: [{2}]"),
+    entry!(IFACE_NO_TOPLEVEL_PINS, "Interface has no top-level pin definitions (all pins are inside role blocks); no pin-to-member mapping is created.", "Interface '{0}' has no top-level pins (all pins are inside `role` blocks, e.g. UART.X); no pin-to-member mapping will be created. If you want the role-specific pins registered, list them explicitly (e.g. `pins = TX, RX, GND`)."),
     // ---- section ----
     entry!(CONN_TRANSPOSE_SIZE_MISMATCH, "Transposed connection size mismatch.", "Transposed connection size mismatch"),
-    entry!(CONN_LEFT_ARROW_SHAPE_MISMATCH, "Shape mismatch in a <- connection.", "Shape mismatch in a <- connection."),
-    entry!(CONN_CANNOT_TRANSPOSE, "The transpose operator is not allowed at this position.", "The transpose operator is not allowed at this position."),
+    entry!(CONN_LEFT_ARROW_SHAPE_MISMATCH, "Shape mismatch in a <- connection.", "Shape mismatch in a <- connection"),
+    entry!(CONN_CANNOT_TRANSPOSE, "The transpose operator is not allowed at this position.", "Cannot transpose"),
     entry!(CONN_PARALLEL_INVALID, "An instance with 3+ pins cannot directly participate in a '+' operation.", "Instance with 3+ pins cannot directly participate in `+` operation. Use `->` for pass-through connection or `::` for type annotation."),
     entry!(CONN_PARALLEL_SHAPE_MISMATCH, "Shape mismatch in a parallel connection.", "Shape mismatch in parallel connection"),
     entry!(CONN_SERIES_INVALID, "An instance with 3+ pins cannot directly participate in a '-' operation.", "Instance with 3+ pins cannot directly participate in `-` operation. Use `->` for pass-through connection."),
@@ -1355,19 +1388,20 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(CONN_DOT_MEMBER, "Dot operator already applied to a Member.", "Dot operator already applied to a Member."),
     entry!(CLOSURE_NO_OUTPUT_IFACE, "Closure has no output interface to access.", "Closure has no output interface to access."),
     entry!(FUNCCALL_NO_RETURN_IFACE, "FuncCall has no return interface to access.", "FuncCall has no return interface to access."),
-    entry!(PHRASE_IFACE_MEMBER_NOT_FOUND, "Member not found in the interface.", "Member not found in the interface."),
+    entry!(PHRASE_IFACE_MEMBER_NOT_FOUND, "Member not found in the interface.", "Member '{0}' not found in interface"),
     entry!(CURLY_LEFT_EMPTY, "Curly-member construction: left member list is empty.", "Curly-member construction: left member list is empty."),
     entry!(CURLY_RIGHT_EMPTY, "Curly-member construction: right member list is empty.", "Curly-member construction: right member list is empty."),
     entry!(CURLY_NOT_BUS, "Cannot convert the curly-member result to a bus.", "Cannot convert the curly-member result to a bus."),
     entry!(GROUP_BRANCH_COUNT_MISMATCH, "Groups with different branch counts cannot connect.", "Groups with different branch counts cannot connect."),
     entry!(CONN_AMBIGUOUS_PRECEDENCE, "Expression mixes + (parallel) with - or -> (series) operators without parentheses, spanning more than two components.", "AMBIGUOUS_PRECEDENCE: expression mixes + (parallel) with - or -> (series) operators without parentheses and spans {0} components (>2). Consider adding explicit parentheses (Group) to clarify the intended grouping."),
     // ---- section ----
+    entry!(GHOST_PORT_BOX, "A box has a placeholder pin not mapped to any real component pin.", "GHOST_PORT: box '{0}' (id={1}) has placeholder pin '{2}' (id={3}) that is not mapped to any real component pin. The component declared only an estimated pin count (pins = N) without actual pin definitions."),
     entry!(NET_MERGED_SHORT, "Multiple points resolve to the same node — possible short circuit (E2003).", "MERGED_SHORT: net '{0}' (module '{1}') has {2} point(s) resolving to the same node (id={3}). Paths: {4}. This may indicate a bracket expansion duplicate or a port declared without bit width causing signal merging."),
     entry!(NET_BUS_ORDER_MISMATCH, "Bus member order mismatch after sorting (E2005).", "Bus member order mismatch after sorting (E2005)."),
     entry!(SORT_HAZARD, "Bus pin numbers are non-monotonic; member→pin mapping may be wrong after sorting.", "SORT_HAZARD: pin numbers in component '{0}' bus '{1}' are non-monotonic. Member→pin binding: [{2}]. Pin declaration order differs from member order, which may cause incorrect mapping after sorting."),
     entry!(FLOATING_PLACEHOLDER, "A '_' placeholder could not be bound to any pin.", "FLOATING_PLACEHOLDER: '_' placeholder in net '{0}' (module '{1}') could not be bound to any existing pin. The placeholder is floating."),
-    entry!(GHOST_PORT, "A net endpoint is not mapped to any box — possible unexposed module boundary port.", "A net endpoint is not mapped to any box — possible unexposed module boundary port."),
-    entry!(PULLUP_DEGENERATE, "Pullup/pulldown degenerated into a signal-signal bridge.", "Pullup/pulldown degenerated into a signal-signal bridge."),
+    entry!(GHOST_PORT, "A net endpoint is not mapped to any box — possible unexposed module boundary port.", "GHOST_PORT: net '{0}' endpoint id={1} is not mapped to any box. This pin may cross a module boundary without being properly exposed as a port."),
+    entry!(PULLUP_DEGENERATE, "Pullup/pulldown degenerated into a signal-signal bridge.", "PULLUP_DEGENERATE: '{0}' both ends are non-rail nets ({1} ~ {2}). Pullup/Pulldown may have degenerated into a signal-signal bridge instead of (signal, rail)."),
     entry!(NET_DROPPED_STATEMENT, "A single-element square bracket expands to an unknown instance; the statement may produce no nets or constraints.", "DROPPED_STATEMENT: indexed alias '{0}' expands to '{1}' which is not a known instance. The statement may produce no nets or constraints."),
     entry!(LAYOUT_MISSING_SUBNODE, "Layout attribute is missing a required subnode.", "Layout attribute is missing a required subnode."),
     entry!(LAYOUT_TYPE_MISMATCH, "Layout attribute node type mismatch.", "Layout attribute node type mismatch."),
@@ -1407,16 +1441,17 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(NET_BIDIR_UNCONNECTED, "A bidirectional port is not connected to any net.", "A bidirectional port is not connected to any net."),
     entry!(NET_POWER_NET_COUNT, "Design has many power nets; review for consolidation.", "Design has many power nets; review for consolidation."),
     // ---- section ----
-    entry!(INST_ARG_NO_FORMAL_PORT, "Instance argument has no formal port to bind.", "Instance argument has no formal port to bind."),
-    entry!(INST_METHOD_FALLBACK, "Instance method could not be resolved; passed through instead.", "Instance method could not be resolved; passed through instead."),
+    entry!(INST_CHAIN_LINK_SKIPPED, "A chain link was skipped because the method is not defined on the instance.", "Method '{0}' not defined in {1} '{2}'; chain link skipped, no body expanded."),
+    entry!(INST_ARG_NO_FORMAL_PORT, "Instance argument has no formal port to bind.", "Instance '{0}' arg{1} '{2}' has no formal port to bind"),
+    entry!(INST_METHOD_FALLBACK, "Instance method could not be resolved; passed through instead.", "Unrecognized function call '{0}' in module '{1}' — treated as pass-through (class not loaded or name misspelled)"),
     entry!(INST_IFACE_INSTANTIATE_FAILED, "Interface instantiation failed.", "Interface instantiation failed: {0}"),
     entry!(INST_SUBMODULE_INSTANTIATE_FAILED, "Sub-module instantiation failed.", "Sub-module '{0}' instantiation failed: {1}"),
     entry!(INST_LINE_SKIP_FAILED_CLASS, "Line references a component class whose instantiation failed; the whole line is skipped.", "Line references a component class whose instantiation failed; skipping entire line."),
     entry!(INST_LINE_PARSE_FAILED, "A connection line failed to expand.", "Connection line #{0} failed: {1}"),
     entry!(INST_BUILTIN_TWOPIN_EXPAND_FAILED, "Expanded builtin two-pin pair failed.", "Expanded builtin twopin pair failed: {0}"),
     entry!(INST_MEMBER_PROCESS_FAILED, "A member of a connection line failed to process.", "Member processing failed: {0}"),
-    entry!(INST_ADJACENT_CONNECT_FAILED, "Connection between adjacent members of a series failed.", "Connection between adjacent members of a series failed."),
-    entry!(INST_SHUNT_PROCESS_FAILED, "A `.Cap(_)` shunt member failed to process.", "A `.Cap(_)` shunt member failed to process."),
+    entry!(INST_ADJACENT_CONNECT_FAILED, "Connection between adjacent members of a series failed.", "Connection between members #{0} and #{1} failed: {2}"),
+    entry!(INST_SHUNT_PROCESS_FAILED, "A `.Cap(_)` shunt member failed to process.", "`.Cap(_)` shunt: {0}"),
     entry!(INST_FUNC_BODY_LINE_FAILED, "A module-level function body line failed.", "Module-level function '{0}' body line failed: {1}"),
     entry!(INST_LANE_FUNCCALL_FAILED, "Failed to instantiate a FuncCall during lane-by-lane wiring.", "Failed to instantiate FuncCall in lane-by-lane wiring: {0}"),
     entry!(INST_LANE_TRANSPOSED_FAILED, "Failed to instantiate a Transposed member during lane-by-lane wiring.", "Failed to instantiate Transposed in lane-by-lane: {0}"),
@@ -1431,6 +1466,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(INST_POWER_PORT_UNBOUND, "Sub-module DC power port is never connected (missing power argument?).", "Sub-module instance '{0}' DC power port '{1}' is never connected (missing power argument?)"),
     entry!(INST_CTOR_BODY_LINE_FAILED, "A constructor function body line failed.", "Constructor '{0}' body line failed: {1}"),
     entry!(INST_CTOR_PARAM_BIND_FAILED, "Constructor parameter binding failed.", "Constructor '{0}' on '{1}' param bind: {2}"),
+    entry!(INST_ARG_UNBOUND_DETAILED, "Instance argument has no formal port to bind (with module/bound details).", "Instance '{0}' arg '{1}' has no formal port to bind (module='{2}', {3}/{4} formal ports already bound)"),
     // ---- section ----
     entry!(DUP_CMIE_CROSS_FILE, "Same name defined in another file (cross-file duplicate).", "Same name defined in another file (cross-file duplicate)."),
     entry!(DUP_WITHIN, "Duplicate definition within the same declaration.", "Duplicate definition within the same declaration."),
@@ -1540,7 +1576,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(TYPE_INCOMPATIBLE, "Incompatible types or unit types.", "Incompatible types or unit types."),
     // ---- section ----
     entry!(UNUSED_PARAM_OR_PORT, "Parameter or port is declared but never used.", "Parameter or port is declared but never used."),
-    entry!(PORT_NEVER_USED, "Port is declared but never used in any net connection.", "Port is declared but never used in any net connection."),
+    entry!(PORT_NEVER_USED, "Port is declared but never used in any net connection.", "Port '{0}' in '{1}' is declared but never used in any net connection."),
     entry!(UNTYPED_PARAM, "Parameter has no inferred type.", "Parameter has no inferred type."),
     // ---- section ----
     entry!(ERC_SINGLE_POINT_NET, "Single-point net: only one connection.", "single-point net: '{0}' has only one connection"),

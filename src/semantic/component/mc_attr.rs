@@ -158,7 +158,7 @@ impl McAttribute {
             dlog_error(
                 crate::errcodes::ATTR_TYPE_MISMATCH,
                 &subnode1,
-                TYPE_MISMATCH,
+                &crate::errcodes::format_msg(crate::errcodes::ATTR_TYPE_MISMATCH, &[]),
             );
             return None;
         }
@@ -273,12 +273,20 @@ impl McAttribute {
 
         //1. Type
         if !matches!(node.get_type(), MCAST_ATT_VALUES) {
-            dlog_error(crate::errcodes::ATTR_TYPE_MISMATCH, node, TYPE_MISMATCH);
+            dlog_error(
+                crate::errcodes::ATTR_TYPE_MISMATCH,
+                node,
+                &crate::errcodes::format_msg(crate::errcodes::ATTR_TYPE_MISMATCH, &[]),
+            );
             return None;
         }
         //2. Child node: exists
         let Some(subnodes) = node.get_sub_node() else {
-            dlog_error(crate::errcodes::ATTR_TYPE_MISMATCH, node, MISSING_SUBNODE);
+            dlog_error(
+                crate::errcodes::ATTR_MISSING_SUBNODE,
+                node,
+                &crate::errcodes::format_msg(crate::errcodes::ATTR_MISSING_SUBNODE, &[]),
+            );
             return None;
         };
 

@@ -226,7 +226,10 @@ impl McIds {
                                 dlog_error(
                                     crate::errcodes::NAME_MISSING_SUBNODE,
                                     &each,
-                                    "Missing subnode",
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::NAME_MISSING_SUBNODE,
+                                        &[],
+                                    ),
                                 );
                                 continue;
                             };
@@ -300,7 +303,7 @@ impl McIds {
             dlog_error(
                 crate::errcodes::NAME_MISSING_SUBNODE,
                 node,
-                "Missing subnode",
+                &crate::errcodes::format_msg(crate::errcodes::NAME_MISSING_SUBNODE, &[]),
             );
             return None;
         };
@@ -323,7 +326,10 @@ impl McIds {
                                 dlog_error(
                                     crate::errcodes::NAME_RANGE_SIDE_FAILED,
                                     &left,
-                                    "Failed to process left side of range",
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::NAME_RANGE_SIDE_FAILED,
+                                        &[&"left"],
+                                    ),
                                 );
                             })
                             .ok()?;
@@ -333,7 +339,10 @@ impl McIds {
                                 dlog_error(
                                     crate::errcodes::NAME_RANGE_SIDE_FAILED,
                                     &right,
-                                    "Failed to process right side of range",
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::NAME_RANGE_SIDE_FAILED,
+                                        &[&"right"],
+                                    ),
                                 );
                             })
                             .ok()?;

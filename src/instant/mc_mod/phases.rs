@@ -497,7 +497,10 @@ impl McModuleInst {
                     if let Err(e) = inst.instantiate() {
                         self.record_error(
                             crate::errcodes::INST_SUBMODULE_INSTANTIATE_FAILED,
-                            format!("Sub-module '{}' instantiation failed: {}", m.name, e),
+                            crate::errcodes::format_msg(
+                                crate::errcodes::INST_SUBMODULE_INSTANTIATE_FAILED,
+                                &[&m.name, &e],
+                            ),
                         );
                     }
                     // ── P1-C4: Connect declared args (V3V3, V1V2) to sub-module ports ──
@@ -609,7 +612,10 @@ impl McModuleInst {
                 // ★ Single connection line failure doesn't interrupt, record diagnostics then continue processing subsequent lines
                 self.record_warning(
                     crate::errcodes::INST_LINE_PARSE_FAILED,
-                    format!("Connection line #{idx} failed: {e}"),
+                    crate::errcodes::format_msg(
+                        crate::errcodes::INST_LINE_PARSE_FAILED,
+                        &[&idx as &dyn std::fmt::Display, &e],
+                    ),
                 );
             }
         }
@@ -779,8 +785,10 @@ impl McModuleInst {
                 None => {
                     self.record_warning(
                         crate::errcodes::INST_ARG_NO_FORMAL_PORT,
-                        format!(
-                        "Instance '{inst_name}' arg{ai} '{arg_name}' has no formal port to bind"),
+                        crate::errcodes::format_msg(
+                            crate::errcodes::INST_ARG_NO_FORMAL_PORT,
+                            &[&inst_name, &ai as &dyn std::fmt::Display, &arg_name],
+                        ),
                     );
                     continue;
                 }
@@ -984,11 +992,17 @@ impl McModuleInst {
                             formal.len(),
                         ),
                     );
-                    self.record_warning(crate::errcodes::INST_ARG_NO_FORMAL_PORT,
-                        format!(
-                            "Instance '{inst_name}' arg '{arg_name}' has no formal port to bind (module='{}', {bound}/{} formal ports already bound)",
-                            self.name,
-                            formal.len(),
+                    self.record_warning(
+                        crate::errcodes::INST_ARG_UNBOUND_DETAILED,
+                        crate::errcodes::format_msg(
+                            crate::errcodes::INST_ARG_UNBOUND_DETAILED,
+                            &[
+                                &inst_name,
+                                &arg_name,
+                                &self.name,
+                                &bound as &dyn std::fmt::Display,
+                                &formal.len() as &dyn std::fmt::Display,
+                            ],
                         ),
                     );
                     continue;
@@ -1162,9 +1176,9 @@ impl McModuleInst {
         for (inst, key_name) in unbound {
             self.record_warning(
                 crate::errcodes::INST_POWER_PORT_UNBOUND,
-                format!(
-                    "Sub-module instance '{inst}' DC power port '{key_name}' is never connected \
-                     (missing power argument?)"
+                crate::errcodes::format_msg(
+                    crate::errcodes::INST_POWER_PORT_UNBOUND,
+                    &[&inst, &key_name],
                 ),
             );
         }
@@ -1200,7 +1214,10 @@ impl McModuleInst {
             Err(e) => {
                 self.record_warning(
                     crate::errcodes::INST_CTOR_PARAM_BIND_FAILED,
-                    format!("Constructor '{last}' on '{inst_name}' param bind: {e:?}"),
+                    crate::errcodes::format_msg(
+                        crate::errcodes::INST_CTOR_PARAM_BIND_FAILED,
+                        &[&last, &inst_name, &format!("{e:?}")],
+                    ),
                 );
                 return;
             }
@@ -1236,7 +1253,10 @@ impl McModuleInst {
             if let Err(e) = self.process_line(&prefixed) {
                 self.record_warning(
                     crate::errcodes::INST_CTOR_BODY_LINE_FAILED,
-                    format!("Constructor '{last}' body line failed: {e}"),
+                    crate::errcodes::format_msg(
+                        crate::errcodes::INST_CTOR_BODY_LINE_FAILED,
+                        &[&last, &e],
+                    ),
                 );
             }
         }

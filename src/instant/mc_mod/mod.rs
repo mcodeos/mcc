@@ -243,7 +243,7 @@ impl McModuleInst {
         if let Err(e) = self.instantiate_interface() {
             self.record_error(
                 crate::errcodes::INST_IFACE_INSTANTIATE_FAILED,
-                format!("Interface instantiation failed: {e}"),
+                crate::errcodes::format_msg(crate::errcodes::INST_IFACE_INSTANTIATE_FAILED, &[&e]),
             );
         }
 
@@ -332,9 +332,9 @@ impl McModuleInst {
                     );
                     self.record_warning(
                         crate::errcodes::INST_FUNC_BODY_LINE_FAILED,
-                        format!(
-                            "Module-level function '{}' body line failed: {e}",
-                            func.name
+                        crate::errcodes::format_msg(
+                            crate::errcodes::INST_FUNC_BODY_LINE_FAILED,
+                            &[&func.name, &e],
                         ),
                     );
                 }

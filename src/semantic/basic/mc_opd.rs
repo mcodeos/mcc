@@ -72,7 +72,7 @@ impl McOpd {
             dlog_error(
                 crate::errcodes::NAME_MISSING_SUBNODE,
                 node,
-                "Missing subnode",
+                &crate::errcodes::format_msg(crate::errcodes::NAME_MISSING_SUBNODE, &[]),
             );
             return None;
         };

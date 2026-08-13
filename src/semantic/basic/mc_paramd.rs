@@ -769,7 +769,7 @@ impl McParamDeclare {
                     dlog_error(
                         crate::errcodes::PARAM_SET_INVALID,
                         node,
-                        "Invalid param set.",
+                        &crate::errcodes::format_msg(crate::errcodes::PARAM_SET_INVALID, &[]),
                     );
                     return None;
                 }
@@ -798,7 +798,7 @@ impl McParamDeclare {
                     dlog_error(
                         crate::errcodes::PARAM_SET_INVALID,
                         node,
-                        "Invalid param set.",
+                        &crate::errcodes::format_msg(crate::errcodes::PARAM_SET_INVALID, &[]),
                     );
                     return None;
                 }

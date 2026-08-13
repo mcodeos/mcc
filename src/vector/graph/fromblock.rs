@@ -1020,16 +1020,18 @@ fn build_mc_vec_graph_inner(
         for p in &b.pins {
             if p.id >= 8_000_000_000 {
                 crate::db::diagnostic::diagnostic::diagnostic_log(
-                    crate::errcodes::GHOST_PORT,
+                    crate::errcodes::GHOST_PORT_BOX,
                     crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
                     0,
                     1,
-                    &format!(
-                        "GHOST_PORT: box '{}' (id={}) has placeholder pin '{}' (id={}) \
-                         that is not mapped to any real component pin. \
-                         The component declared only an estimated pin count (pins = N) \
-                         without actual pin definitions.",
-                        b.name, b.id, p.pin_id, p.id
+                    &crate::errcodes::format_msg(
+                        crate::errcodes::GHOST_PORT_BOX,
+                        &[
+                            &b.name,
+                            &b.id as &dyn std::fmt::Display,
+                            &p.pin_id,
+                            &p.id as &dyn std::fmt::Display,
+                        ],
                     ),
                     &[],
                 );
@@ -1371,14 +1373,14 @@ fn generate_viznets_from_block(
                 // Fire when a net endpoint can't be mapped to any box in the
                 // current layer. This includes placeholder pins (id ≥ 8e9) and
                 // pins whose InstTable entry exists but isn't mapped to any box.
-                crate::db::diagnostic::diagnostic::diagnostic_log(crate::errcodes::GHOST_PORT,
+                crate::db::diagnostic::diagnostic::diagnostic_log(
+                    crate::errcodes::GHOST_PORT,
                     crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
                     0,
                     1,
-                    &format!(
-                        "GHOST_PORT: net '{}' endpoint id={} is not mapped to any box. \
-                         This pin may cross a module boundary without being properly exposed as a port.",
-                        net.name, pid
+                    &crate::errcodes::format_msg(
+                        crate::errcodes::GHOST_PORT,
+                        &[&net.name, &pid as &dyn std::fmt::Display],
                     ),
                     &[],
                 );
