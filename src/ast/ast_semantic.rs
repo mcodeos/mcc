@@ -348,10 +348,10 @@ impl GlobalSymbolTable {
             .map(|(_key, ref_id)| *ref_id)
             .collect();
 
-        let _ = dcls_id_to_remove.iter().map(|id| {
+        for id in &dcls_id_to_remove {
             self.declare_class_id_to_span.remove(id);
             self.declare_id_to_class_id.remove(id);
-        });
+        }
         self.span_to_declare_class_id
             .retain(|(uri, _), _| uri != target_uri);
 
@@ -363,9 +363,9 @@ impl GlobalSymbolTable {
             .map(|(_key, cls_id)| *cls_id)
             .collect();
 
-        let _ = class_id_to_remove.iter().map(|clsid| {
+        for clsid in &class_id_to_remove {
             self.class_id_to_span.remove(clsid);
-        });
+        }
         self.class_name_to_id
             .retain(|(uri, _), _| uri != target_uri);
     }

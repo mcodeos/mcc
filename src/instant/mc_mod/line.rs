@@ -2200,7 +2200,20 @@ impl McModuleInst {
                             self.sub_modules.push(inst);
                             self.connections.extend(new_connections);
                         }
-                        FuncCallInst::PassThrough => {}
+                        FuncCallInst::PassThrough => {
+                            // Iterated call produced nothing (every item degraded to
+                            // pass-through, warnings 944 already emitted per item by
+                            // instantiate_funccall). Log the call for troubleshooting
+                            // so a dropped iterated connection is traceable.
+                            crate::db::diagnostic::diagnostic::dlog_trace(
+                                944,
+                                &format!(
+                                    "line: iterated call '{}' → all pass-through, iterated connection dropped (module='{}')",
+                                    fc.func_name,
+                                    self.name,
+                                ),
+                            );
+                        }
                     }
                     return Ok(());
                 }

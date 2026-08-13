@@ -877,8 +877,9 @@ impl McModuleInst {
     /// * **Scalar interface ports** (`vin::DC(5V)`, no bus_members and no `{}`/`[]`) not in
     ///   this filter scope — they need to supplement `{VCC,GND}` members from interface type `DC`
     ///   before binding, a separate sub-item not handled here (modldo grounding still pending).
-    /// * Excess args beyond bindable ports are silently skipped (excess-arg not in this step's diagnostics
-    ///   scope; port-side missed binding is covered by `check_unbound_param_ports`).
+    /// * Excess args beyond bindable ports emit warning 940 (mirroring
+    ///   `bind_actual_args_to_ports`); port-side missed binding is covered
+    ///   by `check_unbound_param_ports`.
     pub(super) fn bind_call_args_to_ports(
         &mut self,
         inst_name: &str,
@@ -934,7 +935,29 @@ impl McModuleInst {
             }
             let pi = match chosen.or_else(|| (0..formal.len()).find(|&fi| !used[fi])) {
                 Some(pi) => pi,
-                None => continue, // Actual args exceed ports -> skip (see function header "Scope")
+                None => {
+                    // Actual args exceed ports -> skip (see function header "Scope").
+                    // Mirror bind_actual_args_to_ports' 940 warning so excess named
+                    // args are no longer silently dropped; log detail for tracing.
+                    let bound = used.iter().filter(|u| **u).count();
+                    crate::db::diagnostic::diagnostic::dlog_trace(
+                        940,
+                        &format!(
+                            "bind_call_args_to_ports: module='{}' instance='{inst_name}' arg '{arg_name}' has no formal port to bind | formal_ports={} bound={bound}",
+                            self.name,
+                            formal.len(),
+                        ),
+                    );
+                    self.record_warning(
+                        940,
+                        format!(
+                            "Instance '{inst_name}' arg '{arg_name}' has no formal port to bind (module='{}', {bound}/{} formal ports already bound)",
+                            self.name,
+                            formal.len(),
+                        ),
+                    );
+                    continue;
+                }
             };
             used[pi] = true;
 

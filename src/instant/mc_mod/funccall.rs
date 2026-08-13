@@ -413,13 +413,53 @@ impl McModuleInst {
                                 );
                             }
                         }
-                        _ => {} // Port/Label/Bus — not applicable for func calls
+                        _ => {
+                            // Port/Label/Bus — not applicable for func calls.
+                            // Log the attempted chain for troubleshooting; control
+                            // still falls through to the final PassThrough warning
+                            // (944) at the end of this function.
+                            crate::db::diagnostic::diagnostic::dlog_trace(
+                                944,
+                                &format!(
+                                    "instantiate_funccall: instance-method chain '{}' resolved to a port/label/bus terminal — method call '{name_str}' not applicable (module='{}')",
+                                    scope_segments.join("."),
+                                    self.name,
+                                ),
+                            );
+                        }
                     }
                 }
             }
         }
 
         // Unrecognized FuncCall → PassThrough (preserve existing behavior: endpoint direct mapping)
+        // Detailed diagnostics for troubleshooting: an unrecognized call usually means a
+        // misspelled method/class name, and the downstream `@?CLASS_n` ghost stub
+        // would otherwise swallow the whole net without any trace.
+        let caller_desc = caller
+            .map(|c| match c {
+                McPhrase::FuncCall(inner) => format!("FuncCall({})", inner.func_name),
+                McPhrase::Endpoint(_) => "Endpoint".into(),
+                _ => format!("{:?}", std::mem::discriminant(c)),
+            })
+            .unwrap_or_else(|| "None".into());
+        crate::db::diagnostic::diagnostic::dlog_trace(
+            944,
+            &format!(
+                "instantiate_funccall: module='{}' func='{name_str}' unrecognized → PassThrough | caller={caller_desc} | params={} | left_elems={} | right_elems={}",
+                self.name,
+                params.len(),
+                left.len(),
+                right.len(),
+            ),
+        );
+        self.record_warning(
+            944,
+            format!(
+                "Unrecognized function call '{name_str}' in module '{}' — treated as pass-through (class not loaded or name misspelled)",
+                self.name,
+            ),
+        );
         Ok(FuncCallInst::PassThrough)
     }
 
