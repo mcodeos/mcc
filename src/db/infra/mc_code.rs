@@ -1742,14 +1742,120 @@ impl McCode {
                 } else {
                     param.clone()
                 };
+                // Simple param (e.g. `spi`): McIds parses the node directly.
                 if let Some(ids) = McIds::new(&inner) {
                     let span =
                         (inner.get_pos() as usize)..((inner.get_pos() + inner.get_len()) as usize);
                     result.push((ids.to_string(), span));
+                    continue;
+                }
+                // Typed power param (e.g. `[V3V3, GND]::DC(3.3V)`): walk the
+                // subtree for square-vec nodes and register each member with
+                // its precise span, so func body refs resolve to the members.
+                let before = result.len();
+                Self::collect_square_vec_member_spans(&inner, &mut result);
+                if result.len() == before {
+                    // Single-ID typed param (e.g. `V3V3::DC(3.3V)`): the parser
+                    // emits DECLARE(class=TYPE, instance=NAME) here. Extract the
+                    // instance identifier so func body refs resolve to this
+                    // param def (not to another func's same-named param).
+                    Self::collect_declare_instance_spans(&inner, &mut result);
                 }
             }
         }
         result
+    }
+
+    /// Walk a param subtree for the single-ID typed form `NAME::TYPE(...)`,
+    /// which the parser emits as DECLARE(class=TYPE, instance=NAME). Extract
+    /// the instance identifier (`NAME`) with its precise span.
+    fn collect_declare_instance_spans(
+        node: &AstNode,
+        out: &mut Vec<(String, std::ops::Range<usize>)>,
+    ) {
+        if node.get_type() == MCAST_INSTANCE {
+            if let Some(sub) = node.get_sub_node() {
+                // instance → opd → ids (or direct ids)
+                let ids_node = if sub.get_type() == MCAST_OPD {
+                    sub.get_sub_node().unwrap_or_else(|| sub.clone())
+                } else {
+                    sub.clone()
+                };
+                if let Some(ids) = McIds::new(&ids_node) {
+                    let span = (ids_node.get_pos() as usize)
+                        ..((ids_node.get_pos() + ids_node.get_len()) as usize);
+                    out.push((ids.to_string(), span));
+                }
+            }
+            return; // instance children already captured
+        }
+        if let Some(sub) = node.get_sub_node() {
+            let mut cur = sub;
+            loop {
+                Self::collect_declare_instance_spans(&cur, out);
+                match cur.get_next() {
+                    Some(nx) => cur = nx,
+                    None => break,
+                }
+            }
+        }
+    }
+
+    /// Walk a param subtree for square-vec nodes (`[A, B]::DC(...)`) and push
+    /// each member with its precise span.
+    fn collect_square_vec_member_spans(
+        node: &AstNode,
+        out: &mut Vec<(String, std::ops::Range<usize>)>,
+    ) {
+        if matches!(node.get_type(), MCAST_SQUARE_VEC | MCAST_OPD_SQUARE_VEC) {
+            let mut current = node.get_sub_node();
+            while let Some(phrase_node) = current {
+                let ids_node = phrase_node
+                    .get_sub_node()
+                    .unwrap_or_else(|| phrase_node.clone());
+                if let Some(ids) = McIds::new(&ids_node) {
+                    let span = (ids_node.get_pos() as usize)
+                        ..((ids_node.get_pos() + ids_node.get_len()) as usize);
+                    out.push((ids.to_string(), span));
+                }
+                current = phrase_node.get_next();
+            }
+            return; // do not descend into members again
+        }
+        if let Some(sub) = node.get_sub_node() {
+            let mut cur = sub;
+            loop {
+                Self::collect_square_vec_member_spans(&cur, out);
+                match cur.get_next() {
+                    Some(nx) => cur = nx,
+                    None => break,
+                }
+            }
+        }
+    }
+
+    /// Walk a whole subtree (e.g. a component `func` node) and collect every
+    /// square-vec member (name, span) found inside. Used to register refs such
+    /// as `[VCC, VSS]` in component func bodies that name the component's own
+    /// pins.
+    fn collect_square_vec_members_in_subtree(
+        node: &AstNode,
+        out: &mut Vec<(String, std::ops::Range<usize>)>,
+    ) {
+        if matches!(node.get_type(), MCAST_SQUARE_VEC | MCAST_OPD_SQUARE_VEC) {
+            Self::collect_square_vec_member_spans(node, out);
+            return; // members already extracted; do not descend again
+        }
+        if let Some(sub) = node.get_sub_node() {
+            let mut cur = sub;
+            loop {
+                Self::collect_square_vec_members_in_subtree(&cur, out);
+                match cur.get_next() {
+                    Some(nx) => cur = nx,
+                    None => break,
+                }
+            }
+        }
     }
 
     fn extract_pin_name_spans(comp: &McComponent) -> Vec<(String, std::ops::Range<usize>)> {
@@ -2565,6 +2671,10 @@ impl McCode {
                 Self::lapper_instance_decls_and_refs(&self.uri, &mut sem, &mut symbol_lapper);
                 Self::lapper_interfaces(&self.uri, &mut sem, &mut symbol_lapper);
                 Self::lapper_module_ports(&self.uri, &mut sem, &mut symbol_lapper);
+                // ★ Component defs must be registered before func-role resolution:
+                // funcall-arg refs (e.g. `CAP(...).Cap([AVDD09_CAP, GND])`) rely on
+                // the container-level P2 fallback finding the component's own pins.
+                Self::lapper_component_defs_register(&self.uri, &mut sem, &mut symbol_lapper);
 
                 let decl_count_file_id =
                     crate::ast::ast_semantic::intern(&mut sem.file_table, self.uri.as_str());
@@ -2580,6 +2690,12 @@ impl McCode {
                 Self::lapper_func_define_role(&self.uri, &self.ast, &mut sem, &mut symbol_lapper);
                 Self::lapper_function_params(&self.uri, &mut sem, &mut symbol_lapper);
                 Self::lapper_component_defs(&self.uri, &mut sem, &mut symbol_lapper);
+                Self::lapper_component_func_pin_refs(
+                    &self.uri,
+                    &self.ast,
+                    &mut sem,
+                    &mut symbol_lapper,
+                );
                 Self::lapper_enum_refs(&self.uri, &self.ast, &mut sem, &mut symbol_lapper);
                 Self::lapper_scoped_enum_bare_refs(
                     &self.uri,
@@ -3606,7 +3722,22 @@ impl McCode {
         }
     }
 
-    fn lapper_component_defs(uri: &McURI, sem: &mut McSemSymbols, symbol_lapper: &mut DedupLapper) {
+    /// Register component-level defs (params, pins, pin ids, ifaces, spec keys)
+    /// into the local symbol table.
+    ///
+    /// Kept separate from `lapper_component_defs` so it runs BEFORE
+    /// `lapper_func_define_role`: funcall-arg refs (e.g.
+    /// `CAP(...).Cap([AVDD09_CAP, GND])`) are resolved there, and the
+    /// container-level P2 fallback must already be able to find the
+    /// component's own pins. Previously pins were only registered inside
+    /// `lapper_component_defs` (which runs after func-role resolution), so such
+    /// args missed P2 and fell through to the P3 name-only scan — random
+    /// cross-container hits (e.g. GND → another component's func param).
+    fn lapper_component_defs_register(
+        uri: &McURI,
+        sem: &mut McSemSymbols,
+        symbol_lapper: &mut DedupLapper,
+    ) {
         let all_comps: Vec<(String, Arc<McComponent>, String)> = workspace::WORKSPACE
             .components
             .iter()
@@ -3724,6 +3855,30 @@ impl McCode {
                     val: SymbolType::new(SymbolKind::AttrDef, u32::from(sdecl_id)),
                 });
             }
+        }
+    }
+
+    fn lapper_component_defs(uri: &McURI, sem: &mut McSemSymbols, symbol_lapper: &mut DedupLapper) {
+        let all_comps: Vec<(String, Arc<McComponent>, String)> = workspace::WORKSPACE
+            .components
+            .iter()
+            .map(|e| {
+                (
+                    e.key().ident.to_string(),
+                    e.value().clone(),
+                    e.key().uri.to_string(),
+                )
+            })
+            .chain(global::mcc_components.iter().map(|e| {
+                (
+                    e.key().ident.to_string(),
+                    e.value().clone(),
+                    e.key().uri.to_string(),
+                )
+            }))
+            .filter(|(_, _, comp_uri)| comp_uri == uri.as_str())
+            .collect();
+        for (comp_ident, comp, _comp_uri) in &all_comps {
             for (span, port_name, scope) in comp.params.iter_net_refs() {
                 let sp = crate::refdef::register::scope_path_from_scope_str(&uri, scope);
                 let decl_id =
@@ -3818,6 +3973,266 @@ impl McCode {
                             span.end,
                         ));
                     }
+                }
+            }
+            // ★ Component funcs: register func body refs (mirrors
+            // lapper_function_params for module funcs). Param defs for both
+            // module and component funcs are registered by
+            // lapper_func_define_role (extract_func_param_spans).
+            for func in comp.funcs.iter() {
+                // func.insts.scope may be a bare func name (e.g. "GD25Q32E")
+                // when the component is re-parsed in some library-loading
+                // passes; prefer the full "<comp>.<func>" scope so that
+                // lookup_declare_id's P1 (exact func-scope match) hits the
+                // param defs registered by lapper_func_define_role instead of
+                // falling back to a name-only match on an unrelated GND.
+                let func_scope = match func.insts.scope.as_deref() {
+                    Some(s) if s.contains('.') => s.to_string(),
+                    _ => format!("{}.{}", comp_ident, func.name),
+                };
+                // Func param net refs (e.g. `[V3V3, GND]` on the func's power
+                // param) → LabelRef to the param member defs.
+                for (span, port_name, scope) in func.params.iter_net_refs() {
+                    let scope = if scope.contains('.') {
+                        scope.clone()
+                    } else {
+                        func_scope.clone()
+                    };
+                    let sp = crate::refdef::register::scope_path_from_scope_str(&uri, &scope);
+                    let decl_id = crate::refdef::register::lookup_declare_id(
+                        &sem.local_table,
+                        port_name,
+                        &sp,
+                    );
+                    if let Some(decl_id) = decl_id {
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::new(SymbolKind::LabelRef, u32::from(decl_id)),
+                        });
+                        sem.ref_entries.push((
+                            SymbolKind::LabelRef,
+                            u32::from(decl_id),
+                            span.start,
+                            span.end,
+                        ));
+                    }
+                }
+                // Func body net refs — prefer the component's own pins, then
+                // fall back to generic dispatch against component insts.
+                for (span, port_name, scope) in func.insts.iter_net_refs() {
+                    let scope = if scope.contains('.') {
+                        scope.clone()
+                    } else {
+                        func_scope.clone()
+                    };
+                    let sp = crate::refdef::register::scope_path_from_scope_str(&uri, &scope);
+                    let decl_id = crate::refdef::register::lookup_declare_id(
+                        &sem.local_table,
+                        port_name,
+                        &sp,
+                    );
+                    let Some(decl_id) = decl_id else {
+                        continue;
+                    };
+                    let ref_kind = if pin_names.contains(port_name) {
+                        SymbolKind::PinNameRef
+                    } else if pin_ids.contains(port_name) {
+                        SymbolKind::PinIdRef
+                    } else if pin_ifaces.contains(port_name) {
+                        SymbolKind::PinIfaceRef
+                    } else {
+                        Self::resolve_net_ref_kind(port_name, &comp.insts)
+                    };
+                    symbol_lapper.insert(Interval {
+                        start: span.start,
+                        stop: span.end,
+                        val: SymbolType::new(ref_kind, u32::from(decl_id)),
+                    });
+                    sem.ref_entries
+                        .push((ref_kind, u32::from(decl_id), span.start, span.end));
+                }
+                // Chain references inside func bodies (e.g. `this.MIC.P`).
+                for (span, segments, scope) in func.insts.iter_chain_refs() {
+                    if let Some(hit) = crate::refdef::chain::resolve_member_chain_from_segments(
+                        &uri,
+                        segments,
+                        &comp.insts,
+                        &comp.params,
+                    ) {
+                        let ref_kind = Self::chain_ref_kind(hit.def_kind);
+                        // ★ Cross-file chain defs (e.g. `uC.I2C0` resolving into the
+                        // MCU component file) must not hijack this file's func-scope
+                        // scope_index entry. Only attach the local scope when the def
+                        // lives in the current file.
+                        let container: &str = if hit.uri == *uri { scope.as_str() } else { "" };
+                        let (d, _) = crate::refdef::register::register_def(
+                            sem,
+                            &hit.uri,
+                            container,
+                            None,
+                            &hit.name,
+                            hit.span.clone(),
+                            hit.def_kind,
+                        );
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::new(ref_kind, u32::from(d)),
+                        });
+                        sem.ref_entries
+                            .push((ref_kind, u32::from(d), span.start, span.end));
+                    }
+                }
+                // Func body labels → LabelDef.
+                for (name, _label_kind, span) in func.insts.iter_labels_with_span() {
+                    let (d, _) = crate::refdef::register::register_def(
+                        sem,
+                        &uri,
+                        &func_scope,
+                        None,
+                        name,
+                        span.clone(),
+                        SymbolKind::LabelDef,
+                    );
+                    symbol_lapper.insert(Interval {
+                        start: span.start,
+                        stop: span.end,
+                        val: SymbolType::new(SymbolKind::LabelDef, u32::from(d)),
+                    });
+                }
+            }
+        }
+    }
+
+    /// Register square-vec refs inside component func bodies that name the
+    /// component's own pins (e.g. `[VCC, VSS]`). `collect_net_refs_in_node`
+    /// skips such members (neither func params nor func-local instances), so
+    /// they are extracted here from the AST — after `lapper_component_defs`
+    /// has registered the component pin defs as PinNameDef.
+    fn lapper_component_func_pin_refs(
+        uri: &McURI,
+        ast: &AstNode,
+        sem: &mut McSemSymbols,
+        symbol_lapper: &mut DedupLapper,
+    ) {
+        // Component pin names in this file.
+        let mut comp_pins: std::collections::HashMap<String, std::collections::HashSet<String>> =
+            std::collections::HashMap::new();
+        {
+            let uri_str = uri.as_str();
+            for entry in workspace::WORKSPACE.components.iter() {
+                let key_uri = entry.key().uri.as_str();
+                if key_uri == uri_str || key_uri.ends_with(uri_str) || uri_str.ends_with(key_uri) {
+                    let names = Self::extract_pin_name_spans(entry.value())
+                        .into_iter()
+                        .map(|(n, _)| n)
+                        .collect();
+                    comp_pins.insert(entry.key().ident.to_string(), names);
+                }
+            }
+            for entry in global::mcc_components.iter() {
+                let key_uri = entry.key().uri.as_str();
+                if key_uri == uri_str || key_uri.ends_with(uri_str) || uri_str.ends_with(key_uri) {
+                    let names = Self::extract_pin_name_spans(entry.value())
+                        .into_iter()
+                        .map(|(n, _)| n)
+                        .collect();
+                    comp_pins.insert(entry.key().ident.to_string(), names);
+                }
+            }
+        }
+
+        // Container positioning — mirrors lapper_func_define_role.
+        let all_nodes: Vec<AstNode> = {
+            let mut acc = Vec::new();
+            let mut stack: Vec<AstNode> = ast.iter().collect();
+            while let Some(node) = stack.pop() {
+                if let Some(sub) = node.get_sub_node() {
+                    for child in sub.iter() {
+                        stack.push(child);
+                    }
+                }
+                acc.push(node);
+            }
+            acc
+        };
+        let mut container_stack: Vec<(String, usize)> = Vec::new();
+        let mut pos_to_container: Vec<(usize, String)> = Vec::new();
+        for node in &all_nodes {
+            let ntype = node.get_type();
+            let node_start = node.get_pos() as usize;
+            let node_end = node_start + node.get_len() as usize;
+            while let Some((_, end)) = container_stack.last() {
+                if node_start >= *end {
+                    container_stack.pop();
+                } else {
+                    break;
+                }
+            }
+            if ntype == MCAST_MODULE || ntype == MCAST_COMPONENT {
+                if let Some(sub) = node.get_sub_node() {
+                    if let Some(name_node) = sub.iter().find(|x| x.is_type(MCAST_NAME)) {
+                        if let Some(ids_node) = name_node.get_sub_node() {
+                            if let Some(ids) = McIds::new(&ids_node) {
+                                container_stack.push((ids.to_string(), node_end));
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some((name, _)) = container_stack.last() {
+                pos_to_container.push((node_start, name.clone()));
+            }
+        }
+        pos_to_container.sort_by_key(|(pos, _)| *pos);
+
+        for node in &all_nodes {
+            if node.get_type() != MCAST_FUNCTION {
+                continue;
+            }
+            let ids_node = node.get_sub_node().and_then(|n| n.get_sub_node());
+            let Some(ref ids) = ids_node else { continue };
+            let pos = ids.get_pos() as usize;
+            let comp_name = pos_to_container
+                .iter()
+                .take_while(|(p, _)| *p <= pos)
+                .last()
+                .map(|(_, name)| name.clone());
+            let Some(comp_name) = comp_name else { continue };
+            let Some(pins) = comp_pins.get(&comp_name) else {
+                continue;
+            };
+            let mut members = Vec::new();
+            Self::collect_square_vec_members_in_subtree(node, &mut members);
+            for (mname, mspan) in members {
+                if !pins.contains(&mname) {
+                    continue;
+                }
+                // ★ scope_index may hold stale entries for "<comp>" scopes
+                // registered from another file id (cross-file/duplicate
+                // loads), so resolve directly against this file's pin defs:
+                // (file_id, container_id=comp, func_id=0, name).
+                let file_id = crate::ast::ast_semantic::intern(&mut sem.file_table, uri.as_str());
+                let comp_id =
+                    crate::ast::ast_semantic::intern(&mut sem.container_table, &comp_name);
+                let got = sem
+                    .local_table
+                    .name_to_declare_id
+                    .get(&(file_id, comp_id, 0, mname.to_string()))
+                    .map(|(id, loc)| (*id, loc.clone()));
+                if let Some((d, _)) = got {
+                    symbol_lapper.insert(Interval {
+                        start: mspan.start,
+                        stop: mspan.end,
+                        val: SymbolType::new(SymbolKind::PinNameRef, u32::from(d)),
+                    });
+                    sem.ref_entries.push((
+                        SymbolKind::PinNameRef,
+                        u32::from(d),
+                        mspan.start,
+                        mspan.end,
+                    ));
                 }
             }
         }
@@ -4228,7 +4643,9 @@ impl McCode {
                 container_names.len(), container_names);
         }
         let mut container_stack: Vec<(String, usize)> = Vec::new();
+        let mut func_stack: Vec<(String, usize)> = Vec::new();
         let mut pos_to_container: Vec<(usize, String)> = Vec::new();
+        let mut pos_to_func: Vec<(usize, String)> = Vec::new();
         for node in &all_nodes {
             let ntype = node.get_type();
             let node_start = node.get_pos() as usize;
@@ -4236,6 +4653,13 @@ impl McCode {
             while let Some((_, end)) = container_stack.last() {
                 if node_start >= *end {
                     container_stack.pop();
+                } else {
+                    break;
+                }
+            }
+            while let Some((_, end)) = func_stack.last() {
+                if node_start >= *end {
+                    func_stack.pop();
                 } else {
                     break;
                 }
@@ -4251,17 +4675,44 @@ impl McCode {
                     }
                 }
             }
+            if ntype == MCAST_FUNCTION {
+                if let Some(ids_node) = node.get_sub_node().and_then(|n| n.get_sub_node()) {
+                    if let Some(ids) = McIds::new(&ids_node) {
+                        func_stack.push((ids.to_string(), node_end));
+                    }
+                }
+            }
             if let Some((name, _)) = container_stack.last() {
                 pos_to_container.push((node_start, name.clone()));
             }
+            if let Some((fname, _)) = func_stack.last() {
+                pos_to_func.push((node_start, fname.clone()));
+            }
         }
         pos_to_container.sort_by_key(|(pos, _)| *pos);
+        pos_to_func.sort_by_key(|(pos, _)| *pos);
         let find_container = move |pos: usize| -> Option<String> {
             pos_to_container
                 .iter()
                 .take_while(|(p, _)| *p <= pos)
                 .last()
                 .map(|(_, name)| name.clone())
+        };
+        // Full scope for a position: "container.func" when inside a func body,
+        // otherwise just "container". Enables the lookup priority
+        // "func params/labels first, then parent container defs" (§3.2.2).
+        let find_container_for_scope = find_container.clone();
+        let find_scope = move |pos: usize| -> Option<String> {
+            let container = find_container_for_scope(pos)?;
+            let func = pos_to_func
+                .iter()
+                .take_while(|(p, _)| *p <= pos)
+                .last()
+                .map(|(_, f)| f.clone());
+            Some(match func {
+                Some(f) if !f.is_empty() => format!("{container}.{f}"),
+                _ => container,
+            })
         };
 
         for node in &all_nodes {
@@ -4458,11 +4909,17 @@ impl McCode {
                                             uri,
                                         )
                                     {
-                                        let enclosing = find_container(span.0).unwrap_or_default();
+                                        // ★ Cross-file member defs (e.g. `CAP(...).Cap(_)`
+                                        // where the Cap method lives in cap.mc) must NOT be
+                                        // registered under the current file's container name.
+                                        // Doing so writes scope_index[container] with the def
+                                        // file's id, which hijacks the P2 container fallback
+                                        // for same-file defs (component pins / module ports).
+                                        // Register under the member's own class scope instead.
                                         let (decl_id, _loc) = crate::refdef::register::register_def(
                                             sem,
                                             &def_uri,
-                                            &enclosing,
+                                            &class_name,
                                             None,
                                             &method_name,
                                             def_span,
@@ -4505,11 +4962,17 @@ impl McCode {
                         // self-locate (no navigation). See §8.2.
                     }
                     if let Some(enclosing) = find_container(span.0) {
+                        // ★ Lookup priority inside func bodies: func-scoped defs
+                        // (params/labels) first, then the parent container's defs
+                        // (component pins / module ports etc). Pass the full
+                        // "container.func" scope so lookup_declare_id's P1 (func
+                        // scope) and P2 (container fallback) both apply.
+                        let scope = find_scope(span.0).unwrap_or_else(|| enclosing.clone());
                         let refs = crate::refdef::collect::collect_funccall_arg_refs(
                             node,
                             &sem.local_table,
                             &uri,
-                            &enclosing,
+                            &scope,
                         );
                         for (span, did) in refs {
                             // ★ §4.3: Dispatch ref kind based on def type (not catch-all FuncParamRef)
