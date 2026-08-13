@@ -283,7 +283,20 @@ pub fn detect_symbol(table: &InstTable, id: u32, kind: &BoxKind) -> Symbol {
         },
         BoxKind::SubModule => Symbol::Module,
         BoxKind::MultiPin => Symbol::Ic,
-        BoxKind::TwoPin => Symbol::from_class_name(&entry.class_name).unwrap_or(Symbol::Unknown),
+        BoxKind::TwoPin => match Symbol::from_class_name(&entry.class_name) {
+            Some(sym) => sym,
+            None => {
+                // Unknown two-pin class name: log instead of silently degrading,
+                // the user may have misspelled a standard class (R/C/L/D...).
+                crate::velog!(
+                    "[detect][symbol] two-pin component '{}' has unrecognized class '{}' -> \
+                     rendered as Unknown (generic box)",
+                    name,
+                    entry.class_name
+                );
+                Symbol::Unknown
+            }
+        },
         BoxKind::Dot => Symbol::Dot,
     }
 }

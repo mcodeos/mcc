@@ -4,9 +4,8 @@
 
 //! Group / Transposed processing + connection generation
 //!
-//! - `get_group_branch_count` / `check_group_broadcast` / `analyze_group_shapes`
+//! - `get_group_branch_count` / `check_group_broadcast`
 //! - `connect_to_group`             —— Connection strategy between Group and external points
-//! - `get_transposed_shape` / `is_transposed` / `get_original_shape_before_transpose`
 //! - `create_connection`            —— Generic N×M connection generation (1:1 / 1:N / N:1 / truncation)
 
 use super::McModuleInst;
@@ -43,31 +42,6 @@ impl McModuleInst {
         match member {
             McPhrase::Group(ref g) => (g.left_match, g.right_match),
             _ => (true, true),
-        }
-    }
-
-    /// Get endpoint-count statistics for each branch inside a Group
-    ///
-    /// Returns (left_sizes, right_sizes)
-    #[allow(dead_code)]
-    pub(super) fn analyze_group_shapes(&mut self, member: &McPhrase) -> (Vec<usize>, Vec<usize>) {
-        match member {
-            McPhrase::Group(ref g) => {
-                let mut left_sizes = Vec::new();
-                let mut right_sizes = Vec::new();
-
-                for phrase in &g.opds {
-                    if let Ok(left_pts) = self.get_left_points_from_phrase(phrase) {
-                        left_sizes.push(left_pts.len());
-                    }
-                    if let Ok(right_pts) = self.get_right_points_from_phrase(phrase) {
-                        right_sizes.push(right_pts.len());
-                    }
-                }
-
-                (left_sizes, right_sizes)
-            }
-            _ => (vec![1], vec![1]),
         }
     }
 
@@ -143,43 +117,6 @@ impl McModuleInst {
     }
 
     // ========================================================================
-    // Transpose and reverse processing (Iteration 7)
-    // ========================================================================
-
-    /// Compute the transposed shape
-    ///
-    /// Original shape: (left_count, right_count)
-    /// After transpose: (left_count + right_count, left_count + right_count)
-    ///
-    /// Transposing makes all ports of the element exposed on both sides
-    #[allow(dead_code)]
-    fn get_transposed_shape(inner_line: &McPhrase) -> (usize, usize) {
-        let left_count = inner_line.get_left().len();
-        let right_count = inner_line.get_right().len();
-        let total = left_count + right_count;
-        (total, total)
-    }
-
-    /// Check whether this is a transposed McPhrase
-    #[allow(dead_code)]
-    fn is_transposed(member: &McPhrase) -> bool {
-        matches!(member, McPhrase::Transposed(_))
-    }
-
-    /// Get the original shape before transposition
-    #[allow(dead_code)]
-    fn get_original_shape_before_transpose(member: &McPhrase) -> Option<(usize, usize)> {
-        match member {
-            McPhrase::Transposed(inner_line) => {
-                let left_count = inner_line.get_left().len();
-                let right_count = inner_line.get_right().len();
-                Some((left_count, right_count))
-            }
-            _ => None,
-        }
-    }
-
-    // ========================================================================
     // Generic connection generation
     // ========================================================================
 
@@ -207,12 +144,39 @@ impl McModuleInst {
         };
 
         // ── D3: MERGED_SHORT detection ──────────────────────────────────
-        // Check for duplicate paths in left or right points (bracket expansion
-        // like [A, A] creates duplicate connections that merge onto the same node).
+        // A merged short is a genuine defect only when the *same connection
+        // pair* (same left point + same right point) is created more than once,
+        // e.g. `[A, A] -> GND` produces (A, GND) twice. Fan-out such as
+        // `[P1, P2] -> [G, G]` produces the distinct pairs (P1, G) and (P2, G)
+        // and is legitimate (multiple pins merging onto one net) — do not flag it.
         {
-            let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
-            for p in left_points.iter().chain(right_points.iter()) {
-                if !seen.insert(&p.path) {
+            let pairs: Vec<(&str, &str)> = match (left_size, right_size) {
+                (1, _) => left_points
+                    .iter()
+                    .flat_map(|l| {
+                        right_points
+                            .iter()
+                            .map(move |r| (l.path.as_str(), r.path.as_str()))
+                    })
+                    .collect(),
+                (_, 1) => right_points
+                    .iter()
+                    .flat_map(|r| {
+                        left_points
+                            .iter()
+                            .map(move |l| (l.path.as_str(), r.path.as_str()))
+                    })
+                    .collect(),
+                _ => left_points
+                    .iter()
+                    .zip(right_points.iter())
+                    .map(|(l, r)| (l.path.as_str(), r.path.as_str()))
+                    .collect(),
+            };
+            let mut seen: std::collections::HashSet<(&str, &str)> =
+                std::collections::HashSet::new();
+            for (l, r) in pairs {
+                if !seen.insert((l, r)) {
                     // Use the NetPoint's src_pos for accurate error location;
                     // fall back to the current connection line's span, then the
                     // module definition's span start, so the diagnostic points
@@ -222,12 +186,15 @@ impl McModuleInst {
                         .as_ref()
                         .map(|s| s.start as i32)
                         .unwrap_or(self.def.span.start as i32);
-                    let pos = p.src_pos.unwrap_or(fallback) as u32;
-                    let len = p.path.len() as u32;
+                    let pos = left_points
+                        .first()
+                        .and_then(|p| p.src_pos)
+                        .unwrap_or(fallback) as u32;
+                    let len = l.len() as u32 + r.len() as u32 + 1;
                     let msg = format!(
-                        "node=0 MERGED_SHORT: duplicate path '{}' in connection. \
-                         A bracket expansion may contain duplicate entries causing signal merging.",
-                        p.path
+                        "node=0 MERGED_SHORT: duplicate connection pair '{l}' ↔ '{r}' in \
+                         connection. The same two points are connected more than once, \
+                         merging into a short."
                     );
                     diagnostic_log(2003, DiagnosticLevel::Error, pos, len, &msg, &[]);
                     break;
@@ -291,16 +258,19 @@ impl McModuleInst {
                     });
                 }
                 // ── D5: BUS_ORDER_MISMATCH detection ──────────────────────────────
-                // When two multi-point lists are connected 1:1, compare the last
-                // segment of each path at the same index. If they differ, the bus
-                // member order may be misaligned.
-                if left_size >= 2 {
+                // When two multi-point lists are connected 1:1 and both sides carry
+                // member names, compare member names at the same index. If they all
+                // differ, the bus member order may be misaligned (e.g. SPI SCLK↔MOSI).
+                // Skip when either side lacks member names (e.g. numeric pin paths):
+                // comparing names against pin numbers spans incompatible namespaces
+                // and only produces false positives.
+                if left_size >= 2 && has_member_names {
                     let mut mismatches: Vec<String> = Vec::new();
                     for (i, ((_, l), (_, r))) in
                         left_sorted.iter().zip(right_sorted.iter()).enumerate()
                     {
-                        let l_name = l.path.rsplit('.').next().unwrap_or(&l.path);
-                        let r_name = r.path.rsplit('.').next().unwrap_or(&r.path);
+                        let l_name = l.member_name.as_deref().unwrap_or(&l.path);
+                        let r_name = r.member_name.as_deref().unwrap_or(&r.path);
                         if l_name != r_name {
                             mismatches.push(format!("#{}: {}↔{}", i, l_name, r_name));
                         }

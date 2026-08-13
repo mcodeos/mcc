@@ -175,7 +175,19 @@ impl McUse {
                 MCAST_URI_VERSION => uri_version = n.to_string(),
                 MCAST_URI_ASID => uri_asid = n.to_string(),
                 MCAST_URI_IMPORT_IDS => uri_import_ids = n.subs_to_mcids_vec(),
-                _ => break,
+                // Report instead of silently dropping an unknown trailing node —
+                // it may indicate a grammar extension this compiler does not
+                // support yet (§4.3 P2-use).
+                other => {
+                    dlog_warning(
+                        crate::db::diagnostic::errcodes::NOT_SUPPORTED_YET,
+                        &n,
+                        &format!(
+                            "unexpected trailing node {other:?} in USE statement; it is ignored"
+                        ),
+                    );
+                    break;
+                }
             }
             node1 = n.get_next();
         }

@@ -274,12 +274,12 @@ impl McIds {
                 }
             }
             MCAST_OPD_CURLY => {
-                if let Some(curly_seg) = Self::parse_curly(node) {
+                if let Some(curly_seg) = Self::parse_curly(&each) {
                     self.segments.push(curly_seg);
                 }
             }
             MCAST_OPD_SQUARE_VEC => {
-                if let Some(square_seg) = Self::parse_square(node) {
+                if let Some(square_seg) = Self::parse_square(&each) {
                     self.segments.push(square_seg);
                 }
             }

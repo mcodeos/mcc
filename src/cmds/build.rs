@@ -1020,6 +1020,41 @@ module top {
         );
     }
 
+    #[test]
+    fn d3_no_fire_for_legit_fanout() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // Fan-out `[P1, P2] -> [G, G]` produces the distinct pairs (P1, G) and
+        // (P2, G) — multiple pins merging onto one net is legitimate and must
+        // NOT be flagged as a merged short (regression: hbl periph.mc:51
+        // `-> [dc.GND, dc.GND]` used to fire E2003).
+        let fixture = r#"
+component RES {
+    pins = [
+        1 = P
+        2 = G
+    ]
+}
+module top {
+    io A, B
+    RES r1, r2
+    [r1.G, r2.G] -> [GND, GND]
+    A -> r1.P
+    B -> r2.P
+}
+"#;
+        let (diags, build_err) = build_fixture(fixture);
+        assert!(
+            build_err.is_none(),
+            "fan-out build should succeed. Build err: {:?}",
+            build_err
+        );
+        assert!(
+            !has_code(&diags, 2003),
+            "D3 MERGED_SHORT should NOT fire for legit fan-out. Diags: {:?}",
+            diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
+        );
+    }
+
     // ── D4 GHOST_PORT ───────────────────────────────────────────────────
 
     #[test]
@@ -1053,6 +1088,8 @@ module top {
     #[test]
     fn d5_bus_order_mismatch_all_pairs() {
         let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // Two distinct components: PORT_A{A, B} connects to PORT_B{X, Y} with
+        // no overlapping member names, so all pairs mismatch positionally.
         let fixture = r#"
 component MyChip {
     pins = [
@@ -1061,8 +1098,9 @@ component MyChip {
     ]
 }
 module top {
-    MyChip chip
-    chip{PORT_A} -> chip{PORT_B}
+    MyChip chipA
+    MyChip chipB
+    chipA{PORT_A} -> chipB{PORT_B}
 }
 "#;
         let (diags, build_err) = build_fixture(fixture);

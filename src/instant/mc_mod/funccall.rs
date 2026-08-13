@@ -317,7 +317,14 @@ impl McModuleInst {
                     );
                 }
                 McCMIE::Interface(_) => {
-                    // Interface cannot be used as FuncCall construction
+                    // Interface cannot be used as FuncCall construction.
+                    // Log (mirroring the Enum arm) but keep the original
+                    // fall-through control flow to the user-func / instance-method
+                    // lookup below, so behavior stays unchanged.
+                    mcc_dbg!(
+                        "inst::fcall",
+                        "[WARN] Cannot instantiate Interface '{func_name}' as FuncCall"
+                    );
                 }
                 McCMIE::Enum(_) => {
                     mcc_dbg!(

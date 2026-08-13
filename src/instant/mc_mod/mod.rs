@@ -17,11 +17,9 @@
 //! - `funccall_inst.rs` —— Component / Module / UserFunc / InstanceMethod instantiation + prefix_instance
 //! - `iterated.rs`    —— Iterated call expansion
 //! - `subst.rs`       —— Parameter substitution helpers
-//! - `condition.rs`   —— Conditional expression evaluation
 //! - `debug_dump.rs`  —— Pass1→Pass2 info completeness debug output (MC_INST_DUMP=1 enabled)
 
 mod bus;
-mod condition;
 mod dump;
 mod expand;
 mod fcallinst;

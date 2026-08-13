@@ -80,8 +80,8 @@ impl ValidationCheck for ExtraCheck {
         // N5 + R8: default value type/unit mismatch
         check_default_type_mismatch(acc);
 
-        // H3: overlapping pin ranges (deferred — needs better cross-line vs same-line distinction)
-        // check_overlapping_pins(acc);
+        // H3: overlapping pin ranges (deferred — needs better cross-line vs
+        //     same-line distinction; no implementation yet)
         // I4: interface pin count mismatch
         check_interface_pin_counts(acc);
         // M1/M3: completely empty or pinless components
@@ -217,70 +217,6 @@ fn check_interface_pin_counts(acc: &mut CheckAccumulator) {
                     });
                 }
             }
-        }
-    }
-}
-
-/// H3: overlapping pin range assignments.
-///
-/// Flags pin IDs that appear in **different** pin lines with the **same** IO type,
-/// which suggests accidental overlap. Multi-function alternatives on the same line
-/// (`|`) and cross-line definitions with different IO types are intentional.
-fn check_overlapping_pins(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
-        if super::is_test_file(&uri) {
-            continue;
-        }
-        let comp = entry.value();
-
-        // Find pin IDs with same-IO-type definitions from different pin lines
-        let mut conflicts: Vec<(String, String, Vec<String>)> = Vec::new();
-        for (pin_id, defs) in &comp.pins.pin_defs {
-            if defs.len() < 2 {
-                continue;
-            }
-            // Group by (iotype, line_index)
-            use std::collections::HashMap;
-            let mut seen_lines: HashMap<String, Vec<usize>> = HashMap::new(); // iotype → line indices
-            let mut iotype_names: HashMap<String, Vec<String>> = HashMap::new();
-            for (iotype, names, line_idx) in defs {
-                let key = format!("{:?}", iotype);
-                seen_lines.entry(key.clone()).or_default().push(*line_idx);
-                iotype_names
-                    .entry(key)
-                    .or_default()
-                    .extend(names.iter().cloned());
-            }
-            // Flag only if same IO type appears on ≥2 DIFFERENT pin lines
-            for (iotype_str, lines) in &seen_lines {
-                let unique_lines: std::collections::HashSet<usize> =
-                    lines.iter().cloned().collect();
-                if unique_lines.len() > 1 {
-                    let names = iotype_names.get(iotype_str).cloned().unwrap_or_default();
-                    conflicts.push((pin_id.clone(), iotype_str.clone(), names));
-                }
-            }
-        }
-
-        if !conflicts.is_empty() {
-            let details: Vec<String> = conflicts
-                .iter()
-                .map(|(id, iot, names)| format!("pin {} ({}, [{}])", id, iot, names.join(", ")))
-                .collect();
-            acc.push(CheckResult {
-                check_name: "extra",
-                severity: CheckSeverity::Warning,
-                uri: Some(uri),
-                span: Some(comp.span.start..comp.span.end),
-                message: format!(
-                    "Component '{}' has overlapping pin assignments — same IO type on the same pin ID across different lines: {}.",
-                    entry.key().ident,
-                    details.join("; ")
-                ),
-                code: 2608,
-            });
         }
     }
 }

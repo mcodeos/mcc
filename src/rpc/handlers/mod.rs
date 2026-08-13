@@ -1091,7 +1091,7 @@ pub(crate) fn extract_archive(
         "tar.gz" | "tgz" => extract_tar_gz(&data, dest, strip),
         "tar" => extract_tar(&data, dest, strip),
         other => Err(JsonRpcError::custom(
-            -32104,
+            32104,
             &format!("unsupported archive format: {other}"),
         )),
     }
