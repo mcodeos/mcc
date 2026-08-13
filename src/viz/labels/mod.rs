@@ -699,7 +699,7 @@ pub fn label_placement_pipeline(
 mod tests {
     use super::*;
     use crate::vector::graph::netdef::Route;
-    use crate::vector::graph::{BoxKind, IoSummary, NetKind, Point, VizNet};
+    use crate::vector::graph::{BoxKind, IoSummary, NetKind, Point, NetRole, VizNet};
 
     fn mk_box(
         id: i64,
@@ -719,6 +719,8 @@ mod tests {
             value.map(String::from),
             2,
             IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         );
         b.x = 100.0 + id as f64 * 200.0;
         b.y = 100.0;
@@ -738,6 +740,8 @@ mod tests {
             None,
             4,
             IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         );
         b.x = 100.0 + id as f64 * 300.0;
         b.y = 100.0;
@@ -856,7 +860,7 @@ mod tests {
         graph.boxes.push(b);
 
         // Add a wire running right through the default designator position (above)
-        let mut net = VizNet::new(1, "SIG".into(), NetKind::Signal, vec![]);
+        let mut net = VizNet::new(1, "SIG".into(), NetKind::Signal, NetRole::Signal, vec![]);
         net.route = Some(Route {
             segments: vec![Segment {
                 from: Point { x: 80.0, y: 85.0 },

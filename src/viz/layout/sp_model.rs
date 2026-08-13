@@ -838,7 +838,7 @@ fn box_net_index(graph: &McVecGraph) -> HashMap<i64, Vec<usize>> {
 mod tests {
     use super::*;
     use crate::vector::graph::boxdef::IoSummary;
-    use crate::vector::graph::netdef::{EndpointRef, VizNet};
+    use crate::vector::graph::netdef::{EndpointRef, NetRole, VizNet};
     use crate::vector::graph::{BoxKind, McVecBox, McVecGraph, NetKind, Symbol};
 
     fn term(id: i64, name: &str, outputs: usize) -> McVecBox {
@@ -854,6 +854,8 @@ mod tests {
             None,
             1,
             io,
+            name.to_string(),
+            Vec::new(),
         )
     }
     fn passive(id: i64, name: &str, sym: Symbol) -> McVecBox {
@@ -867,6 +869,8 @@ mod tests {
             None,
             2,
             IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         )
     }
     fn net(nid: i64, name: &str, eps: &[(i64, i64)]) -> VizNet {
@@ -874,6 +878,7 @@ mod tests {
             nid,
             name.into(),
             NetKind::Signal,
+            NetRole::Signal,
             eps.iter()
                 .map(|&(b, p)| EndpointRef::new(b, p, format!("p{p}")))
                 .collect(),

@@ -223,7 +223,7 @@ mod tests {
     use super::*;
     use crate::vector::graph::boxdef::IoSummary;
     use crate::vector::graph::{
-        BoxKind, EndpointRef, McVecBox, McVecGraph, NetKind, Symbol, VizNet,
+        BoxKind, EndpointRef, McVecBox, McVecGraph, NetKind, NetRole, Symbol, VizNet,
     };
 
     fn make_graph() -> McVecGraph {
@@ -238,6 +238,8 @@ mod tests {
             None,
             2,
             IoSummary::new(),
+            "B1".to_string(),
+            Vec::new(),
         );
         b1.x = 10.0;
         b1.y = 20.0;
@@ -254,6 +256,8 @@ mod tests {
                 None,
                 2,
                 IoSummary::new(),
+                "B2".to_string(),
+                Vec::new(),
             );
             b.x = 200.0;
             b.y = 20.0;
@@ -267,6 +271,7 @@ mod tests {
             1,
             "VDD".into(),
             NetKind::Power,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 1, "VDD"), EndpointRef::new(2, 2, "1")],
         ));
         graph

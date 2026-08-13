@@ -30,6 +30,7 @@
 
 use super::boxdef::Wire;
 use super::kinds::{EdgeType, NetKind};
+use std::fmt;
 
 // ============================================================================
 // ★ NEW P03: NetTopology -- topology shape (replacing legacy EdgeType's topology dimension)
@@ -78,6 +79,41 @@ pub enum IoDirection {
 }
 
 // ============================================================================
+// ★ M0-2: NetRole — 网络语义角色
+// ============================================================================
+
+/// 网络在源码中的语义角色
+///
+/// 来源：源码显式声明（`::DC(5V)`、`ps` 端口），不用名字启发式。
+/// 默认 `Signal`。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NetRole {
+    /// 普通信号（默认）
+    Signal,
+    /// 电源网络，volt 来自 `::DC(5V)` 的字面量
+    Rail { volt: Option<String> },
+    /// 总线，width 来自 bracket 宽度
+    Bus { width: usize },
+}
+
+impl Default for NetRole {
+    fn default() -> Self {
+        NetRole::Signal
+    }
+}
+
+impl fmt::Display for NetRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NetRole::Signal => write!(f, "signal"),
+            NetRole::Rail { volt: Some(v) } => write!(f, "rail({v})"),
+            NetRole::Rail { volt: None } => write!(f, "rail"),
+            NetRole::Bus { width } => write!(f, "bus({width})"),
+        }
+    }
+}
+
+// ============================================================================
 // ★ NEW: VizNet (hyperedge)
 // ============================================================================
 
@@ -93,6 +129,8 @@ pub struct VizNet {
     pub name: String,
     /// Net semantics (for router strategy selection)
     pub kind: NetKind,
+    /// ★ M0-2: 网络语义角色（Signal / Rail / Bus），来自源码显式声明
+    pub role: NetRole,
     /// All endpoints (no limit on count, can be 1 / 2 / 3 / N)
     pub endpoints: Vec<EndpointRef>,
     /// Route result (filled by router, `None` when not routed)
@@ -103,11 +141,12 @@ pub struct VizNet {
 
 impl VizNet {
     /// Create a new unrouted net
-    pub fn new(nid: i64, name: String, kind: NetKind, endpoints: Vec<EndpointRef>) -> Self {
+    pub fn new(nid: i64, name: String, kind: NetKind, role: NetRole, endpoints: Vec<EndpointRef>) -> Self {
         Self {
             nid,
             name,
             kind,
+            role,
             endpoints,
             route: None,
             src_pos: None,

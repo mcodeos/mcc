@@ -31,7 +31,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::vector::graph::naming;
-use crate::vector::graph::netdef::IoDirection;
+use crate::vector::graph::netdef::{IoDirection, NetRole};
 use crate::vector::graph::{
     BoxKind, EndpointRef, EntryPoint, EntrySide, IoSummary, McVecBox, McVecGraph, NetKind, Symbol,
     VizNet,
@@ -207,6 +207,8 @@ pub fn explode_power_rails_to_flags(graph: &mut McVecGraph) {
             None,
             1,
             io,
+            g.name.clone(),
+            Vec::new(),
         );
         new_flags.push(flag);
 
@@ -220,7 +222,7 @@ pub fn explode_power_rails_to_flags(graph: &mut McVecGraph) {
         if let Some(first) = g.pins.into_iter().next() {
             eps.push(first);
         }
-        let stub = VizNet::new(next_net_id, g.name.clone(), net_kind, eps);
+        let stub = VizNet::new(next_net_id, g.name.clone(), net_kind, NetRole::Signal, eps);
         next_net_id += 1;
         new_stubs.push(stub);
     }
@@ -406,6 +408,8 @@ pub fn apply_net_labels(graph: &mut McVecGraph) -> Option<(f64, f64)> {
                 None,
                 1,
                 io,
+                net.name.clone(),
+                Vec::new(),
             );
             lbox.x = bx;
             lbox.y = by;
@@ -428,6 +432,7 @@ pub fn apply_net_labels(graph: &mut McVecGraph) -> Option<(f64, f64)> {
                 next_net,
                 net.name.clone(),
                 net.kind.clone(),
+                NetRole::Signal,
                 eps,
             ));
             next_net += 1;
@@ -483,6 +488,8 @@ mod tests {
             None,
             1,
             IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         )
     }
 
@@ -497,6 +504,8 @@ mod tests {
             None,
             4,
             IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         )
     }
 
@@ -532,6 +541,7 @@ mod tests {
             50,
             "SIG".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![
                 EndpointRef::with_io(1, 11, "S", IoDirection::Output),
                 EndpointRef::with_io(3, 31, "S", IoDirection::Input),
@@ -562,6 +572,7 @@ mod tests {
             50,
             "SIG".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![
                 EndpointRef::with_io(1, 11, "S", IoDirection::Output),
                 EndpointRef::with_io(2, 21, "S", IoDirection::Input),
@@ -589,6 +600,7 @@ mod tests {
             50,
             "GND".into(),
             NetKind::Ground,
+            NetRole::Signal,
             vec![
                 EndpointRef::with_io(1, 11, "S", IoDirection::Ground),
                 EndpointRef::with_io(2, 21, "S", IoDirection::Ground),
@@ -612,6 +624,7 @@ mod tests {
             10,
             "V3V3".into(),
             NetKind::Power,
+            NetRole::Signal,
             vec![
                 EndpointRef::with_io(100, 1001, "V3V3", IoDirection::Power),
                 EndpointRef::with_io(1, 11, "VDD", IoDirection::Power),
@@ -684,6 +697,7 @@ mod tests {
             10,
             "sig".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![
                 EndpointRef::with_io(1, 11, "OUT", IoDirection::Output),
                 EndpointRef::with_io(2, 21, "IN", IoDirection::Input),

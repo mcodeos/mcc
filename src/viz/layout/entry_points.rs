@@ -1003,6 +1003,14 @@ fn compute_entry_points(
     pins: &[(i64, String)],
     connected: &HashSet<i64>,
 ) -> Vec<EntryPoint> {
+    // ★ M0-3: if pin_constraint != Free, layout_hint must be non-empty
+    debug_assert!(
+        b.pin_constraint == crate::vector::graph::PinConstraint::Free
+            || b.layout_hint.as_ref().is_some_and(|l| !l.is_empty()),
+        "box#{} '{}' pin_constraint={:?} but layout_hint is empty — cannot honor constraint",
+        b.id, b.name, b.pin_constraint
+    );
+
     // ★ Reserved interface ①: if component gives explicit layout hint, use it (builder doesn't fill today → None → skip).
     if let Some(layout) = &b.layout_hint {
         if !layout.is_empty() {
@@ -1539,7 +1547,7 @@ mod tests {
     // ========================================================================
 
     use crate::vector::graph::netdef::IoDirection;
-    use crate::vector::graph::{EndpointRef, NetKind, VizNet};
+    use crate::vector::graph::{EndpointRef, NetKind, NetRole, VizNet};
 
     /// Tool: create a box with coordinates and fill in an entry_point
     fn mk_box_with_ep(
@@ -1573,7 +1581,7 @@ mod tests {
 
     #[test]
     fn layout_hint_assigns_sides() {
-        use crate::vector::graph::boxdef::{BoxPin, PinLayout};
+        use crate::vector::graph::boxdef::{BoxPin, PinLayout, PortDir};
         let mut b = McVecBox::new(
             1,
             "u8".into(),
@@ -1588,24 +1596,28 @@ mod tests {
                 pin_id: "B".into(),
                 description: "Base".into(),
                 io: IoDirection::Bidir,
+                port_dir: PortDir::None,
             },
             BoxPin {
                 id: 2,
                 pin_id: "C".into(),
                 description: "Collector".into(),
                 io: IoDirection::Bidir,
+                port_dir: PortDir::None,
             },
             BoxPin {
                 id: 3,
                 pin_id: "E".into(),
                 description: "Emmiter".into(),
                 io: IoDirection::Bidir,
+                port_dir: PortDir::None,
             },
             BoxPin {
                 id: 4,
                 pin_id: "4".into(),
                 description: String::new(),
                 io: IoDirection::Unknown,
+                port_dir: PortDir::None,
             },
         ]);
         b.set_layout_hint(PinLayout {
@@ -1665,6 +1677,7 @@ mod tests {
             nid,
             format!("n{}", nid),
             NetKind::Signal,
+            NetRole::Signal,
             vec![
                 EndpointRef::with_io(a_box, a_pin, format!("p{}", a_pin), a_io),
                 EndpointRef::with_io(b_box, b_pin, format!("p{}", b_pin), b_io),

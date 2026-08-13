@@ -440,7 +440,7 @@ impl GraphPos for McVecGraph {
 mod tests {
     use super::*;
     use crate::vector::graph::boxdef::{IoSummary, PinLayout};
-    use crate::vector::graph::netdef::{EndpointRef, VizNet};
+    use crate::vector::graph::netdef::{EndpointRef, NetRole, VizNet};
     use crate::vector::graph::{BoxKind, NetKind, Symbol};
 
     fn make_box(
@@ -461,6 +461,8 @@ mod tests {
             None,
             2,
             IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         );
         b.x = x;
         b.y = y;
@@ -480,6 +482,8 @@ mod tests {
             None,
             8,
             IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         );
         b.x = x;
         b.y = y;
@@ -518,6 +522,7 @@ mod tests {
             1,
             "NET1".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 1, "1"), EndpointRef::new(2, 2, "1")],
         );
         graph.nets.push(net);
@@ -604,6 +609,7 @@ mod tests {
             1,
             "NET1".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 1, "1"), EndpointRef::new(2, 2, "1")],
         );
         graph.nets.push(net);

@@ -30,12 +30,8 @@ use mcc::{
 
 // ─── New P2 pipeline ─────────────────────────────────────────────
 use mcc::viz::api::{render_with, RenderOpts};
-use mcc::viz::layout::{
-    FlowLayouter, HierarchicalLayouter, RadialLayouter, SchematicRadialLayouter,
-    SchematicSubLayouter,
-};
+use mcc::viz::layout::FlowLayouter;
 use mcc::viz::template::wrap_document;
-use mcc::viz::traits::Layouter;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -83,7 +79,7 @@ fn main() {
                     layouter_name = Some(args[i + 1].clone());
                     i += 2;
                 } else {
-                    eprintln!("Error: --layouter requires a name (flow|schematic_radial|schematic_sub|hierarchical|radial)");
+                    eprintln!("Error: --layouter requires a name (flow)");
                     process::exit(1);
                 }
             }
@@ -208,55 +204,22 @@ fn build_opts(apply_promote: bool, layouter_name: Option<&str>) -> RenderOpts {
     opts.apply_promote = apply_promote;
 
     if let Some(name) = layouter_name {
-        let (top, sub, top_cands, sub_cands): (
-            Box<dyn Layouter>,
-            Box<dyn Layouter>,
-            Vec<Box<dyn Layouter>>,
-            Vec<Box<dyn Layouter>>,
-        ) = match name {
-            "flow" => (
-                Box::new(FlowLayouter::default()),
-                Box::new(FlowLayouter::sub()),
-                vec![Box::new(FlowLayouter::default())],
-                vec![Box::new(FlowLayouter::sub())],
-            ),
-            "schematic_radial" => (
-                Box::new(SchematicRadialLayouter::default()),
-                Box::new(FlowLayouter::sub()),
-                vec![Box::new(SchematicRadialLayouter::default())],
-                vec![Box::new(FlowLayouter::sub())],
-            ),
-            "schematic_sub" => (
-                Box::new(FlowLayouter::default()),
-                Box::new(SchematicSubLayouter::default()),
-                vec![Box::new(FlowLayouter::default())],
-                vec![Box::new(SchematicSubLayouter::default())],
-            ),
-            "hierarchical" => (
-                Box::new(HierarchicalLayouter::default()),
-                Box::new(FlowLayouter::sub()),
-                vec![Box::new(HierarchicalLayouter::default())],
-                vec![Box::new(FlowLayouter::sub())],
-            ),
-            "radial" => (
-                Box::new(RadialLayouter),
-                Box::new(RadialLayouter),
-                vec![Box::new(RadialLayouter)],
-                vec![Box::new(RadialLayouter)],
-            ),
+        match name {
+            "flow" => {
+                opts.top_layouter = Box::new(FlowLayouter::default());
+                opts.sub_layouter = Box::new(FlowLayouter::sub());
+                opts.top_candidates = vec![Box::new(FlowLayouter::default())];
+                opts.sub_candidates = vec![Box::new(FlowLayouter::sub())];
+                mcc_dbg!("viz", "[mcviz] locked layouter: top=flow sub=flow");
+            }
             other => {
                 eprintln!(
-                    "Error: unknown layouter '{}'. Choose: flow|schematic_radial|schematic_sub|hierarchical|radial",
+                    "Error: unknown layouter '{}'. Only 'flow' is supported.",
                     other
                 );
                 process::exit(1);
             }
-        };
-        opts.top_layouter = top;
-        opts.sub_layouter = sub;
-        opts.top_candidates = top_cands;
-        opts.sub_candidates = sub_cands;
-        mcc_dbg!("viz", "[mcviz] locked layouter: top={} sub={}", name, name);
+        }
     }
     opts
 }
@@ -269,7 +232,7 @@ fn print_usage() {
     eprintln!("  --json         Output JSON instead of HTML");
     eprintln!("  --legacy       Use old pipeline (no real expand, for compare)");
     eprintln!("  --no-promote   Disable top-layer simplification (show all nets)");
-    eprintln!("  --layouter <name>  Lock to single layouter: flow|schematic_radial|schematic_sub|hierarchical|radial");
+    eprintln!("  --layouter <name>  Lock to single layouter: flow");
     eprintln!("  -h, --help     Show this help");
     eprintln!();
     eprintln!("Examples:");

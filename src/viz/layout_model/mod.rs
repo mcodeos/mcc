@@ -368,6 +368,8 @@ mod tests {
                 None,
                 2,
                 IoSummary::new(),
+                "U1".to_string(),
+                Vec::new(),
             );
             b.x = 100.0;
             b.y = 100.0;
@@ -386,6 +388,8 @@ mod tests {
                 None,
                 2,
                 IoSummary::new(),
+                "R1".to_string(),
+                Vec::new(),
             );
             b.x = 10.0;
             b.y = 10.0;

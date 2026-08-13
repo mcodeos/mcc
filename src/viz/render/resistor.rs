@@ -125,6 +125,8 @@ mod tests {
             Some("10k".into()),
             2,
             IoSummary::new(),
+            "R1".to_string(),
+            Vec::new(),
         );
         b.x = 100.0;
         b.y = 50.0;

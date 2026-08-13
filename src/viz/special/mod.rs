@@ -18,7 +18,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::vector::graph::{McVecGraph, NetKind, VizNet};
+use crate::vector::graph::{McVecGraph, NetKind, NetRole, VizNet};
 
 // ============================================================================
 // PowerGroundBusModel
@@ -672,6 +672,8 @@ mod tests {
             None,
             2,
             IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         );
         b.x = x;
         b.y = y;
@@ -697,7 +699,7 @@ mod tests {
     }
 
     fn mk_net(nid: i64, name: &str, kind: NetKind, len: f64) -> VizNet {
-        let mut net = VizNet::new(nid, name.into(), kind, vec![]);
+        let mut net = VizNet::new(nid, name.into(), kind, NetRole::Signal, vec![]);
         net.route = Some(Route {
             segments: vec![Segment {
                 from: Point { x: 0.0, y: 0.0 },

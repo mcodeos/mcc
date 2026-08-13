@@ -10,33 +10,10 @@
 //! `layout::select::layout_best`, which now runs one layouter and applies a
 //! fidelity gate instead of ranking N candidates. "What you edit is what you see."
 //!
-//! The alternate layouters (`SchematicRadialLayouter`, `HierarchicalLayouter`,
-//! `RadialLayouter`, and the `FlowLayouter` parameter variants) are **kept in the
-//! tree** and remain reachable for comparison via the explicit `RenderOpts`
-//! constructors below (`all_radial`, `sugiyama`, `legacy_radial`, `schematic_radial`).
-//! They are simply no longer in the default pool.
-//!
 //! ## ★ P03 (S1) changes
 //! - Deleted `apply_route: bool` field, route now always executes (single pipeline)
 //! - Deleted `RenderOpts::legacy_edges_only()` constructor (old binary edges rendering discontinued)
 //! - Simplified `render_layer_recursive` signature, no longer passes apply_route parameter
-//!
-//! For "no routing, direct rendering" debug mode, now use `NoopRouter` wrapped in RenderOpts:
-//! ```ignore
-//! // Debug without routing
-//! let opts = RenderOpts { ..Default::default() };
-//! // (After P11, RenderOpts will expose router_choice field)
-//! ```
-//!
-//! ## ★ P07 (S6) changes — Schematic Radial becomes default top-level
-//! `top_layouter` default changed from `HierarchicalLayouter` to `SchematicRadialLayouter`,
-//! visually from "layered strips" to "center IC + peripheral radiation" (more like real schematics).
-//! (Superseded by PR-1 above: default is now circuit_flow.)
-//!
-//! Old behavior still available:
-//! - `RenderOpts::sugiyama()` — top-level uses old HierarchicalLayouter
-//! - `RenderOpts::legacy_radial()` — top-level uses old RadialLayouter (2 rings + mutual push)
-//! - `RenderOpts::all_radial()` — all use old RadialLayouter (backward compatibility)
 //!
 //! ## ★ P10 (S6) changes — Channel-aware Routing
 //! `smart_route_all` internally upgraded from `dispatch::route_all_with_dispatch` to
@@ -52,9 +29,7 @@ use super::doc::VizDocument;
 use super::labels::label_placement_pipeline;
 use super::layer::VizLayer;
 use super::layout::select::layout_best;
-use super::layout::{
-    FlowLayouter, HierarchicalLayouter, LayeredLayouter, RadialLayouter, SchematicRadialLayouter,
-};
+use super::layout::FlowLayouter;
 use super::semantic::SemanticModel;
 use super::special::PowerGroundBusModel;
 use super::traits::{DefaultRenderer, Layouter, Renderer};
@@ -97,65 +72,9 @@ impl Default for RenderOpts {
 }
 
 impl RenderOpts {
-    /// All use the old Radial (compatible with old debugging / old tests)
-    pub fn all_radial() -> Self {
-        Self {
-            top_layouter: Box::new(RadialLayouter),
-            sub_layouter: Box::new(RadialLayouter),
-            renderer: Box::new(DefaultRenderer),
-            apply_promote: true,
-            top_candidates: vec![Box::new(RadialLayouter)],
-            sub_candidates: vec![Box::new(RadialLayouter)],
-        }
-    }
-
-    /// ★ P07 — top-level uses Sugiyama layering (default before S5)
-    pub fn sugiyama() -> Self {
-        Self {
-            top_layouter: Box::new(HierarchicalLayouter::default()),
-            sub_layouter: Box::new(RadialLayouter),
-            renderer: Box::new(DefaultRenderer),
-            apply_promote: true,
-            top_candidates: vec![Box::new(HierarchicalLayouter::default())],
-            sub_candidates: vec![Box::new(RadialLayouter)],
-        }
-    }
-
-    /// ★ P07 — top-level uses old RadialLayouter (2 rings, mutual push)
-    pub fn legacy_radial() -> Self {
-        Self {
-            top_layouter: Box::new(RadialLayouter),
-            sub_layouter: Box::new(RadialLayouter),
-            renderer: Box::new(DefaultRenderer),
-            apply_promote: true,
-            top_candidates: vec![Box::new(RadialLayouter)],
-            sub_candidates: vec![Box::new(RadialLayouter)],
-        }
-    }
-
-    /// ★ Stage A — center IC + radiation (kept for comparison against circuit_flow)
-    pub fn schematic_radial() -> Self {
-        Self {
-            top_layouter: Box::new(SchematicRadialLayouter::default()),
-            sub_layouter: Box::new(RadialLayouter),
-            renderer: Box::new(DefaultRenderer),
-            apply_promote: true,
-            top_candidates: vec![Box::new(SchematicRadialLayouter::default())],
-            sub_candidates: vec![Box::new(RadialLayouter)],
-        }
-    }
-
-    /// ★ M6 — Semantic-driven layered placement prototype (experimental).
-    pub fn layered() -> Self {
-        Self {
-            top_layouter: Box::new(LayeredLayouter::default()),
-            sub_layouter: Box::new(LayeredLayouter::sub()),
-            renderer: Box::new(DefaultRenderer),
-            apply_promote: true,
-            top_candidates: vec![Box::new(LayeredLayouter::default())],
-            sub_candidates: vec![Box::new(LayeredLayouter::sub())],
-        }
-    }
+    // Only FlowLayouter is retained after M1-1 dead code removal.
+    // All alternative layouters (Radial, Hierarchical, SchematicRadial, Layered)
+    // have been removed along with their implementations.
 }
 
 // ============================================================================

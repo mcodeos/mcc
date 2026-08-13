@@ -220,6 +220,26 @@ pub fn extract_last_segment(path: &str) -> String {
         .to_string()
 }
 
+/// ★ M0: compute parent module chain from an instance path
+///
+/// `"main.modldo.ldo"` → `["main", "main.modldo"]`
+/// `"main"` → `[]`
+/// `"main.flash.R10k_cs.1"` → `["main", "main.flash", "main.flash.R10k_cs"]`
+///
+/// The leaf segment is excluded from the chain.
+pub fn compute_scope_chain(inst_path: &str) -> Vec<String> {
+    let mut chain = Vec::new();
+    let mut current = String::new();
+    for ch in inst_path.chars() {
+        if ch == '.' {
+            chain.push(current.clone());
+        }
+        current.push(ch);
+    }
+    // current contains the last segment — don't push it
+    chain
+}
+
 /// Whether a name looks like a power label (including ground)
 ///
 /// **P04 (S1)**: Implementation has been migrated to [`super::naming::is_power_rail`]
@@ -409,5 +429,40 @@ mod tests {
         assert_eq!(translate_io_type(&IOType::Out), IoDirection::Output);
         assert_eq!(translate_io_type(&IOType::Power), IoDirection::Power);
         assert_eq!(translate_io_type(&IOType::Analog), IoDirection::Passive);
+    }
+
+    // ── M0: compute_scope_chain ──
+
+    #[test]
+    fn scope_chain_nested_module() {
+        assert_eq!(
+            compute_scope_chain("main.modldo.ldo"),
+            vec!["main".to_string(), "main.modldo".to_string()]
+        );
+    }
+
+    #[test]
+    fn scope_chain_deep_pin() {
+        assert_eq!(
+            compute_scope_chain("main.flash.R10k_cs.1"),
+            vec![
+                "main".to_string(),
+                "main.flash".to_string(),
+                "main.flash.R10k_cs".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn scope_chain_root_module() {
+        assert_eq!(compute_scope_chain("main"), Vec::<String>::new());
+    }
+
+    #[test]
+    fn scope_chain_direct_child() {
+        assert_eq!(
+            compute_scope_chain("main.speaker"),
+            vec!["main".to_string()]
+        );
     }
 }

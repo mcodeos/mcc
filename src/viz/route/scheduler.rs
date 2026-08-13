@@ -38,7 +38,7 @@
 //! - `obstacles::ObstacleMap` —— constructed separately for each net (exclude own endpoint box)
 //! - Here **newly create** one `ChannelMap`, shared by entire layer
 
-use crate::vector::graph::{BoxKind, McVecGraph, NetKind, Segment, VizNet};
+use crate::vector::graph::{BoxKind, McVecGraph, NetKind, NetRole, Segment, VizNet};
 
 use super::audit;
 use super::channels::ChannelMap;
@@ -242,7 +242,7 @@ pub fn route_layer_with_channels(graph: &mut McVecGraph) {
 
         // Borrow trick (same as dispatch.rs): extract the net so we can have
         // both &graph + &mut net at the same time
-        let placeholder = VizNet::new(0, String::new(), NetKind::Signal, Vec::new());
+        let placeholder = VizNet::new(0, String::new(), NetKind::Signal, NetRole::Signal, Vec::new());
         let mut tmp = std::mem::replace(&mut graph.nets[plan.net_index], placeholder);
 
         route_one_net_with_channels(plan.choice, graph, &mut tmp, &mut channels);
@@ -576,7 +576,7 @@ fn merge_same_name_power_ground_nets(graph: &mut crate::vector::graph::McVecGrap
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::netdef::IoDirection;
+    use crate::vector::graph::netdef::{IoDirection, NetRole};
     use crate::vector::graph::{BoxKind, EndpointRef, IoSummary, McVecBox};
 
     fn mk_box(id: i64, x: f64, y: f64, w: f64, h: f64) -> McVecBox {
@@ -635,6 +635,7 @@ mod tests {
             10,
             "s1".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![
                 EndpointRef::with_io(1, 11, "p11", IoDirection::Output),
                 EndpointRef::with_io(2, 21, "p21", IoDirection::Input),
@@ -662,6 +663,7 @@ mod tests {
             10,
             "ortho_big".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![
                 EndpointRef::with_io(1, 1, "p1", IoDirection::Output),
                 EndpointRef::with_io(3, 1, "p1", IoDirection::Input),
@@ -673,6 +675,7 @@ mod tests {
             11,
             "bus_small".into(),
             NetKind::Bus(4),
+            NetRole::Signal,
             vec![
                 EndpointRef::with_io(1, 2, "p2", IoDirection::Bidir),
                 EndpointRef::with_io(2, 1, "p1", IoDirection::Bidir),

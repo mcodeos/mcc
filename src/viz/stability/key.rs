@@ -7,7 +7,7 @@
 //! Every key type implements `Ord` so that Vec can be sorted deterministically.
 //! Keys are designed to be stable across repeated runs of the same input.
 
-use crate::vector::graph::{EndpointRef, McVecBox, NetKind, Symbol, VizNet};
+use crate::vector::graph::{EndpointRef, McVecBox, NetKind, NetRole, Symbol, VizNet};
 
 // ============================================================================
 // StableBoxKey
@@ -239,6 +239,8 @@ mod tests {
             None,
             2,
             IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         )
     }
 
@@ -262,8 +264,8 @@ mod tests {
 
     #[test]
     fn stable_net_key_orders_by_id() {
-        let n1 = VizNet::new(1, "B".into(), NetKind::Signal, vec![]);
-        let n2 = VizNet::new(2, "A".into(), NetKind::Power, vec![]);
+        let n1 = VizNet::new(1, "B".into(), NetKind::Signal, NetRole::Signal, vec![]);
+        let n2 = VizNet::new(2, "A".into(), NetKind::Power, NetRole::Signal, vec![]);
         let k1 = StableNetKey::from_net(&n1, 0);
         let k2 = StableNetKey::from_net(&n2, 0);
         assert!(k1 < k2);
@@ -271,8 +273,8 @@ mod tests {
 
     #[test]
     fn stable_net_key_kind_rank() {
-        let n1 = VizNet::new(1, "VDD".into(), NetKind::Power, vec![]);
-        let n2 = VizNet::new(2, "SIG".into(), NetKind::Signal, vec![]);
+        let n1 = VizNet::new(1, "VDD".into(), NetKind::Power, NetRole::Signal, vec![]);
+        let n2 = VizNet::new(2, "SIG".into(), NetKind::Signal, NetRole::Signal, vec![]);
         let k1 = StableNetKey::from_net(&n1, 0);
         let k2 = StableNetKey::from_net(&n2, 0);
         assert!(k1 < k2);

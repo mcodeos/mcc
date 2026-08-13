@@ -85,7 +85,7 @@
 //! Not handled in this module —— smart_route_all recurses into `graph.sub_graphs`
 //! after dispatching the top layer.
 
-use crate::vector::graph::netdef::{IoDirection, NetTopology};
+use crate::vector::graph::netdef::{IoDirection, NetRole, NetTopology};
 use crate::vector::graph::{McVecGraph, NetKind, VizNet};
 
 use super::bus_bundle::BusBundleRouter;
@@ -341,7 +341,7 @@ pub fn route_layer_with_dispatch(graph: &mut McVecGraph) {
         // (Router::route doesn't modify graph, so this swap is safe)
         let mut tmp = std::mem::replace(
             &mut graph.nets[i],
-            VizNet::new(0, String::new(), NetKind::Signal, Vec::new()),
+            VizNet::new(0, String::new(), NetKind::Signal, NetRole::Signal, Vec::new()),
         );
         let router = choice.into_router();
         router.route(graph, &mut tmp);
@@ -569,6 +569,7 @@ mod tests {
             0,
             "x".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![
                 ep(1, IoDirection::Output),
                 ep(2, IoDirection::Input),
@@ -591,6 +592,7 @@ mod tests {
             0,
             "x".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![
                 ep(1, IoDirection::Bidir),
                 ep(2, IoDirection::Bidir),
@@ -610,6 +612,7 @@ mod tests {
             0,
             "x".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![
                 ep(1, IoDirection::Unknown),
                 ep(2, IoDirection::Unknown),
@@ -632,6 +635,7 @@ mod tests {
             0,
             "x".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![ep(1, IoDirection::Output), ep(2, IoDirection::Input)],
         );
         let graph = McVecGraph::new(0, "test".into());

@@ -74,11 +74,11 @@ pub use layer::VizLayer;
 
 // trait + default implementations
 pub use traits::{
-    DefaultRenderer, Layouter, LegacyLayouter, LegacyRenderer, NoopRouter, Renderer, Router,
+    DefaultRenderer, Layouter, LegacyRenderer, NoopRouter, Renderer, Router,
 };
 
 // Layout algorithms
-pub use layout::{GridLayouter, HierarchicalLayouter, LayeredLayouter, RadialLayouter};
+pub use layout::FlowLayouter;
 
 // Routing algorithms (P4 new)
 pub use route::{smart_route_all, BusBundleRouter, OrthogonalRouter, StarRouter, StraightRouter};

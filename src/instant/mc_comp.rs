@@ -7,6 +7,7 @@
 //! McComponentInst
 
 use super::mc_net::{InstError, NetPoint};
+use crate::instant::insttab::InstOrigin;
 use crate::semantic::basic::mc_conds::McConds;
 use crate::semantic::basic::mc_expr::McExpression;
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
@@ -47,6 +48,9 @@ pub struct McComponentInst {
     /// NC (Not Connected) instance
     pub nc: bool,
 
+    /// ★ M0-B-E: 实例来源（声明 vs funcall）
+    pub origin: InstOrigin,
+
     /// Degraded instance (instantiation failed, created as placeholder to prevent dangling pins)
     pub degraded: bool,
 }
@@ -63,6 +67,7 @@ impl McComponentInst {
             cond_attrs: Vec::new(),
             resolved_attrs: Vec::new(),
             nc: false,
+            origin: InstOrigin::Declared,
             degraded: false,
         };
 
@@ -81,6 +86,7 @@ impl McComponentInst {
             cond_attrs: Vec::new(),
             resolved_attrs: Vec::new(),
             nc: false,
+            origin: InstOrigin::Declared,
             degraded: true,
         }
     }
@@ -107,6 +113,7 @@ impl McComponentInst {
             cond_attrs: Vec::new(),
             resolved_attrs: Vec::new(),
             nc,
+            origin: InstOrigin::Declared,
             degraded: false,
         };
 
@@ -125,6 +132,7 @@ impl McComponentInst {
             cond_attrs: Vec::new(),
             resolved_attrs: Vec::new(),
             nc: true,
+            origin: InstOrigin::Declared,
             degraded: false,
         };
 

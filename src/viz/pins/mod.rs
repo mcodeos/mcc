@@ -577,9 +577,9 @@ pub fn pin_anchor_pipeline(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::boxdef::BoxPin;
+    use crate::vector::graph::boxdef::{BoxPin, PortDir};
     use crate::vector::graph::netdef::EndpointRef;
-    use crate::vector::graph::{BoxKind, McVecBox, McVecGraph, NetKind, Symbol, VizNet};
+    use crate::vector::graph::{BoxKind, McVecBox, McVecGraph, NetKind, Symbol, NetRole, VizNet};
 
     fn mk_box(id: i64, name: &str, kind: BoxKind, symbol: Symbol, pin_count: usize) -> McVecBox {
         let mut b = McVecBox::new_v2(
@@ -592,6 +592,8 @@ mod tests {
             None,
             pin_count,
             crate::vector::graph::boxdef::IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         );
         b.x = 100.0 + id as f64 * 200.0;
         b.y = 100.0;
@@ -606,6 +608,7 @@ mod tests {
             pin_id: name.into(),
             description: name.into(),
             io,
+            port_dir: PortDir::None,
         });
     }
 
@@ -792,6 +795,7 @@ mod tests {
             1,
             "SIG".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![
                 ep(1, 4, "OUT", IoDirection::Output),
                 ep(2, 1, "1", IoDirection::Input),

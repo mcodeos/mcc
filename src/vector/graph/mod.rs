@@ -60,17 +60,18 @@ pub mod promote;
 // ============================================================================
 
 pub use boxdef::{
-    BoxLabelPlacement, EntryPoint, EntrySide, IoSummary, LabelPlacementKind, McVecBox, VisualRole,
-    Wire,
+    BoxLabelPlacement, EntryPoint, EntrySide, IoSummary, LabelPlacementKind, McVecBox, PinConstraint,
+    PortDir, VisualRole, Wire, ZoneBorder,
 };
 pub use graphdef::McVecGraph;
 pub use json::json_escape;
 pub use kinds::{BoxKind, EdgeType, NetKind};
-pub use netdef::{EndpointRef, McVecEdge, Point, Route, Segment, VizNet};
+pub use netdef::{EndpointRef, McVecEdge, NetRole, Point, Route, Segment, VizNet};
 pub use symbol::Symbol;
 
 pub use detect::{
-    compute_io, detect_kind, extract_last_segment, is_power_label, is_signal_like, DetectedKind,
+    compute_io, compute_scope_chain, detect_kind, extract_last_segment, is_power_label,
+    is_signal_like, DetectedKind,
 };
 pub use fromblock::{build_graph_smart, build_mc_vec_graph};
 pub use fromtable::build_graph_from_table;

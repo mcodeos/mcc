@@ -28,7 +28,7 @@
 //! final audit → report
 //! ```
 
-use crate::vector::graph::{EntryPoint, EntrySide, McVecBox, McVecGraph, Segment, VizNet};
+use crate::vector::graph::{EntryPoint, EntrySide, McVecBox, McVecGraph, NetRole, Segment, VizNet};
 
 use super::audit::{self, CollisionReport};
 use super::grid_router::{self, AStarCfg, Grid, GRID_GAP};
@@ -479,6 +479,7 @@ pub fn run_route_feedback(
                 0,
                 String::new(),
                 crate::vector::graph::NetKind::Signal,
+                NetRole::Signal,
                 vec![],
             );
             let mut tmp = std::mem::replace(&mut graph.nets[net_idx], placeholder);
@@ -502,6 +503,7 @@ pub fn run_route_feedback(
                         0,
                         String::new(),
                         crate::vector::graph::NetKind::Signal,
+                        NetRole::Signal,
                         vec![],
                     ),
                 );
@@ -539,6 +541,7 @@ pub fn run_route_feedback(
                         0,
                         String::new(),
                         crate::vector::graph::NetKind::Signal,
+                        NetRole::Signal,
                         vec![],
                     ),
                 );
@@ -817,7 +820,7 @@ pub fn run_route_feedback_loop(graph: &mut McVecGraph) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::netdef::{EndpointRef, IoDirection, Route};
+    use crate::vector::graph::netdef::{EndpointRef, IoDirection, NetRole, Route};
     use crate::vector::graph::{
         BoxKind, EntryPoint, EntrySide, IoSummary, NetKind, Point, Segment, Symbol, VizNet,
     };
@@ -840,6 +843,8 @@ mod tests {
             None,
             2,
             IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         );
         b.x = x;
         b.y = y;
@@ -855,7 +860,7 @@ mod tests {
     }
 
     fn mk_net(nid: i64, name: &str, segments: Vec<(f64, f64, f64, f64)>) -> VizNet {
-        let mut net = VizNet::new(nid, name.into(), NetKind::Signal, vec![]);
+        let mut net = VizNet::new(nid, name.into(), NetKind::Signal, NetRole::Signal, vec![]);
         net.route = Some(Route {
             segments: segments
                 .into_iter()
@@ -1036,7 +1041,7 @@ mod tests {
     #[test]
     fn empty_route_not_reachable() {
         let graph = McVecGraph::new(0, "test".into());
-        let net = VizNet::new(1, "SIG".into(), NetKind::Signal, vec![]);
+        let net = VizNet::new(1, "SIG".into(), NetKind::Signal, NetRole::Signal, vec![]);
         assert!(!check_endpoint_reachability(&graph, &net));
     }
 

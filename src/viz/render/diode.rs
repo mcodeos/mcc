@@ -201,6 +201,8 @@ mod tests {
             None,
             2,
             IoSummary::new(),
+            "D1".to_string(),
+            Vec::new(),
         );
         b.x = 50.0;
         b.y = 50.0;

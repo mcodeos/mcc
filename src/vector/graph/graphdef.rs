@@ -23,8 +23,8 @@
 
 use std::fmt;
 
-use super::boxdef::McVecBox;
-use super::netdef::{McVecEdge, VizNet};
+use super::boxdef::{McVecBox, PortDir, ZoneBorder};
+use super::netdef::{McVecEdge, NetRole, VizNet};
 
 // ============================================================================
 // McVecGraph
@@ -57,6 +57,10 @@ pub struct McVecGraph {
     /// Set by `islands::apply_islands`, read by `compute_fidelity` for the gate.
     pub islands_claimed: usize,
     pub islands_total: usize,
+    /// ★ M0-2: 模块端口列表（端口名、方向、网络角色），来自模块声明
+    pub module_ports: Vec<(String, PortDir, NetRole)>,
+    /// ★ M2-3: Zone 边框列表（虚线圆角矩形 + 标题），由 v2 layout 填充
+    pub zone_borders: Vec<ZoneBorder>,
 }
 
 impl McVecGraph {
@@ -72,6 +76,8 @@ impl McVecGraph {
             fanout_star: false,
             islands_claimed: 0,
             islands_total: 0,
+            module_ports: vec![],
+            zone_borders: vec![],
         }
     }
 
