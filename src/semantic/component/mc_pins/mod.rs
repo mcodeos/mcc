@@ -306,7 +306,7 @@ impl McPins {
             dlog_warning(
                 crate::db::diagnostic::errcodes::NOT_SUPPORTED_YET,
                 &subcls,
-                "pins.subcls = [...] is parsed but not supported yet; the sub-class name is ignored",
+                &crate::errcodes::format_msg(crate::errcodes::NOT_SUPPORTED_YET, &[]),
             );
         }
 
@@ -506,7 +506,10 @@ impl McPins {
                             _ => {
                                 dlog_trace(
                                     crate::errcodes::PIN_ID_NAME_MISMATCH,
-                                    "Pin ID and name not match",
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::PIN_ID_NAME_MISMATCH,
+                                        &[],
+                                    ),
                                 );
                             }
                         };
@@ -601,7 +604,10 @@ impl McPins {
                                 _ => {
                                     dlog_trace(
                                         crate::errcodes::PIN_ID_NAME_MISMATCH,
-                                        "Pin ID and name not match",
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::PIN_ID_NAME_MISMATCH,
+                                            &[],
+                                        ),
                                     );
                                 }
                             };
@@ -686,7 +692,10 @@ impl McPins {
                             _ => {
                                 dlog_trace(
                                     crate::errcodes::PIN_ID_NAME_MISMATCH,
-                                    "Pin ID and name not match",
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::PIN_ID_NAME_MISMATCH,
+                                        &[],
+                                    ),
                                 );
                             }
                         };
@@ -722,7 +731,10 @@ impl McPins {
                             _ => {
                                 dlog_trace(
                                     crate::errcodes::PIN_ID_NAME_MISMATCH,
-                                    "Pin ID and name not match",
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::PIN_ID_NAME_MISMATCH,
+                                        &[],
+                                    ),
                                 );
                             }
                         };
@@ -760,7 +772,10 @@ impl McPins {
                             _ => {
                                 dlog_trace(
                                     crate::errcodes::PIN_ID_NAME_MISMATCH,
-                                    "Pin ID and name not match",
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::PIN_ID_NAME_MISMATCH,
+                                        &[],
+                                    ),
                                 );
                             }
                         };
@@ -1010,7 +1025,10 @@ impl McPins {
                             _ => {
                                 dlog_trace(
                                     crate::errcodes::PIN_ID_NAME_MISMATCH,
-                                    "Pin ID and name not match",
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::PIN_ID_NAME_MISMATCH,
+                                        &[],
+                                    ),
                                 );
                             }
                         };
@@ -1191,7 +1209,10 @@ impl McPins {
                                 dlog_error(
                                     crate::errcodes::PIN_ID_COUNT_ERROR,
                                     &pid_node,
-                                    "Pin id count error",
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::PIN_ID_COUNT_ERROR,
+                                        &[],
+                                    ),
                                 );
                                 None
                             }
@@ -1222,7 +1243,10 @@ impl McPins {
                                                     dlog_error(
                                                         crate::errcodes::PIN_ID_COUNT_ERROR,
                                                         &pid_node,
-                                                        "Pin id count error",
+                                                        &crate::errcodes::format_msg(
+                                                            crate::errcodes::PIN_ID_COUNT_ERROR,
+                                                            &[],
+                                                        ),
                                                     );
                                                     None
                                                 }
@@ -1349,7 +1373,10 @@ impl McPins {
                                                         dlog_error(
                                                             crate::errcodes::PIN_ID_COUNT_ERROR,
                                                             &pid_node,
-                                                            "Pin id count error",
+                                                            &crate::errcodes::format_msg(
+                                                                crate::errcodes::PIN_ID_COUNT_ERROR,
+                                                                &[],
+                                                            ),
                                                         );
                                                         None
                                                     }
@@ -2143,7 +2170,10 @@ impl McPinNames {
                             dlog_error(
                                 crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
                                 &opd_node,
-                                "Pin name not support type",
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
+                                    &[],
+                                ),
                             );
                         }
                     }
@@ -2541,7 +2571,10 @@ impl McPinNames {
                     dlog_error(
                         crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
                         &sub_node,
-                        "Pin name not support type",
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
+                            &[],
+                        ),
                     );
                 }
             }

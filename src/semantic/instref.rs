@@ -207,13 +207,16 @@ fn validate_component_pin_ref(
                             .zip(pin_ids.iter())
                             .map(|(m, pid)| format!("{m}→pin{pid}"))
                             .collect();
-                        dlog_error(crate::errcodes::SORT_HAZARD,
+                        dlog_error(
+                            crate::errcodes::SORT_HAZARD,
                             node,
-                            &format!(
-                                "SORT_HAZARD: pin numbers in component '{}' bus '{}' are non-monotonic. \
-                                 Member→pin binding: [{}]. Pin declaration order differs from member order, \
-                                 which may cause incorrect mapping after sorting.",
-                                base_name, bus_name, binding.join(", ")
+                            &crate::errcodes::format_msg(
+                                crate::errcodes::SORT_HAZARD,
+                                &[
+                                    &base_name as &dyn std::fmt::Display,
+                                    &bus_name as &dyn std::fmt::Display,
+                                    &binding.join(", ") as &dyn std::fmt::Display,
+                                ],
                             ),
                         );
                     }
@@ -438,11 +441,13 @@ fn validate_interface_member_ref(
         dlog_error(
             crate::errcodes::IFACE_PIN_NOT_FOUND,
             node,
-            &format!(
-                "Pin(s) '{}' not found in interface '{}'. Available pins: [{}]",
-                invalid_members.join(", "),
-                base_name,
-                all_valid
+            &crate::errcodes::format_msg(
+                crate::errcodes::IFACE_PIN_NOT_FOUND,
+                &[
+                    &invalid_members.join(", ") as &dyn std::fmt::Display,
+                    &base_name as &dyn std::fmt::Display,
+                    &all_valid as &dyn std::fmt::Display,
+                ],
             ),
         );
         if valid_members.is_empty() {

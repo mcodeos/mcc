@@ -52,8 +52,9 @@ impl McModuleInst {
         if !self.failed_classes.is_empty()
             && Self::phrase_contains_failed_class(phrase, &self.failed_classes)
         {
-            self.record_warning(crate::errcodes::INST_LINE_SKIP_FAILED_CLASS,
-                format!("Line references a component class whose instantiation failed; skipping entire line."),
+            self.record_warning(
+                crate::errcodes::INST_LINE_SKIP_FAILED_CLASS,
+                crate::errcodes::format_msg(crate::errcodes::INST_LINE_SKIP_FAILED_CLASS, &[]),
             );
             return Ok(());
         }
@@ -306,7 +307,23 @@ impl McModuleInst {
             let _raw_rp = self.get_left_points(pair[1]).unwrap_or_default();
             let _kind = |m: &McPhrase| -> String {
                 match m {
-                    McPhrase::Multiple(inner) => format!("Multiple(n={})", inner.len()),
+                    McPhrase::Multiple(inner) => {
+                        let desc: Vec<String> = inner
+                            .iter()
+                            .map(|p| {
+                                format!(
+                                    "{:?}",
+                                    match p {
+                                        McPhrase::Endpoint(McEndpoint::Single(ir)) => {
+                                            format!("EP({:?})", ir.base)
+                                        }
+                                        _ => format!("P({p:?})"),
+                                    }
+                                )
+                            })
+                            .collect();
+                        format!("Multiple(n={}) [{}]", inner.len(), desc.join(" | "))
+                    }
                     McPhrase::Endpoint(McEndpoint::Single(ir)) => match &ir.base {
                         McInstance::Label(s) => format!("Label({s})"),
                         McInstance::Bus(b) => format!("Bus({}, mem={:?})", b.name, b.member),
@@ -1487,13 +1504,6 @@ impl McModuleInst {
         } else {
             let left_points = self.get_right_points(left_member)?;
             let right_points = self.get_left_points(right_member)?;
-            if self.name == "mcu513" {
-                let dl: Vec<String> = left_points.iter().map(|p| format!("{}", p.path)).collect();
-                let dr: Vec<String> = right_points.iter().map(|p| format!("{}", p.path)).collect();
-                mcc_dbg!("inst::mod",
-                    "[P2-4-ADJ] US513: L={_l_kind} R={_r_kind} | get_right(L)={dl:?} get_left(R)={dr:?}",
-                );
-            }
             // ── [P4-ADJ] temporary probe (commented)
             // if matches!(left_member, McPhrase::Parallel(_))
             //     || matches!(right_member, McPhrase::Parallel(_))
@@ -1684,25 +1694,6 @@ impl McModuleInst {
             };
             opd_lefts.push(lps);
             opd_rights.push(rps);
-            if self.name.contains("513") {
-                mcc_dbg!(
-                    "inst::mod",
-                    "[PAR-INT] module={} opd[{_idx}] lps={:?} rps={:?}",
-                    self.name,
-                    opd_lefts
-                        .last()
-                        .unwrap()
-                        .iter()
-                        .map(|p| p.path.clone())
-                        .collect::<Vec<_>>(),
-                    opd_rights
-                        .last()
-                        .unwrap()
-                        .iter()
-                        .map(|p| p.path.clone())
-                        .collect::<Vec<_>>()
-                );
-            }
         }
 
         // [R2-DIAG2] Unconditionally print each parallel's opd form + point extraction
@@ -1837,11 +1828,16 @@ impl McModuleInst {
                 // Dimension mismatch (double-end but different widths): degrade
                 // to "merge all to left net" + warning
                 if !dim_mismatch_warned {
-                    self.record_warning(crate::errcodes::CONN_PARALLEL_DIM_MISMATCH,
-                        format!(
-                            "Parallel '+' operand dimension mismatch (anchor={}x1, opd[{}]={}x1 left / {}x1 right): \
-                             merging operand into anchor's left net.",
-                            anchor_dim, i, lp.len(), rp.len()
+                    self.record_warning(
+                        crate::errcodes::CONN_PARALLEL_DIM_MISMATCH,
+                        crate::errcodes::format_msg(
+                            crate::errcodes::CONN_PARALLEL_DIM_MISMATCH,
+                            &[
+                                &anchor_dim as &dyn std::fmt::Display,
+                                &i as &dyn std::fmt::Display,
+                                &lp.len() as &dyn std::fmt::Display,
+                                &rp.len() as &dyn std::fmt::Display,
+                            ],
                         ),
                     );
                     dim_mismatch_warned = true;
@@ -1941,7 +1937,7 @@ impl McModuleInst {
         }
     }
 
-    fn process_series_branch_inplace(
+    pub(super) fn process_series_branch_inplace(
         &mut self,
         elems: &[McPhrase],
         dir: ConnDir,

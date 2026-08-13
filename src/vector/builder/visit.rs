@@ -424,14 +424,17 @@ impl<'a> McVecBuilder<'a> {
                     if let Some(pr) = per_point.get(i) {
                         if pr.ids.is_empty() {
                             let pos = p.src_pos.unwrap_or(0) as u32;
-                            diagnostic_log(crate::errcodes::FLOATING_PLACEHOLDER,
+                            diagnostic_log(
+                                crate::errcodes::FLOATING_PLACEHOLDER,
                                 DiagnosticLevel::Error,
                                 pos,
                                 1,
-                                &format!(
-                                    "FLOATING_PLACEHOLDER: '_' placeholder in net '{}' (module '{}') \
-                                     could not be bound to any existing pin. The placeholder is floating.",
-                                    net_name, module_path
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::FLOATING_PLACEHOLDER,
+                                    &[
+                                        &net_name as &dyn std::fmt::Display,
+                                        &module_path as &dyn std::fmt::Display,
+                                    ],
                                 ),
                                 &[],
                             );

@@ -363,7 +363,10 @@ impl McAttribute {
                     dlog_error(
                         crate::errcodes::ATTR_TYPE_NOT_SUPPORTED,
                         &each,
-                        &format!("Attribute type not support (node_type={})", each.get_type()),
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::ATTR_TYPE_NOT_SUPPORTED,
+                            &[&each.get_type() as &dyn std::fmt::Display],
+                        ),
                     );
                     continue;
                 }

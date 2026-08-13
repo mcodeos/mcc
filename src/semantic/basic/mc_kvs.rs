@@ -127,7 +127,7 @@ impl McKVS {
                 dlog_error(
                     crate::errcodes::KVS_VALUE_TYPE_INVALID,
                     &value_data,
-                    "Invalid value type in KVS node.",
+                    &crate::errcodes::format_msg(crate::errcodes::KVS_VALUE_TYPE_INVALID, &[]),
                 );
                 None
             }

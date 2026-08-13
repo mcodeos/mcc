@@ -199,7 +199,7 @@ impl McIds {
                     dlog_error(
                         crate::errcodes::NAME_IDS_NO_NODES,
                         node,
-                        "IDS has no nodes.",
+                        &crate::errcodes::format_msg(crate::errcodes::NAME_IDS_NO_NODES, &[]),
                     );
                     return None;
                 };
@@ -357,7 +357,10 @@ impl McIds {
             dlog_error(
                 crate::errcodes::NAME_SQUARE_VECTOR_MISSING_SUBNODE,
                 node,
-                "Missing subnode for square vector",
+                &crate::errcodes::format_msg(
+                    crate::errcodes::NAME_SQUARE_VECTOR_MISSING_SUBNODE,
+                    &[],
+                ),
             );
             return None;
         };
@@ -850,6 +853,18 @@ impl McIds {
         let IdsSegment::Ida(ida) = &self.segments[0] else {
             return None;
         };
+        // §2.20.5: an Ida carrying more than one square segment (e.g.
+        // `R[1:2]C[1:3]`) is a matrix definition, not a List with a single
+        // embedded square. Return None so callers treat it as an expandable
+        // name (multi-pin Cartesian product) instead of a prefixed list.
+        let square_count = ida
+            .segments
+            .iter()
+            .filter(|s| matches!(s, IdaSegment::Square(_)))
+            .count();
+        if square_count > 1 {
+            return None;
+        }
         let mut members = Vec::new();
         for seg in &ida.segments {
             if let IdaSegment::Square(items) = seg {

@@ -507,7 +507,11 @@ impl McFunction {
                                 }
                             }
                         } else {
-                            dlog_error(crate::errcodes::FUNC_EMPTY_NET, &body_node, "Empty NET");
+                            dlog_error(
+                                crate::errcodes::FUNC_EMPTY_NET,
+                                &body_node,
+                                &crate::errcodes::format_msg(crate::errcodes::FUNC_EMPTY_NET, &[]),
+                            );
                         }
                     }
 
@@ -543,7 +547,7 @@ impl McFunction {
                         dlog_error(
                             crate::errcodes::FUNC_BODY_INVALID,
                             &body_node,
-                            "Invalid function body node.",
+                            &crate::errcodes::format_msg(crate::errcodes::FUNC_BODY_INVALID, &[]),
                         );
                     }
                 }
@@ -602,8 +606,7 @@ impl McFunction {
             dlog_error(
                 crate::errcodes::FUNC_MULTIPLE_RETURNS,
                 body_node,
-                "Multiple `return` statements are not allowed; \
-                 a function may have at most one return.",
+                &crate::errcodes::format_msg(crate::errcodes::FUNC_MULTIPLE_RETURNS, &[]),
             );
             return;
         }
@@ -613,7 +616,7 @@ impl McFunction {
             dlog_error(
                 crate::errcodes::FUNC_RETURN_MALFORMED,
                 body_node,
-                "Malformed return statement.",
+                &crate::errcodes::format_msg(crate::errcodes::FUNC_RETURN_MALFORMED, &[]),
             );
             return;
         };
@@ -647,7 +650,7 @@ impl McFunction {
                 dlog_error(
                     crate::errcodes::FUNC_RETURN_EXPR_INVALID,
                     body_node,
-                    "Invalid `return` expression: expected `this` or a label/bus.",
+                    &crate::errcodes::format_msg(crate::errcodes::FUNC_RETURN_EXPR_INVALID, &[]),
                 );
             }
         }

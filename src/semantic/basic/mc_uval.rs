@@ -61,7 +61,7 @@ impl McUnitValueDeclare {
             dlog_error(
                 crate::errcodes::PARAM_CLASS_EXPECTED,
                 node,
-                "Expected MCAST_CLASS in MCAST_DECLARE_UV.",
+                &crate::errcodes::format_msg(crate::errcodes::PARAM_CLASS_EXPECTED, &[]),
             );
             return None;
         }
@@ -69,7 +69,7 @@ impl McUnitValueDeclare {
             dlog_error(
                 crate::errcodes::PARAM_INSTANCE_EXPECTED,
                 node,
-                "Expected MCAST_INSTANCE in MCAST_DECLARE_UV.",
+                &crate::errcodes::format_msg(crate::errcodes::PARAM_INSTANCE_EXPECTED, &[]),
             );
             return None;
         }
@@ -183,7 +183,7 @@ impl McUnitValue {
             dlog_error(
                 crate::errcodes::UVAL_MISSING_DATA_NODE,
                 child_node,
-                "missing unit value data node.",
+                &crate::errcodes::format_msg(crate::errcodes::UVAL_MISSING_DATA_NODE, &[]),
             );
             return None;
         };
@@ -193,7 +193,7 @@ impl McUnitValue {
             dlog_error(
                 crate::errcodes::UVAL_DATA_NODE_INVALID,
                 &child_node,
-                "Invalid unit value data node.",
+                &crate::errcodes::format_msg(crate::errcodes::UVAL_DATA_NODE_INVALID, &[]),
             );
             return None;
         };
@@ -231,7 +231,7 @@ impl McUnitValue {
                 dlog_error(
                     crate::errcodes::UVAL_VALUE_TYPE_INVALID,
                     &child_node,
-                    "Invalid unit value type.",
+                    &crate::errcodes::format_msg(crate::errcodes::UVAL_VALUE_TYPE_INVALID, &[]),
                 );
                 None
             }
@@ -317,11 +317,19 @@ fn extract_value_and_unit<'a>(node: &'a AstNode, data: &'a str) -> Option<(f64, 
         return None;
     };
     let Some(value_str) = captures.get(1) else {
-        dlog_error(crate::errcodes::UVAL_VALUE_INVALID, node, "Invalid value.");
+        dlog_error(
+            crate::errcodes::UVAL_VALUE_INVALID,
+            node,
+            &crate::errcodes::format_msg(crate::errcodes::UVAL_VALUE_INVALID, &[]),
+        );
         return None;
     };
     let Some(unit_str) = captures.get(2) else {
-        dlog_error(crate::errcodes::UVAL_UNIT_INVALID, node, "Invalid unit.");
+        dlog_error(
+            crate::errcodes::UVAL_UNIT_INVALID,
+            node,
+            &crate::errcodes::format_msg(crate::errcodes::UVAL_UNIT_INVALID, &[]),
+        );
         return None;
     };
     let value_str = value_str.as_str();

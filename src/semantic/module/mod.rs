@@ -184,7 +184,10 @@ impl McModule {
                         dlog_error(
                             crate::errcodes::MODULE_PARAM_TYPE_UNEXPECTED,
                             &subnode,
-                            "Unexpected type in module param",
+                            &crate::errcodes::format_msg(
+                                crate::errcodes::MODULE_PARAM_TYPE_UNEXPECTED,
+                                &[],
+                            ),
                         );
                     }
                 }
@@ -239,12 +242,19 @@ impl McModule {
                                     dlog_error(
                                         crate::errcodes::CONN_LINE_PARSE_FAILED,
                                         &clause,
-                                        "connection line failed to parse",
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::CONN_LINE_PARSE_FAILED,
+                                            &[],
+                                        ),
                                     );
                                 }
                             }
                         } else {
-                            dlog_error(crate::errcodes::FUNC_EMPTY_NET, &clause, "Empty NET");
+                            dlog_error(
+                                crate::errcodes::FUNC_EMPTY_NET,
+                                &clause,
+                                &crate::errcodes::format_msg(crate::errcodes::FUNC_EMPTY_NET, &[]),
+                            );
                         }
                     }
 
@@ -261,21 +271,30 @@ impl McModule {
                         dlog_error(
                             crate::errcodes::MODULE_ROLE_UNSUPPORTED,
                             &clause,
-                            "Module does not support role definition.",
+                            &crate::errcodes::format_msg(
+                                crate::errcodes::MODULE_ROLE_UNSUPPORTED,
+                                &[],
+                            ),
                         );
                     }
                     MCAST_ATTRIBUTE_PIN | MCAST_ATTRIBUTE_PINADD => {
                         dlog_error(
                             crate::errcodes::MODULE_PINS_UNSUPPORTED,
                             &clause,
-                            "Module does not support PINS directly. Use in/out/io declarations.",
+                            &crate::errcodes::format_msg(
+                                crate::errcodes::MODULE_PINS_UNSUPPORTED,
+                                &[],
+                            ),
                         );
                     }
                     _ => {
                         dlog_error(
                             crate::errcodes::UNEXPECTED_CLAUSE_TYPE,
                             &clause,
-                            "Unexpected clause type in module body",
+                            &crate::errcodes::format_msg(
+                                crate::errcodes::UNEXPECTED_CLAUSE_TYPE,
+                                &[],
+                            ),
                         );
                     }
                 }

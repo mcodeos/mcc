@@ -41,6 +41,7 @@ pub static LITERAL_POINT_DETAILS: std::sync::LazyLock<Mutex<Vec<(String, Option<
 /// # Examples
 ///
 /// ```
+/// use mcc::instant::mc_net::normalize_pin_path;
 /// assert_eq!(normalize_pin_path("uC.pins.VDD"), "uC.VDD");
 /// assert_eq!(normalize_pin_path("uC.VDD"), "uC.VDD");
 /// assert_eq!(normalize_pin_path("uC.VDD.VDD"), "uC.VDD");

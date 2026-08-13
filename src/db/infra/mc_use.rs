@@ -93,7 +93,7 @@ impl McUse {
                 dlog_error(
                     crate::db::diagnostic::errcodes::USE_URI_PREFIX_INVALID,
                     &pre_fix_node,
-                    "Unrecognized URI prefix — expected $, /, ./, or ../",
+                    &crate::errcodes::format_msg(crate::errcodes::USE_URI_PREFIX_INVALID, &[]),
                 );
                 return None;
             }
@@ -158,7 +158,7 @@ impl McUse {
                 dlog_error(
                     crate::errcodes::USE_PATH_INVALID,
                     &module_file_node,
-                    "Invalid path in USE",
+                    &crate::errcodes::format_msg(crate::errcodes::USE_PATH_INVALID, &[]),
                 );
                 return None;
             }

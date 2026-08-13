@@ -1243,7 +1243,10 @@ impl McCode {
                             dlog_error(
                                 crate::errcodes::DEF_ALREADY_EXISTS,
                                 &node,
-                                "Definition already exists",
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::DEF_ALREADY_EXISTS,
+                                    &[],
+                                ),
                             );
                         }
                     } else {
@@ -1300,7 +1303,10 @@ impl McCode {
                                             dlog_error(
                                                 crate::errcodes::DUP_COMPONENT,
                                                 &node,
-                                                "Duplicate component",
+                                                &crate::errcodes::format_msg(
+                                                    crate::errcodes::DUP_COMPONENT,
+                                                    &[],
+                                                ),
                                             );
                                         })
                                         .or_insert(Arc::new(comp));
@@ -1321,7 +1327,10 @@ impl McCode {
                                             dlog_error(
                                                 crate::errcodes::DUP_MODULE,
                                                 &node,
-                                                "Duplicate module",
+                                                &crate::errcodes::format_msg(
+                                                    crate::errcodes::DUP_MODULE,
+                                                    &[],
+                                                ),
                                             );
                                         })
                                         .or_insert(Arc::new(mdl));
@@ -1340,7 +1349,10 @@ impl McCode {
                                             dlog_error(
                                                 crate::errcodes::DUP_INTERFACE,
                                                 &node,
-                                                "Duplicate interface",
+                                                &crate::errcodes::format_msg(
+                                                    crate::errcodes::DUP_INTERFACE,
+                                                    &[],
+                                                ),
                                             );
                                         })
                                         .or_insert(Arc::new(ifs));
@@ -1390,7 +1402,10 @@ impl McCode {
                                                 dlog_error(
                                                     crate::errcodes::DUP_ENUM,
                                                     &node,
-                                                    "Duplicate enum",
+                                                    &crate::errcodes::format_msg(
+                                                        crate::errcodes::DUP_ENUM,
+                                                        &[],
+                                                    ),
                                                 );
                                             })
                                             .or_insert(arc_enum.clone());
@@ -1402,7 +1417,10 @@ impl McCode {
                                                 dlog_error(
                                                     crate::errcodes::DUP_ENUM,
                                                     &node,
-                                                    "Duplicate enum",
+                                                    &crate::errcodes::format_msg(
+                                                        crate::errcodes::DUP_ENUM,
+                                                        &[],
+                                                    ),
                                                 );
                                             })
                                             .or_insert(arc_enum.clone());
@@ -1429,9 +1447,9 @@ impl McCode {
                                 dlog_error(
                                     crate::errcodes::CMIE_LOAD_REJECTED,
                                     &node,
-                                    &format!(
-                                        "Unexpected declaration type {} for CMIE load",
-                                        node.get_type()
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::CMIE_LOAD_REJECTED,
+                                        &[&node.get_type() as &dyn std::fmt::Display],
                                     ),
                                 );
                                 return None;
@@ -1467,7 +1485,10 @@ impl McCode {
                                     dlog_error(
                                         crate::errcodes::DUP_INTERFACE,
                                         &node,
-                                        "Duplicate interface",
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::DUP_INTERFACE,
+                                            &[],
+                                        ),
                                     );
                                 })
                                 .or_insert(Arc::new(ifs));
@@ -1479,7 +1500,10 @@ impl McCode {
                                     dlog_error(
                                         crate::errcodes::DUP_INTERFACE,
                                         &node,
-                                        "Duplicate interface",
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::DUP_INTERFACE,
+                                            &[],
+                                        ),
                                     );
                                 })
                                 .or_insert(Arc::new(ifs));
@@ -1533,7 +1557,10 @@ impl McCode {
                                         dlog_error(
                                             crate::errcodes::DUP_COMPONENT,
                                             &node,
-                                            "Duplicate component",
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::DUP_COMPONENT,
+                                                &[],
+                                            ),
                                         );
                                     })
                                     .or_insert(Arc::new(comp));
@@ -1545,7 +1572,10 @@ impl McCode {
                                         dlog_error(
                                             crate::errcodes::DUP_COMPONENT,
                                             &node,
-                                            "Duplicate component",
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::DUP_COMPONENT,
+                                                &[],
+                                            ),
                                         );
                                     })
                                     .or_insert(Arc::new(comp));
@@ -1591,7 +1621,14 @@ impl McCode {
                             global::mcc_enums
                                 .entry(space_name)
                                 .and_modify(|_| {
-                                    dlog_error(crate::errcodes::DUP_ENUM, &node, "Duplicate enum");
+                                    dlog_error(
+                                        crate::errcodes::DUP_ENUM,
+                                        &node,
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::DUP_ENUM,
+                                            &[],
+                                        ),
+                                    );
                                 })
                                 .or_insert(Arc::new(enum_def));
                         } else {
@@ -1599,7 +1636,14 @@ impl McCode {
                                 .enums
                                 .entry(space_name)
                                 .and_modify(|_| {
-                                    dlog_error(crate::errcodes::DUP_ENUM, &node, "Duplicate enum");
+                                    dlog_error(
+                                        crate::errcodes::DUP_ENUM,
+                                        &node,
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::DUP_ENUM,
+                                            &[],
+                                        ),
+                                    );
                                 })
                                 .or_insert(Arc::new(enum_def));
                         }
@@ -1620,7 +1664,10 @@ impl McCode {
                                     dlog_error(
                                         crate::errcodes::DUP_DEFINE,
                                         &node,
-                                        "Duplicate define",
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::DUP_DEFINE,
+                                            &[],
+                                        ),
                                     );
                                 })
                                 .or_insert(Arc::new(def));
@@ -1632,7 +1679,10 @@ impl McCode {
                                     dlog_error(
                                         crate::errcodes::DUP_DEFINE,
                                         &node,
-                                        "Duplicate define",
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::DUP_DEFINE,
+                                            &[],
+                                        ),
                                     );
                                 })
                                 .or_insert(Arc::new(def));
@@ -1769,7 +1819,11 @@ impl McCode {
                         .modules
                         .entry(key)
                         .and_modify(|_| {
-                            dlog_error(crate::errcodes::DUP_MODULE, &node, "Duplicate module");
+                            dlog_error(
+                                crate::errcodes::DUP_MODULE,
+                                &node,
+                                &crate::errcodes::format_msg(crate::errcodes::DUP_MODULE, &[]),
+                            );
                         })
                         .or_insert(Arc::new(module));
                 }
@@ -4422,9 +4476,12 @@ impl McCode {
                                         dlog_error(
                                             crate::errcodes::MODULE_METHOD_NOT_FOUND,
                                             node,
-                                            &format!(
-                                                "function '{}' not found in class '{}'",
-                                                method_name, class_name
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::MODULE_METHOD_NOT_FOUND,
+                                                &[
+                                                    &method_name as &dyn std::fmt::Display,
+                                                    &class_name as &dyn std::fmt::Display,
+                                                ],
                                             ),
                                         );
                                     }

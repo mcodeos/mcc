@@ -909,11 +909,14 @@ impl McInstances {
                                                 dlog_error(
                                                     crate::errcodes::IFACE_BUS_NOT_FOUND,
                                                     &opd_node,
-                                                    &format!(
-                                                        "Interface '{}' not found for bus '{}[{}]'",
-                                                        iface_ids,
-                                                        pname,
-                                                        members.to_vec().join(",")
+                                                    &crate::errcodes::format_msg(
+                                                        crate::errcodes::IFACE_BUS_NOT_FOUND,
+                                                        &[
+                                                            &iface_ids as &dyn std::fmt::Display,
+                                                            &pname as &dyn std::fmt::Display,
+                                                            &members.to_vec().join(",")
+                                                                as &dyn std::fmt::Display,
+                                                        ],
                                                     ),
                                                 );
                                                 let port_name = format!("@{}", self.insts.len());
@@ -1025,7 +1028,10 @@ impl McInstances {
                                                 dlog_error(
                                                     crate::errcodes::PORT_NAME_COUNT_ERROR,
                                                     &opd_node,
-                                                    "Port name count error",
+                                                    &crate::errcodes::format_msg(
+                                                        crate::errcodes::PORT_NAME_COUNT_ERROR,
+                                                        &[],
+                                                    ),
                                                 );
                                             }
                                         }
@@ -1036,7 +1042,10 @@ impl McInstances {
                                 dlog_error(
                                     crate::errcodes::PORT_NAME_TYPE_UNSUPPORTED,
                                     &opd_node,
-                                    "Port name not support type",
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::PORT_NAME_TYPE_UNSUPPORTED,
+                                        &[],
+                                    ),
                                 );
                             }
                         }
@@ -1254,7 +1263,10 @@ impl McInstances {
                                         dlog_error(
                                             crate::errcodes::PORT_NAME_TYPE_UNSUPPORTED,
                                             &opd_node,
-                                            "Port name not support type",
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::PORT_NAME_TYPE_UNSUPPORTED,
+                                                &[],
+                                            ),
                                         );
                                     }
                                 }
@@ -1269,7 +1281,7 @@ impl McInstances {
             dlog_error(
                 crate::errcodes::MALFORMED_IOTYPE,
                 &subnode,
-                "Malformed IOTYPE node",
+                &crate::errcodes::format_msg(crate::errcodes::MALFORMED_IOTYPE, &[]),
             );
         }
     }
@@ -1358,7 +1370,7 @@ impl McInstances {
             dlog_error(
                 crate::errcodes::INST_CLASS_NODE_MISSING,
                 node,
-                "No class node found",
+                &crate::errcodes::format_msg(crate::errcodes::INST_CLASS_NODE_MISSING, &[]),
             );
             return;
         };
@@ -1366,7 +1378,7 @@ impl McInstances {
             dlog_error(
                 crate::errcodes::INST_NODE_MISSING,
                 node,
-                "No instance node found",
+                &crate::errcodes::format_msg(crate::errcodes::INST_NODE_MISSING, &[]),
             );
             return;
         }
@@ -1376,7 +1388,7 @@ impl McInstances {
             dlog_error(
                 crate::errcodes::INST_CLASS_ID_MISSING,
                 node,
-                "Missing class id node",
+                &crate::errcodes::format_msg(crate::errcodes::INST_CLASS_ID_MISSING, &[]),
             );
             return;
         };
@@ -1384,7 +1396,7 @@ impl McInstances {
             dlog_error(
                 crate::errcodes::INST_CLASS_IDS_PARSE_FAILED,
                 node,
-                "Failed to parse class ids",
+                &crate::errcodes::format_msg(crate::errcodes::INST_CLASS_IDS_PARSE_FAILED, &[]),
             );
             return;
         };
@@ -1810,7 +1822,10 @@ impl McInstances {
                                 dlog_error(
                                     crate::errcodes::PORT_NAME_COUNT_ERROR,
                                     &opd_node,
-                                    "Port name count error",
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::PORT_NAME_COUNT_ERROR,
+                                        &[],
+                                    ),
                                 );
                             }
                         }
@@ -1821,7 +1836,7 @@ impl McInstances {
                 dlog_error(
                     crate::errcodes::PORT_NAME_TYPE_UNSUPPORTED,
                     &opd_node,
-                    "Port name not support type",
+                    &crate::errcodes::format_msg(crate::errcodes::PORT_NAME_TYPE_UNSUPPORTED, &[]),
                 );
             }
         }
@@ -1916,7 +1931,10 @@ impl McInstances {
                         dlog_error(
                             crate::errcodes::PORT_NAME_TYPE_UNSUPPORTED,
                             &opd_node,
-                            "Port name not support type",
+                            &crate::errcodes::format_msg(
+                                crate::errcodes::PORT_NAME_TYPE_UNSUPPORTED,
+                                &[],
+                            ),
                         );
                     }
                 }

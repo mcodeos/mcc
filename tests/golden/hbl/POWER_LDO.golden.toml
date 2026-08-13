@@ -1,6 +1,12 @@
 # POWER_LDO golden 网表
 # 依赖裁决：⑥ 全局 GND — ldo.2 兼作 VIN.GND 与 VOUT.GND，是全局 GND 的第一座桥
 # 源码：power.mc:52-72
+#
+# 端口成员命名（模块内部视角，netdiff 归一化 depth=1 形式）：
+#   `in vin::DC(5V)`  → 成员 VCC/GND（DC 接口 fallback 名）
+#   `out vout::DC(3.3V)` → 成员 VCC/GND
+# 因此输入轨为 vin.VCC，输出轨为 vout.VCC，GND 为 vin.GND/vout.GND 共享网。
+# 父模块 main 中该端口绑定 V5V/V3V3 网，语义对应 POWER_SYS/VCC（见 main.golden）。
 
 [meta]
 module = "POWER_LDO"
@@ -29,16 +35,16 @@ pins = 2
 origin = "power.mc:67"
 
 [[net]]
-name = "POWER_SYS"
-points = ["port.POWER_SYS", "ldo.1", "ldo.3", "C10u.1"]
+name = "vin.VCC"
+points = ["vin.VCC", "ldo.1", "ldo.3", "C10u.1"]
 
 [[net]]
 name = "GND"
-points = ["port.GND", "ldo.2", "C10u.2", "C4u7.2"]
+points = ["vin.GND", "vout.GND", "ldo.2", "C10u.2", "C4u7.2"]
 
 [[net]]
-name = "VCC"
-points = ["port.VCC", "ldo.5", "C4u7.1"]
+name = "vout.VCC"
+points = ["vout.VCC", "ldo.5", "C4u7.1"]
 
 [[unconnected]]
 pin = "ldo.4"

@@ -398,6 +398,27 @@ impl McModuleInst {
                 }
             }
         }
+
+        // ── P2-12: bridge ground members between bare and dotted labels ──
+        // A port's ground member (e.g. `vin.GND`) is physically the same net
+        // as the module-level bare `GND` label. Without this bridge, a
+        // connection resolving to the dotted label (`vin -> ldo.VIN` →
+        // `vin.GND`) and a connection resolving to the bare label
+        // (`.Cap(_)` implicit GND / `connect_scalar_to_dc_bus` ground
+        // branch → bare `GND`) form two separate ground nets.
+        if let Some(prefix) = dotted_prefix.as_ref() {
+            for m in &dotted_members {
+                if m.is_empty() || !is_ground_name(m) {
+                    continue;
+                }
+                let bare = self.labels.get(m).cloned();
+                let dotted = self.labels.get(&format!("{prefix}.{m}")).cloned();
+                if let (Some(b), Some(d)) = (bare, dotted) {
+                    let id = self.next_conn_id();
+                    self.connections.push(ConnectionInst::new(id, vec![b, d]));
+                }
+            }
+        }
     }
 
     // ========================================================================
@@ -753,11 +774,6 @@ impl McModuleInst {
                     }
                 });
             }
-            let _how = if chosen.is_some() {
-                "voltage"
-            } else {
-                "positional"
-            };
             let pi = match chosen.or_else(|| (0..formal.len()).find(|&fi| !used[fi])) {
                 Some(pi) => pi,
                 None => {
@@ -776,6 +792,32 @@ impl McModuleInst {
                 port.bus_members.clone()
             } else {
                 parse_bracket_members(&port.name)
+            };
+
+            // Port-side points for a member: named ports give both bare
+            // (`inst.MEMBER`) and dotted (`inst.base.MEMBER`) forms, mirroring
+            // bind_call_args_to_ports. The sub-module body references the dotted
+            // form (`USB_VBUS_1.VDD_3V`); without the dotted point here, the
+            // bound arg (e.g. V3V3.VCC) and the body's rail label stay on
+            // separate nets (e.g. SPEAKER_M's amp power floating).
+            let port_base = port_base_name(&port.name);
+            let named =
+                !port_base.is_empty() && !port_base.starts_with('@') && !port_base.starts_with('[');
+            let pio = port.iotype.clone();
+            let make_ports = |member: &str, io: IOType| -> Vec<NetPoint> {
+                let mut v = vec![NetPoint::with_owner(
+                    &format!("{inst_name}.{member}"),
+                    inst_name,
+                    io.clone(),
+                )];
+                if named {
+                    v.push(NetPoint::with_owner(
+                        &format!("{inst_name}.{port_base}.{member}"),
+                        inst_name,
+                        io,
+                    ));
+                }
+                v
             };
 
             // ── Case 1: Equal-width multi-member → sort by member name then zip ──
@@ -806,14 +848,10 @@ impl McModuleInst {
                 });
 
                 for (a, m) in sorted_arg_lanes.iter().zip(sorted_members.iter()) {
-                    let pp = NetPoint::with_owner(
-                        &format!("{inst_name}.{m}"),
-                        inst_name,
-                        port.iotype.clone(),
-                    );
+                    let mut pts = make_ports(m.as_str(), pio.clone());
+                    pts.push((*a).clone());
                     let id = self.next_conn_id();
-                    self.connections
-                        .push(ConnectionInst::new(id, vec![(*a).clone(), pp]));
+                    self.connections.push(ConnectionInst::new(id, pts));
                 }
                 continue;
             }
@@ -822,20 +860,15 @@ impl McModuleInst {
             if members.len() >= 2 && arg_lanes.len() == 1 && (members.len() - ground_cnt) == 1 {
                 let arg_pt = arg_lanes.into_iter().next().unwrap();
                 for m in &members {
-                    let port_pt = NetPoint::with_owner(
-                        &format!("{inst_name}.{m}"),
-                        inst_name,
-                        port.iotype.clone(),
-                    );
+                    let mut pts = make_ports(m.as_str(), pio.clone());
                     let id = self.next_conn_id();
                     if is_ground_name(m) {
                         let gnd = self.node_to_netpoint(&McBus::new("GND"));
-                        self.connections
-                            .push(ConnectionInst::new(id, vec![port_pt, gnd]));
+                        pts.push(gnd);
                     } else {
-                        self.connections
-                            .push(ConnectionInst::new(id, vec![arg_pt.clone(), port_pt]));
+                        pts.push(arg_pt.clone());
                     }
+                    self.connections.push(ConnectionInst::new(id, pts));
                 }
                 continue;
             }
