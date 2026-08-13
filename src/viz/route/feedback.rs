@@ -169,6 +169,7 @@ pub struct RouteQualityScore {
     pub wire_wire: usize,
     pub label_wire: usize,
     pub endpoint_unreached: usize,
+    pub empty_route: usize,
     pub bends: usize,
     pub length: f64,
     pub segments: usize,
@@ -178,6 +179,7 @@ pub struct RouteQualityScore {
 impl RouteQualityScore {
     const WIRE_BOX_WEIGHT: f64 = 100_000.0;
     const ENDPOINT_UNREACHED_WEIGHT: f64 = 100_000.0;
+    const EMPTY_ROUTE_WEIGHT: f64 = 100_000.0;
     const LABEL_WIRE_WEIGHT: f64 = 5_000.0;
     const WIRE_WIRE_WEIGHT: f64 = 3_000.0;
     const BEND_WEIGHT: f64 = 20.0;
@@ -189,7 +191,7 @@ impl RouteQualityScore {
                 RouteConflictKind::WireBox => score.wire_box += 1,
                 RouteConflictKind::WireWire => score.wire_wire += 1,
                 RouteConflictKind::LabelWire => score.label_wire += 1,
-                RouteConflictKind::EmptyRoute => {}
+                RouteConflictKind::EmptyRoute => score.empty_route += 1,
                 RouteConflictKind::EndpointUnreached => score.endpoint_unreached += 1,
                 RouteConflictKind::ExcessiveBends => score.bends += 1,
                 RouteConflictKind::ExcessiveLength => {}
@@ -210,6 +212,7 @@ impl RouteQualityScore {
     pub fn compute_weighted(&self) -> f64 {
         self.wire_box as f64 * Self::WIRE_BOX_WEIGHT
             + self.endpoint_unreached as f64 * Self::ENDPOINT_UNREACHED_WEIGHT
+            + self.empty_route as f64 * Self::EMPTY_ROUTE_WEIGHT
             + self.label_wire as f64 * Self::LABEL_WIRE_WEIGHT
             + self.wire_wire as f64 * Self::WIRE_WIRE_WEIGHT
             + self.bends as f64 * Self::BEND_WEIGHT
@@ -217,7 +220,7 @@ impl RouteQualityScore {
     }
 
     pub fn has_hard_conflict(&self) -> bool {
-        self.wire_box > 0 || self.endpoint_unreached > 0
+        self.wire_box > 0 || self.endpoint_unreached > 0 || self.empty_route > 0
     }
 }
 
@@ -316,13 +319,19 @@ pub fn should_accept_reroute(
     config: &RouteFeedbackConfig,
 ) -> bool {
     // Must not introduce or increase hard conflicts
-    if new.wire_box > old.wire_box || new.endpoint_unreached > old.endpoint_unreached {
+    if new.wire_box > old.wire_box
+        || new.endpoint_unreached > old.endpoint_unreached
+        || new.empty_route > old.empty_route
+    {
         return false;
     }
 
     // If old has hard conflict, new can be longer/more bends
     if old.has_hard_conflict() {
-        if new.wire_box < old.wire_box || new.endpoint_unreached < old.endpoint_unreached {
+        if new.wire_box < old.wire_box
+            || new.endpoint_unreached < old.endpoint_unreached
+            || new.empty_route < old.empty_route
+        {
             return true; // Hard conflict reduced → accept even if longer
         }
     }
@@ -404,7 +413,7 @@ pub fn score_net_route(graph: &McVecGraph, net_index: usize) -> RouteQualityScor
             RouteConflictKind::WireBox => score.wire_box += 1,
             RouteConflictKind::WireWire => score.wire_wire += 1,
             RouteConflictKind::LabelWire => score.label_wire += 1,
-            RouteConflictKind::EmptyRoute => {}
+            RouteConflictKind::EmptyRoute => score.empty_route += 1,
             RouteConflictKind::EndpointUnreached => score.endpoint_unreached += 1,
             RouteConflictKind::ExcessiveBends => {}
             RouteConflictKind::ExcessiveLength => {}
@@ -1077,6 +1086,25 @@ mod tests {
             ..Default::default()
         };
         assert!(!score.has_hard_conflict());
+    }
+
+    #[test]
+    fn empty_route_is_hard_conflict() {
+        let score = RouteQualityScore {
+            empty_route: 1,
+            ..Default::default()
+        };
+        assert!(score.has_hard_conflict());
+    }
+
+    #[test]
+    fn empty_route_counts_into_weighted() {
+        let score = RouteQualityScore {
+            empty_route: 1,
+            ..Default::default()
+        };
+        let expected = 100_000.0;
+        assert!((score.compute_weighted() - expected).abs() < 0.01);
     }
 
     // ── Score: weighted computed correctly ──

@@ -339,7 +339,7 @@ pub fn handle_show_net(params: Option<Value>) -> RpcResult {
             Some(points) => Ok(json!({ "name": name, "points": points })),
             None => {
                 let msg = format!("net not found: {name}");
-                Err(JsonRpcError::custom(32003, &msg))
+                Err(JsonRpcError::custom(-32003, &msg))
             }
         }
     }

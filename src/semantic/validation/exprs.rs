@@ -8,7 +8,6 @@
 //!   Q1 — `this` used outside instance context
 //!   Q2 — `pins.X` where X not in pin table
 //!   Q3 — `_` as sole net endpoint
-//!   T3 — empty conditional body
 //!   E4 — constant expression overflow
 //!   V3 — reversed curly brace range (5:2)
 //!   V4 — single-element range (3:3)
@@ -34,7 +33,6 @@ impl ValidationCheck for ExprsCheck {
         check_this_outside_instance(acc); // Q1
         check_pins_ref_not_found(acc); // Q2
         check_uscore_sole_endpoint(acc); // Q3
-        check_empty_conditional(acc); // T3
         check_constant_overflow(acc); // E4
         check_reversed_range(acc); // V3 + V4
         check_idx_key_collision(acc); // C5
@@ -126,66 +124,6 @@ fn check_uscore_sole_endpoint(acc: &mut CheckAccumulator) {
             }
         }
     }
-}
-
-/// T3: Empty conditional body.
-///
-/// Checks if an `if` condition has an empty block (no phrases inside).
-fn check_empty_conditional(acc: &mut CheckAccumulator) {
-    // Check component attrs for McConds with empty blocks
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
-        if super::is_test_file(&uri) {
-            continue;
-        }
-        let comp = entry.value();
-        // Scan attr values for McConds structures
-        for attr in comp.attrs.iter() {
-            for val in &attr.values {
-                check_attr_val_for_empty_cond(val, &uri, entry.key().ident.to_string(), acc);
-            }
-        }
-    }
-}
-
-/// Recursively check McAttrVal values for McConds with empty blocks.
-fn check_attr_val_for_empty_cond(
-    val: &crate::semantic::component::mc_attr::McAttrVal,
-    uri: &str,
-    comp_name: String,
-    acc: &mut CheckAccumulator,
-) {
-    match val {
-        crate::semantic::component::mc_attr::McAttrVal::Attributes(attrs) => {
-            for child in attrs.iter() {
-                for child_val in &child.values {
-                    check_attr_val_for_empty_cond(child_val, uri, comp_name.clone(), acc);
-                }
-            }
-        }
-        crate::semantic::component::mc_attr::McAttrVal::AttrExpr(expr) => {
-            if let crate::semantic::basic::mc_expr::McExpression::Set(exprs) = expr {
-                for e in exprs.iter() {
-                    check_expr_for_empty_cond(e, uri, &comp_name, acc);
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-/// Check a single McExpression to see if it yields an empty conditional body.
-fn check_expr_for_empty_cond(
-    _expr: &crate::semantic::basic::mc_expr::McExpression,
-    _uri: &str,
-    _comp_name: &str,
-    _acc: &mut CheckAccumulator,
-) {
-    // McConds::new() parses AST nodes, not McExpression values.
-    // The raw AST is needed for this check; defer to AST-walking pass.
-    // For now, this is a no-op stub that can be filled in when
-    // component bodies expose their raw AST condition nodes.
 }
 
 /// E4: Constant expression overflow.
