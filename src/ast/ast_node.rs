@@ -229,7 +229,7 @@ impl AstNode {
                     dlog_error(
                         crate::errcodes::AST_UTF8_ERROR,
                         self,
-                        "Invalid UTF-8 string",
+                        &crate::errcodes::format_msg(crate::errcodes::AST_UTF8_ERROR, &[]),
                     );
                     return None;
                 };

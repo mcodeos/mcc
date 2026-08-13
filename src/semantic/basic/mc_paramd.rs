@@ -746,7 +746,7 @@ impl McParamDeclare {
                     dlog_error(
                         crate::errcodes::PARAM_NAME_INVALID,
                         node,
-                        "Invalid param name.",
+                        &crate::errcodes::format_msg(crate::errcodes::PARAM_NAME_INVALID, &[]),
                     );
                     return None;
                 }
@@ -811,7 +811,7 @@ impl McParamDeclare {
                     dlog_error(
                         crate::errcodes::PARAM_UVAL_INVALID,
                         node,
-                        "Invalid param uval.",
+                        &crate::errcodes::format_msg(crate::errcodes::PARAM_UVAL_INVALID, &[]),
                     );
                     return None;
                 }
@@ -907,7 +907,10 @@ impl McParamDeclare {
                         dlog_error(
                             crate::errcodes::PARAM_NAME_EXTRACT_FAILED,
                             node,
-                            "Failed to extract parameter name from MCAST_DECLARE",
+                            &crate::errcodes::format_msg(
+                                crate::errcodes::PARAM_NAME_EXTRACT_FAILED,
+                                &[],
+                            ),
                         );
                         return None;
                     }
@@ -920,7 +923,7 @@ impl McParamDeclare {
                 dlog_error(
                     crate::errcodes::PARAM_DECLARE_INVALID,
                     node,
-                    "Invalid param declare node.",
+                    &crate::errcodes::format_msg(crate::errcodes::PARAM_DECLARE_INVALID, &[]),
                 );
                 return None;
             }

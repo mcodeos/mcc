@@ -39,7 +39,7 @@ impl McEnumDef {
                 dlog_error(
                     crate::errcodes::ENUM_MISSING_SUBNODES,
                     node,
-                    "Missing subnodes for enum",
+                    &crate::errcodes::format_msg(crate::errcodes::ENUM_MISSING_SUBNODES, &[]),
                 );
                 return None;
             }
@@ -52,7 +52,7 @@ impl McEnumDef {
                 dlog_error(
                     crate::errcodes::ENUM_MISSING_NAME,
                     &subnodes,
-                    "Missing name for enum",
+                    &crate::errcodes::format_msg(crate::errcodes::ENUM_MISSING_NAME, &[]),
                 );
                 return None;
             }
@@ -64,7 +64,7 @@ impl McEnumDef {
                 dlog_error(
                     crate::errcodes::ENUM_MISSING_NAME_IDS,
                     &name_node,
-                    "Missing name ids for enum",
+                    &crate::errcodes::format_msg(crate::errcodes::ENUM_MISSING_NAME_IDS, &[]),
                 );
                 return None;
             }
@@ -82,7 +82,7 @@ impl McEnumDef {
                 dlog_error(
                     crate::errcodes::ENUM_MISSING_VALUES,
                     &subnodes,
-                    "Missing values for enum",
+                    &crate::errcodes::format_msg(crate::errcodes::ENUM_MISSING_VALUES, &[]),
                 );
                 return None;
             }

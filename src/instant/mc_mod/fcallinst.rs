@@ -592,12 +592,6 @@ impl McModuleInst {
         _left: &[McBus],
         _right: &[McBus],
     ) -> Result<FuncCallInst, InstError> {
-        mcc_dbg!(
-            "inst::fcall",
-            "[IIM-DBG] module={} inst_name={inst_name} func={} params={params:?}",
-            self.name,
-            func_def.name
-        );
         // 1. Bind formal parameters
         let bindings = McParamBindings::bind(&func_def.params, params).map_err(|e| {
             InstError::Other(format!(
@@ -708,11 +702,11 @@ impl McModuleInst {
                     .find(|p| p.name.eq_ignore_ascii_case(formal))
                     .map(|p| p.name.clone())
                     .unwrap_or_else(|| formal.clone());
-                if let Some(pin_ids) = sub
+                let pin_ids = sub
                     .components
                     .iter()
-                    .find_map(|comp| comp.find_bus_port_pin_ids(&resolved_port))
-                {
+                    .find_map(|comp| comp.find_bus_port_pin_ids(&resolved_port));
+                if let Some(pin_ids) = pin_ids {
                     if pin_ids.len() >= 2 {
                         let members: Vec<String> =
                             pin_ids.iter().map(|(_, pid)| pid.clone()).collect();
@@ -977,6 +971,13 @@ impl McModuleInst {
                 // Without this, BTreeMap iteration of names_to_id collects dot-separated
                 // member names alphabetically (e.g. UART0.RX before UART0.TX), causing
                 // cross-wiring with component arrays like res[1:2].
+                //
+                // ★ P2-11 guard: only reorder when the interface's own member names are
+                // the SAME SET as the source-declared members. For a port like
+                // `VIN{Vin, GND}::DC(2.5V~5.5V)` the interface pins (DC fallback
+                // VCC/GND) differ from the source `{Vin, GND}` — the source names are
+                // authoritative and must be kept, otherwise pin resolution breaks
+                // (member VCC never maps to a physical pin, e.g. ldo.VIN.VCC vs ldo.1).
                 for (name, port) in comp.def.pins.names_to_id.iter() {
                     if let crate::semantic::component::mc_pins::McPinPort::Interface(iface) = port {
                         if bus_members.contains_key(name) {
@@ -991,7 +992,21 @@ impl McModuleInst {
                                 }
                             }
                             if ordered.len() >= 2 {
-                                bus_members.insert(name.clone(), ordered);
+                                // ★ P2-11 guard: only reorder when the interface's own member
+                                // names are the SAME SET as the source-declared members.
+                                // For a port like `VIN{Vin, GND}::DC(2.5V~5.5V)` the interface
+                                // pins (DC fallback VCC/GND) differ from the source
+                                // `{Vin, GND}` — the source names are authoritative and must
+                                // be kept, otherwise pin resolution breaks (member VCC never
+                                // maps to a physical pin, e.g. ldo.VIN.VCC vs ldo.1).
+                                let collected = bus_members.get(name).cloned().unwrap_or_default();
+                                let collected_set: std::collections::HashSet<&String> =
+                                    collected.iter().collect();
+                                let ordered_set: std::collections::HashSet<&String> =
+                                    ordered.iter().collect();
+                                if collected_set == ordered_set {
+                                    bus_members.insert(name.clone(), ordered);
+                                }
                             }
                         }
                     }

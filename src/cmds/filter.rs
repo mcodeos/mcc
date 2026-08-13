@@ -81,14 +81,15 @@ mod tests {
     #[test]
     fn eq_is_case_insensitive() {
         let items = json!([{"name": "res1"}, {"name": "RES1"}, {"name": "CAP1"}]);
-        let out = apply_to_values(Some("name=RES"), items, &["name"]).unwrap();
+        // `=` is an exact, case-insensitive match (not a prefix match).
+        let out = apply_to_values(Some("name=res1"), items, &["name"]).unwrap();
         let names: Vec<&str> = out
             .as_array()
             .unwrap()
             .iter()
             .map(|v| v.get("name").and_then(|n| n.as_str()).unwrap())
             .collect();
-        // Exact match (case-insensitive): both "res1" and "RES1" match "RES"
+        // Exact match (case-insensitive): both "res1" and "RES1" match "res1"
         assert_eq!(names, vec!["res1", "RES1"]);
     }
 

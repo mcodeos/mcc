@@ -194,6 +194,10 @@ impl McPhrase {
                         McOpd::Id(ids) => {
                             let ids_str = ids.to_string();
                             let _is_curly = ids.is_curly_bracket();
+                            if ids_str.contains("ldo") {
+                                eprintln!("[PHRASE-DBG-ID] McPhrase::new Id ids={ids_str:?} is_square={} is_curly={} dot_chain={:?}",
+                                    ids.is_square_bracket(), ids.is_curly_bracket(), ids.dot_chain_parts());
+                            }
                             // eprintln!(
                             //     "[PHRASE_DEBUG] OPD Id: ids={:?}, is_curly={}",
                             //     ids_str, is_curly
@@ -284,7 +288,17 @@ impl McPhrase {
                                 // eprintln!("[PHRASE_DEBUG] curly: validate_inst_reference -> None");
                                 if let Some((name, members)) = ids.as_bus() {
                                     if context.find_inst(&name).is_some() {
-                                        dlog_error(crate::errcodes::BUS_NAME_ALREADY_INSTANCE, node, &format!("Name '{}' is already an instance, cannot create bus with members [{}]", name, members.join(", ")));
+                                        dlog_error(
+                                            crate::errcodes::BUS_NAME_ALREADY_INSTANCE,
+                                            node,
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::BUS_NAME_ALREADY_INSTANCE,
+                                                &[
+                                                    &name as &dyn std::fmt::Display,
+                                                    &members.join(", ") as &dyn std::fmt::Display,
+                                                ],
+                                            ),
+                                        );
                                         return None;
                                     } else {
                                         let name_clone = name.clone();
@@ -507,7 +521,7 @@ impl McPhrase {
                     dlog_error(
                         crate::errcodes::NAME_ID_EXTRACT_FAILED,
                         node,
-                        "Failed to extract ID/IDA data",
+                        &crate::errcodes::format_msg(crate::errcodes::NAME_ID_EXTRACT_FAILED, &[]),
                     );
                     return None;
                 }
@@ -893,7 +907,10 @@ impl McPhrase {
                     dlog_error(
                         crate::errcodes::NAME_DECLARE_PARSE_FAILED,
                         node,
-                        "Failed to parse DECLARE",
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::NAME_DECLARE_PARSE_FAILED,
+                            &[],
+                        ),
                     );
                     None
                 } else if result.len() == 1 {
@@ -1344,7 +1361,7 @@ impl McPhrase {
                         dlog_error(
                             crate::errcodes::CURLY_MN_WRONG_BASE,
                             node,
-                            "CURLY_MN requires Component or Module",
+                            &crate::errcodes::format_msg(crate::errcodes::CURLY_MN_WRONG_BASE, &[]),
                         );
                         None
                     }
@@ -1468,8 +1485,7 @@ impl McPhrase {
                     dlog_error(
                         crate::errcodes::CONN_PARALLEL_INVALID,
                         node,
-                        "Instance with 3+ pins cannot directly participate in `+` operation. \
-                         Use `->` for pass-through connection or `::` for type annotation.",
+                        &crate::errcodes::format_msg(crate::errcodes::CONN_PARALLEL_INVALID, &[]),
                     );
                     return None;
                 }
@@ -1477,8 +1493,7 @@ impl McPhrase {
                     dlog_error(
                         crate::errcodes::CONN_PARALLEL_INVALID,
                         node,
-                        "Instance with 3+ pins cannot directly participate in `+` operation. \
-                         Use `->` for pass-through connection or `::` for type annotation.",
+                        &crate::errcodes::format_msg(crate::errcodes::CONN_PARALLEL_INVALID, &[]),
                     );
                     return None;
                 }
@@ -1489,7 +1504,10 @@ impl McPhrase {
                     dlog_error(
                         crate::errcodes::CONN_PARALLEL_SHAPE_MISMATCH,
                         node,
-                        "Shape mismatch in parallel connection",
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::CONN_PARALLEL_SHAPE_MISMATCH,
+                            &[],
+                        ),
                     );
                     return None;
                 }
@@ -1504,7 +1522,10 @@ impl McPhrase {
                             dlog_error(
                                 crate::errcodes::CONN_TRANSPOSE_SIZE_MISMATCH,
                                 node,
-                                "Transposed connection size mismatch",
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::CONN_TRANSPOSE_SIZE_MISMATCH,
+                                    &[],
+                                ),
                             );
                             return None;
                         }
@@ -1521,7 +1542,10 @@ impl McPhrase {
                             dlog_error(
                                 crate::errcodes::CONN_TRANSPOSE_SIZE_MISMATCH,
                                 node,
-                                "Transposed connection size mismatch",
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::CONN_TRANSPOSE_SIZE_MISMATCH,
+                                    &[],
+                                ),
                             );
                             return None;
                         }
@@ -1571,8 +1595,7 @@ impl McPhrase {
                     dlog_error(
                         crate::errcodes::CONN_SERIES_INVALID,
                         node,
-                        "Instance with 3+ pins cannot directly participate in `-` operation. \
-                         Use `->` for pass-through connection.",
+                        &crate::errcodes::format_msg(crate::errcodes::CONN_SERIES_INVALID, &[]),
                     );
                     return None;
                 }
@@ -1580,8 +1603,7 @@ impl McPhrase {
                     dlog_error(
                         crate::errcodes::CONN_SERIES_INVALID,
                         node,
-                        "Instance with 3+ pins cannot directly participate in `-` operation. \
-                         Use `->` for pass-through connection.",
+                        &crate::errcodes::format_msg(crate::errcodes::CONN_SERIES_INVALID, &[]),
                     );
                     return None;
                 }
@@ -1640,7 +1662,10 @@ impl McPhrase {
                     dlog_error(
                         crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
                         node,
-                        "Shape mismatch in -> connection",
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
+                            &[],
+                        ),
                     );
                     return None;
                 }
@@ -1708,7 +1733,10 @@ impl McPhrase {
                     dlog_error(
                         crate::errcodes::NAME_DEF_NOT_FOUND_LABEL_FALLBACK,
                         node,
-                        "Shape mismatch in <- connection",
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::NAME_DEF_NOT_FOUND_LABEL_FALLBACK,
+                            &[],
+                        ),
                     );
                     return None;
                 }
@@ -1803,7 +1831,7 @@ impl McPhrase {
                 dlog_error(
                     crate::errcodes::INST_EXPR_PARSE_FAILED,
                     node,
-                    "Failed to parse MCAST_INSTANCE in expression context",
+                    &crate::errcodes::format_msg(crate::errcodes::INST_EXPR_PARSE_FAILED, &[]),
                 );
                 None
             }
@@ -1898,10 +1926,12 @@ impl McPhrase {
                 dlog_error(
                     crate::errcodes::PHRASE_AST_TYPE_UNEXPECTED,
                     node,
-                    &format!(
-                        "node={} Unexpected AST node type {} in McPhrase::new",
-                        node.get_type(),
-                        node.get_type()
+                    &crate::errcodes::format_msg(
+                        crate::errcodes::PHRASE_AST_TYPE_UNEXPECTED,
+                        &[
+                            &node.get_type() as &dyn std::fmt::Display,
+                            &node.get_type() as &dyn std::fmt::Display,
+                        ],
                     ),
                 );
                 None
@@ -2397,7 +2427,7 @@ impl McPhrase {
                     .collect();
 
                 if result.is_empty() {
-                    dlog_trace(1162, "No ports found in component");
+                    dlog_trace(1162, &crate::errcodes::format_msg(1162, &[]));
                     None
                 } else if result.len() == 1 {
                     Some(result.remove(0))
@@ -2460,7 +2490,7 @@ impl McPhrase {
                 }
 
                 if final_results.is_empty() {
-                    dlog_trace(1163, "No ports found in module");
+                    dlog_trace(1163, &crate::errcodes::format_msg(1163, &[]));
                     None
                 } else if final_results.len() == 1 {
                     Some(final_results.remove(0))
@@ -2519,7 +2549,7 @@ impl McPhrase {
                 }
 
                 if final_results.is_empty() {
-                    dlog_trace(1164, "No ports found in interface");
+                    dlog_trace(1164, &crate::errcodes::format_msg(1164, &[]));
                     None
                 } else if final_results.len() == 1 {
                     Some(final_results.remove(0))
@@ -2621,29 +2651,29 @@ impl McPhrase {
                     .collect::<Option<Vec<_>>>()?,
             )),
             McPhrase::Series(_, _) => {
-                dlog_trace(1168, "Dot operator does not apply for Series");
+                dlog_trace(1168, &crate::errcodes::format_msg(1168, &[]));
                 None
             }
             McPhrase::Endpoint(McEndpoint::Node { .. }) => {
-                dlog_trace(1169, "Dot operator does not apply for Node");
+                dlog_trace(1169, &crate::errcodes::format_msg(1169, &[]));
                 None
             }
             McPhrase::Transposed(_) => {
-                dlog_trace(1170, "Dot operator does not apply for Transposed");
+                dlog_trace(1170, &crate::errcodes::format_msg(1170, &[]));
                 None
             }
             McPhrase::Lead => {
-                dlog_trace(1171, "Dot operator does not apply for Lead");
+                dlog_trace(1171, &crate::errcodes::format_msg(1171, &[]));
                 None
             }
             McPhrase::Group(_) => {
-                dlog_trace(1172, "Dot operator does not apply for Group");
+                dlog_trace(1172, &crate::errcodes::format_msg(1172, &[]));
                 None
             }
             McPhrase::Closure(ref c) => {
                 // Phase 3: access members of the closure's output interface
                 if c.right.is_empty() {
-                    dlog_trace(1173, "Closure has no output interface to access");
+                    dlog_trace(1173, &crate::errcodes::format_msg(1173, &[]));
                     return None;
                 }
                 Self::access_node_element_members(&c.right, member_names)
@@ -2655,17 +2685,17 @@ impl McPhrase {
                 //   2. {vin|vout} -> curly_mn -> dot_or_curly(["vin"]) / dot_or_curly(["vout"])
                 //   3. Find matching port in the right interface
                 if f.right.is_empty() {
-                    dlog_trace(1174, "FuncCall has no return interface to access");
+                    dlog_trace(1174, &crate::errcodes::format_msg(1174, &[]));
                     return None;
                 }
                 Self::access_node_element_members(&f.right, member_names)
             }
             McPhrase::Endpoint(_ep) => {
-                dlog_trace(1175, "Dot operator does not apply for Endpoint");
+                dlog_trace(1175, &crate::errcodes::format_msg(1175, &[]));
                 None
             }
             McPhrase::Member(_, _) => {
-                dlog_trace(1176, "Dot operator already applied for Member");
+                dlog_trace(1176, &crate::errcodes::format_msg(1176, &[]));
                 None
             }
         }
@@ -2738,11 +2768,11 @@ impl McPhrase {
 
     fn curly_mn(self, right1: &[String], right2: &[String]) -> Option<McPhrase> {
         if right1.is_empty() {
-            dlog_trace(1197, "curly_mn: left member list is empty");
+            dlog_trace(1197, &crate::errcodes::format_msg(1197, &[]));
             return None;
         }
         if right2.is_empty() {
-            dlog_trace(1198, "curly_mn: right member list is empty");
+            dlog_trace(1198, &crate::errcodes::format_msg(1198, &[]));
             return None;
         }
 
@@ -2777,7 +2807,7 @@ impl McPhrase {
                     }
                 }
                 _ => {
-                    dlog_trace(1199, "Cannot convert to McBus in curly_mn");
+                    dlog_trace(1199, &crate::errcodes::format_msg(1199, &[]));
                     None
                 }
             }
@@ -3168,7 +3198,7 @@ fn infer_shape_and_upgrade(
                     }),
                 )
             } else {
-                dlog_trace(1220, "Groups with different branch counts cannot connect");
+                dlog_trace(1220, &crate::errcodes::format_msg(1220, &[]));
                 (
                     Group(McGroup {
                         opds: Vec::new(),

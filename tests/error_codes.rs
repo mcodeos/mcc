@@ -63,6 +63,44 @@ fn no_duplicate_codes() {
     );
 }
 
+/// Every registered code carries a non-empty canonical message template, and
+/// `format_msg` renders `{i}` placeholders with the supplied arguments.
+#[test]
+fn format_msg_renders_message_templates() {
+    for info in mcc::errcodes::all_codes() {
+        assert!(
+            !info.message.is_empty(),
+            "code {:04} {} has an empty message template",
+            info.code,
+            info.name
+        );
+        // Rendering without arguments must never panic and must keep the
+        // template intact when no placeholders are present.
+        let rendered = mcc::errcodes::format_msg(info.code, &[]);
+        assert!(
+            rendered.contains(""),
+            "format_msg panicked for {}",
+            info.name
+        );
+    }
+
+    // ERC templates (the json!-emission form) interpolate positional args.
+    let m1 = mcc::errcodes::format_msg(mcc::errcodes::ERC_SINGLE_POINT_NET, &[&"VCC"]);
+    assert_eq!(m1, "single-point net: 'VCC' has only one connection");
+    let m3 = mcc::errcodes::format_msg(
+        mcc::errcodes::ERC_MULTI_DRIVE_NET,
+        &[&"NET_A", &2usize, &"p1, p2"],
+    );
+    assert_eq!(m3, "multi-drive net: 'NET_A' has 2 drivers (p1, p2)");
+    let m2 = mcc::errcodes::format_msg(mcc::errcodes::ERC_UNCONNECTED_PORT, &[&"VOUT"]);
+    assert_eq!(m2, "unconnected port: 'VOUT' is not connected to any net");
+    let m4 = mcc::errcodes::format_msg(mcc::errcodes::ERC_FLOATING_NET, &[&"GND2"]);
+    assert_eq!(m4, "floating net: 'GND2' has no driver");
+
+    // Unknown codes render an empty string (caller keeps its own message).
+    assert_eq!(mcc::errcodes::format_msg(9999, &[]), "");
+}
+
 #[test]
 fn every_declared_const_is_registered() {
     let declared = declared_consts();

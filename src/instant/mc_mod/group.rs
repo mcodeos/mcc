@@ -400,11 +400,13 @@ impl McModuleInst {
             // ★ Degraded to warning: do not abort, truncate connection by min(left, right)
             self.record_warning(
                 crate::errcodes::CONN_SHAPE_MISMATCH_TRUNCATED,
-                format!(
-                    "Shape mismatch: left={}, right={}, truncating to min({})",
-                    left_size,
-                    right_size,
-                    left_size.min(right_size)
+                crate::errcodes::format_msg(
+                    crate::errcodes::CONN_SHAPE_MISMATCH_TRUNCATED,
+                    &[
+                        &left_size as &dyn std::fmt::Display,
+                        &right_size as &dyn std::fmt::Display,
+                        &left_size.min(right_size) as &dyn std::fmt::Display,
+                    ],
                 ),
             );
             let min_size = left_size.min(right_size);
@@ -426,7 +428,14 @@ impl McModuleInst {
     /// Covers `usbsocket.vin -> V5V`: V5V~vin.POWER_SYS, vin.GND~GND (no short).
     fn connect_scalar_to_dc_bus(&mut self, scalar: &NetPoint, bus: &[NetPoint]) {
         for p in bus {
-            let last = p.path.rsplit('.').next().unwrap_or("");
+            // Prefer member_name for role detection: interface member points carry
+            // the member (e.g. ldo.VOUT.GND → member_name "GND") while the path is
+            // a physical pin id (e.g. "ldo.2") that name heuristics cannot classify.
+            let last = p
+                .member_name
+                .as_deref()
+                .or_else(|| Some(p.path.rsplit('.').next().unwrap_or("")))
+                .unwrap_or("");
             let id = self.next_conn_id();
             if is_ground_name(last) {
                 let gnd = self.node_to_netpoint(&McBus::new("GND"));
@@ -744,7 +753,14 @@ fn is_power_rail_name(s: &str) -> bool {
 /// Whether a set of endpoints constitutes a DC power bus (containing both power-rail members and ground members).
 /// Used by create_connection to determine whether broadcasting would short power to ground.
 fn is_dc_power_bus_points(points: &[NetPoint]) -> bool {
-    let has_pwr = points.iter().any(|p| is_power_rail_name(last_seg(&p.path)));
-    let has_gnd = points.iter().any(|p| is_ground_name(last_seg(&p.path)));
+    // Prefer member_name (interface member points carry it; e.g. ldo.VIN member
+    // "Vin"/"GND") and fall back to the path's last segment for plain labels.
+    fn role_name(p: &NetPoint) -> &str {
+        p.member_name
+            .as_deref()
+            .unwrap_or_else(|| p.path.rsplit('.').next().unwrap_or(&p.path))
+    }
+    let has_pwr = points.iter().any(|p| is_power_rail_name(role_name(p)));
+    let has_gnd = points.iter().any(|p| is_ground_name(role_name(p)));
     has_pwr && has_gnd
 }

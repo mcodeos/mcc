@@ -22,7 +22,7 @@ use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_endpoint::McEndpoint;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
-use crate::semantic::common::{IOType, McCMIE};
+use crate::semantic::common::{ConnDir, IOType, McCMIE};
 use crate::semantic::mc_func::McFunction;
 use crate::semantic::mc_inst::McInstance;
 use crate::{current_uri, McIds};
@@ -585,6 +585,27 @@ impl McModuleInst {
         matches!(u.as_str(), "PULLUP" | "PULLDOWN")
     }
 
+    /// Collect every Series net-expression reachable from a McParamValue
+    /// (including through `Set`), as `(elems, dir)` pairs in order.
+    fn collect_series_params<'a>(
+        value: &'a McParamValue,
+        out: &mut Vec<(&'a [McPhrase], ConnDir)>,
+    ) {
+        match value {
+            McParamValue::Set(values) => {
+                for v in values {
+                    Self::collect_series_params(v, out);
+                }
+            }
+            McParamValue::Phrase(phrase) => {
+                if let McPhrase::Series(elems, dir) = phrase.as_ref() {
+                    out.push((elems.as_slice(), *dir));
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Wire the 2 pins of the 2-pin element created by the caller per params
     ///
     /// See `is_builtin_twopin_net_fn` documentation for the calling convention.
@@ -594,22 +615,35 @@ impl McModuleInst {
         params: &[McParamValue],
         func_name: &str,
     ) -> Result<(), InstError> {
-        if self.name.contains("513") {
-            mcc_dbg!(
-                "inst::fcall",
-                "[TWOPIN-WIRE] module={} inst_name={inst_name} func={func_name} params={params:?}",
-                self.name
-            );
-        }
         // 1. Flatten all params into a McBus list, then expand to NetPoint
-        let mut elements: Vec<McBus> = Vec::new();
+        // Per-param groups are kept so Pullup/Pulldown can select the rail
+        // member (VCC/VDD) instead of the ground member when the rail arg
+        // expands into a multi-member DC bus (e.g. `Pullup(_CS, V3V3)` →
+        // V3V3 expands to [V3V3.GND, V3V3.VCC], pin2 must land on VCC).
+        let mut param_groups: Vec<Vec<NetPoint>> = Vec::new();
         for p in params {
-            elements.extend(Self::param_value_to_node_elements(p));
+            let mut group: Vec<NetPoint> = Vec::new();
+            // ── P2-13: Series net-expression param (e.g. `Cap([A -> B], GND)`) ──
+            // A net expression like `[dc.VDD_3V3 -> wm7121.VCC]` (possibly
+            // Set-wrapped: `Set([Phrase(Series(...))])`) as a two-pin builtin
+            // argument is a real sub-line: it must create the internal `A ↔ B`
+            // connection (chain each adjacent pair). Previously
+            // param_value_to_node_elements only returned the left endpoint and
+            // the internal chain was never wired (wm7121.VCC stayed floating).
+            let mut series_list: Vec<(&[McPhrase], ConnDir)> = Vec::new();
+            Self::collect_series_params(p, &mut series_list);
+            for (elems, dir) in &series_list {
+                self.process_series_branch_inplace(elems, *dir)?;
+            }
+            // Normal expansion: for a Series param `phrase.get_left()` already
+            // returns the chain's first element, consistent with the target
+            // the builtin element's pin should land on.
+            for e in Self::param_value_to_node_elements(p) {
+                group.extend(self.expand_node_element(&e));
+            }
+            param_groups.push(group);
         }
-        let mut targets: Vec<NetPoint> = Vec::new();
-        for e in &elements {
-            targets.extend(self.expand_node_element(e));
-        }
+        let targets: Vec<NetPoint> = param_groups.iter().flatten().cloned().collect();
         let _found = self.components.iter().any(|c| c.name == inst_name);
 
         // ── D7: PULLUP_DEGENERATE detection ──────────────────────────────────
@@ -705,6 +739,40 @@ impl McModuleInst {
         //    1 target + Pullup/Pulldown → pin2 → target, pin1 left for outer chain
         //    ≥2 targets → pin1 → targets[0], pin2 → targets[1]
         //
+        // ── Pullup/Pulldown (signal, rail) ─────────────────────────────────
+        // `Pullup(_CS, V3V3)` has two params: signal and rail. When the rail
+        // arg expands into a multi-member DC bus (`V3V3` → [V3V3.GND, V3V3.VCC]),
+        // positional pairing would land pin2 on V3V3.GND. Pick the power
+        // member (VCC/VDD) for the rail end so the pull-up reaches the rail.
+        if is_pull && param_groups.len() >= 2 {
+            let sig = param_groups[0].first().cloned();
+            let rail = Self::pick_power_point(&param_groups[1]);
+            if let (Some(s), Some(r)) = (sig, rail) {
+                let id1 = self.next_conn_id();
+                self.connections
+                    .push(ConnectionInst::new(id1, vec![pin1, s]));
+                let id2 = self.next_conn_id();
+                self.connections
+                    .push(ConnectionInst::new(id2, vec![pin2, r]));
+                return Ok(());
+            }
+        }
+        // Single-target pull / fallback: pin2 → first target, pin1 left for outer chain
+        if is_pull {
+            if let Some(t) = targets.first().cloned() {
+                let id2 = self.next_conn_id();
+                self.connections
+                    .push(ConnectionInst::new(id2, vec![pin2, t]));
+            } else {
+                // No targets: pin2 → GND (mirror the .Cap(_) fallback)
+                let gnd = self.node_to_netpoint(&McBus::new("GND"));
+                let id2 = self.next_conn_id();
+                self.connections
+                    .push(ConnectionInst::new(id2, vec![pin2, gnd]));
+            }
+            return Ok(());
+        }
+
         // ── P1-1: `.Cap(x)` single-arg case, pin2 implicitly connects to GND ──────────────
         // Decoupling cap's other pin fixed to GND.
         let mut it = targets.into_iter();
@@ -719,10 +787,10 @@ impl McModuleInst {
                         .push(ConnectionInst::new(id2, vec![pin2, t1]));
                 } else {
                     // .Cap(x) → pin1 → x, pin2 → GND
+                    let gnd = self.node_to_netpoint(&McBus::new("GND"));
                     let id1 = self.next_conn_id();
                     self.connections
                         .push(ConnectionInst::new(id1, vec![pin1, t1]));
-                    let gnd = self.node_to_netpoint(&McBus::new("GND"));
                     let id2 = self.next_conn_id();
                     self.connections
                         .push(ConnectionInst::new(id2, vec![pin2, gnd]));
@@ -1294,5 +1362,44 @@ impl McModuleInst {
             new_components: Vec::new(),
             new_connections,
         })
+    }
+
+    /// Pick the power member of a rail endpoint list for Pullup/Pulldown.
+    ///
+    /// `Pullup(_CS, V3V3)` expands `V3V3` (a DC bus port) into
+    /// `[V3V3.GND, V3V3.VCC]`; the pull-up rail end must land on the power
+    /// member (VCC/VDD), not the ground member. Preference order:
+    /// 1. explicit power-named member (VDD*/VCC*/VIN*/VBAT*/VSYS*/V3V*/V5*)
+    /// 2. any non-ground member
+    /// 3. first member
+    fn pick_power_point(points: &[NetPoint]) -> Option<NetPoint> {
+        if points.is_empty() {
+            return None;
+        }
+        let is_ground = |p: &NetPoint| -> bool {
+            let name = p.path.rsplit('.').next().unwrap_or(&p.path);
+            let u = name.to_uppercase();
+            matches!(u.as_str(), "GND" | "VSS" | "AGND" | "DGND" | "PGND")
+                || u.starts_with("GND")
+                || u.starts_with("VSS")
+        };
+        let is_power = |p: &NetPoint| -> bool {
+            let name = p.path.rsplit('.').next().unwrap_or(&p.path);
+            let u = name.to_uppercase();
+            u.starts_with("VDD")
+                || u.starts_with("VCC")
+                || u.starts_with("VIN")
+                || u.starts_with("VBAT")
+                || u.starts_with("VSYS")
+                || u.starts_with("V3V")
+                || u.starts_with("V5")
+                || matches!(p.iotype, IOType::Power)
+        };
+        points
+            .iter()
+            .find(|p| is_power(p))
+            .or_else(|| points.iter().find(|p| !is_ground(p)))
+            .or_else(|| points.first())
+            .cloned()
     }
 }
