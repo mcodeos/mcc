@@ -530,6 +530,34 @@ impl McFunction {
                         // with pre-parsed McPhrase lines.
                         use crate::semantic::basic::mc_conds::{McConds, McFuncConds};
                         if let Some(raw_conds) = McConds::new(&body_node) {
+                            // ★ LSP: Record net refs inside if/else blocks so
+                            // identifiers on conditional net lines (e.g.
+                            // `GPIO[2]`, `GND`) resolve for goto-definition.
+                            // Top-level lines are handled by the MCAST_NET
+                            // branch above; conditional lines were missing.
+                            {
+                                let scope = self
+                                    .insts
+                                    .scope
+                                    .clone()
+                                    .unwrap_or_else(|| self.name.to_string());
+                                for cond in &raw_conds.if_blocks {
+                                    crate::semantic::module::McModule::collect_net_refs_in_node(
+                                        &cond.block,
+                                        &mut self.insts,
+                                        &mut self.params,
+                                        &scope,
+                                    );
+                                }
+                                if let Some(else_node) = &raw_conds.else_block {
+                                    crate::semantic::module::McModule::collect_net_refs_in_node(
+                                        else_node,
+                                        &mut self.insts,
+                                        &mut self.params,
+                                        &scope,
+                                    );
+                                }
+                            }
                             let parsed = McFuncConds::from_conds(&raw_conds, &mut wrapper);
                             if !parsed.if_blocks.is_empty() || !parsed.else_lines.is_empty() {
                                 if self.name.to_string().contains("i2c") {

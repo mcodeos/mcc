@@ -350,6 +350,12 @@ pub const NAME_ID_EXTRACT_FAILED: u32 = 2127;
 /// This syntax is parsed but not yet supported by the semantic layer; the declaration is ignored.
 pub const NOT_SUPPORTED_YET: u32 = 2171;
 
+/// Symbol could not be resolved to any definition after the full P1–P5 lookup
+/// chain (P1 func → P2 container → P3 file → P4 use chain → P5 mcode system
+/// library). Mirrors the design docs: `name-space-global.md` §1.3 /
+/// `name-space-internal.md` §1.3 "都未找到 → Unresolved / 诊断错误".
+pub const SYMBOL_NOT_FOUND: u32 = 2172;
+
 // ============================================================================
 // Pass1c: component definition (pins / attrs / units) (3000-3049)
 // ============================================================================
@@ -1301,6 +1307,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(NAME_DEF_NOT_FOUND_LABEL_FALLBACK, "Definition not found; falling back to a label.", "CURLY_MN: '{0}' definition not found, using label fallback"),
     entry!(NAME_ID_EXTRACT_FAILED, "Failed to extract ID/IDA data from a node.", "Failed to extract ID/IDA data"),
     entry!(NOT_SUPPORTED_YET, "This syntax is parsed but not yet supported by the semantic layer; the declaration is ignored.", "pins.subcls = [...] is parsed but not supported yet; the sub-class name is ignored"),
+    entry!(SYMBOL_NOT_FOUND, "Symbol could not be resolved to any definition after the full P1–P5 lookup chain.", "找不到 '{0}'"),
     // ---- section ----
     entry!(PIN_ID_NAME_MISMATCH, "Pin ID and pin name do not match.", "Pin ID and name not match"),
     entry!(PIN_ID_COUNT_ERROR, "Pin id count error.", "Pin id count error"),
