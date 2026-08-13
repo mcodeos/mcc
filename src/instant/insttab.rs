@@ -203,6 +203,25 @@ pub fn extract_voltage_from_params(params: &[McParamValue]) -> Option<Volt> {
 }
 
 // ============================================================================
+// InstOrigin
+// ============================================================================
+
+/// ★ M0-B-E: 实例来源 —— 器件是声明产生的还是 funcall 生成的
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InstOrigin {
+    /// 声明产生的实例（`RES R1(10kΩ)` 等）
+    Declared,
+    /// 函数调用生成的实例（`.Cap()` / `.Pullup()` / `.ESD()` 等）
+    FuncCall { fn_name: String },
+}
+
+impl Default for InstOrigin {
+    fn default() -> Self {
+        InstOrigin::Declared
+    }
+}
+
+// ============================================================================
 // InstEntry - Single instance record
 // ============================================================================
 
@@ -229,6 +248,10 @@ pub struct InstEntry {
     pub src_loc: Option<crate::ast::ast_semantic::SourceLocation>,
     /// ★ Member role and voltage (for interface members / power pins)
     pub member_info: Option<MemberInfo>,
+    /// ★ M0-B-D: 不焊接标记（来自 McComponentInst.nc）
+    pub not_fitted: bool,
+    /// ★ M0-B-E: 实例来源（声明 vs funcall）
+    pub origin: InstOrigin,
 }
 
 impl InstEntry {
@@ -420,6 +443,8 @@ impl InstTable {
             def_uri,
             src_loc: None,
             member_info: None,
+            not_fitted: false,
+            origin: InstOrigin::Declared,
         };
 
         self.entries.insert(id, entry);
@@ -753,6 +778,17 @@ impl InstTable {
                 None,
                 inst.def_uri.to_string(),
             );
+
+            // ★ M0-B-D: 透传 nc 标记
+            if comp.nc {
+                if let Some(entry) = self.entries.get_mut(&comp_id) {
+                    entry.not_fitted = true;
+                }
+            }
+            // ★ M0-B-E: 透传 origin
+            if let Some(entry) = self.entries.get_mut(&comp_id) {
+                entry.origin = comp.origin.clone();
+            }
 
             // ★ M11.3: record bridge passive full paths
             if inst.bridge_passive_names.contains(&comp.name) {

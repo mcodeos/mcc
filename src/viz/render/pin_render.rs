@@ -335,6 +335,8 @@ mod tests {
             None,
             4,
             IoSummary::new(),
+            "U1".to_string(),
+            Vec::new(),
         );
         b.x = 100.0;
         b.y = 50.0;

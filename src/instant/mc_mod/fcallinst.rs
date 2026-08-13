@@ -14,6 +14,7 @@ use super::expand::ExpansionContext;
 use super::funccall::FuncCallInst;
 use super::FailedRecord;
 use super::McModuleInst;
+use crate::instant::insttab::InstOrigin;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
@@ -93,7 +94,7 @@ impl McModuleInst {
         // declaration path (Mc2Component::with_params sets nc=true, then
         // instantiate_declarations_resilient uses with_nc).
         let has_nc = params.iter().any(|p| matches!(p, McParamValue::NC(_)));
-        let inst =
+        let mut inst =
             if has_nc {
                 McComponentInst::with_nc(&inst_name, comp_def.clone())
             } else {
@@ -120,6 +121,8 @@ impl McModuleInst {
                     }
                 }
             };
+        // ★ M0-B-E: 标记 funcall 来源
+        inst.origin = InstOrigin::FuncCall { fn_name: type_name.clone() };
 
         // ── Iter-3.E3 + P4 ───────────────────────────────────────────────
         // Filter out synthetic interface placeholders that mc_fcall.rs injects when

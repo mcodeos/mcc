@@ -356,6 +356,14 @@ impl FlowLayouter {
 
 impl Layouter for FlowLayouter {
     fn layout(&self, graph: &mut McVecGraph) -> (f64, f64) {
+        // ★ M2-1: v2 绞杀者管线。MC_LAYOUT_V2=1 时走新路径，
+        // 默认走旧路径，旧路径一行不改。
+        if std::env::var("MC_LAYOUT_V2").as_deref() == Ok("1") {
+            let plan = super::v2::solve(graph);
+            super::v2::geom::apply(graph, &plan);
+            return plan.canvas;
+        }
+
         mcc_dbg!(
             "viz",
             "{}",
@@ -1486,7 +1494,10 @@ impl FlowLayouter {
         let mut flag_place: HashMap<i64, (f64, f64, EntrySide)> = HashMap::new();
         let mut pin_moves: Vec<(i64, i64, EntrySide, f64)> = Vec::new();
 
-        for (&cbox, flags) in &by_consumer {
+        let mut consumer_ids: Vec<i64> = by_consumer.keys().copied().collect();
+        consumer_ids.sort();
+        for &cbox in &consumer_ids {
+            let flags = &by_consumer[&cbox];
             let consumer = match graph.boxes.iter().find(|b| b.id == cbox) {
                 Some(b) => b.clone(),
                 None => continue,
@@ -1748,7 +1759,7 @@ fn outward_and_opposite(side: &EntrySide) -> (f64, f64, EntrySide) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::{BoxKind, EndpointRef, IoSummary, Symbol, VizNet};
+    use crate::vector::graph::{BoxKind, EndpointRef, IoSummary, Symbol, NetRole, VizNet};
 
     fn mk_mod(id: i64, name: &str, pins: usize) -> McVecBox {
         let mut b = McVecBox::new_v2(
@@ -1761,6 +1772,8 @@ mod tests {
             None,
             pins,
             IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         );
         b.h = 60.0;
         b
@@ -1777,6 +1790,8 @@ mod tests {
             None,
             1,
             IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         )
     }
 
@@ -1791,6 +1806,7 @@ mod tests {
             10,
             "a".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![
                 EndpointRef::with_io(1, 11, "OUT", IoDirection::Output),
                 EndpointRef::with_io(2, 21, "IN", IoDirection::Input),
@@ -1800,6 +1816,7 @@ mod tests {
             11,
             "b".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![
                 EndpointRef::with_io(2, 22, "OUT", IoDirection::Output),
                 EndpointRef::with_io(3, 31, "IN", IoDirection::Input),
@@ -1823,6 +1840,7 @@ mod tests {
                 100 + i,
                 format!("s{}", i),
                 NetKind::Signal,
+                NetRole::Signal,
                 vec![
                     EndpointRef::with_io(1, 10 + i, "io", IoDirection::Bidir),
                     EndpointRef::with_io(i, 1, "io", IoDirection::Bidir),
@@ -1848,6 +1866,7 @@ mod tests {
             10,
             "dac".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![
                 EndpointRef::with_io(1, 11, "DAC_OUT", IoDirection::Output),
                 EndpointRef::with_io(2, 21, "DAC_IN", IoDirection::Input),
@@ -1857,6 +1876,7 @@ mod tests {
             11,
             "V3V3".into(),
             NetKind::Power,
+            NetRole::Signal,
             vec![
                 EndpointRef::with_io(100, 1001, "V3V3", IoDirection::Power),
                 EndpointRef::with_io(1, 12, "VDD", IoDirection::Power),
@@ -1867,6 +1887,7 @@ mod tests {
             12,
             "GND".into(),
             NetKind::Ground,
+            NetRole::Signal,
             vec![
                 EndpointRef::with_io(101, 1011, "GND", IoDirection::Ground),
                 EndpointRef::with_io(1, 13, "GND", IoDirection::Ground),
@@ -1892,6 +1913,8 @@ mod tests {
             None,
             3,
             IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         );
         b.x = x;
         b.y = y;

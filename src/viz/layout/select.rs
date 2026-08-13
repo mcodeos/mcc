@@ -307,9 +307,9 @@ fn compute_fidelity(
         nets_rendered: graph.nets.len(),
         // NOTE (PR-3): nets_dropped / nets_partial are still hardcoded to 0 here —
         // the topology reconstruction that could drop a leaf lives upstream in
-        // connection.rs (`merge_pairs_to_vecnet`). Once topology carries driver/load
-        // semantics forward, wire these to the real dropped/partial counts so the
-        // veto above can actually fire on missing lines.
+        // connection.rs (`merge_pairs_to_vecnet`).
+        // ★ M0-C BLOCKED: M0-A 提供 PairDir 后，driver/load 语义可由 ConnPair.dir
+        //   的多数决得出，届时可接上真实的 dropped/partial 计数。
         nets_dropped: 0,
         nets_partial: 0,
         pins_total,
@@ -334,7 +334,7 @@ fn compute_fidelity(
 mod tests {
     use super::*;
     use crate::vector::graph::boxdef::IoSummary;
-    use crate::vector::graph::{BoxKind, EndpointRef, McVecBox, NetKind, Symbol, VizNet};
+    use crate::vector::graph::{BoxKind, EndpointRef, McVecBox, NetKind, Symbol, NetRole, VizNet};
     use crate::viz::layout::FlowLayouter;
     use crate::viz::traits::Layouter;
 
@@ -368,6 +368,8 @@ mod tests {
             None,
             2,
             IoSummary::new(),
+            "A".to_string(),
+            Vec::new(),
         );
         b1.x = 10.0;
         b1.y = 10.0;
@@ -383,6 +385,8 @@ mod tests {
             None,
             2,
             IoSummary::new(),
+            "B".to_string(),
+            Vec::new(),
         );
         b2.x = 100.0;
         b2.y = 10.0;
@@ -467,6 +471,8 @@ mod tests {
             None,
             2,
             IoSummary::new(),
+            "R1".to_string(),
+            Vec::new(),
         );
         b1.x = 10.0;
         b1.y = 10.0;
@@ -483,6 +489,8 @@ mod tests {
             None,
             2,
             IoSummary::new(),
+            "R2".to_string(),
+            Vec::new(),
         );
         b2.x = 120.0;
         b2.y = 10.0;
@@ -499,6 +507,8 @@ mod tests {
             None,
             0,
             IoSummary::new(),
+            "GND".to_string(),
+            Vec::new(),
         );
         b3.x = 60.0;
         b3.y = 80.0;
@@ -509,6 +519,7 @@ mod tests {
             1,
             "N1".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![
                 EndpointRef::new(1, 1, "1"),
                 EndpointRef::new(2, 2, "1"),

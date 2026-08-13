@@ -862,7 +862,7 @@ impl SemanticModel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::boxdef::{BoxPin, EntryPoint, IoSummary};
+    use crate::vector::graph::boxdef::{BoxPin, EntryPoint, IoSummary, PortDir};
     use crate::vector::graph::{EndpointRef, Symbol, VizNet};
     use crate::viz::idiom::IdiomKind;
 
@@ -887,6 +887,8 @@ mod tests {
             None,
             pin_count,
             IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         );
         b.x = x;
         b.y = y;
@@ -905,6 +907,7 @@ mod tests {
             pin_id: desc.into(),
             description: desc.into(),
             io,
+            port_dir: PortDir::None,
         });
     }
 
@@ -943,6 +946,7 @@ mod tests {
             1,
             "SIG".into(),
             NetKind::Signal,
+            crate::vector::graph::netdef::NetRole::Signal,
             vec![ep(1, 1, "1", IoDirection::Passive)],
         ));
 
@@ -966,6 +970,7 @@ mod tests {
             1,
             "VCC".into(),
             NetKind::Power,
+            crate::vector::graph::netdef::NetRole::Signal,
             vec![ep(1, 1, "VCC", IoDirection::Power)],
         ));
         let model = SemanticModel::analyze(&graph);
@@ -979,6 +984,7 @@ mod tests {
             1,
             "GND".into(),
             NetKind::Ground,
+            crate::vector::graph::netdef::NetRole::Signal,
             vec![ep(1, 1, "GND", IoDirection::Ground)],
         ));
         let model = SemanticModel::analyze(&graph);
@@ -992,6 +998,7 @@ mod tests {
             1,
             "SIG".into(),
             NetKind::Signal,
+            crate::vector::graph::netdef::NetRole::Signal,
             vec![
                 ep(1, 1, "A", IoDirection::Output),
                 ep(2, 2, "B", IoDirection::Input),
@@ -1008,6 +1015,7 @@ mod tests {
             1,
             "BUS".into(),
             NetKind::Signal,
+            crate::vector::graph::netdef::NetRole::Signal,
             vec![
                 ep(1, 1, "A", IoDirection::Output),
                 ep(2, 2, "B", IoDirection::Input),
@@ -1030,6 +1038,7 @@ mod tests {
             1,
             "NET".into(),
             NetKind::Signal,
+            crate::vector::graph::netdef::NetRole::Signal,
             vec![ep(box_id, pin_id, "P1", io)],
         ));
         graph
@@ -1131,6 +1140,7 @@ mod tests {
             1,
             "SIG".into(),
             NetKind::Signal,
+            crate::vector::graph::netdef::NetRole::Signal,
             vec![EndpointRef::new(1, 1, "A"), EndpointRef::new(2, 2, "B")],
         ));
         let model = SemanticModel::analyze(&graph);
@@ -1147,6 +1157,7 @@ mod tests {
             1,
             "BUS".into(),
             NetKind::Signal,
+            crate::vector::graph::netdef::NetRole::Signal,
             vec![
                 ep(1, 1, "A", IoDirection::Output),
                 ep(2, 2, "B", IoDirection::Output),
@@ -1167,6 +1178,7 @@ mod tests {
             1,
             "SIG".into(),
             NetKind::Signal,
+            crate::vector::graph::netdef::NetRole::Signal,
             vec![ep_synth(1, -1, "SYNTH"), ep(2, 2, "B", IoDirection::Input)],
         ));
         let model = SemanticModel::analyze(&graph);
@@ -1190,12 +1202,14 @@ mod tests {
             1,
             "VDD_3V3".into(),
             NetKind::Power,
+            crate::vector::graph::netdef::NetRole::Signal,
             vec![ep(2, 1, "1", IoDirection::Power)],
         ));
         graph.nets.push(VizNet::new(
             2,
             "GND".into(),
             NetKind::Ground,
+            crate::vector::graph::netdef::NetRole::Signal,
             vec![ep(2, 2, "2", IoDirection::Ground)],
         ));
 
@@ -1270,6 +1284,7 @@ mod tests {
             1,
             "SIG".into(),
             NetKind::Signal,
+            crate::vector::graph::netdef::NetRole::Signal,
             vec![
                 ep(1, 1, "A", IoDirection::Output),
                 ep(2, 2, "B", IoDirection::Input),
@@ -1294,6 +1309,7 @@ mod tests {
             1,
             "VCC".into(),
             NetKind::Power,
+            crate::vector::graph::netdef::NetRole::Signal,
             vec![ep(1, 1, "VCC", IoDirection::Power)],
         ));
 
@@ -1316,6 +1332,7 @@ mod tests {
             1,
             "VCC".into(),
             NetKind::Power,
+            crate::vector::graph::netdef::NetRole::Signal,
             vec![ep(1, 1, "VCC", IoDirection::Power)],
         ));
 
@@ -1409,6 +1426,7 @@ mod tests {
             1,
             "DATA".into(),
             NetKind::Bus(8),
+            crate::vector::graph::netdef::NetRole::Signal,
             vec![ep(1, 1, "D0", IoDirection::Bidir)],
         ));
         let model = SemanticModel::analyze(&graph);
@@ -1422,6 +1440,7 @@ mod tests {
             1,
             "UART0".into(),
             NetKind::SubModuleIO,
+            crate::vector::graph::netdef::NetRole::Signal,
             vec![ep(1, 1, "TX", IoDirection::Output)],
         ));
         let model = SemanticModel::analyze(&graph);
@@ -1435,6 +1454,7 @@ mod tests {
             1,
             "SIG".into(),
             NetKind::Signal,
+            crate::vector::graph::netdef::NetRole::Signal,
             vec![ep(1, 1, "A", IoDirection::Unknown)],
         ));
         let model = SemanticModel::analyze(&graph);

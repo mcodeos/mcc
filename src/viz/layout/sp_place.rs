@@ -580,7 +580,7 @@ fn build_rail_route(taps: &[Tap]) -> Route {
 mod tests {
     use super::*;
     use crate::vector::graph::boxdef::IoSummary;
-    use crate::vector::graph::netdef::{EndpointRef, VizNet};
+    use crate::vector::graph::netdef::{EndpointRef, NetRole, VizNet};
     use crate::vector::graph::{BoxKind, McVecBox, NetKind, Symbol};
     use crate::viz::layout::sp_model::{build_sp_model, SpBail};
 
@@ -598,6 +598,8 @@ mod tests {
             None,
             1,
             io,
+            name.to_string(),
+            Vec::new(),
         )
     }
     fn res(id: i64, name: &str) -> McVecBox {
@@ -611,6 +613,8 @@ mod tests {
             None,
             2,
             IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         )
     }
     fn cap(id: i64, name: &str) -> McVecBox {
@@ -624,6 +628,8 @@ mod tests {
             None,
             2,
             IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         )
     }
     fn net(nid: i64, name: &str, eps: &[(i64, i64)]) -> VizNet {
@@ -631,6 +637,7 @@ mod tests {
             nid,
             name.into(),
             NetKind::Signal,
+            NetRole::Signal,
             eps.iter()
                 .map(|&(b, p)| EndpointRef::new(b, p, &p.to_string()))
                 .collect(),

@@ -46,7 +46,7 @@ use std::collections::HashSet;
 
 use super::graphdef::McVecGraph;
 use super::kinds::NetKind;
-use super::netdef::{EndpointRef, VizNet};
+use super::netdef::{EndpointRef, NetRole, VizNet};
 
 // ============================================================================
 // Promotion result
@@ -301,6 +301,7 @@ mod tests {
             nid,
             name.to_string(),
             NetKind::Signal,
+            NetRole::Signal,
             endpoints
                 .into_iter()
                 .map(|(box_id, pin_id)| EndpointRef::new(box_id, pin_id, ""))

@@ -3,6 +3,9 @@
 //! - FidelityReport.is_perfect() = hard gate for all subsequent iterations.
 //! - ReadabilityScore.weighted() = score for generate-and-rank (iteration 04).
 //! - MetricsAccumulator passes through viz::api::render_layer_recursive, accumulating per layer.
+//! - AlignMetricsReport (align.rs) provides M1-4 alignment metrics (self-test version).
+
+pub mod align;
 
 use serde::{Deserialize, Serialize};
 
@@ -1272,9 +1275,9 @@ mod tests {
     use crate::vector::builder::report::{
         BuilderReport, DroppedNet, PartialNet, ResolutionOutcome, ResolutionRecord,
     };
-    use crate::vector::graph::boxdef::{BoxPin, IoSummary};
+    use crate::vector::graph::boxdef::{BoxPin, IoSummary, PortDir};
     use crate::vector::graph::netdef::{Point, Route, Segment};
-    use crate::vector::graph::{BoxKind, EndpointRef, McVecBox, Symbol, VizNet};
+    use crate::vector::graph::{BoxKind, EndpointRef, McVecBox, Symbol, NetRole, VizNet};
 
     fn mk_box(id: i64, x: f64, y: f64) -> McVecBox {
         let mut b = McVecBox::new_v2(
@@ -1287,6 +1290,8 @@ mod tests {
             None,
             1,
             IoSummary::new(),
+            format!("B{id}"),
+            Vec::new(),
         );
         b.x = x;
         b.y = y;
@@ -1300,6 +1305,7 @@ mod tests {
             nid,
             format!("n{nid}"),
             NetKind::Signal,
+            NetRole::Signal,
             vec![
                 EndpointRef::new(a, -1, "(t)"),
                 EndpointRef::new(b, -1, "(t)"),
@@ -1332,6 +1338,7 @@ mod tests {
             pin_id: format!("P{pin_id}"),
             description: format!("P{pin_id}"),
             io: crate::vector::graph::netdef::IoDirection::Unknown,
+            port_dir: crate::vector::graph::boxdef::PortDir::None,
         });
     }
 
@@ -1340,6 +1347,7 @@ mod tests {
             nid,
             format!("n{nid}"),
             NetKind::Signal,
+            NetRole::Signal,
             vec![
                 EndpointRef::new(a_box, a_pin, format!("P{a_pin}")),
                 EndpointRef::new(b_box, b_pin, format!("P{b_pin}")),

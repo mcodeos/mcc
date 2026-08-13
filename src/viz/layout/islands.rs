@@ -1435,7 +1435,7 @@ mod tests {
     #[test]
     fn no_passives_is_no_islands() {
         use crate::vector::graph::boxdef::IoSummary;
-        use crate::vector::graph::netdef::{EndpointRef, VizNet};
+        use crate::vector::graph::netdef::{EndpointRef, NetRole, VizNet};
         use crate::vector::graph::BoxKind;
         use crate::vector::graph::McVecBox;
         use crate::vector::graph::NetKind;
@@ -1455,12 +1455,15 @@ mod tests {
                 None,
                 1,
                 io,
+                name.to_string(),
+                Vec::new(),
             ));
         }
         g.nets.push(VizNet::new(
             0,
             "N1".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![EndpointRef::new(101, 3, "3"), EndpointRef::new(102, 3, "3")],
         ));
         let d = decompose(&g);
@@ -1470,7 +1473,7 @@ mod tests {
 
     fn golden_sp_graph() -> McVecGraph {
         use crate::vector::graph::boxdef::IoSummary;
-        use crate::vector::graph::netdef::{EndpointRef, VizNet};
+        use crate::vector::graph::netdef::{EndpointRef, NetRole, VizNet};
         use crate::vector::graph::BoxKind;
         use crate::vector::graph::McVecBox;
         use crate::vector::graph::NetKind;
@@ -1495,6 +1498,8 @@ mod tests {
                 None,
                 2,
                 IoSummary::new(),
+                name.to_string(),
+                Vec::new(),
             ));
         }
         for (id, name, outs) in [(101, "u1", 1), (102, "u2", 0)] {
@@ -1510,12 +1515,15 @@ mod tests {
                 None,
                 1,
                 io,
+                name.to_string(),
+                Vec::new(),
             ));
         }
         g.nets.push(VizNet::new(
             0,
             "N1".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![
                 EndpointRef::new(101, 6, "6"),
                 EndpointRef::new(1, 11, "11"),
@@ -1526,12 +1534,14 @@ mod tests {
             1,
             "N2".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 12, "12"), EndpointRef::new(2, 21, "21")],
         ));
         g.nets.push(VizNet::new(
             2,
             "N3".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![
                 EndpointRef::new(2, 22, "22"),
                 EndpointRef::new(102, 6, "6"),
@@ -1543,6 +1553,7 @@ mod tests {
             3,
             "N4".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![
                 EndpointRef::new(3, 32, "32"),
                 EndpointRef::new(4, 41, "41"),
@@ -1553,6 +1564,7 @@ mod tests {
             4,
             "N5".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![EndpointRef::new(4, 42, "42"), EndpointRef::new(5, 51, "51")],
         ));
         // direct net: u1.3 ~ u2.3
@@ -1560,6 +1572,7 @@ mod tests {
             5,
             "N6".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![EndpointRef::new(101, 3, "3"), EndpointRef::new(102, 3, "3")],
         ));
         g

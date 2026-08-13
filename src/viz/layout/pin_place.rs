@@ -571,7 +571,7 @@ mod tests {
     use super::*;
     use crate::vector::graph::boxdef::IoSummary;
     use crate::vector::graph::boxdef::PinLayout;
-    use crate::vector::graph::netdef::{EndpointRef, VizNet};
+    use crate::vector::graph::netdef::{EndpointRef, NetRole, VizNet};
     use crate::vector::graph::{BoxKind, NetKind, Symbol};
 
     fn make_box(
@@ -601,6 +601,8 @@ mod tests {
             None,
             pin_count,
             IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         );
         b.x = x;
         b.y = y;
@@ -635,6 +637,8 @@ mod tests {
             None,
             8,
             IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         );
         b.x = x;
         b.y = y;
@@ -677,6 +681,7 @@ mod tests {
             1,
             "SPK_MUTE".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![
                 EndpointRef::new(1, 1, "SPK_MUTE"),
                 EndpointRef::new(2, 1, "IN"),
@@ -715,6 +720,7 @@ mod tests {
             1,
             "SIG".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 1, "1"), EndpointRef::new(2, 1, "1")],
         );
         graph.boxes.push(a);
@@ -780,18 +786,21 @@ mod tests {
             1,
             "TOP".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 1, "A"), EndpointRef::new(2, 1, "1")],
         );
         let net_mid = VizNet::new(
             2,
             "MID".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 2, "B"), EndpointRef::new(3, 1, "1")],
         );
         let net_bot = VizNet::new(
             3,
             "BOT".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 3, "C"), EndpointRef::new(4, 1, "1")],
         );
 
@@ -840,6 +849,7 @@ mod tests {
             1,
             "SPK_MUTE".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![
                 EndpointRef::new(1, 1, "SPK_MUTE"),
                 EndpointRef::new(2, 1, "IN"),
@@ -883,6 +893,7 @@ mod tests {
             1,
             "SIG".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 4, "4"), EndpointRef::new(2, 1, "1")],
         );
         graph.boxes.push(a);
@@ -912,6 +923,7 @@ mod tests {
                 1,
                 "SIG".into(),
                 NetKind::Signal,
+                NetRole::Signal,
                 vec![
                     EndpointRef::new(1, 1, "SPK_MUTE"),
                     EndpointRef::new(2, 1, "IN"),
@@ -955,6 +967,7 @@ mod tests {
                 1,
                 "SIG".into(),
                 NetKind::Signal,
+                NetRole::Signal,
                 vec![
                     EndpointRef::new(1, 1, "SPK_MUTE"),
                     EndpointRef::new(2, 1, "IN"),
@@ -993,6 +1006,7 @@ mod tests {
             1,
             "SIG".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 1, "1"), EndpointRef::new(2, 1, "1")],
         );
         graph.boxes.push(leaf);

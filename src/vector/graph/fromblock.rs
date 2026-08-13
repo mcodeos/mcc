@@ -20,16 +20,33 @@ use crate::instant::insttab::{InstEntry, InstKind, InstTable};
 
 use super::super::model::netshape::{GroupRole, NetShape};
 use super::super::model::{ConnectionType, McVecBlock, McVecNet};
-use super::boxdef::{BoxPin, CustomSymbol, IoSummary, McVecBox, PinLayout, VisualRole};
+use super::boxdef::{BoxPin, CustomSymbol, IoSummary, McVecBox, PinConstraint, PinLayout, PortDir, VisualRole};
 use super::detect::{
-    compute_io, detect_kind, detect_symbol, extract_designator, extract_last_segment,
-    parse_pin_number, translate_io_type, warn_if_pin_mismatch, DetectedKind,
+    compute_io, compute_scope_chain, detect_kind, detect_symbol, extract_designator,
+    extract_last_segment, parse_pin_number, translate_io_type, warn_if_pin_mismatch,
+    DetectedKind,
 };
 use super::graphdef::McVecGraph;
 use super::kinds::{BoxKind, NetKind};
 use super::naming;
-use super::netdef::{EndpointRef, IoDirection, VizNet};
+use super::netdef::{EndpointRef, IoDirection, NetRole, VizNet};
 use super::symbol::Symbol;
+
+// ============================================================================
+// Helper: IOType → PortDir
+// ============================================================================
+
+/// Translate `IOType` to `PortDir` for module ports
+pub fn translate_io_to_port_dir(t: &crate::semantic::common::IOType) -> PortDir {
+    use crate::semantic::common::IOType;
+    match t {
+        IOType::In => PortDir::In,
+        IOType::Out => PortDir::Out,
+        IOType::InOut => PortDir::Io,
+        IOType::Power => PortDir::Ps,
+        _ => PortDir::None,
+    }
+}
 
 // ============================================================================
 // Helper: build box from ID (shared by Phase 1 / Phase 1.5)
@@ -69,6 +86,7 @@ fn build_box_pins(entries: &[&InstEntry], owner_class: &str) -> Vec<BoxPin> {
                 pin_id,
                 description,
                 io: translate_io_type(&e.io_type),
+                port_dir: PortDir::None,
             }
         })
         .collect()
@@ -92,6 +110,7 @@ fn placeholder_pins(box_id: i64, pin_count: usize) -> Vec<BoxPin> {
                 pin_id: idx.to_string(),
                 description: String::new(),
                 io: IoDirection::Unknown,
+                port_dir: PortDir::None,
             }
         })
         .collect()
@@ -102,6 +121,7 @@ fn apply_reserved_overrides(b: &mut McVecBox) {
     let cls = b.class_name.clone();
     if let Some(layout) = component_pin_layout(&cls) {
         b.set_layout_hint(layout);
+        b.pin_constraint = PinConstraint::FixedOrder;
     }
     if let Some(sym) = resolve_custom_symbol(&cls) {
         b.set_custom_symbol(sym);
@@ -163,8 +183,11 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
             }
             let symbol = detect_symbol(table, id, &kind);
             let designator = extract_designator(&name);
+            let inst_path = entry.path.clone();
+            let scope_chain = compute_scope_chain(&inst_path);
             let mut b = McVecBox::new_v2(
                 id as i64, name, class_name, kind, symbol, designator, None, pin_count, io,
+                inst_path, scope_chain,
             );
             b.set_pins(box_pins);
             warn_if_pin_mismatch(&b);
@@ -173,19 +196,28 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
                 b.visual_role = Some(VisualRole::BridgePassive);
             }
             apply_reserved_overrides(&mut b); // ★ Reserved: layout / custom symbol (default no-op)
+            // ★ M0-B-D/E: 透传 not_fitted / origin
+            b.not_fitted = entry.not_fitted;
+            b.origin = entry.origin.clone();
             Some(b)
         }
-        DetectedKind::Label => Some(McVecBox::new_v2(
-            id as i64,
-            name,
-            String::new(),
-            BoxKind::Dot,
-            Symbol::Dot,
-            None,
-            None,
-            0,
-            IoSummary::new(),
-        )),
+        DetectedKind::Label => {
+            let inst_path = entry.path.clone();
+            let scope_chain = compute_scope_chain(&inst_path);
+            Some(McVecBox::new_v2(
+                id as i64,
+                name,
+                String::new(),
+                BoxKind::Dot,
+                Symbol::Dot,
+                None,
+                None,
+                0,
+                IoSummary::new(),
+                inst_path,
+                scope_chain,
+            ))
+        }
         DetectedKind::SubModule {
             port_count,
             class_name,
@@ -193,6 +225,8 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
             let ports = table.get_ports_of(id);
             let io = compute_io(&ports);
             let box_pins = build_box_pins(&ports, &class_name);
+            let inst_path = entry.path.clone();
+            let scope_chain = compute_scope_chain(&inst_path);
             let mut b = McVecBox::new_v2(
                 id as i64,
                 name,
@@ -203,6 +237,8 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
                 None,
                 port_count,
                 io,
+                inst_path,
+                scope_chain,
             );
             b.set_pins(box_pins);
             Some(b)
@@ -211,6 +247,8 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
             let symbol = Symbol::PowerRail {
                 is_ground: naming::is_ground(&name),
             };
+            let inst_path = entry.path.clone();
+            let scope_chain = compute_scope_chain(&inst_path);
             Some(McVecBox::new_v2(
                 id as i64,
                 name,
@@ -221,6 +259,8 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
                 None,
                 0,
                 IoSummary::new(),
+                inst_path,
+                scope_chain,
             ))
         }
         DetectedKind::Skip => None,
@@ -302,8 +342,11 @@ fn build_mc_vec_graph_inner(
                 crate::velog!(
                     "[graph] ✓ Component: {name} (class={class_name}, symbol={symbol}, pins={pin_count})"
                 );
+                let inst_path = entry.path.clone();
+                let scope_chain = compute_scope_chain(&inst_path);
                 let mut b = McVecBox::new_v2(
                     id as i64, name, class_name, kind, symbol, designator, value, pin_count, io,
+                    inst_path, scope_chain,
                 );
                 b.set_pins(box_pins);
                 warn_if_pin_mismatch(&b);
@@ -325,6 +368,8 @@ fn build_mc_vec_graph_inner(
                 crate::velog!(
                     "[graph] ✓ SubModule: {name} (class={class_name}, ports={port_count})"
                 );
+                let inst_path = entry.path.clone();
+                let scope_chain = compute_scope_chain(&inst_path);
                 let mut b = McVecBox::new_v2(
                     id as i64,
                     name,
@@ -335,6 +380,8 @@ fn build_mc_vec_graph_inner(
                     None,
                     port_count,
                     io,
+                    inst_path,
+                    scope_chain,
                 );
                 b.set_pins(box_pins);
                 graph.boxes.push(b);
@@ -346,6 +393,8 @@ fn build_mc_vec_graph_inner(
                 let symbol = Symbol::PowerRail {
                     is_ground: naming::is_ground(&name),
                 };
+                let inst_path = entry.path.clone();
+                let scope_chain = compute_scope_chain(&inst_path);
                 graph.boxes.push(McVecBox::new_v2(
                     id as i64,
                     name,
@@ -356,11 +405,15 @@ fn build_mc_vec_graph_inner(
                     None,
                     0,
                     IoSummary::new(),
+                    inst_path,
+                    scope_chain,
                 ));
                 box_ids_set.insert(id);
             }
             DetectedKind::Label => {
                 crate::velog!("[graph] ✓ Label: {name}");
+                let inst_path = entry.path.clone();
+                let scope_chain = compute_scope_chain(&inst_path);
                 graph.boxes.push(McVecBox::new_v2(
                     id as i64,
                     name,
@@ -371,6 +424,8 @@ fn build_mc_vec_graph_inner(
                     None,
                     0,
                     IoSummary::new(),
+                    inst_path,
+                    scope_chain,
                 ));
                 box_ids_set.insert(id);
             }
@@ -383,6 +438,8 @@ fn build_mc_vec_graph_inner(
                             let symbol = Symbol::PowerRail {
                                 is_ground: naming::is_ground(&mname),
                             };
+                            let inst_path = member.path.clone();
+                            let scope_chain = compute_scope_chain(&inst_path);
                             graph.boxes.push(McVecBox::new_v2(
                                 member.id as i64,
                                 mname,
@@ -393,6 +450,8 @@ fn build_mc_vec_graph_inner(
                                 None,
                                 0,
                                 IoSummary::new(),
+                                inst_path,
+                                scope_chain,
                             ));
                             box_ids_set.insert(member.id);
                         }
@@ -423,6 +482,8 @@ fn build_mc_vec_graph_inner(
                 continue;
             }
             if matches!(detected, DetectedKind::Label) {
+                let inst_path = child.path.clone();
+                let scope_chain = compute_scope_chain(&inst_path);
                 graph.boxes.push(McVecBox::new_v2(
                     child.id as i64,
                     cname,
@@ -433,6 +494,8 @@ fn build_mc_vec_graph_inner(
                     None,
                     0,
                     IoSummary::new(),
+                    inst_path,
+                    scope_chain,
                 ));
                 box_ids_set.insert(child.id);
             }
@@ -463,6 +526,8 @@ fn build_mc_vec_graph_inner(
                         "[graph] ✓ Phase 1.45: module '{}' (bid={}) has {} ports, creating SubModule box",
                         root_name, mod_id, port_count
                     );
+                    let inst_path = mod_entry.path.clone();
+                    let scope_chain = compute_scope_chain(&inst_path);
                     let mut b = McVecBox::new_v2(
                         mod_id as i64,
                         root_name.clone(),
@@ -473,6 +538,8 @@ fn build_mc_vec_graph_inner(
                         None,
                         port_count,
                         io,
+                        inst_path,
+                        scope_chain,
                     );
                     b.set_pins(box_pins);
                     graph.boxes.push(b);
@@ -545,6 +612,8 @@ fn build_mc_vec_graph_inner(
                         .count();
 
                     // Set a reasonable pin_count so layout can compute size
+                    let inst_path = root_name.clone();
+                    let scope_chain = Vec::new();
                     let mut b = McVecBox::new_v2(
                         border_id,
                         root_name.clone(),
@@ -555,6 +624,8 @@ fn build_mc_vec_graph_inner(
                         None,
                         internal_count.max(1), // pin_count > 0 so ic_size() works
                         IoSummary::new(),
+                        inst_path,
+                        scope_chain,
                     );
                     // Set initial size/position (will be adjusted by layout_post_adjust_borders)
                     b.w = 800.0;
@@ -634,6 +705,8 @@ fn build_mc_vec_graph_inner(
                             symbol,
                             pin_count
                         );
+                        let inst_path = parent_entry.path.clone();
+                        let scope_chain = compute_scope_chain(&inst_path);
                         let mut b = McVecBox::new_v2(
                             parent_id as i64,
                             parent_name,
@@ -644,6 +717,8 @@ fn build_mc_vec_graph_inner(
                             None,
                             pin_count,
                             io,
+                            inst_path,
+                            scope_chain,
                         );
                         b.set_pins(box_pins);
                         // ★ M11.3: propagate bridge passive intent from truth layer
@@ -817,6 +892,8 @@ fn build_mc_vec_graph_inner(
                         // go to upward arrow.
                         let is_ground = naming::is_ground(&name);
                         let symbol = Symbol::PowerRail { is_ground };
+                        let inst_path = entry.path.clone();
+                        let scope_chain = compute_scope_chain(&inst_path);
                         graph.boxes.push(McVecBox::new_v2(
                             u as i64,
                             name.clone(),
@@ -827,6 +904,8 @@ fn build_mc_vec_graph_inner(
                             None,
                             0,
                             IoSummary::new(),
+                            inst_path,
+                            scope_chain,
                         ));
                         box_ids_set.insert(u);
                         continue;
@@ -852,6 +931,8 @@ fn build_mc_vec_graph_inner(
             let symbol = Symbol::PowerRail {
                 is_ground: naming::is_ground(&name),
             };
+            let inst_path = entry.path.clone();
+            let scope_chain = compute_scope_chain(&inst_path);
             graph.boxes.push(McVecBox::new_v2(
                 u as i64,
                 name,
@@ -862,6 +943,8 @@ fn build_mc_vec_graph_inner(
                 None,
                 0,
                 IoSummary::new(),
+                inst_path,
+                scope_chain,
             ));
             box_ids_set.insert(u);
         }
@@ -985,6 +1068,8 @@ fn build_mc_vec_graph_inner(
                     "[graph] ✓ Phase 1.6 synthesized top-level PowerLabel: {name} \
                      (id={next_synth_id}, is_ground={is_ground}) -- no explicit '{name}' Port at root"
                 );
+                let inst_path = name.clone();
+                let scope_chain = Vec::new();
                 graph.boxes.push(McVecBox::new_v2(
                     next_synth_id,
                     name.clone(),
@@ -995,6 +1080,8 @@ fn build_mc_vec_graph_inner(
                     None,
                     0,
                     IoSummary::new(),
+                    inst_path,
+                    scope_chain,
                 ));
                 existing_rail_upper.insert(name.to_uppercase());
                 next_synth_id += 1;
@@ -1062,6 +1149,55 @@ fn build_mc_vec_graph_inner(
         crate::velog!("[graph] synthesized {synth} rail net(s) via same-name label match");
     }
 
+    // ── M0-2: populate module_ports from port declarations ──
+    {
+        let ports = table.get_ports_of(block.bid as u32);
+        let mut module_ports = Vec::with_capacity(ports.len());
+        for p in &ports {
+            let port_name = extract_last_segment(&p.path);
+            let port_dir = translate_io_to_port_dir(&p.io_type);
+            let role = match &p.member_info {
+                Some(mi) => match mi.role {
+                    crate::instant::insttab::MemberRole::Power | crate::instant::insttab::MemberRole::Ground => {
+                        NetRole::Rail { volt: mi.voltage.as_ref().map(|v| v.to_string()) }
+                    }
+                    _ => NetRole::Signal,
+                },
+                None => NetRole::Signal,
+            };
+            module_ports.push((port_name, port_dir, role));
+        }
+        graph.module_ports = module_ports;
+    }
+
+    // ── M0-B-D/E: 日志汇总 not_fitted / origin ──
+    {
+        let not_fitted_count = graph.boxes.iter().filter(|b| b.not_fitted).count();
+        let not_fitted_names: Vec<&str> = graph.boxes.iter()
+            .filter(|b| b.not_fitted)
+            .map(|b| b.name.as_str())
+            .collect();
+        let declared = graph.boxes.iter().filter(|b| matches!(b.origin, crate::instant::insttab::InstOrigin::Declared)).count();
+        let funcall = graph.boxes.len() - declared;
+        let mut fcall_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        for b in &graph.boxes {
+            if let crate::instant::insttab::InstOrigin::FuncCall { ref fn_name } = b.origin {
+                *fcall_counts.entry(fn_name.clone()).or_insert(0) += 1;
+            }
+        }
+        let fcall_summary: Vec<String> = fcall_counts.iter()
+            .map(|(k, v)| format!("{k}:{v}"))
+            .collect();
+        crate::velog!(
+            "[graph] NOT-FITTED: {not_fitted_count} box(es) — {}",
+            not_fitted_names.join(" ")
+        );
+        crate::velog!(
+            "[graph] ORIGIN: declared={declared} funcall={funcall} ({})",
+            fcall_summary.join(" ")
+        );
+    }
+
     // ── Phase 4: recursively process block.blocks ──
     for sub in &block.blocks {
         graph.sub_graphs.push(build_mc_vec_graph_inner(
@@ -1103,6 +1239,10 @@ fn generate_viznets_from_block(
     // ★ 分立二端无源器件的盒子集合。总线永远不会从一颗 R/C 中间穿过去，
     //   所以"网络碰到了无源器件"是"这不是总线"的可靠信号。
     //   （同一判据见 rails.rs:331 的网络标签化守卫。）
+    //
+    // ★ M0-C BLOCKED: 此启发式将在 M0-A 完成后改为读 NetShape.series_chain。
+    //   M0-A 让 ConnPair 携带 via 字段，merge_pairs_to_vecnet 据此填充
+    //   NetShape.series_chain，届时"网络穿过哪些二端器件"是源码事实而非推断。
     let passive_boxes: std::collections::HashSet<i64> = boxes
         .iter()
         .filter(|b| b.is_two_pin_passive())
@@ -1146,7 +1286,11 @@ fn generate_viznets_from_block(
     /// NetShape-first: when shape is present, use groups to determine, no longer
     /// rely on `connection_type()` shape inference. Only falls back to
     /// `connection_type()` when shape is absent (legacy behavior).
-    fn is_real_bus(
+    /// ★ M0-C BLOCKED: 此函数将在 M0-A 完成后删除。
+///   届时 NetRole::Bus 由 M0-A 的 NetShape 直接填充（M0-B），
+///   NtoN 拆分和 Bus 升级两个分支改为读 `net.role == NetRole::Bus`。
+///   当前 NetShape 覆盖率不足，暂保留此启发式作为兜底。
+fn is_real_bus(
         net: &McVecNet,
         kind: &NetKind,
         touches_passive: &dyn Fn(&[i64]) -> bool,
@@ -1198,6 +1342,10 @@ fn generate_viznets_from_block(
 
     // ★ SPI expansion: construct port's child members (SCLK/MOSI/...) as endpoints, box reuses parent port's box.
     //   (Child members usually aren't in point_to_box -- they're not top-level net endpoints, so separately mapped to parent box.)
+    //
+    // ★ M0-C BLOCKED: 此分支将在 M-1 完成后删除。
+    //   它存在的理由是"顶层 mcu.SPI 塌成了单点"——M-1-1 修复向量引用展开后，
+    //   mcu513.SPI 在 main 层会是 4 个独立端点，不再需要此 expansion 分支。
     let make_child_endpoint = |child_id: i64, box_id: i64| -> EndpointRef {
         let (name, io, pn) = match table.get_entry(child_id as u32) {
             Some(e) => {
@@ -1281,7 +1429,7 @@ fn generate_viznets_from_block(
                                             synth_nid += 1;
                                             x
                                         };
-                                        out.push(VizNet::new(nid, nm, NetKind::Signal, eps));
+                                        out.push(VizNet::new(nid, nm, NetKind::Signal, NetRole::Signal, eps));
                                     }
                                     crate::velog!(
                                         "[graph] ✓ expanded collapsed bus/port '{}' -> {} signal nets",
@@ -1347,7 +1495,7 @@ fn generate_viznets_from_block(
                                 synth_nid += 1;
                                 x
                             };
-                            out.push(VizNet::new(nid, name, NetKind::Signal, eps));
+                            out.push(VizNet::new(nid, name, NetKind::Signal, NetRole::Signal, eps));
                         }
                         continue; // already split by member -> skip whole Bus construction below
                     }
@@ -1409,7 +1557,23 @@ fn generate_viznets_from_block(
             kind = NetKind::Bus(n);
         }
 
-        out.push(VizNet::new(net.nid, net.name.clone(), kind, endpoints));
+        // ★ M0-2: compute NetRole from NetKind
+        let role = match &kind {
+            NetKind::Power | NetKind::Ground => {
+                // Try to extract voltage from endpoint member_info
+                let volt = net.all_point_ids().iter().find_map(|&pid| {
+                    table.get_entry(pid as u32)
+                        .and_then(|e| e.member_info.as_ref())
+                        .and_then(|mi| mi.voltage.as_ref())
+                        .map(|v| v.to_string())
+                });
+                NetRole::Rail { volt }
+            }
+            NetKind::Bus(n) => NetRole::Bus { width: *n },
+            _ => NetRole::Signal,
+        };
+
+        out.push(VizNet::new(net.nid, net.name.clone(), kind, role, endpoints));
     }
 
     out
@@ -1621,7 +1785,9 @@ fn synthesize_rail_nets(table: &InstTable, boxes: &[McVecBox], nets: &mut Vec<Vi
             let (_pl_kind, pl_labs) = &exposed[pl_id];
             // PowerLabel's exposed labels generally only have 1 (its own name),
             // exceptional cases like Bus form PowerLabel may have multiple child labels, handle in loop
-            for pl_label_upper in pl_labs.keys() {
+            let mut pl_label_keys: Vec<&String> = pl_labs.keys().collect();
+            pl_label_keys.sort();
+            for pl_label_upper in pl_label_keys {
                 let mut connected: Vec<u32> = Vec::new();
                 for other_id in &ids {
                     if other_id == pl_id {
@@ -1664,7 +1830,11 @@ fn synthesize_rail_nets(table: &InstTable, boxes: &[McVecBox], nets: &mut Vec<Vi
                 }
 
                 let kind = naming::classify_net(&repr_name);
-                let net = VizNet::new(next_nid, repr_name.clone(), kind, endpoints);
+                let role = match &kind {
+                    NetKind::Power | NetKind::Ground => NetRole::Rail { volt: None },
+                    _ => NetRole::Signal,
+                };
+                let net = VizNet::new(next_nid, repr_name.clone(), kind, role, endpoints);
                 nets.push(net);
                 next_nid += 1;
                 synth_count += 1;
@@ -1799,10 +1969,15 @@ fn synthesize_rail_nets(table: &InstTable, boxes: &[McVecBox], nets: &mut Vec<Vi
 
             // ★ P03: synthesize VizNet (both synthesized endpoints pin_id=-1)
             let kind = naming::classify_net(&repr_name);
+            let role = match &kind {
+                NetKind::Power | NetKind::Ground => NetRole::Rail { volt: None },
+                _ => NetRole::Signal,
+            };
             let net = VizNet::new(
                 next_nid,
                 repr_name.clone(),
                 kind,
+                role,
                 vec![
                     EndpointRef::new(a as i64, -1, "(rail)"),
                     EndpointRef::new(b as i64, -1, "(rail)"),

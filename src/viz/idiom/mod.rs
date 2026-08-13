@@ -22,9 +22,24 @@ pub mod report;
 use std::collections::{HashMap, HashSet};
 
 use crate::vector::graph::{McVecBox, McVecGraph, NetKind, Symbol};
-use crate::viz::layout::schematic_radial::collect_connected_net_kinds;
 
 use model::{IdiomInstance, IdiomInstanceKind, InstanceSource, PlacementConstraint};
+
+// ============================================================================
+// ★ M1-1: migrated from schematic_radial.rs — the only function still used
+// ============================================================================
+
+/// Collect `NetKind` for each net endpoint's box_id.
+#[allow(unused)]
+pub(crate) fn collect_connected_net_kinds(graph: &McVecGraph) -> HashMap<i64, Vec<NetKind>> {
+    let mut out: HashMap<i64, Vec<NetKind>> = HashMap::new();
+    for net in &graph.nets {
+        for ep in &net.endpoints {
+            out.entry(ep.box_id).or_default().push(net.kind.clone());
+        }
+    }
+    out
+}
 
 // ============================================================================
 // Data types (legacy read-only)
@@ -790,7 +805,7 @@ fn detect_pulldown_instances(
 mod tests {
     use super::*;
     use crate::vector::graph::boxdef::IoSummary;
-    use crate::vector::graph::{BoxKind, EndpointRef, McVecBox, Symbol, VizNet};
+    use crate::vector::graph::{BoxKind, EndpointRef, McVecBox, NetRole, Symbol, VizNet};
 
     fn make_box(id: i64, name: &str, symbol: Symbol, x: f64, y: f64, w: f64, h: f64) -> McVecBox {
         let mut b = McVecBox::new_v2(
@@ -803,6 +818,8 @@ mod tests {
             None,
             2,
             IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         );
         b.x = x;
         b.y = y;
@@ -822,6 +839,8 @@ mod tests {
             None,
             8,
             IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         );
         b.x = x;
         b.y = y;
@@ -874,12 +893,14 @@ mod tests {
             1,
             "VDD_3V3".into(),
             NetKind::Power,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 1, "VDD"), EndpointRef::new(2, 2, "1")],
         );
         let net_gnd = VizNet::new(
             2,
             "GND".into(),
             NetKind::Ground,
+            NetRole::Signal,
             vec![EndpointRef::new(2, 2, "2"), EndpointRef::new(1, 1, "GND")],
         );
 
@@ -912,12 +933,14 @@ mod tests {
             1,
             "VDD_3V3".into(),
             NetKind::Power,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 1, "VDD"), EndpointRef::new(2, 2, "1")],
         );
         let net_gnd = VizNet::new(
             2,
             "GND".into(),
             NetKind::Ground,
+            NetRole::Signal,
             vec![EndpointRef::new(2, 2, "2"), EndpointRef::new(1, 1, "GND")],
         );
 
@@ -946,12 +969,14 @@ mod tests {
             1,
             "DIO_MIC_P".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 1, "1")],
         );
         let net_n = VizNet::new(
             2,
             "DIO_MIC_N".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![EndpointRef::new(2, 2, "1")],
         );
 
@@ -985,12 +1010,14 @@ mod tests {
             1,
             "SIG_P".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 1, "1")],
         );
         let net_n = VizNet::new(
             2,
             "SIG_N".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![EndpointRef::new(2, 2, "1")],
         );
 
@@ -1022,12 +1049,14 @@ mod tests {
             1,
             "SIGNAL".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 1, "1")],
         );
         let net_pwr = VizNet::new(
             2,
             "VDD_3V3".into(),
             NetKind::Power,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 1, "2")],
         );
 
@@ -1058,12 +1087,14 @@ mod tests {
             1,
             "SIGNAL".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 1, "1")],
         );
         let net_gnd = VizNet::new(
             2,
             "GND".into(),
             NetKind::Ground,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 1, "2")],
         );
 
@@ -1094,12 +1125,14 @@ mod tests {
             1,
             "SIGNAL".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 1, "1")],
         );
         let net_gnd = VizNet::new(
             2,
             "GND".into(),
             NetKind::Ground,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 1, "2")],
         );
 
@@ -1132,12 +1165,14 @@ mod tests {
             1,
             "VDD_3V3".into(),
             NetKind::Power,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 1, "VDD"), EndpointRef::new(2, 2, "1")],
         );
         let net_gnd = VizNet::new(
             2,
             "GND".into(),
             NetKind::Ground,
+            NetRole::Signal,
             vec![EndpointRef::new(2, 2, "2"), EndpointRef::new(1, 1, "GND")],
         );
 
@@ -1169,12 +1204,14 @@ mod tests {
             1,
             "VDD_3V3".into(),
             NetKind::Power,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 1, "VDD"), EndpointRef::new(2, 2, "1")],
         );
         let net_gnd = VizNet::new(
             2,
             "GND".into(),
             NetKind::Ground,
+            NetRole::Signal,
             vec![EndpointRef::new(2, 2, "2"), EndpointRef::new(1, 1, "GND")],
         );
 
@@ -1208,6 +1245,7 @@ mod tests {
             1,
             "VDD_3V3".into(),
             NetKind::Power,
+            NetRole::Signal,
             vec![
                 EndpointRef::new(1, 1, "VDD"),
                 EndpointRef::new(2, 2, "1"),
@@ -1218,12 +1256,14 @@ mod tests {
             2,
             "GND".into(),
             NetKind::Ground,
+            NetRole::Signal,
             vec![EndpointRef::new(2, 2, "2")],
         );
         let net_sig = VizNet::new(
             3,
             "SIG".into(),
             NetKind::Signal,
+            NetRole::Signal,
             vec![EndpointRef::new(3, 3, "2")],
         );
 
@@ -1255,12 +1295,14 @@ mod tests {
             1,
             "VDD_3V3".into(),
             NetKind::Power,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 1, "VDD"), EndpointRef::new(2, 2, "1")],
         );
         let net_gnd = VizNet::new(
             2,
             "GND".into(),
             NetKind::Ground,
+            NetRole::Signal,
             vec![EndpointRef::new(2, 2, "2")],
         );
 
@@ -1298,12 +1340,14 @@ mod tests {
             1,
             "VDD_3V3".into(),
             NetKind::Power,
+            NetRole::Signal,
             vec![EndpointRef::new(1, 1, "VDD"), EndpointRef::new(2, 2, "1")],
         );
         let net_gnd = VizNet::new(
             2,
             "GND".into(),
             NetKind::Ground,
+            NetRole::Signal,
             vec![EndpointRef::new(2, 2, "2"), EndpointRef::new(1, 1, "GND")],
         );
 

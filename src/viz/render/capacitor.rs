@@ -166,6 +166,8 @@ mod tests {
             value.map(String::from),
             2,
             IoSummary::new(),
+            "C1".to_string(),
+            Vec::new(),
         );
         b.x = 50.0;
         b.y = 60.0;

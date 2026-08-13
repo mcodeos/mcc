@@ -137,6 +137,8 @@ mod tests {
             None,
             pins.len(),
             IoSummary::new(),
+            "MCU".to_string(),
+            Vec::new(),
         );
         b.x = 100.0;
         b.y = 50.0;
@@ -216,6 +218,8 @@ mod tests {
             None,
             0,
             IoSummary::new(),
+            "X".to_string(),
+            Vec::new(),
         );
         b.x = 0.0;
         b.y = 0.0;

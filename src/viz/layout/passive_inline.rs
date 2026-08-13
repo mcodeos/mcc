@@ -32,7 +32,8 @@
 use std::collections::HashSet;
 
 use crate::vector::graph::{
-    BoxKind, EndpointRef, EntryPoint, EntrySide, McVecBox, McVecGraph, NetKind, VisualRole, VizNet,
+    BoxKind, EndpointRef, EntryPoint, EntrySide, McVecBox, McVecGraph, NetKind, NetRole, VisualRole,
+    VizNet,
 };
 
 use super::rails::is_rail_box;
@@ -171,6 +172,7 @@ pub fn collapse_passives(graph: &mut McVecGraph) -> PassiveStash {
             splice_nid,
             sides[0].4.clone(),
             merge_kind(&sides[0].3, &sides[1].3),
+            NetRole::Signal,
             vec![sides[0].2.clone(), sides[1].2.clone()],
         );
 
@@ -1601,7 +1603,7 @@ mod m11_diagnostic_tests {
     use super::*;
     use crate::vector::graph::boxdef::{EntryPoint, EntrySide, IoSummary, McVecBox};
     use crate::vector::graph::kinds::NetKind;
-    use crate::vector::graph::netdef::{EndpointRef, IoDirection, VizNet};
+    use crate::vector::graph::netdef::{EndpointRef, IoDirection, NetRole, VizNet};
 
     fn make_box(id: i64, name: &str, w: f64, h: f64, x: f64, y: f64) -> McVecBox {
         let mut b = McVecBox::new(
@@ -1623,6 +1625,7 @@ mod m11_diagnostic_tests {
         VizNet {
             nid: 0,
             name: name.to_string(),
+            role: NetRole::Signal,
             endpoints: endpoints
                 .into_iter()
                 .map(|(box_id, pin_id)| EndpointRef {

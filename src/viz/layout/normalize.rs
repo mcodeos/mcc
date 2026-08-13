@@ -97,7 +97,7 @@ pub fn compute_canvas(graph: &McVecGraph) -> (f64, f64) {
 mod tests {
     use super::*;
     use crate::vector::graph::boxdef::IoSummary;
-    use crate::vector::graph::netdef::{Point, Route, Segment, VizNet};
+    use crate::vector::graph::netdef::{Point, Route, Segment, NetRole, VizNet};
     use crate::vector::graph::{BoxKind, McVecBox, NetKind, Symbol};
 
     #[test]
@@ -113,13 +113,15 @@ mod tests {
             None,
             2,
             IoSummary::new(),
+            "b".to_string(),
+            Vec::new(),
         );
         b.x = -70.0;
         b.y = 10.0;
         b.w = 20.0;
         b.h = 20.0;
         g.boxes.push(b);
-        let mut net = VizNet::new(0, "n".into(), NetKind::Signal, vec![]);
+        let mut net = VizNet::new(0, "n".into(), NetKind::Signal, NetRole::Signal, vec![]);
         let mut r = Route::new();
         r.segments.push(Segment {
             from: Point::new(-70.0, 20.0),

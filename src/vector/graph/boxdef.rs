@@ -128,6 +128,44 @@ pub struct BoxPin {
     pub description: String,
     /// Pin direction (input / output / power / ...)
     pub io: IoDirection,
+    /// ★ M0-2: 模块端口方向（in/out/io/ps），非端口为 PortDir::None
+    pub port_dir: PortDir,
+}
+
+// ============================================================================
+// ★ M0-3: PinConstraint — 引脚布局约束等级
+// ============================================================================
+
+/// 引脚布局约束等级
+///
+/// 规则：
+/// - 源码写了 `layout` 块 → `FixedOrder`（边和顺序都固定，只允许整体镜像/旋转）
+/// - 否则 → `Free`（布局器可自由分配引脚到任意边、任意顺序）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PinConstraint {
+    /// 布局器可自由分配引脚到任意边、任意顺序（当前行为）
+    #[default]
+    Free,
+    /// 边固定，边内顺序可调
+    FixedSide,
+    /// 边和顺序都固定，只允许整体镜像/旋转
+    FixedOrder,
+}
+
+// ============================================================================
+// ★ M0-2: PortDir — 模块端口方向
+// ============================================================================
+
+/// 模块端口方向（来自 `in` / `out` / `io` / `ps` 声明）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PortDir {
+    In,
+    Out,
+    Io,
+    #[default]
+    Ps,
+    /// 非端口（器件引脚）
+    None,
 }
 
 impl BoxPin {
@@ -150,8 +188,8 @@ impl BoxPin {
 /// left to right).
 ///
 /// ## Source / Consumer
-/// - **Source** (reserved, to be wired later): `core`'s `McComponent.layout` -> convert to this struct ->
-///   `McVecBox::set_layout_hint`. Today the builder doesn't fill it -> `layout_hint` is always `None`.
+/// - **Source**: `core`'s `McComponent.layout` -> convert to this struct ->
+///   `McVecBox::set_layout_hint` (filled by `fromblock.rs::apply_reserved_overrides`).
 /// - **Consumer** (in place): `entry_points::compute_entry_points` finds `layout_hint` non-empty then
 ///   assigns edges / sorts by it, otherwise goes through `classify_pin` heuristic. Pins not listed in
 ///   the layout fall back to the heuristic, ensuring none are missed.
@@ -260,6 +298,18 @@ pub struct McVecBox {
     pub class_name: String,
     pub kind: BoxKind,
 
+    /// ★ M0: full hierarchical instance path
+    ///
+    /// `"main.modldo.ldo"` vs `"main.mcu513.ldo"` — this is the prerequisite
+    /// for M2 zone partitioning. `name` is still the leaf segment.
+    pub inst_path: String,
+
+    /// ★ M0: parent module chain (excluding the leaf)
+    ///
+    /// `"main.modldo.ldo"` → `["main", "main.modldo"]`.
+    /// Computed from `inst_path` by splitting on `'.'`.
+    pub scope_chain: Vec<String>,
+
     /// ★ P01: component symbol type (R / C / IC / power / ...)
     ///
     /// Filled once by the builder in the `detect_symbol` phase, then read-only and unchanged.
@@ -308,6 +358,15 @@ pub struct McVecBox {
     /// see [`PinLayout`].
     pub layout_hint: Option<PinLayout>,
 
+    /// ★ M0-3: 引脚布局约束等级。有 layout 块 → FixedOrder，否则 Free。
+    pub pin_constraint: PinConstraint,
+
+    /// ★ M0-B-D: 不焊接标记（来自 InstEntry.not_fitted）
+    pub not_fitted: bool,
+
+    /// ★ M0-B-E: 实例来源（声明 vs funcall），来自 InstEntry.origin
+    pub origin: crate::instant::insttab::InstOrigin,
+
     /// ★ Reserved interface ②: user-customized component symbol. `None` = uses system-provided
     /// symbol (default). Filled by builder later based on class_name hitting user symbol library;
     /// see [`CustomSymbol`].
@@ -347,6 +406,7 @@ impl McVecBox {
         pin_count: usize,
         io_summary: IoSummary,
     ) -> Self {
+        let inst_path = name.clone();
         Self::new_v2(
             id,
             name,
@@ -357,6 +417,8 @@ impl McVecBox {
             None,
             pin_count,
             io_summary,
+            inst_path,
+            Vec::new(),
         )
     }
 
@@ -374,12 +436,16 @@ impl McVecBox {
         value: Option<String>,
         pin_count: usize,
         io_summary: IoSummary,
+        inst_path: String,
+        scope_chain: Vec<String>,
     ) -> Self {
         Self {
             id,
             name,
             class_name,
             kind,
+            inst_path,
+            scope_chain,
             symbol,
             designator,
             value,
@@ -393,6 +459,9 @@ impl McVecBox {
             pins: Vec::new(),
             label_placements: Vec::new(),
             layout_hint: None,
+            pin_constraint: PinConstraint::Free,
+            not_fitted: false,
+            origin: crate::instant::insttab::InstOrigin::Declared,
             custom_symbol: None,
             visual_role: None,
             geom_locked: false,
@@ -457,4 +526,26 @@ impl McVecBox {
     pub fn display_label(&self) -> &str {
         self.designator.as_deref().unwrap_or(&self.name)
     }
+}
+
+// ============================================================================
+// ZoneBorder — 功能分区边框（M2-3）
+// ============================================================================
+
+/// 一个 zone 的边框信息，供渲染器画虚线圆角矩形 + 标题
+#[derive(Debug, Clone)]
+pub struct ZoneBorder {
+    /// x 坐标
+    pub x: f64,
+    /// y 坐标
+    pub y: f64,
+    /// 宽度
+    pub w: f64,
+    /// 高度
+    pub h: f64,
+    /// 标题
+    pub title: String,
+    /// 标题锚点
+    pub title_x: f64,
+    pub title_y: f64,
 }

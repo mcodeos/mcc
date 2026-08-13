@@ -26,13 +26,7 @@ use crate::output::{
 use anyhow::{Context, Result};
 use mcc::cli::{rpcclient::RpcClient, BuildArgs, OutputFormat};
 use mcc::mcc_dbg;
-use mcc::viz::{
-    layout::{
-        FlowLayouter, HierarchicalLayouter, LayeredLayouter, RadialLayouter,
-        SchematicRadialLayouter, SchematicSubLayouter,
-    },
-    traits::Layouter,
-};
+use mcc::viz::layout::FlowLayouter;
 use mcc::McIds;
 use serde_json::json;
 use std::path::{Path, PathBuf};
@@ -266,6 +260,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             let mut svgs: Vec<(String, String)> = Vec::new();
             let mut total_boxes = 0;
             let mut total_edges = 0;
+            let mut netcheck_errors = 0usize;
 
             for mod_name in &modules_in_file {
                 let mod_ident: McIds = McIds::from(mod_name.as_str());
@@ -273,9 +268,18 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
                 match mcc::mcc_build_flat(&mod_ident, &mod_uri, 1000) {
                     Ok((mod_inst, mod_table)) => {
-                        // ★ netcheck: 网表体检
+                        // ★ netcheck Tier 0: 网表体检（硬闸门，不绿则跳过该模块的 viz）
                         let nc_report = mcc::instant::netcheck::run(&mod_table);
                         nc_report.print();
+                        if !nc_report.is_clean() {
+                            netcheck_errors += 1;
+                            mcc_dbg!(
+                                "build",
+                                "[gate] NETCHECK Tier 0 not clean for '{}' -> skip viz.",
+                                mod_name
+                            );
+                            continue;
+                        }
 
                         mcc::vector::builder::reset_np_warn_count();
                         let (vec_block, _report) =
@@ -304,6 +308,9 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             }
 
             if svgs.is_empty() {
+                if netcheck_errors > 0 {
+                    return Ok(BuildOutcome { exit_code: 1 });
+                }
                 return Err(anyhow::anyhow!("viz: no modules rendered"));
             }
 
@@ -335,22 +342,21 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             let table = mcc::mcc_build_flat(&ident, &entry_uri, 1000)
                 .map_err(|e| anyhow::anyhow!("mcc_build_flat failed: {}", e))?;
 
-            // Pipeline diagnostics gated behind MC_VIZ_DUMP (silent by default).
-            if mcc::viz::log::enabled() {
-                let sub = inst.sub_modules.iter().find(|s| s.name == "mcu513");
-                mcc_dbg!(
-                    "build",
-                    "[CHK] inst-side mcu513.components = {}",
-                    sub.map(|s| s.components.len()).unwrap_or(0)
-                );
-                mcc_dbg!("build", "[DUMP] ====== InstTable contents ======");
-                table.1.dump();
-                mcc_dbg!("build", "[DUMP] ==============================");
-            }
-
-            // ★ netcheck: 网表体检（Tier 0 · NETLIST CORRECTNESS）
+            // ★ netcheck Tier 0: 网表体检（硬闸门，不绿则直接 fail）
             let nc_report = mcc::instant::netcheck::run(&table.1);
             nc_report.print();
+
+            // ★ M1-4: 对齐度量（自测版）
+            let align_report = mcc::viz::metrics::align::AlignMetricsReport::compute(&table.1);
+            align_report.print();
+
+            if !nc_report.is_clean() {
+                mcc_dbg!(
+                    "build",
+                    "[gate] NETCHECK Tier 0 not clean -> build failed."
+                );
+                return Ok(BuildOutcome { exit_code: 1 });
+            }
 
             let (vec_block, build_report) = mcc::build_mc_vec_with_report(&inst, &table.1);
             let graph = mcc::build_mc_vec_graph(&vec_block, &table.1);
@@ -435,62 +441,22 @@ fn emit_err(fmt: &OutputFormat, err: RpcError) -> Result<()> {
 fn build_viz_opts(layouter_name: Option<&str>) -> mcc::viz::api::RenderOpts {
     let mut opts = mcc::viz::api::RenderOpts::default();
     if let Some(name) = layouter_name {
-        let (top, sub, top_cands, sub_cands): (
-            Box<dyn Layouter>,
-            Box<dyn Layouter>,
-            Vec<Box<dyn Layouter>>,
-            Vec<Box<dyn Layouter>>,
-        ) = match name {
-            "flow" => (
-                Box::new(FlowLayouter::default()),
-                Box::new(FlowLayouter::sub()),
-                vec![Box::new(FlowLayouter::default())],
-                vec![Box::new(FlowLayouter::sub())],
-            ),
-            "schematic_radial" => (
-                Box::new(SchematicRadialLayouter::default()),
-                Box::new(FlowLayouter::sub()),
-                vec![Box::new(SchematicRadialLayouter::default())],
-                vec![Box::new(FlowLayouter::sub())],
-            ),
-            "schematic_sub" => (
-                Box::new(FlowLayouter::default()),
-                Box::new(SchematicSubLayouter::default()),
-                vec![Box::new(FlowLayouter::default())],
-                vec![Box::new(SchematicSubLayouter::default())],
-            ),
-            "hierarchical" => (
-                Box::new(HierarchicalLayouter::default()),
-                Box::new(FlowLayouter::sub()),
-                vec![Box::new(HierarchicalLayouter::default())],
-                vec![Box::new(FlowLayouter::sub())],
-            ),
-            "radial" => (
-                Box::new(RadialLayouter),
-                Box::new(RadialLayouter),
-                vec![Box::new(RadialLayouter)],
-                vec![Box::new(RadialLayouter)],
-            ),
-            "layered" => (
-                Box::new(LayeredLayouter::default()),
-                Box::new(LayeredLayouter::sub()),
-                vec![Box::new(LayeredLayouter::default())],
-                vec![Box::new(LayeredLayouter::sub())],
-            ),
+        match name {
+            "flow" => {
+                opts.top_layouter = Box::new(FlowLayouter::default());
+                opts.sub_layouter = Box::new(FlowLayouter::sub());
+                opts.top_candidates = vec![Box::new(FlowLayouter::default())];
+                opts.sub_candidates = vec![Box::new(FlowLayouter::sub())];
+                mcc_dbg!("build", "[viz] locked layouter: top=flow sub=flow");
+            }
             other => {
                 mcc_dbg!(
                     "build",
-                    "[viz] unknown layouter '{}', using default. Choices: flow|schematic_radial|schematic_sub|hierarchical|radial|layered",
+                    "[viz] unknown layouter '{}', using default (flow). Only 'flow' is supported.",
                     other
                 );
-                return opts;
             }
-        };
-        opts.top_layouter = top;
-        opts.sub_layouter = sub;
-        opts.top_candidates = top_cands;
-        opts.sub_candidates = sub_cands;
-        mcc_dbg!("build", "[viz] locked layouter: top={} sub={}", name, name);
+        }
     }
     opts
 }

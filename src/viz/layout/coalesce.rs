@@ -43,7 +43,7 @@
 
 use std::collections::HashMap;
 
-use crate::vector::graph::netdef::{EndpointRef, VizNet};
+use crate::vector::graph::netdef::{EndpointRef, NetRole, VizNet};
 use crate::vector::graph::{BoxKind, McVecGraph, NetKind};
 
 use super::rails::is_rail_box;
@@ -144,7 +144,7 @@ pub fn coalesce_equipotential_nets(graph: &mut McVecGraph) -> usize {
             .unwrap_or(NetKind::Signal);
 
         let nid = idxs.iter().map(|&i| old[i].nid).min().unwrap_or(0);
-        let mut merged = VizNet::new(nid, name, kind, endpoints);
+        let mut merged = VizNet::new(nid, name, kind, NetRole::Signal, endpoints);
         merged.src_pos = idxs.iter().find_map(|&i| old[i].src_pos);
 
         crate::vlog!(
@@ -217,7 +217,7 @@ impl Dsu {
 mod tests {
     use super::*;
     use crate::vector::graph::boxdef::IoSummary;
-    use crate::vector::graph::netdef::{EndpointRef, VizNet};
+    use crate::vector::graph::netdef::{EndpointRef, NetRole, VizNet};
     use crate::vector::graph::{McVecBox, McVecGraph, NetKind, Symbol};
     use crate::viz::layout::sp_model::build_sp_model;
 
@@ -234,6 +234,8 @@ mod tests {
             None,
             1,
             io,
+            name.to_string(),
+            Vec::new(),
         )
     }
     fn passive(id: i64, name: &str, class: &str, sym: Symbol) -> McVecBox {
@@ -247,6 +249,8 @@ mod tests {
             None,
             2,
             IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         )
     }
     fn net(nid: i64, name: &str, eps: &[(i64, i64)]) -> VizNet {
@@ -254,6 +258,7 @@ mod tests {
             nid,
             name.into(),
             NetKind::Signal,
+            NetRole::Signal,
             eps.iter()
                 .map(|&(b, p)| EndpointRef::new(b, p, format!("p{p}")))
                 .collect(),

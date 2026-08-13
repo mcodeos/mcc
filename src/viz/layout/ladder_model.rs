@@ -780,7 +780,7 @@ fn box_net_index(graph: &McVecGraph) -> HashMap<i64, Vec<usize>> {
 mod tests {
     use super::*;
     use crate::vector::graph::boxdef::IoSummary;
-    use crate::vector::graph::netdef::{EndpointRef, VizNet};
+    use crate::vector::graph::netdef::{EndpointRef, NetRole, VizNet};
     use crate::vector::graph::{BoxKind, McVecBox, NetKind, Symbol};
 
     // ---- builders ---------------------------------------------------------
@@ -799,6 +799,8 @@ mod tests {
             None,
             2,
             io,
+            name.to_string(),
+            Vec::new(),
         )
     }
 
@@ -813,6 +815,8 @@ mod tests {
             None,
             2,
             IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         )
     }
 
@@ -827,6 +831,8 @@ mod tests {
             None,
             2,
             IoSummary::new(),
+            name.to_string(),
+            Vec::new(),
         );
         b.visual_role = Some(VisualRole::BridgePassive);
         b
@@ -838,6 +844,7 @@ mod tests {
             nid,
             name.into(),
             NetKind::Signal,
+            NetRole::Signal,
             eps.iter()
                 .map(|&(b, p)| EndpointRef::new(b, p, &p.to_string()))
                 .collect(),
