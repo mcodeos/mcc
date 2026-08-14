@@ -9,34 +9,58 @@
 //! 2. zone 间贪心左右排序（信号流：电源 → 主控 → 外设）
 //! 3. 画布大小计算
 
-use super::plan::{Plan, Rect, ZonePlan};
+use super::plan::{Rect, ZonePlan};
 use super::zone::ZoneTree;
-use crate::vector::graph::McVecGraph;
+use crate::vector::graph::{BoxKind, McVecGraph};
 
 /// Zone 纸面排布参数
-const ZONE_GAP: f64 = 40.0; // zone 间距
+const ZONE_GAP: f64 = 80.0; // zone 间距（M4-0: 从 40 增加到 80，预留走线通道）
 const ZONE_PAD: f64 = 20.0; // zone 内边距
 const ZONE_MIN_W: f64 = 200.0; // zone 最小宽度
 const ZONE_MIN_H: f64 = 150.0; // zone 最小高度
-const BOX_W: f64 = 80.0; // 每个 box 估算宽度
-const BOX_H: f64 = 60.0; // 每个 box 估算高度
+const WIRE_CHANNEL: f64 = 60.0; // 走线通道宽度（与 geom.rs 一致）
+const TITLE_H: f64 = 30.0; // 标题栏高度
 const BOX_PER_ROW: usize = 4; // 每行 box 数
+const MIN_CANVAS_W: f64 = 1200.0; // 顶层最小画布宽
+const MIN_CANVAS_H: f64 = 800.0; // 顶层最小画布高
+
+// M4-1a: 子模块专用参数
+const SUB_ZONE_MIN_W: f64 = 120.0; // 子模块 zone 最小宽度
+const SUB_ZONE_MIN_H: f64 = 100.0; // 子模块 zone 最小高度
+const SUB_MIN_CANVAS_W: f64 = 400.0; // 子模块最小画布宽
+const SUB_MIN_CANVAS_H: f64 = 300.0; // 子模块最小画布高
+
+/// 根据 box 类型和 pin 数估算尺寸（与 geom::box_size 保持一致）
+fn est_box_size(kind: &BoxKind, pin_count: usize) -> (f64, f64) {
+    match kind {
+        BoxKind::PowerLabel | BoxKind::Dot => (24.0, 24.0),
+        BoxKind::TwoPin => (80.0, 60.0),
+        BoxKind::MultiPin => {
+            let w = (120.0_f64).max(pin_count as f64 * 10.0);
+            let h = (80.0_f64).max(pin_count as f64 * 8.0);
+            (w, h)
+        }
+        BoxKind::SubModule => {
+            let w = (140.0_f64).max(pin_count as f64 * 10.0);
+            let h = (100.0_f64).max(pin_count as f64 * 8.0);
+            (w, h)
+        }
+    }
+}
 
 /// 计算 zone 的纸面位置
-pub fn place_zones(graph: &McVecGraph, tree: &ZoneTree) -> Vec<ZonePlan> {
+pub fn place_zones(graph: &McVecGraph, tree: &ZoneTree, is_submodule: bool) -> Vec<ZonePlan> {
     if tree.zones.is_empty() {
         return Vec::new();
     }
 
-    // ── 1. 计算每个 zone 的 rect ──
+    // ── 1. 计算每个 zone 的 rect（使用实际 box 尺寸） ──
     let mut zone_rects: Vec<Rect> = Vec::new();
     for zone in &tree.zones {
-        zone_rects.push(compute_zone_rect(zone, graph));
+        zone_rects.push(compute_zone_rect(zone, graph, is_submodule));
     }
 
     // ── 2. 按 zone 间连接数做贪心排序 ──
-    // 简单策略：根据 zone 内 box 数排序（大 zone 优先），
-    // 后续 M3 可以改为按信号流排序
     let order = order_zones_by_size(tree);
 
     // ── 3. 水平排列（左到右） ──
@@ -68,41 +92,53 @@ pub fn place_zones(graph: &McVecGraph, tree: &ZoneTree) -> Vec<ZonePlan> {
         max_h = max_h.max(rect.h);
     }
 
-    // ── 4. 计算画布大小 ──
-    let canvas_w = x + ZONE_PAD;
-    let canvas_h = max_h + ZONE_PAD * 2.0;
-
-    // 把画布大小写回第一个 zone plan（Plan 会从 plans 中推算出 canvas）
-    // 实际 canvas 由 Plan 构造时计算
-    let _ = (canvas_w, canvas_h);
-
     plans
 }
 
-/// 计算 zone 的 rect 大小
-fn compute_zone_rect(zone: &super::zone::Zone, graph: &McVecGraph) -> Rect {
+/// 计算 zone 的 rect 大小（使用实际 box 尺寸 + 走线通道）
+fn compute_zone_rect(zone: &super::zone::Zone, graph: &McVecGraph, is_submodule: bool) -> Rect {
+    let (min_w, min_h) = if is_submodule {
+        (SUB_ZONE_MIN_W, SUB_ZONE_MIN_H)
+    } else {
+        (ZONE_MIN_W, ZONE_MIN_H)
+    };
+
     let box_count = zone.boxes.len();
     if box_count == 0 {
         return Rect {
-            x: 0.0,
-            y: 0.0,
-            w: ZONE_MIN_W,
-            h: ZONE_MIN_H,
+            x: 0.0, y: 0.0,
+            w: min_w,
+            h: min_h,
         };
     }
 
+    // 收集该 zone 内所有 box 的实际尺寸
+    let mut max_w: f64 = 80.0;
+    let mut max_h: f64 = 60.0;
+    let mut found = 0usize;
+    for b in &graph.boxes {
+        if zone.boxes.contains(&b.id) {
+            let (bw, bh) = est_box_size(&b.kind, b.pin_count);
+            max_w = max_w.max(bw);
+            max_h = max_h.max(bh);
+            found += 1;
+        }
+    }
+    if found == 0 {
+        return Rect { x: 0.0, y: 0.0, w: min_w, h: min_h };
+    }
+
+    // 按 arrangement 可能的最大层数估算（最多每层 1 个 box，即 N 层）
+    let max_layers = box_count;
     let cols = BOX_PER_ROW.min(box_count);
     let rows = (box_count + cols - 1) / cols;
 
-    let w = (cols as f64 * BOX_W + ZONE_PAD * 2.0).max(ZONE_MIN_W);
-    let h = (rows as f64 * BOX_H + ZONE_PAD * 2.0).max(ZONE_MIN_H);
+    // 宽度 = 层数 × (max box 宽 + 走线通道) + 内边距
+    let w = (max_layers as f64 * (max_w + WIRE_CHANNEL) + ZONE_PAD * 2.0).max(min_w);
+    // 高度 = 行数 × (max box 高 + 间距) + 标题栏 + 内边距
+    let h = (rows as f64 * (max_h + 10.0) + TITLE_H + ZONE_PAD * 2.0).max(min_h);
 
-    Rect {
-        x: 0.0,
-        y: 0.0,
-        w,
-        h,
-    }
+    Rect { x: 0.0, y: 0.0, w, h }
 }
 
 /// 按 zone 内 box 数排序（大 zone 优先），root 放最前面
@@ -119,8 +155,14 @@ fn order_zones_by_size(tree: &ZoneTree) -> Vec<usize> {
     ids
 }
 
-/// 从 zone plans 计算画布大小
-pub fn compute_canvas(plans: &[ZonePlan]) -> (f64, f64) {
+/// 从 zone plans 计算画布大小（带最小约束，子模块使用更小的最小值）
+pub fn compute_canvas(plans: &[ZonePlan], is_submodule: bool) -> (f64, f64) {
+    let (min_w, min_h) = if is_submodule {
+        (SUB_MIN_CANVAS_W, SUB_MIN_CANVAS_H)
+    } else {
+        (MIN_CANVAS_W, MIN_CANVAS_H)
+    };
+
     let mut max_x = 0.0f64;
     let mut max_y = 0.0f64;
 
@@ -131,7 +173,9 @@ pub fn compute_canvas(plans: &[ZonePlan]) -> (f64, f64) {
         max_y = max_y.max(bottom);
     }
 
-    (max_x + ZONE_PAD, max_y + ZONE_PAD)
+    let w = (max_x + ZONE_PAD).max(min_w);
+    let h = (max_y + ZONE_PAD).max(min_h);
+    (w, h)
 }
 
 // ============================================================================
@@ -168,7 +212,7 @@ mod tests {
         graph.boxes.push(make_box(3, "main.C1", BoxKind::TwoPin));
 
         let tree = super::super::zone::ZoneTree::build(&graph);
-        let plans = place_zones(&graph, &tree);
+        let plans = place_zones(&graph, &tree, false);
         assert_eq!(plans.len(), 1);
         assert!(plans[0].rect.w >= ZONE_MIN_W);
         assert!(plans[0].rect.h >= ZONE_MIN_H);
@@ -183,7 +227,7 @@ mod tests {
         graph.boxes.push(make_box(4, "main.speaker.SPK", BoxKind::MultiPin));
 
         let tree = super::super::zone::ZoneTree::build(&graph);
-        let plans = place_zones(&graph, &tree);
+        let plans = place_zones(&graph, &tree, false);
         // 4 个单 box zone → 每个都应非零
         assert!(plans.len() >= 1);
         for plan in &plans {
@@ -210,7 +254,7 @@ mod tests {
                 title: String::new(),
             },
         ];
-        let (w, h) = compute_canvas(&plans);
+        let (w, h) = compute_canvas(&plans, false);
         assert!(w >= 440.0 + ZONE_PAD);
         assert!(h >= 150.0 + ZONE_PAD);
     }

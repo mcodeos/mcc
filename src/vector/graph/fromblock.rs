@@ -279,8 +279,13 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
 /// (`is_top_level = false`) doesn't synthesize, avoiding adding a set of power symbols out of
 /// thin air at every layer.
 pub fn build_mc_vec_graph(block: &McVecBlock, table: &InstTable) -> McVecGraph {
-    let graph = build_mc_vec_graph_inner(block, table, /*is_top_level=*/ true);
-    super::netprobe::probe_block_to_graph(block, &graph); // ★ NEW
+    // ── ★ P7-2: pass2 → viz 投影层（viz/project.rs，全调用方唯一必经点）──
+    // 清洗三类网表噪声（标量 stub ∪ 成员网 / 同端口重复端点 / rail label 伪端点）。
+    // 这是 vector→viz 的唯一反向依赖：投影是 viz 侧策略，必须在边界统一生效。
+    // 审计日志见 baseline/render_projection.md。
+    let (projected, _projection_log) = crate::viz::project::project_block_tree(block, table);
+    let graph = build_mc_vec_graph_inner(&projected, table, /*is_top_level=*/ true);
+    super::netprobe::probe_block_to_graph(&projected, &graph); // ★ NEW
     graph
 }
 
@@ -303,17 +308,31 @@ fn build_mc_vec_graph_inner(
     // ── Phase 1: block.insts -> boxes (duck typing recognition) ──
     let mut box_ids_set: std::collections::HashSet<u32> = std::collections::HashSet::new();
 
+    eprintln!(
+        "[graph] build_mc_vec_graph_inner: bid={}, block.insts has {} entries: {:?}",
+        block.bid,
+        block.insts.len(),
+        &block.insts
+    );
+
     for &iid in &block.insts {
         if iid < 0 {
             continue;
         }
         let id = iid as u32;
+        // ★ M4-fix: 顶层模块自身不应作为 SubModule 框出现在原理图中
+        // block.insts 可能包含顶层模块自身的 bid，detect_kind 会将其识别为 SubModule
+        if is_top_level && id == block.bid as u32 {
+            continue;
+        }
         if box_ids_set.contains(&id) {
             continue;
         }
         let entry = match table.get_entry(id) {
             Some(e) => e,
-            None => continue,
+            None => {
+                continue;
+            }
         };
         let name = extract_last_segment(&entry.path);
         let detected = detect_kind(table, id);
@@ -462,45 +481,92 @@ fn build_mc_vec_graph_inner(
     }
 
     // ── ★ Phase 1.3: backfill all remaining children of the module that weren't in block.insts ─
-    // This catches label entries (VCC/Vin) that are registered in InstTable but weren't pushed
-    // into block.insts by the builder (labels are not "components" so they may be skipped).
-    for child in table.children_of(block.bid as u32) {
-        if box_ids_set.contains(&child.id) {
-            continue;
+    // This catches label entries (VCC/Vin) and fitted Components/Modules that are registered
+    // in InstTable but weren't pushed into block.insts by the builder.
+    // ★ M4-1B: recursively backfill Components/Modules at multiple levels (children,
+    // grandchildren, great-grandchildren), mirroring the visit.rs backfill.
+    fn backfill_children_recursive(
+        graph: &mut McVecGraph,
+        table: &InstTable,
+        box_ids_set: &mut std::collections::HashSet<u32>,
+        parent_id: u32,
+        depth: u32,
+    ) {
+        const MAX_DEPTH: u32 = 3; // children, grandchildren, great-grandchildren
+        if depth > MAX_DEPTH {
+            return;
         }
-        // Only process Leaf entries: Labels. Components/Modules/Ports are already handled above.
-        // Bus members are handled in DetectedKind::Skip branch above.
-        if matches!(child.kind, InstKind::Label | InstKind::Bus) {
-            let cname = extract_last_segment(&child.path);
-            let detected = detect_kind(table, child.id);
-            // Skip power labels (already handled in main loop via block.insts or already processed)
-            if matches!(detected, DetectedKind::PowerLabel) {
+        for child in table.children_of(parent_id) {
+            if box_ids_set.contains(&child.id) {
+                // Already has a box — still recurse into Components for nested fitted components.
+                // ★ Do NOT recurse into Module (sub-module instances): their children are handled
+                // by the sub-module's own graph construction.
+                if matches!(child.kind, InstKind::Component) {
+                    backfill_children_recursive(graph, table, box_ids_set, child.id, depth + 1);
+                }
                 continue;
             }
-            // Skip bus (members handled in Skip branch)
-            if matches!(detected, DetectedKind::Skip) {
-                continue;
-            }
-            if matches!(detected, DetectedKind::Label) {
-                let inst_path = child.path.clone();
-                let scope_chain = compute_scope_chain(&inst_path);
-                graph.boxes.push(McVecBox::new_v2(
-                    child.id as i64,
-                    cname,
-                    String::new(),
-                    BoxKind::Dot,
-                    Symbol::Dot,
-                    None,
-                    None,
-                    0,
-                    IoSummary::new(),
-                    inst_path,
-                    scope_chain,
-                ));
-                box_ids_set.insert(child.id);
+            match child.kind {
+                InstKind::Label | InstKind::Bus => {
+                    let cname = extract_last_segment(&child.path);
+                    let detected = detect_kind(table, child.id);
+                    if matches!(detected, DetectedKind::PowerLabel | DetectedKind::Skip) {
+                        continue;
+                    }
+                    if matches!(detected, DetectedKind::Label) {
+                        let inst_path = child.path.clone();
+                        let scope_chain = compute_scope_chain(&inst_path);
+                        graph.boxes.push(McVecBox::new_v2(
+                            child.id as i64,
+                            cname,
+                            String::new(),
+                            BoxKind::Dot,
+                            Symbol::Dot,
+                            None,
+                            None,
+                            0,
+                            IoSummary::new(),
+                            inst_path,
+                            scope_chain,
+                        ));
+                        box_ids_set.insert(child.id);
+                    }
+                }
+                InstKind::Component => {
+                    // ★ M4-1B: backfill fitted components not in block.insts
+                    if let Some(b) = make_box_from_id(table, child.id) {
+                        eprintln!(
+                            "[graph] Phase 1.3 backfill: '{}' (id={}, kind={:?}) depth={}",
+                            extract_last_segment(&child.path),
+                            child.id,
+                            child.kind,
+                            depth
+                        );
+                        graph.boxes.push(b);
+                        box_ids_set.insert(child.id);
+                    }
+                    // Recurse into children for nested fitted components (e.g. IC -> fitted CAP)
+                    backfill_children_recursive(graph, table, box_ids_set, child.id, depth + 1);
+                }
+                InstKind::Module => {
+                    // Module not in block.insts: create a box but do NOT recurse into children.
+                    // The sub-module's children are handled by its own graph construction.
+                    if let Some(b) = make_box_from_id(table, child.id) {
+                        eprintln!(
+                            "[graph] Phase 1.3 backfill: '{}' (id={}, kind=Module) depth={}",
+                            extract_last_segment(&child.path),
+                            child.id,
+                            depth
+                        );
+                        graph.boxes.push(b);
+                        box_ids_set.insert(child.id);
+                    }
+                }
+                _ => {} // Port, Pin, etc. — skip
             }
         }
     }
+    backfill_children_recursive(&mut graph, table, &mut box_ids_set, block.bid as u32, 0);
 
     // ── ★ Phase 1.45: module with ports but no box → create SubModule box ─────────────────────
     //
@@ -512,7 +578,7 @@ fn build_mc_vec_graph_inner(
     //
     // This phase creates a SubModule box for the module itself, with its ports as pins, so the
     // viz can render a module frame with port pins on the edges.
-    if block.bid >= 0 {
+    if block.bid >= 0 && !is_top_level {
         let mod_id = block.bid as u32;
         if !box_ids_set.contains(&mod_id) {
             if let Some(mod_entry) = table.get_entry(mod_id) {
@@ -549,85 +615,44 @@ fn build_mc_vec_graph_inner(
         }
     }
 
-    // ── ★ Phase 1.46: Virtual Top Module Border ──────────────────────────────────────────────
-    //
-    // When rendering a module as a standalone top-level module (virtual instantiation),
-    // we need to wrap all internal components in a dashed-border rectangle to indicate
-    // that this is the module boundary.
-    //
-    // This creates a SubModule box that contains all the module's internal components,
-    // with the module's ports as pins on the border.
-    //
-    // This is triggered when:
-    // 1. The module has internal instances (Components/Labels/Buses)
-    // 2. This is a top-level render (virtual instantiation mode)
+    // ── ★ Phase 1.46: Virtual Top Module Border ──
+    // 为顶层模块创建虚线边框，但不渲染模块名（避免出现 "main" 标签）。
     if is_top_level {
-        // Check if module has internal instances (Components)
         let has_components = block.insts.iter().any(|&iid| {
-            if iid < 0 {
-                return false;
-            }
-            if let Some(entry) = table.get_entry(iid as u32) {
-                matches!(entry.kind, InstKind::Component)
-            } else {
-                false
-            }
+            if iid < 0 { return false; }
+            table.get_entry(iid as u32).map_or(false, |e| matches!(e.kind, InstKind::Component))
         });
 
         if has_components {
-            // Use a unique ID for the border box (negative to avoid conflict with positive instance IDs)
-            // The ID is derived from the module's internal component IDs
-            let first_component_id = block
-                .insts
-                .iter()
-                .find(|&iid| {
-                    if *iid < 0 {
-                        return false;
-                    }
-                    if let Some(entry) = table.get_entry(*iid as u32) {
-                        matches!(entry.kind, InstKind::Component)
-                    } else {
-                        false
-                    }
-                })
-                .copied();
+            let first_component_id = block.insts.iter().find(|&iid| {
+                if *iid < 0 { return false; }
+                table.get_entry(*iid as u32).map_or(false, |e| matches!(e.kind, InstKind::Component))
+            }).copied();
 
             if let Some(comp_id) = first_component_id {
                 let border_id = -(comp_id as i64);
                 if !box_ids_set.contains(&(border_id as u32)) {
-                    // Count the internal instances (components + labels)
-                    let internal_count = block
-                        .insts
-                        .iter()
-                        .filter(|&iid| {
-                            if *iid < 0 {
-                                return false;
-                            }
-                            if let Some(entry) = table.get_entry(*iid as u32) {
-                                matches!(entry.kind, InstKind::Component | InstKind::Label)
-                            } else {
-                                false
-                            }
+                    let internal_count = block.insts.iter().filter(|&iid| {
+                        if *iid < 0 { return false; }
+                        table.get_entry(*iid as u32).map_or(false, |e| {
+                            matches!(e.kind, InstKind::Component | InstKind::Label)
                         })
-                        .count();
+                    }).count();
 
-                    // Set a reasonable pin_count so layout can compute size
-                    let inst_path = root_name.clone();
-                    let scope_chain = Vec::new();
+                    // ★ 使用空字符串作为 name，避免渲染 "main" 标签
                     let mut b = McVecBox::new_v2(
                         border_id,
-                        root_name.clone(),
-                        root_name.clone(), // class_name = name for virtual modules
+                        String::new(), // name = "" → 不渲染标签
+                        String::new(), // class_name = ""
                         BoxKind::SubModule,
                         Symbol::Module,
                         None,
                         None,
-                        internal_count.max(1), // pin_count > 0 so ic_size() works
+                        internal_count.max(1),
                         IoSummary::new(),
-                        inst_path,
-                        scope_chain,
+                        String::new(), // inst_path
+                        vec![],        // scope_chain
                     );
-                    // Set initial size/position (will be adjusted by layout_post_adjust_borders)
                     b.w = 800.0;
                     b.h = 600.0;
                     b.x = 0.0;
@@ -725,6 +750,8 @@ fn build_mc_vec_graph_inner(
                         if table.is_bridge_passive(&parent_entry.path) {
                             b.visual_role = Some(VisualRole::BridgePassive);
                         }
+                        // ★ P7-1: Phase 1.5 Case A 合成盒子，G10 可数
+                        b.provenance = super::boxdef::BoxProvenance::SynthesizedFromEndpoint;
                         graph.boxes.push(b);
                         box_ids_set.insert(parent_id);
                         continue;
@@ -856,10 +883,10 @@ fn build_mc_vec_graph_inner(
                 // Phase 2 BFS can map the corresponding connection endpoints to this box, drill-down
                 // no longer loses labels.
                 //
-                // Only triggers when `!is_top_level`: at the top layer, the module's own Port is
-                // already absorbed by the parent layer's SubModule box (line 247-250
-                // parent-in-box_ids_set check), it didn't reach here.
-                if !is_top_level && block.bid >= 0 {
+                // ★ M4-fix: 顶层模块也需要边界标签。之前 !is_top_level 阻止了顶层
+                // 端口创建边界标签框，导致 DAC_OUT/MIC.N 等端口在 Phase 3 丢失端点。
+                // 顶层模块没有 SubModule 框（Phase 1.45 跳过），所以端口无法映射到任何框。
+                if block.bid >= 0 {
                     const MAX_HOPS_E1: u32 = 16;
                     let layer_bid = block.bid as u32;
                     let mut cursor: Option<u32> = entry.parent_id;
@@ -933,7 +960,7 @@ fn build_mc_vec_graph_inner(
             };
             let inst_path = entry.path.clone();
             let scope_chain = compute_scope_chain(&inst_path);
-            graph.boxes.push(McVecBox::new_v2(
+            let mut b = McVecBox::new_v2(
                 u as i64,
                 name,
                 String::new(),
@@ -945,7 +972,10 @@ fn build_mc_vec_graph_inner(
                 IoSummary::new(),
                 inst_path,
                 scope_chain,
-            ));
+            );
+            // ★ P7-1: Phase 1.5 通用 PowerLabel 合成盒子，G10 可数
+            b.provenance = super::boxdef::BoxProvenance::SynthesizedFromEndpoint;
+            graph.boxes.push(b);
             box_ids_set.insert(u);
         }
     }
@@ -979,115 +1009,12 @@ fn build_mc_vec_graph_inner(
         );
     }
 
-    // ── ★ P0-3 Phase 1.6: top-level synthesize missing power/ground PowerLabels ─────────────────────────
-    //
-    // Trigger condition: in code like hbl.mc, the top-level main module only explicitly declares
-    // V1V2/V3V3/V5V power Ports, but sub-modules all expose `GND` ports. Phase 1 doesn't
-    // automatically create `main.GND`, consequences:
-    //   1. The top-level "ground" row (radial::ground_rails bucket) is empty -> visually asymmetric
-    //      (top has V3V3/V5V/V1V2 triangles, bottom is empty)
-    //   2. `GND` not in the `toplevel_rails` set -> Phase 3.5's same-name signal synthesis will
-    //      synthesize each pair of sub-modules' GND-GND into an independent net, producing
-    //      N*(N-1)/2 cross-graph spider webs.
-    //
-    // Fix: before Phase 3, scan (a) `block.nets` names (b) SubModule children's exposed labels,
-    // collect all "is power/ground but top-level doesn't have a corresponding PowerLabel" names,
-    // synthesize PowerLabel placeholders. Give a **unique positive id** to avoid `b.id as u32`
-    // wrap-around issues in build_point_to_box / synthesize_rail_nets due to negative numbers;
-    // simultaneously high-base ids (starting from 1e9) won't collide with real InstTable ids.
-    //
-    // Only effective at the top level (`is_top_level == true`): sub-graph recursion doesn't repeat.
-    if is_top_level {
-        let mut existing_rail_upper: std::collections::HashSet<String> = graph
-            .boxes
-            .iter()
-            .filter(|b| b.kind == BoxKind::PowerLabel)
-            .map(|b| b.name.to_uppercase())
-            .collect();
-
-        // Collect "should have but doesn't" power/ground names (keep original case, priority GND > VSS > V3V3 ...)
-        let mut needed: Vec<String> = Vec::new();
-        let mut needed_upper: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let consider =
-            |name: &str,
-             needed: &mut Vec<String>,
-             needed_upper: &mut std::collections::HashSet<String>,
-             existing_rail_upper: &std::collections::HashSet<String>| {
-                if name.is_empty() {
-                    return;
-                }
-                if !naming::is_power_rail(name) {
-                    return;
-                }
-                let u = name.to_uppercase();
-                if existing_rail_upper.contains(&u) || needed_upper.contains(&u) {
-                    return;
-                }
-                needed_upper.insert(u);
-                needed.push(name.to_string());
-            };
-
-        // (a) Net names themselves: net named GND / V3V3 but no corresponding PowerLabel at top level
-        for net in &block.nets {
-            consider(
-                &net.name,
-                &mut needed,
-                &mut needed_upper,
-                &existing_rail_upper,
-            );
-        }
-
-        // (b) Sub-modules' external power/ground port names: even if net name is anonymous like `__net_N`,
-        //     as long as the sub-module exposes GND, the top level should have a GND triangle to absorb it.
-        for b in &graph.boxes {
-            if b.kind != BoxKind::SubModule || b.id < 0 {
-                continue;
-            }
-            for child in table.children_of(b.id as u32) {
-                let cname = extract_last_segment(&child.path);
-                consider(&cname, &mut needed, &mut needed_upper, &existing_rail_upper);
-            }
-        }
-
-        if !needed.is_empty() {
-            // Choose a stable starting point far above InstTable real ids, avoiding u32 wrap / collision
-            const SYNTH_ID_BASE: i64 = 1_000_000_000;
-            let mut next_synth_id: i64 = graph
-                .boxes
-                .iter()
-                .map(|b| b.id)
-                .max()
-                .unwrap_or(0)
-                .max(SYNTH_ID_BASE)
-                + 1;
-
-            for name in &needed {
-                let is_ground = naming::is_ground(name);
-                let symbol = Symbol::PowerRail { is_ground };
-                crate::velog!(
-                    "[graph] ✓ Phase 1.6 synthesized top-level PowerLabel: {name} \
-                     (id={next_synth_id}, is_ground={is_ground}) -- no explicit '{name}' Port at root"
-                );
-                let inst_path = name.clone();
-                let scope_chain = Vec::new();
-                graph.boxes.push(McVecBox::new_v2(
-                    next_synth_id,
-                    name.clone(),
-                    String::new(),
-                    BoxKind::PowerLabel,
-                    symbol,
-                    None,
-                    None,
-                    0,
-                    IoSummary::new(),
-                    inst_path,
-                    scope_chain,
-                ));
-                existing_rail_upper.insert(name.to_uppercase());
-                next_synth_id += 1;
-            }
-        }
-    }
+    // ── ★ P7-3: Phase 1.6（顶层合成 PowerLabel）已删除 ──────────────────
+    // 它存在的两个前提都被 P7-2/P7-3 拆掉了：
+    //   1. "顶层 rail 端点没有盒子承载" —— 投影层（viz/project.rs）已把 rail 变成
+    //      带声明的真实网（RailSpec），不再需要 PowerLabel 盒子来"吸收"；
+    //   2. "Phase 3.5 同名合成需要 toplevel_rails 集合" —— Phase 3.5 整体删除（见下）。
+    // 端子按纪律 11 降级为 pin 装饰（graph.rail_decorations），不进 boxes。
 
     // ── Phase 2: build point_to_box mapping ──
     let point_to_box = build_point_to_box(table, &graph.boxes);
@@ -1128,8 +1055,11 @@ fn build_mc_vec_graph_inner(
     //
     // Keep multi-endpoint topology directly, no longer split into "pairwise" pairs.
     // Before P03, this simultaneously filled `graph.edges` (binary) and `graph.nets`, P03 cut the former.
+    
+    // ★ DEBUG: print block.nets structure
     graph.nets = generate_viznets_from_block(block, &point_to_box, table, &graph.boxes);
 
+    // ★ DEBUG: print VizNet endpoints with box_ids
     // ★ 节点守恒探针：建图不得改变电气事实。
     // block 侧的每个网络，其端点集合必须原样出现在某一条 VizNet 里。
     probe_node_conservation(block, &graph.nets, &point_to_box);
@@ -1139,15 +1069,10 @@ fn build_mc_vec_graph_inner(
         graph.nets.len()
     );
 
-    // ── Phase 3.5: same-name label synthesize "power/signal rail" nets (★ P03 refactor) ──
-    //
-    // Before P03 produced `McVecEdge` written to `edge_map`, P03 changed to produce `VizNet` added
-    // to `graph.nets`. Synthesized net's endpoints have `pin_id = -1` (no real pin), router/renderer
-    // seeing this will fall back to exiting from the box edge midpoint.
-    let synth = synthesize_rail_nets(table, &graph.boxes, &mut graph.nets);
-    if synth > 0 {
-        crate::velog!("[graph] synthesized {synth} rail net(s) via same-name label match");
-    }
+    // ── ★ P7-3: Phase 3.5（同名 label 合成 rail/信号网）已删除 ───────────
+    // 它是纯名字匹配机（反模式 §2.3"名字即判据"），且在 P7-2 投影之后只会
+    // 产出与真实网重复的假网（main 层实测：MIC/[GND,VCC_1V2]/DAC_OUT/POWER_SYS
+    // 全部与 __net_32/34/V5V.VCC 重复）。跨模块连接由投影后的真实网承载。
 
     // ── M0-2: populate module_ports from port declarations ──
     {
@@ -1574,6 +1499,11 @@ fn is_real_bus(
         };
 
         out.push(VizNet::new(net.nid, net.name.clone(), kind, role, endpoints));
+        // ★ P7-3: 投影层解析的电源网规格（class + driver_pin + volt）原样透传，
+        // layout 的 rail 三分法（R-1/R-2/R-3）消费它。
+        if let Some(spec) = &net.rail {
+            out.last_mut().unwrap().rail = Some(spec.clone());
+        }
     }
 
     out
@@ -1673,422 +1603,8 @@ fn map_all_descendants(
 //  dual-track this path is no longer needed. A net's topology is computed on-the-fly by
 //  `VizNet::topology()`.)
 
-// ============================================================================
-// Internal helper -- same-name signal synthesized rail (Iter 6, P03 refactored to produce VizNet)
-// ============================================================================
-
-/// Scan all boxes' "exposed signal name sets", pairwise intersect to synthesize `VizNet` (rail-synth)
-///
-/// ## ★ P03 refactor
-/// Previously produced `McVecEdge` written to `edge_map`, P03 changed to produce `VizNet` directly
-/// appended to `graph.nets`. Synthesized `VizNet` has these characteristics:
-/// - Both endpoints have `pin_id = -1` (synthesized endpoint, no real pin)
-/// - `kind = naming::classify_net(name)` (classified by representative name Power/Ground/Signal)
-/// - `pin_name = "(rail)"` (unified placeholder name for endpoints, router/renderer can recognize)
-///
-/// Returns the count of newly synthesized nets.
-fn synthesize_rail_nets(table: &InstTable, boxes: &[McVecBox], nets: &mut Vec<VizNet>) -> usize {
-    // Step 1: For each box collect exposed signal set
-    let mut exposed: HashMap<u32, (BoxKind, HashMap<String, String>)> = HashMap::new();
-    for b in boxes {
-        if b.id < 0 {
-            continue;
-        }
-        let bid = b.id as u32;
-        let labels = collect_exposed_labels(table, bid, b);
-        if labels.is_empty() {
-            continue;
-        }
-        exposed.insert(bid, (b.kind.clone(), labels));
-    }
-
-    if exposed.len() < 2 {
-        return 0;
-    }
-
-    // Step 1b: Top-level PowerLabel rail name set (for "redundancy suppression")
-    let toplevel_rails: std::collections::HashSet<String> = boxes
-        .iter()
-        .filter(|b| b.kind == BoxKind::PowerLabel)
-        .map(|b| {
-            if !b.name.is_empty() {
-                b.name.to_uppercase()
-            } else {
-                table
-                    .get_entry(b.id as u32)
-                    .map(|e| extract_last_segment(&e.path).to_uppercase())
-                    .unwrap_or_default()
-            }
-        })
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    // ★ P03: already existing (box-pair, net_name) set, avoid duplicate synthesis
-    let mut existing_pairs: std::collections::HashSet<(i64, i64, String)> =
-        std::collections::HashSet::new();
-    for n in nets.iter() {
-        let ids = n.box_ids();
-        for i in 0..ids.len() {
-            for j in (i + 1)..ids.len() {
-                let key = if ids[i] <= ids[j] {
-                    (ids[i], ids[j], n.name.to_uppercase())
-                } else {
-                    (ids[j], ids[i], n.name.to_uppercase())
-                };
-                existing_pairs.insert(key);
-            }
-        }
-    }
-
-    // Allocate nids for synthesized nets: start from existing max + 1
-    let mut next_nid: i64 = nets.iter().map(|n| n.nid).max().unwrap_or(-1) + 1;
-
-    // Step 2: pairwise to compute intersection
-    let mut ids: Vec<u32> = exposed.keys().copied().collect();
-    ids.sort();
-
-    let mut synth_count = 0;
-
-    // ── ★ ITER-4: PowerLabel-anchored hyperedge synthesis ─────────────────────────────────
-    //
-    // Symptom: old rail-synth only did pairwise pairing, N SubModules all exposing GND produces N
-    //   `PowerLabel(GND) <-> SubModule_k` 2-endpoint VizNets. Router receives N independent
-    //   "Power/Ground x TwoPoint" -> all go Orthogonal, each draws one line, middle area is
-    //   N GND long jumpers crossing each other in a spider web (hbl measured 6 independent GND orthogonal).
-    //
-    // Fix: before the pairwise loop, do a "PowerLabel-anchored hyperedge merge":
-    //   - For each top-level PowerLabel P (e.g. GND / V3V3 / V1V2):
-    //     scan all non-PowerLabel boxes, check if their exposed labels contain P's own label
-    //     (typical case: SubModule exposes "GND" port).
-    //   - If **>= 2** boxes hit, synthesize 1 **single hyperedge** VizNet `[P, b1, b2, ..., bN]`,
-    //     endpoint count = 1 + N >= 3. Router seeing >= 3 endpoints of Power/Ground automatically
-    //     goes TrunkTap, one trunk + multiple taps, visually like real schematic power rails.
-    //   - Simultaneously register all relevant box-pairs into `existing_pairs`, letting the
-    //     subsequent pairwise loop **not** re-synthesize the same (PowerLabel, sub_i) or
-    //     (sub_i, sub_j).
-    //   - When only 1 box hits, **don't** synthesize hyperedge, leave to pairwise loop to produce
-    //     2-endpoint net (consistent with old behavior, avoid regression).
-    //
-    // Compatibility: this step only **reduces** rail-synth net count, doesn't introduce
-    // PowerLabel<->PowerLabel mismatches (skip same-kind pairing), and doesn't conflict with the
-    // "two non-PowerLabel" no-merge rule (P1-5) -- our hyperedges are always anchored by PowerLabel,
-    // the rest are SubModule/MultiPin.
-    {
-        // Collect PowerLabel ids, decide iteration order (id ascending ensures determinism)
-        let pl_ids: Vec<u32> = ids
-            .iter()
-            .copied()
-            .filter(|id| matches!(exposed[id].0, BoxKind::PowerLabel))
-            .collect();
-
-        for pl_id in &pl_ids {
-            let (_pl_kind, pl_labs) = &exposed[pl_id];
-            // PowerLabel's exposed labels generally only have 1 (its own name),
-            // exceptional cases like Bus form PowerLabel may have multiple child labels, handle in loop
-            let mut pl_label_keys: Vec<&String> = pl_labs.keys().collect();
-            pl_label_keys.sort();
-            for pl_label_upper in pl_label_keys {
-                let mut connected: Vec<u32> = Vec::new();
-                for other_id in &ids {
-                    if other_id == pl_id {
-                        continue;
-                    }
-                    let (other_kind, other_labs) = &exposed[other_id];
-                    // PowerLabel<->PowerLabel don't merge (consistent with existing P03 rule)
-                    if matches!(other_kind, BoxKind::PowerLabel) {
-                        continue;
-                    }
-                    if other_labs.contains_key(pl_label_upper) {
-                        connected.push(*other_id);
-                    }
-                }
-                // Only 1 (or 0) hits -> don't form hyperedge, let subsequent pairwise loop handle
-                if connected.len() < 2 {
-                    continue;
-                }
-                // Representative name: take PowerLabel's own original case label
-                let repr_name = pl_labs
-                    .get(pl_label_upper)
-                    .cloned()
-                    .unwrap_or_else(|| pl_label_upper.clone());
-
-                // ★ Skip already existing same-name hyperedges (previous iter4 already synthesized, defensive)
-                let pl_marker_key = (
-                    *pl_id as i64,
-                    *pl_id as i64, // self-pair as "already synthesized hyperedge" marker
-                    repr_name.to_uppercase(),
-                );
-                if existing_pairs.contains(&pl_marker_key) {
-                    continue;
-                }
-
-                // Construct endpoints: [PowerLabel, c1, c2, ...]
-                let mut endpoints: Vec<EndpointRef> = Vec::with_capacity(1 + connected.len());
-                endpoints.push(EndpointRef::new(*pl_id as i64, -1, "(rail)"));
-                for c in &connected {
-                    endpoints.push(EndpointRef::new(*c as i64, -1, "(rail)"));
-                }
-
-                let kind = naming::classify_net(&repr_name);
-                let role = match &kind {
-                    NetKind::Power | NetKind::Ground => NetRole::Rail { volt: None },
-                    _ => NetRole::Signal,
-                };
-                let net = VizNet::new(next_nid, repr_name.clone(), kind, role, endpoints);
-                nets.push(net);
-                next_nid += 1;
-                synth_count += 1;
-
-                // Mark all relevant box-pairs as covered, letting pairwise loop skip:
-                //   (a) (pl, c_k) each pair marked
-                //   (b) (c_i, c_j) same name also marked (avoid producing sub<->sub same-name small lines below outside P1-5)
-                //   (c) (pl, pl) self-pair as hyperedge already exists marker
-                existing_pairs.insert(pl_marker_key);
-                for c in &connected {
-                    let key = if (*pl_id as i64) <= (*c as i64) {
-                        (*pl_id as i64, *c as i64, repr_name.to_uppercase())
-                    } else {
-                        (*c as i64, *pl_id as i64, repr_name.to_uppercase())
-                    };
-                    existing_pairs.insert(key);
-                }
-                for i in 0..connected.len() {
-                    for j in (i + 1)..connected.len() {
-                        let (ci, cj) = (connected[i] as i64, connected[j] as i64);
-                        let key = if ci <= cj {
-                            (ci, cj, repr_name.to_uppercase())
-                        } else {
-                            (cj, ci, repr_name.to_uppercase())
-                        };
-                        existing_pairs.insert(key);
-                    }
-                }
-
-                crate::velog!(
-                    "[graph]   + ITER-4 synth hyperedge: PowerLabel #{} '{}' -> {} non-rail endpoints ({:?})",
-                    pl_id,
-                    repr_name,
-                    connected.len(),
-                    connected
-                );
-            }
-        }
-    }
-
-    for i in 0..ids.len() {
-        for j in (i + 1)..ids.len() {
-            let (a, b) = (ids[i], ids[j]);
-            let (ka, labs_a) = &exposed[&a];
-            let (kb, labs_b) = &exposed[&b];
-
-            if matches!((ka, kb), (BoxKind::PowerLabel, BoxKind::PowerLabel)) {
-                continue;
-            }
-
-            let (small_labs, big_labs) = if labs_a.len() <= labs_b.len() {
-                (labs_a, labs_b)
-            } else {
-                (labs_b, labs_a)
-            };
-            let common: Vec<&String> = small_labs
-                .keys()
-                .filter(|k| big_labs.contains_key(*k))
-                .collect();
-            if common.is_empty() {
-                continue;
-            }
-
-            // Redundancy suppression
-            let both_non_rail =
-                !matches!(ka, BoxKind::PowerLabel) && !matches!(kb, BoxKind::PowerLabel);
-            let effective_common: Vec<&String> = if both_non_rail && !toplevel_rails.is_empty() {
-                common
-                    .iter()
-                    .copied()
-                    .filter(|k| !toplevel_rails.contains(*k))
-                    .collect()
-            } else {
-                common.clone()
-            };
-            if effective_common.is_empty() {
-                continue;
-            }
-
-            // Representative name selection: non-power-label preferred, ties in dictionary order
-            let mut candidates: Vec<String> =
-                effective_common.iter().map(|s| (*s).clone()).collect();
-            candidates.sort_by_key(|upper| {
-                let orig = labs_a
-                    .get(upper)
-                    .or_else(|| labs_b.get(upper))
-                    .cloned()
-                    .unwrap_or_default();
-                (naming::is_power_rail(&orig) as u8, upper.clone())
-            });
-            let repr_upper: String = candidates.into_iter().next().unwrap();
-            let repr_name = labs_a
-                .get(&repr_upper)
-                .or_else(|| labs_b.get(&repr_upper))
-                .cloned()
-                .unwrap_or_default();
-
-            // ── ★ P1-5: cross-sub-module power/ground no longer synthesize "end-to-end" nets ─────────────────────────
-            //
-            // Old behavior: SubModule A exposes GND, SubModule B also exposes GND -> synthesize an A<->B
-            // "GND" line, N sub-modules pairwise is N*(N-1)/2 cross-graph spider webs
-            // (12+ blue lines stuffed in middle area).
-            //
-            // New behavior: power/ground are drawn by "symbol" semantics -- each endpoint draws its own
-            // small triangle, taken in by SubModule<->top-level PowerLabel pairing (top-level PowerLabel
-            // is guaranteed by P0-3 in Phase 1.6). So here **skip power/ground pairing between two non-
-            // PowerLabels**, letting N SubModules each connect to the top-level GND triangle,
-            // instead of drawing N*(N-1)/2 lines between each other.
-            //
-            // Note keep SubModule <-> PowerLabel path -- it's exactly the carrier of "connecting to top-level GND".
-            if naming::is_power_rail(&repr_name) {
-                let both_non_rail =
-                    !matches!(ka, BoxKind::PowerLabel) && !matches!(kb, BoxKind::PowerLabel);
-                if both_non_rail {
-                    crate::velog!(
-                        "[graph]   - skip synth (Iter 6, P1-5): #{a} <-> #{b} via '{repr_name}' \
-                         (both non-rail, power/ground delegated to top-level PowerLabel)"
-                    );
-                    continue;
-                }
-            }
-
-            // ★ P03: check if nets already have same-name net connecting same two boxes, if so skip
-            let dup_key = if (a as i64) <= (b as i64) {
-                (a as i64, b as i64, repr_name.to_uppercase())
-            } else {
-                (b as i64, a as i64, repr_name.to_uppercase())
-            };
-            if existing_pairs.contains(&dup_key) {
-                continue;
-            }
-
-            // ★ P03: synthesize VizNet (both synthesized endpoints pin_id=-1)
-            let kind = naming::classify_net(&repr_name);
-            let role = match &kind {
-                NetKind::Power | NetKind::Ground => NetRole::Rail { volt: None },
-                _ => NetRole::Signal,
-            };
-            let net = VizNet::new(
-                next_nid,
-                repr_name.clone(),
-                kind,
-                role,
-                vec![
-                    EndpointRef::new(a as i64, -1, "(rail)"),
-                    EndpointRef::new(b as i64, -1, "(rail)"),
-                ],
-            );
-            nets.push(net);
-            existing_pairs.insert(dup_key);
-            next_nid += 1;
-            synth_count += 1;
-            crate::velog!(
-                "[graph]   + synth net (Iter 6, P03): #{} <-> #{} via '{}' ({} common, {} effective)",
-                a,
-                b,
-                repr_name,
-                common.len(),
-                effective_common.len()
-            );
-        }
-    }
-
-    synth_count
-}
-
-/// Collect "exposed signal name set" for a box (UPPER -> original case name)
-fn collect_exposed_labels(table: &InstTable, box_id: u32, b: &McVecBox) -> HashMap<String, String> {
-    let mut out: HashMap<String, String> = HashMap::new();
-
-    match b.kind {
-        BoxKind::PowerLabel => {
-            let name = if !b.name.is_empty() {
-                b.name.clone()
-            } else {
-                table
-                    .get_entry(box_id)
-                    .map(|e| extract_last_segment(&e.path))
-                    .unwrap_or_default()
-            };
-            if !name.is_empty() {
-                out.insert(name.to_uppercase(), name);
-            }
-            if let Some(e) = table.get_entry(box_id) {
-                if e.kind == InstKind::Bus {
-                    for child in table.children_of(box_id) {
-                        let cname = extract_last_segment(&child.path);
-                        if naming::is_signal_like(&cname) {
-                            out.insert(cname.to_uppercase(), cname);
-                        }
-                    }
-                }
-            }
-        }
-        BoxKind::SubModule => {
-            bfs_collect_labels(table, box_id, /*collect_pins=*/ false, &mut out);
-        }
-        BoxKind::MultiPin => {
-            bfs_collect_labels(table, box_id, /*collect_pins=*/ true, &mut out);
-        }
-        BoxKind::TwoPin => {
-            // Intentionally empty set -- passive components don't participate in shared signal name matching
-        }
-        BoxKind::Dot => {
-            // Dot labels participate in exposed signals for rail synthesis
-            let name = if !b.name.is_empty() {
-                b.name.clone()
-            } else {
-                table
-                    .get_entry(box_id)
-                    .map(|e| extract_last_segment(&e.path))
-                    .unwrap_or_default()
-            };
-            if !name.is_empty() {
-                out.insert(name.to_uppercase(), name);
-            }
-        }
-    }
-
-    out
-}
-
-/// BFS all descendants of `start`, collect "signalized" names by kind + naming rules
-fn bfs_collect_labels(
-    table: &InstTable,
-    start: u32,
-    collect_pins: bool,
-    out: &mut HashMap<String, String>,
-) {
-    use std::collections::{HashSet, VecDeque};
-    let mut queue: VecDeque<u32> = VecDeque::new();
-    let mut visited: HashSet<u32> = HashSet::new();
-    queue.push_back(start);
-    visited.insert(start);
-
-    while let Some(cur) = queue.pop_front() {
-        for child in table.children_of(cur) {
-            if !visited.insert(child.id) {
-                continue;
-            }
-            queue.push_back(child.id);
-
-            let name = extract_last_segment(&child.path);
-            let take = match child.kind {
-                InstKind::Label | InstKind::Bus | InstKind::Port => naming::is_signal_like(&name),
-                InstKind::Pin => collect_pins && naming::is_signal_like(&name),
-                InstKind::Module | InstKind::Component => false,
-            };
-            if take {
-                out.insert(name.to_uppercase(), name);
-            }
-        }
-    }
-}
+// （★ P7-3 删除：synthesize_rail_nets / collect_exposed_labels / bfs_collect_labels
+//  同名 label 合成机器整体移除 —— 判据改读端口声明与投影后的真实网。）
 
 // ── ★ Phase 1.46b: Adjust Virtual Top Module Border position/size ─────────────────────────────
 //

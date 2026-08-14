@@ -129,8 +129,53 @@ pub fn render_with_metrics(
         doc.total_svg_bytes()
     );
 
+    // ── ★ P7-1: renderdiff 报告（readings vs baseline/render_golden.toml）──
+    // 中途大面积红是预期形状（v6 §4）；此处只报告，不阻塞 —— Tier 1 电气
+    // 闸门（RENDER_GATE_FAILED）才是硬失败。
+    let _ = renderdiff_report(&metrics);
+
     debug::dump_document(&doc);
     (doc, metrics)
+}
+
+/// ★ P7-1: 拿 renderdiff readings 与 golden 比对，逐层输出报告。
+///
+/// golden 路径：`MC_RENDER_GOLDEN` 环境变量 > `./baseline/render_golden.toml`。
+/// 找不到 golden 时打印一条 SKIP（可见的跳过，不是假绿 —— 纪律 9）。
+pub fn renderdiff_report(
+    metrics: &crate::viz::metrics::MetricsAccumulator,
+) -> Option<Vec<crate::viz::metrics::renderdiff::LayerDiff>> {
+    let path = std::env::var("MC_RENDER_GOLDEN").unwrap_or_else(|_| {
+        std::path::PathBuf::from("baseline/render_golden.toml")
+            .to_string_lossy()
+            .into_owned()
+    });
+    let golden = match crate::viz::metrics::renderdiff::RenderGolden::load(std::path::Path::new(&path))
+    {
+        Ok(g) => g,
+        Err(e) => {
+            crate::vlog!("[renderdiff] · SKIP golden 未加载（{path}: {e}）");
+            return None;
+        }
+    };
+
+    let mut diffs = Vec::new();
+    let (mut red, mut green, mut skip) = (0usize, 0usize, 0usize);
+    for r in &metrics.renderdiff_layers {
+        let d = golden.diff_layer(r);
+        crate::vlog!("{}", d.report_line());
+        red += d.red;
+        green += d.green;
+        skip += d.skipped;
+        diffs.push(d);
+    }
+    crate::vlog!(
+        "[renderdiff] TOTAL: {} red / {} green / {} skip（P7-1 阶段大面积红是正确形状）",
+        red,
+        green,
+        skip
+    );
+    Some(diffs)
 }
 
 fn render_layer_recursive(
@@ -156,7 +201,7 @@ fn render_layer_recursive(
     };
 
     // ── Phase 1–2: layout + route via the single-layouter pipeline ──
-    let mut canvas = if graph.boxes.is_empty() {
+    let canvas = if graph.boxes.is_empty() {
         crate::vlog!(
             "[viz::api] layer {} '{}' is empty, skipping layout",
             bid,
@@ -167,7 +212,6 @@ fn render_layer_recursive(
         let layouter_name = candidates.first().map(|c| c.name()).unwrap_or("none");
 
         // ── Phase D: build SchematicLayoutModel before layout for low-risk intent ──
-        // Semantic and special analysis are read-only and don't need positions.
         let schematic_model = {
             let semantic = SemanticModel::analyze(&graph);
             let special = PowerGroundBusModel::analyze(&graph, Some(&semantic));
@@ -181,14 +225,23 @@ fn render_layer_recursive(
             model
         };
 
+        // ★ M4-1a→P7-0: `graph.is_submodule` was written here unconditionally but
+        // its only reader is the (default-off) v2 branch in FlowLayouter::layout,
+        // which now sets it itself from `is_sub_layout`.
         graph = layout_best(graph, candidates, is_root, Some(schematic_model));
 
         // ── Phase 1.46b: Adjust Virtual Top Module Border position/size ──
-        // After layout positions all boxes, adjust the dashed border boxes to surround internal components.
-        crate::vector::graph::fromblock::layout_post_adjust_borders(&mut graph);
+    // After layout positions all boxes, adjust the dashed border boxes to surround internal components.
+    let g_snap = graph.geom_snapshot();
+    crate::vector::graph::fromblock::layout_post_adjust_borders(&mut graph);
+    graph.claim_geom_changes(&g_snap, "15.borders");
 
-        // Compute canvas from laid-out boxes
-        let cv = super::layout::normalize::compute_canvas(&graph);
+        // Compute canvas: v2 layouter sets canvas_hint to prevent recomputation
+        let cv = if let Some(hint) = graph.canvas_hint {
+            hint
+        } else {
+            super::layout::normalize::compute_canvas(&graph)
+        };
         crate::vlog!(
             "[viz::api] layer {} '{}' layout done: canvas={}x{} (algo={})",
             bid,
@@ -201,12 +254,10 @@ fn render_layer_recursive(
         cv
     };
 
-    // Phase 1.8: net labels (may update canvas; layout_best already ran it, but
-    // we need the final canvas value for rendering)
-    if let Some(cv) = super::layout::passive_inline::apply_net_labels(&mut graph) {
-        canvas = cv;
-    }
-
+    // ★ P7-4f: apply_net_labels 只在 select.rs（route 前）调一次。
+    // 原此处的二次调用在 hbl 全部 7 层实测零几何写入（label 幂等保护：
+    // 已带 label 的网跳过），唯一作用是兜底拿 canvas —— 而 canvas 已由
+    // 上面的 canvas_hint / compute_canvas 算出，删除为纯等价变换。
     crate::vector::graph::netprobe::probe_route(&graph); // ★ NEW
 
     let rep = super::route::audit::audit_all(&graph);
@@ -288,6 +339,29 @@ fn render_layer_recursive(
         conn_report.connectivity_hash =
             crate::viz::stability::hash::canonical_hash(&conn_report.pins_reachable);
         metrics.accumulate_connectivity(&conn_report);
+
+        // ── ★ P7-1: renderdiff 量测（route 后 render 前的最终 graph）──
+        let col = crate::viz::route::audit::audit_all(&graph);
+        let reading = crate::viz::metrics::renderdiff::LayerReading::measure(
+            &graph,
+            &col,
+            Some((conn_report.pins_total, conn_report.pins_unreachable)),
+        );
+        crate::vlog!(
+            "[renderdiff] layer '{}' measured: boxes={} (declared={} synth={} flags={}) gnd_edges={} power_edges={} passives={} s6={} box_box={} wire_box={}",
+            reading.layer,
+            reading.total_boxes,
+            reading.declared_boxes,
+            reading.synth_endpoint_boxes,
+            reading.rail_flag_boxes,
+            reading.gnd_edges,
+            reading.power_edges,
+            reading.two_pin_passives,
+            reading.s6_violations,
+            reading.box_box,
+            reading.wire_box
+        );
+        metrics.accumulate_renderdiff(reading);
     }
 
     let mut layer = VizLayer::new(bid, name, parent);

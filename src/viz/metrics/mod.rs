@@ -6,6 +6,7 @@
 //! - AlignMetricsReport (align.rs) provides M1-4 alignment metrics (self-test version).
 
 pub mod align;
+pub mod renderdiff;
 
 use serde::{Deserialize, Serialize};
 
@@ -788,6 +789,8 @@ pub struct MetricsAccumulator {
     determinism: Option<super::stability::report::DeterminismReport>,
     stability: Option<super::stability::report::StabilityReport>,
     connectivity: Option<super::connectivity::report::RenderedConnectivityReport>,
+    /// ★ P7-1: renderdiff per-layer readings（route 后 render 前量测）
+    pub renderdiff_layers: Vec<renderdiff::LayerReading>,
 }
 
 impl MetricsAccumulator {
@@ -900,6 +903,11 @@ impl MetricsAccumulator {
             Some(existing) => existing.merge(report),
             None => self.connectivity = Some(report.clone()),
         }
+    }
+
+    /// ★ P7-1: accumulate one renderdiff layer reading (measured after route, before render).
+    pub fn accumulate_renderdiff(&mut self, reading: renderdiff::LayerReading) {
+        self.renderdiff_layers.push(reading);
     }
 
     /// Merge build-phase dropped/partial, produce final two reports.

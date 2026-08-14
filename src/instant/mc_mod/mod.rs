@@ -465,6 +465,21 @@ impl McModuleInst {
             table.register_port(&port.name, port.iotype.clone());
         }
 
+        // ★ P7-4 诊断：按序打印连接表（id + 点路径），供跨构建 diff 连接顺序
+        crate::vlog!(
+            "[det-conn] module '{}' {} connection(s) in order:",
+            self.name,
+            self.connections.len()
+        );
+        for (i, c) in self.connections.iter().enumerate() {
+            crate::vlog!(
+                "[det-conn]  [{:>3}] id={:<4} {:?}",
+                i,
+                c.id,
+                c.points.iter().map(|p| p.path.clone()).collect::<Vec<_>>()
+            );
+        }
+
         for conn in &self.connections {
             table.add_connection(conn);
         }

@@ -132,11 +132,14 @@ impl Router for StarRouter {
                     ExitSide::Top => ExitSide::Bottom,
                 };
 
-                let pts = orthogonal_path(sp, (cx, cy), ss, d_side);
-                for w in pts.windows(2) {
+                // ★ FIX (M4): use obstacle-aware spoke routing instead of
+                //   raw orthogonal_path which ignores obstacles.
+                for (x1, y1, x2, y2) in
+                    spoke_segments(&obstacles, sp, (cx, cy), ss, d_side)
+                {
                     route.segments.push(Segment {
-                        from: Point::new(w[0].0, w[0].1),
-                        to: Point::new(w[1].0, w[1].1),
+                        from: Point::new(x1, y1),
+                        to: Point::new(x2, y2),
                     });
                 }
             }

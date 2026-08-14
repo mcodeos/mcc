@@ -7,7 +7,7 @@
 //! Every key type implements `Ord` so that Vec can be sorted deterministically.
 //! Keys are designed to be stable across repeated runs of the same input.
 
-use crate::vector::graph::{EndpointRef, McVecBox, NetKind, NetRole, Symbol, VizNet};
+use crate::vector::graph::{EndpointRef, McVecBox, NetKind, Symbol, VizNet};
 
 // ============================================================================
 // StableBoxKey
@@ -226,6 +226,7 @@ pub fn sort_endpoints_stable(net_id: i64, eps: &mut [EndpointRef]) {
 mod tests {
     use super::*;
     use crate::vector::graph::boxdef::IoSummary;
+    use crate::vector::graph::netdef::NetRole;
     use crate::vector::graph::{BoxKind, EndpointRef, McVecBox, NetKind, Symbol, VizNet};
 
     fn make_box(id: i64, name: &str, symbol: Symbol) -> McVecBox {

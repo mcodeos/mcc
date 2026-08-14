@@ -48,6 +48,9 @@ pub struct RenderedPin {
     pub side: EntrySide,
     pub reachable_segment_ids: Vec<usize>,
     pub distance_to_nearest_segment: f64,
+    /// ★ P7-3: 该 pin 带端子装饰（接地符号 / rail 圆点）——没有连线，
+    /// 但电气上"已绘制"（符号即连接），可达性判定不得算它 unreachable。
+    pub decorated: bool,
 }
 
 // ============================================================================
@@ -249,6 +252,10 @@ impl RenderedConnectivity {
                     side: ep.side.clone(),
                     reachable_segment_ids: Vec::new(),
                     distance_to_nearest_segment: 0.0,
+                    decorated: graph
+                        .rail_decorations
+                        .iter()
+                        .any(|d| d.box_id == b.id && d.pin_id == ep.pin_id),
                 });
             }
         }

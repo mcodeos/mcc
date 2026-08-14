@@ -73,9 +73,16 @@ pub fn coalesce_equipotential_nets(graph: &mut McVecGraph) -> usize {
     };
 
     // ── union-find over net indices, keyed on (box_id, pin_id) ──────────────
+    // ★ P7-3：Power/Ground 网不参与合并——rail 语义由三分法（R-1/R-2/R-3）接管。
+    //   同一条 rail 的多条 driver 段刻意共享 driver pin（V3V3 = modldo→moddcdc +
+    //   modldo→mcu513 两条独立边，golden 边表要求分开），按共享 pin 合并会把
+    //   driver 段吞回超边。
     let mut dsu = Dsu::new(before);
     let mut first_seen: HashMap<(i64, i64), usize> = HashMap::new();
     for (ni, net) in graph.nets.iter().enumerate() {
+        if matches!(net.kind, NetKind::Power | NetKind::Ground) {
+            continue;
+        }
         for e in &net.endpoints {
             if !can_key(e) {
                 continue;

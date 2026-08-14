@@ -114,6 +114,22 @@ impl SvgRenderer {
             svg.push_str(&shape::render_box(b));
         }
 
+        // ── ★ P7-3: rail 端子装饰（pin 渲染属性，不是盒子，纪律 11）──
+        // 电源圆点画在 pin 正上方（朝上）、接地符号在 pin 正下方（朝下）。
+        for d in &graph.rail_decorations {
+            let Some(b) = graph.boxes.iter().find(|b| b.id == d.box_id) else { continue };
+            let Some(ep) = b.entry_points.iter().find(|e| e.pin_id == d.pin_id) else {
+                continue;
+            };
+            let (px, py) = match ep.side {
+                crate::vector::graph::EntrySide::Top => (b.x + ep.offset * b.w, b.y),
+                crate::vector::graph::EntrySide::Right => (b.x + b.w, b.y + ep.offset * b.h),
+                crate::vector::graph::EntrySide::Bottom => (b.x + ep.offset * b.w, b.y + b.h),
+                crate::vector::graph::EntrySide::Left => (b.x, b.y + ep.offset * b.h),
+            };
+            svg.push_str(&power_rail::render_decoration(px, py, d.is_ground, &d.label));
+        }
+
         svg.push_str("</svg>\n");
         svg
     }

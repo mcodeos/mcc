@@ -14,6 +14,30 @@ use std::fmt;
 use super::vec::McVec;
 
 // ============================================================================
+// ★ P7-3: RailSpec — 声明驱动的电源网规格（分类 + driver）
+// ============================================================================
+
+/// 电源网类别（来自端口声明的 member_info.role，非名字匹配）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RailClass {
+    /// 地（member role == Ground，全局同一，R-1 无 driver）
+    Ground,
+    /// 电源轨（member role == Power）
+    Power,
+}
+
+/// 一张电源网的规格，由投影层（viz/project.rs）从端口声明解析：
+/// * `class` —— Ground / Power
+/// * `driver_pin` —— 产生侧端点的 pin id（InstTable entry id），`None` = 无 driver（R-1）
+/// * `volt` —— `::DC(5V)` 字面量
+#[derive(Debug, Clone)]
+pub struct RailSpec {
+    pub class: RailClass,
+    pub driver_pin: Option<i64>,
+    pub volt: Option<String>,
+}
+
+// ============================================================================
 // ConnectionType
 // ============================================================================
 
@@ -63,6 +87,8 @@ pub struct McVecNet {
     /// ★ 源码里的形状。`None` = 没有 provenance，下游退回 `connection_type()`。
     /// 绝不用启发式填充 —— 覆盖率由日志说话。
     pub shape: Option<super::netshape::NetShape>,
+    /// ★ P7-3: 电源网规格（None = 普通信号网）。由 viz/project.rs 按端口声明填充。
+    pub rail: Option<RailSpec>,
 }
 
 impl McVecNet {
@@ -73,6 +99,7 @@ impl McVecNet {
             name,
             nets,
             shape: None,
+            rail: None,
         }
     }
 
@@ -94,6 +121,7 @@ impl McVecNet {
             name,
             nets,
             shape,
+            rail: None,
         }
     }
 

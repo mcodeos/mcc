@@ -31,6 +31,7 @@ use std::collections::HashMap;
 
 use crate::instant::insttab::{InstKind, InstTable};
 use crate::instant::mc_mod::McModuleInst;
+use crate::vector::graph::extract_last_segment;
 
 use super::super::model::McVecBlock;
 use super::report::{
@@ -240,14 +241,31 @@ impl<'a> McVecBuilder<'a> {
                     block.insts.push(comp_id as i64);
                 }
                 None => {
-                    crate::velog!(
-                        "[visit]   ✗ MISSING '{comp_path}' (component declared in pass2 but \
-                         InstTable.get_id_by_path returned None — pass1/pass2 \
-                         registration bug?)"
-                    );
-                    self.report
-                        .unresolved_modules
-                        .push(format!("{comp_path} (component)"));
+                    // M4-1B: auto-named fitted components (CAP, RES, IND) may not be
+                    // in InstTable yet. Search by parent_id + name instead.
+                    let comp_id = self.inst_table.children_of(bid as u32)
+                        .iter()
+                        .find(|c| {
+                            if let Some(e) = self.inst_table.get_entry(c.id) {
+                                extract_last_segment(&e.path) == comp.name
+                            } else {
+                                false
+                            }
+                        })
+                        .map(|c| c.id as i64);
+                    if let Some(id) = comp_id {
+                        eprintln!("[visit]   ✓ auto-named '{comp_path}' → id={id} (by parent search)");
+                        block.insts.push(id);
+                    } else {
+                        eprintln!(
+                            "[visit]   ✗ MISSING '{comp_path}' (component declared in pass2 but \
+                             InstTable.get_id_by_path returned None — pass1/pass2 \
+                             registration bug?)"
+                        );
+                        self.report
+                            .unresolved_modules
+                            .push(format!("{comp_path} (component)"));
+                    }
                 }
             }
         }
@@ -283,17 +301,69 @@ impl<'a> McVecBuilder<'a> {
         // but InstTable has already registered all Components/Modules during flatten phase.
         if bid >= 0 {
             let existing: std::collections::HashSet<i64> = block.insts.iter().copied().collect();
-            for child in self.inst_table.children_of(bid as u32) {
+            let children = self.inst_table.children_of(bid as u32);
+            eprintln!(
+                "[visit] convert_module '{}' (bid={}): InstTable.children_of returned {} entries",
+                inst.name,
+                bid,
+                children.len()
+            );
+            for child in &children {
+                eprintln!(
+                    "[visit]   child: id={}, path={}, kind={:?}",
+                    child.id, child.path, child.kind
+                );
+                // Add this child if it's a Component or Module
                 if matches!(child.kind, InstKind::Component | InstKind::Module)
                     && !existing.contains(&(child.id as i64))
                 {
-                    crate::velog!(
+                    eprintln!(
                         "[visit]   + backfilled '{}' (id={}, kind={}) from InstTable",
                         child.path,
                         child.id,
                         child.kind
                     );
                     block.insts.push(child.id as i64);
+                }
+                // M4-1B: also backfill grandchildren (fitted components under sub-components).
+                // ★ Do NOT backfill grandchildren of Module (sub-module instances):
+                // their children are handled by the sub-module's own graph construction.
+                if !matches!(child.kind, InstKind::Module) {
+                    let grandchildren = self.inst_table.children_of(child.id);
+                    for gc in &grandchildren {
+                        eprintln!(
+                            "[visit]     grandchild of {}: id={}, path={}, kind={:?}",
+                            child.id, gc.id, gc.path, gc.kind
+                        );
+                        if matches!(gc.kind, InstKind::Component | InstKind::Module)
+                            && !existing.contains(&(gc.id as i64))
+                        {
+                            eprintln!(
+                                "[visit]   + backfilled grandchild '{}' (id={}, kind={}) from InstTable",
+                                gc.path,
+                                gc.id,
+                                gc.kind
+                            );
+                            block.insts.push(gc.id as i64);
+                        }
+                        // M4-1B: go one more level deep (great-grandchildren)
+                        let great_grandchildren = self.inst_table.children_of(gc.id);
+                        for ggc in &great_grandchildren {
+                            eprintln!(
+                                "[visit]       great-grandchild of {}: id={}, path={}, kind={:?}",
+                                gc.id, ggc.id, ggc.path, ggc.kind
+                            );
+                            if matches!(ggc.kind, InstKind::Component | InstKind::Module)
+                                && !existing.contains(&(ggc.id as i64))
+                            {
+                                eprintln!(
+                                    "[visit]   + backfilled great-grandchild '{}' (id={}, kind={})",
+                                    ggc.path, ggc.id, ggc.kind
+                                );
+                                block.insts.push(ggc.id as i64);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -874,8 +944,16 @@ impl<'a> McVecBuilder<'a> {
             }
 
             // Rebuild net_groups: one merged group per root
+            // ★ P7-4 [DET]: iterate roots in sorted order — `by_root` is a HashMap,
+            // and `names.sort_by_key(name_priority)` below is a STABLE sort, so
+            // ties (e.g. two equivalent `RES_x.2 ~ VCC` pull-up groups) keep
+            // insertion order → HashMap iteration decided which one wins the
+            // "VCC" group membership on each render.
             let mut merged: NetGroupMap = NetGroupMap::new();
-            for (_root, members) in by_root {
+            let mut roots: Vec<usize> = by_root.keys().copied().collect();
+            roots.sort_unstable();
+            for root in roots {
+                let members = &by_root[&root];
                 if members.len() == 1 {
                     // Single-member group — replay as-is
                     let (name, pairs) = std::mem::take(&mut groups_vec[members[0]]);
@@ -885,7 +963,7 @@ impl<'a> McVecBuilder<'a> {
                 // Multi-member group — concat pairs, choose best name
                 let mut all_pairs: Vec<ConnPair> = Vec::new();
                 let mut names: Vec<String> = Vec::new();
-                for idx in &members {
+                for idx in members {
                     let (name, pairs) = std::mem::take(&mut groups_vec[*idx]);
                     names.push(name);
                     all_pairs.extend(pairs);
@@ -908,6 +986,13 @@ impl<'a> McVecBuilder<'a> {
         // Step 2: Generate McVecNet for each group
         let mut result = Vec::with_capacity(net_groups.len());
         for (net_name, pairs) in net_groups {
+            // ★ P7-4 诊断：分组明细（名 + 对），供跨构建 diff
+            crate::vlog!(
+                "[det-group] module='{}' group='{}' pairs={:?}",
+                module_path,
+                net_name,
+                pairs.iter().map(|p| (p.left, p.right)).collect::<Vec<_>>()
+            );
             let nid = self.next_net_id();
             let mcvec_net = merge_pairs_to_vecnet(nid, net_name, &pairs);
             result.push(mcvec_net);

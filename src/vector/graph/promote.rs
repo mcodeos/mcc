@@ -46,7 +46,7 @@ use std::collections::HashSet;
 
 use super::graphdef::McVecGraph;
 use super::kinds::NetKind;
-use super::netdef::{EndpointRef, NetRole, VizNet};
+use super::netdef::{EndpointRef, VizNet};
 
 // ============================================================================
 // Promotion result
@@ -198,7 +198,7 @@ pub fn merge_net_kinds(a: NetKind, b: NetKind) -> NetKind {
 
 fn classify_nets_by_box_coverage(nets: &[VizNet], layer_box_ids: &HashSet<i64>) -> PromoteResult {
     let mut kept = Vec::new();
-    let mut dropped = Vec::new();
+    let dropped = Vec::new();
     let mut orphan = Vec::new();
 
     for net in nets {
@@ -211,7 +211,10 @@ fn classify_nets_by_box_coverage(nets: &[VizNet], layer_box_ids: &HashSet<i64>) 
 
         match mapped.len() {
             0 => orphan.push(net.clone()),
-            1 => dropped.push(net.clone()),
+            // ★ M4-fix: 单端点 net 是合法连接（如外部端口→内部元器件），
+            // 不应被丢弃。丢弃它们会导致被动器件只碰到 1 个 net，
+            // place_series_passives 无法将其放到线上。
+            1 => kept.push(net.clone()),
             _ => kept.push(net.clone()),
         }
     }
@@ -282,6 +285,7 @@ pub fn lift_endpoints_to_layer_boxes(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vector::graph::netdef::NetRole;
     use crate::vector::graph::boxdef::{IoSummary, McVecBox};
     use crate::vector::graph::kinds::{BoxKind, NetKind};
 
@@ -322,10 +326,14 @@ mod tests {
         g.nets.push(mk_net(103, "C", vec![(99, 991)]));
 
         let r = promote_to_inter_box_only(&g);
-        assert_eq!(r.kept.len(), 1);
+        // ★ M4-fix: 单端点 net 不再被丢弃，而是保留。
+        // net A (跨 box 1↔2) → kept
+        // net B (仅 box 1 内) → kept (单盒子 net 现在保留)
+        // net C (box 99 不在层内) → orphan
+        assert_eq!(r.kept.len(), 2);
         assert_eq!(r.kept[0].name, "A");
-        assert_eq!(r.dropped.len(), 1);
-        assert_eq!(r.dropped[0].name, "B");
+        assert_eq!(r.kept[1].name, "B");
+        assert_eq!(r.dropped.len(), 0);
         assert_eq!(r.orphan.len(), 1);
         assert_eq!(r.orphan[0].name, "C");
     }

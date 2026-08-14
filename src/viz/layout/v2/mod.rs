@@ -34,13 +34,35 @@ use plan::Plan;
 /// 搜索入口：分析 graph → 产出 Plan。
 pub fn solve(graph: &McVecGraph) -> Plan {
     let tree = zone::ZoneTree::build(graph);
-    let zone_plans = zone_placement::place_zones(graph, &tree);
-    let canvas = zone_placement::compute_canvas(&zone_plans);
+    let zone_plans = zone_placement::place_zones(graph, &tree, graph.is_submodule);
+    let canvas = zone_placement::compute_canvas(&zone_plans, graph.is_submodule);
+
+    // ── M3: 对每个 zone 构建商图并做层排列 ──
+    let mut arrangements: Vec<plan::Arrangement> = Vec::new();
+    for zp in &zone_plans {
+        if zp.box_ids.is_empty() {
+            continue;
+        }
+        let q = quotient::QuotientGraph::build_for_ids(graph, &zp.box_ids);
+        if q.nodes.is_empty() {
+            continue;
+        }
+        // 精确搜索（N ≤ 7），超限时跳过
+        if q.nodes.len() <= arrange::EXACT_SEARCH_LIMIT {
+            let candidates = arrange::solve(&q);
+            if let Some((_cost, best)) = candidates.into_iter().next() {
+                arrangements.push(plan::Arrangement {
+                    zone: zp.zone,
+                    layers: best.layers,
+                });
+            }
+        }
+    }
 
     Plan {
         zones: zone_plans,
         cuts: Vec::new(),
-        arrangements: Vec::new(),
+        arrangements,
         canvas,
     }
 }

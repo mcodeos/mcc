@@ -47,6 +47,7 @@ pub mod layout_model;
 pub mod log;
 pub mod metrics;
 pub mod pins;
+pub mod project;
 pub mod render;
 pub mod route;
 pub mod semantic;

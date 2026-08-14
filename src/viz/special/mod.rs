@@ -18,7 +18,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::vector::graph::{McVecGraph, NetKind, NetRole, VizNet};
+use crate::vector::graph::{McVecGraph, NetKind, VizNet};
 
 // ============================================================================
 // PowerGroundBusModel
@@ -655,7 +655,7 @@ fn extract_bit_index(name: &str) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::netdef::{IoDirection, Route};
+    use crate::vector::graph::netdef::{IoDirection, NetRole, Route};
     use crate::vector::graph::{
         BoxKind, EndpointRef, EntryPoint, EntrySide, IoSummary, McVecBox, NetKind, Point, Segment,
         Symbol, VizNet,
