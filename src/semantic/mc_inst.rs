@@ -856,7 +856,27 @@ impl McInstances {
                                             ))
                                         };
                                         self.insts.insert(busname.clone(), (iotype.clone(), inst));
-                                        self.store_port_span(&busname, span.clone());
+                                        // Curly-bus port (e.g. `MIC{P, N}`): the port span
+                                        // covers the base identifier `MIC` only, not the raw
+                                        // OPD node span `MIC{P, N` (mc_value_link extends the
+                                        // first child's len, dropping the closing brace). This
+                                        // keeps F12 on the base landing on the name text.
+                                        let port_span = if pname.is_curly_bracket() {
+                                            opd_node
+                                                .get_sub_node()
+                                                .filter(|n| n.get_type() == MCAST_ID)
+                                                .map(|n| {
+                                                    let p = n.get_pos() as usize;
+                                                    p..(p + busname.len())
+                                                })
+                                                .unwrap_or_else(|| {
+                                                    let p = span.start;
+                                                    p..(p + busname.len())
+                                                })
+                                        } else {
+                                            span.clone()
+                                        };
+                                        self.store_port_span(&busname, port_span);
                                     }
                                     if pname.is_square_only() {
                                         let members = pname.expand();
@@ -1456,9 +1476,29 @@ impl McInstances {
                 let inst_name = inst_name_ref.clone();
 
                 // ★ LSP: Register instance declaration symbol
-                // Get the span of the instance name from ids_node
-                let inst_span = (ids_node.get_pos() as usize)
-                    ..((ids_node.get_pos() + ids_node.get_len()) as usize);
+                // The ids node len may be unreliable: mc_value_link extends the
+                // first child's len (e.g. `wm7121(NC` for `wm7121(NC)`), and for
+                // curly buses the node may span `MIC{P, N` while the parsed name
+                // text is longer. Clamp to the parsed text, and for curly buses
+                // cover the base identifier only (decision: F12 on the base
+                // jumps to the name text).
+                let inst_span = if inst_ids.is_curly_bracket() {
+                    let base = inst_ids.base_name();
+                    ids_node
+                        .get_sub_node()
+                        .filter(|n| n.get_type() == MCAST_ID)
+                        .map(|n| {
+                            let p = n.get_pos() as usize;
+                            p..(p + base.len())
+                        })
+                        .unwrap_or_else(|| {
+                            let p = ids_node.get_pos() as usize;
+                            p..(p + base.len())
+                        })
+                } else {
+                    let inst_len = (ids_node.get_len() as usize).min(inst_str.len());
+                    (ids_node.get_pos() as usize)..((ids_node.get_pos() as usize) + inst_len)
+                };
                 // The span for the inserted key is stored below (after the
                 // instance kind is resolved), because the inserted key may
                 // differ from inst_name (e.g. square interface `[VDD,GND]`).

@@ -928,22 +928,45 @@ impl McModule {
             MCAST_ID | MCAST_IDA | MCAST_IDS | MCAST_SQUARE_VEC | MCAST_OPD_SQUARE_VEC
             | MCAST_OPD_CURLY => {
                 if let Some(text) = node.to_string() {
-                    let span =
-                        (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
-                    let key = insts.resolve_idx(&text).unwrap_or(text);
-                    if insts.get(&key).is_some() && insts.port_spans().get(&key).is_none() {
-                        insts.store_port_span(&key, span.clone());
-                        // Register in name_to_declare_id so goto-def can find this inline port
-                        if let Some(mcode) = crate::db::cmie::tables::WORKSPACE.mcodes.get(uri) {
-                            if let Ok(mut sem) = mcode.symbols.lock() {
-                                sem.local_table.add_declare_with_name(
-                                    uri,
-                                    crate::ast::ast_semantic::SourceLocation::from_span(&span),
-                                    Some(key),
-                                    Some(scope),
-                                );
+                    // ★ §3.4.3 (rev) check-before-register: member chains
+                    // (`USB_VBUS_1.GND`, `dc.VDD_3V3`) are REFS to members of an
+                    // already-declared bus; the member defs were registered at the
+                    // declaration site (module param / io line) via register_bus_def
+                    // → BusMemberDef. Skipping them here prevents the whole-chain
+                    // span from being stored as the base bus's port span — which
+                    // would register spurious BusDef/LabelDef at the use site and
+                    // make F12 on the member self-locate (def == ref span).
+                    //
+                    // Two shapes slip through a plain dotted-text check:
+                    //   - the chain node itself (`USB_VBUS_1.GND`); and
+                    //   - its first MCAST_ID segment (`USB_VBUS_1`), whose
+                    //     `get_len()` is extended to the whole chain by
+                    //     mc_value_link (§5.1: never trust get_len() for ids
+                    //     chains) while `to_string()` returns only the segment.
+                    // `node_len > text.len()` detects the latter.
+                    let node_len = node.get_len() as usize;
+                    let is_member_chain = text.contains('.') || node_len > text.len();
+                    if is_member_chain {
+                        // member-chain ref: def already exists at declaration site
+                    } else {
+                        let start = node.get_pos() as usize;
+                        let span = start..(start + node_len);
+                        let key = insts.resolve_idx(&text).unwrap_or(text);
+                        if insts.get(&key).is_some() && insts.port_spans().get(&key).is_none() {
+                            insts.store_port_span(&key, span.clone());
+                            // Register in name_to_declare_id so goto-def can find this inline port
+                            if let Some(mcode) = crate::db::cmie::tables::WORKSPACE.mcodes.get(uri)
+                            {
+                                if let Ok(mut sem) = mcode.symbols.lock() {
+                                    sem.local_table.add_declare_with_name(
+                                        uri,
+                                        crate::ast::ast_semantic::SourceLocation::from_span(&span),
+                                        Some(key),
+                                        Some(scope),
+                                    );
+                                }
                             }
-                        }
+                        } // end else (non-member-chain def registration)
                     }
                 }
             }

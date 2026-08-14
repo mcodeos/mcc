@@ -42,10 +42,7 @@ pub fn collect_funccall_arg_refs(
                 // operand is handled by its own branch instead.
                 if matches!(
                     member.get_type(),
-                    MCAST_OPD_RIGHTARROW
-                        | MCAST_OPD_LEFTARROW
-                        | MCAST_OPD_MINUS
-                        | MCAST_OPD_PLUS
+                    MCAST_OPD_RIGHTARROW | MCAST_OPD_LEFTARROW | MCAST_OPD_MINUS | MCAST_OPD_PLUS
                 ) {
                     let mut sub_refs =
                         collect_funccall_arg_refs(&member, local_table, file_uri, enclosing);
