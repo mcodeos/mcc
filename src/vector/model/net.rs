@@ -60,8 +60,8 @@ pub struct McVecNet {
     pub name: String,
     /// Shape-aligned endpoint groups
     pub nets: Vec<McVec>,
-    /// ★ 源码里的形状。`None` = 没有 provenance，下游退回 `connection_type()`。
-    /// 绝不用启发式填充 —— 覆盖率由日志说话。
+    /// ★ Shape as written in the source. `None` = no provenance; downstream falls back to `connection_type()`.
+    /// Never fill with heuristics —— the coverage is reported in the logs.
     pub shape: Option<super::netshape::NetShape>,
 }
 
@@ -83,7 +83,7 @@ impl McVecNet {
         nets: Vec<McVec>,
         shape: super::netshape::NetShape,
     ) -> Self {
-        // 全空的 shape 存 None，不要制造「有 shape 但没信息」的中间态
+        // A fully empty shape is stored as None; don't create an intermediate state of "has a shape but no information"
         let shape = if shape.is_informative() {
             Some(shape)
         } else {

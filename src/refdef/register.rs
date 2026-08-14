@@ -110,19 +110,19 @@ pub fn lookup_declare_id(
     None
 }
 
-/// Emit a "找不到" diagnostic for a reference that could not be resolved after
+/// Emit a "not found" diagnostic for a reference that could not be resolved after
 /// the full P1–P5 lookup chain. Call this at the *final* miss point — after the
 /// caller has exhausted `lookup_declare_id` (P1/P2) plus any structural /
 /// class-name fallbacks (P3→P4→P5 via `mcb_get_cmie` / member-chain resolution).
 ///
 /// Mirrors the design docs (`name-space-global.md` §1.3, `name-space-internal.md`
-/// §1.3): all levels miss → `Unresolved / 诊断错误`, which must surface instead
+/// §1.3): all levels miss → `Unresolved / diagnostic error`, which must surface instead
 /// of being silently dropped.
 pub fn report_unresolved_ref(span: &std::ops::Range<usize>, name: &str) {
     crate::db::diagnostic::diagnostic::dlog_error_at(
         crate::db::diagnostic::errcodes::SYMBOL_NOT_FOUND,
         span.start as u32,
         span.end.saturating_sub(span.start) as u32,
-        &format!("找不到 '{name}'"),
+        &format!("cannot find '{name}'"),
     );
 }

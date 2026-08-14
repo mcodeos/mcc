@@ -140,7 +140,7 @@ pub fn print_phrase_members(phrase: &McPhrase, prefix: &str) {
             println!("{}(multiple {} items)", prefix, phrases.len());
             for (i, p) in phrases.iter().enumerate() {
                 if matches!(p, McPhrase::Lead) {
-                    // §1 P5.1：`[...]` 向量内的 `_` 是占位（Placeholder）
+                    // §1 P5.1: within a `[...]` vector, `_` is a placeholder
                     println!("{}  [{}]:(lead: placeholder)", prefix, i);
                 } else {
                     print_phrase_members(p, &format!("{}  [{}]:", prefix, i));
@@ -153,7 +153,7 @@ pub fn print_phrase_members(phrase: &McPhrase, prefix: &str) {
             println!(")");
         }
         McPhrase::Lead => {
-            // §1 P5.1：独立运算数的 `_` 是直通（Passthrough）
+            // §1 P5.1: a standalone operand `_` is a passthrough
             println!("{}(lead: passthrough)", prefix);
         }
     }

@@ -1,9 +1,9 @@
-# POWER_USB golden 网表
-# 依赖裁决：无（usbsock.GND = pin 6/7 由组件声明直接给出，无需裁决）
-# 源码：power.mc:24-37
-# ★ 与 golden 文档 v4 §1.1 差异：
-#   - 文档写 TP3，源码 power.mc:34 声明为 TP3，以源码为准
-#   - usbsock.5 在源码 power.mc:37 显式连接到 vin.GND，以源码为准
+# POWER_USB golden netlist
+# Dependency resolution: none (usbsock.GND = pin 6/7 given directly by the component declaration; no resolution needed)
+# Source: power.mc:24-37
+# ★ Differences vs golden document v4 §1.1:
+#   - The document writes TP3; the source power.mc:34 declares TP3; the source wins
+#   - usbsock.5 is explicitly connected to vin.GND in the source power.mc:37; the source wins
 
 [meta]
 module = "POWER_USB"
@@ -52,15 +52,15 @@ points = ["usbsock.5", "usbsock.6", "usbsock.7", "usbsock.8", "usbsock.9", "TP3.
 
 [[unconnected]]
 pin = "usbsock.2"
-reason = "USB D+，纯供电用途未使用"
+reason = "USB D+, unused (power-only usage)"
 
 [[unconnected]]
 pin = "usbsock.3"
-reason = "USB D-，纯供电用途未使用"
+reason = "USB D-, unused (power-only usage)"
 
 [[unconnected]]
 pin = "usbsock.4"
-reason = "USB ID，纯供电用途未使用"
+reason = "USB ID, unused (power-only usage)"
 
 [[series]]
 comp = "R0603"

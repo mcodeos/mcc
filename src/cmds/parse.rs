@@ -1071,7 +1071,7 @@ fn run_viz(
         "McVecBlock"
     );
 
-    // ★ netcheck: 网表体检
+    // ★ netcheck: netlist health check
     let nc_report = mcc::instant::netcheck::run(&table);
     nc_report.print();
 
@@ -1183,7 +1183,7 @@ fn phrase_to_tree_json(p: &McPhrase, max_depth: usize, cur: usize) -> serde_json
                 ps.iter()
                     .map(|c| {
                         if matches!(c, McPhrase::Lead) {
-                            // §1 P5.1：`[...]` 向量内的 `_` 是占位（Placeholder）
+                            // §1 P5.1: within a `[...]` vector, `_` is a placeholder
                             json!({"kind": "Lead", "usage": "placeholder", "label": "", "children": []})
                         } else {
                             phrase_to_tree_json(c, max_depth, cur + 1)

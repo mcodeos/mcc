@@ -70,17 +70,28 @@ fn run_single(
     let layer = graph.name.clone();
     let layouter = candidate.name();
 
+    macro_rules! t {
+        ($lbl:expr, $body:expr) => {{
+            let _ts = std::time::Instant::now();
+            let r = $body;
+            tracing::info!(target: "mcc::perf", step = $lbl, ms = _ts.elapsed().as_millis() as u64, "run_single step");
+            r
+        }};
+    }
+
     // ── Phase 1: layout ──
     // Phase D: if schematic_model is present, create a FlowLayouter with the model
-    if let Some(model) = schematic_model {
-        let flow = crate::viz::layout::FlowLayouter {
-            schematic_model: Some(model),
-            ..crate::viz::layout::FlowLayouter::default()
-        };
-        flow.layout(&mut graph);
-    } else {
-        candidate.layout(&mut graph);
-    }
+    t!("flow_layout", {
+        if let Some(model) = schematic_model {
+            let flow = crate::viz::layout::FlowLayouter {
+                schematic_model: Some(model),
+                ..crate::viz::layout::FlowLayouter::default()
+            };
+            flow.layout(&mut graph);
+        } else {
+            candidate.layout(&mut graph);
+        }
+    });
     probe_scatter_census(&graph);
 
     // ── Stage A / A3: non-destructive inline placement of series & chained passives ──
@@ -91,20 +102,23 @@ fn run_single(
     place_passive_chains(&mut graph);
     place_bridge_passives(&mut graph); // ★ P2: bridge passives (transposed CAP in two-lane series)
                                        // Pull any passive nudged to a negative coordinate back onto the canvas.
-    renormalize(&mut graph);
+    t!("renormalize", renormalize(&mut graph));
 
     // ── Phase 1.8: net labels ──
-    apply_net_labels(&mut graph);
+    t!("apply_net_labels", apply_net_labels(&mut graph));
     probe_box_collisions(&graph);
 
     // ── Phase 2: route ──
-    route_all_with_channels(&mut graph);
+    t!("route_all", route_all_with_channels(&mut graph));
 
     // ── Phase E: route feedback loop (audit → nudge → reroute → accept) ──
-    crate::viz::route::feedback::run_route_feedback_loop(&mut graph);
+    t!(
+        "route_feedback_loop",
+        crate::viz::route::feedback::run_route_feedback_loop(&mut graph)
+    );
 
     // ── Gate + report ──
-    let col = audit_all(&graph);
+    let col = t!("audit_all", audit_all(&graph));
     let fidelity = compute_fidelity(&graph, &col);
     let readability = compute_readability(&graph, &col);
     fidelity_gate(&layer, layouter, &fidelity, &readability);

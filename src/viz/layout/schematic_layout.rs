@@ -210,10 +210,10 @@ fn assign_pin_directions(graph: &McVecGraph, result: &SignalChainResult) -> DirM
             .map(|c| c.hub_pin_name.as_str())
             .unwrap_or("");
 
-        // 1. 语义脚名（EN/LX/FB/Vin/GND）→ 理想布局（等上游修好名字后自动生效）
-        // 2. ★ 轨/终点语义兜底：数字脚名时用链的电气终点判方向
-        //    （终于 GND→Down、终于电源→Up、去耦 loop→贴侧翼），用可信的连接而非名字
-        // 3. Right 兜底（rebalance_directions 再分摊）
+        // 1. Semantic pin names (EN/LX/FB/Vin/GND) → ideal layout (takes effect automatically once upstream names are fixed)
+        // 2. ★ Rail/terminal semantics fallback: with numeric pin names, judge direction from the chain's electrical terminal
+        //    (ending at GND → Down, ending at power → Up, decoupling loop → tuck to the flank) — trust the connection, not the name
+        // 3. Right fallback (rebalance_directions re-distributes)
         let dir = semantic_dir_from_name(pin_name)
             .or_else(|| dir_from_rail_semantics(graph, chains))
             .unwrap_or(ChainDir::Right);

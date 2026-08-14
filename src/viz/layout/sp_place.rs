@@ -309,8 +309,9 @@ fn pin_on_net(graph: &McVecGraph, box_id: i64, ni: usize) -> Option<i64> {
         .map(|e| e.pin_id)
 }
 
-/// 节点 → 它的栅格列。与 `build_rail_route` 的取法一致（取该节点所有 tap 的最大列），
-/// 这样 stub 挂下来的竖线正好落在该节点的轨上。
+/// Node → its grid column. Consistent with how `build_rail_route` reads it (the max
+/// column over all the node's taps), so the vertical line a stub hangs from lands exactly
+/// on the node's rail.
 fn node_columns(m: &SpModel, grid: &[GridPlacement], root_w: f64) -> HashMap<usize, f64> {
     let mut out: HashMap<usize, f64> = HashMap::new();
     let mut put = |node: usize, col: f64| {
@@ -330,7 +331,8 @@ fn node_columns(m: &SpModel, grid: &[GridPlacement], root_w: f64) -> HashMap<usi
     out
 }
 
-/// 把每条 stub 的叶子从附着节点往下竖着码放（元件转置：w/h 互换，引脚走 Top/Bottom）。
+/// Stack each stub's leaves vertically below the node they attach to (component
+/// transposed: w/h swapped, pins on Top/Bottom).
 fn place_stubs_at(
     graph: &mut McVecGraph,
     m: &SpModel,
@@ -357,7 +359,7 @@ fn place_stubs_at(
     }
 }
 
-/// 竖直摆放一个二端无源器件：a 侧引脚朝上（靠近附着节点），b 侧朝下。
+/// Place a two-terminal passive vertically: the a-side pin faces up (toward the attached node), the b-side faces down.
 fn write_passive_vertical(
     graph: &mut McVecGraph,
     box_id: i64,
@@ -371,7 +373,7 @@ fn write_passive_vertical(
     let Some(b) = graph.boxes.iter_mut().find(|b| b.id == box_id) else {
         return;
     };
-    b.w = BODY_H; // 转置
+    b.w = BODY_H; // transposed
     b.h = BODY_W;
     b.x = cx - b.w / 2.0;
     b.y = cy - b.h / 2.0;
@@ -402,7 +404,7 @@ fn write_passive_vertical(
             });
         }
     }
-    // ★ 两把锁，与主干元件一致
+    // ★ Two locks, same as the main-line components
     b.visual_role = Some(VisualRole::SeriesInline);
     b.geom_locked = true;
 }
@@ -502,7 +504,7 @@ fn emit_sp_routes(graph: &mut McVecGraph, m: &SpModel, grid: &[GridPlacement], r
                 .collect();
             if !unowned.is_empty() || taps.len() < 2 {
                 crate::vlog!(
-                    "[sp-route] net[{ni}] '{}' 未认领：unowned={:?} taps={}",
+                    "[sp-route] net[{ni}] '{}' unclaimed: unowned={:?} taps={}",
                     net.name,
                     unowned,
                     taps.len()
@@ -545,8 +547,8 @@ fn build_rail_route(taps: &[Tap]) -> Route {
             });
         }
     }
-    // ★ junction 只标 T 形接点：tap 落在轨的**内部**才算三线交汇；
-    // 轨最上/最下那两个 tap 是拐角，打点是错的。
+    // ★ Junction dots only mark T joints: a tap is a three-way meeting only if it falls on the rail's **interior**;
+    // the topmost/bottommost taps on the rail are corners, dotting them would be wrong.
     if taps.len() >= 3 {
         let mut ys: Vec<f64> = Vec::new();
         let push_unique = |ys: &mut Vec<f64>, y: f64| {
@@ -559,7 +561,7 @@ fn build_rail_route(taps: &[Tap]) -> Route {
                 push_unique(&mut ys, t.py);
             }
         }
-        // 轨端点上若同时有 >=2 个 tap（左右两侧同时接入），那一端也是真接点
+        // If a rail end has >= 2 taps at once (both sides connecting in), that end is also a real joint
         for y in [y_top, y_bot] {
             if taps.iter().filter(|t| (t.py - y).abs() < EPS).count() >= 2 {
                 push_unique(&mut ys, y);
@@ -855,13 +857,13 @@ mod tests {
         assert!(n_leads(2) >= 2, "N3 should carry the C2 + R6 leads");
     }
 
-    /// ★ 抓 P1-a：坐标测试看不见朝向错误。
+    /// ★ Catch P1-a: coordinate tests cannot see orientation errors.
     #[test]
     fn golden_entry_sides_follow_electrical_order() {
         let mut g = golden();
         let m = build_sp_model(&g).unwrap();
         apply_sp_model(&mut g, &m);
-        // C5(id 5) 的 N5 侧(pin 51) 必须在 Left，N3 侧(pin 52) 在 Right
+        // C5(id 5)'s N5 side (pin 51) must be Left, N3 side (pin 52) Right
         let c5 = g.boxes.iter().find(|b| b.id == 5).unwrap();
         let side = |pid: i64| {
             c5.entry_points
@@ -869,11 +871,19 @@ mod tests {
                 .find(|e| e.pin_id == pid)
                 .map(|e| e.side.clone())
         };
-        assert_eq!(side(51), Some(EntrySide::Left), "C5.1 (N5) 在左");
-        assert_eq!(side(52), Some(EntrySide::Right), "C5.2 (N3) 在右");
+        assert_eq!(
+            side(51),
+            Some(EntrySide::Left),
+            "C5.1 (N5) must be on the left"
+        );
+        assert_eq!(
+            side(52),
+            Some(EntrySide::Right),
+            "C5.2 (N3) must be on the right"
+        );
     }
 
-    /// ★ 抓 P1-b：几何归一化后线还贴在引脚上。
+    /// ★ Catch P1-b: after geometry normalization, wires still sit on the pins.
     #[test]
     fn sp_routes_survive_renormalize() {
         let mut g = golden();
@@ -881,7 +891,7 @@ mod tests {
         apply_sp_model(&mut g, &m);
         crate::viz::layout::normalize::normalize_positions(&mut g);
 
-        // 每条 SP 网络的每个 tap 端点仍与对应 pin 像素重合
+        // every tap endpoint of every SP net still coincides with the corresponding pin pixel
         for (ni, net) in g.nets.iter().enumerate() {
             let Some(route) = net.route.as_ref() else {
                 continue;
@@ -899,14 +909,14 @@ mod tests {
                 });
                 assert!(
                     hit,
-                    "net {ni} 的 route 没接到 box#{} pin {}",
+                    "net {ni} route does not reach box#{} pin {}",
                     e.box_id, e.pin_id
                 );
             }
         }
     }
 
-    /// ★ 抓 P2-c：拐角不该有实心点。
+    /// ★ Catch P2-c: corners must not get solid junction dots.
     #[test]
     fn junctions_are_interior_only() {
         let mut g = golden();
@@ -924,23 +934,23 @@ mod tests {
             for j in &r.junctions {
                 assert!(
                     j.y > top + 1e-6 && j.y < bot - 1e-6,
-                    "net {ni}: junction {:?} 落在轨端（拐角）",
+                    "net {ni}: junction {:?} sits at the rail end (corner)",
                     j
                 );
             }
-            // 同一个点只画一个实心点
+            // draw only one solid dot at the same point
             for (i, a) in r.junctions.iter().enumerate() {
                 for b in r.junctions.iter().skip(i + 1) {
                     assert!(
                         (a.x - b.x).abs() > 1e-6 || (a.y - b.y).abs() > 1e-6,
-                        "net {ni}: 重复 junction {a:?}"
+                        "net {ni}: duplicate junction {a:?}"
                     );
                 }
             }
         }
     }
 
-    /// dump 顺序：__net_0=B, __net_1=E, __net_2=D, __net_3=C(右端子), __net_4=A(左端子)
+    /// dump order: __net_0=B, __net_1=E, __net_2=D, __net_3=C (right terminal), __net_4=A (left terminal)
     fn real_netlist() -> McVecGraph {
         let mut g = McVecGraph::new(1, "main".into());
         g.boxes.push(res(1, "R1"));
@@ -961,7 +971,8 @@ mod tests {
         g
     }
 
-    /// ★ 节点下标顺序无关：真实 dump 顺序与 fixture 不同，但坐标完全一致。
+    /// ★ Node index order is irrelevant: the real dump order differs from the fixture,
+    /// but the coordinates are identical.
     #[test]
     fn real_netlist_reproduces_golden_coordinates() {
         let g = real_netlist();

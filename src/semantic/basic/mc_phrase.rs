@@ -32,9 +32,11 @@ use crate::{
 use std::ops::{Add, Shr};
 use std::sync::Arc;
 
-/// P5.1: 前缀标识符 `_X`（如 `_OPEN`、`__CLR`）被当作**独立运算数**且未解析到任何实例——
-/// 按 §1 它本是 IDA 索引中的命名成员（`M[1:4][_OPEN,_CLOSE]`），不是导线 `_`。
-/// 若用户本意是直通，应写 `_`。已声明的 `_X` 标签是合法标签，此路径不触发（find_inst 命中）。
+/// P5.1: a prefix identifier `_X` (e.g. `_OPEN`, `__CLR`) is treated as an **independent
+/// operand** and does not resolve to any instance — per §1 it is really a named member
+/// of an IDA index (`M[1:4][_OPEN,_CLOSE]`), not a wire `_`.
+/// If the user intends a passthrough, they should write `_`. A declared `_X` label is
+/// a valid label, so this path does not trigger (find_inst hits).
 fn warn_prefix_id_as_wire(node: &AstNode, name: &str) {
     if name.len() > 1 && name.starts_with('_') {
         dlog_warning(
@@ -1446,12 +1448,12 @@ impl McPhrase {
                     opd1_node.get_type(),
                     opd1_node.to_string()
                 );
-                // 归一化：Series 分支原样保留（`(A - B)'` 转置整条串联链）
+                // Normalize: keep Series branches as-is (`(A - B)'` transposes the whole series chain)
                 let opd1 = match McPhrase::new(&opd1_node, context)? {
                     McPhrase::Series(phrases, _) => McPhrase::Series(phrases, ConnDir::Undirected),
                     other => other,
                 };
-                // 结构性拒绝：总线 / 多重 / 标签 / 嵌套转置不可再转置
+                // Structural rejection: Bus / Multiple / Label / nested Transposed cannot be transposed again
                 if matches!(
                     &opd1,
                     McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
@@ -1471,7 +1473,7 @@ impl McPhrase {
                     );
                     return None;
                 }
-                // Pass1 安全逻辑（eval.md §5.5）：行数 ≥ 3 的形状禁止转置
+                // Pass1 safety rule (eval.md §5.5): shapes with 3+ rows cannot be transposed
                 if let Err(rows) = check_transpose_allowed(&opd1) {
                     dlog_error(
                         crate::errcodes::SHAPE_TRANSPOSE_LIMIT,
@@ -1701,7 +1703,7 @@ impl McPhrase {
                     return None;
                 }
 
-                // §4.1 串联求值：opd1.right ↔ opd2.left（- 为 Undirected，取 op1）
+                // §4.1 series evaluation: opd1.right ↔ opd2.left (- is Undirected, take op1)
                 if !is_connectable(
                     ConnOp::Series,
                     ConnDir::Undirected,
@@ -1764,7 +1766,7 @@ impl McPhrase {
 
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
 
-                // §4.3 串联求值：opd1.right ↔ opd2.left（-> 为 LtoR，取 op2）
+                // §4.3 series evaluation: opd1.right ↔ opd2.left (-> is LtoR, take op2)
                 if !is_connectable(
                     ConnOp::Series,
                     ConnDir::LtoR,
@@ -1840,7 +1842,7 @@ impl McPhrase {
                 // Note: swap order here for shape inference, because data flow is opd2 -> opd1
                 let (opd2, opd1) = infer_shape_and_upgrade(opd2, opd1, context);
 
-                // §4.4 串联求值（左向）：opd2.right ↔ opd1.left（<- 为 RtoL，取 op1）
+                // §4.4 series evaluation (leftward): opd2.right ↔ opd1.left (<- is RtoL, take op1)
                 if !is_connectable(
                     ConnOp::Series,
                     ConnDir::RtoL,
@@ -3449,12 +3451,13 @@ fn infer_shape_and_upgrade(
     }
 }
 
-/// 从端点点集推导向量形状（Pass1 阶段，eval.md §1/§2）。
+/// Infer the vector shape from a set of endpoints (Pass1 stage, eval.md §1/§2).
 ///
-/// - 空集 → [`Shape::unknown`]（未解析，如 FuncCall 返回值）；
-/// - 每个 `McBus` 元素是一行；带成员的 bus（`RS485{A,B}`）按成员数算 N 行；
-/// - 端点阶段列数恒为 1：二端器件 `get_left/right` 只暴露单点，
-///   `1*2` 行向量形状在短语层不可见，Pass2 才完整展开。
+/// - Empty set → [`Shape::unknown`] (unresolved, e.g. a FuncCall return value);
+/// - Each `McBus` element is one row; a bus with members (`RS485{A,B}`) counts as N rows;
+/// - At the endpoint stage the column count is always 1: a 2-pin device's
+///   `get_left/right` only exposes a single point, so the `1*2` row-vector shape is
+///   invisible at the phrase layer and only fully expanded in Pass2.
 fn shape_of_bus_list(elems: &[McBus]) -> Shape {
     if elems.is_empty() {
         return Shape::unknown();
@@ -3463,13 +3466,15 @@ fn shape_of_bus_list(elems: &[McBus]) -> Shape {
     Shape::new(rows.max(1), 1)
 }
 
-/// Pass1 转置安全守卫（eval.md §5.5）：被转置的运算数只能携带
-/// 1*1 / 1*2 / 2*1 / 2*2 形状，即短语层可推导的行数 ∈ {1, 2}。
+/// Pass1 transpose safety guard (eval.md §5.5): the operand being transposed may only
+/// carry a 1*1 / 1*2 / 2*1 / 2*2 shape, i.e. the row count derivable at the phrase
+/// layer ∈ {1, 2}.
 ///
-/// - 左/右点集为空（FuncCall 返回值未解析等）→ 通配放行；
-/// - 含 `<error` 占位标记 → 通配放行（沿用 [`is_connectable`] 的宽松语义）；
-/// - 行数 ≥ 3（如 `[A, B, C]'`）→ `Err(行数)`，即"已拆开的表达式再合并"，
-///   返回 Err 由调用方报 E2902 并拒绝转置。
+/// - Left/right point sets empty (e.g. unresolved FuncCall return value) → wildcard pass;
+/// - Contains an `<error` placeholder marker → wildcard pass (reusing the lenient
+///   semantics of [`is_connectable`]);
+/// - Row count ≥ 3 (e.g. `[A, B, C]'`) → `Err(rows)`, i.e. "re-merging expressions
+///   that were already split"; the caller reports E2902 and rejects the transpose.
 fn check_transpose_allowed(opd: &McPhrase) -> Result<(), usize> {
     let left = opd.get_left();
     let right = opd.get_right();
@@ -3493,15 +3498,19 @@ fn check_transpose_allowed(opd: &McPhrase) -> Result<(), usize> {
     }
 }
 
-/// Pass1 算子求值入口（eval.md §3/§4）：`-`/`+`/`->`/`<-` 四个算子分支
-/// 共享的"可连接"判定，形状约束走 §4 求值表（[`eval_binary`]），
-/// 单端口（1*1）代表侧由 [`representative`] 按 §4 注记确定。
+/// Pass1 operator evaluation entry point (eval.md §3/§4): the shared
+/// "connectable" check for the four operator branches `-`/`+`/`->`/`<-`.
+/// Shape constraints follow the §4 evaluation table ([`eval_binary`]); the
+/// single-port (1*1) representative side is determined by [`representative`]
+/// per the §4 notes.
 ///
-/// 保留三处通配：
-/// - 空集（FuncCall 返回值未解析）→ 放行；
-/// - `<error` 占位标记 → 放行；
-/// - 单点（1 行）形状未定（可能是 1*1 节点 / 广播锚点 / 待展开接口）→ 放行，
-///   Pass2 再校验真实形状。单端口（两侧均 1 行）额外按 §4 注记记录代表侧。
+/// Three wildcards are kept:
+/// - Empty set (unresolved FuncCall return value) → pass;
+/// - `<error` placeholder marker → pass;
+/// - Single point (1 row) with an undetermined shape (possibly a 1*1 node / broadcast
+///   anchor / interface awaiting expansion) → pass; the real shape is validated
+///   in Pass2. For single-port (both sides 1 row), the representative side is
+///   additionally recorded per the §4 notes.
 fn is_connectable(op: ConnOp, dir: ConnDir, lhs: &[McBus], rhs: &[McBus]) -> bool {
     // Empty shape means "unknown/unresolved" (e.g. FuncCall return value), treated as connectable
     if lhs.is_empty() || rhs.is_empty() {
@@ -3518,10 +3527,12 @@ fn is_connectable(op: ConnOp, dir: ConnDir, lhs: &[McBus], rhs: &[McBus]) -> boo
     let lhs_shape = shape_of_bus_list(lhs);
     let rhs_shape = shape_of_bus_list(rhs);
 
-    // §4 单端口（1*1）代表规则（eval.md §4 注记）：单端口连接无左右区别，
-    // 选一个代表——`+`/`-`/`<-` 取运算数 1（op1），`->` 取运算数 2（op2）。
-    // 与 Pass2 锚定一致：`+` 锚 `wire_parallel_internal` opd[0]、`-` Series
-    // 链首 opd1、`<-` RtoL 链尾 op1（swap 后 op1 落链尾）、`->` LtoR 链尾 op2。
+    // §4 single-port (1*1) representative rule (eval.md §4 note): a single-port
+    // connection has no left/right distinction, so one representative is chosen —
+    // `+`/`-`/`<-` take operand 1 (op1), `->` takes operand 2 (op2).
+    // Consistent with the Pass2 anchoring: `+` anchors `wire_parallel_internal`
+    // opd[0], `-` anchors the Series head opd1, `<-` anchors the RtoL chain tail
+    // op1 (after the swap op1 lands at the tail), `->` anchors the LtoR chain tail op2.
     if lhs_shape.rows == 1 && rhs_shape.rows == 1 {
         mcc_dbg!(
             "sem::conds",
@@ -3531,13 +3542,15 @@ fn is_connectable(op: ConnOp, dir: ConnDir, lhs: &[McBus], rhs: &[McBus]) -> boo
         return true;
     }
 
-    // 单点（1 行）在短语阶段形状未定（可能是 1*1 节点，也可能是广播锚点、
-    // 待展开的接口），保持放行（原有 wildcard 语义），Pass2 再校验真实形状。
+    // A single point (1 row) has an undetermined shape at the phrase stage (it may
+    // be a 1*1 node, a broadcast anchor, or an interface awaiting expansion), so it
+    // stays a pass (the original wildcard semantics); the real shape is validated
+    // in Pass2.
     if lhs_shape.rows <= 1 || rhs_shape.rows <= 1 {
         return true;
     }
 
-    // §4 四算子求值表：行数必须相同，列取较大者
+    // §4 four-operator evaluation table: row counts must match, columns take the larger
     match eval_binary(op, lhs_shape, rhs_shape) {
         Ok(_) => true,
         Err(ShapeError::RowMismatch { lhs: l, rhs: r }) => {

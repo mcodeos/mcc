@@ -50,19 +50,19 @@ impl IOType {
     }
 }
 
-/// 源码连接符方向
+/// Source connection operator direction.
 ///
-/// 对应 mcrule.md §10.1：
+/// Maps to mcrule.md §10.1:
 /// - `->` → [`ConnDir::LtoR`]
-/// - `<-` → [`ConnDir::RtoL`]（保留，尚未完全支持）
+/// - `<-` → [`ConnDir::RtoL`] (kept, not yet fully supported)
 /// - `-` / `+` → [`ConnDir::Undirected`]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ConnDir {
-    /// 左 -> 右
+    /// Left to right
     LtoR,
-    /// 右 -> 左
+    /// Right to left
     RtoL,
-    /// 无方向（`-` / `+`）
+    /// Undirected (`-` / `+`)
     #[default]
     Undirected,
 }
@@ -359,26 +359,27 @@ pub fn print_backtrace(label: &str) {
 }
 
 // ============================================================================
-// 向量形状 Shape + ShapeMatcher —— eval.md §1 / §3
+// Vector shape Shape + ShapeMatcher —— eval.md §1 / §3
 // ============================================================================
 //
-// 纯函数实现，无任何依赖，供 semantic / instant / vector 各层复用。
-// 语义来源：docs-new/concepts/vector-circuit/eval.md
-//   - §1 形状系统（1*1 / 1*2 / N*1 / N*2 / N*M / 未知）
-//   - §3 连接匹配约束表（行数必须相同）+ 连接结果表
+// Pure function implementation with no dependencies, reused by the
+// semantic / instant / vector layers.
+// Semantics source: docs-new/concepts/vector-circuit/eval.md
+//   - §1 shape system (1*1 / 1*2 / N*1 / N*2 / N*M / unknown)
+//   - §3 connection matching constraint table (row counts must match) + connection result table
 
-/// 向量形状（行 × 列），对应 eval.md §1 形状系统。
+/// Vector shape (rows × cols), matching the eval.md §1 shape system.
 ///
-/// | 形状 | 名称 | 构造器 |
+/// | Shape | Name | Constructor |
 /// |---|---|---|
-/// | `1*1` | 节点 Node | [`Shape::node`] |
-/// | `1*2` | 行向量 HVector | [`Shape::hvec`] |
-/// | `N*1` | 列向量 VVector | [`Shape::vvec`] |
-/// | `N*2` | 节点实例组合 | [`Shape::node_inst`] |
-/// | `N*M` | 接口形状 | [`Shape::iface`] |
+/// | `1*1` | Node | [`Shape::node`] |
+/// | `1*2` | Row vector HVector | [`Shape::hvec`] |
+/// | `N*1` | Column vector VVector | [`Shape::vvec`] |
+/// | `N*2` | Node-instance combination | [`Shape::node_inst`] |
+/// | `N*M` | Interface shape | [`Shape::iface`] |
 ///
-/// 未知形状（Pass1 尚未确定，如 FuncCall 返回值）用 [`Shape::unknown`]
-/// （`rows == 0` 哨兵），匹配时视为可连接。
+/// The unknown shape (not yet determined in Pass1, e.g. a FuncCall return value)
+/// uses [`Shape::unknown`] (a `rows == 0` sentinel) and is treated as connectable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Shape {
     pub rows: usize,
@@ -390,32 +391,32 @@ impl Shape {
         Self { rows, cols }
     }
 
-    /// 1*1 节点（单点：标签 / 单管脚）
+    /// 1*1 node (single point: label / single pin)
     pub fn node() -> Self {
         Self { rows: 1, cols: 1 }
     }
 
-    /// 1*2 行向量（2 管脚元件缺省形状）
+    /// 1*2 row vector (default shape for 2-pin devices)
     pub fn hvec() -> Self {
         Self { rows: 1, cols: 2 }
     }
 
-    /// N*1 列向量（`[VCC, GND]`、`TestPoint[1,2]`）
+    /// N*1 column vector (`[VCC, GND]`, `TestPoint[1,2]`)
     pub fn vvec(rows: usize) -> Self {
         Self { rows, cols: 1 }
     }
 
-    /// N*2 节点实例组合（N 个 2 端元件的行向量堆叠，`res[1:2]`）
+    /// N*2 node-instance combination (N stacked row vectors of 2-pin devices, `res[1:2]`)
     pub fn node_inst(rows: usize) -> Self {
         Self { rows, cols: 2 }
     }
 
-    /// N*M 接口形状（`mcu.SPI`）
+    /// N*M interface shape (`mcu.SPI`)
     pub fn iface(rows: usize, cols: usize) -> Self {
         Self { rows, cols }
     }
 
-    /// 未知形状（未解析 / Pass1 未定）
+    /// Unknown shape (unresolved / undetermined in Pass1)
     pub fn unknown() -> Self {
         Self { rows: 0, cols: 0 }
     }
@@ -424,18 +425,19 @@ impl Shape {
         self.rows == 0
     }
 
-    /// 单行（1*1 或 1*2）
+    /// Single row (1*1 or 1*2)
     pub fn is_row(&self) -> bool {
         self.rows == 1
     }
 
-    /// 多行（N*1 / N*2 / N*M）
+    /// Multiple rows (N*1 / N*2 / N*M)
     pub fn is_multi_row(&self) -> bool {
         self.rows >= 2
     }
 
-    /// N*M 接口形状：行 ≥ 2 且列 ≥ 3。
-    /// `N*2`（cols == 2）是"节点实例组合"（[`Shape::node_inst`]），不是接口形状。
+    /// N*M interface shape: rows ≥ 2 and cols ≥ 3.
+    /// `N*2` (cols == 2) is a "node-instance combination" ([`Shape::node_inst`]),
+    /// not an interface shape.
     pub fn is_interface(&self) -> bool {
         self.rows >= 2 && self.cols >= 3
     }
@@ -451,34 +453,34 @@ impl std::fmt::Display for Shape {
     }
 }
 
-/// 连接匹配结果（eval.md §3）。
+/// Connection matching result (eval.md §3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MatchedShape {
-    /// 结果形状：行不变，列取两边的较大者（§3 连接结果表）
+    /// Result shape: rows unchanged, columns take the larger of the two (§3 connection result table)
     pub shape: Shape,
-    /// `N*M` ↔ `N*M` 转为接口操作
+    /// `N*M` ↔ `N*M` becomes an interface operation
     pub interface_op: bool,
 }
 
-/// 形状匹配错误。
+/// Shape matching error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ShapeError {
-    /// §3：行数必须相同才能连接
+    /// §3: row counts must match to connect
     RowMismatch { lhs: Shape, rhs: Shape },
 }
 
-/// §3 连接匹配约束表的纯函数实现。
+/// Pure function implementation of the §3 connection matching constraint table.
 pub struct ShapeMatcher;
 
 impl ShapeMatcher {
-    /// 匹配两个形状，返回连接结果形状。
+    /// Match two shapes and return the resulting connection shape.
     ///
-    /// 规则（eval.md §3）：
-    /// - 任一侧未知（`rows == 0`）→ 放行，结果取另一侧形状；
-    /// - 行数不同 → [`ShapeError::RowMismatch`]（如 `1*1` vs `N*1`）；
-    /// - 行数相同 → 结果行不变、列取较大者：
-    ///   `1*1 +- 1*2 = 1*2`、`N*1 +- N*2 = N*2`；
-    /// - 双侧均为 `N*M` → 结果带 `interface_op` 标记（转为接口操作）。
+    /// Rules (eval.md §3):
+    /// - Either side unknown (`rows == 0`) → pass; the result takes the other side's shape;
+    /// - Row counts differ → [`ShapeError::RowMismatch`] (e.g. `1*1` vs `N*1`);
+    /// - Row counts match → rows unchanged, columns take the larger:
+    ///   `1*1 +- 1*2 = 1*2`, `N*1 +- N*2 = N*2`;
+    /// - Both sides are `N*M` → the result carries the `interface_op` flag (becomes an interface operation).
     pub fn match_shape(lhs: Shape, rhs: Shape) -> Result<MatchedShape, ShapeError> {
         if lhs.is_unknown() {
             return Ok(MatchedShape {
@@ -503,26 +505,26 @@ impl ShapeMatcher {
     }
 }
 
-/// 连接运算符（eval.md §4）：`-`/`->`/`<-` 共享串联求值，`+` 为并联求值。
+/// Connection operator (eval.md §4): `-`/`->`/`<-` share series evaluation, `+` is parallel.
 ///
-/// 与 [`ConnDir`] 的对应关系（mcrule.md §10.1）：
+/// Correspondence with [`ConnDir`] (mcrule.md §10.1):
 /// - `-` → `Series` + [`ConnDir::Undirected`]
 /// - `->` → `Series` + [`ConnDir::LtoR`]
 /// - `<-` → `Series` + [`ConnDir::RtoL`]
 /// - `+` → `Parallel`
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnOp {
-    /// 串联 `-`（§4.1）/ `->`（§4.3）/ `<-`（§4.4）
+    /// Series `-` (§4.1) / `->` (§4.3) / `<-` (§4.4)
     Series,
-    /// 并联 `+`（§4.2）
+    /// Parallel `+` (§4.2)
     Parallel,
 }
 
-/// §4 单端口（1*1）代表规则：`+`/`-`/`<-` 结果取**运算数 1**，`->` 结果取**运算数 2**。
+/// §4 single-port (1*1) representative rule: `+`/`-`/`<-` take **operand 1**, `->` takes **operand 2**.
 ///
-/// 落地位置：
-/// - `+`：Pass2 `wire_parallel_internal` 以 opd[0] 为锚（"take operand 1"）；
-/// - `->`：`MCAST_OPD_RIGHTARROW` 对链尾 `set_right_out` 作为输出端。
+/// Where it lands:
+/// - `+`: Pass2 `wire_parallel_internal` anchors on opd[0] ("take operand 1");
+/// - `->`: `MCAST_OPD_RIGHTARROW` calls `set_right_out` on the chain tail as the output end.
 pub fn representative(dir: ConnDir, lhs: Shape, rhs: Shape) -> Shape {
     if dir == ConnDir::LtoR {
         rhs
@@ -531,23 +533,28 @@ pub fn representative(dir: ConnDir, lhs: Shape, rhs: Shape) -> Shape {
     }
 }
 
-/// §4 四算子求值表：对 `(op, lhs, rhs)` 求连接后的**结果形状**。
+/// §4 four-operator evaluation table: given `(op, lhs, rhs)`, compute the
+/// **result shape** of the connection.
 ///
-/// 形状层的四条子表（§4.1-4.4）与 §3 连接结果表收敛为同一规则：
-/// 行数必须相同（否则 [`ShapeError::RowMismatch`]），列取两边的较大者：
-/// `1*1 +- 1*2 = 1*2`、`N*1 +- N*2 = N*2`、`N*2 +- N*2 = N*2`。
+/// The four shape-level sub-tables (§4.1-4.4) converge with the §3 connection
+/// result table on the same rule: row counts must match (otherwise
+/// [`ShapeError::RowMismatch`]), columns take the larger of the two:
+/// `1*1 +- 1*2 = 1*2`, `N*1 +- N*2 = N*2`, `N*2 +- N*2 = N*2`.
 ///
-/// 子表间的差异在"锚点/拼接结构"（`向量 vs 节点` 返回 `newNode{向量, 节点右}`
-/// 等），由 Pass2 点配对（[`ShapeMatcher`] + `try_connect_adjacent` /
-/// `create_connection`）落地，形状层面收敛为同一结果。未知形状（`rows == 0`）
-/// 通配放行，结果取另一侧。
+/// The sub-tables only differ in the "anchor/splice structure" (e.g. `vector vs
+/// node` returns `newNode{vector, node-right}`), which is materialized by the
+/// Pass2 point pairing ([`ShapeMatcher`] + `try_connect_adjacent` /
+/// `create_connection`); at the shape layer they converge to the same result.
+/// Unknown shapes (`rows == 0`) pass through as a wildcard and take the other side.
 ///
-/// 调用点：
-/// - Pass1：`is_connectable`（`-`/`+`/`->`/`<-` 四个算子分支共享）；
-/// - Pass2：`try_connect_adjacent`（line.rs 三条路径的相邻求值统一入口）。
+/// Call sites:
+/// - Pass1: `is_connectable` (shared by the four operator branches `-`/`+`/`->`/`<-`);
+/// - Pass2: `try_connect_adjacent` (the unified entry for adjacent evaluation on
+///   the three paths in line.rs).
 pub fn eval_binary(op: ConnOp, lhs: Shape, rhs: Shape) -> Result<Shape, ShapeError> {
-    // §4.1-4.4 形状收敛：`-`/`+`/`->`/`<-` 均为"行不变、列取较大"；
-    // op 用于语义标注（锚点/配对策略在 Pass2 调用方落地），此处结果一致。
+    // §4.1-4.4 shape convergence: `-`/`+`/`->`/`<-` all follow "rows unchanged,
+    // columns take the larger"; op only provides semantic annotation (anchor/pairing
+    // strategy is materialized in the Pass2 callers), the result here is identical.
     debug_assert!(
         matches!(op, ConnOp::Series | ConnOp::Parallel),
         "unexpected operator"
@@ -557,30 +564,34 @@ pub fn eval_binary(op: ConnOp, lhs: Shape, rhs: Shape) -> Result<Shape, ShapeErr
 }
 
 // ============================================================================
-// §1 `_` 导线三种用法分类（eval.md §1）
+// §1 classification of the three uses of the `_` wire (eval.md §1)
 // ============================================================================
 
-/// `_` 的三种用法（eval.md §1）：
+/// The three uses of `_` (eval.md §1):
 ///
-/// 占位与直通都是**导线**（[`McPhrase::Lead`]），区别在于出现位置：
-/// - `[_, R101]` 向量内 → [占位][`LeadKind::Placeholder`]：保留位置，参与向量拼接和展开；
-/// - `a1.gnd + _ + GND` 独立运算数 → [直通][`LeadKind::Passthrough`]：左侧输入不经处理
-///   直接连到右侧，可用于串联链路中跳过节点。
+/// Both placeholder and passthrough are **wires** ([`McPhrase::Lead`]); they differ
+/// only in where they appear:
+/// - Inside a vector `[_, R101]` → [placeholder][`LeadKind::Placeholder`]: keeps its
+///   position and participates in vector splicing and expansion;
+/// - As an independent operand `a1.gnd + _ + GND` → [passthrough][`LeadKind::Passthrough`]:
+///   the left-side input is routed straight to the right side without processing,
+///   which can be used to skip a node in a series chain.
 ///
-/// [`LeadKind::PrefixId`] 前缀标识符**不是导线**——是 IDA 索引中的命名成员
-/// （如 `M[1:4][_OPEN,_CLOSE]`），下划线是命名约定的前缀，与导线 `_` 含义不同。
+/// A [`LeadKind::PrefixId`] prefix identifier is **not a wire** — it is a named member
+/// of an IDA index (e.g. `M[1:4][_OPEN,_CLOSE]`); the underscore is the naming
+/// convention's prefix and means something different from the wire `_`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LeadKind {
-    /// `[_, R101]` — 向量内占位：保留位置，参与向量拼接和展开
+    /// `[_, R101]` — placeholder inside a vector: keeps its position, participates in vector splicing and expansion
     Placeholder,
-    /// `a1.gnd + _ + GND` — 独立运算数：直通连接（跳过节点）
+    /// `a1.gnd + _ + GND` — independent operand: passthrough connection (skips a node)
     Passthrough,
-    /// `_OPEN` — 前缀标识符：IDA 索引中的命名成员，不是导线
+    /// `_OPEN` — prefix identifier: a named member of an IDA index, not a wire
     PrefixId,
 }
 
-/// 分类单个 `_` token（§1）：裸 `_` 是导线（向量内 → 占位，否则 → 直通）；
-/// `_FOO`（长度 > 1）是前缀标识符。
+/// Classify a single `_` token (§1): a bare `_` is a wire (inside a vector →
+/// placeholder, otherwise → passthrough); `_FOO` (length > 1) is a prefix identifier.
 pub fn classify_lead(name: &str, in_vector: bool) -> LeadKind {
     if name != "_" {
         LeadKind::PrefixId
@@ -591,13 +602,15 @@ pub fn classify_lead(name: &str, in_vector: bool) -> LeadKind {
     }
 }
 
-/// 遍历短语树，按出现顺序分类每个导线 `Lead` 的用法（§1）：
+/// Walk the phrase tree and classify the use of every wire `Lead` in order of
+/// appearance (§1):
 ///
-/// - 直接位于 `Multiple`（`[...]` 向量）内的 `Lead` → [占位][`LeadKind::Placeholder`]；
-/// - 其余位置（Series / Parallel / Group / Transposed / Member 中的运算数）→
-///   [直通][`LeadKind::Passthrough`]。
+/// - A `Lead` directly inside a `Multiple` (`[...]` vector) → [placeholder][`LeadKind::Placeholder`];
+/// - Any other position (an operand in Series / Parallel / Group / Transposed / Member) →
+///   [passthrough][`LeadKind::Passthrough`].
 ///
-/// 前缀标识符 `_OPEN` 不是 `Lead`（解析为 Id/成员名），不会出现在结果中。
+/// A prefix identifier `_OPEN` is not a `Lead` (it parses to an Id/member name),
+/// so it never appears in the results.
 pub fn classify_phrase_leads(phrase: &McPhrase) -> Vec<LeadKind> {
     fn walk(p: &McPhrase, out: &mut Vec<LeadKind>) {
         match p {
@@ -605,8 +618,9 @@ pub fn classify_phrase_leads(phrase: &McPhrase) -> Vec<LeadKind> {
             McPhrase::Multiple(inner) => {
                 for m in inner {
                     if matches!(m, McPhrase::Lead) {
-                        // 只统计直接成员：`[_, R101]` 中的 `_` 是占位；
-                        // 嵌套表达式里的 `_`（如 `[a1.gnd + _ + GND, ...]`）走递归 → 直通。
+                        // Count only direct members: `_` in `[_, R101]` is a placeholder;
+                        // `_` inside nested expressions (e.g. `[a1.gnd + _ + GND, ...]`)
+                        // recurses → passthrough.
                         out.push(LeadKind::Placeholder);
                     } else {
                         walk(m, out);
@@ -643,7 +657,7 @@ mod shape_tests {
     use super::*;
     use crate::semantic::basic::mc_group::McGroup;
 
-    // ---- §3 匹配约束表（5×5 行数表）----
+    // ---- §3 matching constraint table (5×5 row-count table) ----
 
     #[test]
     fn match_row_vs_row_ok() {
@@ -728,25 +742,25 @@ mod shape_tests {
                 rhs: Shape::node(),
             })
         );
-        // N 行数不同也拒绝（3*1 vs 4*1）
+        // Different N row counts are also rejected (3*1 vs 4*1)
         assert!(ShapeMatcher::match_shape(Shape::vvec(3), Shape::vvec(4)).is_err());
     }
 
     #[test]
     fn match_interface_op_flag() {
-        // N*M ↔ N*M → 接口操作
+        // N*M ↔ N*M → interface operation
         let iface = Shape::iface(4, 4);
         let m = ShapeMatcher::match_shape(iface, iface).unwrap();
         assert!(m.interface_op);
         assert_eq!(m.shape, iface);
-        // N*M ↔ N*1 正常匹配（不触发接口操作标记）
+        // N*M ↔ N*1 matches normally (no interface-op flag)
         let m2 = ShapeMatcher::match_shape(iface, Shape::vvec(4)).unwrap();
         assert!(!m2.interface_op);
     }
 
     #[test]
     fn match_unknown_wildcard() {
-        // 未知形状放行，结果取已知侧
+        // Unknown shape passes through; the result takes the known side
         assert_eq!(
             ShapeMatcher::match_shape(Shape::unknown(), Shape::vvec(4)),
             Ok(MatchedShape {
@@ -761,7 +775,7 @@ mod shape_tests {
                 interface_op: false,
             })
         );
-        // 双侧未知 → 返回未知
+        // Both sides unknown → returns unknown
         assert_eq!(
             ShapeMatcher::match_shape(Shape::unknown(), Shape::unknown()),
             Ok(MatchedShape {
@@ -771,7 +785,7 @@ mod shape_tests {
         );
     }
 
-    // ---- §3 连接结果表（nets.mc 注释）----
+    // ---- §3 connection result table (nets.mc comment) ----
 
     #[test]
     fn result_table_matches_spec() {
@@ -804,7 +818,7 @@ mod shape_tests {
         }
     }
 
-    // ---- Shape 辅助判断 ----
+    // ---- Shape helper predicates ----
 
     #[test]
     fn shape_classifiers() {
@@ -814,30 +828,30 @@ mod shape_tests {
         assert!(Shape::vvec(4).is_multi_row());
         assert!(Shape::iface(4, 3).is_interface());
         assert!(Shape::iface(4, 4).is_interface());
-        assert!(!Shape::node_inst(4).is_interface()); // N*2（cols==2）是节点实例组合，不是 N*M 接口
+        assert!(!Shape::node_inst(4).is_interface()); // N*2 (cols == 2) is a node-instance combination, not an N*M interface shape
         assert!(!Shape::vvec(4).is_interface());
         assert!(Shape::unknown().is_unknown());
         assert_eq!(format!("{}", Shape::vvec(4)), "4*1");
         assert_eq!(format!("{}", Shape::unknown()), "?");
     }
 
-    // ---- §4 四算子求值表（eval_binary）----
+    // ---- §4 four-operator evaluation table (eval_binary) ----
 
-    /// §4.1/4.3/4.4 串联：`-` / `->` / `<-` 的行约束与结果形状。
+    /// §4.1/4.3/4.4 series: row constraints and result shapes for `-` / `->` / `<-`.
     #[test]
     fn eval_series_ok_and_rejected() {
         for op in [ConnOp::Series] {
-            // 1*1 - 1*2 = 1*2（§4.1 节点 vs 向量 → newNode{节点左, 向量}）
+            // 1*1 - 1*2 = 1*2 (§4.1 node vs vector → newNode{node-left, vector})
             assert_eq!(
                 eval_binary(op, Shape::node(), Shape::hvec()),
                 Ok(Shape::hvec())
             );
-            // 1*2 - 1*2 = 1*2（§4.1 向量 vs 向量 → 直接拼接，返回右向量）
+            // 1*2 - 1*2 = 1*2 (§4.1 vector vs vector → direct splice, returns the right vector)
             assert_eq!(
                 eval_binary(op, Shape::hvec(), Shape::hvec()),
                 Ok(Shape::hvec())
             );
-            // N*1 - N*2 = N*2（§4.1 向量 vs 向量）
+            // N*1 - N*2 = N*2 (§4.1 vector vs vector)
             assert_eq!(
                 eval_binary(op, Shape::vvec(4), Shape::node_inst(4)),
                 Ok(Shape::node_inst(4))
@@ -847,7 +861,7 @@ mod shape_tests {
                 eval_binary(op, Shape::node_inst(4), Shape::node_inst(4)),
                 Ok(Shape::node_inst(4))
             );
-            // 行数不同 → ❌（1*1 vs N*1）
+            // Row counts differ → ❌ (1*1 vs N*1)
             assert_eq!(
                 eval_binary(op, Shape::node(), Shape::vvec(4)),
                 Err(ShapeError::RowMismatch {
@@ -858,10 +872,10 @@ mod shape_tests {
         }
     }
 
-    /// §4.2 并联 `+`：行约束与结果形状与串联一致（左运算数为锚）。
+    /// §4.2 parallel `+`: row constraints and result shape match series (the left operand is the anchor).
     #[test]
     fn eval_parallel_ok_and_rejected() {
-        // R101 + R102 = [R101.1, R101.2]（返回左向量形状）
+        // R101 + R102 = [R101.1, R101.2] (returns the left vector shape)
         assert_eq!(
             eval_binary(ConnOp::Parallel, Shape::hvec(), Shape::hvec()),
             Ok(Shape::hvec())
@@ -871,11 +885,11 @@ mod shape_tests {
             eval_binary(ConnOp::Parallel, Shape::node_inst(3), Shape::node_inst(3)),
             Ok(Shape::node_inst(3))
         );
-        // 行数不同 → ❌
+        // Row counts differ → ❌
         assert!(eval_binary(ConnOp::Parallel, Shape::vvec(2), Shape::vvec(3)).is_err());
     }
 
-    /// §4 未知形状通配：任一侧 `rows == 0` → 放行，结果取已知侧。
+    /// §4 unknown shape wildcard: either side `rows == 0` → pass; the result takes the known side.
     #[test]
     fn eval_unknown_wildcard() {
         for op in [ConnOp::Series, ConnOp::Parallel] {
@@ -890,25 +904,25 @@ mod shape_tests {
         }
     }
 
-    /// §4 单端口代表规则：`+`/`-`/`<-` 取运算数 1，`->` 取运算数 2。
+    /// §4 single-port representative rule: `+`/`-`/`<-` take **operand 1**, `->` takes **operand 2**.
     ///
-    /// 代表侧形状（对 1*1 单端口）：
-    /// - `->`（[`ConnDir::LtoR`]）→ op2；`VEXT -> power.v1v3` 输出端是 power.v1v3；
-    /// - `-`/`+`（[`ConnDir::Undirected`]）→ op1；`VEXT - power.v1v3` 链首 VEXT；
-    /// - `<-`（[`ConnDir::RtoL`]）→ op1；`DC.PVCC24 <- Diode(...)` 目标网 DC.PVCC24。
+    /// Representative-side shape (for a 1*1 single port):
+    /// - `->` ([`ConnDir::LtoR`]) → op2; the output end of `VEXT -> power.v1v3` is power.v1v3;
+    /// - `-`/`+` ([`ConnDir::Undirected`]) → op1; the head of the `VEXT - power.v1v3` chain is VEXT;
+    /// - `<-` ([`ConnDir::RtoL`]) → op1; the target net of `DC.PVCC24 <- Diode(...)` is DC.PVCC24.
     #[test]
     fn representative_rule() {
         let lhs = Shape::node(); // 1*1
         let rhs = Shape::hvec(); // 1*2
-                                 // `->`（LtoR）：结果取运算数 2
+                                 // `->` (LtoR): result takes operand 2
         assert_eq!(representative(ConnDir::LtoR, lhs, rhs), rhs);
-        // `-` / `+`（Undirected）：结果取运算数 1
+        // `-` / `+` (Undirected): result takes operand 1
         assert_eq!(representative(ConnDir::Undirected, lhs, rhs), lhs);
-        // `<-`（RtoL）：结果取运算数 1
+        // `<-` (RtoL): result takes operand 1
         assert_eq!(representative(ConnDir::RtoL, lhs, rhs), lhs);
     }
 
-    /// §4 代表规则对等量单端口（1*1 +- 1*1）两侧一致：形状无差别。
+    /// §4 representative rule for equal single ports (1*1 +- 1*1): both sides agree, no shape difference.
     #[test]
     fn representative_equal_single_ports() {
         let lhs = Shape::node();
@@ -919,29 +933,29 @@ mod shape_tests {
         }
     }
 
-    // ---- §1 `_` 三种用法分类（P5.1）----
+    // ---- §1 classification of the three uses of `_` (P5.1) ----
 
-    /// `classify_lead`：裸 `_` 是导线，按位置分占位/直通；`_FOO` 是前缀标识符。
+    /// `classify_lead`: a bare `_` is a wire, classified as placeholder/passthrough by position; `_FOO` is a prefix identifier.
     #[test]
     fn classify_lead_wire_vs_prefix_id() {
-        // 导线 `_`：向量内 → 占位
+        // Wire `_`: inside a vector → placeholder
         assert_eq!(classify_lead("_", true), LeadKind::Placeholder);
-        // 导线 `_`：独立运算数 → 直通
+        // Wire `_`: independent operand → passthrough
         assert_eq!(classify_lead("_", false), LeadKind::Passthrough);
-        // 前缀标识符：长度 > 1，不是导线
+        // Prefix identifier: length > 1, not a wire
         assert_eq!(classify_lead("_OPEN", true), LeadKind::PrefixId);
         assert_eq!(classify_lead("_LEFT", false), LeadKind::PrefixId);
         assert_eq!(classify_lead("__CLR", false), LeadKind::PrefixId);
     }
 
-    /// `classify_phrase_leads`：`[_, R101]` 向量内的 `_` → 占位。
+    /// `classify_phrase_leads`: `_` inside the `[_, R101]` vector → placeholder.
     #[test]
     fn phrase_placeholder_in_vector() {
         let phrase = McPhrase::Multiple(vec![McPhrase::Lead, McPhrase::label("R101".into())]);
         assert_eq!(classify_phrase_leads(&phrase), vec![LeadKind::Placeholder]);
     }
 
-    /// `classify_phrase_leads`：`a1.gnd + _ + GND` 独立运算数 → 直通。
+    /// `classify_phrase_leads`: independent operand `a1.gnd + _ + GND` → passthrough.
     #[test]
     fn phrase_passthrough_operand() {
         let phrase = McPhrase::Parallel(vec![
@@ -952,7 +966,7 @@ mod shape_tests {
         assert_eq!(classify_phrase_leads(&phrase), vec![LeadKind::Passthrough]);
     }
 
-    /// `classify_phrase_leads`：Series 链中的 `_` → 直通（`VEXT - _ - GND`）。
+    /// `classify_phrase_leads`: `_` in a Series chain → passthrough (`VEXT - _ - GND`).
     #[test]
     fn phrase_passthrough_in_series() {
         let phrase = McPhrase::Series(
@@ -966,8 +980,8 @@ mod shape_tests {
         assert_eq!(classify_phrase_leads(&phrase), vec![LeadKind::Passthrough]);
     }
 
-    /// `classify_phrase_leads`：嵌套表达式 `[a1.gnd + _ + GND, R101]` 中，
-    /// 直接成员 `_` 才占位，嵌套 Parallel 里的 `_` 是直通。
+    /// `classify_phrase_leads`: in the nested expression `[a1.gnd + _ + GND, R101]`,
+    /// only a direct member `_` is a placeholder; a `_` inside the nested Parallel is a passthrough.
     #[test]
     fn phrase_nested_expression_keeps_passthrough() {
         let nested = McPhrase::Parallel(vec![
@@ -979,7 +993,7 @@ mod shape_tests {
         assert_eq!(classify_phrase_leads(&phrase), vec![LeadKind::Passthrough]);
     }
 
-    /// `classify_phrase_leads`：Group 运算数中的 `_` → 直通（`(a, b, c) - _`）。
+    /// `classify_phrase_leads`: `_` in a Group operand → passthrough (`(a, b, c) - _`).
     #[test]
     fn phrase_passthrough_in_group() {
         let group = McGroup {
@@ -995,7 +1009,7 @@ mod shape_tests {
         assert_eq!(classify_phrase_leads(&phrase), vec![LeadKind::Passthrough]);
     }
 
-    /// `classify_phrase_leads`：无 `_` 的短语 → 空列表。
+    /// `classify_phrase_leads`: a phrase without `_` → empty list.
     #[test]
     fn phrase_no_lead_empty() {
         let phrase = McPhrase::Series(

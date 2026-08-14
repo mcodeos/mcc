@@ -1,8 +1,8 @@
-# MIC_SIP golden 网表
-# 依赖裁决：③ 转置 ' 不切网（C1 跨接 MIC.P/MIC.N 之间）
-# 源码：periph.mc:38-64
-# ★ 注意：golden 文档未包含 bias 网络（RES 240Ω, CAP 4.7uF, RES 1kΩ×4, CAP 1uF），
-#   这些组件产生的网暂不在 golden 中登记。
+# MIC_SIP golden netlist
+# Dependency resolution: ③ transposed ' does not cut nets (C1 bridges between MIC.P/MIC.N)
+# Source: periph.mc:38-64
+# ★ Note: the golden document does not include the bias network (RES 240Ω, CAP 4.7uF, RES 1kΩ×4, CAP 1uF),
+#   nets created by these components are not yet registered in the golden file.
 
 [meta]
 module = "MIC_SIP"
@@ -76,15 +76,15 @@ points = ["dc.VDD_3V3", "wm7121.4", "C100n_nc.1"]
 
 [[unconnected]]
 pin = "mic.3"
-reason = "MIC 外壳地 — 源码级缺陷，从未被连接（真 R09）"
+reason = "MIC case ground — source-level defect, never connected (real R09)"
 
 [[unconnected]]
 pin = "mic.4"
-reason = "MIC 外壳地 — 源码级缺陷，从未被连接（真 R09）"
+reason = "MIC case ground — source-level defect, never connected (real R09)"
 
 [[unconnected]]
 pin = "wm7121.1"
-reason = "wm7121 P 输出 — NC 器件，未连接"
+reason = "wm7121 P output — NC device, not connected"
 
 [[series]]
 comp = "C1"

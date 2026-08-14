@@ -56,7 +56,8 @@ pub fn audit_collisions(graph: &McVecGraph) -> CollisionReport {
         for j in (i + 1)..boxes.len() {
             let a = &boxes[i];
             let b = &boxes[j];
-            // 容器/边框盒天然框住子盒，不算碰撞。
+            // Container/border boxes naturally enclose their child boxes, so they
+            // don't count as collisions.
             if a.is_container_box() || b.is_container_box() {
                 continue;
             }
@@ -82,9 +83,11 @@ pub fn audit_collisions(graph: &McVecGraph) -> CollisionReport {
         let ep_ids: Vec<i64> = net.endpoints.iter().map(|e| e.box_id).collect();
         for seg in &route.segments {
             for b in boxes {
-                // ★ 与 box-box 循环保持一致：容器/边框盒天然框住所有子盒和连线，
-                //   不算碰撞。缺这一句时 `main`(id=-1001) 会把每一段线都记成一次
-                //   wire_box —— 实测 segments=83 → wire_box=85，其中 83 个是假阳性。
+                // ★ Keep consistent with the box-box loop: container/border boxes
+                //   naturally enclose all child boxes and wires, so they don't count
+                //   as collisions. Without this check, `main`(id=-1001) records every
+                //   segment as a wire_box —— measured segments=83 → wire_box=85,
+                //   of which 83 are false positives.
                 if b.is_container_box() {
                     continue;
                 }

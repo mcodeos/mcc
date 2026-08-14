@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Milestone 5 — Semantic Analyzer：电路语义分析层
+//! Milestone 5 — Semantic Analyzer: circuit semantic analysis layer
 //!
 //! A read-only derived analysis layer over [`McVecGraph`]. It answers:
 //! - Which nets are power / ground / signal / bus?

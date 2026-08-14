@@ -1309,7 +1309,7 @@ fn push_side(out: &mut Vec<EntryPoint>, pins: &[&(i64, String)], side: EntrySide
 }
 
 // ============================================================================
-// ★ 端子引脚分配（共用）：SP 和 ladder 都调这一条
+// ★ Terminal pin distribution (shared): both SP and ladder call this one
 // ============================================================================
 
 /// The opposite edge (Left↔Right, Top↔Bottom).
@@ -1322,16 +1322,17 @@ pub fn opposite(s: &EntrySide) -> EntrySide {
     }
 }
 
-/// 端子 IC 的引脚分配：接线引脚朝向电路，其余**全部**甩到对侧并均匀铺开。
+/// Terminal IC pin distribution: wired pins face the circuit, all the rest are tossed
+/// to the opposite side and spread evenly.
 ///
-/// `connected` = [(pin_id, offset 0..1)]，顺序即上下序：
-///   * SP 端子只有一根线 → `&[(pin, 0.5)]`
-///   * ladder 锚点有 n 条 lane → `lane_pin` 与 `lane_y` 换算成 offset
+/// `connected` = [(pin_id, offset 0..1)], the order being the top-to-bottom order:
+///   * SP terminal has only one wire → `&[(pin, 0.5)]`
+///   * ladder anchor has n lanes → `lane_pin` and `lane_y` convert to offset
 pub fn distribute_terminal_pins(b: &mut McVecBox, facing: EntrySide, connected: &[(i64, f64)]) {
     let far = opposite(&facing);
     let mut far_idx: Vec<usize> = Vec::new();
 
-    // 1. 分侧
+    // 1. Assign sides
     for (i, ep) in b.entry_points.iter_mut().enumerate() {
         match connected.iter().find(|(p, _)| *p == ep.pin_id) {
             Some((_, off)) => {
@@ -1344,12 +1345,12 @@ pub fn distribute_terminal_pins(b: &mut McVecBox, facing: EntrySide, connected: 
             }
         }
     }
-    // 2. 对侧均匀铺开 —— 这一步缺了就会叠字
+    // 2. Spread evenly on the far side — without this, pin labels would overlap
     let n = far_idx.len();
     for (k, &i) in far_idx.iter().enumerate() {
         b.entry_points[i].offset = (k as f64 + 1.0) / (n as f64 + 1.0);
     }
-    // 3. 冻结进 layout_hint，防止下游重新分类
+    // 3. Freeze into layout_hint to prevent downstream reclassification
     let (mut f_keys, mut r_keys) = (Vec::new(), Vec::new());
     for ep in &b.entry_points {
         let dst = if connected.iter().any(|(p, _)| *p == ep.pin_id) {
@@ -1382,7 +1383,7 @@ pub fn distribute_terminal_pins(b: &mut McVecBox, facing: EntrySide, connected: 
     b.set_layout_hint(hint);
 }
 
-/// 同一条边上不允许有两个引脚共享 offset —— 叠字的根因。
+/// Two pins on the same edge must not share an offset — the root cause of overlapping labels.
 pub fn assert_no_pin_overlap(b: &McVecBox) {
     for side in [
         EntrySide::Left,
@@ -1400,7 +1401,7 @@ pub fn assert_no_pin_overlap(b: &McVecBox) {
         for w in offs.windows(2) {
             assert!(
                 (w[1] - w[0]).abs() > 1e-6,
-                "box#{} {:?} 边上引脚重叠",
+                "box#{} {:?} overlapping pins on side",
                 b.id,
                 side
             );

@@ -273,7 +273,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
                 match mcc::mcc_build_flat(&mod_ident, &mod_uri, 1000) {
                     Ok((mod_inst, mod_table)) => {
-                        // ★ netcheck: 网表体检
+                        // ★ netcheck: netlist health check
                         let nc_report = mcc::instant::netcheck::run(&mod_table);
                         nc_report.print();
 
@@ -348,7 +348,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                 mcc_dbg!("build", "[DUMP] ==============================");
             }
 
-            // ★ netcheck: 网表体检（Tier 0 · NETLIST CORRECTNESS）
+            // ★ netcheck: netlist health check (Tier 0 · NETLIST CORRECTNESS)
             let nc_report = mcc::instant::netcheck::run(&table.1);
             nc_report.print();
 

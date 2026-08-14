@@ -44,7 +44,7 @@ use super::debug;
 use super::resolve::resolve_netpoint_v2;
 use crate::semantic::common::ConnDir;
 
-/// 将源码连接符方向映射为 PairDir
+/// Map the source connector direction to PairDir
 fn conn_dir_to_pair_dir(d: ConnDir) -> PairDir {
     match d {
         ConnDir::LtoR => PairDir::LtoR,
