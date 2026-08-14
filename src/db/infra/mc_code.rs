@@ -3750,15 +3750,24 @@ impl McCode {
             hit.span.clone(),
             hit.def_kind,
         );
+        // ★ A param/port base (module param declaration) must resolve through
+        // PortRef so fill_refdef_layer2 (PortRef → [PortDef, ParamDef]) matches
+        // the ParamDef in def_map. InstRef only matches InstDef, which would
+        // leave the base ref unresolved (RefDefMap miss → self-locate / hover
+        // fallback) instead of jumping to the param declaration.
+        let ref_kind = match hit.def_kind {
+            SymbolKind::ParamDef | SymbolKind::PortDef => SymbolKind::PortRef,
+            _ => SymbolKind::InstRef,
+        };
         symbol_lapper.insert(Interval {
             start: base_span.start,
             stop: base_span.end,
-            val: SymbolType::new(SymbolKind::InstRef, u32::from(d)),
+            val: SymbolType::new(ref_kind, u32::from(d)),
         });
         sem.ref_entries
-            .push((SymbolKind::InstRef, u32::from(d), base_span.start, base_span.end));
+            .push((ref_kind, u32::from(d), base_span.start, base_span.end));
         tracing::info!(target: "mcc::lsp::audit",
-            "[AUDIT-BaseRef] base={base} chain_span={span:?} → {} kind={:?} def_uri={} def_span={:?} decl_id={d:?}",
+            "[AUDIT-BaseRef] base={base} chain_span={span:?} → {} kind={:?} ref_kind={ref_kind:?} def_uri={} def_span={:?} decl_id={d:?}",
             hit.name, hit.def_kind, hit.uri, hit.span);
     }
 
