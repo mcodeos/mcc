@@ -3,7 +3,7 @@
 // Integration tests for fcall return shape resolution (Phase 4).
 //
 // Per eval.md §8.1 three-state rules:
-//   - return this / implicit → ReturnShape::This { left, right } (preserves caller shape)
+//   - return this / implicit → ReturnShape::This (preserves caller shape, read live)
 //   - return <label/bus> → ReturnShape::Label { bus } (left empty, right = return value)
 //
 // NOTE: These tests share global mcc state, so a mutex serializes them.
@@ -40,6 +40,40 @@ fn find_component<'a>(inst: &'a mcc::McModuleInst, name: &str) -> &'a mcc::McCom
         .iter()
         .find(|c| c.name == name)
         .unwrap_or_else(|| panic!("component '{}' not found", name))
+}
+
+/// Helper: recursively find the first FuncCall with the given function name
+/// in the module's parsed lines (`inst.def.lines`).
+fn find_funccall<'a>(inst: &'a mcc::McModuleInst, name: &str) -> &'a mcc::McFuncCall {
+    fn walk<'a>(phrase: &'a mcc::McPhrase, name: &str) -> Option<&'a mcc::McFuncCall> {
+        match phrase {
+            mcc::McPhrase::FuncCall(f) => {
+                if f.func_name.to_string() == name {
+                    return Some(f);
+                }
+                if let Some(c) = &f.caller {
+                    if let Some(hit) = walk(c, name) {
+                        return Some(hit);
+                    }
+                }
+                None
+            }
+            mcc::McPhrase::Series(elems, _) => elems.iter().find_map(|e| walk(e, name)),
+            mcc::McPhrase::Parallel(v) | mcc::McPhrase::Multiple(v) => {
+                v.iter().find_map(|e| walk(e, name))
+            }
+            mcc::McPhrase::Group(g) => g.opds.iter().find_map(|e| walk(e, name)),
+            mcc::McPhrase::Transposed(inner) => walk(inner, name),
+            mcc::McPhrase::Closure(c) => c.body.iter().find_map(|e| walk(e, name)),
+            mcc::McPhrase::Member(p, _) => walk(p, name),
+            mcc::McPhrase::Lead | mcc::McPhrase::Endpoint(_) => None,
+        }
+    }
+    inst.def
+        .lines
+        .iter()
+        .find_map(|l| walk(l, name))
+        .unwrap_or_else(|| panic!("FuncCall '{}' not found in module lines", name))
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -93,6 +127,14 @@ module main
     assert!(comp.pin_name("1").is_some(), "pin 1 (PIN_A) should exist");
     assert!(comp.pin_name("2").is_some(), "pin 2 (PIN_B) should exist");
     assert!(comp.pin_name("3").is_some(), "pin 3 (PIN_C) should exist");
+
+    // Pass1b must resolve `return this` → ReturnShape::This.
+    let call = find_funccall(&inst, "config_a");
+    assert!(
+        matches!(call.resolved_return_shape, Some(mcc::ReturnShape::This)),
+        "config_a returns `this` → ReturnShape::This, got {:?}",
+        call.resolved_return_shape
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -331,4 +373,60 @@ module main
 
     let reg = find_component(&inst, "U1");
     assert_eq!(reg.pin_count(), 3, "REGULATOR should have 3 pins");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Test 7: return <label> → ReturnShape::Label (left empty, right = return value)
+//   `B.out_sig(V5V)` — func returns the label `net` → right = the label bus ([0|N])
+// ═══════════════════════════════════════════════════════════════════════════
+
+#[test]
+fn fcall_label_return_resolves_to_zero_left_n_right() {
+    let inst = build(
+        r#"
+component BUS_SRC
+{
+    name = "Bus Source"
+    pins = [
+        1 = OUT_A
+        2 = OUT_B
+    ]
+
+    func out_sig(net)
+    {
+        net -> OUT_A
+        OUT_B -> GND
+        return net
+    }
+}
+
+module main
+{
+    DC.SRC PWR(5V, 100mA)
+    BUS_SRC B
+
+    PWR.1 -> V5V
+    PWR.2 -> GND
+
+    B.out_sig(V5V)
+}
+"#,
+    );
+
+    // Pass1b must resolve the label return → ReturnShape::Label: the call is a
+    // [0|N] node (left empty), with right = the returned label's bus.
+    let call = find_funccall(&inst, "out_sig");
+    match &call.resolved_return_shape {
+        Some(mcc::ReturnShape::Label { bus }) => {
+            assert_eq!(bus.len(), 1, "return net → right = 1 bus");
+        }
+        other => panic!(
+            "out_sig() returns a label → ReturnShape::Label, got {:?}",
+            other
+        ),
+    }
+
+    // The call still instantiates its circuit effects (net -> OUT_A, OUT_B -> GND).
+    let comp = find_component(&inst, "B");
+    assert_eq!(comp.pin_count(), 2, "BUS_SRC should have 2 pins");
 }

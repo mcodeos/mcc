@@ -5,6 +5,7 @@
 use super::{
     basic::mc_bus::{McBus, McList},
     basic::mc_endpoint::{McEndpoint, McInstanceRef},
+    basic::mc_fcall::McFuncCall,
     basic::mc_phrase::McPhrase,
     mc_func::{HasFindInst, McFunctions},
     mc_inst::{McInst, McInstance, McInstances},
@@ -90,6 +91,18 @@ impl McModule {
 
             // 3. Parse body
             module.parse_body(&body);
+
+            // ★ P4.1 ("Pass1b" hook): the whole body — including all `func`
+            // definitions — is now parsed, so every FuncCall's return shape
+            // (eval.md §8.1) can be resolved against the complete funcs table.
+            // `this`/implicit → caller shape preserved; `return <expr>` → [0|N].
+            {
+                let lines = std::mem::take(&mut module.lines);
+                for mut line in lines {
+                    McFuncCall::fill_return_shapes(&mut line, &module);
+                    module.lines.push(line);
+                }
+            }
 
             Some(module)
         } else {
