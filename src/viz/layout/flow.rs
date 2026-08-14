@@ -33,20 +33,18 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::vector::graph::naming;
 use crate::vector::graph::netdef::IoDirection;
-use crate::vector::graph::{EntrySide, McVecBox, McVecGraph, NetKind, Symbol};
+use crate::vector::graph::{EntrySide, McVecBox, McVecGraph, Symbol};
 
 use super::components::{build_adjacency, find_connected_components};
 use super::entry_points::{
     assign_entry_points_coarse, enforce_unique_offsets, promote_synthetic_pins, split_shared_pins,
 };
 use super::ladder_model::LadderModel;
-use super::ladder_place::{apply_ladder_model, LadderGeometry};
+use super::ladder_place::LadderGeometry;
 use super::normalize::{compute_canvas, normalize_positions, CANVAS_MARGIN};
 use super::optimize::PlaceOptimizer;
-use super::rails::{explode_power_rails_to_flags, is_rail_box};
+use super::rails::{classify_rails, is_rail_box};
 use super::size::{assign_default_sizes, recompute_sizes_with_pin_count};
-use super::sp_model::try_build_sp_model;
-use super::sp_place::apply_sp_model as apply_sp;
 use crate::viz::layout_model::SchematicLayoutModel;
 use crate::viz::traits::Layouter;
 
@@ -85,6 +83,10 @@ pub struct FlowLayouter {
     /// When set, FlowLayouter applies connector edge intent, power/ground vertical
     /// region intent, and bus trunk corridor intent after phase_placement.
     pub schematic_model: Option<SchematicLayoutModel>,
+    /// ★ P7-0: whether this instance is the sub-level configuration (`sub()`).
+    /// Used by the v2 experimental branch to set `graph.is_submodule`, and by
+    /// the per-layer startup log to tag `circuit_flow(sub)`.
+    pub is_sub_layout: bool,
 }
 
 impl Default for FlowLayouter {
@@ -100,6 +102,7 @@ impl Default for FlowLayouter {
             hub_keep_semantic: false,
             ladder: None,
             schematic_model: None,
+            is_sub_layout: false,
         }
     }
 }
@@ -118,6 +121,27 @@ impl FlowLayouter {
             hub_keep_semantic: false,
             ladder: None,
             schematic_model: None,
+            is_sub_layout: true,
+        }
+    }
+
+    /// ★ P7-0: rebuild self with a SchematicLayoutModel attached, **keeping
+    /// every parameter of this instance** (sub() stays sub(), default stays default).
+    /// Unlike the by-value builder above, this one works through `&self`
+    /// (needed by `Layouter::with_model` on a trait object).
+    pub fn clone_with_model(&self, model: SchematicLayoutModel) -> Self {
+        Self {
+            col_pitch: self.col_pitch,
+            row_pitch: self.row_pitch,
+            flag_gap: self.flag_gap,
+            bary_sweeps: self.bary_sweeps,
+            hub_min_degree: self.hub_min_degree,
+            recompute_sizes: self.recompute_sizes,
+            fanout_star: self.fanout_star,
+            hub_keep_semantic: self.hub_keep_semantic,
+            ladder: None,
+            schematic_model: Some(model),
+            is_sub_layout: self.is_sub_layout,
         }
     }
 
@@ -131,14 +155,16 @@ impl FlowLayouter {
     ///
     /// 写：graph.fanout 相关的合成/拆分结构、盒子初始尺寸、coarse entry_points。
     fn phase_prepare(&self, graph: &mut McVecGraph) {
+        // ── ★ P7-3: rail 三分法（R-1/R-2/R-3 + 顶层 C5），最先跑 ──────────
+        //   rail 网在这一步被替换成 driver 段边 + pin 装饰（不进 boxes），
+        //   之后的所有 pass（coalesce / pin_place / islands / passive_inline）
+        //   看到的都是纯信号图。
+        classify_rails(graph, /*is_top=*/ !self.is_sub_layout);
         // ★ 先把"一条连接一条 net"归约成"一个等电位点一条 net"。
         // 整个布局栈（sp_model / ladder_model / chain / trunk_tap）都假设 net == 节点，
         // 但 visit.rs 那条 builder 通路对匿名器件引脚不做跨 net 合并（FIX-B 只认
         // InstKind::Pin）。不先做这一步，SP 会在 golden 上报 PassiveNetCount{nets:3}。
-        // 必须在 explode_power_rails_to_flags 之前跑：那之后 rail 已经炸成 per-consumer
-        // flag，coalesce 会跳过 flag 端点，两者互不干扰。
         super::coalesce::coalesce_equipotential_nets(graph);
-        explode_power_rails_to_flags(graph);
         promote_synthetic_pins(graph);
         split_shared_pins(graph);
         assign_default_sizes(graph);
@@ -183,23 +209,18 @@ impl FlowLayouter {
         let isolated_ids = compute_isolated_ids(graph, root_id);
 
         align_leaf_to_neighbor(graph, root_id);
-        group_supply_modules(graph, &isolated_ids);
+        // ★ P7-3: group_supply_modules（关键字表供电模块归底行）已删除——
+        // driver 段边把电源模块接进主流向，按流向排位即可（目标图 1 电源链在主图内）。
 
         (root_id, isolated_ids)
     }
 
     /// 相位 5 · Post — 几何保持的盒子移动，pin_place 之后安全。
-    fn phase_post(
-        &self,
-        graph: &mut McVecGraph,
-        flag_boxes: Vec<McVecBox>,
-        flag_meta: &FlagMeta,
-        isolated_ids: &HashSet<i64>,
-    ) {
-        graph.boxes.extend(flag_boxes);
-        self.place_flags(graph, flag_meta);
+    ///
+    /// ★ P7-3：flag 机器（split/place/eject）已删除——端子不再是盒子
+    /// （graph.rail_decorations，纪律 11），没有 flag 需要归位或弹出。
+    fn phase_post(&self, graph: &mut McVecGraph, isolated_ids: &HashSet<i64>) {
         park_isolated_components(graph, isolated_ids);
-        eject_flags_from_boxes(graph);
         normalize_positions(graph);
     }
 
@@ -355,10 +376,41 @@ impl FlowLayouter {
 }
 
 impl Layouter for FlowLayouter {
+    fn name(&self) -> &'static str {
+        if self.is_sub_layout {
+            "circuit_flow(sub)"
+        } else {
+            "circuit_flow"
+        }
+    }
+
+    /// ★ P7-0: model injection keeps THIS instance's parameters alive.
+    fn with_model(
+        &self,
+        model: crate::viz::layout_model::SchematicLayoutModel,
+    ) -> Option<Box<dyn Layouter>> {
+        Some(Box::new(self.clone_with_model(model)))
+    }
+
     fn layout(&self, graph: &mut McVecGraph) -> (f64, f64) {
+        // ★ P7-0: per-layer baseline log — first reading for P7-1's renderdiff.
+        crate::vlog!(
+            "[layout] layer '{}' layouter={} col_pitch={} row_pitch={} bary_sweeps={} hub_min_degree={} recompute={}",
+            graph.name,
+            self.name(),
+            self.col_pitch,
+            self.row_pitch,
+            self.bary_sweeps,
+            self.hub_min_degree,
+            self.recompute_sizes
+        );
+
         // ★ M2-1: v2 绞杀者管线。MC_LAYOUT_V2=1 时走新路径，
         // 默认走旧路径，旧路径一行不改。
+        // ★ P7-0: is_submodule 的唯一读者就是 v2；由这里自行设置，
+        // api.rs 不再无条件写这个字段。
         if std::env::var("MC_LAYOUT_V2").as_deref() == Ok("1") {
+            graph.is_submodule = self.is_sub_layout;
             let plan = super::v2::solve(graph);
             super::v2::geom::apply(graph, &plan);
             return plan.canvas;
@@ -377,7 +429,9 @@ impl Layouter for FlowLayouter {
         graph.fanout_star = self.fanout_star;
 
         // ── 相位 1 · Prepare：拓扑归一 + 粗粒度 pin ──
+        let g_snap = graph.geom_snapshot();
         self.phase_prepare(graph);
+        graph.claim_geom_changes(&g_snap, "1.prepare");
 
         // 备用出口 A：完全无连接 → 网格布局（早退）
         if is_fully_disconnected(graph) {
@@ -385,7 +439,9 @@ impl Layouter for FlowLayouter {
         }
 
         // ── 相位 2 · Size：pin-aware 尺寸 + 按扇出增高 ──
+        let g_snap = graph.geom_snapshot();
         self.phase_size(graph);
+        graph.claim_geom_changes(&g_snap, "2.size");
 
         // 备用出口 B：单盒子（早退）
         if graph.boxes.len() == 1 {
@@ -394,26 +450,22 @@ impl Layouter for FlowLayouter {
             return compute_canvas(graph);
         }
 
-        // 抽出 flags 供核心布局（Post 相位归位）
-        let (flag_boxes, flag_meta) = split_flags(graph);
-
-        // 备用出口 C：抽走 flag 后只剩空（早退）
-        if graph.boxes.is_empty() {
-            graph.boxes.extend(flag_boxes);
-            place_single_row(graph);
-            return compute_canvas(graph);
-        }
-
         // ── 相位 3 · Placement（只写盒子位置）+ PROBE-B 契约校验 ──
         let ep_snap = probe_ep_snapshot(graph);
+        let g_snap = graph.geom_snapshot();
         let (root_id, isolated_ids) = self.phase_placement(graph);
+        graph.claim_geom_changes(&g_snap, "3.placement");
         probe_no_ep_writes("phase_placement", graph, &ep_snap);
 
         // ── Phase D · SchematicLayoutModel: low-risk layout intent ──
+        let g_snap = graph.geom_snapshot();
         self.apply_schematic_model(graph);
+        graph.claim_geom_changes(&g_snap, "4.schematic_model");
 
         // 旧路径照跑：模型命中时被 ladder_place 完全覆盖，模型 bail 时兜底
+        let g_snap = graph.geom_snapshot();
         super::two_lane_ladder::try_two_lane_ladder(graph);
+        graph.claim_geom_changes(&g_snap, "5.two_lane");
 
         // ── M11+M12 Idiom-aware placement (pre-pin) ──
         // 在 phase_placement 之后、pin_place_pipeline 之前移动 satellite 器件。
@@ -428,7 +480,9 @@ impl Layouter for FlowLayouter {
                 .map(|b| b.id)
                 .collect();
             let model = crate::viz::idiom::place::analyze_idiom_placement(graph, &protected);
+            let g_snap = graph.geom_snapshot();
             let report = crate::viz::idiom::place::apply_idiom_placement_pre_pins(graph, &model);
+            graph.claim_geom_changes(&g_snap, "6.idiom");
             if report.idioms_detected > 0 {
                 mcc_dbg!("viz", "{}", report.report_line());
             }
@@ -443,92 +497,37 @@ impl Layouter for FlowLayouter {
         }
 
         // ── 相位 4 · PinPlacement：EntryPoint 唯一写者 + hub 几何唯一终定者 ──
+        let g_snap = graph.geom_snapshot();
         super::pin_place::pin_place_pipeline(graph, Some(root_id), true, self.hub_keep_semantic);
+        graph.claim_geom_changes(&g_snap, "7.pin_place");
         probe_degenerate_boxes(graph, "after pin_place");
 
-        // ★ 四级确定性摆位 dispatch，pin_place 之后做最后写者。
+        // ★ 岛屿 dispatcher（P7-4e 收编）：islands 分解 → 每个岛按拓扑分类
+        // （SP / ladder / direct / stub）由 apply_islands 内部分发 handler，
+        // 要求**每个岛都被认领**才落几何；未被认领的岛留给 L4 通用兜底
+        // （select.rs 的三个 passive pass）。
         //
-        // L1: islands 分解 → 每个岛按拓扑分类（SP / ladder / direct / stub），
-        //     要求**每个岛都被认领**才落几何。判据比 L2 严，多结构图的首选。
-        // L2: 整图 SP（旧路径）—— 纯 SP 树命中即抢先落两把锁
-        //     (geom_locked + SeriesInline)。
-        // L3: 整图 ladder（旧路径）—— 桥式网孔，SP 判 NonSpBridge bail 后接手。
-        // L4: 通用 flow 兜底（select.rs 的三个 passive pass）。
-        //
-        // 保留旧 SP/ladder 分支是有意的：islands 的判据更严（要求每个岛都被认领），
-        // 单结构图两边结果一致。
+        // ★ P7-4e 删除：L2 整图 SP / L3 整图 ladder 旁路（原 `!claimed` 时
+        // try_build_sp_model / try_build_ladder_model 抢先落锁）。P7-4c 实测
+        // hbl 全部 7 层零命中（两旁路从未落过几何），且 islands 内部已有
+        // Sp/Ladder 两类 island handler —— 四条互为兜底的分支收敛为
+        // "每个岛认领一个模型"的单一 dispatcher。
         let decomp = super::islands::decompose(graph);
-        if !super::islands::apply_islands(graph, &decomp) {
-            // L1 未覆盖全图 → 退回旧路径
-            if let Some(sp) = try_build_sp_model(graph) {
-                apply_sp(graph, &sp);
-            } else if let Some(m) = super::ladder_model::try_build_ladder_model(graph) {
-                apply_ladder_model(graph, &m);
-            }
-        }
+        let g_snap = graph.geom_snapshot();
+        super::islands::apply_islands(graph, &decomp);
+        graph.claim_geom_changes(&g_snap, "8.islands");
 
         // ── 相位 5 · Post：几何保持的移动，pin_place 之后安全 ──
-        self.phase_post(graph, flag_boxes, &flag_meta, &isolated_ids);
+        let g_snap = graph.geom_snapshot();
+        self.phase_post(graph, &isolated_ids);
+        graph.claim_geom_changes(&g_snap, "9.post");
 
         compute_canvas(graph)
     }
-
-    fn name(&self) -> &'static str {
-        "flow"
-    }
 }
 
-// ============================================================================
-// Flag extraction / metadata
-// ============================================================================
-
-/// flag_id → (consumer_box_id, consumer_pin_id, is_ground, net_id, net_name)
-struct FlagTarget {
-    consumer_box_id: i64,
-    consumer_pin_id: i64,
-    is_ground: bool,
-    net_id: i64,
-    net_name: String,
-}
-
-type FlagMeta = HashMap<i64, FlagTarget>;
-
-fn split_flags(graph: &mut McVecGraph) -> (Vec<McVecBox>, FlagMeta) {
-    let flag_ids: HashSet<i64> = graph
-        .boxes
-        .iter()
-        .filter(|b| is_rail_box(b))
-        .map(|b| b.id)
-        .collect();
-
-    let mut meta: FlagMeta = HashMap::new();
-    for net in &graph.nets {
-        let flag_ep = net.endpoints.iter().find(|e| flag_ids.contains(&e.box_id));
-        let cons_ep = net.endpoints.iter().find(|e| !flag_ids.contains(&e.box_id));
-        if let (Some(fe), Some(ce)) = (flag_ep, cons_ep) {
-            let is_gnd = matches!(net.kind, NetKind::Ground);
-            meta.insert(
-                fe.box_id,
-                FlagTarget {
-                    consumer_box_id: ce.box_id,
-                    consumer_pin_id: ce.pin_id,
-                    is_ground: is_gnd,
-                    net_id: net.nid,
-                    net_name: net.name.clone(),
-                },
-            );
-        }
-    }
-
-    let flags: Vec<_> = graph
-        .boxes
-        .iter()
-        .filter(|b| flag_ids.contains(&b.id))
-        .cloned()
-        .collect();
-    graph.boxes.retain(|b| !flag_ids.contains(&b.id));
-    (flags, meta)
-}
+// （★ P7-3 删除：FlagTarget / FlagMeta / split_flags —— flag 不再是盒子，
+//  无需在核心布局前抽出、Post 相位归位。）
 
 // ============================================================================
 // Size: height ∝ signal net count (vertical stretch, let parallel wire bundles spread apart)
@@ -939,15 +938,28 @@ fn branches_excluding(root: i64, adj: &HashMap<i64, Vec<i64>>, core_ids: &[i64])
 /// Example: usbsocket↔modldo only connected via Vin, only power (became flag) between it and main circuit (mcu...) →
 /// They are a connected component without hub → all enter isolated set. moddcdc if has real connection (like [VCC_1V2,GND]
 /// bundle net) to main → in hub component → not in isolated set → stays in main layout.
-fn compute_isolated_ids(graph: &McVecGraph, hub_id: i64) -> HashSet<i64> {
+/// ★ P7-3 验收项：main 层此集合必须为空（driver 段边把电源模块接进主流向后，
+/// 不再有"只靠电源连接"的孤岛）。pub 供集成测试断言。
+pub fn compute_isolated_ids(graph: &McVecGraph, hub_id: i64) -> HashSet<i64> {
     let adj = build_adjacency(graph);
     let comps = find_connected_components(&graph.boxes, &adj);
+    // ★ P7-3: 负 id 的 SubModule 是 Phase 1.46 的顶层虚线边框（无网、纯视觉），
+    // 不是组件，不进孤岛集——否则 park_isolated_components 会把边框挪出画布主体。
+    let border: HashSet<i64> = graph
+        .boxes
+        .iter()
+        .filter(|b| b.id < 0 && b.kind == crate::vector::graph::BoxKind::SubModule)
+        .map(|b| b.id)
+        .collect();
     let mut out = HashSet::new();
     for c in &comps {
         if c.contains(&hub_id) {
             continue;
         }
         for &id in c {
+            if border.contains(&id) {
+                continue;
+            }
             out.insert(id);
         }
     }
@@ -973,24 +985,8 @@ fn park_isolated_components(graph: &mut McVecGraph, isolated_ids: &HashSet<i64>)
         return;
     }
 
-    // 1. Flags of isolated boxes also need to move: find flags with "one end is flag, other end is isolated box" by net.
-    let flag_ids: HashSet<i64> = graph
-        .boxes
-        .iter()
-        .filter(|b| is_rail_box(b))
-        .map(|b| b.id)
-        .collect();
-    let mut move_set: HashSet<i64> = isolated_ids.clone();
-    for net in &graph.nets {
-        let flag = net.endpoints.iter().find(|e| flag_ids.contains(&e.box_id));
-        let cons = net
-            .endpoints
-            .iter()
-            .find(|e| isolated_ids.contains(&e.box_id));
-        if let (Some(f), Some(_)) = (flag, cons) {
-            move_set.insert(f.box_id);
-        }
-    }
+    // ★ P7-3：flag 已不存在（端子是 pin 装饰），孤岛只需整体平移盒子自身。
+    let move_set: HashSet<i64> = isolated_ids.clone();
 
     // 2. Main body bounding box (non move_set) bottom-left + isolated cluster (move_set) top-left
     let (mut main_minx, mut main_maxy) = (f64::MAX, f64::MIN);
@@ -1027,87 +1023,9 @@ fn park_isolated_components(graph: &mut McVecGraph, isolated_ids: &HashSet<i64>)
     );
 }
 
-// ============================================================================
-// Supply chain grouping — consolidate power modules into bottom row
-// ============================================================================
-
-/// Is power supply module (USB power socket / LDO / DCDC / regulator...).
-
-/// Criteria: not power flag (PowerRail symbol), and name/class name contains power supply keywords.
-/// Covers usbsocket(POWER_SYS) / modldo(POWER_LDO) / moddcdc(POWER_DCDC) in image.
-pub(crate) fn is_supply_module(b: &McVecBox) -> bool {
-    if b.symbol.is_power_rail() {
-        return false; // power flag itself is not "module"
-    }
-    let hay = format!("{} {}", b.name, b.class_name).to_uppercase();
-    const TOK: &[&str] = &[
-        "POWER", "LDO", "DCDC", "REGULAT", "VREG", "PMIC", "PMU", "BUCK", "BOOST", "CHARGER",
-    ];
-    TOK.iter().any(|t| hay.contains(t))
-}
-
-/// Consolidate power supply modules into **bottom row** (schematic convention: power area centralized).
-///
-/// - Only moves when ≥2 (single doesn't form "chain").
-/// - Placed below current core bounding box; ordered left→right by current x (roughly preserves USB→LDO→DCDC power flow order).
-/// - When to call: before place_flags → after power modules moved, their flags automatically stick to side.
-/// - Power distribution to peripherals goes via same-name flags (no connections), so moving to bottom doesn't lengthen those; real power transfer between modules
-///   (Vin/V5V etc) becomes shorter due to proximity placement.
-fn group_supply_modules(graph: &mut McVecGraph, exclude: &HashSet<i64>) {
-    let ids: Vec<i64> = graph
-        .boxes
-        .iter()
-        .filter(|b| is_supply_module(b) && !exclude.contains(&b.id))
-        .map(|b| b.id)
-        .collect();
-    if ids.len() < 2 {
-        return; // fewer than 2, not a chain, don't move (avoid damaging single power component's existing position)
-    }
-
-    // Sort by current x left→right (preserve relative power flow order; connected two power modules mostly already x-adjacent).
-    let xs: HashMap<i64, f64> = graph.boxes.iter().map(|b| (b.id, b.x)).collect();
-    let mut order = ids;
-    order.sort_by(|a, b| {
-        xs.get(a)
-            .unwrap_or(&0.0)
-            .partial_cmp(xs.get(b).unwrap_or(&0.0))
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    // Bounding box only counts **non-power components** (signal main body), letting power row snug against main body below, not lowered by power components' old positions. Safe starting point for degenerate case of all power components (no others).
-    let supply_set: HashSet<i64> = order.iter().copied().collect();
-    let (mut min_x, mut max_y) = (f64::MAX, f64::MIN);
-    let mut found = false;
-    for b in &graph.boxes {
-        if supply_set.contains(&b.id) {
-            continue;
-        }
-        found = true;
-        min_x = min_x.min(b.x);
-        max_y = max_y.max(b.y + b.h);
-    }
-    if !found || !max_y.is_finite() {
-        min_x = CANVAS_MARGIN;
-        max_y = CANVAS_MARGIN;
-    }
-
-    const ROW_GAP: f64 = 140.0; // vertical spacing from main body above (leaving room for flags + connections)
-    const H_GAP: f64 = 90.0; // horizontal spacing between modules
-    let row_y = max_y + ROW_GAP;
-    let mut cur_x = min_x;
-    for id in &order {
-        if let Some(b) = graph.boxes.iter_mut().find(|b| b.id == *id) {
-            b.x = cur_x;
-            b.y = row_y;
-            cur_x += b.w + H_GAP;
-        }
-    }
-    crate::vlog!(
-        "[layout::flow] supply-chain: grouped {} power module(s) into bottom row (y={:.0})",
-        order.len(),
-        row_y
-    );
-}
+// （★ P7-3 删除：is_supply_module / group_supply_modules ——
+//  名字关键字表（POWER/LDO/DCDC/...）是反模式 §2.3 的标本，整链删除。
+//  driver 段边已把电源模块接进主流向，按流向排位即可。）
 
 // ============================================================================
 // barycenter de-crossing
@@ -1429,197 +1347,7 @@ impl FlowLayouter {
         }
     }
 
-    /// Flag sticks to consumer (Stage F): adaptive edge-sticking + four-direction orientation
-    ///
-    /// No longer hardcoded "power up / ground down". For each consumer:
-    /// - Compute "signal neighbor direction" (towards connected non-flag boxes)
-    /// - Power flag sticks to **most away from neighbors** empty edge, ground sticks to the next empty other edge
-    /// - Move the corresponding power/ground pin to that edge too (stub straight out, no detour)
-    /// - Flag's single pin faces consumer; renderer side (power_rail.rs) draws symbol based on this edge's four-direction
-    fn place_flags(&self, graph: &mut McVecGraph, meta: &FlagMeta) {
-        let flag_ids: HashSet<i64> = meta.keys().copied().collect();
-
-        let centers: HashMap<i64, (f64, f64)> = graph
-            .boxes
-            .iter()
-            .map(|b| (b.id, (b.x + b.w / 2.0, b.y + b.h / 2.0)))
-            .collect();
-
-        // consumer → signal neighbor direction (sum of unit vectors pointing to connected non-flag boxes)
-        let mut nbr_dir: HashMap<i64, (f64, f64)> = HashMap::new();
-        let mut nbr_axis: HashMap<i64, (f64, f64)> = HashMap::new(); // (busy_x, busy_y) absolute magnitude
-        for net in &graph.nets {
-            let cores: Vec<i64> = net
-                .endpoints
-                .iter()
-                .map(|e| e.box_id)
-                .filter(|id| !flag_ids.contains(id))
-                .collect();
-            for &a in &cores {
-                for &b in &cores {
-                    if a == b {
-                        continue;
-                    }
-                    if let (Some(&(ax, ay)), Some(&(bx, by))) = (centers.get(&a), centers.get(&b)) {
-                        let (dx, dy) = (bx - ax, by - ay);
-                        let l = (dx * dx + dy * dy).sqrt().max(1.0);
-                        let e = nbr_dir.entry(a).or_insert((0.0, 0.0));
-                        e.0 += dx / l;
-                        e.1 += dy / l;
-                        let ax_e = nbr_axis.entry(a).or_insert((0.0, 0.0));
-                        ax_e.0 += (dx / l).abs();
-                        ax_e.1 += (dy / l).abs();
-                    }
-                }
-            }
-        }
-
-        // consumer → [(flag_id, name, is_gnd, consumer_pin)]
-        let mut by_consumer: HashMap<i64, Vec<(i64, String, bool, i64)>> = HashMap::new();
-        for (&fid, ft) in meta.iter() {
-            let name = graph
-                .boxes
-                .iter()
-                .find(|b| b.id == fid)
-                .map(|b| b.name.clone())
-                .unwrap_or_default();
-            by_consumer.entry(ft.consumer_box_id).or_default().push((
-                fid,
-                name,
-                ft.is_ground,
-                ft.consumer_pin_id,
-            ));
-        }
-
-        let mut flag_place: HashMap<i64, (f64, f64, EntrySide)> = HashMap::new();
-        let mut pin_moves: Vec<(i64, i64, EntrySide, f64)> = Vec::new();
-
-        let mut consumer_ids: Vec<i64> = by_consumer.keys().copied().collect();
-        consumer_ids.sort();
-        for &cbox in &consumer_ids {
-            let flags = &by_consumer[&cbox];
-            let consumer = match graph.boxes.iter().find(|b| b.id == cbox) {
-                Some(b) => b.clone(),
-                None => continue,
-            };
-            let nd = nbr_dir.get(&cbox).copied().unwrap_or((1.0, 0.0));
-            let ndl = (nd.0 * nd.0 + nd.1 * nd.1).sqrt();
-            let ndu = if ndl > 1e-6 {
-                (nd.0 / ndl, nd.1 / ndl)
-            } else {
-                (0.0, 0.0)
-            };
-            // Normalize busy axes (both sides connected → horizontally busy; one side → that direction busy)
-            let na = nbr_axis.get(&cbox).copied().unwrap_or((1.0, 0.0));
-            let nsum = (na.0 + na.1).max(1e-6);
-            let (busy_x, busy_y) = (na.0 / nsum, na.1 / nsum);
-
-            // Score 4 edges: 1.5×away-from-neighbor direction − busy axis penalty − stub length penalty (short stubs preferred)
-            let edges = [
-                EntrySide::Top,
-                EntrySide::Bottom,
-                EntrySide::Left,
-                EntrySide::Right,
-            ];
-            let (ccx, ccy) = (consumer.x + consumer.w / 2.0, consumer.y + consumer.h / 2.0);
-            let mut scored: Vec<(EntrySide, f64)> = edges
-                .iter()
-                .map(|e| {
-                    let (nx, ny, _) = outward_and_opposite(e);
-                    let dir_term = -(nx * ndu.0 + ny * ndu.1);
-                    let axis_pen = if nx.abs() > 0.5 { busy_x } else { busy_y };
-                    // Estimate stub length: distance from consumer center to edge midpoint + flag_gap
-                    let (ex, ey) = edge_midpoint(&consumer, e);
-                    let est_dist = ((ex - ccx).powi(2) + (ey - ccy).powi(2)).sqrt();
-                    let stub_pen = if est_dist > LONG_PG_STUB {
-                        (est_dist - LONG_PG_STUB) / 10.0
-                    } else {
-                        0.0
-                    };
-                    (e.clone(), 1.5 * dir_term - axis_pen - stub_pen)
-                })
-                .collect();
-            scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-            let power_edge = scored[0].0.clone();
-            let ground_edge = scored
-                .iter()
-                .find(|(e, _)| *e != power_edge)
-                .map(|(e, _)| e.clone())
-                .unwrap_or_else(|| power_edge.clone());
-
-            // Distribute to sides
-            let mut on_edge: HashMap<EntrySide, Vec<(i64, String, i64)>> = HashMap::new();
-            for (fid, name, is_gnd, pin) in flags {
-                let e = if *is_gnd {
-                    ground_edge.clone()
-                } else {
-                    power_edge.clone()
-                };
-                on_edge
-                    .entry(e)
-                    .or_default()
-                    .push((*fid, name.clone(), *pin));
-            }
-
-            // Each edge: horizontal edge by label width, vertical edge by longitudinal pitch, centered and spread; move pins + place flags
-            for (edge, mut items) in on_edge {
-                items.sort_by(|a, b| a.0.cmp(&b.0));
-                let (ox, oy, opp) = outward_and_opposite(&edge);
-                let tang = (-oy, ox);
-                let (ecx, ecy) = edge_midpoint(&consumer, &edge);
-                let is_vert = matches!(edge, EntrySide::Left | EntrySide::Right);
-                let widths: Vec<f64> = items
-                    .iter()
-                    .map(|(_, n, _)| if is_vert { 42.0 } else { label_width(n) })
-                    .collect();
-                let total: f64 = widths.iter().sum::<f64>().max(1.0);
-                let mut cursor = -total / 2.0;
-                for (i, (fid, _name, pin)) in items.iter().enumerate() {
-                    let w = widths[i];
-                    let t = cursor + w / 2.0;
-                    cursor += w;
-                    let px = ecx + tang.0 * t;
-                    let py = ecy + tang.1 * t;
-                    let bx = px + ox * self.flag_gap;
-                    let by = py + oy * self.flag_gap;
-                    flag_place.insert(*fid, (bx, by, opp.clone()));
-                    let off = offset_along_edge(&consumer, &edge, px, py);
-                    let clamped = off.clamp(0.05, 0.95);
-                    pin_moves.push((cbox, *pin, edge.clone(), clamped));
-                    // Diagnostic: if clamped significantly, the flag is beyond edge bounds
-                    if (clamped - off).abs() > 0.01 {
-                        crate::vlog!(
-                            "[viz::flow] flag offset clamped: cbox={} pin={} edge={:?} off={:.3} clamped={:.3}",
-                            cbox, pin, edge, off, clamped
-                        );
-                    }
-                }
-            }
-        }
-
-        // Apply: move pins (power/ground pins moved to selected edge)
-        for b in &mut graph.boxes {
-            for (bid, pin, side, off) in &pin_moves {
-                if b.id == *bid {
-                    if let Some(ep) = b.entry_points.iter_mut().find(|e| e.pin_id == *pin) {
-                        ep.side = side.clone();
-                        ep.offset = off.clamp(0.05, 0.95);
-                    }
-                }
-            }
-        }
-        // Apply: place flags + single pin faces consumer
-        for b in &mut graph.boxes {
-            if let Some(v) = flag_place.get(&b.id) {
-                b.x = v.0 - b.w / 2.0;
-                b.y = v.1 - b.h / 2.0;
-                if let Some(ep) = b.entry_points.first_mut() {
-                    ep.side = v.2.clone();
-                    ep.offset = 0.5;
-                }
-            }
-        }
-    }
+    // （★ P7-3 删除：place_flags —— flag 不是盒子，无需摆位；端子按 pin 装饰渲染。）
 }
 
 fn place_single_row(graph: &mut McVecGraph) {
@@ -1759,6 +1487,7 @@ fn outward_and_opposite(side: &EntrySide) -> (f64, f64, EntrySide) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vector::graph::NetKind;
     use crate::vector::graph::{BoxKind, EndpointRef, IoSummary, Symbol, NetRole, VizNet};
 
     fn mk_mod(id: i64, name: &str, pins: usize) -> McVecBox {
@@ -1825,169 +1554,6 @@ mod tests {
         let ranks = assign_flow_ranks(&g, 4);
         assert!(ranks[&1] < ranks[&2]);
         assert!(ranks[&2] < ranks[&3]);
-    }
-
-    /// Dominant hub (1 center connecting 5 leaves): hub=0, leaves split to left/right sides (negative and positive)
-    #[test]
-    fn flow_star_is_two_sided() {
-        let mut g = McVecGraph::new(0, "main".into());
-        g.boxes.push(mk_mod(1, "hub", 8));
-        for i in 2..=6 {
-            g.boxes.push(mk_mod(i, &format!("leaf{}", i), 2));
-        }
-        for i in 2..=6 {
-            g.nets.push(VizNet::new(
-                100 + i,
-                format!("s{}", i),
-                NetKind::Signal,
-                NetRole::Signal,
-                vec![
-                    EndpointRef::with_io(1, 10 + i, "io", IoDirection::Bidir),
-                    EndpointRef::with_io(i, 1, "io", IoDirection::Bidir),
-                ],
-            ));
-        }
-        let ranks = assign_flow_ranks(&g, 4);
-        assert_eq!(ranks[&1], 0, "hub at column 0");
-        let has_left = (2..=6).any(|i| ranks[&i] < 0);
-        let has_right = (2..=6).any(|i| ranks[&i] > 0);
-        assert!(has_left && has_right, "leaves split to both sides");
-    }
-
-    /// End-to-end + power rail: no panic, flag count correct, canvas reasonable
-    #[test]
-    fn flow_end_to_end_with_rails() {
-        let mut g = McVecGraph::new(0, "main".into());
-        g.boxes.push(mk_mod(1, "mcu", 6));
-        g.boxes.push(mk_mod(2, "spk", 4));
-        g.boxes.push(mk_rail(100, "V3V3", false));
-        g.boxes.push(mk_rail(101, "GND", true));
-        g.nets.push(VizNet::new(
-            10,
-            "dac".into(),
-            NetKind::Signal,
-            NetRole::Signal,
-            vec![
-                EndpointRef::with_io(1, 11, "DAC_OUT", IoDirection::Output),
-                EndpointRef::with_io(2, 21, "DAC_IN", IoDirection::Input),
-            ],
-        ));
-        g.nets.push(VizNet::new(
-            11,
-            "V3V3".into(),
-            NetKind::Power,
-            NetRole::Signal,
-            vec![
-                EndpointRef::with_io(100, 1001, "V3V3", IoDirection::Power),
-                EndpointRef::with_io(1, 12, "VDD", IoDirection::Power),
-                EndpointRef::with_io(2, 22, "VDD", IoDirection::Power),
-            ],
-        ));
-        g.nets.push(VizNet::new(
-            12,
-            "GND".into(),
-            NetKind::Ground,
-            NetRole::Signal,
-            vec![
-                EndpointRef::with_io(101, 1011, "GND", IoDirection::Ground),
-                EndpointRef::with_io(1, 13, "GND", IoDirection::Ground),
-                EndpointRef::with_io(2, 23, "GND", IoDirection::Ground),
-            ],
-        ));
-
-        let (cw, ch) = FlowLayouter::default().layout(&mut g);
-        assert!(cw > 0.0 && ch > 0.0);
-        let flags = g.boxes.iter().filter(|b| is_rail_box(b)).count();
-        assert_eq!(flags, 4, "2 consumers × 2 rails = 4 flags");
-        assert_eq!(g.boxes.len(), 6);
-    }
-
-    fn mk_supply(id: i64, name: &str, class: &str, x: f64, y: f64) -> McVecBox {
-        let mut b = McVecBox::new_v2(
-            id,
-            name.into(),
-            class.into(),
-            BoxKind::SubModule,
-            Symbol::Module,
-            None,
-            None,
-            3,
-            IoSummary::new(),
-            name.to_string(),
-            Vec::new(),
-        );
-        b.x = x;
-        b.y = y;
-        b.w = 80.0;
-        b.h = 80.0;
-        b
-    }
-
-    #[test]
-    fn supply_module_detection() {
-        let usb = mk_supply(1, "usbsocket", "POWER_SYS", 0.0, 0.0);
-        let ldo = mk_supply(2, "modldo", "POWER_LDO", 0.0, 0.0);
-        let dcdc = mk_supply(3, "moddcdc", "POWER_DCDC", 0.0, 0.0);
-        let mcu = mk_supply(4, "mcu513", "US513", 0.0, 0.0); // Main controller, no power token
-        assert!(is_supply_module(&usb));
-        assert!(is_supply_module(&ldo));
-        assert!(is_supply_module(&dcdc));
-        assert!(
-            !is_supply_module(&mcu),
-            "Main controller is not a power module"
-        );
-        assert!(
-            !is_supply_module(&mk_rail(5, "V3V3", false)),
-            "Power flag is not a power module"
-        );
-    }
-
-    #[test]
-    fn supply_chain_grouped_to_bottom_row() {
-        let mut g = McVecGraph::new(0, "main".into());
-        // Signal component flash on top (y=0..100); two power modules initially scattered
-        let mut flash = mk_mod(10, "flash", 4);
-        flash.x = 0.0;
-        flash.y = 0.0;
-        flash.w = 100.0;
-        flash.h = 100.0;
-        g.boxes.push(flash);
-        g.boxes
-            .push(mk_supply(1, "usbsocket", "POWER_SYS", 500.0, 50.0));
-        g.boxes
-            .push(mk_supply(2, "modldo", "POWER_LDO", 200.0, 400.0));
-
-        group_supply_modules(&mut g, &HashSet::new());
-
-        let uy = g.boxes.iter().find(|b| b.id == 1).unwrap().y;
-        let ly = g.boxes.iter().find(|b| b.id == 2).unwrap().y;
-        assert!(
-            (uy - ly).abs() < 1e-6,
-            "Two power modules should be in same row"
-        );
-        assert!(
-            uy > 100.0,
-            "Power row should be below signal main body (flash bottom=100)"
-        );
-        let fy = g.boxes.iter().find(|b| b.id == 10).unwrap().y;
-        assert!((fy - 0.0).abs() < 1e-6, "Non-power components don't move");
-        // By original x left→right: modldo (original x=200) is left of usbsocket (original x=500)
-        let lx = g.boxes.iter().find(|b| b.id == 2).unwrap().x;
-        let ux = g.boxes.iter().find(|b| b.id == 1).unwrap().x;
-        assert!(lx < ux, "Bottom row by original x left→right");
-    }
-
-    #[test]
-    fn supply_single_module_untouched() {
-        let mut g = McVecGraph::new(0, "main".into());
-        g.boxes
-            .push(mk_supply(1, "usbsocket", "POWER_SYS", 500.0, 50.0));
-        group_supply_modules(&mut g, &HashSet::new());
-        let b = g.boxes.iter().find(|b| b.id == 1).unwrap();
-        assert!(
-            (b.x - 500.0).abs() < 1e-6 && (b.y - 50.0).abs() < 1e-6,
-            "Single power module not a chain, don't move"
-        );
     }
 }
 
@@ -2135,73 +1701,4 @@ fn probe_degenerate_boxes(graph: &McVecGraph, tag: &str) {
 }
 
 // ============================================================================
-// Flag ejection — 把压到别的盒子上的 flag 推出去
-// ============================================================================
-
-const FLAG_EJECT_GAP: f64 = 6.0;
-
-/// 把压到别的盒子上的 flag 推出去。只移动 flag；非 flag 盒子作为固定障碍。
-pub fn eject_flags_from_boxes(graph: &mut McVecGraph) {
-    let flag_ids: Vec<i64> = graph
-        .boxes
-        .iter()
-        .filter(|b| is_rail_box(b))
-        .map(|b| b.id)
-        .collect();
-    if flag_ids.is_empty() {
-        return;
-    }
-
-    let mut moved = 0usize;
-    for fid in flag_ids {
-        for _ in 0..8 {
-            let (fx, fy, fw, fh) = match graph.boxes.iter().find(|b| b.id == fid) {
-                Some(f) => (f.x, f.y, f.w, f.h),
-                None => break,
-            };
-            let (fcx, fcy) = (fx + fw / 2.0, fy + fh / 2.0);
-
-            let mut best: Option<(f64, f64, f64)> = None;
-            for o in &graph.boxes {
-                if o.id == fid {
-                    continue;
-                }
-                let ix = (fx + fw).min(o.x + o.w) - fx.max(o.x);
-                let iy = (fy + fh).min(o.y + o.h) - fy.max(o.y);
-                if ix > -FLAG_EJECT_GAP && iy > -FLAG_EJECT_GAP {
-                    let cost_x = ix + FLAG_EJECT_GAP;
-                    let cost_y = iy + FLAG_EJECT_GAP;
-                    let (ocx, ocy) = (o.x + o.w / 2.0, o.y + o.h / 2.0);
-                    let (cost, px, py) = if cost_x <= cost_y {
-                        let dir = if fcx < ocx { -1.0 } else { 1.0 };
-                        (cost_x, dir * cost_x, 0.0)
-                    } else {
-                        let dir = if fcy < ocy { -1.0 } else { 1.0 };
-                        (cost_y, 0.0, dir * cost_y)
-                    };
-                    if best.map_or(true, |(c, _, _)| cost > c) {
-                        best = Some((cost, px, py));
-                    }
-                }
-            }
-
-            match best {
-                Some((_, px, py)) => {
-                    if let Some(f) = graph.boxes.iter_mut().find(|b| b.id == fid) {
-                        f.x += px;
-                        f.y += py;
-                    }
-                    moved += 1;
-                }
-                None => break,
-            }
-        }
-    }
-
-    if moved > 0 {
-        crate::vlog!(
-            "[layout::flow] eject_flags_from_boxes: nudged flag(s) {} time(s)",
-            moved
-        );
-    }
-}
+// （★ P7-3 删除：eject_flags_from_boxes —— flag 不是盒子，无 flag 需要弹出。）

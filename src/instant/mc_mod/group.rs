@@ -468,10 +468,16 @@ impl McModuleInst {
         }
 
         // Match: for each left name, find right name
+        // ★ P7-4 [DET]: iterate `left` (declaration order), NOT `left_by_name` —
+        // HashMap iteration order would rotate the emitted pairs, and
+        // `next_conn_id()` numbering then leaks that rotation into `__net_N`
+        // names downstream (two renders of the same source produced
+        // flash~mcu513:__net_26 vs __net_28).
         let mut pairs: Vec<(NetPoint, NetPoint)> = Vec::new();
-        for (name, l) in &left_by_name {
+        for l in left {
+            let name = l.member_name.as_deref().unwrap_or("");
             if let Some(r) = right_by_name.get(name) {
-                pairs.push(((*l).clone(), (*r).clone()));
+                pairs.push((l.clone(), (*r).clone()));
             } else {
                 return None; // name not found on right side → fallback to position
             }

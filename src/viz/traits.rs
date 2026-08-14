@@ -18,6 +18,17 @@ use crate::vector::graph::{McVecGraph, VizNet};
 pub trait Layouter {
     fn layout(&self, graph: &mut McVecGraph) -> (f64, f64);
 
+    /// ★ P7-0: attach a SchematicLayoutModel **onto the candidate itself**,
+    /// preserving the candidate's own parameters (sub() vs default()).
+    /// Returns `None` for layouters that don't consume a model — caller then
+    /// just runs the candidate as-is.
+    fn with_model(
+        &self,
+        _model: crate::viz::layout_model::SchematicLayoutModel,
+    ) -> Option<Box<dyn Layouter>> {
+        None
+    }
+
     fn name(&self) -> &'static str {
         "unnamed_layouter"
     }

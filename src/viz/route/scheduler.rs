@@ -171,7 +171,6 @@ pub fn route_layer_with_channels(graph: &mut McVecGraph) {
     //
     // After merging, dispatch.rs::pick_router automatically selects TrunkTap for (Power/Ground, StarOneDriver/
     // MultiDriver), one trunk + multiple taps, visually looks like real power rail.
-    merge_same_name_power_ground_nets(graph);
 
     let mut channels = ChannelMap::build(graph, DEFAULT_LINE_GAP);
 
@@ -453,121 +452,10 @@ struct RoutePlan {
 ///   - Endpoint count < 3 (can't form a hyperedge) → don't merge, leave alone
 ///   - Already-routed nets (route is Some) don't participate in merging
 ///     (theoretically won't happen before scheduling)
-///
-/// Output: modifies `graph.nets` contents (length may decrease), and prints diagnostic logs.
-fn merge_same_name_power_ground_nets(graph: &mut crate::vector::graph::McVecGraph) {
-    use crate::vector::graph::{BoxKind, EndpointRef};
-    use std::collections::HashMap;
-
-    // ★ Stage A guard: any stub net whose endpoints connect to PowerLabel flags
-    //    doesn't participate in merging — otherwise it would re-merge the
-    //    per-consumer flag stubs that A2 (rails.rs) blew apart back into the global trunk.
-    let label_box_ids: std::collections::HashSet<i64> = graph
-        .boxes
-        .iter()
-        .filter(|b| b.kind == BoxKind::PowerLabel || b.symbol.is_power_rail())
-        .map(|b| b.id)
-        .collect();
-
-    // 1. Group by (name.upper(), kind_tag), only consider unrouted Power/Ground nets
-    //    kind_tag: Power=0, Ground=1 (avoid NetKind's own Hash implementation uncertainty)
-    let mut groups: HashMap<(String, u8), Vec<usize>> = HashMap::new();
-    for (idx, net) in graph.nets.iter().enumerate() {
-        if net.route.is_some() {
-            continue;
-        }
-        // Skip stubs that connect to flags
-        if net
-            .endpoints
-            .iter()
-            .any(|e| label_box_ids.contains(&e.box_id))
-        {
-            continue;
-        }
-        let tag: u8 = match net.kind {
-            NetKind::Power => 0,
-            NetKind::Ground => 1,
-            _ => continue,
-        };
-        let key = (net.name.to_uppercase(), tag);
-        groups.entry(key).or_default().push(idx);
-    }
-
-    // 2. Collect "merge plans": (keep_idx, drop_indices, merged_endpoints)
-    //    Use an idx → action table, then in a pass rebuild graph.nets
-    let mut merge_plans: Vec<(usize, Vec<usize>, Vec<EndpointRef>)> = Vec::new();
-    for ((name_upper, _tag), mut indices) in groups {
-        if indices.len() < 2 {
-            continue;
-        }
-        indices.sort_by_key(|&i| graph.nets[i].nid);
-
-        // Must have at least one TwoPoint, otherwise don't touch
-        // (all are hyperedges → no need to merge)
-        let has_twopoint = indices.iter().any(|&i| graph.nets[i].endpoints.len() == 2);
-        if !has_twopoint {
-            continue;
-        }
-
-        // Merge endpoints (dedup by (box_id, pin_id), pin_name takes the first seen)
-        let mut seen: std::collections::HashSet<(i64, i64)> = std::collections::HashSet::new();
-        let mut merged: Vec<EndpointRef> = Vec::new();
-        for &i in &indices {
-            for ep in &graph.nets[i].endpoints {
-                let k = (ep.box_id, ep.pin_id);
-                if seen.insert(k) {
-                    merged.push(ep.clone());
-                }
-            }
-        }
-
-        if merged.len() < 3 {
-            // After merging still < 3 endpoints, doesn't form a hyperedge → not worth touching
-            continue;
-        }
-
-        let keep = indices[0];
-        let drops: Vec<usize> = indices.into_iter().skip(1).collect();
-        crate::vlog!(
-            "[route::scheduler] ITER-6 merge: '{}' kind={:?} {} nets → 1 hyperedge with {} endpoints (kept nid={}, dropped {} nets)",
-            name_upper,
-            graph.nets[keep].kind,
-            drops.len() + 1,
-            merged.len(),
-            graph.nets[keep].nid,
-            drops.len()
-        );
-        merge_plans.push((keep, drops, merged));
-    }
-
-    if merge_plans.is_empty() {
-        return;
-    }
-
-    // 3. Apply merges: first update kept nets' endpoints, then delete drops in reverse idx order
-    //    (reverse-order deletion keeps indices stable)
-    //
-    //    Collect all idx to delete, then retain once
-    let mut drop_set: std::collections::HashSet<usize> = std::collections::HashSet::new();
-    for (keep, drops, merged_eps) in &merge_plans {
-        graph.nets[*keep].endpoints = merged_eps.clone();
-        for d in drops {
-            drop_set.insert(*d);
-        }
-    }
-    let mut idx = 0usize;
-    graph.nets.retain(|_| {
-        let keep = !drop_set.contains(&idx);
-        idx += 1;
-        keep
-    });
-
-    crate::vlog!(
-        "[route::scheduler] ITER-6 merge done: {} merge group(s) applied, {} net(s) removed",
-        merge_plans.len(),
-        drop_set.len()
-    );
-}
+// （★ P7-3 删除：merge_same_name_power_ground_nets —— 它存在的唯一理由是
+//  把 explode 炸出的同名 per-consumer flag stub 拼回超边；flag 机器删除后，
+//  唯一同名的 Power 网是刻意分开的 R-2 driver 段（golden 要求 V3V3 = 2 条边），
+//  合并它们等于把 driver 段吞掉。）
 
 // ============================================================================
 // Tests

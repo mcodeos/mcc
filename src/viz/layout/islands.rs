@@ -207,8 +207,8 @@ struct TerminalGraph {
 }
 
 impl TerminalGraph {
-    fn any_node(&self) -> i64 {
-        *self.incident.keys().next().unwrap()
+    fn any_node(&self) -> Option<i64> {
+        self.incident.keys().next().copied()
     }
 
     /// Neighbour terminals of `t` (the other end of each band incident to `t`).
@@ -284,7 +284,10 @@ impl TerminalGraph {
     /// Star / two-terminal are degenerate cases — byte-identical to the old
     /// centre-based layout. Chain (3+ terminals) is the new supported shape.
     fn linear_order(&self) -> Vec<i64> {
-        let start = self.any_node();
+        let start = match self.any_node() {
+            Some(n) => n,
+            None => return Vec::new(),
+        };
         let a = self.bfs_farthest(start);
         let b = self.bfs_farthest(a);
         let mut order = self.path_between(a, b);
@@ -327,9 +330,9 @@ fn build_terminal_graph_from_pairs(
         std::collections::BTreeMap::new();
     let mut ends: Vec<(i64, i64)> = Vec::with_capacity(island_pairs.len() + direct_bands.len());
 
-    for &(i, a, b) in island_pairs {
-        incident.entry(a).or_default().push(i);
-        incident.entry(b).or_default().push(i);
+    for (bi, &(_, a, b)) in island_pairs.iter().enumerate() {
+        incident.entry(a).or_default().push(bi);
+        incident.entry(b).or_default().push(bi);
         ends.push((a, b));
     }
 

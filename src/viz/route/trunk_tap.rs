@@ -96,7 +96,7 @@ impl Router for TrunkTapRouter {
 
         let route = match exits.len() {
             0 | 1 => Route::new(),
-            2 => build_two_point_route(&exits),
+            2 => build_two_point_route(&exits, &obstacles),
             _ => build_trunk_tap_route(
                 &exits,
                 BuildOptions {
@@ -159,7 +159,7 @@ pub fn route_trunk_tap_with_channels(
 
     let route = match exits.len() {
         0 | 1 => Route::new(),
-        2 => build_two_point_route(&exits),
+        2 => build_two_point_route(&exits, &obstacles),
         _ => build_trunk_tap_route(
             &exits,
             BuildOptions {
@@ -295,6 +295,8 @@ pub fn build_trunk_tap_route<'a>(
     route.segments.push(trunk);
 
     // ── Step 5: tap (stub_end → trunk) + junction ──
+    // ★ M4: obstacle-aware tap segments — if the straight tap hits an obstacle,
+    //   fall back to best_orthogonal_path for a clean detour.
     for &(sx, sy) in &stub_ends {
         let trunk_pt = if trunk_horizontal {
             Point::new(sx, trunk_axis)
@@ -305,10 +307,27 @@ pub fn build_trunk_tap_route<'a>(
         // stub_end is already on the trunk → don't draw redundant tap
         let already_on_trunk = (trunk_pt.x - sx).abs() < 0.5 && (trunk_pt.y - sy).abs() < 0.5;
         if !already_on_trunk {
-            route.segments.push(Segment {
-                from: Point::new(sx, sy),
-                to: trunk_pt,
-            });
+            let tap_seg = (sx, sy, trunk_pt.x, trunk_pt.y);
+            let hit = opts
+                .obstacles
+                .map(|o| o.first_hit(&[tap_seg]).is_some())
+                .unwrap_or(false);
+            if hit {
+                let detour = super::obstacles::best_orthogonal_path(
+                    sx, sy, trunk_pt.x, trunk_pt.y, opts.obstacles.unwrap(),
+                );
+                for (x1, y1, x2, y2) in detour {
+                    route.segments.push(Segment {
+                        from: Point::new(x1, y1),
+                        to: Point::new(x2, y2),
+                    });
+                }
+            } else {
+                route.segments.push(Segment {
+                    from: Point::new(sx, sy),
+                    to: trunk_pt,
+                });
+            }
             // Only push junction when tap lands inside the trunk (not at endpoints).
             // A tap hitting the trunk endpoint is a corner, not a T-junction.
             let at_endpoint = (trunk_pt.x - trunk.from.x).abs() < 0.5
@@ -351,16 +370,31 @@ fn collect_exits(graph: &McVecGraph, net: &VizNet) -> Vec<((f64, f64), ExitSide)
         .collect()
 }
 
-/// 2-endpoint net: walk Manhattan, no trunk needed
-fn build_two_point_route(exits: &[((f64, f64), ExitSide)]) -> Route {
+/// 2-endpoint net: walk Manhattan, no trunk needed.
+///
+/// ★ M4: obstacle-aware —— first try direction-aware orthogonal_path;
+/// if it hits an obstacle, fall back to best_orthogonal_path (4 L/Z candidates + detour).
+fn build_two_point_route(
+    exits: &[((f64, f64), ExitSide)],
+    obstacles: &ObstacleMap,
+) -> Route {
     let mut route = Route::new();
     let (a, sa) = exits[0];
     let (b, sb) = exits[1];
     let pts = orthogonal_path(a, b, sa, sb);
-    for w in pts.windows(2) {
+    let segs_from_pts: Vec<(f64, f64, f64, f64)> = pts
+        .windows(2)
+        .map(|w| (w[0].0, w[0].1, w[1].0, w[1].1))
+        .collect();
+    let final_segs = if obstacles.first_hit(&segs_from_pts).is_none() {
+        segs_from_pts
+    } else {
+        super::obstacles::best_orthogonal_path(a.0, a.1, b.0, b.1, obstacles)
+    };
+    for (x1, y1, x2, y2) in final_segs {
         route.segments.push(Segment {
-            from: Point::new(w[0].0, w[0].1),
-            to: Point::new(w[1].0, w[1].1),
+            from: Point::new(x1, y1),
+            to: Point::new(x2, y2),
         });
     }
     route
@@ -680,7 +714,7 @@ mod tests {
     #[test]
     fn test_two_point_uses_manhattan_not_trunk() {
         let exits = vec![h_exit(100.0, 50.0), h_exit(300.0, 150.0)];
-        let r = build_two_point_route(&exits);
+        let r = build_two_point_route(&exits, &ObstacleMap::empty());
         // Manhattan L-shape (1 bend) or Z-shape (2 bends), should not have a trunk
         // Should only have 2-3 segments
         assert!(r.segments.len() <= 3);

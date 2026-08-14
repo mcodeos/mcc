@@ -168,6 +168,25 @@ pub enum PortDir {
     None,
 }
 
+// ============================================================================
+// ★ P7-1: BoxProvenance — where did this box come from?
+// ============================================================================
+
+/// 盒子的来源标记（G10 结构守恒判据的数据基础）。
+///
+/// - `Declared`：来自 `block.insts`（真实例：器件 / 子模块 / 声明的标签）
+/// - `SynthesizedFromEndpoint`：`fromblock.rs` Phase 1.5 从 net 端点**合成**的盒子
+///   （网表 stub / 重复端点 / label 伪点直入 viz 的产物，golden 目标 = 0）
+/// - `SynthesizedRailFlag`：`rails.rs` 炸 rail 时合成的 per-consumer flag 盒子
+///   （golden 目标 = 0 —— 端子应是 pin 装饰不是盒子，见纪律 11）
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BoxProvenance {
+    #[default]
+    Declared,
+    SynthesizedFromEndpoint,
+    SynthesizedRailFlag,
+}
+
 impl BoxPin {
     /// Text to label on the pin stub = common name / number (`pin_id`).
     pub fn stub_label(&self) -> &str {
@@ -380,6 +399,17 @@ pub struct McVecBox {
     /// Geometry + entry points owned by a deterministic placer (ladder). Passes that
     /// reposition boxes heuristically must skip these.
     pub geom_locked: bool,
+
+    /// ★ P7-4: 最后一个改动本盒几何（x/y/w/h/entry_points）的流水线段。
+    ///
+    /// 观测用（roadmap P7-4 任务 1）：由段边界快照对比写入（见
+    /// `McVecGraph::claim_geom_changes`），**只观测不阻止**。目标形态是
+    /// Placement（x/y）→ PinPlace（entry_point）→ Route（只读）三段，
+    /// 段间不许回写——`geom_writer` 的跨段变化就是回写的直接证据。
+    pub geom_writer: Option<&'static str>,
+
+    /// ★ P7-1: 盒子来源标记（默认 Declared）。renderdiff G10 用它数合成盒子。
+    pub provenance: BoxProvenance,
 }
 
 /// ★ P2: Visual role hint for layout placement
@@ -465,6 +495,8 @@ impl McVecBox {
             custom_symbol: None,
             visual_role: None,
             geom_locked: false,
+            geom_writer: None,
+            provenance: BoxProvenance::Declared,
         }
     }
 
@@ -472,6 +504,9 @@ impl McVecBox {
     pub fn find_entry(&self, pin_id: i64) -> Option<&EntryPoint> {
         self.entry_points.iter().find(|e| e.pin_id == pin_id)
     }
+
+    /// ★ P7-4:几何写者观测（P7-4e 起判定上移到
+    /// `McVecGraph::claim_geom_changes`，按维度所有权判违规）。
 
     /// ★ Set the box's physical pin list (called by builder)
     pub fn set_pins(&mut self, pins: Vec<BoxPin>) {

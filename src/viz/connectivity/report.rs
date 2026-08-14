@@ -113,10 +113,12 @@ impl RenderedConnectivityReport {
         };
 
         // Count pins reachable
+        // ★ P7-3：带端子装饰的 pin（接地符号 / rail 圆点）没有连线段，
+        // 但符号即连接 —— 记为可达，不得误报 unreachable。
         report.pins_reachable = conn
             .pin_anchors
             .iter()
-            .filter(|p| p.distance_to_nearest_segment <= 0.5)
+            .filter(|p| p.decorated || p.distance_to_nearest_segment <= 0.5)
             .count();
         report.pins_unreachable = report.pins_total - report.pins_reachable;
 

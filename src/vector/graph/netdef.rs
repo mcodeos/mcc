@@ -137,6 +137,9 @@ pub struct VizNet {
     pub route: Option<Route>,
     /// Source position in the AST (for diagnostic source-line reporting)
     pub src_pos: Option<i32>,
+    /// ★ P7-3: 电源网规格（None = 普通信号网）。fromblock 从 McVecNet.rail 拷贝，
+    /// 由 viz/project.rs 按端口声明解析（class + driver_pin + volt）。
+    pub rail: Option<super::super::model::RailSpec>,
 }
 
 impl VizNet {
@@ -150,6 +153,7 @@ impl VizNet {
             endpoints,
             route: None,
             src_pos: None,
+            rail: None,
         }
     }
 

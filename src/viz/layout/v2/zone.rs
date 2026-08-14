@@ -97,10 +97,13 @@ impl ZoneTree {
             if b.kind == BoxKind::PowerLabel || b.kind == BoxKind::Dot {
                 continue;
             }
-            if b.inst_path.is_empty() {
-                continue;
-            }
-            zone_boxes.push((b.id, b.inst_path.clone()));
+            // M4-1B fix: 子模块内部 TwoPin 器件没有 inst_path，仍需纳入 zone
+            let path = if b.inst_path.is_empty() {
+                "main".to_string()
+            } else {
+                b.inst_path.clone()
+            };
+            zone_boxes.push((b.id, path));
         }
 
         if zone_boxes.is_empty() {

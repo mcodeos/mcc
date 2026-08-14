@@ -239,6 +239,20 @@ fn build_from_lanes(nid: i64, name: &str, pairs: &[ConnPair]) -> Option<McVecNet
     Some(McVecNet::with_shape(nid, name.to_string(), vecs, shape))
 }
 
+/// ★ P7-4 [DET]: 在度数为 1 的节点里选链起点。
+///
+/// 一个组的 pairs 可能由多条不连通的链组成（同名网合并，如 `GND` 组同时
+/// 含 flash 去耦链与 mic 电源链），度 1 节点不止一个；原来
+/// `adj.iter().find(...)` 跟随 HashMap 迭代序选起点 → 起点落在哪个分量
+/// 随机 → 只走出一个分量、其余点整段丢失（GND/VCC 组成员跨渲染翻转的
+/// 根因）。取 **id 最小** 的度 1 节点，起点与内容都稳定。
+fn pick_chain_start(adj: &HashMap<i64, Vec<i64>>) -> Option<i64> {
+    adj.iter()
+        .filter(|(_, neighbors)| neighbors.len() == 1)
+        .map(|(&id, _)| id)
+        .min()
+}
+
 /// 沿有向边排链：从第一个 left 开始，按 left→right 走链。
 fn order_by_direction(pairs: &[ConnPair], _dir: PairDir) -> Option<Vec<i64>> {
     if pairs.is_empty() {
@@ -255,11 +269,8 @@ fn order_by_direction(pairs: &[ConnPair], _dir: PairDir) -> Option<Vec<i64>> {
         adj.entry(pair.right).or_default().push(pair.left);
     }
 
-    // 找度数为 1 的节点作为起点
-    let start = adj
-        .iter()
-        .find(|(_, neighbors)| neighbors.len() == 1)
-        .map(|(&id, _)| id)?;
+    // 找度数为 1 的节点作为起点（最小 id，见 pick_chain_start 注释）
+    let start = pick_chain_start(&adj)?;
 
     let mut chain = vec![start];
     let mut visited: std::collections::HashSet<i64> = std::collections::HashSet::new();
@@ -277,6 +288,13 @@ fn order_by_direction(pairs: &[ConnPair], _dir: PairDir) -> Option<Vec<i64>> {
             None => break,
         }
     }
+
+    // ★ P7-4 [DET]: 组内可能不止一条连通分量（或星形）——单链走不完。
+    // 按首次出现顺序补上所有未访问节点，保证**不丢点**（原来 VCC 星形
+    // 只保留 3/6 点、GND 双链只保留一个分量）。
+    let mut remaining = collect_unique_ordered(pairs);
+    remaining.retain(|id| !visited.contains(id));
+    chain.extend(remaining);
 
     Some(chain)
 }
@@ -358,11 +376,9 @@ fn order_chain(pairs: &[ConnPair]) -> Vec<i64> {
         adj.entry(pair.right).or_default().push(pair.left);
     }
 
-    // Find degree-1 node (start of chain)
-    let start = adj
-        .iter()
-        .find(|(_, neighbors)| neighbors.len() == 1)
-        .map(|(&id, _)| id);
+    // Find degree-1 node (start of chain) — ★ P7-4 [DET]: 最小 id，避免
+    // HashMap 迭代序决定链方向（方向影响 McVec.nets 顺序 → 渲染序）。
+    let start = pick_chain_start(&adj);
 
     let start = match start {
         Some(s) => s,

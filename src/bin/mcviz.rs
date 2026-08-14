@@ -10,6 +10,7 @@
 //! cargo run --bin mcviz <project_root> <module_name> -o out.html
 //! cargo run --bin mcviz <project_root> <module_name> --json    # -> stdout JSON
 //! cargo run --bin mcviz <project_root> <module_name> --legacy  # legacy pipeline (fake expand, for compare test)
+//! cargo run --bin mcviz <project_root> <module_name> --entry hbl  # entry file differs from module name
 //! ```
 //!
 //! ## P2 changes
@@ -18,7 +19,7 @@
 //! - `--json` changed to output `VizDocument` JSON (including all layers)
 
 use std::env;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process;
 
 use mcc::vector::builder::{build_mc_vec, np_warn_count, reset_np_warn_count};
@@ -50,6 +51,7 @@ fn main() {
     let mut legacy_mode = false;
     let mut no_promote = false;
     let mut layouter_name: Option<String> = None;
+    let mut entry_file: Option<String> = None;
     let mut i = 3;
     while i < args.len() {
         match args[i].as_str() {
@@ -73,6 +75,15 @@ fn main() {
             "--no-promote" => {
                 no_promote = true;
                 i += 1;
+            }
+            "--entry" => {
+                if i + 1 < args.len() {
+                    entry_file = Some(args[i + 1].clone());
+                    i += 2;
+                } else {
+                    eprintln!("Error: --entry requires a file name argument");
+                    process::exit(1);
+                }
             }
             "--layouter" => {
                 if i + 1 < args.len() {
@@ -108,7 +119,23 @@ fn main() {
     mcc_set_project_root(project_path);
     mcc_init();
 
-    let entry_uri = match find_entry_uri(project_path, module_name) {
+    // Load mcode system library so that CAP/RES/IND components are available
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let mcode_root = cwd.join("mcode");
+    if mcode_root.exists() {
+        mcc::mcb_load_lib("mcode", &mcode_root);
+    } else {
+        // Fallback: try parent of parent
+        let alt_root = cwd.parent().map(|p| p.join("mcode"));
+        if let Some(ref root) = alt_root {
+            if root.exists() {
+                mcc::mcb_load_lib("mcode", root);
+            }
+        }
+    }
+
+    let entry_name = entry_file.as_deref().unwrap_or(module_name);
+    let entry_uri = match find_entry_uri(project_path, entry_name) {
         Some(uri) => uri,
         None => {
             eprintln!(
@@ -187,6 +214,15 @@ fn main() {
         np_warn_count(),
         bus_warns,
     );
+
+    // ── ★ P7-1: Tier 1 真闸门 —— fidelity CORRECTNESS 失败则非零退出 ──
+    // （此前 fidelity_gate 只打日志；"闸门只打日志"与 v5 §0.2 的四条假绿同构）
+    if mcc::viz::layout::select::RENDER_GATE_FAILED.load(std::sync::atomic::Ordering::Relaxed) {
+        eprintln!(
+            "[render-gate] ✗✗✗ Tier 1 CORRECTNESS FAILED (RENDER_GATE_FAILED) — exit 2"
+        );
+        process::exit(2);
+    }
 }
 
 /// Legacy pipeline (preserved for compare verification)
@@ -232,32 +268,45 @@ fn print_usage() {
     eprintln!("  --json         Output JSON instead of HTML");
     eprintln!("  --legacy       Use old pipeline (no real expand, for compare)");
     eprintln!("  --no-promote   Disable top-layer simplification (show all nets)");
+    eprintln!("  --entry <name> Entry file name (default: same as module_name)");
     eprintln!("  --layouter <name>  Lock to single layouter: flow");
     eprintln!("  -h, --help     Show this help");
     eprintln!();
     eprintln!("Examples:");
     eprintln!("  mcviz ./my_project Main -o circuit.html");
     eprintln!("  mcviz ./my_project Main --json > graph.json");
+    eprintln!("  mcviz ./my_project Main --entry hbl -o circuit.html  # entry file differs from module");
     eprintln!("  mcviz ./my_project Main --legacy -o circuit_old.html  # for comparison");
 }
 
 fn find_entry_uri(project_root: &Path, module_name: &str) -> Option<String> {
     let target_name = format!("{}.mc", module_name);
-    if let Ok(entries) = std::fs::read_dir(project_root) {
-        let mut first_mc: Option<String> = None;
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) == Some("mc") {
-                let file_name = path.file_name().unwrap_or_default().to_string_lossy();
-                if file_name.to_lowercase() == target_name.to_lowercase() {
-                    return Some(path.to_string_lossy().to_string());
-                }
-                if first_mc.is_none() {
-                    first_mc = Some(path.to_string_lossy().to_string());
+
+    // 搜索目录列表：当前目录 + src/ 子目录
+    for search_dir in &[project_root.to_path_buf(), project_root.join("src")] {
+        if let Ok(entries) = std::fs::read_dir(search_dir) {
+            let mut first_mc: Option<String> = None;
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("mc") {
+                    let file_name = path.file_name().unwrap_or_default().to_string_lossy();
+                    if file_name.to_lowercase() == target_name.to_lowercase() {
+                        // 规范化为绝对路径
+                        return std::fs::canonicalize(&path)
+                            .ok()
+                            .and_then(|p| p.to_str().map(|s| s.to_string()));
+                    }
+                    if first_mc.is_none() {
+                        first_mc = std::fs::canonicalize(&path)
+                            .ok()
+                            .and_then(|p| p.to_str().map(|s| s.to_string()));
+                    }
                 }
             }
+            if first_mc.is_some() {
+                return first_mc;
+            }
         }
-        return first_mc;
     }
     None
 }

@@ -952,20 +952,23 @@ impl NetTable {
         // ── Iter-10.2: batch union ensures transitive merge is complete ──
         self.batch_union_shared_nodes();
 
-        // Group by root
+        // Build result
+        // [P0-DET] deterministic group order: auto-number naming (__net_N) uses a
+        // counter over insertion order, so group order must NOT depend on HashMap
+        // iteration or DSU root ids (roots differ when batch_union iterates a
+        // HashMap). First-seen order (min member index) is stable regardless.
         let mut groups: HashMap<usize, Vec<usize>> = HashMap::new();
+        let mut nets = HashMap::new();
+        let mut order: Vec<usize> = Vec::new();
         for idx in 0..self.points.len() {
             let root = self.find(idx);
-            groups.entry(root).or_default().push(idx);
+            let slot = groups.entry(root).or_default();
+            if slot.is_empty() {
+                order.push(root);
+            }
+            slot.push(idx);
         }
-
-        // Build result
-        // [P0-DET] sorted root order: auto-number naming (__net_N) depends on
-        // insertion order, so HashMap iteration order would leak into net names.
-        let mut nets = HashMap::new();
-        let mut roots: Vec<usize> = groups.keys().copied().collect();
-        roots.sort();
-        for root in roots {
+        for root in order {
             let indices = &groups[&root];
             let group_points: Vec<NetPoint> =
                 indices.iter().map(|&i| self.points[i].clone()).collect();
