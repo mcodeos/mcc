@@ -72,6 +72,14 @@ component SPEAKER.PHB2AWB
     ]
 }
 
+component DIO.ESD
+{
+    pins = [
+        1 = A, "anode"
+        2 = K, "cathode"
+    ]
+}
+
 module main(dc{VDD_3V3, GND}::DC(3.3V))
 {
     MICROPHONE.WM7121P wm7121(NC)
@@ -80,6 +88,7 @@ module main(dc{VDD_3V3, GND}::DC(3.3V))
     SPEAKER.PHB2AWB spk
     lpa.IN.N -> dc.GND
     (spk.3 + spk.4) -> dc.GND
+    spk.P -> DIO.ESD("ESD9B5V-2/TR", NC) -> dc.GND
 }
 "#;
 
@@ -298,6 +307,42 @@ fn dotted_chain_base_resolves_to_param_decl() {
         Some((spk_def, spk_def + 3)),
         "chain base spk must map to InstDef at {spk_def}..{}",
         spk_def + 3
+    );
+}
+
+#[test]
+fn dotted_funcall_class_ref_spans_full_class_name() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner());
+    let dump = load_and_dump();
+
+    // `DIO.ESD("ESD9B5V-2/TR", NC)` is a dotted class funcall. The ClassRef
+    // interval must cover the whole `DIO.ESD` text (not `ESD(` + the string
+    // argument) and map to the `component DIO.ESD` declaration.
+    let p = SOURCE.find("DIO.ESD(").expect("DIO.ESD( in source");
+    let full_span = (p, p + "DIO.ESD".len());
+    let ref_id = ref_interval(&dump, "ClassRef", full_span)
+        .expect("ClassRef interval for DIO.ESD");
+    let dio_def = SOURCE
+        .find("component DIO.ESD")
+        .map(|q| q + "component ".len())
+        .expect("DIO.ESD component def in source");
+    assert_eq!(
+        map_def_span(&dump, "ClassRef", ref_id),
+        Some((dio_def, dio_def + "DIO.ESD".len())),
+        "DIO.ESD must map to ClassDef at {dio_def}..{}",
+        dio_def + "DIO.ESD".len()
+    );
+
+    // Sanity: no ClassRef interval may bleed into the string argument
+    // (the pre-fix span started at `ESD(` and covered `ESD("ES`).
+    let esd_start = p + "DIO.".len();
+    let broken = (esd_start, esd_start + "ESD(\"ES".len());
+    assert!(
+        !dump.lines().any(|l| {
+            l.contains("F12_DIAG LAPPER_REF:") && l.contains("kind=ClassRef")
+                && extract_span(l) == Some(broken)
+        }),
+        "no ClassRef interval may span 'ESD(\"ES' at {broken:?}"
     );
 }
 
