@@ -234,6 +234,34 @@ impl fmt::Display for NetShape {
 }
 
 // ============================================================================
+// Fix suggestions —— P5.4
+// ============================================================================
+
+/// Generate a fix suggestion for a vector shape mismatch (eval.md §3 / §7).
+///
+/// Enriches diagnostics: when `create_connection` recovers from a row-count
+/// mismatch by truncation, the suggestion tells the user how to make the two
+/// sides pair 1:1 instead (expand a scalar into a vector / explicit `*`).
+/// Returns `None` when the row counts already agree (no mismatch to fix).
+pub fn suggest_shape_fix(lhs_rows: usize, rhs_rows: usize) -> Option<String> {
+    if lhs_rows == rhs_rows {
+        return None;
+    }
+    match (lhs_rows, rhs_rows) {
+        (1, n) => Some(format!(
+            "expand the left scalar into a {n}-row vector to pair 1:1, e.g. [GND, GND]"
+        )),
+        (n, 1) => Some(format!(
+            "expand the right scalar into a {n}-row vector to pair 1:1, e.g. [GND, GND]"
+        )),
+        (l, r) => Some(format!(
+            "row counts differ ({l}x1 vs {r}x1); use an explicit `*` expansion list \
+             (eval.md §7 rule 3) or `_` placeholders to align the widths"
+        )),
+    }
+}
+
+// ============================================================================
 // Coverage statistics —— the only acceptance metric for this change
 // ============================================================================
 
@@ -371,5 +399,30 @@ mod tests {
         st.observe("b", None);
         assert!((st.coverage() - 0.5).abs() < 1e-9);
         assert_eq!(st.uncovered, vec!["b".to_string()]);
+    }
+
+    // ── P5.4: shape fix suggestions ──
+
+    #[test]
+    fn suggest_fix_none_when_counts_agree() {
+        assert_eq!(suggest_shape_fix(2, 2), None);
+        assert_eq!(suggest_shape_fix(1, 1), None);
+    }
+
+    #[test]
+    fn suggest_fix_expand_scalar_to_vector() {
+        let s = suggest_shape_fix(1, 3).expect("scalar vs vector should suggest");
+        assert!(s.contains("[GND, GND]"), "got: {s}");
+        let s = suggest_shape_fix(4, 1).expect("vector vs scalar should suggest");
+        assert!(s.contains("[GND, GND]"), "got: {s}");
+    }
+
+    #[test]
+    fn suggest_fix_explicit_star_for_named_vectors() {
+        let s = suggest_shape_fix(3, 2).expect("N vs M should suggest");
+        assert!(
+            s.contains("`*`"),
+            "explicit `*` expansion hint expected; got: {s}"
+        );
     }
 }

@@ -1167,9 +1167,18 @@ fn generate_viznets_from_block(
             return None; // shape present but not N:N → not a bus
         }
 
-        // Legacy fallback: no shape provenance
+        // Legacy fallback: no shape provenance (W2901 SHAPE_INCOMPLETE).
+        // Stage 3 guarantees this is rarely triggered — only on paths that
+        // have not yet been covered by `build_net_shape`.
         #[allow(deprecated)]
         if let ConnectionType::NtoN(n) = net.connection_type() {
+            tracing::warn!(
+                target: "mcc::vector",
+                code = crate::errcodes::SHAPE_INCOMPLETE,
+                net = %net.name,
+                "W2901 SHAPE_INCOMPLETE: net '{}' has no NetShape provenance; fell back to connection_type() inference",
+                net.name
+            );
             if n > 1 && !touches_passive(&net.all_point_ids()) {
                 return Some(n);
             }
