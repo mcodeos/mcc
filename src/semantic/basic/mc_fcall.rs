@@ -107,11 +107,16 @@ impl McFuncCall {
         if let Some(subnodes) = node.get_sub_node() {
             let mut has_instance = false;
             let mut inst_name: Option<McIds> = None;
+            let mut inst_span: Option<std::ops::Range<usize>> = None;
             let mut class_name: Option<(McIds, std::ops::Range<usize>)> = None;
             for child in subnodes.iter() {
                 match child.get_type() {
                     MCAST_INSTANCE => {
                         has_instance = true;
+                        inst_span = Some(
+                            (child.get_pos() as usize)
+                                ..((child.get_pos() + child.get_len()) as usize),
+                        );
                         if let Some(inner) = child.get_sub_node() {
                             if inner.get_type() == MCAST_OPD {
                                 if let Some(opd_sub) = inner.get_sub_node() {
@@ -155,7 +160,17 @@ impl McFuncCall {
                         Some(inst) => McIds::from(&format!("{inst}.{name}")),
                         None => name,
                     };
-                    mcb_register_declare_class(context.uri(), &full_name_ids, span);
+                    // ★ Dotted class (`DIO.ESD`): the name child only spans
+                    // `ESD`, but mcb_register_declare_class rebuilds the ref
+                    // span from the flattened name length (raw.start +
+                    // name.len()). Passing the `ESD` span yields
+                    // `ESD("ES` (bleeding into the string arg). Pass the
+                    // whole `DIO.ESD` text span instead.
+                    let full_span = match (&inst_name, &inst_span) {
+                        (Some(_), Some(is)) if is.start <= span.start => is.start..span.end,
+                        _ => span.clone(),
+                    };
+                    mcb_register_declare_class(context.uri(), &full_name_ids, full_span);
                 }
             } else if is_method_call && inst_name.is_none() {
                 // ★ Chained call: RES(100kΩ).Pullup() — register inner class name
