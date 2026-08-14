@@ -11,5 +11,5 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Scan tracked files for CJK characters
+      - name: Scan tracked files for non-ASCII characters
         run: python3 scripts/check-cjk.py

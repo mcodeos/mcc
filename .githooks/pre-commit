@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Pre-commit hook: reject commits that introduce CJK (Chinese) characters.
+# Pre-commit hook: reject commits that are not English-only (non-ASCII).
 #
 # Installed via `git config core.hooksPath .githooks` so this file is shared
 # with every developer who clones the repo (see CLAUDE.md / AGENTS.md).
 #
 # Checks:
 #   1. Staged file contents (added / copied / modified files only).
-#   (Commit-message CJK check lives in `commit-msg`, which receives the
+#   (Commit-message check lives in `commit-msg`, which receives the
 #    message file path; pre-commit takes no arguments.)
 set -euo pipefail
 
@@ -18,7 +18,7 @@ CHECK="$ROOT/scripts/check-cjk.py"
 # scanner without word splitting.
 if ! git diff --cached --name-only --diff-filter=ACM -z \
     | xargs -0 -r python3 "$CHECK"; then
-    echo "pre-commit: staged changes contain CJK (Chinese) — English only." >&2
+    echo "pre-commit: staged changes contain non-ASCII characters — English only." >&2
     exit 1
 fi
 

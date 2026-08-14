@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Check that no CJK (Chinese) characters appear in tracked files.
+"""Check that tracked files contain no non-ASCII characters.
 
 Usage:
   python3 scripts/check-cjk.py             # scan every git-tracked file
   python3 scripts/check-cjk.py <file>...   # scan specific files only
 
-Exit code: 0 = clean, 1 = at least one line contains CJK characters.
+Exit code: 0 = clean, 1 = at least one line contains non-ASCII characters.
 The project requires English only: comments, strings, diagnostics, test data.
 """
 import re
@@ -44,7 +44,7 @@ def main():
     bad = check(paths)
     if bad:
         print(
-            f"check-cjk: {len(bad)} line(s) contain CJK (Chinese) characters:",
+            f"check-cjk: {len(bad)} line(s) contain non-ASCII characters:",
             file=sys.stderr,
         )
         for p, lineno, s in bad:
