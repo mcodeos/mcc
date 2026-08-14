@@ -874,7 +874,7 @@ fn param_hit(uri: &McURI, name: &str, params: &McParamDeclares) -> Option<ChainH
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::ast_semantic::Span;
+
     use crate::semantic::basic::mc_bus::{McBus, McList};
     use crate::semantic::common::IOType;
     use crate::semantic::component::mc_attr::McAttributes;
@@ -883,7 +883,7 @@ mod tests {
     use crate::semantic::component::{Mc2Component, McComponent};
     use crate::semantic::mc_func::McFunctions;
     use crate::semantic::mc_inst::McInstance;
-    use crate::semantic::module::{Mc2Module, McModule};
+
     use crate::McIds;
     use std::sync::Arc;
 
