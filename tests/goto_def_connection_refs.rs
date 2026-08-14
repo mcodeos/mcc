@@ -62,12 +62,24 @@ component LPA4871
     ]
 }
 
+component SPEAKER.PHB2AWB
+{
+    pins = [
+        1 = P, "signal positive"
+        2 = N, "signal negative"
+        3 = GND, "ground"
+        4 = GND, "ground"
+    ]
+}
+
 module main(dc{VDD_3V3, GND}::DC(3.3V))
 {
     MICROPHONE.WM7121P wm7121(NC)
     CAP(100nF).Cap([dc.VDD_3V3 -> wm7121.VCC], dc.GND)
     LPA4871 lpa
+    SPEAKER.PHB2AWB spk
     lpa.IN.N -> dc.GND
+    (spk.3 + spk.4) -> dc.GND
 }
 "#;
 
@@ -189,6 +201,42 @@ fn funcall_bracket_arrow_registers_pin_and_bus_member_refs() {
             l.contains("F12_DIAG LAPPER_REF:") && extract_span(l) == Some(stray)
         }),
         "no ref interval may span the whole 'dc.VDD_3V3 -> wm7121.VCC' expression at {stray:?}"
+    );
+}
+
+#[test]
+fn numeric_pin_id_resolves_to_pin_id_def() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner());
+    let dump = load_and_dump();
+
+    // `spk.3` / `spk.4` are pin-ID refs: the chain resolver must land on the
+    // PinIdDef for `3` / `4` in `pins = [ ... 3 = GND ... ]`, not a LabelDef.
+    let chain_span = {
+        let p = SOURCE.find("spk.3").expect("spk.3 in source");
+        (p, p + "spk.3".len())
+    };
+    let id3_def = SOURCE.find("3 = GND").expect("pin id 3 def in source");
+    let ref_id = ref_interval(&dump, "PinIdRef", chain_span)
+        .expect("PinIdRef interval for spk.3");
+    assert_eq!(
+        map_def_span(&dump, "PinIdRef", ref_id),
+        Some((id3_def, id3_def + 1)),
+        "spk.3 must map to PinIdDef at {id3_def}..{}",
+        id3_def + 1
+    );
+
+    let chain_span = {
+        let p = SOURCE.find("spk.4").expect("spk.4 in source");
+        (p, p + "spk.4".len())
+    };
+    let id4_def = SOURCE.find("4 = GND").expect("pin id 4 def in source");
+    let ref_id = ref_interval(&dump, "PinIdRef", chain_span)
+        .expect("PinIdRef interval for spk.4");
+    assert_eq!(
+        map_def_span(&dump, "PinIdRef", ref_id),
+        Some((id4_def, id4_def + 1)),
+        "spk.4 must map to PinIdDef at {id4_def}..{}",
+        id4_def + 1
     );
 }
 

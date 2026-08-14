@@ -547,6 +547,7 @@ fn member_of(inst: &McInstance, member: &str) -> Option<Hop<'static>> {
 fn cross_def_kind(inst: &McInstance) -> SymbolKind {
     match inst {
         McInstance::Label(_) => SymbolKind::PinNameDef,
+        McInstance::PinId(_) => SymbolKind::PinIdDef,
         McInstance::Bus(_) => SymbolKind::BusDef,
         McInstance::List(_) => SymbolKind::LabelDef,
         McInstance::Component(_) | McInstance::Module(_) => SymbolKind::InstDef,
