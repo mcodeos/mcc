@@ -37,12 +37,13 @@ pub mod viz;
 pub use crate::semantic::basic::mc_bus::McBus;
 pub use crate::semantic::basic::mc_opd::McOpd;
 pub use crate::semantic::common::{
-    ContainerInfo, ContainerKind, IOType, LookupResult, LookupSymbolKind, McCMIE, McSpaceName,
-    McURI, ScopeFilter, ScopePath,
+    classify_lead, classify_phrase_leads, ContainerInfo, ContainerKind, IOType, LeadKind,
+    LookupResult, LookupSymbolKind, McCMIE, McSpaceName, McURI, ScopeFilter, ScopePath,
 };
 pub use crate::semantic::{
     basic::{
         mc_endpoint::{McEndpoint, McInstanceRef},
+        mc_fcall::{McFuncCall, ReturnShape},
         mc_phrase::McPhrase,
     },
     component::{
@@ -87,6 +88,7 @@ pub use instant::insttab::{InstEntry, InstKind, InstTable, NetEntry};
 pub use instant::mc_comp::McComponentInst;
 pub use instant::mc_mod::McModuleInst;
 pub use instant::mc_net::NetPoint;
+pub use semantic::common::ConnDir;
 
 // ── Query ──
 pub use query::search as search_api;

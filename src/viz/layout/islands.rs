@@ -324,6 +324,12 @@ impl TerminalGraph {
 /// Build a TerminalGraph from raw terminal pairs (before models are built).
 /// `island_pairs` are `(island_idx, term_a, term_b)` from `find_terminals`.
 /// Direct bands are offset by `island_pairs.len()` to avoid index collision.
+///
+/// NOTE: band indices stored in `incident` must be **dense** (0..N) because
+/// they index directly into `ends`. The island index in the tuple is *not*
+/// guaranteed to be contiguous (stub / MultiPort / failed islands are skipped
+/// before reaching here), so using it as a band index caused an out-of-bounds
+/// panic in `TerminalGraph::adjacent`.
 fn build_terminal_graph_from_pairs(
     island_pairs: &[(usize, i64, i64)],
     direct_bands: &[DirectBand],
@@ -332,9 +338,9 @@ fn build_terminal_graph_from_pairs(
         std::collections::BTreeMap::new();
     let mut ends: Vec<(i64, i64)> = Vec::with_capacity(island_pairs.len() + direct_bands.len());
 
-    for &(i, a, b) in island_pairs {
-        incident.entry(a).or_default().push(i);
-        incident.entry(b).or_default().push(i);
+    for (bi, &(_, a, b)) in island_pairs.iter().enumerate() {
+        incident.entry(a).or_default().push(bi);
+        incident.entry(b).or_default().push(bi);
         ends.push((a, b));
     }
 

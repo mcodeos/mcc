@@ -223,7 +223,12 @@ pub(crate) fn print_phrase_internal(
         McPhrase::Multiple(phrases) => {
             println!("{}(multiple {} items)", prefix, phrases.len());
             for (i, p) in phrases.iter().enumerate() {
-                print_phrase_internal(p, &format!("{prefix}  [{i}]:"));
+                if matches!(p, McPhrase::Lead) {
+                    // §1 P5.1：`[...]` 向量内的 `_` 是占位（Placeholder）
+                    println!("{}  [{}]:(lead: placeholder)", prefix, i);
+                } else {
+                    print_phrase_internal(p, &format!("{prefix}  [{i}]:"));
+                }
             }
         }
         McPhrase::Transposed(inner) => {
@@ -232,7 +237,8 @@ pub(crate) fn print_phrase_internal(
             println!(")");
         }
         McPhrase::Lead => {
-            println!("{prefix}(lead)");
+            // §1 P5.1：独立运算数的 `_` 是直通（Passthrough）
+            println!("{prefix}(lead: passthrough)");
         }
     }
 }

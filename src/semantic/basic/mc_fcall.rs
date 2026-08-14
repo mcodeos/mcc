@@ -50,8 +50,10 @@ pub struct McFuncCall {
 /// ★ P4.1: Fcall return shape resolved from McFunction.returns.
 #[derive(Debug, Clone)]
 pub enum ReturnShape {
-    /// `return this` or implicit → caller shape preserved (left + right from caller)
-    This { left: Vec<McBus>, right: Vec<McBus> },
+    /// `return this` or implicit → caller shape preserved. The shape is read
+    /// live from `McFuncCall.left`/`right` at use time, so substitutions and
+    /// prefixing done during instantiation stay reflected.
+    This,
     /// `return <label/bus/expr>` → left empty, right = return value as bus vector
     Label { bus: Vec<McBus> },
 }
@@ -1369,25 +1371,106 @@ impl McFuncCall {
     }
 
     /// ★ P4.1: Resolve return shape from McFunction.returns.
-    /// Called during Pass2 just before function body expansion.
+    /// Called after the enclosing scope is fully parsed ("Pass1b" hook), or
+    /// directly by [`Self::fill_return_shape`].
     ///
     /// # Three-state rules (per eval.md §8.1):
-    /// - `Implicit` / `This` → `ReturnShape::This { left, right }` — preserves caller shape
+    /// - `Implicit` / `This` → `ReturnShape::This` — preserves caller shape
     /// - `Endpoint(ref phrase)` → `ReturnShape::Label { bus }` — left empty, right = phrase's right interface
     pub fn resolve_return_shape(&mut self, func_returns: &McFuncReturn) {
-        let ret: &crate::semantic::mc_func::McFuncReturn = func_returns;
-        match ret {
+        match func_returns {
             McFuncReturn::Implicit | McFuncReturn::This => {
-                self.resolved_return_shape = Some(ReturnShape::This {
-                    left: self.left.clone(),
-                    right: self.right.clone(),
-                });
+                self.resolved_return_shape = Some(ReturnShape::This);
             }
             McFuncReturn::Endpoint(phrase) => {
                 // Endpoint return: derive bus from the returned phrase's right side
                 let bus = get_right_bus_from_phrase(phrase);
                 self.resolved_return_shape = Some(ReturnShape::Label { bus });
             }
+        }
+    }
+
+    /// ★ P4.1: Resolve the call's return shape (eval.md §8.1) from the called
+    /// function's `McFuncReturn`, and store it on `self`.
+    ///
+    /// Lookup priority:
+    ///   1. Instance method — walk the caller chain down to its root instance
+    ///      and query that type's `funcs` table (same walk as `check_chain_validity`).
+    ///   2. Scope function — bare call resolved via `scope.find_func_return`.
+    ///
+    /// Unknown / unresolvable calls keep `resolved_return_shape = None`; the
+    /// phrase-level fallback then preserves the parse-time shape (no change).
+    pub fn fill_return_shape(&mut self, scope: &dyn HasFindInst) {
+        if self.resolved_return_shape.is_some() {
+            return;
+        }
+        if let Some(ret) = Self::lookup_func_returns(&self.caller, &self.func_name, scope) {
+            self.resolve_return_shape(&ret);
+        }
+    }
+
+    /// Look up the `McFuncReturn` of a call. Mirrors the receiver-chain walk of
+    /// [`Self::check_chain_validity`]: instance methods resolve via the root
+    /// receiver's `funcs` table, bare calls via the surrounding scope.
+    fn lookup_func_returns(
+        caller: &Option<Box<McPhrase>>,
+        func_name: &McIds,
+        scope: &dyn HasFindInst,
+    ) -> Option<McFuncReturn> {
+        let name = func_name.to_string();
+        let root = caller
+            .as_ref()
+            .and_then(|c| Self::root_receiver(c.as_ref()));
+        match root {
+            Some(McInstance::Module(arc_mod)) => {
+                arc_mod.base.funcs.find(&name).map(|f| f.returns.clone())
+            }
+            Some(McInstance::Component(arc_comp)) => {
+                arc_comp.base.funcs.find(&name).map(|f| f.returns.clone())
+            }
+            // Receiver is Bus / Label / List / Interface — has no `funcs` table.
+            Some(_) => None,
+            // Bare call (no receiver) or unresolvable root → surrounding scope.
+            None => scope.find_func_return(&name),
+        }
+    }
+
+    /// ★ P4.1: Recursively walk a phrase and fill `resolved_return_shape` on
+    /// every nested `FuncCall`. Called after the enclosing body has been fully
+    /// parsed ("Pass1b" hook), so the scope's funcs tables are complete.
+    pub fn fill_return_shapes(phrase: &mut McPhrase, scope: &dyn HasFindInst) {
+        match phrase {
+            McPhrase::FuncCall(f) => {
+                f.fill_return_shape(scope);
+                // Chained calls: the inner FuncCall lives in `caller`
+                // (e.g. `CT.config_a(V5V).config_b(GND)`), so recurse into it.
+                if let Some(c) = &mut f.caller {
+                    Self::fill_return_shapes(c, scope);
+                }
+            }
+            McPhrase::Series(elems, _) => {
+                for e in elems {
+                    Self::fill_return_shapes(e, scope);
+                }
+            }
+            McPhrase::Parallel(v) | McPhrase::Multiple(v) => {
+                for e in v {
+                    Self::fill_return_shapes(e, scope);
+                }
+            }
+            McPhrase::Group(g) => {
+                for o in &mut g.opds {
+                    Self::fill_return_shapes(o, scope);
+                }
+            }
+            McPhrase::Transposed(inner) => Self::fill_return_shapes(inner, scope),
+            McPhrase::Closure(c) => {
+                for line in &mut c.body {
+                    Self::fill_return_shapes(line, scope);
+                }
+            }
+            McPhrase::Member(p, _) => Self::fill_return_shapes(p, scope),
+            McPhrase::Lead | McPhrase::Endpoint(_) => {}
         }
     }
 
@@ -1418,33 +1501,8 @@ impl McFuncCall {
         let inner_name = inner_fc.func_name.to_string();
 
         // Walk the receiver chain to a concrete instance (Module/Component/...).
-        let root = inner_fc
-            .caller
-            .as_ref()
-            .and_then(|c| Self::root_receiver(c.as_ref()));
-
-        let ret: Option<McFuncReturn> = match root {
-            Some(McInstance::Module(arc_mod)) => arc_mod
-                .base
-                .funcs
-                .find(&inner_name)
-                .map(|f| f.returns.clone()),
-            Some(McInstance::Component(arc_comp)) => arc_comp
-                .base
-                .funcs
-                .find(&inner_name)
-                .map(|f| f.returns.clone()),
-            Some(_) => {
-                // Receiver is Bus / Label / List / Interface — has no `funcs`
-                // table to query. Cannot validate; skip.
-                return;
-            }
-            None => {
-                // Either the bare-call case (no receiver), or we couldn't
-                // resolve a concrete root. Try the surrounding scope.
-                context.find_func_return(&inner_name)
-            }
-        };
+        let ret: Option<McFuncReturn> =
+            Self::lookup_func_returns(&inner_fc.caller, &inner_fc.func_name, context);
 
         let Some(ret) = ret else { return };
         if ret.is_chainable() {

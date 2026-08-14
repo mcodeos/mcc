@@ -6,9 +6,9 @@ use super::super::{
     basic::mc_bus::McBus,
     basic::mc_closure::McClosure,
     basic::mc_endpoint::{McEndpoint, McInstanceRef},
-    basic::mc_fcall::McFuncCall,
+    basic::mc_fcall::{McFuncCall, ReturnShape},
     basic::mc_group::McGroup,
-    common::{ConnDir, IOType, McCMIE, Shape, ShapeError, ShapeMatcher},
+    common::{eval_binary, representative, ConnDir, ConnOp, IOType, McCMIE, Shape, ShapeError},
     component::Mc2Component,
     mc_func::HasFindInst,
     mc_inst::McInstance,
@@ -31,6 +31,19 @@ use crate::{
 
 use std::ops::{Add, Shr};
 use std::sync::Arc;
+
+/// P5.1: 前缀标识符 `_X`（如 `_OPEN`、`__CLR`）被当作**独立运算数**且未解析到任何实例——
+/// 按 §1 它本是 IDA 索引中的命名成员（`M[1:4][_OPEN,_CLOSE]`），不是导线 `_`。
+/// 若用户本意是直通，应写 `_`。已声明的 `_X` 标签是合法标签，此路径不触发（find_inst 命中）。
+fn warn_prefix_id_as_wire(node: &AstNode, name: &str) {
+    if name.len() > 1 && name.starts_with('_') {
+        dlog_warning(
+            crate::errcodes::LEAD_PREFIX_ID_AS_WIRE,
+            node,
+            &crate::errcodes::format_msg(crate::errcodes::LEAD_PREFIX_ID_AS_WIRE, &[&name]),
+        );
+    }
+}
 
 // ============================================================================
 // McPhrase
@@ -422,6 +435,7 @@ impl McPhrase {
                                 }
                                 // Single segment — plain name.
                                 if chain.len() == 1 {
+                                    warn_prefix_id_as_wire(&subnode, &ids.to_string());
                                     return Some(
                                         context
                                             .add_label(ids.to_string())
@@ -496,6 +510,7 @@ impl McPhrase {
                                     McInstance::Bus(member_ref),
                                 ))))
                             } else {
+                                warn_prefix_id_as_wire(&subnode, &ids.to_string());
                                 context.add_label(ids.to_string())
                             }
                         }
@@ -622,6 +637,7 @@ impl McPhrase {
                                 McInstance::Bus(member_ref),
                             ))))
                         } else {
+                            warn_prefix_id_as_wire(node, id);
                             context.add_label(id.clone())
                         }
                     }
@@ -714,6 +730,7 @@ impl McPhrase {
                                             McInstanceRef::new(McInstance::Bus(member_ref)),
                                         )))
                                     } else {
+                                        warn_prefix_id_as_wire(node, id);
                                         context.add_label(id.clone())
                                     }
                                 }
@@ -1566,9 +1583,17 @@ impl McPhrase {
                     return None;
                 }
 
-                if !is_connectable(&opd1.get_left(), &opd2.get_left())
-                    || !is_connectable(&opd1.get_right(), &opd2.get_right())
-                {
+                if !is_connectable(
+                    ConnOp::Parallel,
+                    ConnDir::Undirected,
+                    &opd1.get_left(),
+                    &opd2.get_left(),
+                ) || !is_connectable(
+                    ConnOp::Parallel,
+                    ConnDir::Undirected,
+                    &opd1.get_right(),
+                    &opd2.get_right(),
+                ) {
                     dlog_error(
                         crate::errcodes::CONN_PARALLEL_SHAPE_MISMATCH,
                         node,
@@ -1676,7 +1701,13 @@ impl McPhrase {
                     return None;
                 }
 
-                if !is_connectable(&opd1.get_right(), &opd2.get_left()) {
+                // §4.1 串联求值：opd1.right ↔ opd2.left（- 为 Undirected，取 op1）
+                if !is_connectable(
+                    ConnOp::Series,
+                    ConnDir::Undirected,
+                    &opd1.get_right(),
+                    &opd2.get_left(),
+                ) {
                     dlog_error(
                         crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
                         node,
@@ -1733,7 +1764,13 @@ impl McPhrase {
 
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
 
-                if !is_connectable(&opd1.get_right(), &opd2.get_left()) {
+                // §4.3 串联求值：opd1.right ↔ opd2.left（-> 为 LtoR，取 op2）
+                if !is_connectable(
+                    ConnOp::Series,
+                    ConnDir::LtoR,
+                    &opd1.get_right(),
+                    &opd2.get_left(),
+                ) {
                     dlog_error(
                         crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
                         node,
@@ -1803,8 +1840,13 @@ impl McPhrase {
                 // Note: swap order here for shape inference, because data flow is opd2 -> opd1
                 let (opd2, opd1) = infer_shape_and_upgrade(opd2, opd1, context);
 
-                // Check if opd2.right can connect to opd1.left
-                if !is_connectable(&opd2.get_right(), &opd1.get_left()) {
+                // §4.4 串联求值（左向）：opd2.right ↔ opd1.left（<- 为 RtoL，取 op1）
+                if !is_connectable(
+                    ConnOp::Series,
+                    ConnDir::RtoL,
+                    &opd2.get_right(),
+                    &opd1.get_left(),
+                ) {
                     dlog_error(
                         crate::errcodes::NAME_DEF_NOT_FOUND_LABEL_FALLBACK,
                         node,
@@ -2222,7 +2264,12 @@ impl McPhrase {
                 input.iter().flat_map(|e| e.get_left()).collect()
             }
             McPhrase::Transposed(mc_line) => mc_line.get_right(),
-            McPhrase::FuncCall(ref f) => f.left.clone(),
+            // ★ P4.1: consume the resolved return shape (eval.md §8.1).
+            // `This` / unresolved → caller shape (f.left); `Label` → left is empty ([0|N]).
+            McPhrase::FuncCall(ref f) => match &f.resolved_return_shape {
+                Some(ReturnShape::Label { .. }) => Vec::new(),
+                Some(ReturnShape::This) | None => f.left.clone(),
+            },
             McPhrase::Lead => vec![McBus::new("(lead)")],
             McPhrase::Endpoint(ref ep) => ep.get_left(),
             McPhrase::Member(phrase, _) => phrase.get_left(),
@@ -2329,7 +2376,12 @@ impl McPhrase {
                 output.iter().flat_map(|e| e.get_right()).collect()
             }
             McPhrase::Transposed(mc_line) => mc_line.get_left(),
-            McPhrase::FuncCall(ref f) => f.right.clone(),
+            // ★ P4.1: consume the resolved return shape (eval.md §8.1).
+            // `Label` → right = the return value's buses ([0|N]).
+            McPhrase::FuncCall(ref f) => match &f.resolved_return_shape {
+                Some(ReturnShape::Label { bus }) => bus.clone(),
+                Some(ReturnShape::This) | None => f.right.clone(),
+            },
             McPhrase::Lead => vec![McBus::new("(lead)")],
             McPhrase::Endpoint(ref ep) => ep.get_right(),
             McPhrase::Member(_, ep) => ep.get_right(),
@@ -3441,7 +3493,16 @@ fn check_transpose_allowed(opd: &McPhrase) -> Result<(), usize> {
     }
 }
 
-fn is_connectable(lhs: &[McBus], rhs: &[McBus]) -> bool {
+/// Pass1 算子求值入口（eval.md §3/§4）：`-`/`+`/`->`/`<-` 四个算子分支
+/// 共享的"可连接"判定，形状约束走 §4 求值表（[`eval_binary`]），
+/// 单端口（1*1）代表侧由 [`representative`] 按 §4 注记确定。
+///
+/// 保留三处通配：
+/// - 空集（FuncCall 返回值未解析）→ 放行；
+/// - `<error` 占位标记 → 放行；
+/// - 单点（1 行）形状未定（可能是 1*1 节点 / 广播锚点 / 待展开接口）→ 放行，
+///   Pass2 再校验真实形状。单端口（两侧均 1 行）额外按 §4 注记记录代表侧。
+fn is_connectable(op: ConnOp, dir: ConnDir, lhs: &[McBus], rhs: &[McBus]) -> bool {
     // Empty shape means "unknown/unresolved" (e.g. FuncCall return value), treated as connectable
     if lhs.is_empty() || rhs.is_empty() {
         return true;
@@ -3457,13 +3518,27 @@ fn is_connectable(lhs: &[McBus], rhs: &[McBus]) -> bool {
     let lhs_shape = shape_of_bus_list(lhs);
     let rhs_shape = shape_of_bus_list(rhs);
 
+    // §4 单端口（1*1）代表规则（eval.md §4 注记）：单端口连接无左右区别，
+    // 选一个代表——`+`/`-`/`<-` 取运算数 1（op1），`->` 取运算数 2（op2）。
+    // 与 Pass2 锚定一致：`+` 锚 `wire_parallel_internal` opd[0]、`-` Series
+    // 链首 opd1、`<-` RtoL 链尾 op1（swap 后 op1 落链尾）、`->` LtoR 链尾 op2。
+    if lhs_shape.rows == 1 && rhs_shape.rows == 1 {
+        mcc_dbg!(
+            "sem::conds",
+            "[vec] single-port representative: dir={dir:?} lhs={lhs_shape} rhs={rhs_shape} rep={rep}",
+            rep = representative(dir, lhs_shape, rhs_shape)
+        );
+        return true;
+    }
+
     // 单点（1 行）在短语阶段形状未定（可能是 1*1 节点，也可能是广播锚点、
     // 待展开的接口），保持放行（原有 wildcard 语义），Pass2 再校验真实形状。
     if lhs_shape.rows <= 1 || rhs_shape.rows <= 1 {
         return true;
     }
 
-    match ShapeMatcher::match_shape(lhs_shape, rhs_shape) {
+    // §4 四算子求值表：行数必须相同，列取较大者
+    match eval_binary(op, lhs_shape, rhs_shape) {
         Ok(_) => true,
         Err(ShapeError::RowMismatch { lhs: l, rhs: r }) => {
             dlog_trace(

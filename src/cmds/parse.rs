@@ -1177,7 +1177,20 @@ fn phrase_to_tree_json(p: &McPhrase, max_depth: usize, cur: usize) -> serde_json
         McPhrase::Multiple(ps) => json!({
             "kind": "Multiple",
             "label": format!("{} items", ps.len()),
-            "children": recurse(ps),
+            "children": if truncated {
+                Vec::new()
+            } else {
+                ps.iter()
+                    .map(|c| {
+                        if matches!(c, McPhrase::Lead) {
+                            // §1 P5.1：`[...]` 向量内的 `_` 是占位（Placeholder）
+                            json!({"kind": "Lead", "usage": "placeholder", "label": "", "children": []})
+                        } else {
+                            phrase_to_tree_json(c, max_depth, cur + 1)
+                        }
+                    })
+                    .collect()
+            },
         }),
         McPhrase::Group(g) => json!({
             "kind": "Group",
@@ -1204,7 +1217,12 @@ fn phrase_to_tree_json(p: &McPhrase, max_depth: usize, cur: usize) -> serde_json
             "label": format!(".{}", ep),
             "children": [phrase_to_tree_json(inner, max_depth, cur + 1)],
         }),
-        McPhrase::Lead => json!({"kind": "Lead", "label": "", "children": []}),
+        McPhrase::Lead => json!({
+            "kind": "Lead",
+            "usage": "passthrough",
+            "label": "",
+            "children": [],
+        }),
         McPhrase::Endpoint(ep) => json!({
             "kind": "Endpoint",
             "label": endpoint_label(ep),

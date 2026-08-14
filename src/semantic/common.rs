@@ -3,6 +3,7 @@
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
 use crate::ast::ast_node::AstNode;
+use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
@@ -502,9 +503,145 @@ impl ShapeMatcher {
     }
 }
 
+/// 连接运算符（eval.md §4）：`-`/`->`/`<-` 共享串联求值，`+` 为并联求值。
+///
+/// 与 [`ConnDir`] 的对应关系（mcrule.md §10.1）：
+/// - `-` → `Series` + [`ConnDir::Undirected`]
+/// - `->` → `Series` + [`ConnDir::LtoR`]
+/// - `<-` → `Series` + [`ConnDir::RtoL`]
+/// - `+` → `Parallel`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnOp {
+    /// 串联 `-`（§4.1）/ `->`（§4.3）/ `<-`（§4.4）
+    Series,
+    /// 并联 `+`（§4.2）
+    Parallel,
+}
+
+/// §4 单端口（1*1）代表规则：`+`/`-`/`<-` 结果取**运算数 1**，`->` 结果取**运算数 2**。
+///
+/// 落地位置：
+/// - `+`：Pass2 `wire_parallel_internal` 以 opd[0] 为锚（"take operand 1"）；
+/// - `->`：`MCAST_OPD_RIGHTARROW` 对链尾 `set_right_out` 作为输出端。
+pub fn representative(dir: ConnDir, lhs: Shape, rhs: Shape) -> Shape {
+    if dir == ConnDir::LtoR {
+        rhs
+    } else {
+        lhs
+    }
+}
+
+/// §4 四算子求值表：对 `(op, lhs, rhs)` 求连接后的**结果形状**。
+///
+/// 形状层的四条子表（§4.1-4.4）与 §3 连接结果表收敛为同一规则：
+/// 行数必须相同（否则 [`ShapeError::RowMismatch`]），列取两边的较大者：
+/// `1*1 +- 1*2 = 1*2`、`N*1 +- N*2 = N*2`、`N*2 +- N*2 = N*2`。
+///
+/// 子表间的差异在"锚点/拼接结构"（`向量 vs 节点` 返回 `newNode{向量, 节点右}`
+/// 等），由 Pass2 点配对（[`ShapeMatcher`] + `try_connect_adjacent` /
+/// `create_connection`）落地，形状层面收敛为同一结果。未知形状（`rows == 0`）
+/// 通配放行，结果取另一侧。
+///
+/// 调用点：
+/// - Pass1：`is_connectable`（`-`/`+`/`->`/`<-` 四个算子分支共享）；
+/// - Pass2：`try_connect_adjacent`（line.rs 三条路径的相邻求值统一入口）。
+pub fn eval_binary(op: ConnOp, lhs: Shape, rhs: Shape) -> Result<Shape, ShapeError> {
+    // §4.1-4.4 形状收敛：`-`/`+`/`->`/`<-` 均为"行不变、列取较大"；
+    // op 用于语义标注（锚点/配对策略在 Pass2 调用方落地），此处结果一致。
+    debug_assert!(
+        matches!(op, ConnOp::Series | ConnOp::Parallel),
+        "unexpected operator"
+    );
+    let matched = ShapeMatcher::match_shape(lhs, rhs)?;
+    Ok(matched.shape)
+}
+
+// ============================================================================
+// §1 `_` 导线三种用法分类（eval.md §1）
+// ============================================================================
+
+/// `_` 的三种用法（eval.md §1）：
+///
+/// 占位与直通都是**导线**（[`McPhrase::Lead`]），区别在于出现位置：
+/// - `[_, R101]` 向量内 → [占位][`LeadKind::Placeholder`]：保留位置，参与向量拼接和展开；
+/// - `a1.gnd + _ + GND` 独立运算数 → [直通][`LeadKind::Passthrough`]：左侧输入不经处理
+///   直接连到右侧，可用于串联链路中跳过节点。
+///
+/// [`LeadKind::PrefixId`] 前缀标识符**不是导线**——是 IDA 索引中的命名成员
+/// （如 `M[1:4][_OPEN,_CLOSE]`），下划线是命名约定的前缀，与导线 `_` 含义不同。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum LeadKind {
+    /// `[_, R101]` — 向量内占位：保留位置，参与向量拼接和展开
+    Placeholder,
+    /// `a1.gnd + _ + GND` — 独立运算数：直通连接（跳过节点）
+    Passthrough,
+    /// `_OPEN` — 前缀标识符：IDA 索引中的命名成员，不是导线
+    PrefixId,
+}
+
+/// 分类单个 `_` token（§1）：裸 `_` 是导线（向量内 → 占位，否则 → 直通）；
+/// `_FOO`（长度 > 1）是前缀标识符。
+pub fn classify_lead(name: &str, in_vector: bool) -> LeadKind {
+    if name != "_" {
+        LeadKind::PrefixId
+    } else if in_vector {
+        LeadKind::Placeholder
+    } else {
+        LeadKind::Passthrough
+    }
+}
+
+/// 遍历短语树，按出现顺序分类每个导线 `Lead` 的用法（§1）：
+///
+/// - 直接位于 `Multiple`（`[...]` 向量）内的 `Lead` → [占位][`LeadKind::Placeholder`]；
+/// - 其余位置（Series / Parallel / Group / Transposed / Member 中的运算数）→
+///   [直通][`LeadKind::Passthrough`]。
+///
+/// 前缀标识符 `_OPEN` 不是 `Lead`（解析为 Id/成员名），不会出现在结果中。
+pub fn classify_phrase_leads(phrase: &McPhrase) -> Vec<LeadKind> {
+    fn walk(p: &McPhrase, out: &mut Vec<LeadKind>) {
+        match p {
+            McPhrase::Lead => out.push(LeadKind::Passthrough),
+            McPhrase::Multiple(inner) => {
+                for m in inner {
+                    if matches!(m, McPhrase::Lead) {
+                        // 只统计直接成员：`[_, R101]` 中的 `_` 是占位；
+                        // 嵌套表达式里的 `_`（如 `[a1.gnd + _ + GND, ...]`）走递归 → 直通。
+                        out.push(LeadKind::Placeholder);
+                    } else {
+                        walk(m, out);
+                    }
+                }
+            }
+            McPhrase::Series(inner, _) | McPhrase::Parallel(inner) => {
+                for m in inner {
+                    walk(m, out);
+                }
+            }
+            McPhrase::Transposed(inner) => walk(inner, out),
+            McPhrase::Group(g) => {
+                for opd in &g.opds {
+                    walk(opd, out);
+                }
+            }
+            McPhrase::Member(inner, _) => walk(inner, out),
+            McPhrase::FuncCall(f) => {
+                if let Some(caller) = &f.caller {
+                    walk(caller, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    walk(phrase, &mut out);
+    out
+}
+
 #[cfg(test)]
 mod shape_tests {
     use super::*;
+    use crate::semantic::basic::mc_group::McGroup;
 
     // ---- §3 匹配约束表（5×5 行数表）----
 
@@ -682,5 +819,189 @@ mod shape_tests {
         assert!(Shape::unknown().is_unknown());
         assert_eq!(format!("{}", Shape::vvec(4)), "4*1");
         assert_eq!(format!("{}", Shape::unknown()), "?");
+    }
+
+    // ---- §4 四算子求值表（eval_binary）----
+
+    /// §4.1/4.3/4.4 串联：`-` / `->` / `<-` 的行约束与结果形状。
+    #[test]
+    fn eval_series_ok_and_rejected() {
+        for op in [ConnOp::Series] {
+            // 1*1 - 1*2 = 1*2（§4.1 节点 vs 向量 → newNode{节点左, 向量}）
+            assert_eq!(
+                eval_binary(op, Shape::node(), Shape::hvec()),
+                Ok(Shape::hvec())
+            );
+            // 1*2 - 1*2 = 1*2（§4.1 向量 vs 向量 → 直接拼接，返回右向量）
+            assert_eq!(
+                eval_binary(op, Shape::hvec(), Shape::hvec()),
+                Ok(Shape::hvec())
+            );
+            // N*1 - N*2 = N*2（§4.1 向量 vs 向量）
+            assert_eq!(
+                eval_binary(op, Shape::vvec(4), Shape::node_inst(4)),
+                Ok(Shape::node_inst(4))
+            );
+            // N*2 - N*2 = N*2
+            assert_eq!(
+                eval_binary(op, Shape::node_inst(4), Shape::node_inst(4)),
+                Ok(Shape::node_inst(4))
+            );
+            // 行数不同 → ❌（1*1 vs N*1）
+            assert_eq!(
+                eval_binary(op, Shape::node(), Shape::vvec(4)),
+                Err(ShapeError::RowMismatch {
+                    lhs: Shape::node(),
+                    rhs: Shape::vvec(4),
+                })
+            );
+        }
+    }
+
+    /// §4.2 并联 `+`：行约束与结果形状与串联一致（左运算数为锚）。
+    #[test]
+    fn eval_parallel_ok_and_rejected() {
+        // R101 + R102 = [R101.1, R101.2]（返回左向量形状）
+        assert_eq!(
+            eval_binary(ConnOp::Parallel, Shape::hvec(), Shape::hvec()),
+            Ok(Shape::hvec())
+        );
+        // N*2 + N*2 = N*2
+        assert_eq!(
+            eval_binary(ConnOp::Parallel, Shape::node_inst(3), Shape::node_inst(3)),
+            Ok(Shape::node_inst(3))
+        );
+        // 行数不同 → ❌
+        assert!(eval_binary(ConnOp::Parallel, Shape::vvec(2), Shape::vvec(3)).is_err());
+    }
+
+    /// §4 未知形状通配：任一侧 `rows == 0` → 放行，结果取已知侧。
+    #[test]
+    fn eval_unknown_wildcard() {
+        for op in [ConnOp::Series, ConnOp::Parallel] {
+            assert_eq!(
+                eval_binary(op, Shape::unknown(), Shape::vvec(4)),
+                Ok(Shape::vvec(4))
+            );
+            assert_eq!(
+                eval_binary(op, Shape::hvec(), Shape::unknown()),
+                Ok(Shape::hvec())
+            );
+        }
+    }
+
+    /// §4 单端口代表规则：`+`/`-`/`<-` 取运算数 1，`->` 取运算数 2。
+    ///
+    /// 代表侧形状（对 1*1 单端口）：
+    /// - `->`（[`ConnDir::LtoR`]）→ op2；`VEXT -> power.v1v3` 输出端是 power.v1v3；
+    /// - `-`/`+`（[`ConnDir::Undirected`]）→ op1；`VEXT - power.v1v3` 链首 VEXT；
+    /// - `<-`（[`ConnDir::RtoL`]）→ op1；`DC.PVCC24 <- Diode(...)` 目标网 DC.PVCC24。
+    #[test]
+    fn representative_rule() {
+        let lhs = Shape::node(); // 1*1
+        let rhs = Shape::hvec(); // 1*2
+                                 // `->`（LtoR）：结果取运算数 2
+        assert_eq!(representative(ConnDir::LtoR, lhs, rhs), rhs);
+        // `-` / `+`（Undirected）：结果取运算数 1
+        assert_eq!(representative(ConnDir::Undirected, lhs, rhs), lhs);
+        // `<-`（RtoL）：结果取运算数 1
+        assert_eq!(representative(ConnDir::RtoL, lhs, rhs), lhs);
+    }
+
+    /// §4 代表规则对等量单端口（1*1 +- 1*1）两侧一致：形状无差别。
+    #[test]
+    fn representative_equal_single_ports() {
+        let lhs = Shape::node();
+        let rhs = Shape::node();
+        for dir in [ConnDir::Undirected, ConnDir::LtoR, ConnDir::RtoL] {
+            assert_eq!(representative(dir, lhs, rhs), lhs);
+            assert_eq!(representative(dir, lhs, rhs), rhs);
+        }
+    }
+
+    // ---- §1 `_` 三种用法分类（P5.1）----
+
+    /// `classify_lead`：裸 `_` 是导线，按位置分占位/直通；`_FOO` 是前缀标识符。
+    #[test]
+    fn classify_lead_wire_vs_prefix_id() {
+        // 导线 `_`：向量内 → 占位
+        assert_eq!(classify_lead("_", true), LeadKind::Placeholder);
+        // 导线 `_`：独立运算数 → 直通
+        assert_eq!(classify_lead("_", false), LeadKind::Passthrough);
+        // 前缀标识符：长度 > 1，不是导线
+        assert_eq!(classify_lead("_OPEN", true), LeadKind::PrefixId);
+        assert_eq!(classify_lead("_LEFT", false), LeadKind::PrefixId);
+        assert_eq!(classify_lead("__CLR", false), LeadKind::PrefixId);
+    }
+
+    /// `classify_phrase_leads`：`[_, R101]` 向量内的 `_` → 占位。
+    #[test]
+    fn phrase_placeholder_in_vector() {
+        let phrase = McPhrase::Multiple(vec![McPhrase::Lead, McPhrase::label("R101".into())]);
+        assert_eq!(classify_phrase_leads(&phrase), vec![LeadKind::Placeholder]);
+    }
+
+    /// `classify_phrase_leads`：`a1.gnd + _ + GND` 独立运算数 → 直通。
+    #[test]
+    fn phrase_passthrough_operand() {
+        let phrase = McPhrase::Parallel(vec![
+            McPhrase::label("a1.gnd".into()),
+            McPhrase::Lead,
+            McPhrase::label("GND".into()),
+        ]);
+        assert_eq!(classify_phrase_leads(&phrase), vec![LeadKind::Passthrough]);
+    }
+
+    /// `classify_phrase_leads`：Series 链中的 `_` → 直通（`VEXT - _ - GND`）。
+    #[test]
+    fn phrase_passthrough_in_series() {
+        let phrase = McPhrase::Series(
+            vec![
+                McPhrase::label("VEXT".into()),
+                McPhrase::Lead,
+                McPhrase::label("GND".into()),
+            ],
+            ConnDir::Undirected,
+        );
+        assert_eq!(classify_phrase_leads(&phrase), vec![LeadKind::Passthrough]);
+    }
+
+    /// `classify_phrase_leads`：嵌套表达式 `[a1.gnd + _ + GND, R101]` 中，
+    /// 直接成员 `_` 才占位，嵌套 Parallel 里的 `_` 是直通。
+    #[test]
+    fn phrase_nested_expression_keeps_passthrough() {
+        let nested = McPhrase::Parallel(vec![
+            McPhrase::label("a1.gnd".into()),
+            McPhrase::Lead,
+            McPhrase::label("GND".into()),
+        ]);
+        let phrase = McPhrase::Multiple(vec![nested, McPhrase::label("R101".into())]);
+        assert_eq!(classify_phrase_leads(&phrase), vec![LeadKind::Passthrough]);
+    }
+
+    /// `classify_phrase_leads`：Group 运算数中的 `_` → 直通（`(a, b, c) - _`）。
+    #[test]
+    fn phrase_passthrough_in_group() {
+        let group = McGroup {
+            opds: vec![
+                McPhrase::label("a".into()),
+                McPhrase::label("b".into()),
+                McPhrase::Lead,
+            ],
+            left_match: true,
+            right_match: true,
+        };
+        let phrase = McPhrase::Group(group);
+        assert_eq!(classify_phrase_leads(&phrase), vec![LeadKind::Passthrough]);
+    }
+
+    /// `classify_phrase_leads`：无 `_` 的短语 → 空列表。
+    #[test]
+    fn phrase_no_lead_empty() {
+        let phrase = McPhrase::Series(
+            vec![McPhrase::label("A".into()), McPhrase::label("B".into())],
+            ConnDir::LtoR,
+        );
+        assert!(classify_phrase_leads(&phrase).is_empty());
     }
 }

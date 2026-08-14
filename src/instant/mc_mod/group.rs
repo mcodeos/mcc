@@ -8,6 +8,7 @@
 //! - `connect_to_group`             —— Connection strategy between Group and external points
 //! - `create_connection`            —— Generic N×M connection generation (1:1 / 1:N / N:1 / truncation)
 
+use super::expand::expand_match;
 use super::McModuleInst;
 use crate::db::diagnostic::diagnostic::{diagnostic_log, DiagnosticLevel};
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
@@ -232,120 +233,74 @@ impl McModuleInst {
             }
         }
 
-        if shape_match.is_ok() {
-            // ── P2-1: BUS BY NAME matching ──────────────────────────────────
-            // When both sides have member_name set (from bus port expansion),
-            // match by member name instead of position. This fixes SPI misalignment
-            // where flash.SPI(CS,MISO,MOSI,SCLK) was zipped positionally against
-            // uC.SPI(SCLK,MOSI,CSN,MISO) and got SCLK→MOSI etc.
-            let matched_by_name = if left_size >= 2 {
-                let mn_left: Vec<Option<&str>> = left_points
+        if let Some(m) = expand_match(&left_points, &right_points) {
+            // ── P4.2: §7 向量展开匹配（eval.md §7）───────────────────────
+            // 纯函数 expand_match 取代旧的 try_match_by_member_name + 排序 zip：
+            //   规则 1 层层对应 —— 两侧均带唯一非空 member 名且能一一配对 →
+            //                     按名配对（保持 lhs 顺序，确定性）；
+            //   规则 2 总数对应 —— 等量 → 按名稳定排序后 zip，兼产出 D5 信号；
+            //   规则 3 数量不匹配 → None（禁止隐式自动展开，落入下方恢复分支）。
+            // 此处 shape 匹配已放行（等量且两侧非空），expand_match 必然 Some。
+            mcc_dbg!(
+                "inst::mod",
+                "[P4.2-CONN] create_connection: left_size={left_size}, right_size={right_size}, \
+                 expand pairs={}, all_members_mismatched={}",
+                m.pairs.len(),
+                m.all_members_mismatched,
+            );
+
+            // ── D5: BUS_ORDER_MISMATCH ─────────────────────────────────────
+            // 双侧多点 1:1 连接、排序 zip 后所有对子 member 名互不相同 →
+            // 总线成员顺序可能错位（如 SPI SCLK↔MOSI）。单对不报：标量连接
+            // （如 VCC→VDD）名字不同是正常现象，不是总线错位。
+            if m.pairs.len() >= 2 && m.all_members_mismatched {
+                BUS_BITS_MISMATCHED.store(m.pairs.len(), std::sync::atomic::Ordering::Relaxed);
+                let mismatches: Vec<String> = m
+                    .pairs
                     .iter()
-                    .map(|p| p.member_name.as_deref())
+                    .enumerate()
+                    .map(|(i, (l, r))| {
+                        format!(
+                            "#{i}: {}↔{}",
+                            l.member_name.as_deref().unwrap_or(&l.path),
+                            r.member_name.as_deref().unwrap_or(&r.path),
+                        )
+                    })
                     .collect();
-                let mn_right: Vec<Option<&str>> = right_points
-                    .iter()
-                    .map(|p| p.member_name.as_deref())
-                    .collect();
-                mcc_dbg!("inst::mod", 
-                    "[P2-4-CONN] create_connection: left_size={left_size}, right_size={right_size}, \
-                     left_paths={:?}, right_paths={:?}, left_member_names={mn_left:?}, right_member_names={mn_right:?}",
-                    left_points.iter().map(|p| &p.path).collect::<Vec<_>>(),
-                    right_points.iter().map(|p| &p.path).collect::<Vec<_>>(),
+                // Use the first left point's src_pos for error location;
+                // fall back to the current line's span, then the module's.
+                let fallback = self
+                    .current_line_span
+                    .as_ref()
+                    .map(|s| s.start as i32)
+                    .unwrap_or(self.def.span.start as i32);
+                let pos = left_points
+                    .first()
+                    .and_then(|p| p.src_pos)
+                    .unwrap_or(fallback) as u32;
+                let len = left_points
+                    .first()
+                    .map(|p| p.path.len() as u32)
+                    .unwrap_or(0);
+                let msg = format!(
+                    "node=0 BUS_ORDER_MISMATCH: all {} pairs have mismatched member names: [{}]. \
+                     This may indicate bus member order misalignment between the two sides.",
+                    m.pairs.len(),
+                    mismatches.join(", "),
                 );
-                Self::try_match_by_member_name(&left_points, &right_points)
-            } else {
-                None
-            };
+                diagnostic_log(
+                    crate::errcodes::NET_BUS_ORDER_MISMATCH,
+                    DiagnosticLevel::Error,
+                    pos,
+                    len,
+                    &msg,
+                    &[],
+                );
+            }
 
-            eprintln!("[P2-4-CONN] module={} left_size={left_size} right_size={right_size} matched_by_name={:?}",
-                self.name,
-                matched_by_name.as_ref().map(|pairs| pairs.iter().map(|(l,r)| (l.path.clone(), r.path.clone())).collect::<Vec<_>>()));
-
-            if let Some(pairs) = matched_by_name {
-                for (l, r) in pairs {
-                    let conn = mk_conn(self.next_conn_id(), vec![l, r], dir, lane);
-                    self.connections.push(conn);
-                }
-            } else {
-                // ── P2-4: sort both sides by member name for consistent zip ──
-                // When member names don't match exactly (e.g. VCC vs Vout vs VDD_3V3),
-                // alphabetical sorting ensures GND always matches GND and power rails
-                // match power rails, instead of relying on positional order which may
-                // differ between declaration order and sorted port members.
-                let mut left_sorted: Vec<(usize, &NetPoint)> =
-                    left_points.iter().enumerate().collect();
-                let mut right_sorted: Vec<(usize, &NetPoint)> =
-                    right_points.iter().enumerate().collect();
-                let has_member_names = left_points.iter().all(|p| p.member_name.is_some())
-                    && right_points.iter().all(|p| p.member_name.is_some());
-                if has_member_names {
-                    left_sorted.sort_by(|a, b| {
-                        a.1.member_name.as_deref().cmp(&b.1.member_name.as_deref())
-                    });
-                    right_sorted.sort_by(|a, b| {
-                        a.1.member_name.as_deref().cmp(&b.1.member_name.as_deref())
-                    });
-                }
-                // ── D5: BUS_ORDER_MISMATCH detection ──────────────────────────────
-                // When two multi-point lists are connected 1:1 and both sides carry
-                // member names, compare member names at the same index. If they all
-                // differ, the bus member order may be misaligned (e.g. SPI SCLK↔MOSI).
-                // Skip when either side lacks member names (e.g. numeric pin paths):
-                // comparing names against pin numbers spans incompatible namespaces
-                // and only produces false positives.
-                if left_size >= 2 && has_member_names {
-                    let mut mismatches: Vec<String> = Vec::new();
-                    for (i, ((_, l), (_, r))) in
-                        left_sorted.iter().zip(right_sorted.iter()).enumerate()
-                    {
-                        let l_name = l.member_name.as_deref().unwrap_or(&l.path);
-                        let r_name = r.member_name.as_deref().unwrap_or(&r.path);
-                        if l_name != r_name {
-                            mismatches.push(format!("#{}: {}↔{}", i, l_name, r_name));
-                        }
-                    }
-                    if !mismatches.is_empty() && mismatches.len() == left_size {
-                        BUS_BITS_MISMATCHED.store(left_size, std::sync::atomic::Ordering::Relaxed);
-                        // Use the first left point's src_pos for error location;
-                        // fall back to the current line's span, then the module's.
-                        let fallback = self
-                            .current_line_span
-                            .as_ref()
-                            .map(|s| s.start as i32)
-                            .unwrap_or(self.def.span.start as i32);
-                        let pos = left_points
-                            .first()
-                            .and_then(|p| p.src_pos)
-                            .unwrap_or(fallback) as u32;
-                        let len = left_points
-                            .first()
-                            .map(|p| p.path.len() as u32)
-                            .unwrap_or(0);
-                        let msg = format!(
-                            "node=0 BUS_ORDER_MISMATCH: all {} pairs have mismatched member names: [{}]. \
-                             This may indicate bus member order misalignment between the two sides.",
-                            left_size, mismatches.join(", ")
-                        );
-                        diagnostic_log(
-                            crate::errcodes::NET_BUS_ORDER_MISMATCH,
-                            DiagnosticLevel::Error,
-                            pos,
-                            len,
-                            &msg,
-                            &[],
-                        );
-                    }
-                }
-                for ((_, l), (_, r)) in left_sorted.iter().zip(right_sorted.iter()) {
-                    let conn = mk_conn(
-                        self.next_conn_id(),
-                        vec![(*l).clone(), (*r).clone()],
-                        dir,
-                        lane,
-                    );
-                    self.connections.push(conn);
-                }
+            for (l, r) in m.pairs {
+                let conn = mk_conn(self.next_conn_id(), vec![l, r], dir, lane);
+                self.connections.push(conn);
             }
         } else if left_size == 1 {
             let l = left_points
@@ -477,66 +432,6 @@ impl McModuleInst {
     /// i.e. it contains both power-rail members and ground members.
     fn is_dc_power_bus(points: &[NetPoint]) -> bool {
         is_dc_power_bus_points(points)
-    }
-
-    /// ── P2-1: try to match two point lists by member name instead of position ──
-    ///
-    /// Returns `Some(reordered_pairs)` if both sides have member_name set and
-    /// a one-to-one name match can be found. Returns `None` if matching fails
-    /// (missing names, duplicate names, or incomplete match).
-    fn try_match_by_member_name(
-        left: &[NetPoint],
-        right: &[NetPoint],
-    ) -> Option<Vec<(NetPoint, NetPoint)>> {
-        use std::collections::HashMap;
-
-        // Build: member_name → left point
-        let mut left_by_name: HashMap<&str, &NetPoint> = HashMap::new();
-        for l in left {
-            if let Some(ref name) = l.member_name {
-                if name.is_empty() {
-                    return None; // empty member name → fallback to position
-                }
-                if left_by_name.contains_key(name.as_str()) {
-                    return None; // duplicate member name → fallback to position
-                }
-                left_by_name.insert(name.as_str(), l);
-            } else {
-                return None; // missing member_name → fallback to position
-            }
-        }
-
-        // Build: member_name → right point
-        let mut right_by_name: HashMap<&str, &NetPoint> = HashMap::new();
-        for r in right {
-            if let Some(ref name) = r.member_name {
-                if name.is_empty() {
-                    return None;
-                }
-                if right_by_name.contains_key(name.as_str()) {
-                    return None;
-                }
-                right_by_name.insert(name.as_str(), r);
-            } else {
-                return None;
-            }
-        }
-
-        // Match: for each left name, find right name
-        let mut pairs: Vec<(NetPoint, NetPoint)> = Vec::new();
-        for (name, l) in &left_by_name {
-            if let Some(r) = right_by_name.get(name) {
-                pairs.push(((*l).clone(), (*r).clone()));
-            } else {
-                return None; // name not found on right side → fallback to position
-            }
-        }
-
-        if pairs.len() != left.len() || pairs.len() != right.len() {
-            return None; // incomplete match → fallback to position
-        }
-
-        Some(pairs)
     }
 
     /// ── P2/A2: boundary member passthrough (fallback) ─────────────────────────────────────
