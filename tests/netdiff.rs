@@ -941,7 +941,7 @@ fn compare_nets(
                     );
                     if !missing.is_empty() {
                         desc.push_str(&format!(
-                            " | golden 多: [{}]",
+                            " | extra in golden: [{}]",
                             missing
                                 .iter()
                                 .map(|s| s.as_str())
@@ -951,7 +951,7 @@ fn compare_nets(
                     }
                     if !extra.is_empty() {
                         desc.push_str(&format!(
-                            " | actual 多: [{}]",
+                            " | extra in actual: [{}]",
                             extra
                                 .iter()
                                 .map(|s| s.as_str())
@@ -968,7 +968,7 @@ fn compare_nets(
                 diffs.push(DiffEntry {
                     kind: DiffKind::MissingNet,
                     description: format!(
-                        "golden#{} {} — 无匹配实际网 (best jaccard={:.2})",
+                        "golden#{} {} — no matching actual net (best jaccard={:.2})",
                         gi + 1,
                         gname,
                         jaccard
@@ -978,7 +978,7 @@ fn compare_nets(
         } else {
             diffs.push(DiffEntry {
                 kind: DiffKind::MissingNet,
-                description: format!("golden#{} {} — 实际无对应网", gi + 1, gname),
+                description: format!("golden#{} {} — no actual counterpart", gi + 1, gname),
             });
         }
     }
@@ -1002,7 +1002,7 @@ fn compare_nets(
                 diffs.push(DiffEntry {
                     kind: DiffKind::ExtraSplit,
                     description: format!(
-                        "actual.{} 含来自 {} 的端点",
+                        "actual.{} contains endpoints from {}",
                         aname,
                         from_golden.join(", ")
                     ),
@@ -1024,7 +1024,7 @@ fn compare_nets(
 ///   a. For each absent comp, remove its endpoints from all nets.
 ///   b. If the comp is marked `is_series: true` in [[series]], merge the two
 ///      nets that contained its pin 1 and pin 2.
-///   c. If `is_series: false` (跨接 / 旁路 / 上拉到 rail), only remove
+///   c. If `is_series: false` (bridge / bypass / pull-up to rail), only remove
 ///      endpoints — do NOT merge.
 ///   d. Nets with < 2 points after projection are dropped.
 ///
@@ -1128,12 +1128,12 @@ fn project(golden: &GoldenModule, present: &HashSet<String>) -> ProjectedGolden 
 fn format_g3_line(pg: &ProjectedGolden, module: &str) -> String {
     if pg.removed_comps.is_empty() {
         format!(
-            "[G3] {}: present {}/{}，投影未放宽，比对的是完整 golden",
+            "[G3] {}: present {}/{} — projection not relaxed, comparing full golden",
             module, pg.present_count, pg.total_count
         )
     } else {
         format!(
-            "[G3] {}: present {}/{}，删 {} 器件 / 合并 {} 网 / drop {} 网",
+            "[G3] {}: present {}/{} — removed {} comps / merged {} nets / dropped {} nets",
             module,
             pg.present_count,
             pg.total_count,
@@ -1340,7 +1340,9 @@ fn netdiff_all_modules() {
     let mut baseline = String::new();
     baseline.push_str("# Netdiff Baseline\n\n");
     baseline.push_str(&format!("Generated: {}\n\n", chrono_like_now()));
-    baseline.push_str("| 模块 | golden网 | 实际网 | comps匹配 | match率 | 主要差异类型 |\n");
+    baseline.push_str(
+        "| Module | Golden nets | Actual nets | Comp match | Match rate | Main diff types |\n",
+    );
     baseline.push_str("|---|---|---|---|---|---|\n");
 
     for report in &reports {

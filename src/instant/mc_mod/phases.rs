@@ -398,6 +398,27 @@ impl McModuleInst {
                 }
             }
         }
+
+        // ── P2-12: bridge ground members between bare and dotted labels ──
+        // A port's ground member (e.g. `vin.GND`) is physically the same net
+        // as the module-level bare `GND` label. Without this bridge, a
+        // connection resolving to the dotted label (`vin -> ldo.VIN` →
+        // `vin.GND`) and a connection resolving to the bare label
+        // (`.Cap(_)` implicit GND / `connect_scalar_to_dc_bus` ground
+        // branch → bare `GND`) form two separate ground nets.
+        if let Some(prefix) = dotted_prefix.as_ref() {
+            for m in &dotted_members {
+                if m.is_empty() || !is_ground_name(m) {
+                    continue;
+                }
+                let bare = self.labels.get(m).cloned();
+                let dotted = self.labels.get(&format!("{prefix}.{m}")).cloned();
+                if let (Some(b), Some(d)) = (bare, dotted) {
+                    let id = self.next_conn_id();
+                    self.connections.push(ConnectionInst::new(id, vec![b, d]));
+                }
+            }
+        }
     }
 
     // ========================================================================
@@ -475,8 +496,11 @@ impl McModuleInst {
                     // ★ Sub-module instantiation failure → record diagnostics, but keep instance
                     if let Err(e) = inst.instantiate() {
                         self.record_error(
-                            901,
-                            format!("Sub-module '{}' instantiation failed: {}", m.name, e),
+                            crate::errcodes::INST_SUBMODULE_INSTANTIATE_FAILED,
+                            crate::errcodes::format_msg(
+                                crate::errcodes::INST_SUBMODULE_INSTANTIATE_FAILED,
+                                &[&m.name, &e],
+                            ),
                         );
                     }
                     // ── P1-C4: Connect declared args (V3V3, V1V2) to sub-module ports ──
@@ -586,7 +610,13 @@ impl McModuleInst {
 
             if let Err(e) = self.process_line(line) {
                 // ★ Single connection line failure doesn't interrupt, record diagnostics then continue processing subsequent lines
-                self.record_warning(910, format!("Connection line #{idx} failed: {e}"));
+                self.record_warning(
+                    crate::errcodes::INST_LINE_PARSE_FAILED,
+                    crate::errcodes::format_msg(
+                        crate::errcodes::INST_LINE_PARSE_FAILED,
+                        &[&idx as &dyn std::fmt::Display, &e],
+                    ),
+                );
             }
         }
         // Clear after loop to avoid stale span leaking into post-line checks
@@ -641,7 +671,11 @@ impl McModuleInst {
     /// 1. Component pin references — owner is a component, verify pin exists
     /// 2. Sub-module port references — owner is a sub-module, verify port exists
     ///
-    /// Logs diagnostic warnings for unresolved references.
+    /// Emits user-visible warning diagnostics for unresolved references
+    /// (migrated from `tracing::warn!` per §7.2.3 — these are the func-body
+    /// expansion artifacts Pass1 does not see). Position is unknown at the
+    /// instance layer, so warnings are anchored at the file start (0,0),
+    /// mirroring the instantiation-layer precedent (PULLUP_DEGENERATE).
     /// Called before `build_net_table()`.
     pub(super) fn validate_expanded_net_points(&self) {
         for conn in &self.connections {
@@ -659,29 +693,39 @@ impl McModuleInst {
                             && !comp.pins.contains_key(pin_name)
                             && !comp.def.pins.names_to_id.contains_key(pin_name)
                         {
-                            tracing::warn!(
-                                "[P2-VALIDATE] module='{}' conn={} — pin '{}' not found in component '{}' (path={})",
-                                self.name,
-                                conn.id,
-                                pin_name,
-                                owner,
-                                pt.path
+                            let available: Vec<&str> =
+                                comp.pins.keys().map(|k| k.as_str()).collect();
+                            crate::db::diagnostic::diagnostic::diagnostic_log(
+                                crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                                crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
+                                0,
+                                0,
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                                    &[&pin_name, owner, &available.join(", ")],
+                                ),
+                                &[],
                             );
                         }
-                    } else if let Some(_sub) = self.find_submodule(owner) {
+                    } else if let Some(sub) = self.find_submodule(owner) {
                         // Sub-module port reference — verify port exists in sub-module
                         let port_name = pt
                             .path
                             .strip_prefix(&format!("{owner}."))
                             .unwrap_or(&pt.path);
-                        if !port_name.is_empty() && !_sub.is_port(port_name) {
-                            tracing::warn!(
-                                "[P2-VALIDATE] module='{}' conn={} — port '{}' not found in sub-module '{}' (path={})",
-                                self.name,
-                                conn.id,
-                                port_name,
-                                owner,
-                                pt.path
+                        if !port_name.is_empty() && !sub.is_port(port_name) {
+                            let available: Vec<&str> =
+                                sub.ports.iter().map(|p| p.name.as_str()).collect();
+                            crate::db::diagnostic::diagnostic::diagnostic_log(
+                                crate::errcodes::MODULE_PORT_NOT_FOUND,
+                                crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
+                                0,
+                                0,
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::MODULE_PORT_NOT_FOUND,
+                                    &[&port_name, owner, &available.join(", ")],
+                                ),
+                                &[],
                             );
                         }
                     }
@@ -750,18 +794,15 @@ impl McModuleInst {
                     }
                 });
             }
-            let _how = if chosen.is_some() {
-                "voltage"
-            } else {
-                "positional"
-            };
             let pi = match chosen.or_else(|| (0..formal.len()).find(|&fi| !used[fi])) {
                 Some(pi) => pi,
                 None => {
                     self.record_warning(
-                        940,
-                        format!(
-                        "Instance '{inst_name}' arg{ai} '{arg_name}' has no formal port to bind"),
+                        crate::errcodes::INST_ARG_NO_FORMAL_PORT,
+                        crate::errcodes::format_msg(
+                            crate::errcodes::INST_ARG_NO_FORMAL_PORT,
+                            &[&inst_name, &ai as &dyn std::fmt::Display, &arg_name],
+                        ),
                     );
                     continue;
                 }
@@ -775,19 +816,30 @@ impl McModuleInst {
                 parse_bracket_members(&port.name)
             };
 
-            // ── P3-3: Extract port base name for proper path construction ──
-            // When port name is like "USB_VBUS_1{VDD_3V, GND}", the base is "USB_VBUS_1".
-            // When port name is like "[VDD_3V3, GND]", there's no base prefix.
-            // Connection paths must include the base name to match net table port resolution
-            // (e.g., speaker.USB_VBUS_1.VDD_3V instead of speaker.VDD_3V).
-            let port_base = if port.name.starts_with('[') {
-                String::new()
-            } else {
-                port.name
-                    .split(&['{', '['][..])
-                    .next()
-                    .unwrap_or("")
-                    .to_string()
+            // Port-side points for a member: named ports give both bare
+            // (`inst.MEMBER`) and dotted (`inst.base.MEMBER`) forms, mirroring
+            // bind_call_args_to_ports. The sub-module body references the dotted
+            // form (`USB_VBUS_1.VDD_3V`); without the dotted point here, the
+            // bound arg (e.g. V3V3.VCC) and the body's rail label stay on
+            // separate nets (e.g. SPEAKER_M's amp power floating).
+            let port_base = port_base_name(&port.name);
+            let named =
+                !port_base.is_empty() && !port_base.starts_with('@') && !port_base.starts_with('[');
+            let pio = port.iotype.clone();
+            let make_ports = |member: &str, io: IOType| -> Vec<NetPoint> {
+                let mut v = vec![NetPoint::with_owner(
+                    &format!("{inst_name}.{member}"),
+                    inst_name,
+                    io.clone(),
+                )];
+                if named {
+                    v.push(NetPoint::with_owner(
+                        &format!("{inst_name}.{port_base}.{member}"),
+                        inst_name,
+                        io,
+                    ));
+                }
+                v
             };
 
             // ── Case 1: Equal-width multi-member → sort by member name then zip ──
@@ -818,19 +870,10 @@ impl McModuleInst {
                 });
 
                 for (a, m) in sorted_arg_lanes.iter().zip(sorted_members.iter()) {
-                    let pt_path = if port_base.is_empty() {
-                        format!("{inst_name}.{m}")
-                    } else {
-                        format!("{inst_name}.{port_base}.{m}")
-                    };
-                    let pp = NetPoint::with_owner(
-                        &pt_path,
-                        inst_name,
-                        port.iotype.clone(),
-                    );
+                    let mut pts = make_ports(m.as_str(), pio.clone());
+                    pts.push((*a).clone());
                     let id = self.next_conn_id();
-                    self.connections
-                        .push(ConnectionInst::new(id, vec![(*a).clone(), pp]));
+                    self.connections.push(ConnectionInst::new(id, pts));
                 }
                 continue;
             }
@@ -839,25 +882,15 @@ impl McModuleInst {
             if members.len() >= 2 && arg_lanes.len() == 1 && (members.len() - ground_cnt) == 1 {
                 let arg_pt = arg_lanes.into_iter().next().unwrap();
                 for m in &members {
-                    let pt_path = if port_base.is_empty() {
-                        format!("{inst_name}.{m}")
-                    } else {
-                        format!("{inst_name}.{port_base}.{m}")
-                    };
-                    let port_pt = NetPoint::with_owner(
-                        &pt_path,
-                        inst_name,
-                        port.iotype.clone(),
-                    );
+                    let mut pts = make_ports(m.as_str(), pio.clone());
                     let id = self.next_conn_id();
                     if is_ground_name(m) {
                         let gnd = self.node_to_netpoint(&McBus::new("GND"));
-                        self.connections
-                            .push(ConnectionInst::new(id, vec![port_pt, gnd]));
+                        pts.push(gnd);
                     } else {
-                        self.connections
-                            .push(ConnectionInst::new(id, vec![arg_pt.clone(), port_pt]));
+                        pts.push(arg_pt.clone());
                     }
+                    self.connections.push(ConnectionInst::new(id, pts));
                 }
                 continue;
             }
@@ -902,8 +935,9 @@ impl McModuleInst {
     /// * **Scalar interface ports** (`vin::DC(5V)`, no bus_members and no `{}`/`[]`) not in
     ///   this filter scope — they need to supplement `{VCC,GND}` members from interface type `DC`
     ///   before binding, a separate sub-item not handled here (modldo grounding still pending).
-    /// * Excess args beyond bindable ports are silently skipped (excess-arg not in this step's diagnostics
-    ///   scope; port-side missed binding is covered by `check_unbound_param_ports`).
+    /// * Excess args beyond bindable ports emit warning 940 (mirroring
+    ///   `bind_actual_args_to_ports`); port-side missed binding is covered
+    ///   by `check_unbound_param_ports`.
     pub(super) fn bind_call_args_to_ports(
         &mut self,
         inst_name: &str,
@@ -959,7 +993,34 @@ impl McModuleInst {
             }
             let pi = match chosen.or_else(|| (0..formal.len()).find(|&fi| !used[fi])) {
                 Some(pi) => pi,
-                None => continue, // Actual args exceed ports -> skip (see function header "Scope")
+                None => {
+                    // Actual args exceed ports -> skip (see function header "Scope").
+                    // Mirror bind_actual_args_to_ports' 940 warning so excess named
+                    // args are no longer silently dropped; log detail for tracing.
+                    let bound = used.iter().filter(|u| **u).count();
+                    crate::db::diagnostic::diagnostic::dlog_trace(
+                        940,
+                        &format!(
+                            "bind_call_args_to_ports: module='{}' instance='{inst_name}' arg '{arg_name}' has no formal port to bind | formal_ports={} bound={bound}",
+                            self.name,
+                            formal.len(),
+                        ),
+                    );
+                    self.record_warning(
+                        crate::errcodes::INST_ARG_UNBOUND_DETAILED,
+                        crate::errcodes::format_msg(
+                            crate::errcodes::INST_ARG_UNBOUND_DETAILED,
+                            &[
+                                &inst_name,
+                                &arg_name,
+                                &self.name,
+                                &bound as &dyn std::fmt::Display,
+                                &formal.len() as &dyn std::fmt::Display,
+                            ],
+                        ),
+                    );
+                    continue;
+                }
             };
             used[pi] = true;
 
@@ -1128,10 +1189,10 @@ impl McModuleInst {
         // ③ At this point self has no immutable borrow, record diagnostic with &mut self
         for (inst, key_name) in unbound {
             self.record_warning(
-                942,
-                format!(
-                    "Sub-module instance '{inst}' DC power port '{key_name}' is never connected \
-                     (missing power argument?)"
+                crate::errcodes::INST_POWER_PORT_UNBOUND,
+                crate::errcodes::format_msg(
+                    crate::errcodes::INST_POWER_PORT_UNBOUND,
+                    &[&inst, &key_name],
                 ),
             );
         }
@@ -1166,8 +1227,11 @@ impl McModuleInst {
             Ok(b) => b,
             Err(e) => {
                 self.record_warning(
-                    941,
-                    format!("Constructor '{last}' on '{inst_name}' param bind: {e:?}"),
+                    crate::errcodes::INST_CTOR_PARAM_BIND_FAILED,
+                    crate::errcodes::format_msg(
+                        crate::errcodes::INST_CTOR_PARAM_BIND_FAILED,
+                        &[&last, &inst_name, &format!("{e:?}")],
+                    ),
                 );
                 return;
             }
@@ -1201,7 +1265,13 @@ impl McModuleInst {
             let substituted = Self::substitute_line(line, &bindings, None);
             let prefixed = Self::prefix_instance_line_with_skip(&substituted, inst_name, &skip);
             if let Err(e) = self.process_line(&prefixed) {
-                self.record_warning(942, format!("Constructor '{last}' body line failed: {e}"));
+                self.record_warning(
+                    crate::errcodes::INST_CTOR_BODY_LINE_FAILED,
+                    crate::errcodes::format_msg(
+                        crate::errcodes::INST_CTOR_BODY_LINE_FAILED,
+                        &[&last, &e],
+                    ),
+                );
             }
         }
         // ── P4 backstop: strip host-synthesized interface endpoints leaked during body processing ──

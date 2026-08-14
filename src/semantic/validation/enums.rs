@@ -59,7 +59,7 @@ fn check_duplicate_enum_values(acc: &mut CheckAccumulator) {
                         "Enum '{}' has duplicate value '{}'. Enum values must be unique.",
                         edef.name, name
                     ),
-                    code: 2901,
+                    code: crate::errcodes::ENUM_DUPLICATE_VALUE,
                 });
             }
         }
@@ -124,7 +124,7 @@ fn check_invalid_enum_member_names(acc: &mut CheckAccumulator) {
                         "Enum '{}' member '{}' contains a dot. Enum values must be simple identifiers.",
                         edef.name, name
                     ),
-                    code: 2902,
+                    code: crate::errcodes::ENUM_MEMBER_DOT,
                 });
             }
 
@@ -139,7 +139,7 @@ fn check_invalid_enum_member_names(acc: &mut CheckAccumulator) {
                         "Enum '{}' member '{}' starts with a digit. Enum values must be identifiers.",
                         edef.name, name
                     ),
-                    code: 2903,
+                    code: crate::errcodes::ENUM_MEMBER_LEADING_DIGIT,
                 });
             }
 
@@ -154,7 +154,7 @@ fn check_invalid_enum_member_names(acc: &mut CheckAccumulator) {
                         "Enum '{}' member '{}' is a reserved keyword. Consider a different name.",
                         edef.name, name
                     ),
-                    code: 2904,
+                    code: crate::errcodes::ENUM_MEMBER_RESERVED,
                 });
             }
         }
@@ -196,7 +196,7 @@ fn check_self_ref_attr(acc: &mut CheckAccumulator) {
                              '{} = {}' looks like a copy-paste mistake.",
                             comp.name, key_str, key_str, val_str
                         ),
-                        code: 2905,
+                        code: crate::errcodes::ATTR_SELF_REFERENTIAL,
                     });
                     break;
                 }
@@ -231,7 +231,7 @@ fn check_self_ref_attr(acc: &mut CheckAccumulator) {
                              '{} = {}' looks like a copy-paste mistake.",
                             iface.name, key_str, key_str, val_str
                         ),
-                        code: 2905,
+                        code: crate::errcodes::ATTR_SELF_REFERENTIAL,
                     });
                     break;
                 }
@@ -272,7 +272,7 @@ fn check_duplicate_attr_keys(acc: &mut CheckAccumulator) {
                          Only the last value takes effect.",
                         comp.name, key_str
                     ),
-                    code: 2906,
+                    code: crate::errcodes::RANGE_REVERSED,
                 });
             }
         }
@@ -302,7 +302,7 @@ fn check_duplicate_attr_keys(acc: &mut CheckAccumulator) {
                          Only the last value takes effect.",
                         iface.name, key_str
                     ),
-                    code: 2906,
+                    code: crate::errcodes::RANGE_REVERSED,
                 });
             }
         }

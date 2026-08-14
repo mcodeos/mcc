@@ -70,17 +70,28 @@ fn run_single(
     let layer = graph.name.clone();
     let layouter = candidate.name();
 
+    macro_rules! t {
+        ($lbl:expr, $body:expr) => {{
+            let _ts = std::time::Instant::now();
+            let r = $body;
+            tracing::info!(target: "mcc::perf", step = $lbl, ms = _ts.elapsed().as_millis() as u64, "run_single step");
+            r
+        }};
+    }
+
     // ── Phase 1: layout ──
     // ★ P7-0 (root cause F): inject the model into the *candidate itself*,
     // preserving its parameters (sub() vs default()). Previously this branch
     // built `FlowLayouter { model, ..default() }`, so every layer — including
     // all 6 sub-layers — ran with top-level parameters (480/220/recompute=false)
     // and `FlowLayouter::sub()` was dead code.
-    if let Some(flow) = schematic_model.and_then(|m| candidate.with_model(m)) {
-        flow.layout(&mut graph);
-    } else {
-        candidate.layout(&mut graph);
-    }
+    t!("flow_layout", {
+        if let Some(flow) = schematic_model.and_then(|m| candidate.with_model(m)) {
+            flow.layout(&mut graph);
+        } else {
+            candidate.layout(&mut graph);
+        }
+    });
     probe_scatter_census(&graph);
 
     // ── Stage A / A3: non-destructive inline placement of series & chained passives ──
@@ -94,28 +105,29 @@ fn run_single(
     graph.claim_geom_changes(&g_snap, "10.passive_inline");
     // Pull any passive nudged to a negative coordinate back onto the canvas.
     let g_snap = graph.geom_snapshot();
-    renormalize(&mut graph);
+    t!("renormalize", renormalize(&mut graph));
     graph.claim_geom_changes(&g_snap, "11.renormalize");
 
     // ── Phase 1.8: net labels ──
     let g_snap = graph.geom_snapshot();
-    apply_net_labels(&mut graph);
+    t!("apply_net_labels", apply_net_labels(&mut graph));
     graph.claim_geom_changes(&g_snap, "12.net_labels");
     probe_box_collisions(&graph);
 
     // ── Phase 2: route ──
     let g_snap = graph.geom_snapshot();
-    route_all_with_channels(&mut graph);
+    t!("route_all", route_all_with_channels(&mut graph));
     graph.claim_geom_changes(&g_snap, "13.route");
 
-    // ★ P7-4e: 原 Phase E（route feedback loop 的 nudge→reroute）已删除。
-    // 它在 Route 段挪盒子 x/y（NUDGE_STEP 平移，实测 19 处净位移），
-    // 违反"Route 只读几何"的段契约；其收益（降 wire_wire）不在 G12
-    // 判据内（box_box/wire_box 实测删除后无退步，见 baseline 对照）。
-    // 未来若需要布线让位，正确位置是 Placement 段的碰撞感知间距。
+    // ★ P7-4e: Phase E (route feedback loop, nudge→reroute→accept) removed.
+    // It moved box x/y inside the Route stage (19 net shifts measured in
+    // P7-4c), violating the "Route reads geometry only" stage contract; its
+    // benefit (lower wire_wire) is not a G12 criterion and box_box/wire_box
+    // showed no regression after removal. Future routing-space relief belongs
+    // in a Placement-stage collision-aware spacing pass.
 
     // ── Gate + report ──
-    let col = audit_all(&graph);
+    let col = t!("audit_all", audit_all(&graph));
     let fidelity = compute_fidelity(&graph, &col);
     let readability = compute_readability(&graph, &col);
     fidelity_gate(&layer, layouter, &fidelity, &readability);

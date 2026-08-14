@@ -120,7 +120,11 @@ pub enum McParamTypeKind {
     Idx,
     // Explicitly Annotated
     /// A3: interface-typed — `id::ClassName(params)`
-    Interface { class_name: String },
+    Interface {
+        class_name: String,
+        /// Interface constructor params — `id::DC(3.3V)` → `["3.3V"]`
+        params: Vec<String>,
+    },
     /// A4: interface-typed with role/enum value — `id::ClassName(Role)`
     InterfaceWithRole {
         class_name: String,
@@ -294,7 +298,10 @@ impl McParamType {
             }
 
             MCAST_DECLARE => {
-                // Interface-typed: extract class name
+                // Interface-typed: `id::ClassName(constructor_args)`.
+                // Constructor args (e.g. `[VDD_3V3,GND]::DC(3.3V)` → `3.3V`)
+                // are extracted inside classify_declare from the class's
+                // ids.next MCAST_PARAMS chain.
                 Self::classify_declare(&subnode)
             }
 
@@ -385,6 +392,7 @@ impl McParamType {
         let mut class_name = String::new();
         let mut has_role_arg = false;
         let mut role_val = String::new();
+        let mut params: Vec<String> = Vec::new();
         let mut has_inline_attrs = false;
 
         if let Some(first_child) = node.get_sub_node() {
@@ -396,18 +404,38 @@ impl McParamType {
                                 class_name = ids.to_string();
                             }
                         }
-                        // Check for role/enum args in class params
-                        if let Some(params_node) = child.get_next() {
-                            if params_node.get_type() == MCAST_PARAMS {
-                                if let Some(param_list) = params_node.get_sub_node() {
-                                    for param in param_list.iter() {
-                                        if let Some(ids) = McIds::new(&param) {
-                                            has_role_arg = true;
-                                            role_val = ids.to_string();
-                                            break;
+                        // Check for role/enum args in class params. Only the
+                        // MCAST_PARAMS node holds real constructor args — the
+                        // MCAST_INSTANCE sibling is the declared member list
+                        // (e.g. `[VDD_3V3,GND]`) and must not be read as a role.
+                        // AST layout: `DC(3.3V)` → class.sub = ids("DC"),
+                        // ids.next = MCAST_PARAMS(3.3V); class.next is the
+                        // MCAST_INSTANCE member list, not the constructor args.
+                        if let Some(name_node) = child.get_sub_node() {
+                            let mut cur = Some(name_node);
+                            while let Some(pn) = cur {
+                                if pn.get_type() == MCAST_PARAMS {
+                                    if let Some(param_list) = pn.get_sub_node() {
+                                        let mut iface_params: Vec<String> = Vec::new();
+                                        for param in param_list.iter() {
+                                            if let Some(ids) = McIds::new(&param) {
+                                                if !has_role_arg {
+                                                    has_role_arg = true;
+                                                    role_val = ids.to_string();
+                                                }
+                                                iface_params.push(ids.to_string());
+                                            } else {
+                                                // Non-identifier constructor args (units,
+                                                // numbers, strings) — e.g. `DC(3.3V)`.
+                                                iface_params
+                                                    .push(param.to_string().unwrap_or_default());
+                                            }
                                         }
+                                        params = iface_params;
                                     }
+                                    break;
                                 }
+                                cur = pn.get_next();
                             }
                         }
                     }
@@ -438,13 +466,13 @@ impl McParamType {
             }
         } else {
             Self {
-                kind: McParamTypeKind::Interface { class_name },
+                kind: McParamTypeKind::Interface { class_name, params },
                 direction: None,
             }
         }
     }
 
-    /// Extract default value string from MCAST_DECLARE_UV's MCAST_INSTANCE child
+    /// Extract the default value string from MCAST_DECLARE_UV's MCAST_INSTANCE child
     fn extract_default_from_declare_uv(node: &AstNode) -> Option<String> {
         if let Some(sub) = node.get_sub_node() {
             for child in sub.iter() {
@@ -608,6 +636,15 @@ impl McParamType {
         }
     }
 
+    /// Interface constructor params for interface-typed params —
+    /// `id::DC(3.3V)` → `["3.3V"]`. Empty for other kinds.
+    pub fn interface_params(&self) -> &[String] {
+        match &self.kind {
+            McParamTypeKind::Interface { params, .. } => params,
+            _ => &[],
+        }
+    }
+
     /// Whether this parameter has a default value (making it optional at call sites)
     pub fn has_default(&self) -> bool {
         self.default_value().is_some()
@@ -707,7 +744,8 @@ mod tests {
         .is_port());
         assert!(McParamType {
             kind: McParamTypeKind::Interface {
-                class_name: "DC".into()
+                class_name: "DC".into(),
+                params: vec![]
             },
             direction: None
         }

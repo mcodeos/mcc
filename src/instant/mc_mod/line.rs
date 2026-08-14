@@ -17,7 +17,7 @@ use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::basic::mc_opd::McOpd;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
-use crate::semantic::common::{ConnDir, IOType};
+use crate::semantic::common::{eval_binary, ConnDir, ConnOp, IOType, Shape, ShapeError};
 use crate::semantic::mc_inst::McInstance;
 use std::collections::HashSet;
 
@@ -53,8 +53,8 @@ impl McModuleInst {
             && Self::phrase_contains_failed_class(phrase, &self.failed_classes)
         {
             self.record_warning(
-                910,
-                format!("Line references a component class whose instantiation failed; skipping entire line."),
+                crate::errcodes::INST_LINE_SKIP_FAILED_CLASS,
+                crate::errcodes::format_msg(crate::errcodes::INST_LINE_SKIP_FAILED_CLASS, &[]),
             );
             return Ok(());
         }
@@ -147,8 +147,11 @@ impl McModuleInst {
                     }
                     if let Err(e) = self.process_line(&pair) {
                         self.record_warning(
-                            911,
-                            format!("Expanded builtin twopin pair failed: {e}"),
+                            crate::errcodes::INST_BUILTIN_TWOPIN_EXPAND_FAILED,
+                            crate::errcodes::format_msg(
+                                crate::errcodes::INST_BUILTIN_TWOPIN_EXPAND_FAILED,
+                                &[&e],
+                            ),
                         );
                     }
                 }
@@ -158,7 +161,10 @@ impl McModuleInst {
 
             // Normal processing for non-expanded members
             if let Err(e) = self.process_member_internal(&members[i]) {
-                self.record_warning(911, format!("Member processing failed: {e}"));
+                self.record_warning(
+                    crate::errcodes::INST_MEMBER_PROCESS_FAILED,
+                    crate::errcodes::format_msg(crate::errcodes::INST_MEMBER_PROCESS_FAILED, &[&e]),
+                );
             }
             i += 1;
         }
@@ -172,7 +178,20 @@ impl McModuleInst {
         // Only when this line actually contains `.Cap(_)` (params empty / all `_`) shunt, go through special
         // wiring below; lines without shunt fall through to original adjacency loop → zero impact on existing paths.
         let shunt: Vec<bool> = members.iter().map(Self::is_chain_cap_shunt).collect();
+        eprintln!(
+            "[SHUNT-DETECT] module={} members={:?} shunt={:?}",
+            self.name,
+            members
+                .iter()
+                .map(|m| format!("{:?}", std::mem::discriminant(m)))
+                .collect::<Vec<_>>(),
+            shunt
+        );
         if shunt.iter().any(|&s| s) {
+            eprintln!(
+                "[SHUNT-DETECT] module={} calling wire_chain_with_shunts",
+                self.name
+            );
             self.wire_chain_with_shunts(&members, &shunt, dir);
             return Ok(());
         }
@@ -207,12 +226,14 @@ impl McModuleInst {
 
             if let Err(e) = self.try_connect_adjacent(left_member, right_member, dir) {
                 self.record_warning(
-                    912,
-                    format!(
-                        "Connection between members #{} and #{} failed: {}",
-                        i,
-                        i + 1,
-                        e
+                    crate::errcodes::INST_ADJACENT_CONNECT_FAILED,
+                    crate::errcodes::format_msg(
+                        crate::errcodes::INST_ADJACENT_CONNECT_FAILED,
+                        &[
+                            &i as &dyn std::fmt::Display,
+                            &(i + 1) as &dyn std::fmt::Display,
+                            &e as &dyn std::fmt::Display,
+                        ],
                     ),
                 );
             }
@@ -291,8 +312,11 @@ impl McModuleInst {
             let rp = self.shunt_chain_points(pair[1], false);
             if let Err(e) = self.create_connection(lp, rp, dir, None) {
                 self.record_warning(
-                    912,
-                    format!("Pass-through across `.Cap(_)` shunt failed: {e}"),
+                    crate::errcodes::INST_SHUNT_PROCESS_FAILED,
+                    crate::errcodes::format_msg(
+                        crate::errcodes::INST_SHUNT_PROCESS_FAILED,
+                        &[&format!("pass-through across the shunt failed: {e}")],
+                    ),
                 );
             }
         }
@@ -308,8 +332,11 @@ impl McModuleInst {
             // doesn't exist in auto_inst_map yet.
             if let Err(e) = self.process_member_internal(m) {
                 self.record_warning(
-                    913,
-                    format!("`.Cap(_)` shunt: failed to create component: {e}"),
+                    crate::errcodes::INST_SHUNT_PROCESS_FAILED,
+                    crate::errcodes::format_msg(
+                        crate::errcodes::INST_SHUNT_PROCESS_FAILED,
+                        &[&format!("failed to create component: {e}")],
+                    ),
                 );
                 continue;
             }
@@ -338,9 +365,11 @@ impl McModuleInst {
             };
             if rail_src.is_empty() {
                 self.record_warning(
-                    913,
-                    "`.Cap(_)` shunt: no neighbor to derive a rail; only pin2 → GND wired"
-                        .to_string(),
+                    crate::errcodes::INST_SHUNT_PROCESS_FAILED,
+                    crate::errcodes::format_msg(
+                        crate::errcodes::INST_SHUNT_PROCESS_FAILED,
+                        &[&"no neighbor to derive a rail; only pin2 → GND wired"],
+                    ),
                 );
                 continue;
             }
@@ -361,13 +390,22 @@ impl McModuleInst {
             let pin1 = self.get_left_points(m).unwrap_or_default();
             if pin1.is_empty() {
                 self.record_warning(
-                    913,
-                    "`.Cap(_)` shunt: cannot resolve pin1; only pin2 → GND wired".to_string(),
+                    crate::errcodes::INST_SHUNT_PROCESS_FAILED,
+                    crate::errcodes::format_msg(
+                        crate::errcodes::INST_SHUNT_PROCESS_FAILED,
+                        &[&"cannot resolve pin1; only pin2 → GND wired"],
+                    ),
                 );
                 continue;
             }
             if let Err(e) = self.create_connection(pin1, vec![rail], dir, None) {
-                self.record_warning(913, format!("`.Cap(_)` shunt pin1 → rail failed: {e}"));
+                self.record_warning(
+                    crate::errcodes::INST_SHUNT_PROCESS_FAILED,
+                    crate::errcodes::format_msg(
+                        crate::errcodes::INST_SHUNT_PROCESS_FAILED,
+                        &[&format!("pin1 → rail failed: {e}")],
+                    ),
+                );
             }
         }
     }
@@ -470,8 +508,11 @@ impl McModuleInst {
             if let McPhrase::Transposed(_) = member {
                 if let Err(e) = self.process_member_internal(member) {
                     self.record_warning(
-                        915,
-                        format!("Failed to instantiate Transposed in lane-by-lane: {e}"),
+                        crate::errcodes::INST_LANE_TRANSPOSED_FAILED,
+                        crate::errcodes::format_msg(
+                            crate::errcodes::INST_LANE_TRANSPOSED_FAILED,
+                            &[&e],
+                        ),
                     );
                 }
             }
@@ -517,8 +558,11 @@ impl McModuleInst {
                 if matches!(elem, McPhrase::FuncCall(_)) {
                     if let Err(e) = self.process_member_internal(elem) {
                         self.record_warning(
-                            914,
-                            format!("Failed to instantiate FuncCall in lane-by-lane wiring: {e}"),
+                            crate::errcodes::INST_LANE_FUNCCALL_FAILED,
+                            crate::errcodes::format_msg(
+                                crate::errcodes::INST_LANE_FUNCCALL_FAILED,
+                                &[&e],
+                            ),
                         );
                     }
                     // P2-7 debug: trace FuncCall instantiation in lane-by-lane
@@ -1076,22 +1120,6 @@ impl McModuleInst {
                     )))];
                 }
 
-                // ── P3-1: look up bus members from the bus table ──
-                // When an Interface endpoint has no explicit member access,
-                // try to populate members from the registered bus (e.g. XTAL → [X1, X2]).
-                // This ensures lane-by-lane wiring can expand the interface to
-                // individual physical pins.
-                if let Some(bus) = self.find_bus(&inst_name) {
-                    if !bus.members.is_empty() {
-                        return vec![McPhrase::Endpoint(McEndpoint::Single(
-                            McInstanceRef::new(McInstance::Bus(McBus::new_with_members(
-                                &inst_name,
-                                bus.members.clone(),
-                            ))),
-                        ))];
-                    }
-                }
-
                 vec![McPhrase::from(McInstance::Bus(McBus::new(&inst_name)))]
             }
             McPhrase::Lead => vec![McPhrase::Lead],
@@ -1445,13 +1473,6 @@ impl McModuleInst {
         } else {
             let left_points = self.get_right_points(left_member)?;
             let right_points = self.get_left_points(right_member)?;
-            if self.name == "mcu513" {
-                let dl: Vec<String> = left_points.iter().map(|p| format!("{}", p.path)).collect();
-                let dr: Vec<String> = right_points.iter().map(|p| format!("{}", p.path)).collect();
-                mcc_dbg!("inst::mod",
-                    "[P2-4-ADJ] US513: L={_l_kind} R={_r_kind} | get_right(L)={dl:?} get_left(R)={dr:?}",
-                );
-            }
             // ── [P4-ADJ] temporary probe (commented)
             // if matches!(left_member, McPhrase::Parallel(_))
             //     || matches!(right_member, McPhrase::Parallel(_))
@@ -1465,21 +1486,40 @@ impl McModuleInst {
             // }
             let trans_involved = matches!(left_member, McPhrase::Transposed(_))
                 || matches!(right_member, McPhrase::Transposed(_));
-            if trans_involved
-                && !left_points.is_empty()
-                && !right_points.is_empty()
-                && left_points.len() != right_points.len()
-            {
-                let n = left_points.len().min(right_points.len());
-                for (l, r) in left_points
-                    .into_iter()
-                    .take(n)
-                    .zip(right_points.into_iter().take(n))
-                {
-                    self.create_connection(vec![l], vec![r], dir, None)?;
+            // ── §4 operator evaluation (eval.md §4.1 series): unified entry
+            // for shape evaluation of adjacent members ──
+            // The adjacent-pair logic of all three line.rs paths (shunt /
+            // lane-by-lane / adjacency) converges on this shape check +
+            // create_connection.
+            let lhs_shape = Shape::vvec(left_points.len());
+            let rhs_shape = Shape::vvec(right_points.len());
+            match eval_binary(ConnOp::Series, lhs_shape, rhs_shape) {
+                Ok(_) => {
+                    // Row counts match: pair the whole group
+                    // (create_connection does 1:1 / broadcast / interface expansion internally)
+                    self.create_connection(left_points, right_points, dir, None)?;
                 }
-            } else {
-                self.create_connection(left_points, right_points, dir, None)?;
+                // Transposed bridge passive (§4 deviation): row counts differ
+                // but a transposed member is involved; pair by min, hanging
+                // each pin on its corresponding lane (eval.md §4.1 node vs
+                // vector bridging semantics)
+                Err(ShapeError::RowMismatch { .. })
+                    if trans_involved && !left_points.is_empty() && !right_points.is_empty() =>
+                {
+                    let n = left_points.len().min(right_points.len());
+                    for (l, r) in left_points
+                        .into_iter()
+                        .take(n)
+                        .zip(right_points.into_iter().take(n))
+                    {
+                        self.create_connection(vec![l], vec![r], dir, None)?;
+                    }
+                }
+                // Row count mismatch (non-transposed): hand to
+                // create_connection for E2901 truncation recovery
+                Err(_) => {
+                    self.create_connection(left_points, right_points, dir, None)?;
+                }
             }
         }
         Ok(())
@@ -1642,25 +1682,6 @@ impl McModuleInst {
             };
             opd_lefts.push(lps);
             opd_rights.push(rps);
-            if self.name.contains("513") {
-                mcc_dbg!(
-                    "inst::mod",
-                    "[PAR-INT] module={} opd[{_idx}] lps={:?} rps={:?}",
-                    self.name,
-                    opd_lefts
-                        .last()
-                        .unwrap()
-                        .iter()
-                        .map(|p| p.path.clone())
-                        .collect::<Vec<_>>(),
-                    opd_rights
-                        .last()
-                        .unwrap()
-                        .iter()
-                        .map(|p| p.path.clone())
-                        .collect::<Vec<_>>()
-                );
-            }
         }
 
         // [R2-DIAG2] Unconditionally print each parallel's opd form + point extraction
@@ -1796,11 +1817,15 @@ impl McModuleInst {
                 // to "merge all to left net" + warning
                 if !dim_mismatch_warned {
                     self.record_warning(
-                        921,
-                        format!(
-                            "Parallel '+' operand dimension mismatch (anchor={}x1, opd[{}]={}x1 left / {}x1 right): \
-                             merging operand into anchor's left net.",
-                            anchor_dim, i, lp.len(), rp.len()
+                        crate::errcodes::CONN_PARALLEL_DIM_MISMATCH,
+                        crate::errcodes::format_msg(
+                            crate::errcodes::CONN_PARALLEL_DIM_MISMATCH,
+                            &[
+                                &anchor_dim as &dyn std::fmt::Display,
+                                &i as &dyn std::fmt::Display,
+                                &lp.len() as &dyn std::fmt::Display,
+                                &rp.len() as &dyn std::fmt::Display,
+                            ],
                         ),
                     );
                     dim_mismatch_warned = true;
@@ -1900,7 +1925,7 @@ impl McModuleInst {
         }
     }
 
-    fn process_series_branch_inplace(
+    pub(super) fn process_series_branch_inplace(
         &mut self,
         elems: &[McPhrase],
         dir: ConnDir,
@@ -1917,12 +1942,14 @@ impl McModuleInst {
             let rref: &McPhrase = rn.as_ref().unwrap_or(&elems[k + 1]);
             if let Err(err) = self.try_connect_adjacent(lref, rref, dir) {
                 self.record_warning(
-                    912,
-                    format!(
-                        "Group/Parallel-branch Series member #{}~#{} connect failed: {}",
-                        k,
-                        k + 1,
-                        err
+                    crate::errcodes::INST_ADJACENT_CONNECT_FAILED,
+                    crate::errcodes::format_msg(
+                        crate::errcodes::INST_ADJACENT_CONNECT_FAILED,
+                        &[
+                            &k as &dyn std::fmt::Display,
+                            &(k + 1) as &dyn std::fmt::Display,
+                            &err as &dyn std::fmt::Display,
+                        ],
                     ),
                 );
             }
@@ -2163,7 +2190,20 @@ impl McModuleInst {
                             self.sub_modules.push(inst);
                             self.connections.extend(new_connections);
                         }
-                        FuncCallInst::PassThrough => {}
+                        FuncCallInst::PassThrough => {
+                            // Iterated call produced nothing (every item degraded to
+                            // pass-through, warnings 944 already emitted per item by
+                            // instantiate_funccall). Log the call for troubleshooting
+                            // so a dropped iterated connection is traceable.
+                            crate::db::diagnostic::diagnostic::dlog_trace(
+                                944,
+                                &format!(
+                                    "line: iterated call '{}' → all pass-through, iterated connection dropped (module='{}')",
+                                    fc.func_name,
+                                    self.name,
+                                ),
+                            );
+                        }
                     }
                     return Ok(());
                 }
@@ -2299,21 +2339,32 @@ impl McModuleInst {
                                 comp_func.is_some()
                             );
                             if let Some(func_def) = comp_func {
-                                mcc_dbg!(
-                                    "inst::mod",
-                                    "[P2-4-DBG] func_def name={}, lines={}, params={}",
-                                    func_def.name,
-                                    func_def.lines.len(),
-                                    func_def.params.iter().count()
-                                );
-                                let key = Self::member_key(phrase);
-                                let result = self.instantiate_instance_method(
-                                    &inst_name, &func_def, &fc.params, &fc.left, &fc.right,
-                                )?;
-                                if matches!(result, FuncCallInst::PassThrough) {
-                                    self.auto_inst_map.insert(key, inst_name.clone());
+                                // arity guard: only dispatch when formals and
+                                // actuals agree (mirrors the dotted-chain guard
+                                // below). A no-arg method called with args would
+                                // otherwise silently drop the args and wrongly
+                                // expand the body.
+                                let func_arity = func_def.params.iter().count();
+                                let call_arity = fc.params.len();
+                                if (func_arity > 0 && call_arity > 0)
+                                    || (func_arity == 0 && call_arity == 0)
+                                {
+                                    mcc_dbg!(
+                                        "inst::mod",
+                                        "[P2-4-DBG] func_def name={}, lines={}, params={}",
+                                        func_def.name,
+                                        func_def.lines.len(),
+                                        func_def.params.iter().count()
+                                    );
+                                    let key = Self::member_key(phrase);
+                                    let result = self.instantiate_instance_method(
+                                        &inst_name, &func_def, &fc.params, &fc.left, &fc.right,
+                                    )?;
+                                    if matches!(result, FuncCallInst::PassThrough) {
+                                        self.auto_inst_map.insert(key, inst_name.clone());
+                                    }
+                                    return Ok(());
                                 }
-                                return Ok(());
                             }
 
                             // Sub-module instance method
@@ -2323,14 +2374,23 @@ impl McModuleInst {
                                 .find(|m| m.name == inst_name)
                                 .and_then(|m| m.def.funcs.find(&func_name_str).cloned());
                             if let Some(func_def) = sub_func {
-                                let key = Self::member_key(phrase);
-                                let result = self.instantiate_instance_method(
-                                    &inst_name, &func_def, &fc.params, &fc.left, &fc.right,
-                                )?;
-                                if matches!(result, FuncCallInst::PassThrough) {
-                                    self.auto_inst_map.insert(key, inst_name.clone());
+                                // arity guard (mirrors the component-method and
+                                // dotted-chain guards): don't dispatch a no-arg
+                                // method called with args.
+                                let func_arity = func_def.params.iter().count();
+                                let call_arity = fc.params.len();
+                                if (func_arity > 0 && call_arity > 0)
+                                    || (func_arity == 0 && call_arity == 0)
+                                {
+                                    let key = Self::member_key(phrase);
+                                    let result = self.instantiate_instance_method(
+                                        &inst_name, &func_def, &fc.params, &fc.left, &fc.right,
+                                    )?;
+                                    if matches!(result, FuncCallInst::PassThrough) {
+                                        self.auto_inst_map.insert(key, inst_name.clone());
+                                    }
+                                    return Ok(());
                                 }
-                                return Ok(());
                             }
 
                             // ── P1 fix: dotted scope-chain drill down ──────────────
@@ -2470,10 +2530,10 @@ impl McModuleInst {
                                     "sub-module"
                                 };
                                 self.record_warning(
-                                    940,
-                                    format!(
-                                        "Method '{func_name_str}' not defined in {owner_kind} '{inst_name}'; \
-                                         chain link skipped, no body expanded."
+                                    crate::errcodes::INST_CHAIN_LINK_SKIPPED,
+                                    crate::errcodes::format_msg(
+                                        crate::errcodes::INST_CHAIN_LINK_SKIPPED,
+                                        &[&func_name_str, &owner_kind, &inst_name],
                                     ),
                                 );
                                 // ── Iter-6.S4.2 ──

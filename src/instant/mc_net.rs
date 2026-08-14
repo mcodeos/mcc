@@ -17,10 +17,10 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Mutex;
 
-/// 未展开的向量引用计数（R01）。只统计不阻断，release 也生效。
+/// Literal (unexpanded) vector reference count (R01). Counting only, non-blocking; also active in release builds.
 pub static LITERAL_POINTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-/// 未展开的向量引用详情：隔离后的 (原始路径, src_pos)
+/// Literal (unexpanded) vector reference details: quarantined (original path, src_pos)
 pub static LITERAL_POINT_DETAILS: std::sync::LazyLock<Mutex<Vec<(String, Option<i32>)>>> =
     std::sync::LazyLock::new(|| Mutex::new(Vec::new()));
 
@@ -41,6 +41,7 @@ pub static LITERAL_POINT_DETAILS: std::sync::LazyLock<Mutex<Vec<(String, Option<
 /// # Examples
 ///
 /// ```
+/// use mcc::instant::mc_net::normalize_pin_path;
 /// assert_eq!(normalize_pin_path("uC.pins.VDD"), "uC.VDD");
 /// assert_eq!(normalize_pin_path("uC.VDD"), "uC.VDD");
 /// assert_eq!(normalize_pin_path("uC.VDD.VDD"), "uC.VDD");
@@ -120,11 +121,13 @@ pub struct NetPoint {
 impl NetPoint {
     /// Create a simple net point (port/label)
     ///
-    /// ★ 补丁 2-1：字面量引用 → 隔离（quarantine），不 panic。
-    /// 检测到 `{` `[` `,` 时，把 path 替换为唯一的 `@_phantom_<N>`，
-    /// 原始路径记入 `LITERAL_POINT_DETAILS`，计数记入 `LITERAL_POINTS`。
-    /// 隔离点不会进入并查集合并（NetTable::add_connection 过滤），
-    /// 因此不会从 R01 扩散成 R06 巨网。
+    /// ★ Patch 2-1: literal reference → quarantine, no panic.
+    /// When `{`, `[`, `,` is detected, replace the path with a unique
+    /// `@_phantom_<N>`, record the original path in `LITERAL_POINT_DETAILS`
+    /// and the count in `LITERAL_POINTS`.
+    /// Quarantined points never enter union-find merging (filtered by
+    /// `NetTable::add_connection`), so they cannot spread from R01 into a
+    /// giant R06 net.
     pub fn new(path: &str, iotype: IOType) -> Self {
         let normalized = normalize_pin_path(path);
         let p = &normalized;
@@ -859,7 +862,7 @@ impl NetTable {
         }
 
         // ── Iter-9: NC filter ──
-        // ★ 补丁 2-1：同时过滤 @_phantom_ 隔离点，防止进入并查集合并
+        // ★ Patch 2-1: also filter @_phantom_ quarantined points to keep them out of union-find merging
         let kept: Vec<&NetPoint> = conn
             .points
             .iter()

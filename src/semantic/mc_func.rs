@@ -145,19 +145,9 @@ struct FuncBodyContext<'a> {
     parent: &'a mut dyn HasFindInst,
 }
 
-impl<'a> FuncBodyContext<'a> {
-    fn find_param(&self, id: &str) -> Option<McInstance> {
-        if self.param_names.iter().any(|n| n == id) {
-            Some(McInstance::Label(id.to_string()))
-        } else {
-            None
-        }
-    }
-}
-
 impl<'a> HasFindInst for FuncBodyContext<'a> {
     fn find_inst(&self, id: &str) -> Option<McInstance> {
-        self.find_param(id).or_else(|| self.parent.find_inst(id))
+        self.find_inst_with_span(id).map(|(inst, _)| inst)
     }
 
     fn find_inst_mut(&mut self, id: &str) -> Option<&mut crate::McInstance> {
@@ -168,12 +158,11 @@ impl<'a> HasFindInst for FuncBodyContext<'a> {
         &self,
         id: &str,
     ) -> Option<(McInstance, Option<std::ops::Range<usize>>)> {
-        // P1: func params first (no span for params)
-        if self.param_names.iter().any(|n| n == id) {
-            return Some((McInstance::Label(id.to_string()), None));
-        }
-        // P2+: delegate to parent (module/component)
-        self.parent.find_inst_with_span(id)
+        // instance_chain (§3.4): P1 func params → P2 parent container chain.
+        // Func params shadow the parent's same-named instances (param wins).
+        crate::semantic::scope::instance_chain(self.param_names, &*self.parent)
+            .resolve(id)
+            .map(|r| (r.inst, r.span))
     }
 
     fn add_label_at(
@@ -499,16 +488,21 @@ impl McFunction {
                                         .to_string()
                                         .unwrap_or_else(|| "<unprintable>".to_string());
                                     dlog_warning(
-                                        1309,
+                                        crate::errcodes::FUNC_LINE_DROPPED,
                                         &subnode,
-                                        &format!(
-                                            "Connection line dropped (McPhrase::new returned None): `{line_txt}`"
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::FUNC_LINE_DROPPED,
+                                            &[&line_txt],
                                         ),
                                     );
                                 }
                             }
                         } else {
-                            dlog_error(1300, &body_node, "Empty NET");
+                            dlog_error(
+                                crate::errcodes::FUNC_EMPTY_NET,
+                                &body_node,
+                                &crate::errcodes::format_msg(crate::errcodes::FUNC_EMPTY_NET, &[]),
+                            );
                         }
                     }
 
@@ -525,6 +519,34 @@ impl McFunction {
                         // with pre-parsed McPhrase lines.
                         use crate::semantic::basic::mc_conds::{McConds, McFuncConds};
                         if let Some(raw_conds) = McConds::new(&body_node) {
+                            // ★ LSP: Record net refs inside if/else blocks so
+                            // identifiers on conditional net lines (e.g.
+                            // `GPIO[2]`, `GND`) resolve for goto-definition.
+                            // Top-level lines are handled by the MCAST_NET
+                            // branch above; conditional lines were missing.
+                            {
+                                let scope = self
+                                    .insts
+                                    .scope
+                                    .clone()
+                                    .unwrap_or_else(|| self.name.to_string());
+                                for cond in &raw_conds.if_blocks {
+                                    crate::semantic::module::McModule::collect_net_refs_in_node(
+                                        &cond.block,
+                                        &mut self.insts,
+                                        &mut self.params,
+                                        &scope,
+                                    );
+                                }
+                                if let Some(else_node) = &raw_conds.else_block {
+                                    crate::semantic::module::McModule::collect_net_refs_in_node(
+                                        else_node,
+                                        &mut self.insts,
+                                        &mut self.params,
+                                        &scope,
+                                    );
+                                }
+                            }
                             let parsed = McFuncConds::from_conds(&raw_conds, &mut wrapper);
                             if !parsed.if_blocks.is_empty() || !parsed.else_lines.is_empty() {
                                 if self.name.to_string().contains("i2c") {
@@ -541,7 +563,11 @@ impl McFunction {
                         }
                     }
                     _ => {
-                        dlog_error(1308, &body_node, "Invalid function body node.");
+                        dlog_error(
+                            crate::errcodes::FUNC_BODY_INVALID,
+                            &body_node,
+                            &crate::errcodes::format_msg(crate::errcodes::FUNC_BODY_INVALID, &[]),
+                        );
                     }
                 }
             }
@@ -597,17 +623,20 @@ impl McFunction {
         // 1. Reject multiple returns. A function may have at most one.
         if !matches!(self.returns, McFuncReturn::Implicit) {
             dlog_error(
-                1313,
+                crate::errcodes::FUNC_MULTIPLE_RETURNS,
                 body_node,
-                "Multiple `return` statements are not allowed; \
-                 a function may have at most one return.",
+                &crate::errcodes::format_msg(crate::errcodes::FUNC_MULTIPLE_RETURNS, &[]),
             );
             return;
         }
 
         // 2. Locate the IOTYPE_RETURN marker.
         let Some(marker) = Self::find_return_marker(wrapper) else {
-            dlog_error(1305, body_node, "Malformed return statement.");
+            dlog_error(
+                crate::errcodes::FUNC_RETURN_MALFORMED,
+                body_node,
+                &crate::errcodes::format_msg(crate::errcodes::FUNC_RETURN_MALFORMED, &[]),
+            );
             return;
         };
 
@@ -638,9 +667,9 @@ impl McFunction {
             }
             None => {
                 dlog_error(
-                    1307,
+                    crate::errcodes::FUNC_RETURN_EXPR_INVALID,
                     body_node,
-                    "Invalid `return` expression: expected `this` or a label/bus.",
+                    &crate::errcodes::format_msg(crate::errcodes::FUNC_RETURN_EXPR_INVALID, &[]),
                 );
             }
         }

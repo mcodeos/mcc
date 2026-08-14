@@ -281,10 +281,6 @@ fn eval_comparison(
             return false;
         }
     }
-    // class is always None on top-level defs — `class=...` always false.
-    if matches!(c.field, Field::Class) {
-        return false;
-    }
 
     let lhs = field_value(&c.field, kind, name, class, uri, attrs);
 
@@ -427,6 +423,7 @@ fn attrval_to_string(v: &crate::McAttrVal) -> Option<String> {
     match v {
         AttrLiteral(crate::McLiteral::String(s)) => Some(s.value.clone()),
         AttrLiteral(crate::McLiteral::Int(i)) => Some(i.to_string()),
+        AttrLiteral(crate::McLiteral::Hex(h)) => Some(h.to_string()),
         AttrLiteral(crate::McLiteral::Float(f)) => Some(f.to_string()),
         AttrLiteral(crate::McLiteral::Const(c)) => Some(c.to_string()),
         AttrLiteral(crate::McLiteral::Uval(u)) => Some(format!("{}", u.value())),
@@ -833,13 +830,21 @@ impl<'a> Parser<'a> {
 
     fn parse_bareword(&mut self) -> Result<String> {
         let mut s = self.parse_identifier()?;
-        // Bareword values may include `*` / `?` for glob forms (=RES*).
-        while let Some(c) = self.peek() {
-            if c == '*' || c == '?' {
-                s.push(c);
-                self.pos += c.len_utf8();
-            } else {
-                break;
+        // Bareword values may include glob chars (`*`/`?`) and version-like
+        // dotted continuation (=v1.0); identifier chars may follow a dot.
+        loop {
+            match self.peek() {
+                Some(c)
+                    if c == '*'
+                        || c == '?'
+                        || c == '.'
+                        || c.is_ascii_alphanumeric()
+                        || c == '_' =>
+                {
+                    s.push(c);
+                    self.pos += c.len_utf8();
+                }
+                _ => break,
             }
         }
         if RESERVED_BAREWORDS

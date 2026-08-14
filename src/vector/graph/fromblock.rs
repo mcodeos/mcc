@@ -1034,16 +1034,18 @@ fn build_mc_vec_graph_inner(
         for p in &b.pins {
             if p.id >= 8_000_000_000 {
                 crate::db::diagnostic::diagnostic::diagnostic_log(
-                    2004,
+                    crate::errcodes::GHOST_PORT_BOX,
                     crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
                     0,
                     1,
-                    &format!(
-                        "GHOST_PORT: box '{}' (id={}) has placeholder pin '{}' (id={}) \
-                         that is not mapped to any real component pin. \
-                         The component declared only an estimated pin count (pins = N) \
-                         without actual pin definitions.",
-                        b.name, b.id, p.pin_id, p.id
+                    &crate::errcodes::format_msg(
+                        crate::errcodes::GHOST_PORT_BOX,
+                        &[
+                            &b.name,
+                            &b.id as &dyn std::fmt::Display,
+                            &p.pin_id,
+                            &p.id as &dyn std::fmt::Display,
+                        ],
                     ),
                     &[],
                 );
@@ -1059,9 +1061,8 @@ fn build_mc_vec_graph_inner(
     // ★ DEBUG: print block.nets structure
     graph.nets = generate_viznets_from_block(block, &point_to_box, table, &graph.boxes);
 
-    // ★ DEBUG: print VizNet endpoints with box_ids
-    // ★ 节点守恒探针：建图不得改变电气事实。
-    // block 侧的每个网络，其端点集合必须原样出现在某一条 VizNet 里。
+    // ★ Node conservation probe: building the graph must not change electrical facts.
+    // Every net on the block side must have its endpoint set appear verbatim in some VizNet.
     probe_node_conservation(block, &graph.nets, &point_to_box);
 
     crate::velog!(
@@ -1161,13 +1162,14 @@ fn generate_viznets_from_block(
 ) -> Vec<VizNet> {
     let mut out = Vec::with_capacity(block.nets.len());
 
-    // ★ 分立二端无源器件的盒子集合。总线永远不会从一颗 R/C 中间穿过去，
-    //   所以"网络碰到了无源器件"是"这不是总线"的可靠信号。
-    //   （同一判据见 rails.rs:331 的网络标签化守卫。）
-    //
-    // ★ M0-C BLOCKED: 此启发式将在 M0-A 完成后改为读 NetShape.series_chain。
-    //   M0-A 让 ConnPair 携带 via 字段，merge_pairs_to_vecnet 据此填充
-    //   NetShape.series_chain，届时"网络穿过哪些二端器件"是源码事实而非推断。
+    // ★ Set of discrete two-terminal passive boxes. A bus never passes through the middle of an R/C,
+    //   so "the net touches a passive device" is a reliable signal that "this is not a bus".
+    //   (Same criterion as the net-labeling guard at rails.rs:331.)
+    //   ★ M0-C BLOCKED: after M0-A lands, this heuristic should read
+    //   NetShape.series_chain instead: M0-A makes ConnPair carry a `via` field
+    //   and merge_pairs_to_vecnet fills NetShape.series_chain, turning "which
+    //   two-terminal devices a net passes through" into a source-code fact
+    //   rather than an inference.
     let passive_boxes: std::collections::HashSet<i64> = boxes
         .iter()
         .filter(|b| b.is_two_pin_passive())
@@ -1234,9 +1236,18 @@ fn is_real_bus(
             return None; // shape present but not N:N → not a bus
         }
 
-        // Legacy fallback: no shape provenance
+        // Legacy fallback: no shape provenance (W2901 SHAPE_INCOMPLETE).
+        // Stage 3 guarantees this is rarely triggered — only on paths that
+        // have not yet been covered by `build_net_shape`.
         #[allow(deprecated)]
         if let ConnectionType::NtoN(n) = net.connection_type() {
+            tracing::warn!(
+                target: "mcc::vector",
+                code = crate::errcodes::SHAPE_INCOMPLETE,
+                net = %net.name,
+                "W2901 SHAPE_INCOMPLETE: net '{}' has no NetShape provenance; fell back to connection_type() inference",
+                net.name
+            );
             if n > 1 && !touches_passive(&net.all_point_ids()) {
                 return Some(n);
             }
@@ -1379,12 +1390,14 @@ fn is_real_bus(
         #[allow(deprecated)]
         if let ConnectionType::NtoN(_n) = net.connection_type() {
             let kind0 = naming::classify_net(&net.name);
-            // ★ FIX：`connection_type()` 只比较两组的**长度**（net.rs:87），而这两组是
-            // 网络合并的副产物 —— 由多条连接并成的等电位点，端点恰好凑成 [n, n] 时会被
-            // 误判成 n 位总线。实测：`@CAP5.2 ~ @RES6.2 ~ @CAP2.2 ~ u2.6` 这个 4 点节点
-            // 被劈成 `@CAP2.2~@RES6.2` 和 `@CAP5.2~u2.6` 两条互不相连的网络 ——
-            // 节点不存在了，这是电气事实被改写，不是排版偏好。
-            // 判据：真总线不会穿过分立二端无源器件（见 is_real_bus()）。
+            // ★ FIX: `connection_type()` only compares the **lengths** of the two groups (net.rs:87),
+            // but the two groups are a byproduct of net merging —— when the endpoints of an
+            // equipotential node formed by merging multiple connections happen to form [n, n], it
+            // is misjudged as an n-bit bus. Observed: the 4-point node
+            // `@CAP5.2 ~ @RES6.2 ~ @CAP2.2 ~ u2.6` was split into two unconnected nets
+            // `@CAP2.2~@RES6.2` and `@CAP5.2~u2.6` —— the node no longer exists, which is a rewrite
+            // of electrical facts, not a layout preference.
+            // Criterion: a real bus never passes through a discrete two-terminal passive device (see is_real_bus()).
             if let Some(n) = is_real_bus(net, &kind0, &touches_passive) {
                 let group_a: Vec<i64> = net.nets[0].iter().copied().collect();
                 let group_b: Vec<i64> = net.nets[1].iter().copied().collect();
@@ -1445,14 +1458,13 @@ fn is_real_bus(
                 // current layer. This includes placeholder pins (id ≥ 8e9) and
                 // pins whose InstTable entry exists but isn't mapped to any box.
                 crate::db::diagnostic::diagnostic::diagnostic_log(
-                    2004,
+                    crate::errcodes::GHOST_PORT,
                     crate::db::diagnostic::diagnostic::DiagnosticLevel::Error,
                     0,
                     1,
-                    &format!(
-                        "GHOST_PORT: net '{}' endpoint id={} is not mapped to any box. \
-                         This pin may cross a module boundary without being properly exposed as a port.",
-                        net.name, pid
+                    &crate::errcodes::format_msg(
+                        crate::errcodes::GHOST_PORT,
+                        &[&net.name, &pid as &dyn std::fmt::Display],
                     ),
                     &[],
                 );
@@ -1473,11 +1485,12 @@ fn is_real_bus(
         // is physically still power, not a bus.
         //
         // ── ★ iter 7 ──────────────────────────────────────────────────────
-        // 与上面的拆分分支同一条守卫：`connection_type()` 只比较两组的长度，
-        // 合并出来的等电位点凑成 [n,n] 就会被误判成 n 位总线。这里误判的后果不是
-        // 拆网络，而是 kind=Bus(n) → dispatch.rs:241 无条件走 BusBundle → 一个
-        // 4 端点的节点被画成棕色粗干线 + 抽头（实测 __net_4）。
-        // 判据同样是：真总线不会穿过分立二端无源器件（见 is_real_bus()）。
+        // Same guard as the split branch above: `connection_type()` only compares the lengths of
+        // the two groups, so a merged equipotential node that happens to form [n,n] is misjudged
+        // as an n-bit bus. Here the consequence is not splitting the net but kind=Bus(n) →
+        // dispatch.rs:241 unconditionally takes BusBundle → a 4-endpoint node is drawn as a brown
+        // thick trunk + taps (observed with __net_4).
+        // Criterion is the same: a real bus never passes through a discrete two-terminal passive device (see is_real_bus()).
         if let Some(n) = is_real_bus(net, &kind, &touches_passive) {
             kind = NetKind::Bus(n);
         }
@@ -1510,11 +1523,11 @@ fn is_real_bus(
 }
 
 // ============================================================================
-// ★ 节点守恒探针：建图不得改变电气事实
+// ★ Node conservation probe: building the graph must not change electrical facts
 // ============================================================================
 
-/// block 侧的每个网络，其端点集合必须原样出现在某一条 VizNet 里；
-/// 拆分只允许发生在**真总线**上，并且必须被显式记录。
+/// Every net on the block side must have its endpoint set appear verbatim in some VizNet;
+/// splitting is only allowed on **real buses** and must be recorded explicitly.
 fn probe_node_conservation(block: &McVecBlock, nets: &[VizNet], _point_to_box: &HashMap<u32, u32>) {
     for bn in &block.nets {
         let pts: std::collections::HashSet<i64> = bn.all_point_ids().into_iter().collect();
@@ -1525,8 +1538,8 @@ fn probe_node_conservation(block: &McVecBlock, nets: &[VizNet], _point_to_box: &
         });
         if !covered {
             crate::velog!(
-                "[graph] ✗ NODE SPLIT: block net '{}' ({} pts) 没有任何一条 VizNet 完整承载 \
-                 —— 等电位点被拆散，下游所有拓扑模型都会读到错的图",
+                "[graph] ✗ NODE SPLIT: block net '{}' ({} pts) is not fully carried by any VizNet \
+                 —— the equipotential node was split apart; every downstream topology model will read the wrong graph",
                 bn.name,
                 pts.len()
             );

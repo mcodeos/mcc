@@ -525,9 +525,17 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                 let out_path = if let Some(ref p) = args.output {
                     Path::new(p).to_path_buf()
                 } else {
-                    let p = Path::new(args.target.as_ref().unwrap());
-                    let stem = p.file_stem().unwrap().to_string_lossy();
-                    let parent = p.parent().unwrap_or(Path::new(""));
+                    // `--code` mode has no target file; fall back to a stable name.
+                    let p = args
+                        .target
+                        .as_ref()
+                        .map_or_else(|| "snippet.mc".to_string(), |t| t.clone());
+                    let path = Path::new(&p);
+                    let stem = path
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "output".to_string());
+                    let parent = path.parent().unwrap_or(Path::new(""));
                     parent.join(format!("{}.html", stem))
                 };
                 let path_str = out_path.to_string_lossy().to_string();
@@ -1063,7 +1071,7 @@ fn run_viz(
         "McVecBlock"
     );
 
-    // ★ netcheck: 网表体检
+    // ★ netcheck: netlist health check
     let nc_report = mcc::instant::netcheck::run(&table);
     nc_report.print();
 
@@ -1169,7 +1177,20 @@ fn phrase_to_tree_json(p: &McPhrase, max_depth: usize, cur: usize) -> serde_json
         McPhrase::Multiple(ps) => json!({
             "kind": "Multiple",
             "label": format!("{} items", ps.len()),
-            "children": recurse(ps),
+            "children": if truncated {
+                Vec::new()
+            } else {
+                ps.iter()
+                    .map(|c| {
+                        if matches!(c, McPhrase::Lead) {
+                            // §1 P5.1: within a `[...]` vector, `_` is a placeholder
+                            json!({"kind": "Lead", "usage": "placeholder", "label": "", "children": []})
+                        } else {
+                            phrase_to_tree_json(c, max_depth, cur + 1)
+                        }
+                    })
+                    .collect()
+            },
         }),
         McPhrase::Group(g) => json!({
             "kind": "Group",
@@ -1196,7 +1217,12 @@ fn phrase_to_tree_json(p: &McPhrase, max_depth: usize, cur: usize) -> serde_json
             "label": format!(".{}", ep),
             "children": [phrase_to_tree_json(inner, max_depth, cur + 1)],
         }),
-        McPhrase::Lead => json!({"kind": "Lead", "label": "", "children": []}),
+        McPhrase::Lead => json!({
+            "kind": "Lead",
+            "usage": "passthrough",
+            "label": "",
+            "children": [],
+        }),
         McPhrase::Endpoint(ep) => json!({
             "kind": "Endpoint",
             "label": endpoint_label(ep),
@@ -1260,7 +1286,7 @@ fn param_cls(d: &McParamDeclare) -> Option<String> {
         McParamTypeKind::CompoundUnit { unit_type, .. } => Some(unit_type.to_string()),
         McParamTypeKind::EnumClass { class_name } => Some(class_name.clone()),
         McParamTypeKind::EnumClassDefault { class_name, .. } => Some(class_name.clone()),
-        McParamTypeKind::Interface { class_name } => Some(class_name.clone()),
+        McParamTypeKind::Interface { class_name, .. } => Some(class_name.clone()),
         McParamTypeKind::InterfaceWithRole { class_name, .. } => Some(class_name.clone()),
         McParamTypeKind::ComponentInstance { class_name } => Some(class_name.clone()),
         McParamTypeKind::BasicString { .. } => Some("STRING".into()),

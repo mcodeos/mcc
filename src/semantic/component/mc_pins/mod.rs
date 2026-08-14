@@ -105,6 +105,12 @@ pub struct McPins {
     // Dynamic pin definitions (contain parameter references, need to be resolved at instantiation)
     // e.g.: 1:cols = 1:cols, where cols is component parameter
     pub dynamic_pins: Vec<dynamic::DynamicPinLine>,
+
+    /// Declared List pin groups (e.g. `PDM[CLK, DATA]`) with their expanded
+    /// pin ids, kept for display only. §2.1: the bare prefix (e.g. `PDM`) is
+    /// deliberately NOT registered in `names_to_id`; this table lets tools
+    /// render the original `PDM[CLK, DATA]` group.
+    pub list_groups: Vec<(String, Vec<String>, Vec<String>)>, // (list_name, members, pins)
 }
 
 impl Default for McPins {
@@ -128,6 +134,7 @@ impl McPins {
             pin_id_to_names: BTreeMap::new(),
             values_pool: Vec::new(),
             dynamic_pins: Vec::new(),
+            list_groups: Vec::new(),
         }
     }
 
@@ -276,9 +283,9 @@ impl McPins {
         // N6: pins+= without prior pins=
         if node_type == MCAST_ATTRIBUTE_PINADD && !self.has_base_pins {
             crate::db::diagnostic::diagnostic::dlog_error(
-                2106,
+                crate::errcodes::PINS_PLUS_WITHOUT_BASE,
                 node,
-                "pins += used without prior pins = definition",
+                &crate::errcodes::format_msg(crate::errcodes::PINS_PLUS_WITHOUT_BASE, &[]),
             );
         }
         if node_type == MCAST_ATTRIBUTE_PIN {
@@ -288,9 +295,24 @@ impl McPins {
         let pin_span = (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
 
         let Some(plinenodes) = node.get_sub_node() else {
-            dlog_error(1001, node, MISSING_SUBNODE);
+            dlog_error(
+                crate::errcodes::PINS_MISSING_SUBNODE,
+                node,
+                &crate::errcodes::format_msg(crate::errcodes::PINS_MISSING_SUBNODE, &[]),
+            );
             return;
         };
+
+        // ── P1-3/B5: `pins.subcls = [...]` — mca.y produces
+        // MCAST_ATTRIBUTE_PIN [mc_id(subcls), pin_lines...], but the sub-class
+        // name is silently dropped here. Report instead of ignoring it.
+        if let Some(subcls) = plinenodes.iter().find(|n| n.get_type() != MCAST_PIN_LINE) {
+            dlog_warning(
+                crate::db::diagnostic::errcodes::NOT_SUPPORTED_YET,
+                &subcls,
+                &crate::errcodes::format_msg(crate::errcodes::NOT_SUPPORTED_YET, &[]),
+            );
+        }
 
         for pnode in plinenodes.iter().filter(|n| n.get_type() == MCAST_PIN_LINE) {
             // H3 (deferred): track line index for overlap detection
@@ -427,7 +449,14 @@ impl McPins {
                         values = McAttribute::new_attr_values(&subnode);
                     }
                     _ => {
-                        dlog_error(1204, &subnode, TYPE_MISMATCH);
+                        dlog_error(
+                            crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
+                            &subnode,
+                            &crate::errcodes::format_msg(
+                                crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
+                                &[],
+                            ),
+                        );
                     }
                 }
             }
@@ -482,7 +511,13 @@ impl McPins {
                                 }
                             }
                             _ => {
-                                dlog_trace(1103, "Pin ID and name not match");
+                                dlog_trace(
+                                    crate::errcodes::PIN_ID_NAME_MISMATCH,
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::PIN_ID_NAME_MISMATCH,
+                                        &[],
+                                    ),
+                                );
                             }
                         };
                     }
@@ -574,7 +609,13 @@ impl McPins {
                                     }
                                 }
                                 _ => {
-                                    dlog_trace(1103, "Pin ID and name not match");
+                                    dlog_trace(
+                                        crate::errcodes::PIN_ID_NAME_MISMATCH,
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::PIN_ID_NAME_MISMATCH,
+                                            &[],
+                                        ),
+                                    );
                                 }
                             };
                         }
@@ -656,7 +697,13 @@ impl McPins {
                                 }
                             }
                             _ => {
-                                dlog_trace(1103, "Pin ID and name not match");
+                                dlog_trace(
+                                    crate::errcodes::PIN_ID_NAME_MISMATCH,
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::PIN_ID_NAME_MISMATCH,
+                                        &[],
+                                    ),
+                                );
                             }
                         };
                     }
@@ -680,9 +727,22 @@ impl McPins {
                                     );
                                 }
                                 // §2.1: Do NOT register bare prefix "PDM" to names_to_id
+                                // Keep the group for display so `show` can render
+                                // the original `PDM[CLK, DATA]` form.
+                                self.list_groups.push((
+                                    list_name.clone(),
+                                    members.clone(),
+                                    pids.clone(),
+                                ));
                             }
                             _ => {
-                                dlog_trace(1103, "Pin ID and name not match");
+                                dlog_trace(
+                                    crate::errcodes::PIN_ID_NAME_MISMATCH,
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::PIN_ID_NAME_MISMATCH,
+                                        &[],
+                                    ),
+                                );
                             }
                         };
                     }
@@ -717,7 +777,13 @@ impl McPins {
                                 }
                             }
                             _ => {
-                                dlog_trace(1103, "Pin ID and name not match");
+                                dlog_trace(
+                                    crate::errcodes::PIN_ID_NAME_MISMATCH,
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::PIN_ID_NAME_MISMATCH,
+                                        &[],
+                                    ),
+                                );
                             }
                         };
                     }
@@ -784,13 +850,11 @@ impl McPins {
                         //      produces 0 pin registrations. Emit warn to inform user.
                         if iface_pins.is_empty() {
                             dlog_warning(
-                                1305,
+                                crate::errcodes::IFACE_NO_TOPLEVEL_PINS,
                                 &pnode,
-                                &format!(
-                                    "Interface '{}' has no top-level pins (all pins are inside `role` blocks, e.g. UART.X); \
-                                     no pin-to-member mapping will be created. If you want the role-specific pins \
-                                     registered, list them explicitly (e.g. `pins = TX, RX, GND`).",
-                                    declare.name,
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::IFACE_NO_TOPLEVEL_PINS,
+                                    &[&declare.name],
                                 ),
                             );
                         }
@@ -815,17 +879,16 @@ impl McPins {
                                     .or(pinnames_node.as_ref())
                                     .unwrap_or(&pnode);
                                 dlog_error(
-                                    1303,
+                                    crate::errcodes::PARAM_DECLARE_IFACE_PINS,
                                     err_node,
-                                    &format!(
-                                        "Interface '{}' declares {} pin(s) (members: {:?}) \
-                                         but {} pin ID(s) given; the counts must match. \
-                                         Use a range like `a:b` to declare exactly {} pin(s).",
-                                        declare.name,
-                                        iface_pins.len(),
-                                        iface_pins,
-                                        dc,
-                                        iface_pins.len(),
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::PARAM_DECLARE_IFACE_PINS,
+                                        &[
+                                            &declare.name,
+                                            &iface_pins.len() as &dyn std::fmt::Display,
+                                            &format!("{:?}", iface_pins),
+                                            &dc as &dyn std::fmt::Display,
+                                        ],
                                     ),
                                 );
                             }
@@ -919,8 +982,17 @@ impl McPins {
                                             // for list form (e.g. [LX, GND]) and normal form, directly use declare.name
                                             declare.name.to_string()
                                         };
-                                        // use inst_pins to call merge_pins_with update registered_pins
-                                        let merged = declare.merge_pins_with(&inst_pins);
+                                        // use inst_pins to call merge_pins_with update registered_pins.
+                                        // Merge into an existing same-name interface when the
+                                        // instance name is reused across pin groups (e.g.
+                                        // `GPIO[5, 6]` on both [6,7] and [12,13]) so
+                                        // `registered_pins` accumulates both, not the last one.
+                                        let merged = match self.names_to_id.get(&iface_name) {
+                                            Some(McPinPort::Interface(existing_iface)) => {
+                                                existing_iface.merge_pins_with(&inst_pins)
+                                            }
+                                            _ => declare.merge_pins_with(&inst_pins),
+                                        };
                                         self.names_to_id.insert(
                                             iface_name,
                                             McPinPort::Interface(Arc::new(merged)),
@@ -956,7 +1028,13 @@ impl McPins {
                                 );
                             }
                             _ => {
-                                dlog_trace(1103, "Pin ID and name not match");
+                                dlog_trace(
+                                    crate::errcodes::PIN_ID_NAME_MISMATCH,
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::PIN_ID_NAME_MISMATCH,
+                                        &[],
+                                    ),
+                                );
                             }
                         };
                     }
@@ -1133,7 +1211,14 @@ impl McPins {
                             1 => Some(McPinPort::Single(pid.to_string())),
                             2.. => Some(McPinPort::Multi(pid.expand())),
                             _ => {
-                                dlog_error(1103, &pid_node, "Pin id count error");
+                                dlog_error(
+                                    crate::errcodes::PIN_ID_COUNT_ERROR,
+                                    &pid_node,
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::PIN_ID_COUNT_ERROR,
+                                        &[],
+                                    ),
+                                );
                                 None
                             }
                         }
@@ -1161,16 +1246,26 @@ impl McPins {
                                                 2.. => Some(McPinPort::Multi(ids)),
                                                 _ => {
                                                     dlog_error(
-                                                        1103,
+                                                        crate::errcodes::PIN_ID_COUNT_ERROR,
                                                         &pid_node,
-                                                        "Pin id count error",
+                                                        &crate::errcodes::format_msg(
+                                                            crate::errcodes::PIN_ID_COUNT_ERROR,
+                                                            &[],
+                                                        ),
                                                     );
                                                     None
                                                 }
                                             }
                                         }
                                         _ => {
-                                            dlog_error(1204, &exp_node, TYPE_MISMATCH);
+                                            dlog_error(
+                                                crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
+                                                &exp_node,
+                                                &crate::errcodes::format_msg(
+                                                    crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
+                                                    &[],
+                                                ),
+                                            );
                                             None
                                         }
                                     }
@@ -1284,9 +1379,12 @@ impl McPins {
                                                     2.. => Some(McPinPort::Multi(ids)),
                                                     _ => {
                                                         dlog_error(
-                                                            1103,
+                                                            crate::errcodes::PIN_ID_COUNT_ERROR,
                                                             &pid_node,
-                                                            "Pin id count error",
+                                                            &crate::errcodes::format_msg(
+                                                                crate::errcodes::PIN_ID_COUNT_ERROR,
+                                                                &[],
+                                                            ),
                                                         );
                                                         None
                                                     }
@@ -1320,7 +1418,14 @@ impl McPins {
                             }
 
                             _ => {
-                                dlog_error(1205, &exp_node, TYPE_MISMATCH);
+                                dlog_error(
+                                    crate::errcodes::PIN_EXPR_TYPE_MISMATCH,
+                                    &exp_node,
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::PIN_EXPR_TYPE_MISMATCH,
+                                        &[],
+                                    ),
+                                );
                                 None
                             }
                         }
@@ -1330,12 +1435,23 @@ impl McPins {
                 }
 
                 _ => {
-                    dlog_error(1204, &pid_node, TYPE_MISMATCH);
+                    dlog_error(
+                        crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
+                        &pid_node,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
+                            &[],
+                        ),
+                    );
                     None
                 }
             }
         } else {
-            dlog_error(1204, node, TYPE_MISMATCH);
+            dlog_error(
+                crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
+                node,
+                &crate::errcodes::format_msg(crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED, &[]),
+            );
             None
         }
     }
@@ -1871,6 +1987,28 @@ impl McPinNames {
                                             err_node,
                                         );
                                     }
+                                } else if let Some(members) = pname.embedded_square_members() {
+                                    // §2.1: a single IDA embedding a square bracket
+                                    // (e.g. `PDM[CLK, DATA]` tokenized as one IDA by
+                                    // the C parser) is also List form: pins register
+                                    // as PDMCLK/PDMDATA and the bare prefix `PDM`
+                                    // does not exist.
+                                    if members.len() >= 2 {
+                                        let list_name = pname.base_name();
+                                        myself.push_option(
+                                            McPinPort::List(list_name, members),
+                                            err_node,
+                                        );
+                                    } else {
+                                        // Single-member square (e.g. `GPIO[2]`):
+                                        // keep the existing plain-name behavior
+                                        // since the exact string is referenced
+                                        // by net expressions.
+                                        myself.push_option(
+                                            McPinPort::Single(pname.to_string()),
+                                            err_node,
+                                        );
+                                    }
                                 } else if pname.segments.len() == 2
                                     && matches!(pname.segments[0], IdsSegment::Ida(_))
                                     && matches!(pname.segments[1], IdsSegment::Ida(_))
@@ -1931,7 +2069,7 @@ impl McPinNames {
                                     if let Some(ref span) = class_span {
                                         mcb_register_declare_class(
                                             &lookup_uri,
-                                            &class_id.to_string(),
+                                            &class_id,
                                             span.clone(),
                                         );
                                     }
@@ -1946,10 +2084,11 @@ impl McPinNames {
                                         let class_str = class_id.to_string();
                                         let _inst_str = inst_id.to_string();
                                         dlog_error(
-                                            2402,
+                                            crate::errcodes::NOT_AN_INTERFACE,
                                             err_node,
-                                            &format!(
-                                                "'{class_str}' is a component/module/enum, not an interface.",
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::NOT_AN_INTERFACE,
+                                                &[&class_str],
                                             ),
                                         );
                                         continue;
@@ -1961,14 +2100,11 @@ impl McPinNames {
                                             class_str.starts_with('_') || class_str == inst_str;
                                         if !is_likely_alias {
                                             dlog_warning(
-                                                1304,
+                                                crate::errcodes::PARAM_INST_LOOKUP_FAILED,
                                                 err_node,
-                                                &format!(
-                                                    "'{inst_str}::{class_str}' lookup failed; \
-                                                     treating '{inst_str}' as plain pin alias. \
-                                                     If you intended an interface binding, check \
-                                                     that '{class_str}' is defined (and `use`d, \
-                                                     if from a library).",
+                                                &crate::errcodes::format_msg(
+                                                    crate::errcodes::PARAM_INST_LOOKUP_FAILED,
+                                                    &[&inst_str, &class_str],
                                                 ),
                                             );
                                         }
@@ -1985,7 +2121,14 @@ impl McPinNames {
                                             err_node,
                                         ),
                                         _ => {
-                                            dlog_error(1203, &opd_node, "Pin name count error");
+                                            dlog_error(
+                                                crate::errcodes::PIN_NAME_COUNT_ERROR,
+                                                &opd_node,
+                                                &crate::errcodes::format_msg(
+                                                    crate::errcodes::PIN_NAME_COUNT_ERROR,
+                                                    &[],
+                                                ),
+                                            );
                                         }
                                     }
                                 }
@@ -2040,7 +2183,14 @@ impl McPinNames {
                             }
                         }
                         _ => {
-                            dlog_error(1201, &opd_node, "Pin name not support type");
+                            dlog_error(
+                                crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
+                                &opd_node,
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
+                                    &[],
+                                ),
+                            );
                         }
                     }
                 }
@@ -2065,7 +2215,14 @@ impl McPinNames {
                                         .push_option(McPinPort::Single(pname[0].clone()), err_node),
                                     2.. => myself.push_option(McPinPort::Multi(pname), err_node),
                                     _ => {
-                                        dlog_error(1203, &exp_node, "Pin name count error");
+                                        dlog_error(
+                                            crate::errcodes::PIN_NAME_COUNT_ERROR,
+                                            &exp_node,
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::PIN_NAME_COUNT_ERROR,
+                                                &[],
+                                            ),
+                                        );
                                     }
                                 }
                             }
@@ -2241,11 +2398,7 @@ impl McPinNames {
                             // ★ LSP: Register class reference for goto-definition on
                             // ::Interface() syntax in pin names (e.g., I2C0::I2C(Master)).
                             if let Some(ref span) = class_span {
-                                mcb_register_declare_class(
-                                    &lookup_uri,
-                                    &class_name.to_string(),
-                                    span.clone(),
-                                );
+                                mcb_register_declare_class(&lookup_uri, &class_name, span.clone());
                             }
                             let lookup_result = resolve_cmie(&DB, &class_name, &lookup_uri);
                             if let Some(McCMIE::Interface(iface_def)) = lookup_result {
@@ -2262,10 +2415,11 @@ impl McPinNames {
                                 let class_str = class_name.to_string();
                                 let _inst_str = inst_name.to_string();
                                 dlog_error(
-                                    2402,
+                                    crate::errcodes::NOT_AN_INTERFACE,
                                     inst_node.as_ref().unwrap_or(err_node),
-                                    &format!(
-                                        "'{class_str}' is a component/module/enum, not an interface.",
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::NOT_AN_INTERFACE,
+                                        &[&class_str],
                                     ),
                                 );
                                 continue;
@@ -2282,13 +2436,11 @@ impl McPinNames {
                                 if !is_likely_alias {
                                     // Use inst_node if available (tighter span), otherwise fall back to err_node
                                     dlog_warning(
-                                        1304,
+                                        crate::errcodes::PARAM_INST_LOOKUP_FAILED,
                                         inst_node.as_ref().unwrap_or(err_node),
-                                        &format!(
-                                            "'{inst_str}::{class_str}(...)' lookup failed; \
-                                             treating '{inst_str}' as plain pin alias. \
-                                             If you intended an interface binding, check that \
-                                             '{class_str}' is defined (and `use`d, if from a library).",
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::PARAM_INST_LOOKUP_FAILED,
+                                            &[&inst_str, &class_str],
                                         ),
                                     );
                                 }
@@ -2316,7 +2468,14 @@ impl McPinNames {
                                             err_node,
                                         ),
                                         _ => {
-                                            dlog_error(1203, &exp_node, "Pin name count error");
+                                            dlog_error(
+                                                crate::errcodes::PIN_NAME_COUNT_ERROR,
+                                                &exp_node,
+                                                &crate::errcodes::format_msg(
+                                                    crate::errcodes::PIN_NAME_COUNT_ERROR,
+                                                    &[],
+                                                ),
+                                            );
                                         }
                                     }
                                 }
@@ -2374,11 +2533,7 @@ impl McPinNames {
                             // ★ LSP: Register class reference for goto-definition on
                             // ::Interface() syntax in pin names (e.g., I2C0::I2C(Master)).
                             if let Some(ref span) = class_span {
-                                mcb_register_declare_class(
-                                    &lookup_uri,
-                                    &class_name.to_string(),
-                                    span.clone(),
-                                );
+                                mcb_register_declare_class(&lookup_uri, &class_name, span.clone());
                             }
                             let mut lookup_result = resolve_cmie(&DB, &class_name, &lookup_uri);
                             let mut resolved_iface_name: Option<McIds> = None;
@@ -2417,23 +2572,37 @@ impl McPinNames {
                                 );
                             } else {
                                 dlog_error(
-                                    1707,
+                                    crate::errcodes::IFACE_MEMBER_LOOKUP_FAILED,
                                     &exp_node,
-                                    &format!(
-                                        "Interface '{class_name}' not found (looked up from '{lookup_uri}'); \
-                                         check that it is defined and imported via `use`.",
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::IFACE_MEMBER_LOOKUP_FAILED,
+                                        &[&class_name, &lookup_uri],
                                     ),
                                 );
                             }
                         }
                         _ => {
-                            dlog_error(1204, &sub_node, TYPE_MISMATCH);
+                            dlog_error(
+                                crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
+                                &sub_node,
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
+                                    &[],
+                                ),
+                            );
                         }
                     }
                 }
 
                 MCAST_OPD_USCORE | _ => {
-                    dlog_error(1201, &sub_node, "Pin name not support type");
+                    dlog_error(
+                        crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
+                        &sub_node,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::PIN_NAME_TYPE_UNSUPPORTED,
+                            &[],
+                        ),
+                    );
                 }
             }
         }
@@ -2513,6 +2682,15 @@ impl McPinNames {
 /// bus form concatenated to `XTAL.X1.X1 / XTAL.X1.X2 / XTAL.X2.X1 / XTAL.X2.X2`,
 /// list form concatenated to `VDD.VDD / VDD.GND / ...`, all wrong.
 pub(crate) fn derive_interface_subnames(inst_name: &McIds, iface_pins: &[String]) -> Vec<String> {
+    // §2.1: a square bracket embedded inside a single IDA segment (e.g.
+    // `GPIO[5, 6]` tokenized as one IDA by the C parser) is List form:
+    // each member concatenates onto the prefix — GPIO[5, 6] → GPIO5, GPIO6.
+    if let Some(members) = inst_name.embedded_square_members() {
+        if !members.is_empty() {
+            let prefix = inst_name.base_name();
+            return members.iter().map(|m| format!("{prefix}{m}")).collect();
+        }
+    }
     if inst_name.is_bus() {
         if let Some((busname, members)) = inst_name.as_bus() {
             return members.iter().map(|m| format!("{busname}.{m}")).collect();
@@ -2640,5 +2818,16 @@ mod subname_tests {
         let inst = plain_ids("DC1");
         let got = derive_interface_subnames(&inst, &[]);
         assert!(got.is_empty());
+    }
+
+    /// §2.1: `GPIO[5, 6]` tokenized as a single IDA by the C parser
+    /// (embedded square) is still List form → prefix + member: GPIO5, GPIO6.
+    #[test]
+    fn embedded_square_gpio_interface() {
+        let inst = McIds::from("GPIO[5, 6]");
+        assert!(inst.embedded_square_members().is_some());
+        let iface_pins = vec!["1".to_string(), "2".to_string()]; // GPIO(count=2) dynamic pins
+        let got = derive_interface_subnames(&inst, &iface_pins);
+        assert_eq!(got, vec!["GPIO5", "GPIO6"]);
     }
 }

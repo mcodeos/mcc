@@ -389,61 +389,14 @@ impl HasFindInst for McComponent {
         &self,
         id: &str,
     ) -> Option<(McInstance, Option<std::ops::Range<usize>>)> {
-        // P1 (highest): params — shadow everything else
-        for (name, span) in self.params.iter_defs_with_span() {
-            if name == id {
-                return Some((McInstance::Label(id.to_string()), Some(span)));
-            }
-        }
-        // P2: scoped enum values (enum with same name as component family)
-        if let Some((enum_name, span)) = find_scoped_enum_value(&self.name, id) {
-            return Some((
-                McInstance::EnumVal {
-                    enum_name,
-                    value_name: id.to_string(),
-                    span: Some(span.clone()),
-                },
-                Some(span),
-            ));
-        }
-        // P3: attrs
-        let attr_ids = McIds::from(id);
-        if let Some(attr) = self.attrs.find(&attr_ids) {
-            if let Some(val) = attr.values.first() {
-                return Some((McInstance::Attr(val.clone()), attr.key_span.clone()));
-            }
-        }
-        // P4: pin names — whole names (interface/bus/list names like "I2C0", "GPIO")
-        //     pins transparency: this.X ≡ X, so find_inst("VDD") directly searches pins
-        if let Some(port) = self.pins.names_to_id.get(id) {
-            let span = self.pins.pin_name_spans.get(id).cloned();
-            return Some((port_to_instance(port), span));
-        }
-        // P5: pin names — expanded (e.g. "I2C0.SCL", "GPIO3" from pin_id_to_names)
-        for names in self.pins.pin_id_to_names.values() {
-            if names.contains(&id.to_string()) {
-                let span = self.pins.pin_name_spans.get(id).cloned();
-                return Some((McInstance::Label(id.to_string()), span));
-            }
-        }
-        // P6: physical pin IDs — keys of pin_id_to_names (e.g. "19" for `[18,19] = ...`,
-        //     also "W1", "A0" etc.). Used by chain resolution for `uC.19` type references.
-        if self.pins.pin_id_to_names.contains_key(id) {
-            let span = self.pins.pin_id_spans.get(id).cloned();
-            return Some((McInstance::PinId(id.to_string()), span));
-        }
-        // P7: IO bus / interface instances defined in the component body
-        //     (e.g. `io [16,17,21] = ADC::ADC.DIFF(Receiver)` stores "ADC" as
-        //     an Instance). Used by chain resolution for `uC.ADC{P,N}`.
-        if let Some(inst) = self.insts.get(id) {
-            let span = self.insts.get_port_span(id);
-            return Some((inst.clone(), span));
-        }
-        // P8 (lowest): funcs
-        if let Some(func) = self.funcs.find(id) {
-            return Some((McInstance::Func(Arc::new(func.clone())), None));
-        }
-        None
+        // P2 container category chain (§3.3): params → scoped enum → attrs →
+        // pin names (whole) → pin names (expanded) → pin IDs → insts → funcs.
+        // Each category is an independent scope unit in semantic::scope, with
+        // the same hit logic (and stored spans) as the original hand-written
+        // chain below it replaced.
+        crate::semantic::scope::component_scope(self)
+            .resolve(id)
+            .map(|r| (r.inst, r.span))
     }
 
     fn add_label_at(
@@ -654,7 +607,7 @@ impl Mc2Component {
 // ── Phase 1 helpers ──
 
 /// Convert a [`McPinPort`] into a [`McInstance`] for the find_inst priority chain.
-fn port_to_instance(port: &McPinPort) -> McInstance {
+pub(crate) fn port_to_instance(port: &McPinPort) -> McInstance {
     match port {
         McPinPort::NC => McInstance::Label("NC".to_string()),
         McPinPort::Single(id) => McInstance::Label(id.clone()),
@@ -676,7 +629,10 @@ fn port_to_instance(port: &McPinPort) -> McInstance {
 /// A "scoped enum" is an enum whose name matches a component's **family name**
 /// (e.g. `enum CAP` makes `X7R` visible inside component `CAP_0603`).
 /// Returns `(enum_name, span)` if found.
-fn find_scoped_enum_value(family_name: &McIds, id: &str) -> Option<(String, Range<usize>)> {
+pub(crate) fn find_scoped_enum_value(
+    family_name: &McIds,
+    id: &str,
+) -> Option<(String, Range<usize>)> {
     let family = family_name.to_string();
 
     // Search workspace enums first

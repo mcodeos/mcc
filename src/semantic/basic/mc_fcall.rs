@@ -50,8 +50,10 @@ pub struct McFuncCall {
 /// ★ P4.1: Fcall return shape resolved from McFunction.returns.
 #[derive(Debug, Clone)]
 pub enum ReturnShape {
-    /// `return this` or implicit → caller shape preserved (left + right from caller)
-    This { left: Vec<McBus>, right: Vec<McBus> },
+    /// `return this` or implicit → caller shape preserved. The shape is read
+    /// live from `McFuncCall.left`/`right` at use time, so substitutions and
+    /// prefixing done during instantiation stay reflected.
+    This,
     /// `return <label/bus/expr>` → left empty, right = return value as bus vector
     Label { bus: Vec<McBus> },
 }
@@ -104,17 +106,22 @@ impl McFuncCall {
         // it's a method call → skip. Otherwise it's a class → register.
         if let Some(subnodes) = node.get_sub_node() {
             let mut has_instance = false;
-            let mut inst_name: Option<String> = None;
-            let mut class_name: Option<(String, std::ops::Range<usize>)> = None;
+            let mut inst_name: Option<McIds> = None;
+            let mut inst_span: Option<std::ops::Range<usize>> = None;
+            let mut class_name: Option<(McIds, std::ops::Range<usize>)> = None;
             for child in subnodes.iter() {
                 match child.get_type() {
                     MCAST_INSTANCE => {
                         has_instance = true;
+                        inst_span = Some(
+                            (child.get_pos() as usize)
+                                ..((child.get_pos() + child.get_len()) as usize),
+                        );
                         if let Some(inner) = child.get_sub_node() {
                             if inner.get_type() == MCAST_OPD {
                                 if let Some(opd_sub) = inner.get_sub_node() {
                                     if let Some(ids) = McIds::new(&opd_sub) {
-                                        inst_name = Some(ids.to_string());
+                                        inst_name = Some(ids);
                                     }
                                 }
                             }
@@ -123,10 +130,9 @@ impl McFuncCall {
                     MCAST_NAME => {
                         if let Some(ids_node) = child.get_sub_node() {
                             if let Some(ids) = McIds::new(&ids_node) {
-                                let name_str = ids.to_string();
                                 let span = (ids_node.get_pos() as usize)
                                     ..((ids_node.get_pos() + ids_node.get_len()) as usize);
-                                class_name = Some((name_str, span));
+                                class_name = Some((ids, span));
                             }
                         }
                     }
@@ -138,21 +144,33 @@ impl McFuncCall {
             let is_method_call = has_instance
                 && (inst_name
                     .as_ref()
-                    .is_some_and(|n| context.find_inst(n).is_some())
+                    .is_some_and(|n| context.find_inst(&n.to_string()).is_some())
                     || inst_name.is_none());
             // Instance constructor: no instance child but name IS known instance
             // (e.g. mic(V3V3) — name="mic" is a declared instance)
             let is_instance_constructor = !has_instance
                 && class_name
                     .as_ref()
-                    .is_some_and(|(n, _)| context.find_inst(n).is_some());
+                    .is_some_and(|(n, _)| context.find_inst(&n.to_string()).is_some());
             if !is_method_call && !is_instance_constructor {
                 if let Some((name, span)) = class_name {
-                    let full_name = match inst_name {
-                        Some(inst) => format!("{inst}.{name}"),
-                        None => name.clone(),
+                    // The dotted class name spans two AST children (instance +
+                    // name); rebuild the canonical single-Ida form for lookup.
+                    let full_name_ids = match &inst_name {
+                        Some(inst) => McIds::from(&format!("{inst}.{name}")),
+                        None => name,
                     };
-                    mcb_register_declare_class(context.uri(), &full_name, span);
+                    // ★ Dotted class (`DIO.ESD`): the name child only spans
+                    // `ESD`, but mcb_register_declare_class rebuilds the ref
+                    // span from the flattened name length (raw.start +
+                    // name.len()). Passing the `ESD` span yields
+                    // `ESD("ES` (bleeding into the string arg). Pass the
+                    // whole `DIO.ESD` text span instead.
+                    let full_span = match (&inst_name, &inst_span) {
+                        (Some(_), Some(is)) if is.start <= span.start => is.start..span.end,
+                        _ => span.clone(),
+                    };
+                    mcb_register_declare_class(context.uri(), &full_name_ids, full_span);
                 }
             } else if is_method_call && inst_name.is_none() {
                 // ★ Chained call: RES(100kΩ).Pullup() — register inner class name
@@ -178,7 +196,7 @@ impl McFuncCall {
                                                             as usize);
                                                     mcb_register_declare_class(
                                                         context.uri(),
-                                                        &ids.to_string(),
+                                                        &ids,
                                                         span,
                                                     );
                                                 }
@@ -1078,9 +1096,12 @@ impl McFuncCall {
                                         }
                                     } else {
                                         dlog_error(
-                                            1301,
+                                            crate::errcodes::FUNC_CALL_MISSING_NAME,
                                             node,
-                                            "Missing function name in function call",
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::FUNC_CALL_MISSING_NAME,
+                                                &[],
+                                            ),
                                         );
                                         return None;
                                     }
@@ -1088,9 +1109,12 @@ impl McFuncCall {
                             },
                             McPhrase::Series(_, _) => {
                                 dlog_error(
-                                    1301,
+                                    crate::errcodes::FUNC_CALL_MISSING_NAME,
                                     node,
-                                    "Missing function name in function call (seq context)",
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::FUNC_CALL_MISSING_NAME,
+                                        &[],
+                                    ),
                                 );
                                 return None;
                             }
@@ -1103,16 +1127,26 @@ impl McFuncCall {
                                     }
                                 } else {
                                     dlog_error(
-                                        1301,
+                                        crate::errcodes::FUNC_CALL_MISSING_NAME,
                                         node,
-                                        "Missing function name in function call",
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::FUNC_CALL_MISSING_NAME,
+                                            &[],
+                                        ),
                                     );
                                     return None;
                                 }
                             }
                         }
                     } else {
-                        dlog_error(1301, node, "Missing function name in function call");
+                        dlog_error(
+                            crate::errcodes::FUNC_CALL_MISSING_NAME,
+                            node,
+                            &crate::errcodes::format_msg(
+                                crate::errcodes::FUNC_CALL_MISSING_NAME,
+                                &[],
+                            ),
+                        );
                         return None;
                     }
                 } else if let Some(ref caller_opd) = caller {
@@ -1151,48 +1185,72 @@ impl McFuncCall {
                                 members: _,
                             })) => McIds::from(m.name.to_string().as_str()),
                             _ => {
-                                dlog_error(1301, node, "Missing function name in function call");
+                                dlog_error(
+                                    crate::errcodes::FUNC_CALL_MISSING_NAME,
+                                    node,
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::FUNC_CALL_MISSING_NAME,
+                                        &[],
+                                    ),
+                                );
                                 return None;
                             }
                         },
                         McPhrase::Series(_, _) => {
                             dlog_error(
-                                1301,
+                                crate::errcodes::FUNC_CALL_MISSING_NAME,
                                 node,
-                                "Missing function name in function call (seq context)",
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::FUNC_CALL_MISSING_NAME,
+                                    &[],
+                                ),
                             );
                             return None;
                         }
                         _ => {
-                            dlog_error(1301, node, "Missing function name in function call");
+                            dlog_error(
+                                crate::errcodes::FUNC_CALL_MISSING_NAME,
+                                node,
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::FUNC_CALL_MISSING_NAME,
+                                    &[],
+                                ),
+                            );
                             return None;
                         }
                     }
                 } else {
-                    dlog_error(1301, node, "Missing function name in function call");
+                    dlog_error(
+                        crate::errcodes::FUNC_CALL_MISSING_NAME,
+                        node,
+                        &crate::errcodes::format_msg(crate::errcodes::FUNC_CALL_MISSING_NAME, &[]),
+                    );
                     return None;
                 }
             }
         };
 
         // === Iter 2: handle dot-notation func_name ===
-        let func_name = if func_name.segments.len() > 1 {
-            let first = func_name.segments[0].to_string();
-            // Rebuild the method name from the remaining dot-prefixed segments.
-            let rest: String = func_name.segments[1..]
-                .iter()
-                .map(|s| s.to_string().trim_start_matches('.').to_string())
-                .collect::<Vec<_>>()
-                .join(".");
-            if caller.is_none() {
-                if let Some(ident) = context.find_inst(&first) {
-                    caller = Some(Box::new(ident.into()));
-                    McIds::from(rest.as_str())
+        // Structured segment extraction (`obj.method` → ["obj", "method"]),
+        // no `to_string()` + `trim_start_matches('.')` text re-processing.
+        // Non-plain chains (curly/square/array segments) keep the original name.
+        let func_name = if let Some(parts) = func_name.dot_chain_parts() {
+            if parts.len() > 1 {
+                let first = parts[0].clone();
+                // Rebuild the method name from the remaining segments.
+                let rest: String = parts[1..].join(".");
+                if caller.is_none() {
+                    if let Some(ident) = context.find_inst(&first) {
+                        caller = Some(Box::new(ident.into()));
+                        McIds::from(rest.as_str())
+                    } else {
+                        func_name
+                    }
                 } else {
-                    func_name
+                    McIds::from(rest.as_str())
                 }
             } else {
-                McIds::from(rest.as_str())
+                func_name
             }
         } else {
             func_name
@@ -1328,25 +1386,106 @@ impl McFuncCall {
     }
 
     /// ★ P4.1: Resolve return shape from McFunction.returns.
-    /// Called during Pass2 just before function body expansion.
+    /// Called after the enclosing scope is fully parsed ("Pass1b" hook), or
+    /// directly by [`Self::fill_return_shape`].
     ///
     /// # Three-state rules (per eval.md §8.1):
-    /// - `Implicit` / `This` → `ReturnShape::This { left, right }` — preserves caller shape
+    /// - `Implicit` / `This` → `ReturnShape::This` — preserves caller shape
     /// - `Endpoint(ref phrase)` → `ReturnShape::Label { bus }` — left empty, right = phrase's right interface
     pub fn resolve_return_shape(&mut self, func_returns: &McFuncReturn) {
-        let ret: &crate::semantic::mc_func::McFuncReturn = func_returns;
-        match ret {
+        match func_returns {
             McFuncReturn::Implicit | McFuncReturn::This => {
-                self.resolved_return_shape = Some(ReturnShape::This {
-                    left: self.left.clone(),
-                    right: self.right.clone(),
-                });
+                self.resolved_return_shape = Some(ReturnShape::This);
             }
             McFuncReturn::Endpoint(phrase) => {
                 // Endpoint return: derive bus from the returned phrase's right side
                 let bus = get_right_bus_from_phrase(phrase);
                 self.resolved_return_shape = Some(ReturnShape::Label { bus });
             }
+        }
+    }
+
+    /// ★ P4.1: Resolve the call's return shape (eval.md §8.1) from the called
+    /// function's `McFuncReturn`, and store it on `self`.
+    ///
+    /// Lookup priority:
+    ///   1. Instance method — walk the caller chain down to its root instance
+    ///      and query that type's `funcs` table (same walk as `check_chain_validity`).
+    ///   2. Scope function — bare call resolved via `scope.find_func_return`.
+    ///
+    /// Unknown / unresolvable calls keep `resolved_return_shape = None`; the
+    /// phrase-level fallback then preserves the parse-time shape (no change).
+    pub fn fill_return_shape(&mut self, scope: &dyn HasFindInst) {
+        if self.resolved_return_shape.is_some() {
+            return;
+        }
+        if let Some(ret) = Self::lookup_func_returns(&self.caller, &self.func_name, scope) {
+            self.resolve_return_shape(&ret);
+        }
+    }
+
+    /// Look up the `McFuncReturn` of a call. Mirrors the receiver-chain walk of
+    /// [`Self::check_chain_validity`]: instance methods resolve via the root
+    /// receiver's `funcs` table, bare calls via the surrounding scope.
+    fn lookup_func_returns(
+        caller: &Option<Box<McPhrase>>,
+        func_name: &McIds,
+        scope: &dyn HasFindInst,
+    ) -> Option<McFuncReturn> {
+        let name = func_name.to_string();
+        let root = caller
+            .as_ref()
+            .and_then(|c| Self::root_receiver(c.as_ref()));
+        match root {
+            Some(McInstance::Module(arc_mod)) => {
+                arc_mod.base.funcs.find(&name).map(|f| f.returns.clone())
+            }
+            Some(McInstance::Component(arc_comp)) => {
+                arc_comp.base.funcs.find(&name).map(|f| f.returns.clone())
+            }
+            // Receiver is Bus / Label / List / Interface — has no `funcs` table.
+            Some(_) => None,
+            // Bare call (no receiver) or unresolvable root → surrounding scope.
+            None => scope.find_func_return(&name),
+        }
+    }
+
+    /// ★ P4.1: Recursively walk a phrase and fill `resolved_return_shape` on
+    /// every nested `FuncCall`. Called after the enclosing body has been fully
+    /// parsed ("Pass1b" hook), so the scope's funcs tables are complete.
+    pub fn fill_return_shapes(phrase: &mut McPhrase, scope: &dyn HasFindInst) {
+        match phrase {
+            McPhrase::FuncCall(f) => {
+                f.fill_return_shape(scope);
+                // Chained calls: the inner FuncCall lives in `caller`
+                // (e.g. `CT.config_a(V5V).config_b(GND)`), so recurse into it.
+                if let Some(c) = &mut f.caller {
+                    Self::fill_return_shapes(c, scope);
+                }
+            }
+            McPhrase::Series(elems, _) => {
+                for e in elems {
+                    Self::fill_return_shapes(e, scope);
+                }
+            }
+            McPhrase::Parallel(v) | McPhrase::Multiple(v) => {
+                for e in v {
+                    Self::fill_return_shapes(e, scope);
+                }
+            }
+            McPhrase::Group(g) => {
+                for o in &mut g.opds {
+                    Self::fill_return_shapes(o, scope);
+                }
+            }
+            McPhrase::Transposed(inner) => Self::fill_return_shapes(inner, scope),
+            McPhrase::Closure(c) => {
+                for line in &mut c.body {
+                    Self::fill_return_shapes(line, scope);
+                }
+            }
+            McPhrase::Member(p, _) => Self::fill_return_shapes(p, scope),
+            McPhrase::Lead | McPhrase::Endpoint(_) => {}
         }
     }
 
@@ -1377,33 +1516,8 @@ impl McFuncCall {
         let inner_name = inner_fc.func_name.to_string();
 
         // Walk the receiver chain to a concrete instance (Module/Component/...).
-        let root = inner_fc
-            .caller
-            .as_ref()
-            .and_then(|c| Self::root_receiver(c.as_ref()));
-
-        let ret: Option<McFuncReturn> = match root {
-            Some(McInstance::Module(arc_mod)) => arc_mod
-                .base
-                .funcs
-                .find(&inner_name)
-                .map(|f| f.returns.clone()),
-            Some(McInstance::Component(arc_comp)) => arc_comp
-                .base
-                .funcs
-                .find(&inner_name)
-                .map(|f| f.returns.clone()),
-            Some(_) => {
-                // Receiver is Bus / Label / List / Interface — has no `funcs`
-                // table to query. Cannot validate; skip.
-                return;
-            }
-            None => {
-                // Either the bare-call case (no receiver), or we couldn't
-                // resolve a concrete root. Try the surrounding scope.
-                context.find_func_return(&inner_name)
-            }
-        };
+        let ret: Option<McFuncReturn> =
+            Self::lookup_func_returns(&inner_fc.caller, &inner_fc.func_name, context);
 
         let Some(ret) = ret else { return };
         if ret.is_chainable() {
@@ -1412,12 +1526,11 @@ impl McFuncCall {
 
         debug_assert!(matches!(ret, McFuncReturn::Endpoint(_)));
         dlog_error(
-            1316,
+            crate::errcodes::FCALL_PARSE_FAILED,
             node,
-            &format!(
-                "Cannot chain `.{outer_method}` after `{inner_name}(...)`: function `{inner_name}` returns a \
-                 bus/label (endpoint), not `this`. Only functions that return \
-                 `this` can be chained.",
+            &crate::errcodes::format_msg(
+                crate::errcodes::FCALL_PARSE_FAILED,
+                &[&outer_method, &inner_name, &inner_name],
             ),
         );
     }

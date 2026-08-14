@@ -172,14 +172,19 @@ pub fn route_layer_with_channels(graph: &mut McVecGraph) {
     // After merging, dispatch.rs::pick_router automatically selects TrunkTap for (Power/Ground, StarOneDriver/
     // MultiDriver), one trunk + multiple taps, visually looks like real power rail.
 
+    let _tc = std::time::Instant::now();
     let mut channels = ChannelMap::build(graph, DEFAULT_LINE_GAP);
+    tracing::info!(target: "mcc::perf", step = "channel_build", ms = _tc.elapsed().as_millis() as u64, "route_layer step");
 
     // ── ★ M2: This layer grid A* (obstacles = all boxes inflated) ────────────────────────────
     // After routing each net, reserve its wires into grid; if later 2-terminal nets hit boxes / overlap other's wires,
     // use A* to reroute (avoid boxes + avoid routed wires) → eliminate box-through & wire-over-wire, multi-terminal nets not rerouted for now (stage 4 later),
     // but also reserve them in, letting 2-terminal nets route around them.
+    let _tg = std::time::Instant::now();
     let mut grid = Grid::from_graph(graph, GRID_CELL, GRID_INFLATE);
     let acfg = AStarCfg::default();
+    let (gcols, grows) = grid.dims();
+    tracing::info!(target: "mcc::perf", step = "grid_build", ms = _tg.elapsed().as_millis() as u64, cols = gcols, rows = grows, "route_layer step");
 
     // 1. Calculate intent + choice + priority for each net
     let plans: Vec<RoutePlan> = graph
@@ -224,6 +229,7 @@ pub fn route_layer_with_channels(graph: &mut McVecGraph) {
     );
 
     // 3. Execute according to plan
+    let _tloop = std::time::Instant::now();
     for plan in &order {
         if plan.should_warn {
             crate::vlog!(
@@ -303,9 +309,13 @@ pub fn route_layer_with_channels(graph: &mut McVecGraph) {
         graph.nets[plan.net_index] = tmp;
     }
 
+    tracing::info!(target: "mcc::perf", step = "route_loop", ms = _tloop.elapsed().as_millis() as u64, nets = order.len(), "route_layer step");
+
     // ── ★ M9: Route feedback loop (replaces old rip-up block) ─────────────────
+    let _tfb = std::time::Instant::now();
     let _feedback_report =
         feedback::run_route_feedback(graph, &mut grid, &acfg, &RouteFeedbackConfig::default());
+    tracing::info!(target: "mcc::perf", step = "route_feedback_inner", ms = _tfb.elapsed().as_millis() as u64, "route_layer step");
 
     // 4. Debug statistics
     crate::vlog!(

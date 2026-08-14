@@ -52,7 +52,7 @@ impl ValidationCheck for ExtraCheck {
                             uri: Some(uri.clone()),
                             span: mod_span_j3.clone(),
                             message: format!("Port '{}' shadows a library CMIE name.", port_name),
-                            code: 2203,
+                            code: crate::errcodes::NAME_PORT_SHADOWS_CMIE,
                         });
                     }
                 }
@@ -71,7 +71,7 @@ impl ValidationCheck for ExtraCheck {
                         uri: Some(entry.key().uri.to_string()),
                         span: Some(e.span[0] as usize..e.span[1] as usize),
                         message: format!("Enum '{}' has only one value.", e.name),
-                        code: 2501,
+                        code: crate::errcodes::ENUM_SINGLE_VALUE,
                     });
                 }
             }
@@ -80,8 +80,8 @@ impl ValidationCheck for ExtraCheck {
         // N5 + R8: default value type/unit mismatch
         check_default_type_mismatch(acc);
 
-        // H3: overlapping pin ranges (deferred — needs better cross-line vs same-line distinction)
-        // check_overlapping_pins(acc);
+        // H3: overlapping pin ranges (deferred — needs better cross-line vs
+        //     same-line distinction; no implementation yet)
         // I4: interface pin count mismatch
         check_interface_pin_counts(acc);
         // M1/M3: completely empty or pinless components
@@ -129,7 +129,7 @@ fn check_empty_functions(acc: &mut CheckAccumulator) {
                     uri: Some(uri.clone()),
                     span: Some(func_span),
                     message: format!("Function '{}' has an empty body.", func.name),
-                    code: 2602,
+                    code: crate::errcodes::FUNC_EMPTY_BODY,
                 });
             }
         }
@@ -155,7 +155,7 @@ fn check_empty_functions(acc: &mut CheckAccumulator) {
                         func.name,
                         entry.key().ident
                     ),
-                    code: 2602,
+                    code: crate::errcodes::FUNC_EMPTY_BODY,
                 });
             }
         }
@@ -213,74 +213,10 @@ fn check_interface_pin_counts(acc: &mut CheckAccumulator) {
                             "Interface '{}' expects {} pins but only {} physical pins bound as '{}'.",
                             iface_name, iface_pin_count, bound_count, pin_name
                         ),
-                        code: 2613,
+                        code: crate::errcodes::IFACE_PIN_COUNT_MISMATCH,
                     });
                 }
             }
-        }
-    }
-}
-
-/// H3: overlapping pin range assignments.
-///
-/// Flags pin IDs that appear in **different** pin lines with the **same** IO type,
-/// which suggests accidental overlap. Multi-function alternatives on the same line
-/// (`|`) and cross-line definitions with different IO types are intentional.
-fn check_overlapping_pins(acc: &mut CheckAccumulator) {
-    let comps = &crate::db::cmie::tables::WORKSPACE.components;
-    for entry in comps.iter() {
-        let uri = entry.key().uri.to_string();
-        if super::is_test_file(&uri) {
-            continue;
-        }
-        let comp = entry.value();
-
-        // Find pin IDs with same-IO-type definitions from different pin lines
-        let mut conflicts: Vec<(String, String, Vec<String>)> = Vec::new();
-        for (pin_id, defs) in &comp.pins.pin_defs {
-            if defs.len() < 2 {
-                continue;
-            }
-            // Group by (iotype, line_index)
-            use std::collections::HashMap;
-            let mut seen_lines: HashMap<String, Vec<usize>> = HashMap::new(); // iotype → line indices
-            let mut iotype_names: HashMap<String, Vec<String>> = HashMap::new();
-            for (iotype, names, line_idx) in defs {
-                let key = format!("{:?}", iotype);
-                seen_lines.entry(key.clone()).or_default().push(*line_idx);
-                iotype_names
-                    .entry(key)
-                    .or_default()
-                    .extend(names.iter().cloned());
-            }
-            // Flag only if same IO type appears on ≥2 DIFFERENT pin lines
-            for (iotype_str, lines) in &seen_lines {
-                let unique_lines: std::collections::HashSet<usize> =
-                    lines.iter().cloned().collect();
-                if unique_lines.len() > 1 {
-                    let names = iotype_names.get(iotype_str).cloned().unwrap_or_default();
-                    conflicts.push((pin_id.clone(), iotype_str.clone(), names));
-                }
-            }
-        }
-
-        if !conflicts.is_empty() {
-            let details: Vec<String> = conflicts
-                .iter()
-                .map(|(id, iot, names)| format!("pin {} ({}, [{}])", id, iot, names.join(", ")))
-                .collect();
-            acc.push(CheckResult {
-                check_name: "extra",
-                severity: CheckSeverity::Warning,
-                uri: Some(uri),
-                span: Some(comp.span.start..comp.span.end),
-                message: format!(
-                    "Component '{}' has overlapping pin assignments — same IO type on the same pin ID across different lines: {}.",
-                    entry.key().ident,
-                    details.join("; ")
-                ),
-                code: 2608,
-            });
         }
     }
 }
@@ -311,7 +247,7 @@ fn check_component_structure(acc: &mut CheckAccumulator) {
                     "Component '{}' has no params, pins, attributes, or functions.",
                     name
                 ),
-                code: 2603,
+                code: crate::errcodes::COMPONENT_EMPTY,
             });
         }
         // M3: has content but no pins
@@ -322,7 +258,7 @@ fn check_component_structure(acc: &mut CheckAccumulator) {
                 uri: Some(uri),
                 span: Some(comp.span.start..comp.span.end),
                 message: format!("Component '{}' has no pin definitions.", name),
-                code: 2604,
+                code: crate::errcodes::COMPONENT_NO_PINS,
             });
         }
     }
@@ -344,7 +280,7 @@ fn check_interface_structure(acc: &mut CheckAccumulator) {
                 uri: Some(uri),
                 span: Some(iface.span.start..iface.span.end),
                 message: format!("Interface '{}' has no pins or roles.", entry.key().ident),
-                code: 2605,
+                code: crate::errcodes::INTERFACE_EMPTY,
             });
         }
     }
@@ -373,7 +309,7 @@ fn check_default_type_mismatch(acc: &mut CheckAccumulator) {
                                     "Param '{}' is ::INT/HEX but default '{}' is a string.",
                                     pname, def
                                 ),
-                                code: 2505,
+                                code: crate::errcodes::PARAM_INT_DEFAULT_STRING,
                             });
                         }
                     }
@@ -392,7 +328,7 @@ fn check_default_type_mismatch(acc: &mut CheckAccumulator) {
                                     "Param '{}' is ::STRING but default '{}' looks numeric.",
                                     pname, def
                                 ),
-                                code: 2506,
+                                code: crate::errcodes::PARAM_STRING_DEFAULT_NUMERIC,
                             });
                         }
                     }
@@ -411,7 +347,7 @@ fn check_default_type_mismatch(acc: &mut CheckAccumulator) {
                                     "Param '{}' is ::UV.{} but default '{}' has no unit suffix. Add e.g. '5V'.",
                                     pname, unit_name, def
                                 ),
-                                code: 2507,
+                                code: crate::errcodes::PARAM_UV_DEFAULT_NO_UNIT,
                             });
                         }
                     }
@@ -440,7 +376,7 @@ fn check_empty_defines(acc: &mut CheckAccumulator) {
                 uri: Some(uri.clone()),
                 span: def_span.clone(),
                 message: format!("Define '{}' has no attributes.", def.name),
-                code: 2611,
+                code: crate::errcodes::DEFINE_NO_ATTRS,
             });
         }
         // U4: define with non-attribute body clauses — scan body AST
@@ -455,7 +391,7 @@ fn check_empty_defines(acc: &mut CheckAccumulator) {
                             "Define '{}' contains non-attribute clause (type={}). Defines should only contain attributes.",
                             def.name, ct
                         ),
-                        code: 2612,
+                        code: crate::errcodes::DEFINE_NON_ATTR_CLAUSE,
                     });
                     break;
                 }
@@ -484,7 +420,7 @@ fn check_instance_class_found(acc: &mut CheckAccumulator) {
                         "Instance '{}' references class '{}' that is not loaded.",
                         name, class_name
                     ),
-                    code: 2606,
+                    code: crate::errcodes::INST_CLASS_NOT_LOADED,
                 });
             }
         }
@@ -520,7 +456,7 @@ fn check_bus_member_collision(acc: &mut CheckAccumulator) {
                                         "Bus '{}' has duplicate member '{}' in module.",
                                         bus.name, m
                                     ),
-                                    code: 2609,
+                                    code: crate::errcodes::BUS_DUPLICATE_MEMBER,
                                 });
                             } else {
                                 entry.push(m.clone());
@@ -572,7 +508,7 @@ fn check_dry_functions(acc: &mut CheckAccumulator) {
                         entry.key().ident, names.len(),
                         names.iter().map(|s| s as &str).collect::<Vec<_>>().join(", ")
                     ),
-                    code: 2610,
+                    code: crate::errcodes::COMPONENT_DUPLICATE_FUNC_BODY,
                 });
             }
         }
@@ -603,7 +539,7 @@ fn check_naming_convention(acc: &mut CheckAccumulator) {
                             "Component '{}' uses mixed case. Convention is UPPER_SNAKE.",
                             name
                         ),
-                        code: 2607,
+                        code: crate::errcodes::COMPONENT_MIXED_CASE,
                     });
                     break;
                 }
@@ -637,7 +573,7 @@ fn check_reserved_names(acc: &mut CheckAccumulator, _lib_names: &HashSet<String>
                         uri: Some(uri.clone()),
                         span: Some(comp.span.start..comp.span.end),
                         message: format!("Parameter '{}' uses reserved keyword.", name),
-                        code: 2601,
+                        code: crate::errcodes::PARAM_RESERVED_KEYWORD,
                     });
                 }
             }
@@ -672,7 +608,7 @@ fn check_func_name_conflict(acc: &mut CheckAccumulator) {
                         "Function '{}' shares name with a port/param in the same module.",
                         fname
                     ),
-                    code: 2614,
+                    code: crate::errcodes::FUNC_SHARES_NAME_WITH_PORT,
                 });
             }
         }
@@ -714,7 +650,7 @@ fn check_port_direction_mismatch(acc: &mut CheckAccumulator) {
                                             "Net '{}' connects '{}' ({:?}) to '{}' ({:?}). Both are outputs.",
                                             text.trim(), left, io_left, right, io_right
                                         ),
-                                        code: 2615,
+                                        code: crate::errcodes::NET_BOTH_OUTPUTS,
                                     });
                                 }
                             }
@@ -754,7 +690,7 @@ fn check_default_value_range(acc: &mut CheckAccumulator) {
                                     "Param '{}' in '{}' has negative default '{}'. Most integer params expect non-negative values.",
                                     pname, entry.key().ident, def
                                 ),
-                                code: 2513,
+                                code: crate::errcodes::PARAM_NEGATIVE_DEFAULT,
                             });
                         }
                     }
@@ -772,7 +708,7 @@ fn check_default_value_range(acc: &mut CheckAccumulator) {
                                         entry.key().ident,
                                         def
                                     ),
-                                    code: 2513,
+                                    code: crate::errcodes::PARAM_FLOAT_DEFAULT_INVALID,
                                 });
                             }
                         }
@@ -825,7 +761,7 @@ fn check_body_literal_as_arg(acc: &mut CheckAccumulator) {
                                     entry.key().ident,
                                     text.trim()
                                 ),
-                                code: 2616,
+                                code: crate::errcodes::FUNC_INLINE_BODY_LITERAL_ARG,
                             });
                         }
                     }
@@ -893,7 +829,7 @@ fn check_module_func_unused_params(acc: &mut CheckAccumulator) {
                         mod_name,
                         unused.join(", ")
                     ),
-                    code: 2617,
+                    code: crate::errcodes::FUNC_PARAMS_UNUSED,
                 });
             }
         }
@@ -937,7 +873,7 @@ fn check_duplicate_spec_keys(acc: &mut CheckAccumulator) {
                                     comp.name,
                                     sub_key
                                 ),
-                                code: 2618,
+                                code: crate::errcodes::SPEC_KEY_DUPLICATE,
                             });
                         }
                     }

@@ -181,7 +181,18 @@ impl McModuleInst {
                     self.sub_modules.push(inst);
                     all_connections.extend(new_connections);
                 }
-                FuncCallInst::PassThrough => {}
+                FuncCallInst::PassThrough => {
+                    // Single iterated item degraded to pass-through (the per-item
+                    // warning 944 is emitted by instantiate_funccall). Log the item
+                    // index so the overall iterated call is traceable.
+                    crate::db::diagnostic::diagnostic::dlog_trace(
+                        944,
+                        &format!(
+                            "iterated: item #{i}/{count} of '{}' → pass-through (module='{}')",
+                            func_name, self.name,
+                        ),
+                    );
+                }
             }
         }
 

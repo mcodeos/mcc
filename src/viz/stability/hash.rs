@@ -37,11 +37,12 @@ pub fn hash_f64(hasher: &mut DefaultHasher, v: f64) {
 
 /// Hash box order deterministically.
 ///
-/// ★ P0.5-3b: 归一化 ID —— 哈希前按 (name, symbol_rank, kind) 排序后重编号，
-/// 用序号代替绝对 id，使 hash 不受上游无关器件插入导致的 id 偏移影响。
+/// ★ P0.5-3b: normalized IDs —— sort by (name, symbol_rank, kind) and renumber
+/// before hashing, replacing absolute ids with ordinals so the hash is immune to
+/// id shifts caused by unrelated component insertions upstream.
 pub fn hash_box_order(graph: &McVecGraph) -> String {
     let mut hasher = DefaultHasher::new();
-    // 按稳定属性排序，然后用序号代替绝对 id
+    // Sort by stable attributes, then use ordinal positions instead of absolute ids
     let mut sorted: Vec<&McVecBox> = graph.boxes.iter().collect();
     sorted.sort_by_key(|b| {
         let key = StableBoxKey::from_box(b, 0);
@@ -49,7 +50,7 @@ pub fn hash_box_order(graph: &McVecGraph) -> String {
     });
     for (i, b) in sorted.iter().enumerate() {
         let key = StableBoxKey::from_box(b, i);
-        // 使用归一化后的序号而非绝对 id
+        // Use the normalized ordinal position rather than the absolute id
         (i as u64).hash(&mut hasher);
         key.name.hash(&mut hasher);
         key.symbol_rank.hash(&mut hasher);
@@ -59,11 +60,12 @@ pub fn hash_box_order(graph: &McVecGraph) -> String {
 
 /// Hash net order deterministically.
 ///
-/// ★ P0.5-3b: 归一化 ID —— 哈希前按 (name, kind_rank) 排序后重编号，
-/// 用序号代替绝对 net_id，使 hash 不受上游无关器件插入导致的 id 偏移影响。
+/// ★ P0.5-3b: normalized IDs —— sort by (name, kind_rank) and renumber before
+/// hashing, replacing absolute net_ids with ordinals so the hash is immune to id
+/// shifts caused by unrelated component insertions upstream.
 pub fn hash_net_order(graph: &McVecGraph) -> String {
     let mut hasher = DefaultHasher::new();
-    // 按稳定属性排序，然后用序号代替绝对 net_id
+    // Sort by stable attributes, then use ordinal positions instead of absolute net_ids
     let mut sorted: Vec<&VizNet> = graph.nets.iter().collect();
     sorted.sort_by_key(|n| {
         let key = StableNetKey::from_net(n, 0);
@@ -71,7 +73,7 @@ pub fn hash_net_order(graph: &McVecGraph) -> String {
     });
     for (i, n) in sorted.iter().enumerate() {
         let key = StableNetKey::from_net(n, i);
-        // 使用归一化后的序号而非绝对 net_id
+        // Use the normalized ordinal position rather than the absolute net_id
         (i as u64).hash(&mut hasher);
         key.name.hash(&mut hasher);
         key.kind_rank.hash(&mut hasher);

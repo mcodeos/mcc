@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-use super::mc_ida::{IdaSegment, McIda};
+use super::mc_ida::{IdaSegment, McIda, SquareItem};
 use super::mc_literal::McInt;
 use crate::ast::ast_node::AstNode;
 use crate::ast::c_macros::*;
@@ -65,6 +65,34 @@ impl From<&str> for McIds {
     fn from(s: &str) -> Self {
         Self {
             segments: vec![IdsSegment::Ida(Box::new(McIda::from(s)))],
+        }
+    }
+}
+
+impl From<String> for McIds {
+    fn from(s: String) -> Self {
+        Self::from(s.as_str())
+    }
+}
+
+impl From<&String> for McIds {
+    fn from(s: &String) -> Self {
+        Self::from(s.as_str())
+    }
+}
+
+/// Wrap an AST-parsed `McIda` as a single `Ida` segment.
+///
+/// Definition-side class names (component / module / interface / enum) are
+/// `McIda` parsed from the AST; wrapping them preserves the internal segment
+/// structure without a `to_string()` display round-trip. Together with
+/// `From<&str>` this gives one canonical single-`Ida` form for definition
+/// names, so `class_name_to_id` lookups stay consistent regardless of which
+/// construction path produced the key.
+impl From<McIda> for McIds {
+    fn from(ida: McIda) -> Self {
+        Self {
+            segments: vec![IdsSegment::Ida(Box::new(ida))],
         }
     }
 }
@@ -165,10 +193,24 @@ impl McIds {
                     segments.push(square_seg);
                 }
             }
+            // Bare (non-OPD-wrapped) square vector, `[VDD, GND]` as a direct
+            // child of a parameter/value node (grammar's non-`&` variant).
+            // Same member shape as MCAST_OPD_SQUARE_VEC, so parse_square
+            // applies unchanged; without this arm the node was dropped by
+            // the `_ => None` fallthrough.
+            MCAST_SQUARE_VEC => {
+                if let Some(square_seg) = Self::parse_square(node) {
+                    segments.push(square_seg);
+                }
+            }
             MCAST_IDS => {
                 // Original logic: handle MCAST_IDS case
                 let Some(ids_subnodes) = node.get_sub_node() else {
-                    dlog_error(1101, node, "IDS has no nodes.");
+                    dlog_error(
+                        crate::errcodes::NAME_IDS_NO_NODES,
+                        node,
+                        &crate::errcodes::format_msg(crate::errcodes::NAME_IDS_NO_NODES, &[]),
+                    );
                     return None;
                 };
 
@@ -191,7 +233,14 @@ impl McIds {
 
                         MCAST_OPD_DOT => {
                             let Some(subnode) = each.get_sub_node() else {
-                                dlog_error(1101, &each, "Missing subnode");
+                                dlog_error(
+                                    crate::errcodes::NAME_MISSING_SUBNODE,
+                                    &each,
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::NAME_MISSING_SUBNODE,
+                                        &[],
+                                    ),
+                                );
                                 continue;
                             };
                             match subnode.get_type() {
@@ -246,12 +295,12 @@ impl McIds {
                 }
             }
             MCAST_OPD_CURLY => {
-                if let Some(curly_seg) = Self::parse_curly(node) {
+                if let Some(curly_seg) = Self::parse_curly(&each) {
                     self.segments.push(curly_seg);
                 }
             }
             MCAST_OPD_SQUARE_VEC => {
-                if let Some(square_seg) = Self::parse_square(node) {
+                if let Some(square_seg) = Self::parse_square(&each) {
                     self.segments.push(square_seg);
                 }
             }
@@ -261,7 +310,11 @@ impl McIds {
 
     fn parse_curly(node: &AstNode) -> Option<IdsSegment> {
         let Some(curly_subnodes) = node.get_sub_node() else {
-            dlog_error(1101, node, "Missing subnode");
+            dlog_error(
+                crate::errcodes::NAME_MISSING_SUBNODE,
+                node,
+                &crate::errcodes::format_msg(crate::errcodes::NAME_MISSING_SUBNODE, &[]),
+            );
             return None;
         };
 
@@ -280,13 +333,27 @@ impl McIds {
 
                         let left_int = McInt::new(&left)
                             .ok_or_else(|| {
-                                dlog_error(1102, &left, "Failed to process left side of range");
+                                dlog_error(
+                                    crate::errcodes::NAME_RANGE_SIDE_FAILED,
+                                    &left,
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::NAME_RANGE_SIDE_FAILED,
+                                        &[&"left"],
+                                    ),
+                                );
                             })
                             .ok()?;
 
                         let right_int = McInt::new(&right)
                             .ok_or_else(|| {
-                                dlog_error(1102, &right, "Failed to process right side of range");
+                                dlog_error(
+                                    crate::errcodes::NAME_RANGE_SIDE_FAILED,
+                                    &right,
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::NAME_RANGE_SIDE_FAILED,
+                                        &[&"right"],
+                                    ),
+                                );
                             })
                             .ok()?;
 
@@ -306,7 +373,14 @@ impl McIds {
     /// Parse square bracket vector, e.g. [VDD, GND]
     fn parse_square(node: &AstNode) -> Option<IdsSegment> {
         let Some(square_subnodes) = node.get_sub_node() else {
-            dlog_error(1101, node, "Missing subnode for square vector");
+            dlog_error(
+                crate::errcodes::NAME_SQUARE_VECTOR_MISSING_SUBNODE,
+                node,
+                &crate::errcodes::format_msg(
+                    crate::errcodes::NAME_SQUARE_VECTOR_MISSING_SUBNODE,
+                    &[],
+                ),
+            );
             return None;
         };
 
@@ -786,6 +860,58 @@ impl McIds {
         false
     }
 
+    /// Square members embedded inside a single IDA segment (e.g.
+    /// `PDM[CLK, DATA]` tokenized as one IDA by the C parser). §2.1: such
+    /// names are List form — pins register as PDMCLK/PDMDATA and the bare
+    /// prefix `PDM` does not exist. Returns None for other shapes so callers
+    /// that only recognize outer-level Square segments are unaffected.
+    pub fn embedded_square_members(&self) -> Option<Vec<String>> {
+        if self.segments.len() != 1 {
+            return None;
+        }
+        let IdsSegment::Ida(ida) = &self.segments[0] else {
+            return None;
+        };
+        // §2.20.5: an Ida carrying more than one square segment (e.g.
+        // `R[1:2]C[1:3]`) is a matrix definition, not a List with a single
+        // embedded square. Return None so callers treat it as an expandable
+        // name (multi-pin Cartesian product) instead of a prefixed list.
+        let square_count = ida
+            .segments
+            .iter()
+            .filter(|s| matches!(s, IdaSegment::Square(_)))
+            .count();
+        if square_count > 1 {
+            return None;
+        }
+        let mut members = Vec::new();
+        for seg in &ida.segments {
+            if let IdaSegment::Square(items) = seg {
+                for item in items {
+                    match item {
+                        SquareItem::Id(id) => members.push(id.clone()),
+                        SquareItem::Range(start, end) => {
+                            if let (Ok(from), Ok(to)) = (start.parse::<i64>(), end.parse::<i64>()) {
+                                if from <= to {
+                                    for i in from..=to {
+                                        members.push(i.to_string());
+                                    }
+                                }
+                            } else {
+                                members.push(format!("{start}:{end}"));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if members.is_empty() {
+            None
+        } else {
+            Some(members)
+        }
+    }
+
     /// Get Square portion members (only valid when is_list() returns true)
     /// e.g. PDM[CLK, DATA] returns ["CLK", "DATA"]
     /// e.g. GPIO[1:4] returns ["1", "2", "3", "4"]
@@ -1027,6 +1153,32 @@ impl McIds {
             // Multi-segment may be like DC2.VDD, not handled
             None
         }
+    }
+
+    /// Split a plain dot chain into its segment names — `uC.ADC.P` →
+    /// `["uC", "ADC", "P"]`. Returns `None` when a curly/square group is
+    /// present (the chain is not a plain dot chain) or a segment expands to
+    /// multiple names. Consumers use this instead of `to_string()` +
+    /// `split_once('.')` text re-parsing.
+    pub fn dot_chain_parts(&self) -> Option<Vec<String>> {
+        let mut parts = Vec::with_capacity(self.segments.len());
+        for seg in &self.segments {
+            match seg {
+                IdsSegment::Ida(ida) | IdsSegment::DotIda(ida) => {
+                    let expanded = ida.expand();
+                    if expanded.len() != 1 {
+                        return None;
+                    }
+                    parts.push(expanded[0].clone());
+                }
+                IdsSegment::Int(int) | IdsSegment::DotInt(int) => {
+                    parts.push(int.value.to_string());
+                }
+                // Curly / Square groups are not a plain dot chain.
+                _ => return None,
+            }
+        }
+        Some(parts)
     }
 
     /// Detect if it is a DOT access pattern (e.g. DC2.VDD)

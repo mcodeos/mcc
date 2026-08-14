@@ -120,6 +120,10 @@ impl Grid {
         g
     }
 
+    /// Grid dimensions (cols, rows) — for diagnostics.
+    pub fn dims(&self) -> (usize, usize) {
+        (self.cols, self.rows)
+    }
     #[inline]
     fn idx(&self, c: usize, r: usize) -> usize {
         r * self.cols + c

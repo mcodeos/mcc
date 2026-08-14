@@ -53,6 +53,10 @@ const POWER_PIN_NAMES: &[&str] = &[
     "VDDA", "VSSA", "VBUS", "VSYS",
 ];
 
+/// Ground-only power pins. A component whose only power-related pins are
+/// ground pins has no supply rail to document, so HW1 does not flag it.
+const GROUND_PIN_NAMES: &[&str] = &["GND", "GNDA", "VSS", "VSSA"];
+
 const VOLTAGE_ATTR_KEYS: &[&str] = &[
     "voltage",
     "volt",
@@ -87,6 +91,21 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
             continue;
         }
 
+        // GND-only passives: a component whose only power-related pins are
+        // ground pins (GND/VSS) has no supply rail to document, so the
+        // voltage-attribute hint does not apply (e.g. passive mics/speakers).
+        let has_supply_pin = comp.pins.names_to_id.keys().any(|name| {
+            POWER_PIN_NAMES
+                .iter()
+                .any(|pn| name.eq_ignore_ascii_case(pn))
+                && !GROUND_PIN_NAMES
+                    .iter()
+                    .any(|g| name.eq_ignore_ascii_case(g))
+        });
+        if !has_supply_pin {
+            continue;
+        }
+
         // Check if component has voltage-related attributes
         let has_voltage_attr = comp.attrs.iter().any(|a| {
             let key = a.id.to_string().to_lowercase();
@@ -99,11 +118,21 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
             pname.contains("volt") || pname.contains("vcc") || pname.contains("vdd")
         });
 
-        // Check if any interface binding provides voltage info (e.g. ::DC(3.3V))
+        // Check if any interface binding provides voltage info (e.g. ::DC(3.3V)).
+        // The member ids (`iface.name`, e.g. `[VDD, GND]` or `vin{POWER_SYS, GND}`)
+        // may not carry the class name, so also test the interface class
+        // (`iface.base.name`, e.g. `DC` for `[VDD, GND]::DC()`).
         let has_voltage_iface = comp.pins.names_to_id.values().any(|port| {
             if let crate::semantic::component::mc_pins::McPinPort::Interface(ref iface) = port {
                 let iname = iface.name.to_string().to_lowercase();
-                if iname.contains("dc") || iname.contains("power") || iname.contains("supply") {
+                let cname = iface.base.name.to_string().to_lowercase();
+                if iname.contains("dc")
+                    || iname.contains("power")
+                    || iname.contains("supply")
+                    || cname.contains("dc")
+                    || cname.contains("power")
+                    || cname.contains("supply")
+                {
                     return true;
                 }
                 return iface.params.iter().any(|p| {
@@ -136,7 +165,7 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
                         .collect::<Vec<_>>()
                         .join(", ")
                 ),
-                code: 3301,
+                code: crate::errcodes::HW_POWER_PINS_EXCESS,
             });
         }
     }
@@ -212,7 +241,7 @@ fn check_pin_id_gaps(acc: &mut CheckAccumulator) {
                     gap_list.join(", "),
                     suffix
                 ),
-                code: 3302,
+                code: crate::errcodes::HW_PIN_NUMBER_GAP,
             });
         }
     }
@@ -248,7 +277,7 @@ fn check_pin_count_extremes(acc: &mut CheckAccumulator) {
                      high pin counts may indicate a data entry error.",
                     comp.name, pin_count
                 ),
-                code: 3303,
+                code: crate::errcodes::HW_PIN_COUNT_HIGH,
             });
         }
 
@@ -272,7 +301,7 @@ fn check_pin_count_extremes(acc: &mut CheckAccumulator) {
                      or marking it as abstract.",
                     comp.name
                 ),
-                code: 3304,
+                code: crate::errcodes::HW_ZERO_PINS_WITH_PARAMS,
             });
         }
     }
@@ -329,7 +358,7 @@ fn check_consecutive_nc_pins(acc: &mut CheckAccumulator) {
                                  Verify these are intentional (e.g., reserved/test points).",
                                 comp.name, run_count, start
                             ),
-                            code: 3305,
+                            code: crate::errcodes::HW_NC_PINS_CONTIGUOUS,
                         });
                     }
                 }
@@ -350,7 +379,7 @@ fn check_consecutive_nc_pins(acc: &mut CheckAccumulator) {
                          Verify these are intentional.",
                         comp.name, run_count, start
                     ),
-                    code: 3305,
+                    code: crate::errcodes::HW_NC_PINS_CONTIGUOUS,
                 });
             }
         }
@@ -406,7 +435,7 @@ fn check_role_peer_dangling(acc: &mut CheckAccumulator) {
                                             .join(", ")
                                     }
                                 ),
-                                code: 3306,
+                                code: crate::errcodes::HW_IFACE_ROLE_UNBOUND,
                             });
                         }
                     }
@@ -488,7 +517,7 @@ fn check_single_ioc_type_component(acc: &mut CheckAccumulator) {
                      Verify the pin definitions are complete.",
                     comp.name, pin_count, io_desc
                 ),
-                code: 3307,
+                code: crate::errcodes::HW_ALL_SAME_IO_TYPE,
             });
         }
     }
@@ -527,7 +556,7 @@ fn check_component_metadata(acc: &mut CheckAccumulator) {
                      Consider adding `name = \"Human Readable Name\"` for BOM/documentation.",
                     comp.name
                 ),
-                code: 3308,
+                code: crate::errcodes::HW_MISSING_NAME_ATTR,
             });
         }
 
@@ -542,7 +571,7 @@ fn check_component_metadata(acc: &mut CheckAccumulator) {
                      Adding a description helps library maintainability.",
                     comp.name
                 ),
-                code: 3309,
+                code: crate::errcodes::HW_NAME_WITHOUT_DESC,
             });
         }
     }
@@ -587,7 +616,7 @@ fn check_func_param_pin_shadow(acc: &mut CheckAccumulator) {
                                 func.name,
                                 pname
                             ),
-                            code: 3310,
+                            code: crate::errcodes::HW_FUNC_PARAM_SHADOWS_PIN,
                         });
                     }
                 }
@@ -642,7 +671,7 @@ fn check_unused_interface(acc: &mut CheckAccumulator) {
                      Consider using it in a component definition or removing it.",
                     name
                 ),
-                code: 3311,
+                code: crate::errcodes::HW_IFACE_NEVER_BOUND,
             });
         }
     }

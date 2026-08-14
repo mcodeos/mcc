@@ -1,0 +1,15 @@
+name: check-cjk
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Scan tracked files for non-ASCII characters
+        run: python3 scripts/check-cjk.py

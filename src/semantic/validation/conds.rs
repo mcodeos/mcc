@@ -64,7 +64,7 @@ fn check_empty_cond_body(acc: &mut CheckAccumulator) {
                              The condition selects no pins.",
                             comp.name, idx, bidx, cond
                         ),
-                        code: 3001,
+                        code: crate::errcodes::COND_EMPTY_BODY,
                     });
                 }
             }
@@ -80,7 +80,7 @@ fn check_empty_cond_body(acc: &mut CheckAccumulator) {
                              No pins selected for the default case.",
                             comp.name, idx
                         ),
-                        code: 3001,
+                        code: crate::errcodes::COND_EMPTY_BODY,
                     });
                 }
             }
@@ -100,7 +100,7 @@ fn check_empty_cond_body(acc: &mut CheckAccumulator) {
                              The condition selects no attributes.",
                             comp.name, idx, bidx, cond
                         ),
-                        code: 3001,
+                        code: crate::errcodes::COND_EMPTY_BODY,
                     });
                 }
             }
@@ -116,7 +116,7 @@ fn check_empty_cond_body(acc: &mut CheckAccumulator) {
                              No attributes selected for the default case.",
                             comp.name, idx
                         ),
-                        code: 3001,
+                        code: crate::errcodes::COND_EMPTY_BODY,
                     });
                 }
             }
@@ -153,7 +153,7 @@ fn check_missing_else(acc: &mut CheckAccumulator) {
                         idx,
                         cp.if_blocks.len()
                     ),
-                    code: 3002,
+                    code: crate::errcodes::COND_IF_WITHOUT_ELSE,
                 });
             }
         }
@@ -172,7 +172,7 @@ fn check_missing_else(acc: &mut CheckAccumulator) {
                         idx,
                         ca.if_blocks.len()
                     ),
-                    code: 3002,
+                    code: crate::errcodes::COND_IF_WITHOUT_ELSE,
                 });
             }
         }
@@ -279,7 +279,7 @@ fn check_pin_io_context(acc: &mut CheckAccumulator) {
                              the component level. NC is typically used at instantiation.",
                             comp.name, names, pin_id
                         ),
-                        code: 3003,
+                        code: crate::errcodes::PIN_NC_COMPONENT_LEVEL,
                     });
                 }
                 IOType::Power => {
@@ -335,7 +335,7 @@ fn check_pin_io_context(acc: &mut CheckAccumulator) {
                                  voltage attribute. Consider adding e.g. `voltage = \"5V\"`.",
                                 comp.name, names, pin_id
                             ),
-                            code: 3004,
+                            code: crate::errcodes::POWER_PIN_NO_VOLTAGE,
                         });
                     }
                 }
@@ -398,7 +398,7 @@ fn check_pin_alt_roles(acc: &mut CheckAccumulator) {
                          IO types. Consider using 'io' (InOut) for bidirectional pins.",
                         comp.name, pin_name
                     ),
-                    code: 3005,
+                    code: crate::errcodes::PIN_IO_MIX_IN_OUT,
                 });
             }
 
@@ -414,7 +414,7 @@ fn check_pin_alt_roles(acc: &mut CheckAccumulator) {
                          IO types. This may create backfeed risk on the connected net.",
                         comp.name, pin_name
                     ),
-                    code: 3006,
+                    code: crate::errcodes::PIN_IO_MIX_OUTPUT_POWER,
                 });
             }
 
@@ -430,7 +430,7 @@ fn check_pin_alt_roles(acc: &mut CheckAccumulator) {
                          IO types. Verify this is the intended behavior.",
                         comp.name, pin_name
                     ),
-                    code: 3007,
+                    code: crate::errcodes::PIN_IO_MIX_ANALOG_POWER,
                 });
             }
         }
@@ -469,7 +469,7 @@ fn check_param_pin_name_collision(acc: &mut CheckAccumulator) {
                              This may cause confusion in net expressions.",
                             comp.name, pname
                         ),
-                        code: 3008,
+                        code: crate::errcodes::PARAM_PIN_NAME_SHADOW,
                     });
                 }
             }
@@ -506,7 +506,7 @@ fn check_empty_module(acc: &mut CheckAccumulator) {
                      Is this a stub?",
                     entry.key().ident
                 ),
-                code: 3009,
+                code: crate::errcodes::MODULE_STUB,
             });
         }
     }

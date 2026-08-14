@@ -38,9 +38,10 @@ pub fn normalize_positions(graph: &mut McVecGraph) {
             b.x += shift_x;
             b.y += shift_y;
         }
-        // ★ 已经落好的 route 必须跟着走。任何"先落线再归一化"的确定性摆位器
-        // （sp_place / ladder_place / 未来的 placer）都依赖这条不变式：
-        // normalize_positions 是一个刚体平移，几何与布线一起动。
+        // ★ Routes already laid down must move along. Any deterministic placer that
+        // "routes first, then normalizes" (sp_place / ladder_place / future placers)
+        // relies on this invariant:
+        // normalize_positions is a rigid-body translation — geometry and wiring move together.
         for n in &mut graph.nets {
             let Some(r) = n.route.as_mut() else { continue };
             for s in &mut r.segments {
@@ -138,7 +139,7 @@ mod tests {
         assert_eq!(g.boxes[0].x, -70.0 + shift);
         assert_eq!(r.segments[0].from.x, -70.0 + shift);
         assert_eq!(r.junctions[0].x, 30.0 + shift);
-        // 线仍贴在盒子边上
+        // The wire is still glued to the box edge
         assert_eq!(r.segments[0].from.x, g.boxes[0].x);
     }
 }

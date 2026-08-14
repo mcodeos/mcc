@@ -5,6 +5,7 @@
 use crate::ast::ast_semantic::{DeclareId, Span};
 use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
+use crate::McIds;
 use crate::McURI;
 
 // === pub fn mcb_lookup_instance_decl(uri: &McURI, name: &str, scope: Option<&str>) -> ===
@@ -105,7 +106,7 @@ fn register_lib_class_in_global_table(
             if let Ok(gt) = sem.global_table.lock() {
                 if let Some(&cid) = gt
                     .class_name_to_id
-                    .get(&(mc_uri.clone(), class_name.to_string()))
+                    .get(&(mc_uri.clone(), McIds::from(class_name)))
                 {
                     return cid;
                 }
@@ -123,7 +124,7 @@ fn register_lib_class_in_global_table(
             if let Ok(mut gt) = sem.global_table.lock() {
                 // Only insert if not already present (avoid overwriting)
                 gt.class_name_to_id
-                    .entry((mc_uri.clone(), class_name.to_string()))
+                    .entry((mc_uri.clone(), McIds::from(class_name)))
                     .or_insert(cid);
                 gt.class_id_to_span
                     .entry(cid)
@@ -136,17 +137,18 @@ fn register_lib_class_in_global_table(
     DeclareId::default()
 }
 
-// === pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, span: Span) { ===
+// === pub fn mcb_register_declare_class(uri: &McURI, class_name: McIds, span: Span) { ===
 /// 🆕 Register a class reference for goto-definition
 ///
 /// Called when a class name is used in a declare statement (e.g., `MCU.US513_20_F uC`).
 /// Registers the class reference so LSP can jump from the reference to the class definition.
-pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, raw_span: Span) {
+pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Span) {
     // ★ Fix: mc_value_link (C-side) extends MCAST_IDS node `len` to include
     // linked MCAST_PARAMS, so raw_span may cover "RES(10kΩ)" instead of "RES".
-    // class_name from McIds::to_string() is already correctly parsed without
-    // params, so reconstruct the span from class_name's length.
-    let span = raw_span.start..(raw_span.start + class_name.len());
+    // class_name from McIds is already correctly parsed without params, so
+    // reconstruct the span from the flattened name's length.
+    let name_str = class_name.to_string();
+    let span = raw_span.start..(raw_span.start + name_str.len());
 
     // Step 1: Find (class_id, target_uri, target_span) — try lsp.class_table first
     // Priority: same URI as reference > other URIs (for duplicate class definitions)
@@ -158,7 +160,7 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, raw_span: Span)
         // First try: exact URI match (same file as reference)
         let same_uri_result = class_table.iter().find_map(
             |((target_uri, _kind, name), &(class_id, ref target_span))| {
-                if name == class_name && target_uri == &uri_str {
+                if name == &name_str && target_uri == &uri_str {
                     Some((class_id, target_uri.clone(), target_span.clone()))
                 } else {
                     None
@@ -170,7 +172,7 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, raw_span: Span)
         let other_uri_result = if same_uri_result.is_none() {
             class_table.iter().find_map(
                 |((target_uri, _kind, name), &(class_id, ref target_span))| {
-                    if name == class_name && target_uri != &uri_str {
+                    if name == &name_str && target_uri != &uri_str {
                         Some((class_id, target_uri.clone(), target_span.clone()))
                     } else {
                         None
@@ -198,7 +200,7 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, raw_span: Span)
             if let Ok(sem) = entry.value().symbols.lock() {
                 if let Ok(gt) = sem.global_table.lock() {
                     for ((file_uri, name), &cid) in gt.class_name_to_id.iter() {
-                        if name == class_name {
+                        if name == &McIds::from(name_str.as_str()) {
                             if let Some((_, tspan)) = gt.class_id_to_span.get(&cid) {
                                 result = Some((cid, file_uri.clone(), tspan.clone()));
                                 break;
@@ -229,7 +231,6 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, raw_span: Span)
     // instead of using DeclareId::default(). Without this, all library class
     // refs map to class_id=0 with invalid def spans in Layer 1.
     let from_syslibs: Option<(DeclareId, String, Span)> = if class_info.is_none() {
-        let name_str = class_name.to_string();
         let mut result = None;
 
         // Helper macro to reduce repetition
@@ -321,11 +322,15 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, raw_span: Span)
         let span_clone = span.clone();
         let uri_str = uri.to_string();
         tracing::info!(target: "crate::lsp", "  register_declare_class: storing ref decl_span={:?} -> class_id={:?} target={}", span_clone, class_id, target_uri);
-        let mut refs = workspace::WORKSPACE.lsp.declare_class_refs.lock().unwrap();
-        refs.entry(uri_str)
-            .or_default()
-            .push((span, class_id, target_uri, target_span));
         tracing::info!(target: "crate::lsp", "Registered declare_class: {} at {:?} -> class_id={:?}", class_name, span_clone, class_id);
+        let mut refs = workspace::WORKSPACE.lsp.declare_class_refs.lock().unwrap();
+        refs.entry(uri_str).or_default().push((
+            span,
+            class_id,
+            target_uri,
+            target_span,
+            class_name.clone(),
+        ));
     } else {
         // ★ Fix (Defect 72): Do NOT emit E1601 here during P4, because WORKSPACE.modules
         // is empty at that point (modules are registered in P5). The class ref is stored
@@ -343,8 +348,12 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &str, raw_span: Span)
         // create_lapper will emit DeclareClass for this span; mcext's
         // project-index fallback will resolve the actual definition.
         let mut refs = workspace::WORKSPACE.lsp.declare_class_refs.lock().unwrap();
-        refs.entry(uri_str)
-            .or_default()
-            .push((span, DeclareId::default(), "".to_string(), 0..0));
+        refs.entry(uri_str).or_default().push((
+            span,
+            DeclareId::default(),
+            "".to_string(),
+            0..0,
+            class_name.clone(),
+        ));
     }
 }

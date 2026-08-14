@@ -29,6 +29,9 @@
 //!   - 32105  entry file not found
 //!   - 32106  dependency not loaded
 //!   - 32107  Pass1 / Pass2 failed
+//!   - 32110  Pass1 (parse) failed
+//!   - 32111  Pass2 (build) failed
+//!   - 32112  component / module / entity / file not found
 
 use super::protocol::{JsonRpcError, RpcResult};
 use crate::db::cmie::tables as workspace;
@@ -747,16 +750,22 @@ pub(crate) fn remove_overlay(uri: &McURI) {
 /// Run Pass2 ERC: single-point nets, unconnected ports, net stats.
 pub(crate) fn run_erc() -> RpcResult {
     let top = crate::mcb_get_first_module_name()
-        .ok_or_else(|| JsonRpcError::custom(-32003, "semantic: no modules found"))?;
+        .ok_or_else(|| JsonRpcError::custom(32112, "semantic: no modules found"))?;
 
-    let uri = crate::McURI::from(top.as_str());
+    // Resolve the top module to its defining file URI; using the bare module
+    // name as a URI makes mcc_build fail with "Target module not found".
+    let uri = crate::mcb_iter_modules()
+        .into_iter()
+        .find(|(name, _)| name == &top)
+        .map(|(_, u)| crate::McURI::from(u.as_str()))
+        .unwrap_or_else(|| crate::McURI::from(top.as_str()));
     let ident = crate::McIds::from(top.as_str());
 
     let inst = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         crate::mcc_build(&ident, &uri)
     }))
-    .map_err(|_| JsonRpcError::custom(-32002, "semantic: build panicked"))?
-    .map_err(|e| JsonRpcError::custom(-32002, &format!("semantic: build failed: {e}")))?;
+    .map_err(|_| JsonRpcError::custom(32111, "semantic: build panicked"))?
+    .map_err(|e| JsonRpcError::custom(32111, &format!("semantic: build failed: {e}")))?;
 
     let mut diags: Vec<Value> = Vec::new();
 
@@ -771,8 +780,9 @@ pub(crate) fn run_erc() -> RpcResult {
         .collect();
 
     for net in &single_point {
+        let code = crate::errcodes::ERC_SINGLE_POINT_NET;
         diags.push(json!({
-            "code": 5001,
+            "code": code,
             "severity": "warning",
             "message": format!("single-point net: '{net}' has only one connection — may be unconnected"),
             "check": "single_point_net",
@@ -789,8 +799,9 @@ pub(crate) fn run_erc() -> RpcResult {
 
     for port in &inst.ports {
         if !all_net_paths.contains(port.name.as_str()) {
+            let code = crate::errcodes::ERC_UNCONNECTED_PORT;
             diags.push(json!({
-                "code": 5002,
+                "code": code,
                 "severity": "warning",
                 "message": format!("unconnected port: '{}' is not connected to any net", port.name),
                 "check": "unconnected_port",
@@ -823,8 +834,9 @@ pub(crate) fn run_erc() -> RpcResult {
         if drivers.len() > 1 {
             multi_drive += 1;
             let names: Vec<_> = drivers.iter().map(|d| d.path.as_str()).collect();
+            let code = crate::errcodes::ERC_MULTI_DRIVE_NET;
             diags.push(json!({
-                "code": 5003,
+                "code": code,
                 "severity": "error",
                 "check": "multi_drive",
                 "message": format!(
@@ -835,8 +847,9 @@ pub(crate) fn run_erc() -> RpcResult {
             }));
         } else if drivers.is_empty() && points.len() > 1 {
             floating += 1;
+            let code = crate::errcodes::ERC_FLOATING_NET;
             diags.push(json!({
-                "code": 5004,
+                "code": code,
                 "severity": "warning",
                 "check": "floating_net",
                 "message": format!(
@@ -1091,7 +1104,7 @@ pub(crate) fn extract_archive(
         "tar.gz" | "tgz" => extract_tar_gz(&data, dest, strip),
         "tar" => extract_tar(&data, dest, strip),
         other => Err(JsonRpcError::custom(
-            -32104,
+            32104,
             &format!("unsupported archive format: {other}"),
         )),
     }
@@ -1404,8 +1417,183 @@ pub(crate) fn find_def_by_name(name: &str) -> Option<(crate::McCMIE, String)> {
     crate::lsp::gotodef::find_def_by_name_raw(name)
 }
 
-/// Build a pin JSON object (mirrors pins_json in show.rs).
-pub(crate) fn pins_json(pins: &crate::McPins) -> Value {
+/// Split a dot-qualified entity path into `(owner, member)`.
+///
+/// Used to reference funcs, which are nested inside a module/component and
+/// therefore not top-level definitions: `main.setup` → `("main", "setup")`.
+///
+/// The owner is everything before the **last** dot, so dotted class names work
+/// too: `MCU.US513_20_F.i2c` → `("MCU.US513_20_F", "i2c")`.
+pub fn split_owner_member(name: &str) -> Option<(&str, &str)> {
+    name.rsplit_once('.')
+}
+
+/// Resolve a dot-qualified function path `OWNER.FUNC` where OWNER is a loaded
+/// Module or Component. Returns a clone of the function, or `None` when the
+/// name is not a (owner, func) pair, the owner is not found, or the owner has
+/// no such function.
+pub fn find_func_by_path(name: &str) -> Option<crate::semantic::mc_func::McFunction> {
+    let (owner, member) = split_owner_member(name)?;
+    let (cmie, _) = find_def_by_name(owner)?;
+    match &cmie {
+        crate::McCMIE::Component(c) => c.funcs.find(member).cloned(),
+        crate::McCMIE::Module(m) => m.funcs.find(member).cloned(),
+        _ => None,
+    }
+}
+
+/// Build a phrase-level net map from a function body (no Pass2 — funcs depend
+/// on parameters and a calling context that are not available standalone).
+///
+/// Each connection line in `func.lines` becomes one net entry named `line_N`
+/// (1-based), whose points are the endpoint names referenced by that line.
+pub fn func_nets_map(func: &crate::semantic::mc_func::McFunction) -> BTreeMap<String, Vec<String>> {
+    let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (i, line) in func.lines.iter().enumerate() {
+        let mut names: std::collections::HashSet<String> = std::collections::HashSet::new();
+        crate::semantic::validation::body::collect_referenced_names(line, &mut names);
+        let mut points: Vec<String> = names.into_iter().collect();
+        points.sort();
+        nets.insert(format!("line_{}", i + 1), points);
+    }
+    nets
+}
+
+/// Build the pin JSON view (pins + interfaces + name/id mappings). Single
+/// implementation shared by the RPC handlers and the local CLI `show`
+/// commands so both stay in parity.
+pub fn pins_json(pins: &crate::McPins) -> Value {
+    // Interface/group instances registered on this component, keyed by
+    // instance name (e.g. "I2C0" → I2C0::I2C(Master)) or bare group name
+    // ("PBus" → Bus). Built once and shared by the per-pin `interfaces` field
+    // and the top-level `interfaces` summary.
+    let mut ifaces: Vec<Value> = pins
+        .names_to_id
+        .iter()
+        .filter_map(|(name, port)| match port {
+            crate::McPinPort::Interface(iface) => {
+                let mut param_strs: Vec<String> =
+                    iface.params.iter().map(|p| p.to_string()).collect();
+                let params: Value = if param_strs.is_empty() {
+                    Value::Null
+                } else {
+                    // Drop placeholder "_" arguments so `I2C0::I2C(Master)`
+                    // renders without trailing noise.
+                    if param_strs.iter().all(|s| s == "_") {
+                        Value::Null
+                    } else {
+                        param_strs.retain(|s| s != "_");
+                        json!(param_strs)
+                    }
+                };
+                // Pin names belonging to this interface (e.g. I2C0.SCL),
+                // derived from the Single entries whose pin is registered.
+                // A name whose prefix is another interface instance name
+                // (e.g. I2C0.SCL on a GPIO-registered pin) is excluded.
+                let iface_keys: std::collections::BTreeSet<String> = pins
+                    .names_to_id
+                    .iter()
+                    .filter_map(|(n, port)| match port {
+                        crate::McPinPort::Interface(_) => Some(n.clone()),
+                        _ => None,
+                    })
+                    .collect();
+                let mut pin_names: Vec<String> = pins
+                    .names_to_id
+                    .iter()
+                    .filter_map(|(n, port)| match port {
+                        crate::McPinPort::Single(pid) => {
+                            let prefix = n.split('.').next();
+                            let owned_by_other = prefix
+                                .map(|p| iface_keys.contains(p) && p != name.as_str())
+                                .unwrap_or(false);
+                            if !owned_by_other && iface.registered_pins.iter().any(|p| p == pid) {
+                                Some(n.clone())
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                pin_names.sort();
+                Some(json!({
+                    "name": name,
+                    "inst_name": iface.name.to_string(),
+                    "base_name": iface.base_name(),
+                    "params": params,
+                    "pins": iface.registered_pins,
+                    "pin_names": pin_names,
+                    "kind": "Interface",
+                }))
+            }
+            crate::McPinPort::Bus(bus) => {
+                // `PBus{CLK, DATA}`: a bus instance. Individual pins register
+                // dot-qualified names (PBus.CLK), and the bare bus name
+                // (PBus) is registered as the Bus port itself.
+                let members: Vec<String> = bus.full_members.clone();
+                let mut pin_names: Vec<String> = pins
+                    .names_to_id
+                    .iter()
+                    .filter_map(|(n, port)| match port {
+                        crate::McPinPort::Single(_) => {
+                            if n.starts_with(&format!("{name}.")) {
+                                Some(n.clone())
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                pin_names.sort();
+                Some(json!({
+                    "name": name,
+                    "inst_name": name,
+                    "base_name": name,
+                    "params": Value::Null,
+                    "pins": Value::Null,
+                    "members": members,
+                    "pin_names": pin_names,
+                    "kind": "Bus",
+                }))
+            }
+            _ => None,
+        })
+        .collect();
+
+    // List groups (e.g. `PDM[CLK, DATA]`) are NOT registered in
+    // `names_to_id` (§2.1 bare-prefix rule), so they are appended from the
+    // display-only table recorded during pins parsing.
+    for (list_name, members, pids) in &pins.list_groups {
+        let mut pin_names: Vec<String> = pins
+            .names_to_id
+            .iter()
+            .filter_map(|(n, port)| match port {
+                crate::McPinPort::Single(pid) => {
+                    if pids.contains(pid) && n.starts_with(list_name) {
+                        Some(n.clone())
+                    } else {
+                        None
+                    }
+                }
+                _ => None,
+            })
+            .collect();
+        pin_names.sort();
+        ifaces.push(json!({
+            "name": list_name,
+            "inst_name": list_name,
+            "base_name": list_name,
+            "params": Value::Null,
+            "pins": Value::Null,
+            "members": members,
+            "pin_names": pin_names,
+            "kind": "List",
+        }));
+    }
+
+    // For each physical pin, the interface instances that occupy it.
     let pin_list: Vec<Value> = pins
         .pins
         .iter()
@@ -1419,10 +1607,54 @@ pub(crate) fn pins_json(pins: &crate::McPins) -> Value {
                     desc.push_str(&s.value);
                 }
             }
+            // An interface/group belongs to this pin when it registers the
+            // pin (e.g. I2C0 → [1,2]) or when the pin's name matches the
+            // group's naming scheme: dot-qualified for interfaces and buses
+            // (`I2C1.SCL` → I2C1, `PBus.CLK` → PBus), concatenated for List
+            // groups (`PDMCLK` → PDM). The prefix fallback covers repeated
+            // interface instance names where `registered_pins` only keeps
+            // the last occurrence.
+            let pin_ifaces: Vec<Value> = ifaces
+                .iter()
+                .filter(|i| {
+                    let kind = i
+                        .get("kind")
+                        .and_then(|k| k.as_str())
+                        .unwrap_or("Interface");
+                    let key = i.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                    match kind {
+                        "List" => pin
+                            .names
+                            .iter()
+                            .any(|n| n.starts_with(key) && n.len() > key.len()),
+                        "Bus" => pin.names.iter().any(|n| n.split('.').next() == Some(key)),
+                        _ => {
+                            let via_reg = i
+                                .get("pins")
+                                .and_then(|p| p.as_array())
+                                .map(|arr| arr.iter().any(|p| p == pin_id))
+                                .unwrap_or(false);
+                            let via_prefix =
+                                pin.names.iter().any(|n| n.split('.').next() == Some(key));
+                            via_reg || via_prefix
+                        }
+                    }
+                })
+                .map(|i| {
+                    json!({
+                        "name": i["inst_name"],
+                        "base": i["base_name"],
+                        "params": i["params"],
+                        "kind": i["kind"],
+                        "members": i["members"],
+                    })
+                })
+                .collect();
             let mut j = json!({
                 "id": pin_id,
                 "iotype": format!("{:?}", pin.iotype),
                 "names": pin.names,
+                "interfaces": pin_ifaces,
             });
             if !desc.is_empty() {
                 j["description"] = json!(desc);
@@ -1443,6 +1675,7 @@ pub(crate) fn pins_json(pins: &crate::McPins) -> Value {
     json!({
         "pin_count": pins.pins.len(),
         "pins": pin_list,
+        "interfaces": ifaces,
         "names_to_id": Value::Object(names_to_id),
         "pin_id_to_names": Value::Object(pin_id_to_names),
     })
@@ -1515,14 +1748,13 @@ pub(crate) fn attrval_json(v: &crate::McAttrVal) -> Value {
 // ============================================================================
 
 /// Convert a McParamDeclare to a JSON object with smart parameter metadata.
-pub(crate) fn param_declare_to_json(
-    d: &crate::semantic::basic::mc_paramd::McParamDeclare,
-) -> Value {
+pub fn param_declare_to_json(d: &crate::semantic::basic::mc_paramd::McParamDeclare) -> Value {
     let name = d.get_primary_name().unwrap_or_default();
     let is_port = d.is_port();
     let has_default = d.has_default_value();
     let default_val = d.param_type.default_value().map(|s| s.to_string());
     let class_name = d.get_class_name();
+    let iface_params: Vec<String> = d.param_type.interface_params().to_vec();
     json!({
         "name": name,
         "type": d.param_type.category_name(),
@@ -1530,6 +1762,7 @@ pub(crate) fn param_declare_to_json(
         "has_default": has_default,
         "default": default_val,
         "class": class_name,
+        "params": iface_params,
     })
 }
 
@@ -2060,6 +2293,10 @@ pub static METHODS: &[MethodMeta] = &[
         consumer: "cli",
     },
     MethodMeta {
+        name: "build.viz",
+        consumer: "cli",
+    },
+    MethodMeta {
         name: "parse",
         consumer: "cli",
     },
@@ -2339,6 +2576,7 @@ pub fn register_all(
     builder = builder.register_method("trace.get", handle_trace_get);
     // Build
     builder = builder.register_method("build.full", handle_build_full);
+    builder = builder.register_method("build.viz", handle_build_viz);
     builder = builder.register_method("parse", handle_parse);
     // Show — lists
     builder = builder.register_method("show.component", handle_show_component);

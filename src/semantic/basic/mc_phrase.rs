@@ -6,9 +6,9 @@ use super::super::{
     basic::mc_bus::McBus,
     basic::mc_closure::McClosure,
     basic::mc_endpoint::{McEndpoint, McInstanceRef},
-    basic::mc_fcall::McFuncCall,
+    basic::mc_fcall::{McFuncCall, ReturnShape},
     basic::mc_group::McGroup,
-    common::{ConnDir, IOType, McCMIE},
+    common::{eval_binary, representative, ConnDir, ConnOp, IOType, McCMIE, Shape, ShapeError},
     component::Mc2Component,
     mc_func::HasFindInst,
     mc_inst::McInstance,
@@ -18,10 +18,7 @@ use crate::{
     ast::{ast_node::AstNode, c_macros::*, error::message::*},
     db::{
         context::DB,
-        diagnostic::diagnostic::{
-            dlog_error, dlog_trace, dlog_warning,
-            message_templates::{CANNOT_TRANSPOSE, SHAPE_MISMATCH},
-        },
+        diagnostic::diagnostic::{dlog_error, dlog_trace, dlog_warning},
     },
     query::refs::{mcb_register_declare_class, mcb_register_instance_ref},
     semantic::{
@@ -34,6 +31,21 @@ use crate::{
 
 use std::ops::{Add, Shr};
 use std::sync::Arc;
+
+/// P5.1: a prefix identifier `_X` (e.g. `_OPEN`, `__CLR`) is treated as an **independent
+/// operand** and does not resolve to any instance — per §1 it is really a named member
+/// of an IDA index (`M[1:4][_OPEN,_CLOSE]`), not a wire `_`.
+/// If the user intends a passthrough, they should write `_`. A declared `_X` label is
+/// a valid label, so this path does not trigger (find_inst hits).
+fn warn_prefix_id_as_wire(node: &AstNode, name: &str) {
+    if name.len() > 1 && name.starts_with('_') {
+        dlog_warning(
+            crate::errcodes::LEAD_PREFIX_ID_AS_WIRE,
+            node,
+            &crate::errcodes::format_msg(crate::errcodes::LEAD_PREFIX_ID_AS_WIRE, &[&name]),
+        );
+    }
+}
 
 // ============================================================================
 // McPhrase
@@ -284,7 +296,17 @@ impl McPhrase {
                                 // eprintln!("[PHRASE_DEBUG] curly: validate_inst_reference -> None");
                                 if let Some((name, members)) = ids.as_bus() {
                                     if context.find_inst(&name).is_some() {
-                                        dlog_error(1705, node, &format!("Name '{}' is already an instance, cannot create bus with members [{}]", name, members.join(", ")));
+                                        dlog_error(
+                                            crate::errcodes::BUS_NAME_ALREADY_INSTANCE,
+                                            node,
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::BUS_NAME_ALREADY_INSTANCE,
+                                                &[
+                                                    &name as &dyn std::fmt::Display,
+                                                    &members.join(", ") as &dyn std::fmt::Display,
+                                                ],
+                                            ),
+                                        );
                                         return None;
                                     } else {
                                         let name_clone = name.clone();
@@ -315,18 +337,20 @@ impl McPhrase {
                                             return Some(result);
                                         }
                                         dlog_error(
-                                            1700,
+                                            crate::errcodes::IFACE_MEMBER_NOT_FOUND,
                                             node,
-                                            &format!(
-                                                "Interface '{interface}.{full_name}' not found in component '{component}'"
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::IFACE_MEMBER_NOT_FOUND,
+                                                &[&interface, &full_name, &component],
                                             ),
                                         );
                                     } else {
                                         dlog_error(
-                                            1702,
+                                            crate::errcodes::IFACE_CURLY_MEMBER_INVALID,
                                             node,
-                                            &format!(
-                                                "Component '{component}' not found for interface '{component}.{interface}'"
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::IFACE_CURLY_MEMBER_INVALID,
+                                                &[&component, &component, &interface],
                                             ),
                                         );
                                     }
@@ -381,13 +405,11 @@ impl McPhrase {
                                                     && context.find_inst(&ids.to_string()).is_none()
                                                 {
                                                     dlog_error(
-                                                        2006,
+                                                        crate::errcodes::NET_DROPPED_STATEMENT,
                                                         node,
-                                                        &format!(
-                                                            "DROPPED_STATEMENT: indexed alias '{}' expands to '{}' which is not a known instance. \
-                                                             The statement may produce no nets or constraints.",
-                                                            ids.to_string(),
-                                                            expanded_name
+                                                        &crate::errcodes::format_msg(
+                                                            crate::errcodes::NET_DROPPED_STATEMENT,
+                                                            &[&ids.to_string(), &expanded_name],
                                                         ),
                                                     );
                                                 }
@@ -396,75 +418,102 @@ impl McPhrase {
                                         context.add_label(ids.to_string())
                                     }
                                 }
-                            } else {
-                                let id_str = ids.to_string();
-                                if let Some((base, rest)) = id_str.split_once('.') {
-                                    if let Some((bus_name, pin_name)) = rest.split_once('.') {
-                                        if context.is_component_bus(base, bus_name) {
-                                            let full_name = format!("{base}.{bus_name}");
-                                            let member_ref =
-                                                McBus::member_ref(&full_name, pin_name.to_string());
-                                            return Some(McPhrase::Endpoint(McEndpoint::Single(
-                                                McInstanceRef::new(McInstance::Bus(member_ref)),
-                                            )));
-                                        }
+                            } else if let Some(chain) = ids.dot_chain_parts() {
+                                // ★ Dot chain — structured segments straight from the
+                                // AST (`uC.ADC.P` → ["uC", "ADC", "P"]), no text re-parsing.
+                                //
+                                // `uC.ADC.P` (3+ segments): component-bus member access.
+                                if chain.len() >= 3 {
+                                    let base = &chain[0];
+                                    let bus_name = &chain[1];
+                                    if context.is_component_bus(base, bus_name) {
+                                        let pin_name = chain[2..].join(".");
+                                        let full_name = format!("{base}.{bus_name}");
+                                        let member_ref = McBus::member_ref(&full_name, pin_name);
+                                        return Some(McPhrase::Endpoint(McEndpoint::Single(
+                                            McInstanceRef::new(McInstance::Bus(member_ref)),
+                                        )));
                                     }
-                                    if context.find_inst(base).is_none() {
-                                        context.add_bus(base.to_string(), vec![rest.to_string()]);
-                                    } else {
-                                        // E1802: Check if base is a Component and rest is a valid pin
-                                        if let Some(McInstance::Component(c)) =
-                                            context.find_inst(base)
-                                        {
-                                            if c.find_pin(&rest).is_none() {
-                                                dlog_error(
-                                                    1802,
-                                                    &subnode,
-                                                    &format!(
-                                                        "Pin '{}' not found in component '{}'",
-                                                        rest, base
-                                                    ),
-                                                );
-                                                return None;
-                                            }
-                                        }
-                                        // ★ LSP: Register instance reference for dot-separated path
-                                        let span = (subnode.get_pos() as usize)
-                                            ..((subnode.get_pos() + subnode.get_len()) as usize);
-                                        if let Some(decl_id) =
-                                            crate::query::refs::mcb_lookup_instance_decl(
-                                                context.uri(),
-                                                base,
-                                                scope.as_deref(),
-                                            )
-                                        {
-                                            mcb_register_instance_ref(
-                                                context.uri(),
-                                                span,
-                                                decl_id,
-                                                scope.as_deref(),
-                                            );
-                                        }
-                                        context.upgrade_label_to_bus(base);
-                                        if let Some(McPhrase::Endpoint(McEndpoint::Single(
-                                            McInstanceRef {
-                                                base: McInstance::Bus(bus),
-                                                ..
-                                            },
-                                        ))) = context.add_bus_member(base, rest.to_string())
-                                        {
-                                            return Some(McPhrase::Endpoint(McEndpoint::Single(
-                                                McInstanceRef::new(McInstance::Bus(bus)),
-                                            )));
-                                        }
-                                    }
-                                    let member_ref = McBus::member_ref(base, rest.to_string());
-                                    Some(McPhrase::Endpoint(McEndpoint::Single(
-                                        McInstanceRef::new(McInstance::Bus(member_ref)),
-                                    )))
-                                } else {
-                                    context.add_label(id_str)
                                 }
+                                // Single segment — plain name.
+                                if chain.len() == 1 {
+                                    warn_prefix_id_as_wire(&subnode, &ids.to_string());
+                                    return Some(
+                                        context
+                                            .add_label(ids.to_string())
+                                            .unwrap_or_else(|| McPhrase::label(ids.to_string())),
+                                    );
+                                }
+                                // Two-segment dot access (`MIC.P`).
+                                let base = &chain[0];
+                                let rest = chain[1..].join(".");
+                                if context.find_inst(base).is_none() {
+                                    context.add_bus(base.to_string(), vec![rest.clone()]);
+                                } else {
+                                    // E1802: Check if base is a Component and rest is a valid pin
+                                    if let Some(McInstance::Component(c)) = context.find_inst(base)
+                                    {
+                                        if c.find_pin(&rest).is_none() {
+                                            let available: Vec<&str> = c
+                                                .base
+                                                .pins
+                                                .names_to_id
+                                                .keys()
+                                                .map(|s| s.as_str())
+                                                .collect();
+                                            dlog_error(
+                                                crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                                                &subnode,
+                                                &crate::errcodes::format_msg(
+                                                    crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                                                    &[
+                                                        &rest as &dyn std::fmt::Display,
+                                                        base as &dyn std::fmt::Display,
+                                                        &available.join(", ")
+                                                            as &dyn std::fmt::Display,
+                                                    ],
+                                                ),
+                                            );
+                                            return None;
+                                        }
+                                    }
+                                    // ★ LSP: Register instance reference for dot-separated path
+                                    let span = (subnode.get_pos() as usize)
+                                        ..((subnode.get_pos() + subnode.get_len()) as usize);
+                                    if let Some(decl_id) =
+                                        crate::query::refs::mcb_lookup_instance_decl(
+                                            context.uri(),
+                                            base,
+                                            scope.as_deref(),
+                                        )
+                                    {
+                                        mcb_register_instance_ref(
+                                            context.uri(),
+                                            span,
+                                            decl_id,
+                                            scope.as_deref(),
+                                        );
+                                    }
+                                    context.upgrade_label_to_bus(base);
+                                    if let Some(McPhrase::Endpoint(McEndpoint::Single(
+                                        McInstanceRef {
+                                            base: McInstance::Bus(bus),
+                                            ..
+                                        },
+                                    ))) = context.add_bus_member(base, rest.clone())
+                                    {
+                                        return Some(McPhrase::Endpoint(McEndpoint::Single(
+                                            McInstanceRef::new(McInstance::Bus(bus)),
+                                        )));
+                                    }
+                                }
+                                let member_ref = McBus::member_ref(base, rest);
+                                Some(McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
+                                    McInstance::Bus(member_ref),
+                                ))))
+                            } else {
+                                warn_prefix_id_as_wire(&subnode, &ids.to_string());
+                                context.add_label(ids.to_string())
                             }
                         }
                         McOpd::This(ids) => {
@@ -494,7 +543,11 @@ impl McPhrase {
             MCAST_ID | MCAST_IDA | MCAST_IDS => {
                 let data = node.to_id_or_ida();
                 if data.is_empty() {
-                    dlog_error(1100, node, "Failed to extract ID/IDA data");
+                    dlog_error(
+                        crate::errcodes::NAME_ID_EXTRACT_FAILED,
+                        node,
+                        &crate::errcodes::format_msg(crate::errcodes::NAME_ID_EXTRACT_FAILED, &[]),
+                    );
                     return None;
                 }
 
@@ -531,12 +584,23 @@ impl McPhrase {
                                 if let Some(McInstance::Component(c)) = base_inst_opt {
                                     // E1802: Check if the member is a valid pin in the component
                                     if c.find_pin(member).is_none() {
+                                        let available: Vec<&str> = c
+                                            .base
+                                            .pins
+                                            .names_to_id
+                                            .keys()
+                                            .map(|s| s.as_str())
+                                            .collect();
                                         dlog_error(
-                                            1802,
+                                            crate::errcodes::COMPONENT_PIN_NOT_FOUND,
                                             node,
-                                            &format!(
-                                                "Pin '{}' not found in component '{}'",
-                                                member, base
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                                                &[
+                                                    &member as &dyn std::fmt::Display,
+                                                    &base as &dyn std::fmt::Display,
+                                                    &available.join(", ") as &dyn std::fmt::Display,
+                                                ],
                                             ),
                                         );
                                         return None;
@@ -575,6 +639,7 @@ impl McPhrase {
                                 McInstance::Bus(member_ref),
                             ))))
                         } else {
+                            warn_prefix_id_as_wire(node, id);
                             context.add_label(id.clone())
                         }
                     }
@@ -667,6 +732,7 @@ impl McPhrase {
                                             McInstanceRef::new(McInstance::Bus(member_ref)),
                                         )))
                                     } else {
+                                        warn_prefix_id_as_wire(node, id);
                                         context.add_label(id.clone())
                                     }
                                 }
@@ -695,6 +761,9 @@ impl McPhrase {
                 if let Some(sub) = node.get_sub_node() {
                     let mut class_node: Option<AstNode> = None;
                     let mut names: Vec<String> = Vec::new();
+                    // Source span of the instance ID node (e.g. `res[1:2]` / `C4`),
+                    // reused for LSP declaration registration below.
+                    let mut names_span: Option<std::ops::Range<usize>> = None;
                     for c in sub.iter() {
                         let t = c.get_type();
                         if t == MCAST_CLASS && class_node.is_none() {
@@ -710,6 +779,10 @@ impl McPhrase {
                             };
                             if let Some(ids) = McIds::new(&ids_node) {
                                 names.extend(ids.expand());
+                                names_span = Some(
+                                    (ids_node.get_pos() as usize)
+                                        ..((ids_node.get_pos() + ids_node.get_len()) as usize),
+                                );
                             }
                         }
                     }
@@ -726,12 +799,38 @@ impl McPhrase {
                                 let class_span = (class_id_node.get_pos() as usize)
                                     ..((class_id_node.get_pos() + class_id_node.get_len())
                                         as usize);
-                                mcb_register_declare_class(context.uri(), &fname, class_span);
+                                mcb_register_declare_class(context.uri(), &class_ids, class_span);
                             }
                             let is_twopin =
                                 crate::vector::graph::naming::is_known_twopin_class(&fname);
                             let build = is_twopin;
                             if build {
+                                // ★ LSP: Register declareb instance declarations
+                                // (`res[1:2]::RES(0Ω)` → res1/res2, `C4::CAP()` → C4).
+                                // The twopin early-return below bypasses
+                                // context.parse_declare(), so only the class ref above
+                                // is registered while the instance names are not.
+                                // Mirror declare_instance's store_port_span +
+                                // add_declare_with_name pattern so goto-def /
+                                // hover can locate these inline declared instances.
+                                if let Some(span) = &names_span {
+                                    for name in &names {
+                                        context.store_inst_span(name, span.clone());
+                                        let _ = crate::db::cmie::tables::WORKSPACE
+                                            .mcodes
+                                            .get(context.uri())
+                                            .and_then(|mcode| {
+                                                mcode.symbols.lock().ok().map(|mut sem| {
+                                                    sem.local_table.add_declare_with_name(
+                                                        context.uri(),
+                                                        crate::ast::ast_semantic::SourceLocation::from_span(span),
+                                                        Some(name.clone()),
+                                                        scope.as_deref(),
+                                                    )
+                                                })
+                                            });
+                                    }
+                                }
                                 let mut params: Vec<McParamValue> = Vec::new();
                                 let mut cur = cls.get_sub_node();
                                 while let Some(n) = cur {
@@ -843,7 +942,14 @@ impl McPhrase {
                         }
                     }
                     // Still nothing found — log and return None
-                    dlog_error(1101, node, "Failed to parse DECLARE");
+                    dlog_error(
+                        crate::errcodes::NAME_DECLARE_PARSE_FAILED,
+                        node,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::NAME_DECLARE_PARSE_FAILED,
+                            &[],
+                        ),
+                    );
                     None
                 } else if result.len() == 1 {
                     match result.remove(0) {
@@ -900,10 +1006,9 @@ impl McPhrase {
                         McInstance::Interface(i) => format!("Interface('{}')", i.name),
                         McInstance::List(l) => format!("List('{}', mem={:?})", l.name, l.member),
                         McInstance::Unresolved { class_name } => format!("?{class_name}"),
-                        McInstance::BusRef {
-                            component: _,
-                            bus: _,
-                        } => todo!(),
+                        McInstance::BusRef { component, bus } => {
+                            format!("BusRef('{component}.{bus}')")
+                        }
                         McInstance::Pins => "Pins".into(),
                         McInstance::PinId(id) => format!("PinId('{id}')"),
                         McInstance::Attr(a) => format!("Attr({a})"),
@@ -955,12 +1060,23 @@ impl McPhrase {
                                 if right.len() == 1 {
                                     let member = &right[0];
                                     if c.find_pin(member).is_none() {
+                                        let available: Vec<&str> = c
+                                            .base
+                                            .pins
+                                            .names_to_id
+                                            .keys()
+                                            .map(|s| s.as_str())
+                                            .collect();
                                         dlog_error(
-                                            1802,
+                                            crate::errcodes::COMPONENT_PIN_NOT_FOUND,
                                             node,
-                                            &format!(
-                                                "Pin '{}' not found in component '{}'",
-                                                member, inst_name
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                                                &[
+                                                    member as &dyn std::fmt::Display,
+                                                    &inst_name as &dyn std::fmt::Display,
+                                                    &available.join(", ") as &dyn std::fmt::Display,
+                                                ],
                                             ),
                                         );
                                         return None;
@@ -975,12 +1091,18 @@ impl McPhrase {
                             // E1802: pin not found in component
                             if right.len() == 1 {
                                 let member = &right[0];
+                                let available: Vec<&str> =
+                                    c.base.pins.names_to_id.keys().map(|s| s.as_str()).collect();
                                 dlog_error(
-                                    1802,
+                                    crate::errcodes::COMPONENT_PIN_NOT_FOUND,
                                     node,
-                                    &format!(
-                                        "Pin '{}' not found in component '{}'",
-                                        member, inst_name
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                                        &[
+                                            member as &dyn std::fmt::Display,
+                                            &inst_name as &dyn std::fmt::Display,
+                                            &available.join(", ") as &dyn std::fmt::Display,
+                                        ],
                                     ),
                                 );
                                 return None;
@@ -1000,12 +1122,22 @@ impl McPhrase {
                                 if right.len() == 1 {
                                     let member = &right[0];
                                     if !m.base.insts.find_port(member).is_some() {
+                                        let available: Vec<&str> = m
+                                            .base
+                                            .insts
+                                            .iter_ports()
+                                            .map(|(name, _)| name)
+                                            .collect();
                                         dlog_error(
-                                            1803,
+                                            crate::errcodes::MODULE_PORT_NOT_FOUND,
                                             node,
-                                            &format!(
-                                                "Port '{}' not found in module '{}'",
-                                                member, inst_name
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::MODULE_PORT_NOT_FOUND,
+                                                &[
+                                                    member as &dyn std::fmt::Display,
+                                                    &inst_name as &dyn std::fmt::Display,
+                                                    &available.join(", ") as &dyn std::fmt::Display,
+                                                ],
                                             ),
                                         );
                                         return None;
@@ -1020,12 +1152,18 @@ impl McPhrase {
                             // E1803: port not found in module
                             if right.len() == 1 {
                                 let member = &right[0];
+                                let available: Vec<&str> =
+                                    m.base.insts.iter_ports().map(|(name, _)| name).collect();
                                 dlog_error(
-                                    1803,
+                                    crate::errcodes::MODULE_PORT_NOT_FOUND,
                                     node,
-                                    &format!(
-                                        "Port '{}' not found in module '{}'",
-                                        member, inst_name
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::MODULE_PORT_NOT_FOUND,
+                                        &[
+                                            member as &dyn std::fmt::Display,
+                                            &inst_name as &dyn std::fmt::Display,
+                                            &available.join(", ") as &dyn std::fmt::Display,
+                                        ],
                                     ),
                                 );
                                 return None;
@@ -1063,10 +1201,9 @@ impl McPhrase {
                         McInstance::Interface(i) => format!("Interface('{}')", i.name),
                         McInstance::List(l) => format!("List('{}', mem={:?})", l.name, l.member),
                         McInstance::Unresolved { class_name } => format!("?{class_name}"),
-                        McInstance::BusRef {
-                            component: _,
-                            bus: _,
-                        } => todo!(),
+                        McInstance::BusRef { component, bus } => {
+                            format!("BusRef('{component}.{bus}')")
+                        }
                         McInstance::Pins => "Pins".into(),
                         McInstance::PinId(id) => format!("PinId('{id}')"),
                         McInstance::Attr(a) => format!("Attr({a})"),
@@ -1126,13 +1263,11 @@ impl McPhrase {
                                 && context.find_inst(&ids.to_string()).is_none()
                             {
                                 dlog_error(
-                                    2006,
+                                    crate::errcodes::NET_DROPPED_STATEMENT,
                                     node,
-                                    &format!(
-                                        "DROPPED_STATEMENT: indexed alias '{}' expands to '{}' which is not a known instance. \
-                                         The statement may produce no nets or constraints.",
-                                        ids.to_string(),
-                                        expanded_name
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::NET_DROPPED_STATEMENT,
+                                        &[&ids.to_string(), &expanded_name],
                                     ),
                                 );
                             }
@@ -1157,20 +1292,29 @@ impl McPhrase {
 
                 let left_opd = Self::new(&subnode1, context)?;
 
-                // Grammar now allows mc_phrase (expressions) inside curly braces,
-                // not just IDAN. Extract string form for simple cases;
-                // complex expressions return empty vec and fall through gracefully.
-                let right1: Vec<String> = subnode2.to_id_or_ida_or_num();
-                let right2: Vec<String> = subnode3.to_id_or_ida_or_num();
-
-                // eprintln!("[CMN-DIAG] CURLY_MN left={} right1={:?} right2={:?}",
-                //     match &left_opd {
-                //         McPhrase::Endpoint(McEndpoint::Single(r)) =>
-                //             format!("Endpoint({:?})", std::mem::discriminant(&r.base)),
-                //         McPhrase::Member(..) => "Member".to_string(),
-                //         McPhrase::Multiple(_) => "Multiple".to_string(),
-                //         other => format!("{:?}", std::mem::discriminant(other)),
-                //     }, right1, right2);
+                // mca.y wraps each `mc_idans` inside curly braces in an
+                // OPD_IDAN node so the `|` boundary survives mc_value_link3's
+                // next-chain flattening (otherwise the left option list absorbs
+                // the right side's ids). Extract all id/ida/int elements by
+                // walking each wrapper's own chain; complex expressions return
+                // empty vec and fall through gracefully.
+                //
+                // Walk the chain with `get_next()` explicitly: `AstNodeIter`
+                // (from `.iter()`) silently truncates the traversal when its
+                // pointer-safety guard trips (e.g. a misaligned `next`), which
+                // dropped trailing option members like `DAC_OUT, SPK_MUTE`.
+                let mut right1: Vec<String> = Vec::new();
+                let mut cur = subnode2.get_sub_node();
+                while let Some(n) = cur {
+                    right1.extend(n.to_id_or_ida_or_num());
+                    cur = n.get_next();
+                }
+                let mut right2: Vec<String> = Vec::new();
+                cur = subnode3.get_sub_node();
+                while let Some(n) = cur {
+                    right2.extend(n.to_id_or_ida_or_num());
+                    cur = n.get_next();
+                }
 
                 match left_opd {
                     left_opd @ McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
@@ -1258,10 +1402,11 @@ impl McPhrase {
 
                             if !left_members.is_empty() || !right_members.is_empty() {
                                 dlog_error(
-                                    1106,
+                                    crate::errcodes::NAME_DEF_NOT_FOUND_LABEL_FALLBACK,
                                     node,
-                                    &format!(
-                                        "CURLY_MN: '{name}' definition not found, using label fallback"
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::NAME_DEF_NOT_FOUND_LABEL_FALLBACK,
+                                        &[&name],
                                     ),
                                 );
                                 return Some(McPhrase::Endpoint(McEndpoint::Node {
@@ -1285,7 +1430,11 @@ impl McPhrase {
                             }
                         }
                         // eprintln!("[CMN-DIAG] → None(1006) name={:?}", name);
-                        dlog_error(1006, node, "CURLY_MN requires Component or Module");
+                        dlog_error(
+                            crate::errcodes::CURLY_MN_WRONG_BASE,
+                            node,
+                            &crate::errcodes::format_msg(crate::errcodes::CURLY_MN_WRONG_BASE, &[]),
+                        );
                         None
                     }
                 }
@@ -1299,25 +1448,44 @@ impl McPhrase {
                     opd1_node.get_type(),
                     opd1_node.to_string()
                 );
-                match McPhrase::new(&opd1_node, context)? {
-                    McPhrase::Series(phrases, _) => Some(McPhrase::Transposed(Box::new(
-                        McPhrase::Series(phrases, ConnDir::Undirected),
-                    ))),
+                // Normalize: keep Series branches as-is (`(A - B)'` transposes the whole series chain)
+                let opd1 = match McPhrase::new(&opd1_node, context)? {
+                    McPhrase::Series(phrases, _) => McPhrase::Series(phrases, ConnDir::Undirected),
+                    other => other,
+                };
+                // Structural rejection: Bus / Multiple / Label / nested Transposed cannot be transposed again
+                if matches!(
+                    &opd1,
                     McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
                         base: McInstance::Bus(_),
                         ..
-                    }))
-                    | McPhrase::Multiple(_)
-                    | McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
-                        base: McInstance::Label(_),
-                        ..
-                    }))
-                    | McPhrase::Transposed(_) => {
-                        dlog_error(1150, node, CANNOT_TRANSPOSE);
-                        None
-                    }
-                    opd1 => Some(McPhrase::Transposed(Box::new(opd1))),
+                    })) | McPhrase::Multiple(_)
+                        | McPhrase::Endpoint(McEndpoint::Single(McInstanceRef {
+                            base: McInstance::Label(_),
+                            ..
+                        }))
+                        | McPhrase::Transposed(_)
+                ) {
+                    dlog_error(
+                        crate::errcodes::CONN_CANNOT_TRANSPOSE,
+                        node,
+                        &crate::errcodes::format_msg(crate::errcodes::CONN_CANNOT_TRANSPOSE, &[]),
+                    );
+                    return None;
                 }
+                // Pass1 safety rule (eval.md §5.5): shapes with 3+ rows cannot be transposed
+                if let Err(rows) = check_transpose_allowed(&opd1) {
+                    dlog_error(
+                        crate::errcodes::SHAPE_TRANSPOSE_LIMIT,
+                        node,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::SHAPE_TRANSPOSE_LIMIT,
+                            &[&rows],
+                        ),
+                    );
+                    return None;
+                }
+                Some(McPhrase::Transposed(Box::new(opd1)))
             }
 
             MCAST_OPD_CARET => {
@@ -1326,6 +1494,21 @@ impl McPhrase {
                     McPhrase::Series(ref mut phrases, _) => {
                         phrases.reverse();
                         Some(McPhrase::Series(phrases.clone(), ConnDir::Undirected))
+                    }
+                    // ── P5: E2903 — reverse `^` on a vector operand is a no-op ──
+                    // Parallel (`A + B`), transposed (`X'`) and parenthesized
+                    // vector groupings (`(A + B)`) carry no order to reverse
+                    // (eval.md §5.6 / examples L180: `...'^`).
+                    opd1 if is_reverse_noop_operand(&opd1) => {
+                        dlog_warning(
+                            crate::errcodes::SHAPE_REVERSE_NOOP,
+                            node,
+                            &crate::errcodes::format_msg(
+                                crate::errcodes::SHAPE_REVERSE_NOOP,
+                                &[&opd1],
+                            ),
+                        );
+                        Some(opd1)
                     }
                     opd1 => {
                         let mut phrases = vec![opd1];
@@ -1400,29 +1583,48 @@ impl McPhrase {
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
 
                 // ── P1.3: inst 1*1/1*2 constraint for +/- ──
-                if !check_inst_plusminus(&opd1) {
+                if let Some((inst_name, pin_count)) = check_inst_plusminus(&opd1) {
                     dlog_error(
-                        1151,
+                        crate::errcodes::SHAPE_INST_3PIN_PLUSMINUS,
                         node,
-                        "Instance with 3+ pins cannot directly participate in `+` operation. \
-                         Use `->` for pass-through connection or `::` for type annotation.",
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::SHAPE_INST_3PIN_PLUSMINUS,
+                            &[&inst_name, &pin_count],
+                        ),
                     );
                     return None;
                 }
-                if !check_inst_plusminus(&opd2) {
+                if let Some((inst_name, pin_count)) = check_inst_plusminus(&opd2) {
                     dlog_error(
-                        1151,
+                        crate::errcodes::SHAPE_INST_3PIN_PLUSMINUS,
                         node,
-                        "Instance with 3+ pins cannot directly participate in `+` operation. \
-                         Use `->` for pass-through connection or `::` for type annotation.",
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::SHAPE_INST_3PIN_PLUSMINUS,
+                            &[&inst_name, &pin_count],
+                        ),
                     );
                     return None;
                 }
 
-                if !is_connectable(&opd1.get_left(), &opd2.get_left())
-                    || !is_connectable(&opd1.get_right(), &opd2.get_right())
-                {
-                    dlog_error(1151, node, "Shape mismatch in parallel connection");
+                if !is_connectable(
+                    ConnOp::Parallel,
+                    ConnDir::Undirected,
+                    &opd1.get_left(),
+                    &opd2.get_left(),
+                ) || !is_connectable(
+                    ConnOp::Parallel,
+                    ConnDir::Undirected,
+                    &opd1.get_right(),
+                    &opd2.get_right(),
+                ) {
+                    dlog_error(
+                        crate::errcodes::CONN_PARALLEL_SHAPE_MISMATCH,
+                        node,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::CONN_PARALLEL_SHAPE_MISMATCH,
+                            &[],
+                        ),
+                    );
                     return None;
                 }
 
@@ -1433,7 +1635,14 @@ impl McPhrase {
                     }
                     (opd1 @ Transposed(_), opd2) => {
                         if opd2.get_left().iter().map(|e| e.size()).sum::<usize>() != 2 {
-                            dlog_error(1102, node, "Transposed connection size mismatch");
+                            dlog_error(
+                                crate::errcodes::CONN_TRANSPOSE_SIZE_MISMATCH,
+                                node,
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::CONN_TRANSPOSE_SIZE_MISMATCH,
+                                    &[],
+                                ),
+                            );
                             return None;
                         }
                         let mut ret_line_members = vec![opd1];
@@ -1446,7 +1655,14 @@ impl McPhrase {
                     }
                     (opd1, opd2 @ Transposed(_)) => {
                         if opd1.get_right().iter().map(|e| e.size()).sum::<usize>() != 2 {
-                            dlog_error(1153, node, "Transposed connection size mismatch");
+                            dlog_error(
+                                crate::errcodes::CONN_TRANSPOSE_SIZE_MISMATCH,
+                                node,
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::CONN_TRANSPOSE_SIZE_MISMATCH,
+                                    &[],
+                                ),
+                            );
                             return None;
                         }
                         if let Series(mut line, _) = opd1 {
@@ -1491,27 +1707,44 @@ impl McPhrase {
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
 
                 // ── P1.3: inst 1*1/1*2 constraint for +/- ──
-                if !check_inst_plusminus(&opd1) {
+                if let Some((inst_name, pin_count)) = check_inst_plusminus(&opd1) {
                     dlog_error(
-                        1154,
+                        crate::errcodes::SHAPE_INST_3PIN_PLUSMINUS,
                         node,
-                        "Instance with 3+ pins cannot directly participate in `-` operation. \
-                         Use `->` for pass-through connection.",
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::SHAPE_INST_3PIN_PLUSMINUS,
+                            &[&inst_name, &pin_count],
+                        ),
                     );
                     return None;
                 }
-                if !check_inst_plusminus(&opd2) {
+                if let Some((inst_name, pin_count)) = check_inst_plusminus(&opd2) {
                     dlog_error(
-                        1154,
+                        crate::errcodes::SHAPE_INST_3PIN_PLUSMINUS,
                         node,
-                        "Instance with 3+ pins cannot directly participate in `-` operation. \
-                         Use `->` for pass-through connection.",
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::SHAPE_INST_3PIN_PLUSMINUS,
+                            &[&inst_name, &pin_count],
+                        ),
                     );
                     return None;
                 }
 
-                if !is_connectable(&opd1.get_right(), &opd2.get_left()) {
-                    dlog_error(1154, node, SHAPE_MISMATCH);
+                // §4.1 series evaluation: opd1.right ↔ opd2.left (- is Undirected, take op1)
+                if !is_connectable(
+                    ConnOp::Series,
+                    ConnDir::Undirected,
+                    &opd1.get_right(),
+                    &opd2.get_left(),
+                ) {
+                    dlog_error(
+                        crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
+                        node,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
+                            &[],
+                        ),
+                    );
                     return None;
                 }
 
@@ -1560,8 +1793,21 @@ impl McPhrase {
 
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
 
-                if !is_connectable(&opd1.get_right(), &opd2.get_left()) {
-                    dlog_error(1155, node, "Shape mismatch in -> connection");
+                // §4.3 series evaluation: opd1.right ↔ opd2.left (-> is LtoR, take op2)
+                if !is_connectable(
+                    ConnOp::Series,
+                    ConnDir::LtoR,
+                    &opd1.get_right(),
+                    &opd2.get_left(),
+                ) {
+                    dlog_error(
+                        crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
+                        node,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
+                            &[],
+                        ),
+                    );
                     return None;
                 }
 
@@ -1623,9 +1869,21 @@ impl McPhrase {
                 // Note: swap order here for shape inference, because data flow is opd2 -> opd1
                 let (opd2, opd1) = infer_shape_and_upgrade(opd2, opd1, context);
 
-                // Check if opd2.right can connect to opd1.left
-                if !is_connectable(&opd2.get_right(), &opd1.get_left()) {
-                    dlog_error(1106, node, "Shape mismatch in <- connection");
+                // §4.4 series evaluation (leftward): opd2.right ↔ opd1.left (<- is RtoL, take op1)
+                if !is_connectable(
+                    ConnOp::Series,
+                    ConnDir::RtoL,
+                    &opd2.get_right(),
+                    &opd1.get_left(),
+                ) {
+                    dlog_error(
+                        crate::errcodes::NAME_DEF_NOT_FOUND_LABEL_FALLBACK,
+                        node,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::NAME_DEF_NOT_FOUND_LABEL_FALLBACK,
+                            &[],
+                        ),
+                    );
                     return None;
                 }
 
@@ -1717,9 +1975,9 @@ impl McPhrase {
                     return context.add_label(s);
                 }
                 dlog_error(
-                    1003,
+                    crate::errcodes::INST_EXPR_PARSE_FAILED,
                     node,
-                    "Failed to parse MCAST_INSTANCE in expression context",
+                    &crate::errcodes::format_msg(crate::errcodes::INST_EXPR_PARSE_FAILED, &[]),
                 );
                 None
             }
@@ -1785,14 +2043,43 @@ impl McPhrase {
             }
             MCAST_IOTYPE_RETURN => None,
 
+            // ── P1-1: arithmetic / range operators on connection lines ──────
+            // mca.y accepts `A * B` / `A / B` / `A ~ B` / `A : B` as mc_phrase,
+            // but only `+` (parallel) and `-` / `->` (series) have connection
+            // semantics. These four fall through to the generic E1110 today;
+            // give an operator-specific diagnostic instead so the dropped line
+            // is not confused with an AST shape bug.
+            MCAST_OPD_MULTI | MCAST_OPD_DIVID | MCAST_OPD_TILDE | MCAST_OPD_COLON => {
+                let op = match node.get_type() {
+                    MCAST_OPD_MULTI => "*",
+                    MCAST_OPD_DIVID => "/",
+                    MCAST_OPD_TILDE => "~",
+                    _ => ":",
+                };
+                dlog_error(
+                    crate::errcodes::CONN_OPERATOR_UNSUPPORTED,
+                    node,
+                    &crate::errcodes::format_msg(
+                        crate::errcodes::CONN_OPERATOR_UNSUPPORTED,
+                        &[
+                            &node.get_type() as &dyn std::fmt::Display,
+                            &op as &dyn std::fmt::Display,
+                        ],
+                    ),
+                );
+                None
+            }
+
             _ => {
                 dlog_error(
-                    1110,
+                    crate::errcodes::PHRASE_AST_TYPE_UNEXPECTED,
                     node,
-                    &format!(
-                        "node={} Unexpected AST node type {} in McPhrase::new",
-                        node.get_type(),
-                        node.get_type()
+                    &crate::errcodes::format_msg(
+                        crate::errcodes::PHRASE_AST_TYPE_UNEXPECTED,
+                        &[
+                            &node.get_type() as &dyn std::fmt::Display,
+                            &node.get_type() as &dyn std::fmt::Display,
+                        ],
                     ),
                 );
                 None
@@ -1874,10 +2161,23 @@ fn shape_defaults(c: &Mc2Component) -> CompPinShape {
     }
 }
 
+/// Whether a phrase carries no order to reverse: parallel groupings,
+/// transposed operands and parenthesized vector groupings are vectors, so
+/// `^` on them is a no-op (eval.md §5.6). Series chains are reversible and
+/// are excluded here.
+fn is_reverse_noop_operand(p: &McPhrase) -> bool {
+    match p {
+        McPhrase::Parallel(_) | McPhrase::Transposed(_) => true,
+        McPhrase::Group(g) => g.opds.iter().any(is_reverse_noop_operand),
+        _ => false,
+    }
+}
+
 /// Check veccircuit.md constraint: instances with 3+ pins cannot directly
 /// participate in `+` (Parallel) or `-` (Series Undirected) operations.
-/// Returns true if the operand is allowed to participate.
-fn check_inst_plusminus(opd: &McPhrase) -> bool {
+/// Returns `Some((name, pin_count))` for a rejected MultiPort instance,
+/// `None` when the operand is allowed to participate.
+fn check_inst_plusminus(opd: &McPhrase) -> Option<(String, usize)> {
     use McPhrase::*;
     match opd {
         Endpoint(McEndpoint::Single(McInstanceRef {
@@ -1885,10 +2185,14 @@ fn check_inst_plusminus(opd: &McPhrase) -> bool {
             ..
         })) => {
             let shape = shape_defaults(c);
-            !matches!(shape.kind, PinShapeKind::MultiPort)
+            if matches!(shape.kind, PinShapeKind::MultiPort) {
+                Some((c.name.to_string(), shape.static_count))
+            } else {
+                None
+            }
         }
         // Transposed, Group, FuncCall etc. — allowed (shape will be validated at Pass2)
-        _ => true,
+        _ => None,
     }
 }
 
@@ -2006,7 +2310,12 @@ impl McPhrase {
                 input.iter().flat_map(|e| e.get_left()).collect()
             }
             McPhrase::Transposed(mc_line) => mc_line.get_right(),
-            McPhrase::FuncCall(ref f) => f.left.clone(),
+            // ★ P4.1: consume the resolved return shape (eval.md §8.1).
+            // `This` / unresolved → caller shape (f.left); `Label` → left is empty ([0|N]).
+            McPhrase::FuncCall(ref f) => match &f.resolved_return_shape {
+                Some(ReturnShape::Label { .. }) => Vec::new(),
+                Some(ReturnShape::This) | None => f.left.clone(),
+            },
             McPhrase::Lead => vec![McBus::new("(lead)")],
             McPhrase::Endpoint(ref ep) => ep.get_left(),
             McPhrase::Member(phrase, _) => phrase.get_left(),
@@ -2113,7 +2422,12 @@ impl McPhrase {
                 output.iter().flat_map(|e| e.get_right()).collect()
             }
             McPhrase::Transposed(mc_line) => mc_line.get_left(),
-            McPhrase::FuncCall(ref f) => f.right.clone(),
+            // ★ P4.1: consume the resolved return shape (eval.md §8.1).
+            // `Label` → right = the return value's buses ([0|N]).
+            McPhrase::FuncCall(ref f) => match &f.resolved_return_shape {
+                Some(ReturnShape::Label { bus }) => bus.clone(),
+                Some(ReturnShape::This) | None => f.right.clone(),
+            },
             McPhrase::Lead => vec![McBus::new("(lead)")],
             McPhrase::Endpoint(ref ep) => ep.get_right(),
             McPhrase::Member(_, ep) => ep.get_right(),
@@ -2288,7 +2602,7 @@ impl McPhrase {
                     .collect();
 
                 if result.is_empty() {
-                    dlog_trace(1162, "No ports found in component");
+                    dlog_trace(1162, &crate::errcodes::format_msg(1162, &[]));
                     None
                 } else if result.len() == 1 {
                     Some(result.remove(0))
@@ -2351,7 +2665,7 @@ impl McPhrase {
                 }
 
                 if final_results.is_empty() {
-                    dlog_trace(1163, "No ports found in module");
+                    dlog_trace(1163, &crate::errcodes::format_msg(1163, &[]));
                     None
                 } else if final_results.len() == 1 {
                     Some(final_results.remove(0))
@@ -2410,7 +2724,7 @@ impl McPhrase {
                 }
 
                 if final_results.is_empty() {
-                    dlog_trace(1164, "No ports found in interface");
+                    dlog_trace(1164, &crate::errcodes::format_msg(1164, &[]));
                     None
                 } else if final_results.len() == 1 {
                     Some(final_results.remove(0))
@@ -2512,29 +2826,29 @@ impl McPhrase {
                     .collect::<Option<Vec<_>>>()?,
             )),
             McPhrase::Series(_, _) => {
-                dlog_trace(1168, "Dot operator does not apply for Series");
+                dlog_trace(1168, &crate::errcodes::format_msg(1168, &[]));
                 None
             }
             McPhrase::Endpoint(McEndpoint::Node { .. }) => {
-                dlog_trace(1169, "Dot operator does not apply for Node");
+                dlog_trace(1169, &crate::errcodes::format_msg(1169, &[]));
                 None
             }
             McPhrase::Transposed(_) => {
-                dlog_trace(1170, "Dot operator does not apply for Transposed");
+                dlog_trace(1170, &crate::errcodes::format_msg(1170, &[]));
                 None
             }
             McPhrase::Lead => {
-                dlog_trace(1171, "Dot operator does not apply for Lead");
+                dlog_trace(1171, &crate::errcodes::format_msg(1171, &[]));
                 None
             }
             McPhrase::Group(_) => {
-                dlog_trace(1172, "Dot operator does not apply for Group");
+                dlog_trace(1172, &crate::errcodes::format_msg(1172, &[]));
                 None
             }
             McPhrase::Closure(ref c) => {
                 // Phase 3: access members of the closure's output interface
                 if c.right.is_empty() {
-                    dlog_trace(1173, "Closure has no output interface to access");
+                    dlog_trace(1173, &crate::errcodes::format_msg(1173, &[]));
                     return None;
                 }
                 Self::access_node_element_members(&c.right, member_names)
@@ -2546,17 +2860,17 @@ impl McPhrase {
                 //   2. {vin|vout} -> curly_mn -> dot_or_curly(["vin"]) / dot_or_curly(["vout"])
                 //   3. Find matching port in the right interface
                 if f.right.is_empty() {
-                    dlog_trace(1174, "FuncCall has no return interface to access");
+                    dlog_trace(1174, &crate::errcodes::format_msg(1174, &[]));
                     return None;
                 }
                 Self::access_node_element_members(&f.right, member_names)
             }
             McPhrase::Endpoint(_ep) => {
-                dlog_trace(1175, "Dot operator does not apply for Endpoint");
+                dlog_trace(1175, &crate::errcodes::format_msg(1175, &[]));
                 None
             }
             McPhrase::Member(_, _) => {
-                dlog_trace(1176, "Dot operator already applied for Member");
+                dlog_trace(1176, &crate::errcodes::format_msg(1176, &[]));
                 None
             }
         }
@@ -2612,8 +2926,11 @@ impl McPhrase {
                     ))));
                 } else {
                     dlog_trace(
-                        1175,
-                        &format!("Member '{member_name}' not found in interface"),
+                        crate::errcodes::PHRASE_IFACE_MEMBER_NOT_FOUND,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::PHRASE_IFACE_MEMBER_NOT_FOUND,
+                            &[&member_name],
+                        ),
                     );
                     return None;
                 }
@@ -2629,11 +2946,11 @@ impl McPhrase {
 
     fn curly_mn(self, right1: &[String], right2: &[String]) -> Option<McPhrase> {
         if right1.is_empty() {
-            dlog_trace(1197, "curly_mn: left member list is empty");
+            dlog_trace(1197, &crate::errcodes::format_msg(1197, &[]));
             return None;
         }
         if right2.is_empty() {
-            dlog_trace(1198, "curly_mn: right member list is empty");
+            dlog_trace(1198, &crate::errcodes::format_msg(1198, &[]));
             return None;
         }
 
@@ -2668,7 +2985,7 @@ impl McPhrase {
                     }
                 }
                 _ => {
-                    dlog_trace(1199, "Cannot convert to McBus in curly_mn");
+                    dlog_trace(1199, &crate::errcodes::format_msg(1199, &[]));
                     None
                 }
             }
@@ -2928,12 +3245,11 @@ fn check_ambiguous_precedence(node: &AstNode, loc_node: &AstNode) {
     // there are more than 2 leaves and operators are genuinely mixed.
     if mixed && leaf_count > 2 {
         dlog_warning(
-            2008,
+            crate::errcodes::CONN_AMBIGUOUS_PRECEDENCE,
             loc_node,
-            &format!(
-                "AMBIGUOUS_PRECEDENCE: expression mixes + (parallel) with - or -> (series) \
-                 operators without parentheses and spans {leaf_count} components (>2). \
-                 Consider adding explicit parentheses (Group) to clarify the intended grouping."
+            &crate::errcodes::format_msg(
+                crate::errcodes::CONN_AMBIGUOUS_PRECEDENCE,
+                &[&leaf_count as &dyn std::fmt::Display],
             ),
         );
     }
@@ -3059,7 +3375,7 @@ fn infer_shape_and_upgrade(
                     }),
                 )
             } else {
-                dlog_trace(1220, "Groups with different branch counts cannot connect");
+                dlog_trace(1220, &crate::errcodes::format_msg(1220, &[]));
                 (
                     Group(McGroup {
                         opds: Vec::new(),
@@ -3179,29 +3495,69 @@ fn infer_shape_and_upgrade(
     }
 }
 
-fn is_connectable(lhs: &[McBus], rhs: &[McBus]) -> bool {
+/// Infer the vector shape from a set of endpoints (Pass1 stage, eval.md §1/§2).
+///
+/// - Empty set → [`Shape::unknown`] (unresolved, e.g. a FuncCall return value);
+/// - Each `McBus` element is one row; a bus with members (`RS485{A,B}`) counts as N rows;
+/// - At the endpoint stage the column count is always 1: a 2-pin device's
+///   `get_left/right` only exposes a single point, so the `1*2` row-vector shape is
+///   invisible at the phrase layer and only fully expanded in Pass2.
+fn shape_of_bus_list(elems: &[McBus]) -> Shape {
+    if elems.is_empty() {
+        return Shape::unknown();
+    }
+    let rows: usize = elems.iter().map(|e| e.size()).sum();
+    Shape::new(rows.max(1), 1)
+}
+
+/// Pass1 transpose safety guard (eval.md §5.5): the operand being transposed may only
+/// carry a 1*1 / 1*2 / 2*1 / 2*2 shape, i.e. the row count derivable at the phrase
+/// layer ∈ {1, 2}.
+///
+/// - Left/right point sets empty (e.g. unresolved FuncCall return value) → wildcard pass;
+/// - Contains an `<error` placeholder marker → wildcard pass (reusing the lenient
+///   semantics of [`is_connectable`]);
+/// - Row count ≥ 3 (e.g. `[A, B, C]'`) → `Err(rows)`, i.e. "re-merging expressions
+///   that were already split"; the caller reports E2902 and rejects the transpose.
+fn check_transpose_allowed(opd: &McPhrase) -> Result<(), usize> {
+    let left = opd.get_left();
+    let right = opd.get_right();
+    if left.is_empty() || right.is_empty() {
+        return Ok(());
+    }
+    if left
+        .iter()
+        .chain(right.iter())
+        .any(|b| b.name.contains("<error"))
+    {
+        return Ok(());
+    }
+    let rows = shape_of_bus_list(&left)
+        .rows
+        .max(shape_of_bus_list(&right).rows);
+    if rows >= 3 {
+        Err(rows)
+    } else {
+        Ok(())
+    }
+}
+
+/// Pass1 operator evaluation entry point (eval.md §3/§4): the shared
+/// "connectable" check for the four operator branches `-`/`+`/`->`/`<-`.
+/// Shape constraints follow the §4 evaluation table ([`eval_binary`]); the
+/// single-port (1*1) representative side is determined by [`representative`]
+/// per the §4 notes.
+///
+/// Three wildcards are kept:
+/// - Empty set (unresolved FuncCall return value) → pass;
+/// - `<error` placeholder marker → pass;
+/// - Single point (1 row) with an undetermined shape (possibly a 1*1 node / broadcast
+///   anchor / interface awaiting expansion) → pass; the real shape is validated
+///   in Pass2. For single-port (both sides 1 row), the representative side is
+///   additionally recorded per the §4 notes.
+fn is_connectable(op: ConnOp, dir: ConnDir, lhs: &[McBus], rhs: &[McBus]) -> bool {
     // Empty shape means "unknown/unresolved" (e.g. FuncCall return value), treated as connectable
     if lhs.is_empty() || rhs.is_empty() {
-        return true;
-    }
-
-    // Fast path: shape fully matches
-    if is_same_shape(lhs, rhs) {
-        return true;
-    }
-
-    let left_size: usize = lhs.iter().map(|each| each.size()).sum();
-    let right_size: usize = rhs.iter().map(|each| each.size()).sum();
-
-    // Compatible when sizes are equal
-    if left_size == right_size {
-        return true;
-    }
-
-    // Size <= 1 is treated as a wildcard: Label, single pin, unresolved reference, etc. at the phrase stage
-    // have no determined shape yet; the actual shape is only determined at the instantiation stage,
-    // and should not be blocked here.
-    if left_size <= 1 || right_size <= 1 {
         return true;
     }
 
@@ -3212,19 +3568,43 @@ fn is_connectable(lhs: &[McBus], rhs: &[McBus]) -> bool {
         return true;
     }
 
-    false
-}
+    let lhs_shape = shape_of_bus_list(lhs);
+    let rhs_shape = shape_of_bus_list(rhs);
 
-fn is_same_shape(lhs: &[McBus], rhs: &[McBus]) -> bool {
-    if lhs.len() != rhs.len() {
-        return false;
+    // §4 single-port (1*1) representative rule (eval.md §4 note): a single-port
+    // connection has no left/right distinction, so one representative is chosen —
+    // `+`/`-`/`<-` take operand 1 (op1), `->` takes operand 2 (op2).
+    // Consistent with the Pass2 anchoring: `+` anchors `wire_parallel_internal`
+    // opd[0], `-` anchors the Series head opd1, `<-` anchors the RtoL chain tail
+    // op1 (after the swap op1 lands at the tail), `->` anchors the LtoR chain tail op2.
+    if lhs_shape.rows == 1 && rhs_shape.rows == 1 {
+        mcc_dbg!(
+            "sem::conds",
+            "[vec] single-port representative: dir={dir:?} lhs={lhs_shape} rhs={rhs_shape} rep={rep}",
+            rep = representative(dir, lhs_shape, rhs_shape)
+        );
+        return true;
     }
 
-    // After flattening: compare whether member counts are the same
-    // member.len() == 0 means single wire, member.len() > 0 means bus
-    lhs.iter()
-        .zip(rhs.iter())
-        .all(|(l, r)| l.member.len() == r.member.len())
+    // A single point (1 row) has an undetermined shape at the phrase stage (it may
+    // be a 1*1 node, a broadcast anchor, or an interface awaiting expansion), so it
+    // stays a pass (the original wildcard semantics); the real shape is validated
+    // in Pass2.
+    if lhs_shape.rows <= 1 || rhs_shape.rows <= 1 {
+        return true;
+    }
+
+    // §4 four-operator evaluation table: row counts must match, columns take the larger
+    match eval_binary(op, lhs_shape, rhs_shape) {
+        Ok(_) => true,
+        Err(ShapeError::RowMismatch { lhs: l, rhs: r }) => {
+            dlog_trace(
+                0,
+                &format!("[vec] shape mismatch at phrase stage: {l} vs {r}"),
+            );
+            false
+        }
+    }
 }
 
 // ============================================================================

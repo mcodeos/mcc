@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Iteration 05b · Pin placement optimization (连通性优先的 pin-side / offset)
+//! Iteration 05b · Pin placement optimization (connectivity-first pin-side / offset)
 //!
 //! Replaces five scattered pin-side passes (`face_core_neighbor`,
 //! `assign_entry_points_refine`, `align_hub_to_spokes`, `order_pins_by_neighbor`,
@@ -210,8 +210,8 @@ fn desired_side_pass(
         let bcy = b.y + b.h / 2.0;
         let mut moved = 0usize; // per-box counter
 
-        // ── ★ iter 7: pre-pass —— 统计每条边上"有连接"的引脚数（含 authored 引脚），
-        //     用于决定未连接引脚甩到哪条边。 ─────────────────────────────────────
+        // ── ★ iter 7: pre-pass — count "connected" pins on each side (incl. authored pins),
+        //     used to decide which side unconnected pins get tossed to. ───────────────────
         let mut side_counts: HashMap<EntrySide, usize> = HashMap::new();
         for ep in &b.entry_points {
             let nbrs = pin_neighbors
@@ -267,8 +267,9 @@ fn desired_side_pass(
                 });
 
             if n == 0 {
-                // ★ iter 7: 未连接引脚甩到连接引脚最少的那条边（两个元件时就是主方向的对侧；
-                // 三四个元件时自动退化成"最空的那条边"），不再走语义默认。
+                // ★ iter 7: toss unconnected pins to the side with the fewest connected pins
+                // (with two components that's the side opposite the main direction; with three
+                // or four it degrades to "the emptiest side"), no longer the semantic default.
                 if least_side != ep.side {
                     ep.side = least_side.clone();
                     moved += 1;
@@ -466,11 +467,11 @@ fn find_entry_mut(graph: &mut McVecGraph, box_id: i64, pin_id: i64) -> Option<&m
 // C · Order pins per side (crossing-minimizing + unconnected pins included)
 // ============================================================================
 
-/// 定完边之后，按"目标位置"重排每条边上的引脚并均匀分配 offset。
-/// 消两件事：同边重叠（offset 撞车）、跨线交叉（顺序颠倒）。
+/// After sides are set, reorder each side's pins by target position and spread offsets evenly.
+/// Fixes two things: same-side overlapping offsets, and crossing wires (inverted order).
 ///
-/// ★ iter 7: 与旧 `order_within_side` 的区别 —— 未连接引脚也纳入排序
-/// （排在连接引脚之后，按原始 pin_id 排序），避免未连接引脚被遗漏导致 offset 未分配。
+/// ★ iter 7: difference from the old `order_within_side` — unconnected pins are also sorted
+/// (after connected pins, by original pin_id), so unconnected pins are never left without an assigned offset.
 fn order_pins_per_side(graph: &mut McVecGraph) {
     let targets = collect_pin_targets(graph);
 
@@ -498,11 +499,11 @@ fn order_pins_per_side(graph: &mut McVecGraph) {
                         .map(|&(x, y)| if horiz { y } else { x })
                 };
                 match (key(i), key(j)) {
-                    // 有连接的排在前面，按目标坐标升序 → 不交叉
+                    // connected pins first, ascending by target coordinate → no crossings
                     (Some(a), Some(c)) => a.partial_cmp(&c).unwrap_or(std::cmp::Ordering::Equal),
                     (Some(_), None) => std::cmp::Ordering::Less,
                     (None, Some(_)) => std::cmp::Ordering::Greater,
-                    // 都没连接：保持原始 pin 序，稳定
+                    // neither connected: keep the original pin order, stable
                     (None, None) => b.entry_points[i].pin_id.cmp(&b.entry_points[j].pin_id),
                 }
             });
@@ -514,8 +515,8 @@ fn order_pins_per_side(graph: &mut McVecGraph) {
     }
 }
 
-/// 收集每个引脚的对端质心坐标 (box_id, pin_id) → (x, y)。
-/// 无连接的引脚不在 map 中。
+/// Collect each pin's opposite-end centroid coordinate (box_id, pin_id) → (x, y).
+/// Unconnected pins are not in the map.
 fn collect_pin_targets(graph: &McVecGraph) -> HashMap<(i64, i64), (f64, f64)> {
     let flag_ids: HashSet<i64> = graph
         .boxes

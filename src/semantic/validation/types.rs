@@ -186,7 +186,7 @@ fn check_closure_in_text(
                             params_str,
                             free_vars.join(", ")
                         ),
-                        code: 3401,
+                        code: crate::errcodes::TYPE_CLOSURE_FREE_VAR,
                     });
                 }
             }
@@ -282,7 +282,7 @@ fn check_param_type_mismatch(acc: &mut CheckAccumulator) {
                                     unit_type,
                                     detail
                                 ),
-                                code: 3402,
+                                code: crate::errcodes::TYPE_INCOMPATIBLE,
                             });
                         }
                     }

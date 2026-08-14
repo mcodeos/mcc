@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Pre-commit hook: reject commits that are not English-only (non-ASCII).
+#
+# Installed via `git config core.hooksPath .githooks` so this file is shared
+# with every developer who clones the repo (see CLAUDE.md / AGENTS.md).
+#
+# Checks:
+#   1. Staged file contents (added / copied / modified files only).
+#   (Commit-message check lives in `commit-msg`, which receives the
+#    message file path; pre-commit takes no arguments.)
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+CHECK="$ROOT/scripts/check-cjk.py"
+
+# ── 1. Staged files ─────────────────────────────────────────────────────────
+# NUL-separated names keep paths with spaces safe; xargs -0 feeds them to the
+# scanner without word splitting.
+if ! git diff --cached --name-only --diff-filter=ACM -z \
+    | xargs -0 -r python3 "$CHECK"; then
+    echo "pre-commit: staged changes contain non-ASCII characters — English only." >&2
+    exit 1
+fi
+
+exit 0

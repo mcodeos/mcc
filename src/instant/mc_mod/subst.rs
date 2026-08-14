@@ -68,8 +68,24 @@ impl McModuleInst {
                 // The -> connection itself is handled by wire_builtin_twopin.
                 phrase.get_left()
             }
+            McParamValue::InlineAttrs(attrs) => {
+                // P1-6: Attribute blocks (`key = value`) are NOT net elements.
+                // The previous `_ =>` fallback degraded them into a fabricated
+                // text node name via format! (e.g. "[key = value]"), silently
+                // losing the structured attribute info. Report the degradation
+                // and produce no node instead.
+                let shown: Vec<String> = attrs.iter().map(|a| format!("{a}")).collect();
+                tracing::warn!(
+                    "param_value_to_node_elements: InlineAttrs argument [{}] cannot be \
+                     converted to a connection node; attributes are not net elements (P1-6)",
+                    shown.join(", ")
+                );
+                vec![]
+            }
             _ => {
-                // FuncCall, Attribute - use Display as fallback
+                // Literals (Int/Hex/Float/String/UValue/NONE/NC) - use Display as node name.
+                // This is the intended mechanism for value-bearing components such as
+                // `CAP(100nF)` -> node name "100nF".
                 let name = format!("{value}");
                 vec![McBus {
                     name,
@@ -530,5 +546,34 @@ impl McModuleInst {
         expansion_ctx: Option<&ExpansionContext>,
     ) -> McPhrase {
         Self::substitute_phrase(phrase, bindings, expansion_ctx)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::semantic::basic::mc_literal::{McLiteral, McString};
+    use crate::semantic::component::mc_attr::{McAttrVal, McAttribute};
+
+    /// P1-6 regression: an InlineAttrs argument (attribute block, e.g.
+    /// `foo { key = value }`) must NOT be fabricated into a bogus text node
+    /// name like `[key = value]`. Attributes are not net elements, so the
+    /// conversion must yield no node while reporting the degradation.
+    #[test]
+    fn inline_attrs_param_value_is_not_degraded_to_text_node() {
+        let attr = McAttribute {
+            no: 0,
+            id: McIds::from("color"),
+            values: vec![McAttrVal::AttrLiteral(McLiteral::String(McString {
+                value: "red".to_string(),
+            }))],
+            key_span: None,
+        };
+        let value = McParamValue::InlineAttrs(vec![attr]);
+        let elems = McModuleInst::param_value_to_node_elements(&value);
+        assert!(
+            elems.is_empty(),
+            "InlineAttrs must not become a net node, got {elems:?}"
+        );
     }
 }

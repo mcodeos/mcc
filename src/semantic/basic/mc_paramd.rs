@@ -685,51 +685,57 @@ impl McParamDeclare {
                     if let Some(default_node) = subnode.get_next() {
                         if let Some(default_ids) = McIds::new(&default_node) {
                             let default_str = default_ids.to_string();
-                            // Check if default is EnumClass.Value format (dotted)
-                            if default_ids.segments.len() > 1 {
-                                let class_name = default_ids.segments[0].to_string();
-                                let value_name: String = default_ids.segments[1..]
-                                    .iter()
-                                    .map(|s| s.to_string().trim_start_matches('.').to_string())
-                                    .collect::<Vec<_>>()
-                                    .join(".");
-                                if crate::db::cmie::cmie::is_enum_class_name(&class_name) {
-                                    param_type.kind = crate::semantic::basic::mc_param_type::McParamTypeKind::EnumClassDefault {
+                            // Check if default is EnumClass.Value format (dotted) — structured
+                            // segment extraction (`CAP.X7R` → ["CAP", "X7R"]), no
+                            // `to_string()` + `trim_start_matches('.')` text re-processing.
+                            // Non-plain chains (curly/square/array segments) fall through.
+                            if let Some(parts) = default_ids.dot_chain_parts() {
+                                if parts.len() > 1 {
+                                    let class_name = parts[0].clone();
+                                    let value_name: String = parts[1..].join(".");
+                                    if crate::db::cmie::cmie::is_enum_class_name(&class_name) {
+                                        param_type.kind = crate::semantic::basic::mc_param_type::McParamTypeKind::EnumClassDefault {
+                                            class_name: class_name.clone(),
+                                            default_val: Some(value_name.clone()),
+                                        };
+                                        return Some(Self {
+                                            param_type,
+                                            kind: McParamDeclareKind::EnumClass(
+                                                McEnumClassDeclare {
+                                                    name: name_ids,
+                                                    class_name,
+                                                    default_val: Some(value_name),
+                                                },
+                                            ),
+                                        });
+                                    }
+                                } else {
+                                    // Bare default (no dot): resolve against all known enums.
+                                    // e.g., diel = X7R → search all enums for member "X7R".
+                                    // Prefer the same-named enum (namespace merging) when available.
+                                    let prefer_class =
+                                        enclosing_comp_name.and_then(|n| n.root_name());
+                                    if let Some(class_name) =
+                                        crate::db::cmie::cmie::resolve_bare_enum_value(
+                                            &default_str,
+                                            prefer_class.as_deref(),
+                                        )
+                                    {
+                                        param_type.kind = crate::semantic::basic::mc_param_type::McParamTypeKind::EnumClassDefault {
                                         class_name: class_name.clone(),
-                                        default_val: Some(value_name.clone()),
+                                        default_val: Some(default_str.clone()),
                                     };
-                                    return Some(Self {
-                                        param_type,
-                                        kind: McParamDeclareKind::EnumClass(McEnumClassDeclare {
-                                            name: name_ids,
-                                            class_name,
-                                            default_val: Some(value_name),
-                                        }),
-                                    });
-                                }
-                            } else {
-                                // Bare default (no dot): resolve against all known enums.
-                                // e.g., diel = X7R → search all enums for member "X7R".
-                                // Prefer the same-named enum (namespace merging) when available.
-                                let prefer_class = enclosing_comp_name.and_then(|n| n.root_name());
-                                if let Some(class_name) =
-                                    crate::db::cmie::cmie::resolve_bare_enum_value(
-                                        &default_str,
-                                        prefer_class.as_deref(),
-                                    )
-                                {
-                                    param_type.kind = crate::semantic::basic::mc_param_type::McParamTypeKind::EnumClassDefault {
-                                    class_name: class_name.clone(),
-                                    default_val: Some(default_str.clone()),
-                                };
-                                    return Some(Self {
-                                        param_type,
-                                        kind: McParamDeclareKind::EnumClass(McEnumClassDeclare {
-                                            name: name_ids,
-                                            class_name,
-                                            default_val: Some(default_str),
-                                        }),
-                                    });
+                                        return Some(Self {
+                                            param_type,
+                                            kind: McParamDeclareKind::EnumClass(
+                                                McEnumClassDeclare {
+                                                    name: name_ids,
+                                                    class_name,
+                                                    default_val: Some(default_str),
+                                                },
+                                            ),
+                                        });
+                                    }
                                 }
                             }
                             // Non-enum default: falls through to Single below
@@ -737,7 +743,11 @@ impl McParamDeclare {
                     }
                     McParamDeclareKind::Single(name_ids)
                 } else {
-                    dlog_error(1304, node, "Invalid param name.");
+                    dlog_error(
+                        crate::errcodes::PARAM_NAME_INVALID,
+                        node,
+                        &crate::errcodes::format_msg(crate::errcodes::PARAM_NAME_INVALID, &[]),
+                    );
                     return None;
                 }
             }
@@ -756,7 +766,11 @@ impl McParamDeclare {
                 if !phrases.is_empty() {
                     McParamDeclareKind::Multiple(phrases)
                 } else {
-                    dlog_error(1305, node, "Invalid param set.");
+                    dlog_error(
+                        crate::errcodes::PARAM_SET_INVALID,
+                        node,
+                        &crate::errcodes::format_msg(crate::errcodes::PARAM_SET_INVALID, &[]),
+                    );
                     return None;
                 }
             }
@@ -781,7 +795,11 @@ impl McParamDeclare {
                 if !phrases.is_empty() {
                     McParamDeclareKind::Multiple(phrases)
                 } else {
-                    dlog_error(1305, node, "Invalid param set.");
+                    dlog_error(
+                        crate::errcodes::PARAM_SET_INVALID,
+                        node,
+                        &crate::errcodes::format_msg(crate::errcodes::PARAM_SET_INVALID, &[]),
+                    );
                     return None;
                 }
             }
@@ -790,7 +808,11 @@ impl McParamDeclare {
                 if let Some(uval) = McUnitValueDeclare::new(&subnode) {
                     McParamDeclareKind::UValue(uval)
                 } else {
-                    dlog_error(1307, node, "Invalid param uval.");
+                    dlog_error(
+                        crate::errcodes::PARAM_UVAL_INVALID,
+                        node,
+                        &crate::errcodes::format_msg(crate::errcodes::PARAM_UVAL_INVALID, &[]),
+                    );
                     return None;
                 }
             }
@@ -883,9 +905,12 @@ impl McParamDeclare {
                 match inst_ids_list.len() {
                     0 => {
                         dlog_error(
-                            1310,
+                            crate::errcodes::PARAM_NAME_EXTRACT_FAILED,
                             node,
-                            "Failed to extract parameter name from MCAST_DECLARE",
+                            &crate::errcodes::format_msg(
+                                crate::errcodes::PARAM_NAME_EXTRACT_FAILED,
+                                &[],
+                            ),
                         );
                         return None;
                     }
@@ -895,7 +920,11 @@ impl McParamDeclare {
             }
 
             _ => {
-                dlog_error(1303, node, "Invalid param declare node.");
+                dlog_error(
+                    crate::errcodes::PARAM_DECLARE_INVALID,
+                    node,
+                    &crate::errcodes::format_msg(crate::errcodes::PARAM_DECLARE_INVALID, &[]),
+                );
                 return None;
             }
         };
@@ -994,7 +1023,10 @@ impl McParamDeclare {
     /// Get the class/interface name if this is an interface-typed param (A3-A5).
     pub fn get_class_name(&self) -> Option<String> {
         match &self.param_type.kind {
-            crate::semantic::basic::mc_param_type::McParamTypeKind::Interface { class_name }
+            crate::semantic::basic::mc_param_type::McParamTypeKind::Interface {
+                class_name,
+                ..
+            }
             | crate::semantic::basic::mc_param_type::McParamTypeKind::InterfaceWithRole {
                 class_name,
                 ..

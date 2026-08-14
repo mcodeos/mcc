@@ -17,11 +17,9 @@
 //! - `funccall_inst.rs` —— Component / Module / UserFunc / InstanceMethod instantiation + prefix_instance
 //! - `iterated.rs`    —— Iterated call expansion
 //! - `subst.rs`       —— Parameter substitution helpers
-//! - `condition.rs`   —— Conditional expression evaluation
 //! - `debug_dump.rs`  —— Pass1→Pass2 info completeness debug output (MC_INST_DUMP=1 enabled)
 
 mod bus;
-mod condition;
 mod dump;
 mod expand;
 mod fcallinst;
@@ -243,7 +241,10 @@ impl McModuleInst {
 
         // 1. Instantiate interface (ports) — rarely fails
         if let Err(e) = self.instantiate_interface() {
-            self.record_error(900, format!("Interface instantiation failed: {e}"));
+            self.record_error(
+                crate::errcodes::INST_IFACE_INSTANTIATE_FAILED,
+                crate::errcodes::format_msg(crate::errcodes::INST_IFACE_INSTANTIATE_FAILED, &[&e]),
+            );
         }
 
         // 2. Process instances declared in the symbol table (components and sub-modules) — per-instance fault tolerance
@@ -330,10 +331,10 @@ impl McModuleInst {
                         func.name
                     );
                     self.record_warning(
-                        913,
-                        format!(
-                            "Module-level function '{}' body line failed: {e}",
-                            func.name
+                        crate::errcodes::INST_FUNC_BODY_LINE_FAILED,
+                        crate::errcodes::format_msg(
+                            crate::errcodes::INST_FUNC_BODY_LINE_FAILED,
+                            &[&func.name, &e],
                         ),
                     );
                 }

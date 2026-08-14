@@ -37,12 +37,13 @@ pub mod viz;
 pub use crate::semantic::basic::mc_bus::McBus;
 pub use crate::semantic::basic::mc_opd::McOpd;
 pub use crate::semantic::common::{
-    ContainerInfo, ContainerKind, IOType, LookupResult, LookupSymbolKind, McCMIE, McSpaceName,
-    McURI, ScopeFilter, ScopePath,
+    classify_lead, classify_phrase_leads, ContainerInfo, ContainerKind, IOType, LeadKind,
+    LookupResult, LookupSymbolKind, McCMIE, McSpaceName, McURI, ScopeFilter, ScopePath,
 };
 pub use crate::semantic::{
     basic::{
         mc_endpoint::{McEndpoint, McInstanceRef},
+        mc_fcall::{McFuncCall, ReturnShape},
         mc_phrase::McPhrase,
     },
     component::{
@@ -79,7 +80,7 @@ pub use builder::{
     mcb_iter_modules_with_span, mcb_iter_ports, mcb_lib_info, mcb_load_lib, mcb_loaded_file_count,
     mcb_loaded_libs, mcb_module_count, mcb_parse_all_modules, mcb_pass2_flat, mcb_print,
     mcb_print_lines, mcb_print_loaded_files, mcb_unload_lib, unified_lookup, unified_lookup_all,
-    unified_lookup_with_scope, MccProjectTree, SubElementKind,
+    MccProjectTree, SubElementKind,
 };
 
 // ── Instant / Net ──
@@ -87,12 +88,16 @@ pub use instant::insttab::{InstEntry, InstKind, InstTable, NetEntry};
 pub use instant::mc_comp::McComponentInst;
 pub use instant::mc_mod::McModuleInst;
 pub use instant::mc_net::NetPoint;
+pub use semantic::common::ConnDir;
 
 // ── Query ──
 pub use query::search as search_api;
 pub use query::search::dsl as query_api;
 
 // ── Semantic params / types ──
+pub use semantic::basic::mc_conds::{
+    McCond, McCondBlock, McCondOperand, McCondition, McConds, McFuncConds,
+};
 pub use semantic::basic::mc_param::{
     McParamBindings, McParamDeclare, McParamDeclares, McParamValue,
 };
@@ -143,10 +148,9 @@ pub fn mcc_log_global_diag(d: &GlobalDiag) {
             crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning
         }
     };
-    // code 1402: unused param/port; 1403: untyped param
     let code: u32 = match d.kind {
-        GlobalDiagKind::Unused => 1402,
-        GlobalDiagKind::Untyped => 1403,
+        GlobalDiagKind::Unused => crate::errcodes::UNUSED_PARAM_OR_PORT,
+        GlobalDiagKind::Untyped => crate::errcodes::UNTYPED_PARAM,
     };
     crate::db::diagnostic::diagnostic::diagnostic_log(
         code,
@@ -986,31 +990,53 @@ pub use crate::cli::config::set_log_stream_applier;
 pub use crate::cli::config::{get_runtime_trace, set_trace_stdout_suppressed};
 pub use crate::db::infra::mc_code::mcb_reset_ast_visit_flag;
 
-/// Load trace config from global + project config files.
-/// Called by binary at startup, before `-D` CLI flags are applied.
+/// Load trace config from global + project config files into runtime state
+/// **without** applying its level/targets to the active logging filter.
+///
+/// Use this for ordinary CLI commands: a file-configured `trace.level: debug`
+/// (or per-target overrides) must not flood a plain `mcc show` / `mcc parse`
+/// with INFO/DEBUG logs. Debug output is opt-in via `-v` / `-D` (or RPC
+/// `trace.set`), which apply the file config explicitly.
 ///
 /// Priority: project.toml > mcc.yaml (handled by `merge_configs`).
-/// Later, `-D` flags override both via the applier bridge.
-pub fn init_trace_config(project_root: Option<&std::path::Path>) {
+pub fn load_trace_config(project_root: Option<&std::path::Path>) {
     use crate::cli::config::{
         get_runtime_trace, load_global_config, load_project_config, merge_configs,
-        set_debug_targets,
     };
 
     let global = load_global_config().unwrap_or_default();
     let local = project_root.and_then(|p| load_project_config(p).ok().flatten());
     let merged = merge_configs(&global, local.as_ref());
 
-    // Update runtime trace for legacy flag compat
+    // Update runtime trace for legacy flag compat / `trace.get` queries.
     if let Ok(mut trace) = get_runtime_trace().write() {
         *trace = merged.trace.clone();
     }
+}
+
+/// Load trace config from global + project config files and apply its
+/// per-target level overrides to the active logging filter.
+///
+/// Only call this when the user explicitly asked for debug output (`-v` /
+/// `-D`); otherwise prefer [`load_trace_config`] so file-configured levels
+/// don't bury ordinary CLI results under engine logs.
+///
+/// Priority: project.toml > mcc.yaml (handled by `merge_configs`).
+/// Later, `-D` flags override both via the applier bridge.
+pub fn init_trace_config(project_root: Option<&std::path::Path>) {
+    use crate::cli::config::set_debug_targets;
+
+    load_trace_config(project_root);
+
+    let Ok(merged_trace) = get_runtime_trace().read() else {
+        return;
+    };
+    let merged_trace = merged_trace.clone();
 
     // Apply per-target overrides from merged config
-    if !merged.trace.targets.is_empty() {
-        let base = merged.trace.level.as_deref().unwrap_or("warn");
-        let targets: Vec<(String, String)> = merged
-            .trace
+    if !merged_trace.targets.is_empty() {
+        let base = merged_trace.level.as_deref().unwrap_or("warn");
+        let targets: Vec<(String, String)> = merged_trace
             .targets
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))

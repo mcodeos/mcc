@@ -75,9 +75,11 @@ pub fn register_def(
 ///
 /// Internal defs (ports, instances, labels, funcs) are container-scoped
 /// and do NOT leak to file-level or cross-file visibility (§3.2.2).
-/// There is intentionally NO P3/P4/P5 fallback — those levels are for
-/// CMIE class names (component/module/interface/enum/define) resolved
-/// via `mcb_get_cmie`, not for port/instance refs.
+/// There is no P3 name-only fallback: a name-only HashMap scan is
+/// non-deterministic and produces random cross-container hits. A miss returns
+/// None; the fix for a miss is registering the def with its proper scope.
+/// CMIE class names (component/module/interface/enum/define) are resolved
+/// via `mcb_get_cmie`, not by this function.
 pub fn lookup_declare_id(
     local: &LocalSymbolTable,
     name: &str,
@@ -99,12 +101,28 @@ pub fn lookup_declare_id(
         }
     }
 
-    // P3: name-only fallback for func params registered with zero scope ids
-    for ((_fid, _cid, _fnid, n), (id, _)) in local.name_to_declare_id.iter() {
-        if n == name {
-            return Some(*id);
-        }
-    }
+    // No P3. A name-only HashMap scan would be non-deterministic (random
+    // cross-container hits like `GND` → an unrelated component's GND). When
+    // P1/P2 miss, return None so goto-definition fails cleanly instead of
+    // jumping to an arbitrary same-named def. The correct fix for a miss is
+    // registering the def with its proper scope, not a random fallback.
 
     None
+}
+
+/// Emit a "not found" diagnostic for a reference that could not be resolved after
+/// the full P1–P5 lookup chain. Call this at the *final* miss point — after the
+/// caller has exhausted `lookup_declare_id` (P1/P2) plus any structural /
+/// class-name fallbacks (P3→P4→P5 via `mcb_get_cmie` / member-chain resolution).
+///
+/// Mirrors the design docs (`name-space-global.md` §1.3, `name-space-internal.md`
+/// §1.3): all levels miss → `Unresolved / diagnostic error`, which must surface instead
+/// of being silently dropped.
+pub fn report_unresolved_ref(span: &std::ops::Range<usize>, name: &str) {
+    crate::db::diagnostic::diagnostic::dlog_error_at(
+        crate::db::diagnostic::errcodes::SYMBOL_NOT_FOUND,
+        span.start as u32,
+        span.end.saturating_sub(span.start) as u32,
+        &format!("cannot find '{name}'"),
+    );
 }
