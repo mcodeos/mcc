@@ -373,6 +373,27 @@ pub const CONN_SHAPE_ROW_MISMATCH_RECOVERED: u32 = 2901;
 /// an already-broken-apart expression, which is not meaningful.
 pub const SHAPE_TRANSPOSE_LIMIT: u32 = 2902;
 
+/// Reverse `^` is a no-op on a vector operand (eval.md §9 / examples L180):
+/// parallel (`A + B`) and transposed (`X'`) operands carry no order to reverse.
+/// Emitted as a hint at Pass1 when the operand is already a vector.
+pub const SHAPE_REVERSE_NOOP: u32 = 2903;
+
+/// Vector expansion dimension mismatch (eval.md §7 rule 3): both sides are
+/// vectors with different row counts and implicit auto-expansion is forbidden.
+/// Emitted at Pass2 (`create_connection`) when `expand_match` rejects the pair
+/// (count mismatch) and truncation recovery is applied.
+pub const SHAPE_EXPAND_DIM_MISMATCH: u32 = 2904;
+
+/// Instance with 3+ pins cannot directly participate in `+` / `-`
+/// (veccircuit.md inst constraint, eval.md §2): only 1x1 / 1x2 raw shapes can.
+/// Emitted at Pass1 when the operand is a MultiPort component instance.
+pub const SHAPE_INST_3PIN_PLUSMINUS: u32 = 2905;
+
+/// NetShape missing on a net; the viz layer fell back to the deprecated
+/// `connection_type()` inference (stage 3: rarely triggered, only on paths
+/// that have not yet been covered by `build_net_shape`).
+pub const SHAPE_INCOMPLETE: u32 = 2906;
+
 // ============================================================================
 // Pass1c: component definition (pins / attrs / units) (3000-3049)
 // ============================================================================
@@ -1420,7 +1441,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(CURLY_RIGHT_EMPTY, "Curly-member construction: right member list is empty.", "Curly-member construction: right member list is empty."),
     entry!(CURLY_NOT_BUS, "Cannot convert the curly-member result to a bus.", "Cannot convert the curly-member result to a bus."),
     entry!(GROUP_BRANCH_COUNT_MISMATCH, "Groups with different branch counts cannot connect.", "Groups with different branch counts cannot connect."),
-    entry!(CONN_AMBIGUOUS_PRECEDENCE, "Expression mixes + (parallel) with - or -> (series) operators without parentheses, spanning more than two components.", "AMBIGUOUS_PRECEDENCE: expression mixes + (parallel) with - or -> (series) operators without parentheses and spans {0} components (>2). Consider adding explicit parentheses (Group) to clarify the intended grouping."),
+    entry!(CONN_AMBIGUOUS_PRECEDENCE, "Expression mixes + (parallel) with - or -> (series) operators without parentheses, spanning more than two components.", "AMBIGUOUS_PRECEDENCE: expression mixes + (parallel) with - or -> (series) operators without parentheses and spans {0} components (>2). `->`/`<-` bind tighter than `+`/`-` (eval.md §9); wrap the intended sub-expression in explicit parentheses (Group) to disambiguate, e.g. `(A + B) - C` or `A + (B - C)`."),
     // ---- section ----
     entry!(GHOST_PORT_BOX, "A box has a placeholder pin not mapped to any real component pin.", "GHOST_PORT: box '{0}' (id={1}) has placeholder pin '{2}' (id={3}) that is not mapped to any real component pin. The component declared only an estimated pin count (pins = N) without actual pin definitions."),
     entry!(NET_MERGED_SHORT, "Multiple points resolve to the same node — possible short circuit (E2003).", "MERGED_SHORT: net '{0}' (module '{1}') has {2} point(s) resolving to the same node (id={3}). Paths: {4}. This may indicate a bracket expansion duplicate or a port declared without bit width causing signal merging."),
@@ -1486,6 +1507,10 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(CONN_SHAPE_MISMATCH_TRUNCATED, "Connection shape mismatch; truncated to the smaller side.", "Shape mismatch: left={0}, right={1}, truncating to min({2})"),
     entry!(CONN_SHAPE_ROW_MISMATCH_RECOVERED, "Vector shape row mismatch (eval.md §3) recovered by truncation.", "Vector shape mismatch: left {0} vs right {1}, truncating to min({2})"),
     entry!(SHAPE_TRANSPOSE_LIMIT, "Transpose operand must be 1*1 / 1*2 / 2*1 / 2*2 (eval.md §5.5).", "Transpose operand has {0} rows; only 1*1, 1*2, 2*1 or 2*2 shapes can be transposed."),
+    entry!(SHAPE_REVERSE_NOOP, "Reverse `^` has no effect on a vector (parallel / transposed) operand (eval.md §9).", "Reverse `^` on '{0}' has no effect: a vector operand (parallel or transposed) carries no order to reverse."),
+    entry!(SHAPE_EXPAND_DIM_MISMATCH, "Vector expansion dimension mismatch (eval.md §7 rule 3); implicit auto-expansion forbidden.", "Vector expansion dimension mismatch: left {0} rows vs right {1} rows. {2}"),
+    entry!(SHAPE_INST_3PIN_PLUSMINUS, "Instance with 3+ pins cannot directly participate in `+`/`-`; only 1x1/1x2 instances can (veccircuit.md).", "Instance '{0}' with {1} pins cannot directly participate in `+`/`-`. Use `->` for a pass-through connection."),
+    entry!(SHAPE_INCOMPLETE, "NetShape missing; fell back to the deprecated connection_type() inference (stage 3).", "SHAPE_INCOMPLETE: net '{0}' has no NetShape provenance; fell back to connection_type() inference."),
     entry!(CONN_PARALLEL_DIM_MISMATCH, "Parallel '+' operand dimension mismatch; operand merged into the anchor's left net.", "Parallel '+' operand dimension mismatch (anchor={0}x1, opd[{1}]={2}x1 left / {3}x1 right): merging operand into anchor's left net."),
     entry!(CONN_GROUP_SHAPE_MISMATCH, "Group connection shape mismatch; truncated by branch count.", "Group shape mismatch: {0} external points vs {1} group points ({2} branches), truncating"),
     entry!(INST_INPUT_PIN_COUNT_MISMATCH, "Component input pin count mismatch in a function call.", "Component '{0}' ({1}) input pin count mismatch: {2} connections vs {3} input pins"),

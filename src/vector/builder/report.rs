@@ -19,6 +19,7 @@
 //! - `Strict`: any resolve failure immediately `Err(BuilderError::DataLoss)`
 //! - `NoDataLoss`: entire net dropped is ok, but partial net (some points lost) errors
 
+use crate::vector::model::netshape::ShapeStats;
 use std::fmt;
 
 // ============================================================================
@@ -122,6 +123,8 @@ pub struct BuilderReport {
     pub partial_nets: Vec<PartialNet>,
     /// unresolved modules (bid = -1)
     pub unresolved_modules: Vec<String>,
+    /// ★ P5.3: NetShape coverage statistics (`N/M nets have shape info`)
+    pub shape_stats: ShapeStats,
 }
 
 impl BuilderReport {
@@ -180,6 +183,13 @@ impl BuilderReport {
         s.push_str(&format!(
             "  unresolved modules: {}\n",
             self.unresolved_modules.len()
+        ));
+        // ★ P5.3: N/M nets have shape info (XX%)
+        s.push_str(&format!(
+            "  shape info: {}/{} nets ({:.0}%)\n",
+            self.shape_stats.from_source,
+            self.shape_stats.total_nets,
+            self.shape_stats.coverage() * 100.0
         ));
         for d in &self.dropped_nets {
             s.push_str(&format!(

@@ -226,3 +226,124 @@ fn transpose_shape_limit_emitted_and_legal_transposes_pass() {
 
     drop(lock);
 }
+
+/// E2903 (SHAPE_REVERSE_NOOP): reverse `^` on a vector operand is a hint
+/// (eval.md §9 / examples L180). Parallel operands carry no order to reverse.
+#[test]
+fn reverse_noop_hint_on_parallel_operand() {
+    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+
+    // Reverse on a parallel vector is a no-op → hint.
+    let src = "module main { (A + B)^ }";
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+    let uri = "/mcc/reverse-noop.mc".to_string();
+    mcc::mcc_load_from_string(&uri, src);
+    let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
+    let codes: HashSet<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
+    assert!(
+        codes.contains(&mcc::errcodes::SHAPE_REVERSE_NOOP),
+        "E2903 not emitted for reverse on a parallel vector; got codes: {codes:?}"
+    );
+
+    // Reverse on a series chain is a meaningful order flip → no hint.
+    let good = "module main { (A - B)^ }";
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+    let uri = "/mcc/reverse-series.mc".to_string();
+    mcc::mcc_load_from_string(&uri, good);
+    let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
+    let codes: HashSet<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
+    assert!(
+        !codes.contains(&mcc::errcodes::SHAPE_REVERSE_NOOP),
+        "E2903 false positive on series reverse; got codes: {codes:?}"
+    );
+
+    drop(lock);
+}
+
+/// E2905 (SHAPE_INST_3PIN_PLUSMINUS): an instance with 3+ pins cannot directly
+/// participate in `+` / `-` (veccircuit.md inst constraint). The dedicated
+/// code replaces the old generic CONN_PARALLEL_INVALID / CONN_SERIES_INVALID.
+#[test]
+fn inst_3pin_plusminus_rejected_with_dedicated_code() {
+    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+
+    // 3-pin instance directly participating in `+`.
+    let src = "component _M()\n{\n    pins = [\n        1 = P1\n        2 = P2\n        3 = P3\n    ]\n}\nmodule main\n{\n    _M U1 + GND\n}";
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+    let uri = "/mcc/inst-plusminus.mc".to_string();
+    mcc::mcc_load_from_string(&uri, src);
+    let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
+    let codes: HashSet<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
+    assert!(
+        codes.contains(&mcc::errcodes::SHAPE_INST_3PIN_PLUSMINUS),
+        "E2905 not emitted for 3+ pin instance in `+`; got codes: {codes:?}"
+    );
+    // The old generic codes are no longer used for this case.
+    assert!(
+        !codes.contains(&mcc::errcodes::CONN_PARALLEL_INVALID),
+        "CONN_PARALLEL_INVALID should be replaced by E2905; got codes: {codes:?}"
+    );
+
+    // 3-pin instance directly participating in `-`.
+    let src2 = "component _M()\n{\n    pins = [\n        1 = P1\n        2 = P2\n        3 = P3\n    ]\n}\nmodule main\n{\n    _M U1 - GND\n}";
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+    let uri = "/mcc/inst-minus.mc".to_string();
+    mcc::mcc_load_from_string(&uri, src2);
+    let _ = mcc::mcc_build(&mcc::McIds::from("main"), &uri);
+    let codes: HashSet<u32> = mcc::mcc_diagnose_all().iter().map(|d| d.code).collect();
+    assert!(
+        codes.contains(&mcc::errcodes::SHAPE_INST_3PIN_PLUSMINUS),
+        "E2905 not emitted for 3+ pin instance in `-`; got codes: {codes:?}"
+    );
+
+    drop(lock);
+}
+
+/// P5.2: the AMBIGUOUS_PRECEDENCE message must state the explicit precedence
+/// rule and the fix direction (eval.md §9).
+#[test]
+fn ambiguous_precedence_message_includes_priority_rule() {
+    let msg = mcc::errcodes::format_msg(mcc::errcodes::CONN_AMBIGUOUS_PRECEDENCE, &[&3usize]);
+    assert!(
+        msg.contains("bind tighter"),
+        "E2008 message should state the precedence rule; got: {msg}"
+    );
+    assert!(
+        msg.contains("(A + B) - C"),
+        "E2008 message should show a concrete grouping example; got: {msg}"
+    );
+}
+
+/// E2904 (SHAPE_EXPAND_DIM_MISMATCH): the Pass2 recovery branch attaches the
+/// P5.4 fix suggestion (eval.md §7 rule 3) to the message. The suggestion
+/// generator itself is unit-tested in netshape.rs; here we verify the
+/// generator output flows into the rendered E2904 message.
+#[test]
+fn expand_dim_mismatch_reported_with_suggestion() {
+    // 3×1 vs 2×1 named members: a fix suggestion exists and is interpolated.
+    let fix = mcc::vector::model::netshape::suggest_shape_fix(3, 2)
+        .expect("3x1 vs 2x1 mismatch must produce a suggestion");
+    let msg = mcc::errcodes::format_msg(
+        mcc::errcodes::SHAPE_EXPAND_DIM_MISMATCH,
+        &[&3usize, &2usize, &fix],
+    );
+    assert!(
+        msg.contains("left 3 rows vs right 2 rows"),
+        "E2904 message should report both row counts; got: {msg}"
+    );
+    assert!(
+        msg.contains("`*`"),
+        "E2904 message should carry the explicit-`*` fix suggestion; got: {msg}"
+    );
+
+    // Equal row counts → no suggestion (no mismatch to fix).
+    assert_eq!(mcc::vector::model::netshape::suggest_shape_fix(2, 2), None);
+}

@@ -398,6 +398,31 @@ impl McModuleInst {
                     ],
                 ),
             );
+            // ── P5: E2904 (expand dim mismatch, eval.md §7 rule 3) ─────────
+            // When both sides carry named members, the mismatch is a
+            // bus-member expansion problem: implicit auto-expansion is
+            // forbidden, so a named N×1 vs M×1 pair needs an explicit `*`
+            // expansion list or `_` placeholders. Attach the P5.4 fix
+            // suggestion to the message.
+            if left_points
+                .iter()
+                .chain(right_points.iter())
+                .any(|p| p.member_name.as_deref().is_some_and(|n| !n.is_empty()))
+            {
+                let suggestion =
+                    crate::vector::model::netshape::suggest_shape_fix(left_size, right_size);
+                self.record_warning(
+                    crate::errcodes::SHAPE_EXPAND_DIM_MISMATCH,
+                    crate::errcodes::format_msg(
+                        crate::errcodes::SHAPE_EXPAND_DIM_MISMATCH,
+                        &[
+                            &left_size as &dyn std::fmt::Display,
+                            &right_size as &dyn std::fmt::Display,
+                            &suggestion.as_deref().unwrap_or("") as &dyn std::fmt::Display,
+                        ],
+                    ),
+                );
+            }
             let min_size = left_size.min(right_size);
             for (l, r) in left_points
                 .into_iter()

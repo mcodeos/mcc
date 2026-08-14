@@ -1495,6 +1495,21 @@ impl McPhrase {
                         phrases.reverse();
                         Some(McPhrase::Series(phrases.clone(), ConnDir::Undirected))
                     }
+                    // ── P5: E2903 — reverse `^` on a vector operand is a no-op ──
+                    // Parallel (`A + B`), transposed (`X'`) and parenthesized
+                    // vector groupings (`(A + B)`) carry no order to reverse
+                    // (eval.md §5.6 / examples L180: `...'^`).
+                    opd1 if is_reverse_noop_operand(&opd1) => {
+                        dlog_warning(
+                            crate::errcodes::SHAPE_REVERSE_NOOP,
+                            node,
+                            &crate::errcodes::format_msg(
+                                crate::errcodes::SHAPE_REVERSE_NOOP,
+                                &[&opd1],
+                            ),
+                        );
+                        Some(opd1)
+                    }
                     opd1 => {
                         let mut phrases = vec![opd1];
                         phrases.reverse();
@@ -1568,19 +1583,25 @@ impl McPhrase {
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
 
                 // ── P1.3: inst 1*1/1*2 constraint for +/- ──
-                if !check_inst_plusminus(&opd1) {
+                if let Some((inst_name, pin_count)) = check_inst_plusminus(&opd1) {
                     dlog_error(
-                        crate::errcodes::CONN_PARALLEL_INVALID,
+                        crate::errcodes::SHAPE_INST_3PIN_PLUSMINUS,
                         node,
-                        &crate::errcodes::format_msg(crate::errcodes::CONN_PARALLEL_INVALID, &[]),
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::SHAPE_INST_3PIN_PLUSMINUS,
+                            &[&inst_name, &pin_count],
+                        ),
                     );
                     return None;
                 }
-                if !check_inst_plusminus(&opd2) {
+                if let Some((inst_name, pin_count)) = check_inst_plusminus(&opd2) {
                     dlog_error(
-                        crate::errcodes::CONN_PARALLEL_INVALID,
+                        crate::errcodes::SHAPE_INST_3PIN_PLUSMINUS,
                         node,
-                        &crate::errcodes::format_msg(crate::errcodes::CONN_PARALLEL_INVALID, &[]),
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::SHAPE_INST_3PIN_PLUSMINUS,
+                            &[&inst_name, &pin_count],
+                        ),
                     );
                     return None;
                 }
@@ -1686,19 +1707,25 @@ impl McPhrase {
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
 
                 // ── P1.3: inst 1*1/1*2 constraint for +/- ──
-                if !check_inst_plusminus(&opd1) {
+                if let Some((inst_name, pin_count)) = check_inst_plusminus(&opd1) {
                     dlog_error(
-                        crate::errcodes::CONN_SERIES_INVALID,
+                        crate::errcodes::SHAPE_INST_3PIN_PLUSMINUS,
                         node,
-                        &crate::errcodes::format_msg(crate::errcodes::CONN_SERIES_INVALID, &[]),
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::SHAPE_INST_3PIN_PLUSMINUS,
+                            &[&inst_name, &pin_count],
+                        ),
                     );
                     return None;
                 }
-                if !check_inst_plusminus(&opd2) {
+                if let Some((inst_name, pin_count)) = check_inst_plusminus(&opd2) {
                     dlog_error(
-                        crate::errcodes::CONN_SERIES_INVALID,
+                        crate::errcodes::SHAPE_INST_3PIN_PLUSMINUS,
                         node,
-                        &crate::errcodes::format_msg(crate::errcodes::CONN_SERIES_INVALID, &[]),
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::SHAPE_INST_3PIN_PLUSMINUS,
+                            &[&inst_name, &pin_count],
+                        ),
                     );
                     return None;
                 }
@@ -2134,10 +2161,23 @@ fn shape_defaults(c: &Mc2Component) -> CompPinShape {
     }
 }
 
+/// Whether a phrase carries no order to reverse: parallel groupings,
+/// transposed operands and parenthesized vector groupings are vectors, so
+/// `^` on them is a no-op (eval.md §5.6). Series chains are reversible and
+/// are excluded here.
+fn is_reverse_noop_operand(p: &McPhrase) -> bool {
+    match p {
+        McPhrase::Parallel(_) | McPhrase::Transposed(_) => true,
+        McPhrase::Group(g) => g.opds.iter().any(is_reverse_noop_operand),
+        _ => false,
+    }
+}
+
 /// Check veccircuit.md constraint: instances with 3+ pins cannot directly
 /// participate in `+` (Parallel) or `-` (Series Undirected) operations.
-/// Returns true if the operand is allowed to participate.
-fn check_inst_plusminus(opd: &McPhrase) -> bool {
+/// Returns `Some((name, pin_count))` for a rejected MultiPort instance,
+/// `None` when the operand is allowed to participate.
+fn check_inst_plusminus(opd: &McPhrase) -> Option<(String, usize)> {
     use McPhrase::*;
     match opd {
         Endpoint(McEndpoint::Single(McInstanceRef {
@@ -2145,10 +2185,14 @@ fn check_inst_plusminus(opd: &McPhrase) -> bool {
             ..
         })) => {
             let shape = shape_defaults(c);
-            !matches!(shape.kind, PinShapeKind::MultiPort)
+            if matches!(shape.kind, PinShapeKind::MultiPort) {
+                Some((c.name.to_string(), shape.static_count))
+            } else {
+                None
+            }
         }
         // Transposed, Group, FuncCall etc. — allowed (shape will be validated at Pass2)
-        _ => true,
+        _ => None,
     }
 }
 

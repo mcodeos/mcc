@@ -278,8 +278,16 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                         nc_report.print();
 
                         mcc::vector::builder::reset_np_warn_count();
-                        let (vec_block, _report) =
+                        let (vec_block, report) =
                             mcc::build_mc_vec_with_report(&mod_inst, &mod_table);
+                        // ★ P5.3: NetShape coverage to CLI — N/M nets have shape info
+                        let ss = &report.shape_stats;
+                        eprintln!(
+                            "shape info: {}/{} nets have shape info ({:.0}%)",
+                            ss.from_source,
+                            ss.total_nets,
+                            ss.coverage() * 100.0
+                        );
                         let graph = mcc::build_mc_vec_graph(&vec_block, &mod_table);
 
                         total_boxes += graph.boxes.len();

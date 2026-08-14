@@ -142,8 +142,6 @@ impl<'a> McVecBuilder<'a> {
     ///   or use new [`McVecBuilder::try_build`] for `Result`
     pub fn build(&mut self, root: &McModuleInst) -> McVecBlock {
         let block = self.convert_module(root, "");
-        // Print summary once at end of build by default
-        self.report.print_summary();
         // ★ M-1'-A: Collect unique nets from block tree, observe once per net
         self.observe_block_nets(&block);
         debug_assert_eq!(
@@ -151,8 +149,12 @@ impl<'a> McVecBuilder<'a> {
             "ShapeStats: total({}) != total_nets({}) — observe() mismatch",
             self.shape_stats.total, self.shape_stats.total_nets
         );
+        // ★ P5.3: publish shape coverage into the report (N/M nets have shape info)
+        self.report.shape_stats = self.shape_stats.clone();
         // ★ M-1'-A: Log shape coverage statistics
         self.log_shape_stats();
+        // Print summary once at end of build by default
+        self.report.print_summary();
         block
     }
 
@@ -163,7 +165,6 @@ impl<'a> McVecBuilder<'a> {
     /// - `Strict` → `Err(DataLoss)` on any drop/partial/unresolved
     pub fn try_build(&mut self, root: &McModuleInst) -> Result<McVecBlock, BuilderError> {
         let block = self.convert_module(root, "");
-        self.report.print_summary();
         // ★ M-1'-A: Collect unique nets from block tree, observe once per net
         self.observe_block_nets(&block);
         debug_assert_eq!(
@@ -171,8 +172,11 @@ impl<'a> McVecBuilder<'a> {
             "ShapeStats: total({}) != total_nets({}) — observe() mismatch",
             self.shape_stats.total, self.shape_stats.total_nets
         );
+        // ★ P5.3: publish shape coverage into the report (N/M nets have shape info)
+        self.report.shape_stats = self.shape_stats.clone();
         // ★ M-1'-A: Log shape coverage statistics
         self.log_shape_stats();
+        self.report.print_summary();
 
         match self.mode {
             BuildMode::Tolerant => Ok(block),
