@@ -182,6 +182,13 @@ impl McModule {
                                         "[AUDIT-ModulePort-Iface] extract failed, subnode_type={}",
                                         subnode.get_type());
                                 }
+                                // ★ LSP: curly interface params
+                                // (`dc{VDD_3V3, GND}::DC(3.3V)`) register a
+                                // BusDef with declaration-site member spans so
+                                // `dc.GND` / `dc.VDD_3V3` resolve via
+                                // bus_member_hit to the member text in THIS
+                                // file instead of a use-site span.
+                                Self::register_curly_param_bus_def(&subnode, &mut self.insts);
                             }
                         } else {
                             self.insts.parse(&subnode, &self.uri);
@@ -441,6 +448,74 @@ impl McModule {
             }
         }
         None
+    }
+
+    /// ★ LSP: register a BusDef for curly interface module params such as
+    /// `dc{VDD_3V3, GND}::DC(3.3V)`. The whole span covers the base identifier
+    /// and each member span points at the member text, so member refs
+    /// (`dc.GND`, `dc.VDD_3V3`) resolve to the declaration in THIS file via
+    /// `bus_member_hit` rather than a first-use site span.
+    fn register_curly_param_bus_def(node: &AstNode, insts: &mut McInstances) {
+        // MCAST_DECLARE → MCAST_INSTANCE → MCAST_OPD → MCAST_IDS[base, opd_curly[...]]
+        let Some(sub) = node.get_sub_node() else {
+            return;
+        };
+        let mut cur = sub;
+        let ids_node = loop {
+            if cur.get_type() == MCAST_INSTANCE {
+                let mut inner = cur.get_sub_node();
+                let ids = loop {
+                    match inner {
+                        Some(n) if n.get_type() == MCAST_IDS => break n,
+                        Some(n) => inner = n.get_sub_node(),
+                        None => return,
+                    }
+                };
+                break ids;
+            }
+            match cur.get_next() {
+                Some(nx) => cur = nx,
+                None => return,
+            }
+        };
+        let Some((busname, members)) = McIds::new(&ids_node).and_then(|ids| ids.as_bus()) else {
+            return;
+        };
+        if members.is_empty() {
+            return;
+        }
+        let whole_span = ids_node
+            .get_sub_node()
+            .filter(|n| n.get_type() == MCAST_ID)
+            .map(|n| {
+                let p = n.get_pos() as usize;
+                p..(p + busname.len())
+            })
+            .unwrap_or_else(|| {
+                let p = ids_node.get_pos() as usize;
+                p..(p + busname.len())
+            });
+        let mut member_spans: Vec<(String, std::ops::Range<usize>)> = Vec::new();
+        let mut mcur = ids_node.get_sub_node();
+        while let Some(child) = mcur {
+            if matches!(child.get_type(), MCAST_OPD_CURLY | MCAST_OPD_CURLY_MN) {
+                let mut mc = child.get_sub_node();
+                while let Some(m) = mc {
+                    if let Some(mname) = m.to_string() {
+                        let mstart = m.get_pos() as usize;
+                        let mlen = mname.len();
+                        member_spans.push((mname, mstart..(mstart + mlen)));
+                    }
+                    mc = m.get_next();
+                }
+            }
+            mcur = child.get_next();
+        }
+        if !member_spans.is_empty() {
+            tracing::info!(target: "mcc::lsp::audit",
+                "[AUDIT-ParamBusDef] bus={busname} span={whole_span:?} members={member_spans:?}");
+            insts.register_bus_def(&busname, whole_span, member_spans);
+        }
     }
 
     pub(crate) fn find_inst(&self, id: &str) -> Option<McInstance> {
@@ -913,20 +988,50 @@ impl McModule {
                     let ids_node = phrase_node
                         .get_sub_node()
                         .unwrap_or_else(|| phrase_node.clone());
+                    let mut handled = false;
                     if let Some(ids) = crate::semantic::basic::mc_ids::McIds::new(&ids_node) {
                         let name = ids.to_string();
                         let member_span = (ids_node.get_pos() as usize)
                             ..((ids_node.get_pos() + ids_node.get_len()) as usize);
-                        let in_insts = insts.port_spans().contains_key(&name);
-                        let in_params = params.is_defined(&name);
-                        tracing::info!(
-                            "SQUARE_VEC_REF member='{name}' span=[{},{}] in_insts={in_insts} in_params={in_params} scope='{scope}'",
-                            member_span.start, member_span.end
-                        );
-                        if in_insts {
-                            insts.record_net_ref(member_span, &name, scope);
-                        } else if in_params {
-                            params.record_net_ref(member_span, &name, scope);
+                        // ★ Dot-chain members (`dc.VDD_3V3`, `lpa.IN.N`) must
+                        // NOT be folded into their base key here — resolve_idx
+                        // would map them to `dc`/`lpa` and lose the member
+                        // context. Route them through the chain path below.
+                        let is_chain = name.contains('.');
+                        if !is_chain {
+                            // Resolve the member to its owning port (e.g. `VDD_3V3`
+                            // inside `[VDD_3V3, GND]::DC(3.3V)` maps to the bracket
+                            // key) so usage of bracket members counts as usage of
+                            // the whole bracket port.
+                            let matched_key = insts.resolve_idx(&name);
+                            let in_params = params.is_defined(&name);
+                            tracing::info!(
+                                "SQUARE_VEC_REF member='{name}' span=[{},{}] key={:?} in_params={in_params} scope='{scope}'",
+                                member_span.start, member_span.end, matched_key
+                            );
+                            if let Some(key) = matched_key {
+                                insts.record_net_ref(member_span, &key, scope);
+                                handled = true;
+                            } else if in_params {
+                                params.record_net_ref(member_span, &name, scope);
+                                handled = true;
+                            }
+                        }
+                    }
+                    if !handled {
+                        // ★ Unmatched / chain members (e.g. `dc.VDD_3V3`,
+                        // `RES(..) -> (lpa.VO1 + spk.N)`) were previously
+                        // dropped entirely — recurse so the chain path
+                        // (has_dot_chain → try_record_chain_ref) registers
+                        // them instead. Walk next-siblings too: a member may
+                        // be a full connection (`dc.VDD_3V3 -> wm7121.VCC`)
+                        // whose arrow's right operand hangs off the left
+                        // operand's get_next() — without the walk it is
+                        // swallowed and never registered as a pin ref.
+                        let mut cur = Some(ids_node.clone());
+                        while let Some(c) = cur {
+                            Self::collect_net_refs_in_node(&c, insts, params, scope);
+                            cur = c.get_next();
                         }
                     }
                     current = phrase_node.get_next();
@@ -1236,6 +1341,13 @@ impl McModule {
                 let st = cur.get_type();
                 if st == MCAST_OPD_DOT {
                     if let Some(t) = cur.to_string() {
+                        // ★ Consecutive dots (`lpa.IN.N` → [DOT IN, DOT N]):
+                        // flush the previous member first so the middle
+                        // segment is not dropped (segments would become
+                        // [lpa, N] instead of [lpa, IN, N]).
+                        if let Some(prev) = pending_dot.take() {
+                            segments.push(ChainSegment::Ident(prev));
+                        }
                         pending_dot = Some(t);
                     }
                 } else if st == MCAST_OPD_CURLY || st == MCAST_OPD_CURLY_MN {

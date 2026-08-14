@@ -472,6 +472,17 @@ fn check_phrase_member_refs(
     for side in text.split("->") {
         for endpoint in side.split(',') {
             let mut endpoint = endpoint.trim();
+
+            // Method calls (`ldo.enable()`) and ctor calls (`CAP(1uF).Cap(x)`)
+            // display with parentheses. Detect them on the raw text BEFORE
+            // stripping enclosing punctuation: `ldo.enable()` must not be
+            // treated as a `ldo.enable` pin reference (4108 false positive).
+            if endpoint.split_once('.').map_or(false, |(_, rest)| {
+                rest.split('.').next().unwrap_or(rest).contains('(')
+            }) {
+                continue;
+            }
+
             // Strip trailing/leading punctuation that may be part of
             // enclosing function-call syntax: `Pullup(..., uC.VDD)` →
             // endpoint is "uC.VDD)" after split by `,`.

@@ -489,6 +489,12 @@ impl McInstances {
                         forms.push(label[..pos].to_string());
                     }
                 }
+                McInstance::Interface(iface) => {
+                    // Square `[VDD_3V3, GND]::DC(3.3V)` members are referenced
+                    // as bare members (`VDD_3V3`, `GND`); curly
+                    // `vin{POWER_SYS, GND}::DC(5V)` as `vin.POWER_SYS`.
+                    forms.extend(iface.name.expand());
+                }
                 _ => {}
             }
         }
@@ -649,6 +655,9 @@ impl McInstances {
                             let ctype = child.get_type();
                             match ctype {
                                 MCAST_DECLARE => {
+                                    // parse_declare already stores per-instance spans for the
+                                    // inserted keys, so no span is stored here. Only mark
+                                    // explicit Label kind for `label ...` declares.
                                     let before: Vec<String> = self.insts.keys().cloned().collect();
                                     self.parse_declare(&child, uri, iotype_ref);
                                     let new_keys: Vec<String> = self
@@ -657,15 +666,9 @@ impl McInstances {
                                         .filter(|k| !before.contains(k))
                                         .cloned()
                                         .collect();
-                                    if new_keys.len() == 1 {
-                                        // Use instance ID position from the DECLARE's child
-                                        let inst_span = Self::find_instance_span(&child);
-                                        for k in new_keys {
-                                            self.store_port_span(&k, inst_span.clone());
-                                            // ★ Label: set explicit kind
-                                            if matches!(iotype_ref, IOType::Label) {
-                                                self.set_label_kind(&k, LabelKind::Explicit);
-                                            }
+                                    for k in new_keys {
+                                        if matches!(iotype_ref, IOType::Label) {
+                                            self.set_label_kind(&k, LabelKind::Explicit);
                                         }
                                     }
                                 }
@@ -861,6 +864,10 @@ impl McInstances {
                                         let mut interface_name: Option<McIds> = None;
                                         let mut interface_span: Option<std::ops::Range<usize>> =
                                             None;
+                                        // Collect `::DC(3.3V)` ctor args from the PARAMS
+                                        // sibling of the DBCOLON node, so the interface
+                                        // carries its construction parameters.
+                                        let mut ctor_params: Vec<McParamValue> = Vec::new();
                                         if let Some(n) = next_node {
                                             if n.get_type() == MCAST_OPD_DBCOLON {
                                                 if let Some(sub) = n.get_sub_node() {
@@ -872,6 +879,11 @@ impl McInstances {
                                                             ..((sub.get_pos() + sub.get_len())
                                                                 as usize),
                                                     );
+                                                }
+                                                if let Some(pn) = n.get_next() {
+                                                    if pn.get_type() == MCAST_PARAMS {
+                                                        ctor_params = collect_ctor_params(&pn, &pn);
+                                                    }
                                                 }
                                             }
                                         }
@@ -902,7 +914,11 @@ impl McInstances {
                                                 };
                                                 let port_name = ids_name.to_string();
                                                 let mc_inst = McInstance::Interface(Arc::new(
-                                                    Mc2Interface::new(ids_name, iface_def.clone()),
+                                                    Mc2Interface::with_ids_and_params(
+                                                        ids_name,
+                                                        iface_def.clone(),
+                                                        ctor_params,
+                                                    ),
                                                 ));
                                                 self.insts.insert(
                                                     port_name.clone(),
@@ -1305,29 +1321,6 @@ impl McInstances {
         }
     }
 
-    /// Extract the instance identifier span from a MCAST_DECLARE node.
-    /// Returns (pos, len) of the first MCAST_INSTANCE child's identifier.
-    fn find_instance_span(node: &AstNode) -> std::ops::Range<usize> {
-        if let Some(sub) = node.get_sub_node() {
-            for child in sub.iter() {
-                if child.get_type() == MCAST_INSTANCE {
-                    if let Some(inst_sub) = child.get_sub_node() {
-                        let ids_node = if inst_sub.get_type() == MCAST_OPD {
-                            inst_sub.get_sub_node().unwrap_or(inst_sub)
-                        } else {
-                            inst_sub
-                        };
-                        let start = ids_node.get_pos() as usize;
-                        let end = start + ids_node.get_len() as usize;
-                        return start..end;
-                    }
-                }
-            }
-        }
-        // Fallback to DECLARE node position
-        (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize)
-    }
-
     pub(crate) fn parse_declare(&mut self, node: &AstNode, uri: &McURI, iotype: &IOType) {
         // MCAST_DECLARE structure:
         // |- MCAST_CLASS (class_id, class_params)
@@ -1451,9 +1444,6 @@ impl McInstances {
                 && expanded_names.len() >= 2;
             let names_to_create: Vec<String> = if should_expand {
                 expanded_names
-            } else if inst_ids.is_square_only() && expanded_names.len() >= 2 {
-                // ★ [VDD_3V3, GND] — square-only vector: expand individual members
-                expanded_names
             } else {
                 vec![inst_str.clone()]
             };
@@ -1469,7 +1459,9 @@ impl McInstances {
                 // Get the span of the instance name from ids_node
                 let inst_span = (ids_node.get_pos() as usize)
                     ..((ids_node.get_pos() + ids_node.get_len()) as usize);
-                self.store_port_span(inst_name_ref, inst_span.clone());
+                // The span for the inserted key is stored below (after the
+                // instance kind is resolved), because the inserted key may
+                // differ from inst_name (e.g. square interface `[VDD,GND]`).
                 let scope = self.scope.as_deref();
                 // ★ Try WORKSPACE first, fall back to direct register_def
                 let _ = crate::db::cmie::tables::WORKSPACE
@@ -1618,13 +1610,58 @@ impl McInstances {
                             };
                             let port_name = ids_name.to_string();
                             (
-                                McInstance::Interface(Arc::new(Mc2Interface::new(
+                                McInstance::Interface(Arc::new(Mc2Interface::with_ids_and_params(
                                     ids_name,
                                     iface_def.clone(),
+                                    instance_params.clone(),
                                 ))),
                                 port_name,
                             )
                         } else {
+                            // ★ LSP: register a whole BusDef for curly interface
+                            // ports (`io vin{POWER_SYS, GND}::DC(5V)`) so member
+                            // refs `vin.GND` / `vin.POWER_SYS` resolve to the
+                            // member name text in THIS file, not the interface
+                            // class definition (dc.mc). Mirrors the named-curly
+                            // bus logic in `parse_opd`.
+                            if let Some((busname, members)) = inst_ids.as_bus() {
+                                if !members.is_empty() {
+                                    let whole_span = ids_node
+                                        .get_sub_node()
+                                        .filter(|n| n.get_type() == MCAST_ID)
+                                        .map(|n| {
+                                            let p = n.get_pos() as usize;
+                                            p..(p + busname.len())
+                                        })
+                                        .unwrap_or_else(|| {
+                                            let p = ids_node.get_pos() as usize;
+                                            p..(p + busname.len())
+                                        });
+                                    let mut member_spans: Vec<(String, Range<usize>)> = Vec::new();
+                                    let mut cur = ids_node.get_sub_node();
+                                    while let Some(child) = cur {
+                                        if matches!(
+                                            child.get_type(),
+                                            MCAST_OPD_CURLY | MCAST_OPD_CURLY_MN
+                                        ) {
+                                            let mut mc = child.get_sub_node();
+                                            while let Some(m) = mc {
+                                                if let Some(mname) = m.to_string() {
+                                                    let mstart = m.get_pos() as usize;
+                                                    let mlen = mname.len();
+                                                    member_spans
+                                                        .push((mname, mstart..(mstart + mlen)));
+                                                }
+                                                mc = m.get_next();
+                                            }
+                                        }
+                                        cur = child.get_next();
+                                    }
+                                    if !member_spans.is_empty() {
+                                        self.register_bus_def(&busname, whole_span, member_spans);
+                                    }
+                                }
+                            }
                             // Use base_name for Interface if it's a curly bracket expression
                             let iface_name = if base_name.is_empty() {
                                 inst_name.clone()
@@ -1639,8 +1676,13 @@ impl McInstances {
                             // Previously used `new_with_str(&iface_name, ...)` only preserving base name "MIC",
                             // losing {P,N}, causing subsequent `MIC{P,N}` references
                             // validate_interface_member_ref can't find P/N in base.pins (empty).
-                            let new_interface =
-                                Mc2Interface::new(inst_ids.clone(), iface_def.clone());
+                            // The `::DC(5V)` ctor args are passed through so the
+                            // interface param count / conditional pins match the call site.
+                            let new_interface = Mc2Interface::with_ids_and_params(
+                                inst_ids.clone(),
+                                iface_def.clone(),
+                                instance_params.clone(),
+                            );
                             if new_interface.pin_count() == 1 {
                                 // Single-pin interface, check if same-name Interface already exists
                                 if let Some((_existing_iotype, existing_inst)) =
@@ -1692,7 +1734,9 @@ impl McInstances {
                         )
                     }
                 };
-                self.insts.insert(insert_key, (iotype.clone(), mc_inst));
+                self.insts
+                    .insert(insert_key.clone(), (iotype.clone(), mc_inst));
+                self.store_port_span(&insert_key, inst_span.clone());
             } // end for inst_name_ref in names_to_create
         }
     }

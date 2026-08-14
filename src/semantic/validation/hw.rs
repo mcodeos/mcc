@@ -53,6 +53,10 @@ const POWER_PIN_NAMES: &[&str] = &[
     "VDDA", "VSSA", "VBUS", "VSYS",
 ];
 
+/// Ground-only power pins. A component whose only power-related pins are
+/// ground pins has no supply rail to document, so HW1 does not flag it.
+const GROUND_PIN_NAMES: &[&str] = &["GND", "GNDA", "VSS", "VSSA"];
+
 const VOLTAGE_ATTR_KEYS: &[&str] = &[
     "voltage",
     "volt",
@@ -87,6 +91,21 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
             continue;
         }
 
+        // GND-only passives: a component whose only power-related pins are
+        // ground pins (GND/VSS) has no supply rail to document, so the
+        // voltage-attribute hint does not apply (e.g. passive mics/speakers).
+        let has_supply_pin = comp.pins.names_to_id.keys().any(|name| {
+            POWER_PIN_NAMES
+                .iter()
+                .any(|pn| name.eq_ignore_ascii_case(pn))
+                && !GROUND_PIN_NAMES
+                    .iter()
+                    .any(|g| name.eq_ignore_ascii_case(g))
+        });
+        if !has_supply_pin {
+            continue;
+        }
+
         // Check if component has voltage-related attributes
         let has_voltage_attr = comp.attrs.iter().any(|a| {
             let key = a.id.to_string().to_lowercase();
@@ -99,11 +118,21 @@ fn check_power_pin_no_voltage(acc: &mut CheckAccumulator) {
             pname.contains("volt") || pname.contains("vcc") || pname.contains("vdd")
         });
 
-        // Check if any interface binding provides voltage info (e.g. ::DC(3.3V))
+        // Check if any interface binding provides voltage info (e.g. ::DC(3.3V)).
+        // The member ids (`iface.name`, e.g. `[VDD, GND]` or `vin{POWER_SYS, GND}`)
+        // may not carry the class name, so also test the interface class
+        // (`iface.base.name`, e.g. `DC` for `[VDD, GND]::DC()`).
         let has_voltage_iface = comp.pins.names_to_id.values().any(|port| {
             if let crate::semantic::component::mc_pins::McPinPort::Interface(ref iface) = port {
                 let iname = iface.name.to_string().to_lowercase();
-                if iname.contains("dc") || iname.contains("power") || iname.contains("supply") {
+                let cname = iface.base.name.to_string().to_lowercase();
+                if iname.contains("dc")
+                    || iname.contains("power")
+                    || iname.contains("supply")
+                    || cname.contains("dc")
+                    || cname.contains("power")
+                    || cname.contains("supply")
+                {
                     return true;
                 }
                 return iface.params.iter().any(|p| {

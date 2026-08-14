@@ -476,6 +476,34 @@ fn member_of(inst: &McInstance, member: &str) -> Option<Hop<'static>> {
             }
         }
         McInstance::Interface(i) => {
+            // ★ Local curly members take precedence over the interface class
+            // def: `io vin{POWER_SYS, GND}::DC(5V)` declares the member names
+            // (POWER_SYS / GND) at the port site, so `vin.GND` resolves to the
+            // member name text in THIS file (BusMemberDef via bus_def), not the
+            // interface member in the class definition file (dc.mc).
+            if let Some((busname, members)) = i.name.as_bus() {
+                if members.iter().any(|m| m == member) {
+                    mcc_dbg!(
+                        "refdef::chain",
+                        "[member_of] Interface \"{}\" member=\"{}\" → local BusMember{{{}.{}}}",
+                        i.name,
+                        member,
+                        busname,
+                        member
+                    );
+                    return Some(Hop::BusMember {
+                        bus: busname,
+                        member: member.to_string(),
+                    });
+                }
+                mcc_dbg!(
+                    "refdef::chain",
+                    "[member_of] Interface \"{}\" member=\"{}\" NOT local (members={:?}) — cross to class def",
+                    i.name,
+                    member,
+                    members
+                );
+            }
             let base = &i.base;
             match base.find_inst_with_span(member) {
                 Some((m_inst, span)) => {
@@ -576,31 +604,57 @@ pub fn resolve_member_chain(
         first,
         hop.desc()
     );
-    for seg in &segs[1..] {
-        let next = match &hop {
-            Hop::Inst { inst, .. } => resolve_next_member(inst, seg),
-            Hop::CrossInst { inst, .. } => resolve_next_member(inst, seg),
-            // A member or param has no deeper container in this version.
-            Hop::BusMember { .. } | Hop::ListMember { .. } | Hop::Param(_) => {
+    // ★ Longest-match walk: a dotted tail may be a single member name
+    // (e.g. pin `IN.N` inside `lpa.IN.N`, where LPA4871 declares pin
+    // `4 = IN.N`). At each position try the longest remaining suffix first
+    // (full join → shorter joins → single segment), consuming as many
+    // segments as the match covers. Genuine multi-level chains
+    // (`uC.I2C0.SCL`) still work: the full suffix misses, then the walk
+    // falls back to one segment and continues.
+    let mut i = 1;
+    while i < segs.len() {
+        let inst = match container_inst(&hop) {
+            Some(inst) => inst,
+            None => {
                 mcc_dbg!(
                     "refdef::chain",
-                    "[chain] hop {} has no deeper container for seg={:?} → None",
+                    "[chain] hop {} has no deeper container for segs[{}..]={:?} → None",
                     hop.desc(),
-                    seg
+                    i,
+                    &segs[i..]
                 );
                 return None;
             }
         };
-        match next {
+        let mut best: Option<Hop<'static>> = None;
+        let mut best_end = i + 1;
+        for end in ((i + 1)..=segs.len()).rev() {
+            let joined_name = segs[i..end].join(".");
+            if let Some(h) = resolve_next_member(inst, &joined_name) {
+                best = Some(h);
+                best_end = end;
+                break;
+            }
+        }
+        match best {
             Some(h) => {
-                mcc_dbg!("refdef::chain", "[chain] hop seg={:?} → {}", seg, h.desc());
+                mcc_dbg!(
+                    "refdef::chain",
+                    "[chain] hop segs[{}..{}]={:?} → {}",
+                    i,
+                    best_end,
+                    &segs[i..best_end],
+                    h.desc()
+                );
                 hop = h;
+                i = best_end;
             }
             None => {
                 mcc_dbg!(
                     "refdef::chain",
-                    "[chain] member MISS seg={:?} in hop={} → None",
-                    seg,
+                    "[chain] member MISS segs[{}..]={:?} in hop={} → None",
+                    i,
+                    &segs[i..],
                     hop.desc()
                 );
                 return None;
