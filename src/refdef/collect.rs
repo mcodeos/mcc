@@ -23,7 +23,8 @@ pub fn collect_funccall_arg_refs(
     enclosing: &str,
 ) -> Vec<(std::ops::Range<usize>, DeclareId)> {
     use crate::ast::c_macros::{
-        MCAST_ID, MCAST_IDA, MCAST_IDS, MCAST_OPD_SQUARE_VEC, MCAST_SQUARE_VEC,
+        MCAST_ID, MCAST_IDA, MCAST_IDS, MCAST_OPD_LEFTARROW, MCAST_OPD_MINUS, MCAST_OPD_PLUS,
+        MCAST_OPD_RIGHTARROW, MCAST_OPD_SQUARE_VEC, MCAST_SQUARE_VEC,
     };
     let mut result = Vec::new();
     let ntype = arg_node.get_type();
@@ -32,6 +33,26 @@ pub fn collect_funccall_arg_refs(
             // Iterate members: [VDD_3V3, GND] → VDD_3V3, GND
             let mut cur = arg_node.get_sub_node();
             while let Some(member) = cur {
+                // ★ A member may be a full connection expression, e.g.
+                // `[dc.VDD_3V3 -> wm7121.VCC]`: the member node is an arrow
+                // whose McIds name covers only the base chain (`dc.VDD_3V3`)
+                // while its span covers the whole expression. A flat name
+                // lookup would then register a whole-expression ref pointing
+                // at the base member def (wrong span). Recurse so each arrow
+                // operand is handled by its own branch instead.
+                if matches!(
+                    member.get_type(),
+                    MCAST_OPD_RIGHTARROW
+                        | MCAST_OPD_LEFTARROW
+                        | MCAST_OPD_MINUS
+                        | MCAST_OPD_PLUS
+                ) {
+                    let mut sub_refs =
+                        collect_funccall_arg_refs(&member, local_table, file_uri, enclosing);
+                    result.append(&mut sub_refs);
+                    cur = member.get_next();
+                    continue;
+                }
                 let ids_node = member.get_sub_node().unwrap_or_else(|| member.clone());
                 if let Some(ids) = crate::semantic::basic::mc_ids::McIds::new(&ids_node) {
                     let name = ids.to_string();

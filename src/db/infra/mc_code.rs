@@ -2186,6 +2186,70 @@ impl McCode {
         }
     }
 
+    /// Fallback for func-body chain refs whose root is one of the component's
+    /// own pins (e.g. `VIN.Vin` inside `func enable` — `VIN` is a pin defined
+    /// by `pins = [...]`, not a func-local instance, so `resolve_member_chain`
+    /// misses it). Resolves the chain root against the component pin declares
+    /// and returns the ref kind for the pin family.
+    fn resolve_func_chain_own_pin(
+        uri: &McURI,
+        segments: &[crate::refdef::types::ChainSegment],
+        comp_ident: &str,
+        comp: &McComponent,
+        sem: &mut McSemSymbols,
+    ) -> Option<(DeclareId, SymbolKind)> {
+        // Rebuild the dotted text (`VIN.Vin`) and extract the chain root.
+        let full_name: String = segments
+            .iter()
+            .filter_map(|s| match s {
+                crate::refdef::types::ChainSegment::Ident(name) => Some(name.clone()),
+                crate::refdef::types::ChainSegment::Group { base, members } => {
+                    Some(format!("{}{{{}}}", base, members.join(",")))
+                }
+                crate::refdef::types::ChainSegment::Fcall(_) => None,
+            })
+            .collect::<Vec<_>>()
+            .join(".");
+        let root = match segments.first() {
+            Some(crate::refdef::types::ChainSegment::Ident(name)) => name.as_str(),
+            Some(crate::refdef::types::ChainSegment::Group { base, .. }) => base.as_str(),
+            _ => return None,
+        };
+        // The root must be one of the component's own pins.
+        let pin_names: std::collections::HashSet<String> = Self::extract_pin_name_spans(comp)
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        if !pin_names.contains(root) {
+            return None;
+        }
+        let file_id = crate::ast::ast_semantic::intern(&mut sem.file_table, uri.as_str());
+        let comp_id = crate::ast::ast_semantic::intern(&mut sem.container_table, comp_ident);
+        // Prefer the exact dotted form (`VIN.Vin`), then the root (`VIN`).
+        let mut target: &str = &full_name;
+        loop {
+            if let Some((id, _)) =
+                sem.local_table
+                    .name_to_declare_id
+                    .get(&(file_id, comp_id, 0, target.to_string()))
+            {
+                let kind = if Self::extract_pin_iface_spans(comp)
+                    .iter()
+                    .any(|(n, _)| n == root)
+                {
+                    SymbolKind::PinIfaceRef
+                } else {
+                    SymbolKind::PinNameRef
+                };
+                return Some((*id, kind));
+            }
+            if target == root {
+                return None;
+            }
+            target = root;
+        }
+    }
+
     /// Build RefDefMap from semantic tables.
     /// Runs after parse_pass1_modules() registers all symbols, before create_lapper().
     fn consolidate_ref_def_map(&mut self) {
@@ -4082,6 +4146,20 @@ impl McCode {
                         });
                         sem.ref_entries
                             .push((ref_kind, u32::from(d), span.start, span.end));
+                    } else if let Some((d, kind)) =
+                        Self::resolve_func_chain_own_pin(&uri, segments, comp_ident, comp, sem)
+                    {
+                        // ★ Fallback: the chain root is one of the component's
+                        // own pins (e.g. `VIN.Vin` inside `func enable` — `VIN`
+                        // is a pin, not a func-local instance, so the chain
+                        // resolver misses it). Resolve against the pin declare.
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::new(kind, u32::from(d)),
+                        });
+                        sem.ref_entries
+                            .push((kind, u32::from(d), span.start, span.end));
                     }
                 }
                 // Func body labels → LabelDef.
@@ -4343,38 +4421,53 @@ impl McCode {
                 let (base_name, member_name, base_start, base_end, member_start, member_end) =
                     parsed;
 
-                let (class_id, value_idx) = {
+                let (class_id, value_idx, _cross_file_uri) = {
                     // Look up enum class_id: local table first, then cross-file.
+                    // ★ Both branches capture the defining uri so the value
+                    // span can always be registered below. Previously the
+                    // name-fallback hit (a class registered earlier in this
+                    // file's pass) returned xuri=None and skipped
+                    // add_enum_value, so later refs to the same cross-file
+                    // class (e.g. a second `PKG.SOMETHING` attribute) got a
+                    // packed value_id with no RefDefMap entry — goto-def
+                    // returned empty. This was order-dependent: lapper_enum_refs
+                    // visits attributes in reverse AST order.
                     let local_id = match sem.global_table.lock() {
                         Ok(gt) => gt
                             .lookup_enum_class(&uri, &McIds::from(&base_name))
+                            .map(|cid| (uri.clone(), cid))
                             .or_else(|| {
                                 gt.enum_class_name_to_id
                                     .iter()
-                                    .find_map(|((_uri, name), cid)| {
-                                        (name == &McIds::from(&base_name)).then_some(*cid)
+                                    .find_map(|((cls_uri, name), cid)| {
+                                        (name == &McIds::from(&base_name))
+                                            .then_some((cls_uri.clone(), *cid))
                                     })
                             }),
                         Err(_) => continue 'outer,
                     };
-                    let class_id = if local_id.map_or(false, |id| u32::from(id) != 0) {
-                        local_id.unwrap()
+                    let (cls, xuri) = if let Some((cls_uri, cid)) = local_id {
+                        (cid, Some(cls_uri))
                     } else {
                         // Cross-file search: register enum class in local table
                         // to get a locally-unique DeclareId (mirrors how
                         // lapper_global_classes handles cross-file ClassRef).
+                        // The defining file is remembered so its value spans
+                        // can be registered below under the local class_id.
                         match (
                             Self::find_enum_class_cross_file(uri, sem, &base_name),
                             sem.global_table.lock(),
                         ) {
-                            (Some((def_uri, def_span)), Ok(mut gt)) => {
-                                gt.add_enum_class(&def_uri, &McIds::from(&base_name), def_span)
-                            }
-                            _ => DeclareId::default(),
+                            (Some((def_uri, def_span)), Ok(mut gt)) => (
+                                gt.add_enum_class(&def_uri, &McIds::from(&base_name), def_span),
+                                Some(def_uri),
+                            ),
+                            _ => (DeclareId::default(), None),
                         }
                     };
 
                     let mut idx = None;
+                    let mut value_span: Option<[u32; 2]> = None;
                     {
                         let enums_guard = &crate::db::cmie::tables::WORKSPACE.enums;
                         for entry in enums_guard.iter() {
@@ -4384,6 +4477,7 @@ impl McCode {
                             for (i, v) in entry.value().values.iter().enumerate() {
                                 if v.name.to_string() == member_name {
                                     idx = Some(i as u32);
+                                    value_span = Some(v.span);
                                     break;
                                 }
                             }
@@ -4399,6 +4493,7 @@ impl McCode {
                             for (i, v) in entry.value().values.iter().enumerate() {
                                 if v.name.to_string() == member_name {
                                     idx = Some(i as u32);
+                                    value_span = Some(v.span);
                                     break;
                                 }
                             }
@@ -4407,7 +4502,24 @@ impl McCode {
                     }
 
                     match idx {
-                        Some(i) => (class_id, i),
+                        Some(i) => {
+                            tracing::info!(target: "mcc::lsp::audit",
+                                "[AUDIT-EnumVal] base={base_name} member={member_name} cls={:?} xuri={:?} idx={} value_span={:?}",
+                                cls, xuri, i, value_span);
+                            // ★ Cross-file enum classes: register the value
+                            // spans under the locally-assigned class_id so the
+                            // RefDefMap 1e layer can map the packed EnumValRef
+                            // id (class_id<<16|idx) to the value def in the
+                            // defining file (e.g. `PKG.SOP8` → package.mc).
+                            if let (Some(def_uri), Some(span)) = (&xuri, value_span) {
+                                if let Ok(mut gt) = sem.global_table.lock() {
+                                    let span: Span =
+                                        (span[0] as usize)..(span[1] as usize);
+                                    gt.add_enum_value(def_uri, cls, i, span);
+                                }
+                            }
+                            (cls, i, xuri)
+                        }
                         None => continue,
                     }
                 };
@@ -4897,58 +5009,66 @@ impl McCode {
                                 span.1,
                             ));
                         } else {
-                            if let Some(class_name) = Self::extract_class_name(&sub) {
-                                // P3-P5: CMIE member lookup via mcb_get_cmie
-                                if let Some(method_name) =
-                                    func_name.as_ref().map(|s| s.as_str().to_string())
+                            // ★ Chain fix: `mcu513.i2c().loadFlash(flash.SPI)` must
+                            // resolve `loadFlash` against the base instance's class
+                            // (US513 — chain funcs return `this`, see the function
+                            // call chain design), NOT against the intermediate
+                            // method name `i2c` that extract_class_name returns.
+                            // The base instance is preferred; the old last-name
+                            // extraction stays as a fallback (e.g. `RES(...).Pullup`).
+                            let class_name = Self::extract_chain_base_instance(&sub)
+                                .and_then(|inst| Self::find_instance_class_name(&inst, uri))
+                                .or_else(|| Self::extract_class_name(&sub));
+                            if let (Some(class_name), Some(method_name)) = (
+                                class_name,
+                                func_name.as_ref().map(|s| s.as_str().to_string()),
+                            ) {
+                                if let Some((def_uri, def_span, ref_kind)) =
+                                    crate::db::cmie::cmie::resolve_cmie_member(
+                                        &class_name,
+                                        &method_name,
+                                        uri,
+                                    )
                                 {
-                                    if let Some((def_uri, def_span, ref_kind)) =
-                                        crate::db::cmie::cmie::resolve_cmie_member(
-                                            &class_name,
-                                            &method_name,
-                                            uri,
-                                        )
-                                    {
-                                        // ★ Cross-file member defs (e.g. `CAP(...).Cap(_)`
-                                        // where the Cap method lives in cap.mc) must NOT be
-                                        // registered under the current file's container name.
-                                        // Doing so writes scope_index[container] with the def
-                                        // file's id, which hijacks the P2 container fallback
-                                        // for same-file defs (component pins / module ports).
-                                        // Register under the member's own class scope instead.
-                                        let (decl_id, _loc) = crate::refdef::register::register_def(
-                                            sem,
-                                            &def_uri,
-                                            &class_name,
-                                            None,
-                                            &method_name,
-                                            def_span,
-                                            SymbolKind::FuncDef,
-                                        );
-                                        symbol_lapper.insert(Interval {
-                                            start: span.0,
-                                            stop: span.1,
-                                            val: SymbolType::new(ref_kind, u32::from(decl_id)),
-                                        });
-                                        sem.ref_entries.push((
-                                            ref_kind,
-                                            u32::from(decl_id),
-                                            span.0,
-                                            span.1,
-                                        ));
-                                    } else {
-                                        dlog_error(
+                                    // ★ Cross-file member defs (e.g. `CAP(...).Cap(_)`
+                                    // where the Cap method lives in cap.mc) must NOT be
+                                    // registered under the current file's container name.
+                                    // Doing so writes scope_index[container] with the def
+                                    // file's id, which hijacks the P2 container fallback
+                                    // for same-file defs (component pins / module ports).
+                                    // Register under the member's own class scope instead.
+                                    let (decl_id, _loc) = crate::refdef::register::register_def(
+                                        sem,
+                                        &def_uri,
+                                        &class_name,
+                                        None,
+                                        &method_name,
+                                        def_span,
+                                        SymbolKind::FuncDef,
+                                    );
+                                    symbol_lapper.insert(Interval {
+                                        start: span.0,
+                                        stop: span.1,
+                                        val: SymbolType::new(ref_kind, u32::from(decl_id)),
+                                    });
+                                    sem.ref_entries.push((
+                                        ref_kind,
+                                        u32::from(decl_id),
+                                        span.0,
+                                        span.1,
+                                    ));
+                                } else {
+                                    dlog_error(
+                                        crate::errcodes::MODULE_METHOD_NOT_FOUND,
+                                        node,
+                                        &crate::errcodes::format_msg(
                                             crate::errcodes::MODULE_METHOD_NOT_FOUND,
-                                            node,
-                                            &crate::errcodes::format_msg(
-                                                crate::errcodes::MODULE_METHOD_NOT_FOUND,
-                                                &[
-                                                    &method_name as &dyn std::fmt::Display,
-                                                    &class_name as &dyn std::fmt::Display,
-                                                ],
-                                            ),
-                                        );
-                                    }
+                                            &[
+                                                &method_name as &dyn std::fmt::Display,
+                                                &class_name as &dyn std::fmt::Display,
+                                            ],
+                                        ),
+                                    );
                                 }
                             }
                         }
@@ -5023,6 +5143,65 @@ impl McCode {
         let ids_node = name_node.get_sub_node()?;
         let ids = McIds::new(&ids_node)?;
         Some(ids.to_string())
+    }
+
+    /// Walk an `MCAST_INSTANCE` receiver chain down to the base instance name.
+    ///
+    /// `mcu513.i2c().loadFlash(...)` — the outer receiver's MCAST_INSTANCE
+    /// wraps the inner fcall `mcu513.i2c()`, whose own MCAST_INSTANCE wraps
+    /// the base `mcu513`. Chain funcs bind to the base object (funcs return
+    /// `this`), so member resolution must use the base instance's class, not
+    /// the intermediate method name. Returns the base instance name, or None
+    /// when the receiver is a plain class call (e.g. `RES(...).Pullup(...)`).
+    fn extract_chain_base_instance(sub: &Option<AstNode>) -> Option<String> {
+        let mut current = sub.clone()?;
+        loop {
+            if current.get_type() != MCAST_INSTANCE {
+                return None;
+            }
+            let inner = current.get_sub_node()?;
+            if inner.get_type() == MCAST_OPD_FCALL {
+                // Descend into the nested fcall's receiver (first MCAST_INSTANCE
+                // child). A plain class call like `RES(10kΩ)` has no instance
+                // child — abort so the caller falls back to extract_class_name.
+                current = inner
+                    .get_sub_node()?
+                    .iter()
+                    .find(|c| c.get_type() == MCAST_INSTANCE)?;
+                continue;
+            }
+            // Base receiver — MCAST_OPD (or similar) wrapping the identifiers.
+            let ids = inner.get_sub_node()?;
+            return McIds::new(&ids).map(|i| i.to_string());
+        }
+    }
+
+    /// Find the class name of an instance declared in the current file's
+    /// modules (or library modules). `US513 mcu513(...)` → "US513".
+    fn find_instance_class_name(inst_name: &str, uri: &McURI) -> Option<String> {
+        let uri_str = uri.as_str();
+        for table in [&workspace::WORKSPACE.modules, &global::mcc_modules] {
+            for entry in table.iter() {
+                let key_uri = entry.key().uri.as_str();
+                if !(key_uri == uri_str || key_uri.ends_with(uri_str) || uri_str.ends_with(key_uri))
+                {
+                    continue;
+                }
+                let m = entry.value();
+                if let Some(inst) = m.insts.get(inst_name) {
+                    match inst {
+                        crate::McInstance::Module(m2) => {
+                            return Some(m2.base.name.to_string());
+                        }
+                        crate::McInstance::Component(c2) => {
+                            return Some(c2.base.name.to_string());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        None
     }
 
     /// Look up the human-readable message for a parser diagnostic code.

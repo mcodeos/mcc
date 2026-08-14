@@ -1,0 +1,216 @@
+// Copyright (c) 2026 MCode
+//
+// Licensed under either of Apache License, Version 2.0 or MIT License at your option.
+
+//! LSP goto-def regression for connection-expression refs inside funcall
+//! brackets and for dotted member chains:
+//!
+//! - `CAP(100nF).Cap([dc.VDD_3V3 -> wm7121.VCC], dc.GND)` must register the
+//!   arrow's right operand `wm7121.VCC` as a PinNameRef (mapping to pin
+//!   `4 = VCC`) and the left operand `dc.VDD_3V3` as a BusMemberRef (mapping to
+//!   the curly param-bus member declaration), with no stray interval covering
+//!   the whole `->` expression.
+//! - `lpa.IN.N` (dotted pin name) must resolve by longest match to pin
+//!   `4 = IN.N`.
+//!
+//! NOTE: These tests share global mcc state, so a mutex serializes them.
+
+use mcc::McURI;
+use std::sync::{Mutex, OnceLock};
+
+/// Global mutex to serialize tests that share mcc's global workspace state.
+static TEST_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+const SOURCE: &str = r#"
+interface DC(volt)
+{
+    pins = [
+        1 = VOUT, "DC power positive"
+        2 = GND, "DC power ground"
+    ]
+}
+
+component CAP(cap)
+{
+    pins = [
+        1 = 1, "terminal one"
+        2 = 2, "terminal two"
+    ]
+    func Cap(net1, net2)
+    {
+        net1 - this - net2
+        return net1, net2
+    }
+}
+
+component MICROPHONE.WM7121P
+{
+    pins = [
+        1 = P, "MIC signal positive"
+        [2,3] = GND, "ground"
+        4 = VCC, "power input"
+    ]
+}
+
+component LPA4871
+{
+    pins = [
+        3 = IN.P, "input positive"
+        4 = IN.N, "input negative"
+        5 = VO1, "output one"
+        8 = VO2, "output two"
+    ]
+}
+
+module main(dc{VDD_3V3, GND}::DC(3.3V))
+{
+    MICROPHONE.WM7121P wm7121(NC)
+    CAP(100nF).Cap([dc.VDD_3V3 -> wm7121.VCC], dc.GND)
+    LPA4871 lpa
+    lpa.IN.N -> dc.GND
+}
+"#;
+
+/// Parse `span=[  123,  456]` from a F12_DIAG dump line.
+fn extract_span(line: &str) -> Option<(usize, usize)> {
+    let s = line.find("span=[")?;
+    let rest = &line[s + 6..];
+    let comma = rest.find(',')?;
+    let close = rest.find(']')?;
+    let a: usize = rest[..comma].trim().parse().ok()?;
+    let b: usize = rest[comma + 1..close].trim().parse().ok()?;
+    Some((a, b))
+}
+
+/// LAPPER_REF interval (kind tag, ref id, span) for the dump line whose ref
+/// span equals `span` (the dump shows `name='?'` for string-loaded files, so
+/// refs are matched by source span instead of by name).
+fn ref_interval(dump: &str, kind: &str, span: (usize, usize)) -> Option<u32> {
+    dump.lines()
+        .filter(|l| l.contains("F12_DIAG LAPPER_REF:"))
+        .filter(|l| l.contains(&format!("kind={kind}")))
+        .filter(|l| extract_span(l) == Some(span))
+        .filter_map(|l| {
+            l.find("id=")
+                .and_then(|i| l[i + 3..].split_whitespace().next())
+                .and_then(|s| s.parse().ok())
+        })
+        .next()
+}
+
+/// Def span from the MAP line `Ref(<kind>/<ku>, id=<ref_id>, ...) => Def(<def_kind>/<ku>, span=[a,b], ...)`.
+fn map_def_span(dump: &str, kind: &str, ref_id: u32) -> Option<(usize, usize)> {
+    dump.lines()
+        .filter(|l| l.contains("F12_DIAG MAP:"))
+        .filter(|l| {
+            l.contains(&format!("Ref({kind}/")) && l.contains(&format!("id={ref_id:5}"))
+        })
+        .filter_map(|l| {
+            let idx = l.find("=> Def")?;
+            extract_span(&l[idx..])
+        })
+        .next()
+}
+
+/// Loads SOURCE into a fresh workspace and returns the F12 dump for the uri.
+fn load_and_dump() -> String {
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+
+    let uri: McURI = "/mcc/goto-def-connection-refs.mc".to_string();
+    mcc::mcc_load_from_string(&uri, SOURCE);
+    mcc::dump_symbols_f12_text(&uri).expect("f12 dump")
+}
+
+#[test]
+fn funcall_bracket_arrow_registers_pin_and_bus_member_refs() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner());
+    let dump = load_and_dump();
+
+    // 1. `wm7121.VCC` (arrow right operand inside `[...]`) is a PinNameRef
+    //    covering the chain span and maps to the pin def `4 = VCC`.
+    let chain_span = {
+        let p = SOURCE.find("wm7121.VCC").expect("wm7121.VCC in source");
+        (p, p + "wm7121.VCC".len())
+    };
+    let vcc_def = SOURCE.find("4 = VCC").map(|p| p + 4).expect("4 = VCC in source");
+    let ref_id = ref_interval(&dump, "PinNameRef", chain_span)
+        .expect("PinNameRef interval for wm7121.VCC");
+    assert_eq!(
+        map_def_span(&dump, "PinNameRef", ref_id),
+        Some((vcc_def, vcc_def + 3)),
+        "wm7121.VCC must map to PinNameDef VCC at {vcc_def}..{}",
+        vcc_def + 3
+    );
+
+    // 2. `dc.VDD_3V3` (arrow left operand) is a BusMemberRef covering the chain
+    //    span and maps to the curly param-bus member `VDD_3V3` declaration.
+    let chain_span = {
+        let p = SOURCE.find("dc.VDD_3V3").expect("dc.VDD_3V3 in source");
+        (p, p + "dc.VDD_3V3".len())
+    };
+    let vdd_def = SOURCE.find("VDD_3V3").expect("VDD_3V3 declaration in source");
+    let ref_id = ref_interval(&dump, "BusMemberRef", chain_span)
+        .expect("BusMemberRef interval for dc.VDD_3V3");
+    assert_eq!(
+        map_def_span(&dump, "BusMemberRef", ref_id),
+        Some((vdd_def, vdd_def + 7)),
+        "dc.VDD_3V3 must map to BusMemberDef at {vdd_def}..{}",
+        vdd_def + 7
+    );
+
+    // 3. `dc.GND` (second funcall arg) maps to the `GND` member of the same bus.
+    let chain_span = {
+        let p = SOURCE.find("dc.GND").expect("dc.GND in source");
+        (p, p + "dc.GND".len())
+    };
+    let gnd_def = SOURCE
+        .find("VDD_3V3, GND")
+        .map(|p| p + "VDD_3V3, ".len())
+        .expect("GND member in curly bus");
+    let ref_id = ref_interval(&dump, "BusMemberRef", chain_span)
+        .expect("BusMemberRef interval for dc.GND");
+    assert_eq!(
+        map_def_span(&dump, "BusMemberRef", ref_id),
+        Some((gnd_def, gnd_def + 3)),
+        "dc.GND must map to BusMemberDef at {gnd_def}..{}",
+        gnd_def + 3
+    );
+
+    // 4. No ref interval may cover the whole `->` expression: the old flat name
+    //    lookup registered one interval spanning `dc.VDD_3V3 -> wm7121.VCC`.
+    let whole = SOURCE
+        .find("dc.VDD_3V3 -> wm7121.VCC")
+        .expect("arrow expression in source");
+    let stray = (whole, whole + "dc.VDD_3V3 -> wm7121.VCC".len());
+    assert!(
+        !dump.lines().any(|l| {
+            l.contains("F12_DIAG LAPPER_REF:") && extract_span(l) == Some(stray)
+        }),
+        "no ref interval may span the whole 'dc.VDD_3V3 -> wm7121.VCC' expression at {stray:?}"
+    );
+}
+
+#[test]
+fn dotted_pin_name_resolves_by_longest_match() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner());
+    let dump = load_and_dump();
+
+    // `lpa.IN.N` must resolve to the literal pin name `IN.N` (longest match),
+    // not stop at `IN` or `N`.
+    let chain_span = {
+        let p = SOURCE.find("lpa.IN.N").expect("lpa.IN.N in source");
+        (p, p + "lpa.IN.N".len())
+    };
+    let in_n_def = SOURCE.find("4 = IN.N").map(|p| p + 4).expect("4 = IN.N in source");
+    let ref_id = ref_interval(&dump, "PinNameRef", chain_span)
+        .expect("PinNameRef interval for lpa.IN.N");
+    assert_eq!(
+        map_def_span(&dump, "PinNameRef", ref_id),
+        Some((in_n_def, in_n_def + 4)),
+        "lpa.IN.N must map to PinNameDef IN.N at {in_n_def}..{}",
+        in_n_def + 4
+    );
+}
+
