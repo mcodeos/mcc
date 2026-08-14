@@ -3588,6 +3588,23 @@ impl McCode {
                     sem.ref_entries
                         .push((ref_kind, u32::from(decl_id), span.start, span.end));
                 }
+                // ★ Base-instance ref: the base identifier of a dotted member
+                // chain gets its own InstRef so hover / F12 on `spk` in
+                // `spk.3` (or `USB_VBUS_1` in `USB_VBUS_1.GND`) resolves to
+                // the base's own def instead of the whole-chain member target.
+                let segs = crate::refdef::chain::split_segments(port_name);
+                if segs.len() > 1 {
+                    Self::register_chain_base_ref(
+                        sem,
+                        symbol_lapper,
+                        &uri,
+                        &segs[0],
+                        &span,
+                        scope,
+                        &m.insts,
+                        &m.params,
+                    );
+                }
             }
             // ★ Chain references: AST-structured segments for cross-container
             // member resolution (e.g. `uC.ADC{P,N}`, `uC.19`, `uC.i2c(0x36).I2C0`).
@@ -3617,6 +3634,22 @@ impl McCode {
                     tracing::info!(target: "mcc::lsp::audit",
                         "[AUDIT-ChainRef] segments={segments:?} → {} kind={ref_kind:?} def_uri={} def_span={:?} decl_id={d:?}",
                         hit.name, hit.uri, hit.span);
+                    // ★ Base-instance ref for the chain (see net-refs above).
+                    if let Some(base) = segments
+                        .first()
+                        .map(crate::refdef::chain::base_segment_name)
+                    {
+                        Self::register_chain_base_ref(
+                            sem,
+                            symbol_lapper,
+                            &uri,
+                            &base,
+                            &span,
+                            scope,
+                            &m.insts,
+                            &m.params,
+                        );
+                    }
                 }
             }
             for (span, port_name, scope) in m.params.iter_net_refs() {
@@ -3678,6 +3711,55 @@ impl McCode {
                 }
             }
         }
+    }
+
+    /// Register an InstRef for the base identifier of a dotted member chain,
+    /// covering only the base segment (the first `base.len()` bytes of `span`)
+    /// and resolving to the base's own definition.
+    ///
+    /// Without this, the whole-chain ref (`spk.3`, `USB_VBUS_1.GND`) is the
+    /// only interval covering the base text, so hover / F12 on the base
+    /// identifier resolves to the member target (pin `3`, bus member `GND`).
+    fn register_chain_base_ref(
+        sem: &mut McSemSymbols,
+        symbol_lapper: &mut DedupLapper,
+        uri: &McURI,
+        base: &str,
+        span: &std::ops::Range<usize>,
+        scope: &str,
+        insts: &crate::semantic::mc_inst::McInstances,
+        params: &crate::semantic::basic::mc_paramd::McParamDeclares,
+    ) {
+        if base.is_empty() {
+            return;
+        }
+        let base_len = base.len();
+        if base_len >= span.end - span.start {
+            return;
+        }
+        let base_span = span.start..(span.start + base_len);
+        let Some(hit) = crate::refdef::chain::resolve_base_hit(uri, base, insts, params) else {
+            return;
+        };
+        let (d, _) = crate::refdef::register::register_def(
+            sem,
+            &hit.uri,
+            scope,
+            None,
+            &hit.name,
+            hit.span.clone(),
+            hit.def_kind,
+        );
+        symbol_lapper.insert(Interval {
+            start: base_span.start,
+            stop: base_span.end,
+            val: SymbolType::new(SymbolKind::InstRef, u32::from(d)),
+        });
+        sem.ref_entries
+            .push((SymbolKind::InstRef, u32::from(d), base_span.start, base_span.end));
+        tracing::info!(target: "mcc::lsp::audit",
+            "[AUDIT-BaseRef] base={base} chain_span={span:?} → {} kind={:?} def_uri={} def_span={:?} decl_id={d:?}",
+            hit.name, hit.def_kind, hit.uri, hit.span);
     }
 
     fn lapper_function_params(

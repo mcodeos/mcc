@@ -693,6 +693,40 @@ pub fn resolve_member_chain_from_segments(
     resolve_member_chain(uri, &ref_text, insts, params)
 }
 
+/// Resolve only the base (first) segment of a member chain to its own def.
+///
+/// Used to register a separate base ref so hover / F12 on the base identifier
+/// (e.g. `spk` in `spk.3`, `USB_VBUS_1` in `USB_VBUS_1.GND`) resolves to the
+/// instance / parameter declaration instead of the whole-chain member target.
+///
+/// The module-parameter declaration is preferred over the inst-table bus entry:
+/// curly-bus params (`USB_VBUS_1{VDD_3V, GND}`) record a use-site span in the
+/// instance table but the declaration span in the param table.
+pub fn resolve_base_hit(
+    uri: &McURI,
+    base: &str,
+    insts: &McInstances,
+    params: &McParamDeclares,
+) -> Option<ChainHit> {
+    if params.is_defined(base) {
+        if let Some(hit) = finalize_hit(uri, Hop::Param(base.to_string()), insts, params) {
+            return Some(hit);
+        }
+    }
+    let hop = first_hop(insts, params, base)?;
+    finalize_hit(uri, hop, insts, params)
+}
+
+/// Base identifier text of a chain segment — `Ident("uC")` → `"uC"`,
+/// `Group { base: "ADC", .. }` → `"ADC"`, `Fcall("i2c")` → `"i2c"`.
+pub fn base_segment_name(seg: &ChainSegment) -> String {
+    match seg {
+        ChainSegment::Ident(name) => name.clone(),
+        ChainSegment::Group { base, .. } => base.clone(),
+        ChainSegment::Fcall(name) => name.clone(),
+    }
+}
+
 /// Convert the final hop into a [`ChainHit`].
 fn finalize_hit(
     uri: &McURI,
