@@ -123,9 +123,7 @@ fn ref_interval(dump: &str, kind: &str, span: (usize, usize)) -> Option<u32> {
 fn map_def_span(dump: &str, kind: &str, ref_id: u32) -> Option<(usize, usize)> {
     dump.lines()
         .filter(|l| l.contains("F12_DIAG MAP:"))
-        .filter(|l| {
-            l.contains(&format!("Ref({kind}/")) && l.contains(&format!("id={ref_id:5}"))
-        })
+        .filter(|l| l.contains(&format!("Ref({kind}/")) && l.contains(&format!("id={ref_id:5}")))
         .filter_map(|l| {
             let idx = l.find("=> Def")?;
             extract_span(&l[idx..])
@@ -146,7 +144,10 @@ fn load_and_dump() -> String {
 
 #[test]
 fn funcall_bracket_arrow_registers_pin_and_bus_member_refs() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let dump = load_and_dump();
 
     // 1. `wm7121.VCC` (arrow right operand inside `[...]`) is a PinNameRef
@@ -155,9 +156,12 @@ fn funcall_bracket_arrow_registers_pin_and_bus_member_refs() {
         let p = SOURCE.find("wm7121.VCC").expect("wm7121.VCC in source");
         (p, p + "wm7121.VCC".len())
     };
-    let vcc_def = SOURCE.find("4 = VCC").map(|p| p + 4).expect("4 = VCC in source");
-    let ref_id = ref_interval(&dump, "PinNameRef", chain_span)
-        .expect("PinNameRef interval for wm7121.VCC");
+    let vcc_def = SOURCE
+        .find("4 = VCC")
+        .map(|p| p + 4)
+        .expect("4 = VCC in source");
+    let ref_id =
+        ref_interval(&dump, "PinNameRef", chain_span).expect("PinNameRef interval for wm7121.VCC");
     assert_eq!(
         map_def_span(&dump, "PinNameRef", ref_id),
         Some((vcc_def, vcc_def + 3)),
@@ -171,7 +175,9 @@ fn funcall_bracket_arrow_registers_pin_and_bus_member_refs() {
         let p = SOURCE.find("dc.VDD_3V3").expect("dc.VDD_3V3 in source");
         (p, p + "dc.VDD_3V3".len())
     };
-    let vdd_def = SOURCE.find("VDD_3V3").expect("VDD_3V3 declaration in source");
+    let vdd_def = SOURCE
+        .find("VDD_3V3")
+        .expect("VDD_3V3 declaration in source");
     let ref_id = ref_interval(&dump, "BusMemberRef", chain_span)
         .expect("BusMemberRef interval for dc.VDD_3V3");
     assert_eq!(
@@ -190,8 +196,8 @@ fn funcall_bracket_arrow_registers_pin_and_bus_member_refs() {
         .find("VDD_3V3, GND")
         .map(|p| p + "VDD_3V3, ".len())
         .expect("GND member in curly bus");
-    let ref_id = ref_interval(&dump, "BusMemberRef", chain_span)
-        .expect("BusMemberRef interval for dc.GND");
+    let ref_id =
+        ref_interval(&dump, "BusMemberRef", chain_span).expect("BusMemberRef interval for dc.GND");
     assert_eq!(
         map_def_span(&dump, "BusMemberRef", ref_id),
         Some((gnd_def, gnd_def + 3)),
@@ -206,16 +212,19 @@ fn funcall_bracket_arrow_registers_pin_and_bus_member_refs() {
         .expect("arrow expression in source");
     let stray = (whole, whole + "dc.VDD_3V3 -> wm7121.VCC".len());
     assert!(
-        !dump.lines().any(|l| {
-            l.contains("F12_DIAG LAPPER_REF:") && extract_span(l) == Some(stray)
-        }),
+        !dump
+            .lines()
+            .any(|l| { l.contains("F12_DIAG LAPPER_REF:") && extract_span(l) == Some(stray) }),
         "no ref interval may span the whole 'dc.VDD_3V3 -> wm7121.VCC' expression at {stray:?}"
     );
 }
 
 #[test]
 fn numeric_pin_id_resolves_to_pin_id_def() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let dump = load_and_dump();
 
     // `spk.3` / `spk.4` are pin-ID refs: the chain resolver must land on the
@@ -225,8 +234,7 @@ fn numeric_pin_id_resolves_to_pin_id_def() {
         (p, p + "spk.3".len())
     };
     let id3_def = SOURCE.find("3 = GND").expect("pin id 3 def in source");
-    let ref_id = ref_interval(&dump, "PinIdRef", chain_span)
-        .expect("PinIdRef interval for spk.3");
+    let ref_id = ref_interval(&dump, "PinIdRef", chain_span).expect("PinIdRef interval for spk.3");
     assert_eq!(
         map_def_span(&dump, "PinIdRef", ref_id),
         Some((id3_def, id3_def + 1)),
@@ -239,8 +247,7 @@ fn numeric_pin_id_resolves_to_pin_id_def() {
         (p, p + "spk.4".len())
     };
     let id4_def = SOURCE.find("4 = GND").expect("pin id 4 def in source");
-    let ref_id = ref_interval(&dump, "PinIdRef", chain_span)
-        .expect("PinIdRef interval for spk.4");
+    let ref_id = ref_interval(&dump, "PinIdRef", chain_span).expect("PinIdRef interval for spk.4");
     assert_eq!(
         map_def_span(&dump, "PinIdRef", ref_id),
         Some((id4_def, id4_def + 1)),
@@ -251,7 +258,10 @@ fn numeric_pin_id_resolves_to_pin_id_def() {
 
 #[test]
 fn dotted_pin_name_resolves_by_longest_match() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let dump = load_and_dump();
 
     // `lpa.IN.N` must resolve to the literal pin name `IN.N` (longest match),
@@ -260,9 +270,12 @@ fn dotted_pin_name_resolves_by_longest_match() {
         let p = SOURCE.find("lpa.IN.N").expect("lpa.IN.N in source");
         (p, p + "lpa.IN.N".len())
     };
-    let in_n_def = SOURCE.find("4 = IN.N").map(|p| p + 4).expect("4 = IN.N in source");
-    let ref_id = ref_interval(&dump, "PinNameRef", chain_span)
-        .expect("PinNameRef interval for lpa.IN.N");
+    let in_n_def = SOURCE
+        .find("4 = IN.N")
+        .map(|p| p + 4)
+        .expect("4 = IN.N in source");
+    let ref_id =
+        ref_interval(&dump, "PinNameRef", chain_span).expect("PinNameRef interval for lpa.IN.N");
     assert_eq!(
         map_def_span(&dump, "PinNameRef", ref_id),
         Some((in_n_def, in_n_def + 4)),
@@ -272,19 +285,81 @@ fn dotted_pin_name_resolves_by_longest_match() {
 }
 
 #[test]
-fn dotted_chain_base_resolves_to_param_decl() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner());
+fn member_chain_use_site_registers_no_bus_def() {
+    let _lock = TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let dump = load_and_dump();
 
+    // Regression for periph.mc L105 (`-> USB_VBUS_1.GND`): the first dotted
+    // member use of a curly param-bus base (`dc.VDD_3V3` inside the CAP(...)
+    // funcall) made `collect_net_def_spans` store the whole-chain span as the
+    // base bus's port span. The lapper then registered a BusDef/LabelDef at
+    // the use-site span, and the LabelDef→BusDef upgrade in fill_refdef_layer2
+    // synthesized a self-locating BusRef (def span == ref span). F12 on the
+    // member therefore jumped to itself instead of the declaration.
+    //
+    // Fix (check-before-register): member chains are refs whose defs already
+    // exist at the declaration site (register_bus_def → BusMemberDef), so
+    // collect_net_def_spans skips them.
+    let chain_span = {
+        let p = SOURCE.find("dc.VDD_3V3").expect("dc.VDD_3V3 in source");
+        (p, p + "dc.VDD_3V3".len())
+    };
+
+    // 1. No BusDef def interval may exist at the use-site chain span.
+    assert!(
+        !dump.lines().any(|l| {
+            l.contains("F12_DIAG LAPPER_DEF:")
+                && l.contains("kind=BusDef")
+                && extract_span(l) == Some(chain_span)
+        }),
+        "no BusDef interval may be registered at use-site chain span {chain_span:?}"
+    );
+
+    // 2. No BusRef may exist at all: the only BusRef entries this fixture
+    //    could produce are the synthetic LabelDef→BusDef upgrades from the
+    //    polluted co-location (a self-locating def == ref).
+    assert!(
+        !dump
+            .lines()
+            .any(|l| { l.contains("F12_DIAG MAP:") && l.contains("Ref(BusRef/") }),
+        "no BusRef MAP entry may exist (synthetic self-locate from member-chain pollution)"
+    );
+
+    // 3. The member ref still resolves to the declaration-site BusMemberDef.
+    let vdd_def = SOURCE
+        .find("VDD_3V3")
+        .expect("VDD_3V3 declaration in source");
+    let ref_id = ref_interval(&dump, "BusMemberRef", chain_span)
+        .expect("BusMemberRef interval for dc.VDD_3V3");
+    assert_eq!(
+        map_def_span(&dump, "BusMemberRef", ref_id),
+        Some((vdd_def, vdd_def + 7)),
+        "dc.VDD_3V3 must map to BusMemberDef at {vdd_def}..{}",
+        vdd_def + 7
+    );
+}
+
+#[test]
+fn dotted_chain_base_resolves_to_param_decl() {
+    let _lock = TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    let dump = load_and_dump();
     // The base `dc` of `(spk.3 + spk.4) -> dc.GND` must resolve to the module
     // param declaration `dc{VDD_3V3, GND}` (PortRef → ParamDef), not to the
     // whole-chain member `GND` and not to the chain base's own text.
     let arrow = SOURCE.find("-> dc.GND").expect("arrow dc.GND in source");
     let dc_off = arrow + "-> ".len();
     let base_span = (dc_off, dc_off + "dc".len());
-    let param_decl = SOURCE.find("dc{VDD_3V3, GND}").expect("param decl in source");
-    let ref_id = ref_interval(&dump, "PortRef", base_span)
-        .expect("PortRef interval for chain base dc");
+    let param_decl = SOURCE
+        .find("dc{VDD_3V3, GND}")
+        .expect("param decl in source");
+    let ref_id =
+        ref_interval(&dump, "PortRef", base_span).expect("PortRef interval for chain base dc");
     assert_eq!(
         map_def_span(&dump, "PortRef", ref_id),
         Some((param_decl, param_decl + "dc{VDD_3V3, GND}".len())),
@@ -298,7 +373,9 @@ fn dotted_chain_base_resolves_to_param_decl() {
         let p = SOURCE.find("spk.3").expect("spk.3 in source");
         (p, p + "spk.3".len())
     };
-    let spk_def = SOURCE.find("SPEAKER.PHB2AWB spk").map(|p| p + "SPEAKER.PHB2AWB ".len())
+    let spk_def = SOURCE
+        .find("SPEAKER.PHB2AWB spk")
+        .map(|p| p + "SPEAKER.PHB2AWB ".len())
         .expect("spk instance in source");
     let base_ref_id = ref_interval(&dump, "InstRef", (chain_span.0, chain_span.0 + 3))
         .expect("InstRef interval for chain base spk");
@@ -312,7 +389,10 @@ fn dotted_chain_base_resolves_to_param_decl() {
 
 #[test]
 fn dotted_funcall_class_ref_spans_full_class_name() {
-    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner());
+    let _lock = TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let dump = load_and_dump();
 
     // `DIO.ESD("ESD9B5V-2/TR", NC)` is a dotted class funcall. The ClassRef
@@ -320,8 +400,7 @@ fn dotted_funcall_class_ref_spans_full_class_name() {
     // argument) and map to the `component DIO.ESD` declaration.
     let p = SOURCE.find("DIO.ESD(").expect("DIO.ESD( in source");
     let full_span = (p, p + "DIO.ESD".len());
-    let ref_id = ref_interval(&dump, "ClassRef", full_span)
-        .expect("ClassRef interval for DIO.ESD");
+    let ref_id = ref_interval(&dump, "ClassRef", full_span).expect("ClassRef interval for DIO.ESD");
     let dio_def = SOURCE
         .find("component DIO.ESD")
         .map(|q| q + "component ".len())
@@ -339,10 +418,10 @@ fn dotted_funcall_class_ref_spans_full_class_name() {
     let broken = (esd_start, esd_start + "ESD(\"ES".len());
     assert!(
         !dump.lines().any(|l| {
-            l.contains("F12_DIAG LAPPER_REF:") && l.contains("kind=ClassRef")
+            l.contains("F12_DIAG LAPPER_REF:")
+                && l.contains("kind=ClassRef")
                 && extract_span(l) == Some(broken)
         }),
         "no ClassRef interval may span 'ESD(\"ES' at {broken:?}"
     );
 }
-

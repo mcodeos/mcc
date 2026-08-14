@@ -3594,16 +3594,28 @@ impl McCode {
                 // the base's own def instead of the whole-chain member target.
                 let segs = crate::refdef::chain::split_segments(port_name);
                 if segs.len() > 1 {
-                    Self::register_chain_base_ref(
-                        sem,
-                        symbol_lapper,
-                        &uri,
-                        &segs[0],
-                        &span,
-                        scope,
-                        &m.insts,
-                        &m.params,
-                    );
+                    // Only register the base ref when the recorded span covers
+                    // the whole chain (i.e. the span starts at the base).
+                    // record_scoped_net_ref records dotted member refs with a
+                    // member-only span — e.g. `GND` inside `[dc.GND, dc.GND]`
+                    // is stored as name `dc.GND` at span [member start, member
+                    // end]. register_chain_base_ref assumes span.start is the
+                    // base position, so without this guard it would emit a
+                    // PortRef at the member text (`GN` of `GND`), overlapping
+                    // the BusMemberRef. The base ref for those member-only
+                    // spans already exists (params net-ref on the base name).
+                    if span.end - span.start >= port_name.len() {
+                        Self::register_chain_base_ref(
+                            sem,
+                            symbol_lapper,
+                            &uri,
+                            &segs[0],
+                            &span,
+                            scope,
+                            &m.insts,
+                            &m.params,
+                        );
+                    }
                 }
             }
             // ★ Chain references: AST-structured segments for cross-container
@@ -3652,6 +3664,13 @@ impl McCode {
                     }
                 }
             }
+            // Module-param net refs (`m.params.iter_net_refs()`) reference the
+            // module's own param/port declarations (e.g. the curly bus param
+            // `USB_VBUS_1` in `module M(USB_VBUS_1{VDD_3V, GND}::DC(3.3V))` used
+            // at `USB_VBUS_1 {VDD_3V, GND} -> ...`). Those defs are ParamDef /
+            // PortDef, so the ref kind must be PortRef: fill_refdef_layer2 maps
+            // InstRef only to InstDef, which would drop the entry and make F12
+            // self-locate instead of jumping to the param declaration.
             for (span, port_name, scope) in m.params.iter_net_refs() {
                 let sp = crate::refdef::register::scope_path_from_scope_str(&uri, scope);
                 let decl_id =
@@ -3660,10 +3679,10 @@ impl McCode {
                     symbol_lapper.insert(Interval {
                         start: span.start,
                         stop: span.end,
-                        val: SymbolType::new(SymbolKind::InstRef, u32::from(decl_id)),
+                        val: SymbolType::new(SymbolKind::PortRef, u32::from(decl_id)),
                     });
                     sem.ref_entries.push((
-                        SymbolKind::InstRef,
+                        SymbolKind::PortRef,
                         u32::from(decl_id),
                         span.start,
                         span.end,
@@ -4528,12 +4547,12 @@ impl McCode {
                             .lookup_enum_class(&uri, &McIds::from(&base_name))
                             .map(|cid| (uri.clone(), cid))
                             .or_else(|| {
-                                gt.enum_class_name_to_id
-                                    .iter()
-                                    .find_map(|((cls_uri, name), cid)| {
+                                gt.enum_class_name_to_id.iter().find_map(
+                                    |((cls_uri, name), cid)| {
                                         (name == &McIds::from(&base_name))
                                             .then_some((cls_uri.clone(), *cid))
-                                    })
+                                    },
+                                )
                             }),
                         Err(_) => continue 'outer,
                     };
@@ -4604,8 +4623,7 @@ impl McCode {
                             // defining file (e.g. `PKG.SOP8` → package.mc).
                             if let (Some(def_uri), Some(span)) = (&xuri, value_span) {
                                 if let Ok(mut gt) = sem.global_table.lock() {
-                                    let span: Span =
-                                        (span[0] as usize)..(span[1] as usize);
+                                    let span: Span = (span[0] as usize)..(span[1] as usize);
                                     gt.add_enum_value(def_uri, cls, i, span);
                                 }
                             }
