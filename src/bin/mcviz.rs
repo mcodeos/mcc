@@ -215,8 +215,9 @@ fn main() {
         bus_warns,
     );
 
-    // ── ★ P7-1: Tier 1 真闸门 —— fidelity CORRECTNESS 失败则非零退出 ──
-    // （此前 fidelity_gate 只打日志；"闸门只打日志"与 v5 §0.2 的四条假绿同构）
+    // ── ★ P7-1: Tier 1 real gate —— fidelity CORRECTNESS failure exits non-zero ──
+    // (Previously fidelity_gate only logged; "a gate that only logs" is isomorphic
+    // to the four false-green items in v5 §0.2)
     if mcc::viz::layout::select::RENDER_GATE_FAILED.load(std::sync::atomic::Ordering::Relaxed) {
         eprintln!(
             "[render-gate] ✗✗✗ Tier 1 CORRECTNESS FAILED (RENDER_GATE_FAILED) — exit 2"
@@ -282,7 +283,7 @@ fn print_usage() {
 fn find_entry_uri(project_root: &Path, module_name: &str) -> Option<String> {
     let target_name = format!("{}.mc", module_name);
 
-    // 搜索目录列表：当前目录 + src/ 子目录
+    // Search directory list: current directory + src/ sub-directory
     for search_dir in &[project_root.to_path_buf(), project_root.join("src")] {
         if let Ok(entries) = std::fs::read_dir(search_dir) {
             let mut first_mc: Option<String> = None;
@@ -291,7 +292,7 @@ fn find_entry_uri(project_root: &Path, module_name: &str) -> Option<String> {
                 if path.extension().and_then(|s| s.to_str()) == Some("mc") {
                     let file_name = path.file_name().unwrap_or_default().to_string_lossy();
                     if file_name.to_lowercase() == target_name.to_lowercase() {
-                        // 规范化为绝对路径
+                        // Canonicalize to an absolute path
                         return std::fs::canonicalize(&path)
                             .ok()
                             .and_then(|p| p.to_str().map(|s| s.to_string()));

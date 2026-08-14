@@ -1,6 +1,6 @@
-# US513 golden 网表
-# 依赖裁决：② 闭包块不产生实例（不适用） / ③ 转置 ' 不切网（R442 跨接）
-# 源码：us513.mc:117-162
+# US513 golden netlist
+# Dependency adjudication: ② closure blocks produce no instances (not applicable) / ③ transpose ' does not split nets (R442 straddles)
+# Source: us513.mc:117-162
 
 [meta]
 module = "US513"
@@ -240,31 +240,31 @@ points = ["uC.19", "port.SPK_MUTE"]
 
 [[unconnected]]
 pin = "uC.8"
-reason = "SPI.SCLK — 合法悬空，在 main 层跨模块直连 flash"
+reason = "SPI.SCLK — legal dangling, cross-module direct connect to flash at the main layer"
 
 [[unconnected]]
 pin = "uC.9"
-reason = "SPI.MOSI — 合法悬空，在 main 层跨模块直连 flash"
+reason = "SPI.MOSI — legal dangling, cross-module direct connect to flash at the main layer"
 
 [[unconnected]]
 pin = "uC.10"
-reason = "SPI.CSN — 合法悬空，在 main 层跨模块直连 flash"
+reason = "SPI.CSN — legal dangling, cross-module direct connect to flash at the main layer"
 
 [[unconnected]]
 pin = "uC.11"
-reason = "SPI.MISO — 合法悬空，在 main 层跨模块直连 flash"
+reason = "SPI.MISO — legal dangling, cross-module direct connect to flash at the main layer"
 
 [[unconnected]]
 pin = "uC.12"
-reason = "UART1.TX — 未使用端口"
+reason = "UART1.TX — unused port"
 
 [[unconnected]]
 pin = "uC.13"
-reason = "UART1.RX — 未使用端口"
+reason = "UART1.RX — unused port"
 
 [[unconnected]]
 pin = "uC.18"
-reason = "JTAG/GPIO0 — 未使用端口"
+reason = "JTAG/GPIO0 — unused port"
 
 [[series]]
 comp = "R442"

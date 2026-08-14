@@ -2,23 +2,23 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! # Arrange — 分层 + 层内序
+//! # Arrange — layering + intra-layer order
 //!
-//! 对商图做精确枚举，输出每一层的节点顺序。
-//! N ≤ 7 时用 Heap's algorithm 枚举全排列 + 切点枚举。
+//! Exact enumeration over the quotient graph, outputting node order per layer.
+//! For N ≤ 7 uses Heap's algorithm for full permutation + cut-point enumeration.
 //!
-//! ## 算法
-//! 1. 破环（greedy Eades-Lin-Smyth）
-//! 2. 方向锚定（模块端口 + 入度0 + 源码序）
-//! 3. 精确枚举（Heap's algorithm + 切点枚举）
-//! 4. top-K 竞赛
+//! ## Algorithm
+//! 1. Cycle breaking (greedy Eades-Lin-Smyth)
+//! 2. Orientation anchoring (module ports + in-degree 0 + source order)
+//! 3. Exact enumeration (Heap's algorithm + cut-point enumeration)
+//! 4. top-K tournament
 //!
-//! ## 验收（M3-2 / M3-3）
-//! - t4_current: 最优解 [u1][u2,u3][u4,u5]（3 层，backward=1），
-//!   次优解代价相同或接近（权重调优后优先减少 backward 边）
+//! ## Acceptance (M3-2 / M3-3)
+//! - t4_current: optimal solution [u1][u2,u3][u4,u5] (3 layers, backward=1),
+//!   runner-up cost equal or close (after weight tuning, reducing backward edges takes priority)
 //! - t2_cycle / t3_cycle: backward<=1
-//! - box id +1000: 最优解不变
-//! - 20 次连续: best 一致
+//! - box id +1000: optimal solution unchanged
+//! - 20 consecutive runs: best consistent
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -27,60 +27,60 @@ use std::time::Instant;
 use super::quotient::{Direction, NodeId, QuotientGraph, SP_COL_W};
 
 // ============================================================================
-// 数据结构
+// Data structures
 // ============================================================================
 
-/// 搜索器输出的一层
+/// One layer output by the searcher
 pub type Layer = Vec<i64>;
 
-/// 分层排列结果
+/// Layered arrangement result
 #[derive(Debug, Clone, PartialEq)]
 pub struct Arrangement {
-    /// 每一层的节点 ID 列表
+    /// Node ID list of each layer
     pub layers: Vec<Layer>,
 }
 
-/// 破环后每条边的硬定向
+/// Hard orientation of each edge after cycle breaking
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EdgeDir {
-    /// 正向（src → dst，从左到右）
+    /// Forward (src → dst, left to right)
     Forward,
-    /// 反向（dst → src，从右到左）
+    /// Backward (dst → src, right to left)
     Backward,
 }
 
-/// 代价结构
+/// Cost structure
 #[derive(Debug, Clone, PartialEq, PartialOrd)]
 pub struct Cost {
-    /// 交叉数
+    /// Crossing count
     pub crossings: u32,
-    /// 违反破环后定向的边数
+    /// Number of edges violating post-cycle-breaking orientation
     pub backward: u32,
-    /// 跨度惩罚
+    /// Span penalty
     pub span: u32,
-    /// 端口交叉
+    /// Port crossings
     pub port_cross: u32,
-    /// 同层软惩罚
+    /// Same-layer soft penalty
     pub same_layer: u32,
-    /// 方向锚惩罚
+    /// Orientation anchor penalty
     pub orient: u32,
-    /// 源码序先验
+    /// Source-order prior
     pub order: u32,
-    /// 面积惩罚
+    /// Area penalty
     pub area: f64,
-    /// 加权总代价
+    /// Weighted total cost
     pub weighted: f64,
 }
 
 // ============================================================================
-// 权重常量
+// Weight constants
 // ============================================================================
 
 pub const W_CROSS: f64 = 1000.0;
-pub const W_BACK: f64 = 600.0;   // 破环方向违规，应重于面积
+pub const W_BACK: f64 = 600.0;   // Cycle-breaking direction violation, should outweigh area
 pub const W_SPAN: f64 = 100.0;
 pub const W_PORT: f64 = 20.0;
-pub const W_SAMELAYER: f64 = 500.0;  // 同层软惩罚，低于 W_BACK(600)
+pub const W_SAMELAYER: f64 = 500.0;  // Same-layer soft penalty, below W_BACK(600)
 pub const W_ORIENT: f64 = 400.0;
 pub const W_ORDER: f64 = 30.0;
 pub const W_AREA: f64 = 2.0;
@@ -155,18 +155,18 @@ impl fmt::Display for Cost {
     }
 }
 
-/// 精确搜索上限
+/// Exact search limit
 pub const EXACT_SEARCH_LIMIT: usize = 7;
-/// top-K 候选数
+/// Number of top-K candidates
 pub const TOP_K: usize = 5;
-/// 时间预算（毫秒），超时用已算完的最好结果
+/// Time budget (ms); on timeout use the best fully computed result
 pub const TIME_BUDGET_MS: u64 = 150;
 
 // ============================================================================
-// 搜索入口
+// Search entry
 // ============================================================================
 
-/// 对商图做精确搜索，返回 top-K 候选
+/// Exact search over the quotient graph, returns top-K candidates
 pub fn solve(q: &QuotientGraph) -> Vec<(Cost, Arrangement)> {
     if q.nodes.is_empty() {
         return Vec::new();
@@ -186,17 +186,17 @@ pub fn solve(q: &QuotientGraph) -> Vec<(Cost, Arrangement)> {
 }
 
 // ============================================================================
-// 精确枚举：Heap's algorithm + 切点 + 镜像对称 + 分支限界
+// Exact enumeration: Heap's algorithm + cut points + mirror symmetry + branch & bound
 // ============================================================================
 
-/// 为每条边预计算的数据
+/// Precomputed data for each edge
 struct EdgeData {
     src: usize,
     dst: usize,
     hard_dir: EdgeDir,
 }
 
-/// 对单个排列枚举所有切点，评估代价
+/// Enumerate all cut points for a single permutation and evaluate cost
 fn evaluate_permutation(
     perm: &[usize],
     max_cut: u32,
@@ -211,7 +211,7 @@ fn evaluate_permutation(
 ) {
     let n = perm.len();
     let nodes = &q.nodes;
-    // 镜像对称：当所有节点 Neutral 时跳过镜像排列
+    // Mirror symmetry: skip mirrored permutations when all nodes are Neutral
     if all_neutral && is_mirror_perm(perm, nodes) {
         return;
     }
@@ -240,13 +240,13 @@ fn evaluate_permutation(
     }
 }
 
-/// 精确枚举入口
+/// Exact enumeration entry
 fn exact_enumerate(q: &QuotientGraph) -> Vec<(Cost, Arrangement)> {
     let n = q.nodes.len();
     let hard_dirs = break_cycles(q);
     let sides = compute_node_sides(q, &hard_dirs);
 
-    // 预计算边数据
+    // Precompute edge data
     let node_to_idx: HashMap<NodeId, usize> = q
         .nodes
         .iter()
@@ -267,19 +267,19 @@ fn exact_enumerate(q: &QuotientGraph) -> Vec<(Cost, Arrangement)> {
     let mut best: Vec<(Cost, Arrangement)> = Vec::new();
     let mut best_weighted = f64::MAX;
 
-    // 检查是否所有节点 Neutral（决定是否启用镜像对称）
+    // Check whether all nodes are Neutral (decides whether mirror symmetry is enabled)
     let all_neutral = sides.iter().all(|s| *s == NodeSide::Neutral);
 
-    // Heap's algorithm 生成排列
+    // Generate permutations with Heap's algorithm
     let mut perm: Vec<usize> = (0..n).collect();
-    let mut c = vec![0usize; n]; // Heap 状态
+    let mut c = vec![0usize; n]; // Heap state
     let max_cut = 1u32 << (n.saturating_sub(1));
 
     let mut total_evals = 0u64;
     let mut pruned_count = 0u64;
     let start = Instant::now();
 
-    // 先输出初始排列
+    // Output the initial permutation first
     evaluate_permutation(
         &perm, max_cut, q, &edges, &sides, all_neutral,
         &mut best, &mut best_weighted, &mut total_evals, &mut pruned_count,
@@ -287,7 +287,7 @@ fn exact_enumerate(q: &QuotientGraph) -> Vec<(Cost, Arrangement)> {
 
     let mut i = 1;
     while i < n {
-        // 时间预算检查
+        // Time budget check
         if start.elapsed().as_millis() as u64 > TIME_BUDGET_MS {
             eprintln!("[debug] exact_enumerate: time budget {}ms exceeded, stopping early ({} evals, {} pruned)",
                 TIME_BUDGET_MS, total_evals, pruned_count);
@@ -313,7 +313,7 @@ fn exact_enumerate(q: &QuotientGraph) -> Vec<(Cost, Arrangement)> {
         }
     }
 
-    // 按 cost 排序，取 top-K
+    // Sort by cost, take top-K
     best.sort_by(|a, b| {
         a.0.weighted
             .partial_cmp(&b.0.weighted)
@@ -326,28 +326,28 @@ fn exact_enumerate(q: &QuotientGraph) -> Vec<(Cost, Arrangement)> {
     best
 }
 
-/// 检查排列是否是其镜像（跳过前半部分避免重复）
+/// Check whether a permutation is its own mirror (skip the first half to avoid duplicates)
 fn is_mirror_perm(perm: &[usize], nodes: &[NodeId]) -> bool {
     if perm.len() <= 1 {
         return false;
     }
     let first_id = nodes[perm[0]];
     let last_id = nodes[perm[perm.len() - 1]];
-    // 跳过 first > last 的排列（镜像已由 first < last 覆盖）
+    // Skip permutations with first > last (mirror already covered by first < last)
     first_id > last_id
 }
 
-/// 检查切点掩码是否是其镜像
+/// Check whether a cut-point mask is its own mirror
 fn is_mirror_cut(mask: u32, n_bits: usize) -> bool {
     if n_bits <= 1 {
         return false;
     }
     let rev = reverse_bits(mask, n_bits as u32);
-    // 跳过 rev < mask 的掩码
+    // Skip masks with rev < mask
     rev < mask
 }
 
-/// 位反转
+/// Bit reversal
 fn reverse_bits(x: u32, n_bits: u32) -> u32 {
     let mut result = 0u32;
     for i in 0..n_bits {
@@ -358,8 +358,8 @@ fn reverse_bits(x: u32, n_bits: u32) -> u32 {
     result
 }
 
-/// 分支限界：增量构建 arrangement，每加一层就计算部分代价
-/// 返回 (arrangement, 是否被剪枝)
+/// Branch & bound: incrementally build the arrangement, computing partial cost per added layer
+/// Returns (arrangement, whether pruned)
 fn build_with_bb(
     perm: &[usize],
     cut_mask: u32,
@@ -379,7 +379,7 @@ fn build_with_bb(
             layers.push(current.clone());
             current.clear();
 
-            // 部分代价检查
+            // Partial cost check
             let partial = compute_partial_cost(&layers, edges, sides, nodes);
             if partial.weighted > best_weighted {
                 return (Arrangement { layers }, true);
@@ -390,7 +390,7 @@ fn build_with_bb(
     (Arrangement { layers }, false)
 }
 
-/// 计算部分代价（仅已构建的层）
+/// Compute partial cost (built layers only)
 fn compute_partial_cost(
     layers: &[Vec<NodeId>],
     edges: &[EdgeData],
@@ -500,19 +500,19 @@ fn compute_partial_cost(
     let max_nodes = layers.iter().map(|l| l.len()).max().unwrap_or(1);
     let total_w = layers.iter().map(|l| l.len() as f64 * SP_COL_W).sum::<f64>()
         + (layers.len().saturating_sub(1)) as f64 * SP_COL_W;
-    let area = total_w; // 宽度主导，避免高瘦解比矮胖解面积更小
+    let area = total_w; // Width-dominated, prevents tall-thin solutions from having smaller area than short-wide ones
 
     Cost::from_counts(crossings, backward, span, 0, same_layer, orient, order, area)
 }
 
-/// 计算两层之间的边交叉数
+/// Count edge crossings between two layers
 fn count_crossings(
     left: &[NodeId],
     right: &[NodeId],
     edges: &[EdgeData],
     nodes: &[NodeId],
 ) -> u32 {
-    // 收集从 left 到 right 的边
+    // Collect edges from left to right
     let left_pos: HashMap<NodeId, usize> = left
         .iter()
         .enumerate()
@@ -552,7 +552,7 @@ fn count_crossings(
     cross
 }
 
-/// 计算完整代价
+/// Compute full cost
 fn compute_full_cost(
     arr: &Arrangement,
     edges: &[EdgeData],
@@ -609,32 +609,32 @@ fn compute_full_cost(
         .map(|l| l.len() as f64 * SP_COL_W)
         .sum::<f64>()
         + (arr.layers.len().saturating_sub(1)) as f64 * SP_COL_W;
-    let area = total_w; // 宽度主导
+    let area = total_w; // Width-dominated
 
     Cost::from_counts(crossings, backward, span, 0, same_layer, orient, order, area)
 }
 
 // ============================================================================
-// 破环：Eades–Lin–Smyth greedy feedback arc set
+// Cycle breaking: Eades–Lin–Smyth greedy feedback arc set
 // ============================================================================
 
-/// 破环：对商图做 greedy Eades-Lin-Smyth feedback arc set
+/// Cycle breaking: greedy Eades-Lin-Smyth feedback arc set on the quotient graph
 ///
-/// 返回每条边的硬定向（Forward / Backward），与 `q.edges` 一一对应。
-/// 之后 backward 只统计违反该定向的边。
+/// Returns the hard orientation of each edge (Forward / Backward), one-to-one with `q.edges`.
+/// Afterwards backward only counts edges violating this orientation.
 ///
-/// 算法：
-/// 1. 根据边的 prefer 构建有向图
-/// 2. 迭代移除 sink（出度=0）→ 前置、source（入度=0）→ 后置
-/// 3. 剩余节点选 max(出度-入度) 移除 → 后置
-/// 4. 得到拓扑序，据此判定每条边是 Forward 还是 Backward
+/// Algorithm:
+/// 1. Build a directed graph from edge prefer
+/// 2. Iteratively remove sinks (out-degree=0) → prefix, sources (in-degree=0) → suffix
+/// 3. For remaining nodes pick max(out-degree - in-degree) to remove → suffix
+/// 4. Obtain topological order, then decide Forward vs Backward per edge
 pub fn break_cycles(q: &QuotientGraph) -> Vec<EdgeDir> {
     let n = q.nodes.len();
     if n == 0 {
         return Vec::new();
     }
 
-    // 构建 node_id → index 映射
+    // Build node_id → index mapping
     let node_to_idx: HashMap<NodeId, usize> = q
         .nodes
         .iter()
@@ -642,7 +642,7 @@ pub fn break_cycles(q: &QuotientGraph) -> Vec<EdgeDir> {
         .map(|(i, &id)| (id, i))
         .collect();
 
-    // 构建邻接表（有向边）
+    // Build adjacency lists (directed edges)
     let mut out_edges: Vec<Vec<usize>> = vec![Vec::new(); n];
     let mut in_edges: Vec<Vec<usize>> = vec![Vec::new(); n];
     let mut edge_dir: Vec<(usize, usize)> = Vec::with_capacity(q.edges.len());
@@ -650,12 +650,12 @@ pub fn break_cycles(q: &QuotientGraph) -> Vec<EdgeDir> {
     for e in &q.edges {
         let si = node_to_idx[&e.src];
         let di = node_to_idx[&e.dst];
-        // 根据 prefer 决定方向
+        // Decide direction from prefer
         let (from, to) = match e.prefer {
             Direction::LeftToRight => (si, di),
             Direction::RightToLeft => (di, si),
             Direction::Neutral => {
-                // 无偏好时按 id 排序
+                // Sort by id when there is no preference
                 if e.src < e.dst {
                     (si, di)
                 } else {
@@ -668,17 +668,17 @@ pub fn break_cycles(q: &QuotientGraph) -> Vec<EdgeDir> {
         edge_dir.push((from, to));
     }
 
-    // 计算出入度
+    // Compute in/out degrees
     let mut out_deg: Vec<usize> = out_edges.iter().map(|v| v.len()).collect();
     let mut in_deg: Vec<usize> = in_edges.iter().map(|v| v.len()).collect();
     let mut removed = vec![false; n];
 
-    let mut s1: Vec<usize> = Vec::new(); // 前置序列（sink）
-    let mut s2: Vec<usize> = Vec::new(); // 后置序列（source + max delta）
+    let mut s1: Vec<usize> = Vec::new(); // Prefix sequence (sinks)
+    let mut s2: Vec<usize> = Vec::new(); // Suffix sequence (sources + max delta)
 
     let mut remaining = n;
     while remaining > 0 {
-        // 移除所有 sink（出度=0）
+        // Remove all sinks (out-degree=0)
         loop {
             let sink = (0..n).find(|&i| !removed[i] && out_deg[i] == 0);
             match sink {
@@ -686,7 +686,7 @@ pub fn break_cycles(q: &QuotientGraph) -> Vec<EdgeDir> {
                     removed[v] = true;
                     s1.push(v);
                     remaining -= 1;
-                    // 更新邻居的度数
+                    // Update neighbor degrees
                     for &pred in &in_edges[v] {
                         if !removed[pred] {
                             out_deg[pred] -= 1;
@@ -697,7 +697,7 @@ pub fn break_cycles(q: &QuotientGraph) -> Vec<EdgeDir> {
             }
         }
 
-        // 移除所有 source（入度=0）
+        // Remove all sources (in-degree=0)
         loop {
             let source = (0..n).find(|&i| !removed[i] && in_deg[i] == 0);
             match source {
@@ -715,7 +715,7 @@ pub fn break_cycles(q: &QuotientGraph) -> Vec<EdgeDir> {
             }
         }
 
-        // 如果没有 sink/source，选 max(出度-入度)
+        // If no sink/source, pick max(out-degree - in-degree)
         if remaining > 0 {
             let v = (0..n)
                 .filter(|&i| !removed[i])
@@ -740,7 +740,7 @@ pub fn break_cycles(q: &QuotientGraph) -> Vec<EdgeDir> {
         }
     }
 
-    // 合并序列：s1 逆序 + s2 正序
+    // Merge sequences: s1 reversed + s2 in order
     s1.reverse();
     let seq: Vec<usize> = {
         let mut s = s1;
@@ -748,7 +748,7 @@ pub fn break_cycles(q: &QuotientGraph) -> Vec<EdgeDir> {
         s
     };
 
-    // 建立拓扑序位置映射
+    // Build topological order position mapping
     let pos: Vec<usize> = {
         let mut p = vec![0; n];
         for (rank, &idx) in seq.iter().enumerate() {
@@ -757,7 +757,7 @@ pub fn break_cycles(q: &QuotientGraph) -> Vec<EdgeDir> {
         p
     };
 
-    // 判定每条边的方向
+    // Decide each edge's direction
     edge_dir
         .iter()
         .map(|&(from, to)| {
@@ -771,25 +771,25 @@ pub fn break_cycles(q: &QuotientGraph) -> Vec<EdgeDir> {
 }
 
 // ============================================================================
-// 方向锚
+// Orientation anchors
 // ============================================================================
 
-/// 节点的期望位置（用于 orient 代价项）
+/// Expected position of a node (for the orient cost term)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum NodeSide {
-    /// 应靠左
+    /// Should lean left
     Left = 0,
-    /// 无偏好
+    /// No preference
     Neutral = 1,
-    /// 应靠右
+    /// Should lean right
     Right = 2,
 }
 
-/// 计算每个节点的方向偏好，基于商图边的方向信息
+/// Compute each node's orientation preference based on quotient graph edge directions
 ///
-/// 优先级：
-/// a. 模块端口：有 Output 端口的节点靠左，有 Input 端口的靠右
-/// b. 破环后入度为 0 的节点靠左
+/// Priority:
+/// a. Module ports: nodes with Output ports lean left, nodes with Input ports lean right
+/// b. Nodes with in-degree 0 after cycle breaking lean left
 fn compute_node_sides(q: &QuotientGraph, hard_dirs: &[EdgeDir]) -> Vec<NodeSide> {
     let n = q.nodes.len();
     let node_to_idx: HashMap<NodeId, usize> = q
@@ -817,7 +817,7 @@ fn compute_node_sides(q: &QuotientGraph, hard_dirs: &[EdgeDir]) -> Vec<NodeSide>
         }
     }
 
-    // 计算破环后入度为 0 的节点
+    // Compute nodes with in-degree 0 after cycle breaking
     let source_nodes: HashSet<usize> = (0..n).filter(|&i| in_count[i] == 0).collect();
 
     (0..n)
@@ -835,10 +835,11 @@ fn compute_node_sides(q: &QuotientGraph, hard_dirs: &[EdgeDir]) -> Vec<NodeSide>
         .collect()
 }
 
-/// 计算 orient 代价：违反方向锚的节点数
+/// Compute orient cost: number of nodes violating orientation anchors
 ///
-/// 对每层检查：层的节点中，如果有 Left 偏好的节点在 Right 偏好的节点之后，
-/// 或者 Left/Right 节点在层内的相对顺序与期望不符，计为违规。
+/// Check per layer: among a layer's nodes, if a Left-preferring node comes after
+/// a Right-preferring node, or the in-layer relative order of Left/Right nodes
+/// mismatches expectations, count it as a violation.
 fn compute_orient_cost(q: &QuotientGraph, sides: &[NodeSide], arr: &Arrangement) -> u32 {
     let node_to_idx: HashMap<NodeId, usize> = q
         .nodes
@@ -849,12 +850,12 @@ fn compute_orient_cost(q: &QuotientGraph, sides: &[NodeSide], arr: &Arrangement)
 
     let mut penalty = 0u32;
 
-    // 跨层检查：如果 Left 节点在 Right 节点右侧（层号更大），违规
+    // Cross-layer check: violation if a Left node sits to the right of a Right node (larger layer index)
     for (li, layer) in arr.layers.iter().enumerate() {
         for &nid in layer {
             let idx = node_to_idx[&nid];
             if sides[idx] == NodeSide::Left {
-                // 检查是否有 Right 节点在更左侧的层
+                // Check for Right nodes in layers further left
                 for (lj, prev_layer) in arr.layers.iter().enumerate() {
                     if lj >= li {
                         break;
@@ -868,7 +869,7 @@ fn compute_orient_cost(q: &QuotientGraph, sides: &[NodeSide], arr: &Arrangement)
                 }
             }
             if sides[idx] == NodeSide::Right {
-                // 检查是否有 Left 节点在更右侧的层
+                // Check for Left nodes in layers further right
                 for (lj, next_layer) in arr.layers.iter().enumerate() {
                     if lj <= li {
                         continue;
@@ -887,11 +888,12 @@ fn compute_orient_cost(q: &QuotientGraph, sides: &[NodeSide], arr: &Arrangement)
     penalty
 }
 
-/// 计算 order 代价：违反源码序的逆序对数
+/// Compute order cost: number of inversions violating source order
 ///
-/// 源码序以 q.nodes 中的顺序为代理（id 排序，近似源码声明顺序）。
-/// 对于不同层之间的节点对 (a, b)，如果 a 在源码序中先于 b，
-/// 但 a 在更右侧的层（层号更大），计为一个逆序对。
+/// Source order is proxied by the order in q.nodes (id sorted, approximating
+/// source declaration order).
+/// For a node pair (a, b) in different layers, if a precedes b in source order
+/// but a sits in a layer further right (larger layer index), count one inversion.
 fn compute_order_cost(q: &QuotientGraph, arr: &Arrangement) -> u32 {
     let node_to_layer: HashMap<NodeId, usize> = {
         let mut m = HashMap::new();
@@ -910,7 +912,7 @@ fn compute_order_cost(q: &QuotientGraph, arr: &Arrangement) -> u32 {
             let b = q.nodes[j];
             if let (Some(&la), Some(&lb)) = (node_to_layer.get(&a), node_to_layer.get(&b)) {
                 if la > lb {
-                    // a 在源码序中先于 b，但层号更大 → 逆序
+                    // a precedes b in source order but has a larger layer index → inversion
                     penalty += 1;
                 }
             }
@@ -919,7 +921,7 @@ fn compute_order_cost(q: &QuotientGraph, arr: &Arrangement) -> u32 {
     penalty
 }
 
-/// 计算给定排列的完整代价
+/// Compute the full cost of a given arrangement
 pub fn cost(q: &QuotientGraph, arr: &Arrangement) -> Cost {
     let hard_dirs = break_cycles(q);
     let sides = compute_node_sides(q, &hard_dirs);
@@ -945,7 +947,7 @@ pub fn cost(q: &QuotientGraph, arr: &Arrangement) -> Cost {
 }
 
 // ============================================================================
-// 单元测试
+// Unit tests
 // ============================================================================
 
 #[cfg(test)]
@@ -1017,21 +1019,21 @@ mod tests {
     }
 
     // ────────────────────────────────────────
-    // break_cycles 测试（M3-2）
+    // break_cycles tests (M3-2)
     // ────────────────────────────────────────
 
-    /// t4_current: DAG，所有边应为 Forward
+    /// t4_current: DAG, all edges should be Forward
     #[test]
     fn break_cycles_t4_current_all_forward() {
         let (_g, q) = make_t4_current();
         let dirs = break_cycles(&q);
         assert_eq!(dirs.len(), 6, "t4_current has 6 edges");
-        // DAG，破环应全部为 Forward
+        // DAG, cycle breaking should yield all Forward
         let backward_count = dirs.iter().filter(|d| matches!(d, EdgeDir::Backward)).count();
         assert_eq!(backward_count, 0, "t4_current is a DAG, no backward edges");
     }
 
-    /// t2_cycle: 2 节点循环，应有 1 条 Backward
+    /// t2_cycle: 2-node cycle, should have exactly 1 Backward
     #[test]
     fn break_cycles_t2_cycle() {
         let mut g = McVecGraph::new(0, "main".into());
@@ -1053,7 +1055,7 @@ mod tests {
         assert_eq!(backward_count, 1, "t2_cycle should have exactly 1 backward edge");
     }
 
-    /// t3_cycle: 3 节点循环，应有 1 条 Backward
+    /// t3_cycle: 3-node cycle, should have exactly 1 Backward
     #[test]
     fn break_cycles_t3_cycle() {
         let mut g = McVecGraph::new(0, "main".into());
@@ -1080,7 +1082,7 @@ mod tests {
         assert_eq!(backward_count, 1, "t3_cycle should have exactly 1 backward edge");
     }
 
-    /// t1_chain: 简单链，所有 Forward
+    /// t1_chain: simple chain, all Forward
     #[test]
     fn break_cycles_t1_chain() {
         let mut g = McVecGraph::new(0, "main".into());
@@ -1097,7 +1099,7 @@ mod tests {
         assert!(matches!(dirs[0], EdgeDir::Forward));
     }
 
-    /// 空图：无边
+    /// Empty graph: no edges
     #[test]
     fn break_cycles_empty() {
         let g = McVecGraph::new(0, "main".into());
@@ -1107,10 +1109,10 @@ mod tests {
     }
 
     // ────────────────────────────────────────
-    // 方向锚测试（M3-2）
+    // Orientation anchor tests (M3-2)
     // ────────────────────────────────────────
 
-    /// 有明确 OUT→IN 方向的图，OUT 应该在左边、IN 在右边
+    /// Graph with clear OUT→IN direction: OUT should be on the left, IN on the right
     #[test]
     fn orient_out_left_in_right() {
         let mut g = McVecGraph::new(0, "main".into());
@@ -1125,18 +1127,18 @@ mod tests {
         let hard_dirs = break_cycles(&q);
         let sides = compute_node_sides(&q, &hard_dirs);
 
-        // u1 (index 0) 应该偏左，u2 (index 1) 应该偏右
+        // u1 (index 0) should lean left, u2 (index 1) should lean right
         assert_eq!(sides[0], NodeSide::Left, "u1 (OUT) should be on the left");
         assert_eq!(sides[1], NodeSide::Right, "u2 (IN) should be on the right");
 
-        // 验证 orient 代价：正确排列 [u1][u2] 的 orient=0
+        // Verify orient cost: correct arrangement [u1][u2] has orient=0
         let arr_correct = Arrangement {
             layers: vec![vec![1], vec![2]],
         };
         let cost_correct = cost(&q, &arr_correct);
         assert_eq!(cost_correct.orient, 0, "correct order should have orient=0");
 
-        // 验证 orient 代价：错误排列 [u2][u1] 的 orient>0
+        // Verify orient cost: wrong arrangement [u2][u1] has orient>0
         let arr_wrong = Arrangement {
             layers: vec![vec![2], vec![1]],
         };
@@ -1144,23 +1146,23 @@ mod tests {
         assert!(cost_wrong.orient > 0, "wrong order should have orient>0");
     }
 
-    /// t4_current: 验证 orient 代价在最优解中起作用
+    /// t4_current: verify the orient cost takes effect in the optimal solution
     #[test]
     fn orient_t4_current() {
         let (_g, q) = make_t4_current();
         let hard_dirs = break_cycles(&q);
         let _sides = compute_node_sides(&q, &hard_dirs);
 
-        // 最优解 [4][2][1][3,5]
+        // Optimal solution [4][2][1][3,5]
         let arr = Arrangement {
             layers: vec![vec![4], vec![2], vec![1], vec![3, 5]],
         };
         let c = cost(&q, &arr);
-        // 验证 orient + order 在最优解中起作用
+        // Verify orient + order take effect in the optimal solution
         assert!(c.weighted > 0.0 || (c.orient == 0 && c.order == 0),
             "orient and order should be computed for t4_current");
 
-        // 镜像解 [3,5][1][2][4] 应该 orient 代价更高
+        // Mirror solution [3,5][1][2][4] should have higher orient cost
         let arr_mirror = Arrangement {
             layers: vec![vec![3, 5], vec![1], vec![2], vec![4]],
         };
@@ -1173,10 +1175,10 @@ mod tests {
     }
 
     // ────────────────────────────────────────
-    // 枚举测试
+    // Enumeration tests
     // ────────────────────────────────────────
 
-    /// t4_current: 最优解 [u1][u2,u3][u4,u5]（3 层，backward=1）
+    /// t4_current: optimal solution [u1][u2,u3][u4,u5] (3 layers, backward=1)
     #[test]
     fn arrange_t4_current_optimal() {
         let (_g, q) = make_t4_current();
@@ -1184,18 +1186,18 @@ mod tests {
         assert!(!candidates.is_empty(), "should have at least one candidate");
 
         let (cost, best) = &candidates[0];
-        // 当前权重（W_BACK=600）下最优是 3 层，backward=1
+        // Under current weights (W_BACK=600) the optimum is 3 layers, backward=1
         assert_eq!(best.layers.len(), 3, "t4_current should have 3 layers, got {:?}", best.layers);
         assert_eq!(best.layers[0], vec![1], "first layer should be [u1_mcu]");
         assert_eq!(cost.backward, 1, "should have exactly 1 backward edge (u4→u3)");
-        // 最后一层应包含 u4, u5
+        // The last layer should contain u4, u5
         let last: Vec<i64> = best.layers[2].clone();
         let mut last_sorted = last.clone();
         last_sorted.sort();
         assert_eq!(last_sorted, vec![4, 5], "last layer should be [u4_ldo_out, u5_flash]");
     }
 
-    /// t4_current: 次优解代价不低于最优解
+    /// t4_current: runner-up cost is not lower than the optimal
     #[test]
     fn arrange_t4_current_second_best() {
         let (_g, q) = make_t4_current();
@@ -1347,10 +1349,10 @@ mod tests {
     }
 
     // ────────────────────────────────────────
-    // 镜像 bug 回归测试
+    // Mirror bug regression test
     // ────────────────────────────────────────
 
-    /// box id 全部 +1000 后最优解不变
+    /// Optimal solution unchanged after shifting all box ids by +1000
     #[test]
     fn arrange_mirror_bug_regression() {
         let (_g, q) = make_t4_current();
@@ -1408,10 +1410,10 @@ mod tests {
     }
 
     // ────────────────────────────────────────
-    // 确定性测试
+    // Determinism tests
     // ────────────────────────────────────────
 
-    /// 连续 20 次求解，最优解一致
+    /// 20 consecutive solves yield the same optimal solution
     #[test]
     fn arrange_determinism() {
         let (_g, q) = make_t4_current();
@@ -1430,10 +1432,10 @@ mod tests {
     }
 
     // ────────────────────────────────────────
-    // 方向锚测试
+    // Orientation anchor tests
     // ────────────────────────────────────────
 
-    /// 有明确 OUT→IN 方向的图，OUT 应该在左
+    /// Graph with clear OUT→IN direction: OUT should be on the left
     #[test]
     fn arrange_orientation_out_left() {
         let mut g = McVecGraph::new(0, "main".into());
@@ -1453,10 +1455,10 @@ mod tests {
     }
 
     // ────────────────────────────────────────
-    // 边界测试
+    // Boundary tests
     // ────────────────────────────────────────
 
-    /// 单节点：返回单层
+    /// Single node: returns a single layer
     #[test]
     fn arrange_single_node() {
         let mut g = McVecGraph::new(0, "main".into());
@@ -1469,7 +1471,7 @@ mod tests {
         assert_eq!(best.layers[0], vec![1]);
     }
 
-    /// 空图：无结果
+    /// Empty graph: no results
     #[test]
     fn arrange_empty() {
         let g = McVecGraph::new(0, "main".into());

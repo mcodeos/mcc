@@ -14,22 +14,23 @@ use std::fmt;
 use super::vec::McVec;
 
 // ============================================================================
-// ★ P7-3: RailSpec — 声明驱动的电源网规格（分类 + driver）
+// ★ P7-3: RailSpec — declaration-driven power net spec (classification + driver)
 // ============================================================================
 
-/// 电源网类别（来自端口声明的 member_info.role，非名字匹配）
+/// Power net class (from the port declaration's member_info.role, not name matching)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RailClass {
-    /// 地（member role == Ground，全局同一，R-1 无 driver）
+    /// Ground (member role == Ground, globally one and the same, R-1 has no driver)
     Ground,
-    /// 电源轨（member role == Power）
+    /// Power rail (member role == Power)
     Power,
 }
 
-/// 一张电源网的规格，由投影层（viz/project.rs）从端口声明解析：
+/// The spec of one power net, resolved by the projection layer (viz/project.rs)
+/// from port declarations:
 /// * `class` —— Ground / Power
-/// * `driver_pin` —— 产生侧端点的 pin id（InstTable entry id），`None` = 无 driver（R-1）
-/// * `volt` —— `::DC(5V)` 字面量
+/// * `driver_pin` —— the producing-side endpoint's pin id (InstTable entry id); `None` = no driver (R-1)
+/// * `volt` —— the `::DC(5V)` literal
 #[derive(Debug, Clone)]
 pub struct RailSpec {
     pub class: RailClass,
@@ -87,7 +88,7 @@ pub struct McVecNet {
     /// ★ Shape as written in the source. `None` = no provenance; downstream falls back to `connection_type()`.
     /// Never fill with heuristics —— the coverage is reported in the logs.
     pub shape: Option<super::netshape::NetShape>,
-    /// ★ P7-3: 电源网规格（None = 普通信号网）。由 viz/project.rs 按端口声明填充。
+    /// ★ P7-3: power net spec (None = ordinary signal net). Filled by viz/project.rs from port declarations.
     pub rail: Option<RailSpec>,
 }
 

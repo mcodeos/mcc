@@ -462,10 +462,12 @@ struct RoutePlan {
 ///   - Endpoint count < 3 (can't form a hyperedge) → don't merge, leave alone
 ///   - Already-routed nets (route is Some) don't participate in merging
 ///     (theoretically won't happen before scheduling)
-// （★ P7-3 删除：merge_same_name_power_ground_nets —— 它存在的唯一理由是
-//  把 explode 炸出的同名 per-consumer flag stub 拼回超边；flag 机器删除后，
-//  唯一同名的 Power 网是刻意分开的 R-2 driver 段（golden 要求 V3V3 = 2 条边），
-//  合并它们等于把 driver 段吞掉。）
+// (★ P7-3 removed: merge_same_name_power_ground_nets — its only reason to
+//  exist was stitching the same-name per-consumer flag stubs that explode
+//  blew apart back into hyperedges. With the flag machine gone, the only
+//  same-name Power nets are the deliberately separate R-2 driver segments
+//  (golden requires V3V3 = 2 edges); merging them would swallow the
+//  driver segments.)
 
 // ============================================================================
 // Tests

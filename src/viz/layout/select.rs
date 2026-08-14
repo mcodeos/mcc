@@ -135,11 +135,12 @@ fn run_single(
     graph
 }
 
-/// ★ P7-1: Tier 1 真闸门的全局失败标志。
+/// ★ P7-1: global failure flag for the Tier 1 real gate.
 ///
-/// v5 §0.2 "四条假绿" / v6 §2 根因 J 的修复：fidelity_gate Tier 1 原来只打日志
-/// 然后 `return;` —— 闸门无法证伪任何东西。现在 Tier 1 失败会置位此标志，
-/// `mcviz` 在渲染结束后检查并 exit 非零（集成测试直接断言此标志）。
+/// Fix for v5 §0.2 "four false greens" / v6 §2 root cause J: fidelity_gate Tier 1
+/// used to just log and `return;` —— the gate could falsify nothing. Now a Tier 1
+/// failure sets this flag; `mcviz` checks it after rendering and exits non-zero
+/// (integration tests assert this flag directly).
 pub static RENDER_GATE_FAILED: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
@@ -147,8 +148,8 @@ pub static RENDER_GATE_FAILED: std::sync::atomic::AtomicBool =
 ///
 /// **Tier 1 · CORRECTNESS** — hard veto. Electrical correctness only:
 /// nets, pins, bus bits. Any violation is a hard error that must be fixed.
-/// ★ P7-1: Tier 1 失败现在**真的失败** —— 置位 [`RENDER_GATE_FAILED`]，
-/// 由 bin（mcviz）在渲染结束后检查并以非零码退出。
+/// ★ P7-1: Tier 1 failure now **really fails** —— sets [`RENDER_GATE_FAILED`],
+/// checked by the bin (mcviz) after rendering, exiting with a non-zero code.
 ///
 /// **Tier 2 · QUALITY** — ratchet. Collisions, coverage, wire quality.
 /// These are logged as warnings; they don't block the gate but signal
@@ -342,8 +343,9 @@ fn compute_fidelity(
         // NOTE (PR-3): nets_dropped / nets_partial are still hardcoded to 0 here —
         // the topology reconstruction that could drop a leaf lives upstream in
         // connection.rs (`merge_pairs_to_vecnet`).
-        // ★ M0-C BLOCKED: M0-A 提供 PairDir 后，driver/load 语义可由 ConnPair.dir
-        //   的多数决得出，届时可接上真实的 dropped/partial 计数。
+        // ★ M0-C BLOCKED: once M0-A provides PairDir, driver/load semantics can be
+        //   derived by majority vote over ConnPair.dir; real dropped/partial counts
+        //   can then be wired up.
         nets_dropped: 0,
         nets_partial: 0,
         pins_total,
@@ -490,16 +492,17 @@ mod tests {
         );
     }
 
-    /// ★ P7-1: Tier 1 失败必须置位 RENDER_GATE_FAILED（真闸门，不是只打日志）。
-    /// v5 §0.2 "四条假绿" 的渲染层修复 —— 直接构造 is_correct()==false 的报告
-    /// 调 fidelity_gate，断言全局失败标志被置位（mcviz 检查它并 exit 2）。
+    /// ★ P7-1: Tier 1 failure must set RENDER_GATE_FAILED (a real gate, not just logging).
+    /// Render-layer fix for v5 §0.2 "four false greens" —— directly constructs a
+    /// report with is_correct()==false and calls fidelity_gate, asserting the global
+    /// failure flag gets set (mcviz checks it and exits 2).
     #[test]
     fn tier1_failure_sets_render_gate_failed() {
         RENDER_GATE_FAILED.store(false, std::sync::atomic::Ordering::Relaxed);
         let bad = FidelityReport {
             nets_total: 3,
             nets_rendered: 2,
-            nets_dropped: 1, // ← Tier 1 硬伤：有网没画
+            nets_dropped: 1, // ← Tier 1 hard defect: a net left undrawn
             ..Default::default()
         };
         let readability = crate::viz::metrics::ReadabilityScore::default();
@@ -507,9 +510,9 @@ mod tests {
         fidelity_gate("test_layer", "test_layouter", &bad, &readability);
         assert!(
             RENDER_GATE_FAILED.load(std::sync::atomic::Ordering::Relaxed),
-            "Tier 1 CORRECTNESS 失败必须置位 RENDER_GATE_FAILED —— 只打日志=假闸门"
+            "Tier 1 CORRECTNESS failure must set RENDER_GATE_FAILED —— logging only = false gate"
         );
-        // 复位，不污染其它测试
+        // Reset so other tests are not polluted
         RENDER_GATE_FAILED.store(false, std::sync::atomic::Ordering::Relaxed);
     }
 

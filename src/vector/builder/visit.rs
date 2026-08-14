@@ -991,7 +991,7 @@ impl<'a> McVecBuilder<'a> {
         // Step 2: Generate McVecNet for each group
         let mut result = Vec::with_capacity(net_groups.len());
         for (net_name, pairs) in net_groups {
-            // ★ P7-4 诊断：分组明细（名 + 对），供跨构建 diff
+            // ★ P7-4 diagnostic: group details (name + pairs), for cross-build diff
             crate::vlog!(
                 "[det-group] module='{}' group='{}' pairs={:?}",
                 module_path,

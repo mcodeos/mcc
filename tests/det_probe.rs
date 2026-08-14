@@ -2,13 +2,15 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! ★ P7-4 诊断探针：同进程连续两次 flat 构建，逐层比对网表指纹，
-//! 定位非确定性注入点（前端 InstTable / builder / 图构建）。
+//! ★ P7-4 diagnostic probe: two consecutive flat builds in one process,
+//! comparing netlist fingerprints layer by layer to locate non-determinism
+//! injection points (frontend InstTable / builder / graph construction).
 //!
-//! 三段指纹（全部排序后比较，只暴露"内容不同"，不暴露顺序不同）：
-//!  - flat_nets  : InstTable 层面（网名 + 排序端点路径），不稳定 ⇒ 前端 id/命名
-//!  - block_nets : build_mc_vec 的 McVecBlock 层面（网名 + 排序 point id）
-//!  - graph_nets : fromblock 图层面（层名 + 网名 + 排序端点 box id）
+//! Three fingerprint sections (all sorted before comparison; exposes "content differs",
+//! not "order differs"):
+//!  - flat_nets  : InstTable level (net names + sorted endpoint paths); unstable ⇒ frontend id/naming
+//!  - block_nets : McVecBlock level of build_mc_vec (net names + sorted point ids)
+//!  - graph_nets : fromblock graph level (layer names + net names + sorted endpoint box ids)
 
 use std::path::PathBuf;
 
@@ -36,7 +38,7 @@ fn build_once() -> (String, String, String, String) {
     let (tree, table) =
         mcc::mcc_build_flat(&McIds::from("main"), &entry_uri, 1000).expect("build hbl");
 
-    // ── 指纹 1：InstTable 全部网（名 + 排序端点路径）──
+    // ── Fingerprint 1: all InstTable nets (names + sorted endpoint paths) ──
     let mut flat_lines: Vec<String> = table
         .get_nets()
         .iter()
@@ -51,13 +53,13 @@ fn build_once() -> (String, String, String, String) {
         })
         .collect();
     flat_lines.sort();
-    // ★ 诊断：打印 flat VCC / RES 相关行
+    // ★ Diagnostic: print flat VCC / RES related lines
     for l in &flat_lines {
         if l.contains("VCC #") || l.contains("RES") {
             eprintln!("[det_probe] FLAT: {l}");
         }
     }
-    // ── 指纹 1b：entry id → path（探测 id 分配顺序是否稳定）──
+    // ── Fingerprint 1b: entry id → path (probe whether id allocation order is stable) ──
     let mut entry_lines: Vec<String> = table
         .iter()
         .map(|(id, e)| format!("{id} {} {:?}", e.path, e.kind))
@@ -66,7 +68,7 @@ fn build_once() -> (String, String, String, String) {
     flat_lines.extend(entry_lines);
     let flat = flat_lines.join("\n");
 
-    // ── 指纹 2：McVecBlock ──
+    // ── Fingerprint 2: McVecBlock ──
     let vec_block = mcc::vector::builder::visit::build_mc_vec(&tree, &table);
     let mut block_lines: Vec<String> = Vec::new();
     let mut path_lines: Vec<String> = Vec::new();
@@ -87,7 +89,7 @@ fn build_once() -> (String, String, String, String) {
             .collect();
         nets.sort();
         out.push(format!("[{}] {}", b.name, nets.join(" | ")));
-        // 指纹 4：成员路径（id → path 展开，探测成员差异）
+        // Fingerprint 4: member paths (id → path expansion, probing member differences)
         let mut pnet: Vec<String> = b
             .nets
             .iter()
@@ -111,7 +113,7 @@ fn build_once() -> (String, String, String, String) {
     let block = block_lines.join("\n");
     let pathf = path_lines.join("\n");
 
-    // ── 指纹 3：图 ──
+    // ── Fingerprint 3: graph ──
     let graph = mcc::vector::graph::fromblock::build_mc_vec_graph(&vec_block, &table);
     let mut graph_lines: Vec<String> = Vec::new();
     fn walk_graph(g: &mcc::vector::graph::McVecGraph, out: &mut Vec<String>) {
@@ -161,7 +163,7 @@ fn probe_two_builds_are_identical() {
                     }
                 }
             }
-            panic!("{name} 指纹两次构建不一致（前 {shown} 处差异已打印）");
+            panic!("{name} fingerprint differs across two builds (first {shown} differences printed)");
         }
     }
 }

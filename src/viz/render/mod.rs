@@ -114,8 +114,9 @@ impl SvgRenderer {
             svg.push_str(&shape::render_box(b));
         }
 
-        // ── ★ P7-3: rail 端子装饰（pin 渲染属性，不是盒子，纪律 11）──
-        // 电源圆点画在 pin 正上方（朝上）、接地符号在 pin 正下方（朝下）。
+        // ── ★ P7-3: rail terminal decorations (pin render attributes, not boxes, discipline 11) ──
+        // Power dots are drawn directly above the pin (pointing up), ground symbols
+        // directly below the pin (pointing down).
         for d in &graph.rail_decorations {
             let Some(b) = graph.boxes.iter().find(|b| b.id == d.box_id) else { continue };
             let Some(ep) = b.entry_points.iter().find(|e| e.pin_id == d.pin_id) else {

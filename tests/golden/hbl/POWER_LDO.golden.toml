@@ -1,6 +1,6 @@
-# POWER_LDO golden 网表
-# 依赖裁决：⑥ 全局 GND — ldo.2 兼作 VIN.GND 与 VOUT.GND，是全局 GND 的第一座桥
-# 源码：power.mc:52-72
+# POWER_LDO golden netlist
+# Dependency adjudication: ⑥ global GND — ldo.2 doubles as VIN.GND and VOUT.GND, the first bridge of global GND
+# Source: power.mc:52-72
 
 [meta]
 module = "POWER_LDO"
@@ -42,7 +42,7 @@ points = ["port.VCC", "ldo.5", "C4u7.1"]
 
 [[unconnected]]
 pin = "ldo.4"
-reason = "SGM2019 固定 3.3V 输出版本，FB 反馈脚不用"
+reason = "SGM2019 fixed 3.3V output variant, FB feedback pin unused"
 
 [[series]]
 comp = "C10u"

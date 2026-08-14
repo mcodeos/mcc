@@ -82,16 +82,19 @@ fn escape_xml(s: &str) -> String {
 }
 
 // ============================================================================
-// ★ P7-3: pin 装饰渲染（rail 端子 / 接地符号，不进 graph.boxes）
+// ★ P7-3: pin decoration rendering (rail terminals / ground symbols, not in graph.boxes)
 // ============================================================================
 
-/// 在 pin 坐标处渲染一个端子装饰。
+/// Render a terminal decoration at the pin coordinates.
 ///
-/// * `is_ground == true` —— 接地符号，位于 pin 正下方（三横杠朝下，无文字，S1）
-/// * `is_ground == false` —— rail 端子，位于 pin 正上方（三角朝上 + 网名，S2）
+/// * `is_ground == true` —— ground symbol, directly below the pin (three horizontal
+///   bars pointing down, no text, S1)
+/// * `is_ground == false` —— rail terminal, directly above the pin (triangle pointing
+///   up + net name, S2)
 ///
-/// 复用 [`PowerRailShape`] 的画法：合成一个临时盒子，connect 边朝向被装饰的盒子
-/// （power → Bottom 即符号朝上；ground → Top 即符号朝下），零布局成本。
+/// Reuses [`PowerRailShape`]'s drawing: synthesizes a temporary box whose connect
+/// edge faces the decorated box (power → Bottom means the symbol points up;
+/// ground → Top means the symbol points down), at zero layout cost.
 pub fn render_decoration(px: f64, py: f64, is_ground: bool, label: &str) -> String {
     const W: f64 = 22.0;
     const H: f64 = 30.0;
@@ -109,7 +112,7 @@ pub fn render_decoration(px: f64, py: f64, is_ground: bool, label: &str) -> Stri
         Vec::new(),
     );
     if is_ground {
-        // 盒子顶边中点 = pin，符号朝下
+        // Box top edge midpoint = pin, symbol points down
         b.x = px - W / 2.0;
         b.y = py;
         b.w = W;
@@ -121,7 +124,7 @@ pub fn render_decoration(px: f64, py: f64, is_ground: bool, label: &str) -> Stri
             offset: 0.5,
         });
     } else {
-        // 盒子底边中点 = pin，符号朝上
+        // Box bottom edge midpoint = pin, symbol points up
         b.x = px - W / 2.0;
         b.y = py - H;
         b.w = W;

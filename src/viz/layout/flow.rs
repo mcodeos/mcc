@@ -151,19 +151,20 @@ impl FlowLayouter {
         self
     }
 
-    /// 相位 1 · Prepare — 拓扑归一 + 粗粒度 pin。
+    /// Phase 1 · Prepare — topology normalization + coarse pins.
     ///
-    /// 写：graph.fanout 相关的合成/拆分结构、盒子初始尺寸、coarse entry_points。
+    /// Writes: fanout-related synth/split structures in graph, initial box sizes, coarse entry_points.
     fn phase_prepare(&self, graph: &mut McVecGraph) {
-        // ── ★ P7-3: rail 三分法（R-1/R-2/R-3 + 顶层 C5），最先跑 ──────────
-        //   rail 网在这一步被替换成 driver 段边 + pin 装饰（不进 boxes），
-        //   之后的所有 pass（coalesce / pin_place / islands / passive_inline）
-        //   看到的都是纯信号图。
+        // ── ★ P7-3: rail triage (R-1/R-2/R-3 + top-level C5), runs first ──────────
+        //   Rail nets are replaced here by driver segment edges + pin decorations
+        //   (not in boxes); every later pass (coalesce / pin_place / islands /
+        //   passive_inline) sees a pure signal graph.
         classify_rails(graph, /*is_top=*/ !self.is_sub_layout);
-        // ★ 先把"一条连接一条 net"归约成"一个等电位点一条 net"。
-        // 整个布局栈（sp_model / ladder_model / chain / trunk_tap）都假设 net == 节点，
-        // 但 visit.rs 那条 builder 通路对匿名器件引脚不做跨 net 合并（FIX-B 只认
-        // InstKind::Pin）。不先做这一步，SP 会在 golden 上报 PassiveNetCount{nets:3}。
+        // ★ First reduce "one net per connection" into "one net per equipotential point".
+        // The entire layout stack (sp_model / ladder_model / chain / trunk_tap) assumes
+        // net == node, but the visit.rs builder path does no cross-net merging for
+        // anonymous device pins (FIX-B only recognizes InstKind::Pin). Without this
+        // step first, SP reports PassiveNetCount{nets:3} on golden.
         super::coalesce::coalesce_equipotential_nets(graph);
         promote_synthetic_pins(graph);
         split_shared_pins(graph);
@@ -171,7 +172,7 @@ impl FlowLayouter {
         assign_entry_points_coarse(graph);
     }
 
-    /// 备用出口 A — 完全无连接图：pin-aware 重算尺寸后走网格铺满画布。
+    /// Fallback exit A — fully disconnected graph: pin-aware size recompute then grid-fill the canvas.
     fn exit_grid(&self, graph: &mut McVecGraph) -> (f64, f64) {
         assign_default_sizes(graph);
         place_grid(graph);
@@ -180,7 +181,7 @@ impl FlowLayouter {
         compute_canvas(graph)
     }
 
-    /// 相位 2 · Size — 只增不减的尺寸调整。
+    /// Phase 2 · Size — grow-only size adjustment.
     fn phase_size(&self, graph: &mut McVecGraph) {
         if self.recompute_sizes {
             recompute_sizes_with_pin_count(graph);
@@ -190,9 +191,9 @@ impl FlowLayouter {
         probe_degenerate_boxes(graph, "after phase_size");
     }
 
-    /// 相位 3 · Placement — 只写盒子位置（x/y），全部先于 pin_place。
+    /// Phase 3 · Placement — writes only box positions (x/y), all before pin_place.
     ///
-    /// 返回 (root_id, isolated_ids) 供后续相位使用。
+    /// Returns (root_id, isolated_ids) for later phases.
     fn phase_placement(&self, graph: &mut McVecGraph) -> (i64, HashSet<i64>) {
         let ranks = assign_flow_ranks(graph, self.hub_min_degree);
         let columns = order_columns(graph, &ranks, self.bary_sweeps);
@@ -209,16 +210,18 @@ impl FlowLayouter {
         let isolated_ids = compute_isolated_ids(graph, root_id);
 
         align_leaf_to_neighbor(graph, root_id);
-        // ★ P7-3: group_supply_modules（关键字表供电模块归底行）已删除——
-        // driver 段边把电源模块接进主流向，按流向排位即可（目标图 1 电源链在主图内）。
+        // ★ P7-3: group_supply_modules (keyword-table supply modules to the bottom row)
+        // is deleted —— driver segment edges wire power modules into the main flow;
+        // ranking by flow direction suffices (target figure 1 keeps the power chain
+        // inside the main diagram).
 
         (root_id, isolated_ids)
     }
 
-    /// 相位 5 · Post — 几何保持的盒子移动，pin_place 之后安全。
+    /// Phase 5 · Post — geometry-preserving box moves, safe after pin_place.
     ///
-    /// ★ P7-3：flag 机器（split/place/eject）已删除——端子不再是盒子
-    /// （graph.rail_decorations，纪律 11），没有 flag 需要归位或弹出。
+    /// ★ P7-3: the flag machine (split/place/eject) is deleted —— terminals are no
+    /// longer boxes (graph.rail_decorations, discipline 11); no flags to re-home or eject.
     fn phase_post(&self, graph: &mut McVecGraph, isolated_ids: &HashSet<i64>) {
         park_isolated_components(graph, isolated_ids);
         normalize_positions(graph);
@@ -405,10 +408,10 @@ impl Layouter for FlowLayouter {
             self.recompute_sizes
         );
 
-        // ★ M2-1: v2 绞杀者管线。MC_LAYOUT_V2=1 时走新路径，
-        // 默认走旧路径，旧路径一行不改。
-        // ★ P7-0: is_submodule 的唯一读者就是 v2；由这里自行设置，
-        // api.rs 不再无条件写这个字段。
+        // ★ M2-1: v2 strangler pipeline. MC_LAYOUT_V2=1 takes the new path;
+        // the default is the old path, with not one line of the old path changed.
+        // ★ P7-0: the only reader of is_submodule is v2; it is set here,
+        // api.rs no longer writes this field unconditionally.
         if std::env::var("MC_LAYOUT_V2").as_deref() == Ok("1") {
             graph.is_submodule = self.is_sub_layout;
             let plan = super::v2::solve(graph);
@@ -428,29 +431,29 @@ impl Layouter for FlowLayouter {
 
         graph.fanout_star = self.fanout_star;
 
-        // ── 相位 1 · Prepare：拓扑归一 + 粗粒度 pin ──
+        // ── Phase 1 · Prepare: topology normalization + coarse pins ──
         let g_snap = graph.geom_snapshot();
         self.phase_prepare(graph);
         graph.claim_geom_changes(&g_snap, "1.prepare");
 
-        // 备用出口 A：完全无连接 → 网格布局（早退）
+        // Fallback exit A: fully disconnected → grid layout (early exit)
         if is_fully_disconnected(graph) {
             return self.exit_grid(graph);
         }
 
-        // ── 相位 2 · Size：pin-aware 尺寸 + 按扇出增高 ──
+        // ── Phase 2 · Size: pin-aware sizes + fanout-based height growth ──
         let g_snap = graph.geom_snapshot();
         self.phase_size(graph);
         graph.claim_geom_changes(&g_snap, "2.size");
 
-        // 备用出口 B：单盒子（早退）
+        // Fallback exit B: single box (early exit)
         if graph.boxes.len() == 1 {
             graph.boxes[0].x = CANVAS_MARGIN;
             graph.boxes[0].y = CANVAS_MARGIN;
             return compute_canvas(graph);
         }
 
-        // ── 相位 3 · Placement（只写盒子位置）+ PROBE-B 契约校验 ──
+        // ── Phase 3 · Placement (writes only box positions) + PROBE-B contract check ──
         let ep_snap = probe_ep_snapshot(graph);
         let g_snap = graph.geom_snapshot();
         let (root_id, isolated_ids) = self.phase_placement(graph);
@@ -462,15 +465,15 @@ impl Layouter for FlowLayouter {
         self.apply_schematic_model(graph);
         graph.claim_geom_changes(&g_snap, "4.schematic_model");
 
-        // 旧路径照跑：模型命中时被 ladder_place 完全覆盖，模型 bail 时兜底
+        // The old path still runs: fully overridden by ladder_place on model hit, fallback when the model bails
         let g_snap = graph.geom_snapshot();
         super::two_lane_ladder::try_two_lane_ladder(graph);
         graph.claim_geom_changes(&g_snap, "5.two_lane");
 
         // ── M11+M12 Idiom-aware placement (pre-pin) ──
-        // 在 phase_placement 之后、pin_place_pipeline 之前移动 satellite 器件。
-        // 只移动 cap/resistor 等 satellite，不移动 IC/connector/module 等 anchor。
-        // 跳过 ladder-locked (geom_locked) 的盒子。
+        // Move satellite devices after phase_placement and before pin_place_pipeline.
+        // Only satellites like caps/resistors move, never anchors like IC/connector/module.
+        // Skips ladder-locked (geom_locked) boxes.
         // M12: score-all candidates → deterministic best, with determinism report.
         {
             let protected: std::collections::HashSet<i64> = graph
@@ -496,28 +499,30 @@ impl Layouter for FlowLayouter {
             mcc_dbg!("viz", "{}", det_report.report_line());
         }
 
-        // ── 相位 4 · PinPlacement：EntryPoint 唯一写者 + hub 几何唯一终定者 ──
+        // ── Phase 4 · PinPlacement: sole writer of EntryPoint + sole finalizer of hub geometry ──
         let g_snap = graph.geom_snapshot();
         super::pin_place::pin_place_pipeline(graph, Some(root_id), true, self.hub_keep_semantic);
         graph.claim_geom_changes(&g_snap, "7.pin_place");
         probe_degenerate_boxes(graph, "after pin_place");
 
-        // ★ 岛屿 dispatcher（P7-4e 收编）：islands 分解 → 每个岛按拓扑分类
-        // （SP / ladder / direct / stub）由 apply_islands 内部分发 handler，
-        // 要求**每个岛都被认领**才落几何；未被认领的岛留给 L4 通用兜底
-        // （select.rs 的三个 passive pass）。
+        // ★ Island dispatcher (absorbed in P7-4e): islands decomposition → each island
+        // classified by topology (SP / ladder / direct / stub) and dispatched to a handler
+        // inside apply_islands; geometry lands only when **every island is claimed**;
+        // unclaimed islands are left to the L4 generic fallback (the three passive
+        // passes in select.rs).
         //
-        // ★ P7-4e 删除：L2 整图 SP / L3 整图 ladder 旁路（原 `!claimed` 时
-        // try_build_sp_model / try_build_ladder_model 抢先落锁）。P7-4c 实测
-        // hbl 全部 7 层零命中（两旁路从未落过几何），且 islands 内部已有
-        // Sp/Ladder 两类 island handler —— 四条互为兜底的分支收敛为
-        // "每个岛认领一个模型"的单一 dispatcher。
+        // ★ P7-4e removed: the L2 whole-graph SP / L3 whole-graph ladder bypasses
+        // (originally try_build_sp_model / try_build_ladder_model grabbing locks when
+        // `!claimed`). P7-4c field testing showed zero hits across all 7 hbl layers
+        // (neither bypass ever wrote geometry), and islands already has Sp/Ladder
+        // island handlers —— the four mutually-fallback branches converge into the
+        // single dispatcher of "each island claims one model".
         let decomp = super::islands::decompose(graph);
         let g_snap = graph.geom_snapshot();
         super::islands::apply_islands(graph, &decomp);
         graph.claim_geom_changes(&g_snap, "8.islands");
 
-        // ── 相位 5 · Post：几何保持的移动，pin_place 之后安全 ──
+        // ── Phase 5 · Post: geometry-preserving moves, safe after pin_place ──
         let g_snap = graph.geom_snapshot();
         self.phase_post(graph, &isolated_ids);
         graph.claim_geom_changes(&g_snap, "9.post");
@@ -526,8 +531,8 @@ impl Layouter for FlowLayouter {
     }
 }
 
-// （★ P7-3 删除：FlagTarget / FlagMeta / split_flags —— flag 不再是盒子，
-//  无需在核心布局前抽出、Post 相位归位。）
+// (★ P7-3 removed: FlagTarget / FlagMeta / split_flags —— flags are no longer boxes,
+//  no need to extract before core layout or re-home in the Post phase.)
 
 // ============================================================================
 // Size: height ∝ signal net count (vertical stretch, let parallel wire bundles spread apart)
@@ -938,13 +943,15 @@ fn branches_excluding(root: i64, adj: &HashMap<i64, Vec<i64>>, core_ids: &[i64])
 /// Example: usbsocket↔modldo only connected via Vin, only power (became flag) between it and main circuit (mcu...) →
 /// They are a connected component without hub → all enter isolated set. moddcdc if has real connection (like [VCC_1V2,GND]
 /// bundle net) to main → in hub component → not in isolated set → stays in main layout.
-/// ★ P7-3 验收项：main 层此集合必须为空（driver 段边把电源模块接进主流向后，
-/// 不再有"只靠电源连接"的孤岛）。pub 供集成测试断言。
+/// ★ P7-3 acceptance item: this set must be empty for the main layer (driver segment
+/// edges wire power modules into the main flow, so no more "power-only" islands).
+/// pub for integration tests to assert.
 pub fn compute_isolated_ids(graph: &McVecGraph, hub_id: i64) -> HashSet<i64> {
     let adj = build_adjacency(graph);
     let comps = find_connected_components(&graph.boxes, &adj);
-    // ★ P7-3: 负 id 的 SubModule 是 Phase 1.46 的顶层虚线边框（无网、纯视觉），
-    // 不是组件，不进孤岛集——否则 park_isolated_components 会把边框挪出画布主体。
+    // ★ P7-3: a SubModule with negative id is Phase 1.46's top-level dashed border
+    // (netless, purely visual), not a component, and does not enter the isolated set ——
+    // otherwise park_isolated_components would move the border out of the canvas body.
     let border: HashSet<i64> = graph
         .boxes
         .iter()
@@ -985,7 +992,8 @@ fn park_isolated_components(graph: &mut McVecGraph, isolated_ids: &HashSet<i64>)
         return;
     }
 
-    // ★ P7-3：flag 已不存在（端子是 pin 装饰），孤岛只需整体平移盒子自身。
+    // ★ P7-3: flags no longer exist (terminals are pin decorations); islands only need
+    // to rigidly shift the boxes themselves.
     let move_set: HashSet<i64> = isolated_ids.clone();
 
     // 2. Main body bounding box (non move_set) bottom-left + isolated cluster (move_set) top-left
@@ -1023,9 +1031,10 @@ fn park_isolated_components(graph: &mut McVecGraph, isolated_ids: &HashSet<i64>)
     );
 }
 
-// （★ P7-3 删除：is_supply_module / group_supply_modules ——
-//  名字关键字表（POWER/LDO/DCDC/...）是反模式 §2.3 的标本，整链删除。
-//  driver 段边已把电源模块接进主流向，按流向排位即可。）
+// (★ P7-3 removed: is_supply_module / group_supply_modules ——
+//  the name keyword table (POWER/LDO/DCDC/...) was a specimen of anti-pattern §2.3,
+//  the whole chain deleted. Driver segment edges already wire power modules into the
+//  main flow; ranking by flow direction suffices.)
 
 // ============================================================================
 // barycenter de-crossing
@@ -1347,7 +1356,8 @@ impl FlowLayouter {
         }
     }
 
-    // （★ P7-3 删除：place_flags —— flag 不是盒子，无需摆位；端子按 pin 装饰渲染。）
+    // (★ P7-3 removed: place_flags —— flags are not boxes and need no placement;
+    //  terminals render as pin decorations.)
 }
 
 fn place_single_row(graph: &mut McVecGraph) {
@@ -1558,14 +1568,14 @@ mod tests {
 }
 
 // ============================================================================
-// PROBE-B — 校验 Placement 相位没有偷写 EntryPoint
+// PROBE-B — verify the Placement phase doesn't sneak-write EntryPoint
 // ----------------------------------------------------------------------------
-// 只在 MC_VIZ_DUMP 启用时运行；debug_assert 在新代码违约时 panic。
-// 预期日志：
+// Runs only when MC_VIZ_DUMP is enabled; debug_assert panics when new code violates.
+// Expected log:
 //   [PROBE-B] ✓ phase_placement respected phase contract (no entry_point writes)
 // ============================================================================
 
-/// 快照 (box_id, pin_id) → (side 判别串, offset)。
+/// Snapshot (box_id, pin_id) → (side discriminant string, offset).
 fn probe_ep_snapshot(graph: &McVecGraph) -> HashMap<(i64, i64), (String, f64)> {
     let mut m = HashMap::new();
     for b in &graph.boxes {
@@ -1624,7 +1634,7 @@ fn probe_no_ep_writes(pass: &str, graph: &McVecGraph, before: &HashMap<(i64, i64
 }
 
 // ============================================================================
-// NaN guard — 根因守卫 + 哨兵
+// NaN guard — root-cause guard + sentinel
 // ============================================================================
 
 const MIN_BOX_W: f64 = 24.0;
@@ -1634,8 +1644,9 @@ const SIZE_EPS: f64 = 1e-6;
 /// Threshold for long power/ground stub (same as special::LONG_PG_STUB).
 const LONG_PG_STUB: f64 = 120.0;
 
-/// 根因守卫：退化盒子兜底到最小尺寸，切断 NaN 传播链。
-/// 必须在 release 也跑。
+/// Root-cause guard: floor degenerate boxes to minimum size, cutting the NaN
+/// propagation chain.
+/// Must also run in release.
 pub fn floor_box_sizes(graph: &mut McVecGraph) {
     let mut fixed = 0usize;
     for b in &mut graph.boxes {
@@ -1662,7 +1673,7 @@ pub fn floor_box_sizes(graph: &mut McVecGraph) {
     }
 }
 
-/// 哨兵：逐层报告退化盒子与 NaN/Inf 的 entry_point offset。
+/// Sentinel: report degenerate boxes and NaN/Inf entry_point offsets per layer.
 fn probe_degenerate_boxes(graph: &McVecGraph, tag: &str) {
     if !crate::viz::debug::dump_enabled() {
         return;
@@ -1678,7 +1689,7 @@ fn probe_degenerate_boxes(graph: &McVecGraph, tag: &str) {
             bad_pos.push(format!("{}(x={:.1},y={:.1})", b.name, b.x, b.y));
         }
         if b.x.abs() > 1e7 || b.y.abs() > 1e7 {
-            bad_pos.push(format!("{}(x={:.0},y={:.0} 荒诞)", b.name, b.x, b.y));
+            bad_pos.push(format!("{}(x={:.0},y={:.0} absurd)", b.name, b.x, b.y));
         }
         for ep in &b.entry_points {
             if !ep.offset.is_finite() {
@@ -1701,4 +1712,4 @@ fn probe_degenerate_boxes(graph: &McVecGraph, tag: &str) {
 }
 
 // ============================================================================
-// （★ P7-3 删除：eject_flags_from_boxes —— flag 不是盒子，无 flag 需要弹出。）
+// (★ P7-3 removed: eject_flags_from_boxes —— flags are not boxes, no flags to eject.)

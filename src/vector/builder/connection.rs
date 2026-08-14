@@ -292,9 +292,11 @@ fn order_by_direction(pairs: &[ConnPair], _dir: PairDir) -> Option<Vec<i64>> {
         }
     }
 
-    // ★ P7-4 [DET]: 组内可能不止一条连通分量（或星形）——单链走不完。
-    // 按首次出现顺序补上所有未访问节点，保证**不丢点**（原来 VCC 星形
-    // 只保留 3/6 点、GND 双链只保留一个分量）。
+    // ★ P7-4 [DET]: a group may contain more than one connected component (or a
+    // star) —— a single chain cannot cover it. Append all unvisited nodes in
+    // first-appearance order, guaranteeing **no dropped points** (previously
+    // the VCC star kept only 3/6 points and the GND double chain kept only
+    // one component).
     let mut remaining = collect_unique_ordered(pairs);
     remaining.retain(|id| !visited.contains(id));
     chain.extend(remaining);
@@ -379,8 +381,9 @@ fn order_chain(pairs: &[ConnPair]) -> Vec<i64> {
         adj.entry(pair.right).or_default().push(pair.left);
     }
 
-    // Find degree-1 node (start of chain) — ★ P7-4 [DET]: 最小 id，避免
-    // HashMap 迭代序决定链方向（方向影响 McVec.nets 顺序 → 渲染序）。
+    // Find degree-1 node (start of chain) — ★ P7-4 [DET]: the smallest id, so
+    // HashMap iteration order cannot decide chain direction (direction affects
+    // McVec.nets order → render order).
     let start = pick_chain_start(&adj);
 
     let start = match start {

@@ -2,43 +2,49 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! ★ P7-2 · 网表 → viz 的投影层
+//! ★ P7-2 · netlist → viz projection layer
 //!
-//! ## 背景（MC_SCHEMATIC_ROADMAP_v6 §0.2）
-//! pass2 的网表电气上等价 golden，但带三类**在 pass2 无害、在 viz 致命**的噪声：
+//! ## Background (MC_SCHEMATIC_ROADMAP_v6 §0.2)
+//! The pass2 netlist is electrically equivalent to golden, but carries three kinds of
+//! noise that are **harmless in pass2 yet fatal in viz**:
 //!
-//! * (a) 标量 stub 与成员网并存：`mic` 层 `MIC.N`(port stub) + `MIC.N~0`(成员网)；
-//!   `main` 层 `V3V3.VCC`(成员网) + `VCC`/`VDD_3V3`(标量 label 视图) —— 同一条电气网
-//!   被拆成 2~3 张网，靠模块自身端口的伪端点互相粘连。
-//! * (b) 同一端口的重复端点：`main.VDD_3V3` 网里同时有 `mic.VDD_3V3`(Label) 与
-//!   `mic.dc.VDD_3V3`(Port) —— 归一到端口声明侧那一个（裁决⑤"声明为准"）。
-//! * (c) rail label 伪端点：`main.V3V3.VCC` 这类**本层模块自己的 Port/Label**
-//!   被当作一个 net point —— 它是网的名字，不是一个电气连接点。
+//! * (a) Scalar stubs coexist with member nets: `mic` layer `MIC.N`(port stub) +
+//!   `MIC.N~0`(member net); `main` layer `V3V3.VCC`(member net) + `VCC`/`VDD_3V3`
+//!   (scalar label views) —— one electrical net is split into 2~3 nets, glued together
+//!   by pseudo endpoints of the module's own ports.
+//! * (b) Duplicate endpoints of the same port: the `main.VDD_3V3` net contains both
+//!   `mic.VDD_3V3`(Label) and `mic.dc.VDD_3V3`(Port) —— normalized to the one on the
+//!   port declaration side (ruling ⑤ "declaration wins").
+//! * (c) rail label pseudo endpoints: things like `main.V3V3.VCC`, i.e. **the current
+//!   layer module's own Port/Label**, treated as a net point —— it is the net's name,
+//!   not an electrical connection point.
 //!
-//! ## 判据全部来自端口声明，零名字匹配（反模式 §2.3）
-//! * 伪端点：`entry.parent_id == block.bid && kind ∈ {Port, Label}`
-//!   （父节点是本层模块自身的 Port/Label = 本层的边界声明）。
-//! * (a) 的 union 胶水：**同一伪端点出现在多张网里** → 那些网是同一条电气网；
-//!   以及 **`member_info.role == Ground` 的伪端点全局同一地**（golden 裁决⑥）。
-//! * (b) 的判据：同一 net 内两个端点的 `parent_id` 相同（同一个子模块），
-//!   一个 kind=Label、一个 kind=Port → 丢 Label 保 Port（声明侧）。
+//! ## Criteria come entirely from port declarations, zero name matching (anti-pattern §2.3)
+//! * Pseudo endpoint: `entry.parent_id == block.bid && kind ∈ {Port, Label}`
+//!   (parent is the current layer module's own Port/Label = boundary declaration of this layer).
+//! * (a) union glue: **the same pseudo endpoint appearing in multiple nets** → those nets
+//!   are one electrical net; also **pseudo endpoints with `member_info.role == Ground`
+//!   are globally the same ground** (golden ruling ⑥).
+//! * (b) criterion: two endpoints in the same net share `parent_id` (same submodule),
+//!   one kind=Label, one kind=Port → drop Label keep Port (declaration side).
 //!
-//! ## 落点（唯一入口，不可绕过）
-//! 本模块由 `vector::graph::fromblock::build_mc_vec_graph` 调用 —— 那是所有
-//! block→graph 转换的唯一必经点（mcviz / cmds / 测试全部走它）。这是 vector→viz
-//! 的唯一一处反向依赖：投影是 viz 侧策略，必须在边界上对所有调用方统一生效，
-//! 不允许任何调用方绕过（v4 §6"下层补上层"的反面教训）。
+//! ## Integration point (sole entry, cannot be bypassed)
+//! This module is called by `vector::graph::fromblock::build_mc_vec_graph` —— that is the
+//! only mandatory path for all block→graph conversions (mcviz / cmds / tests all go through
+//! it). This is the single reverse dependency of vector→viz: projection is a viz-side policy
+//! that must take effect uniformly for all callers at the boundary; no caller may bypass it
+//! (the negative lesson of v4 §6 "lower layer patches upper layer").
 //!
-//! ## 可审计（纪律 9）
-//! 每次合并/去重/剔除都记录 (层, 网, 端点, 规则 a|b|c)，汇总写入
-//! `baseline/render_projection.md`，并在 vlog 打一行每层摘要。
+//! ## Auditable (discipline 9)
+//! Every merge/dedup/removal is recorded as (layer, net, endpoint, rule a|b|c), aggregated
+//! into `baseline/render_projection.md`, plus one vlog summary line per layer.
 
 use std::collections::HashMap;
 
 use crate::instant::insttab::{InstKind, InstTable, MemberRole};
 use crate::vector::model::{McVec, McVecBlock, McVecNet};
 
-/// 一条投影动作记录（规则 a=合并 / b=端点去重 / c=伪端点剔除）
+/// One projection action record (rule a=merge / b=endpoint dedup / c=pseudo endpoint removal)
 #[derive(Debug, Clone)]
 pub struct ProjectionRecord {
     pub layer: String,
@@ -48,7 +54,7 @@ pub struct ProjectionRecord {
     pub note: String,
 }
 
-/// 投影日志：逐层 (网数前, 网数后) + 全部动作记录
+/// Projection log: per-layer (net count before, after) + all action records
 #[derive(Debug, Default)]
 pub struct ProjectionLog {
     pub records: Vec<ProjectionRecord>,
@@ -56,16 +62,16 @@ pub struct ProjectionLog {
 }
 
 impl ProjectionLog {
-    /// 汇总写入 `baseline/render_projection.md`（每次投影覆盖写，内容确定）。
+    /// Aggregated into `baseline/render_projection.md` (overwritten each projection, deterministic content).
     pub fn write_md(&self) {
         let mut md = String::new();
         md.push_str("# Render Projection (P7-2)\n\n");
-        md.push_str("pass2 → viz 投影层的审计日志。规则：a=标量∪成员网合并，b=同端口端点去重（声明为准），c=rail label 伪端点剔除。\n\n");
-        md.push_str("| 层 | 网数(前) | 网数(后) |\n|---|---|---|\n");
+        md.push_str("Audit log of the pass2 → viz projection layer. Rules: a=scalar ∪ member-net merge, b=same-port endpoint dedup (declaration wins), c=rail label pseudo endpoint removal.\n\n");
+        md.push_str("| Layer | Nets(before) | Nets(after) |\n|---|---|---|\n");
         for (layer, before, after) in &self.per_layer {
             md.push_str(&format!("| {layer} | {before} | {after} |\n"));
         }
-        md.push_str("\n## 动作记录\n\n| 规则 | 层 | 网 | 端点 | 说明 |\n|---|---|---|---|---|\n");
+        md.push_str("\n## Action Records\n\n| Rule | Layer | Net | Endpoint | Note |\n|---|---|---|---|---|\n");
         for r in &self.records {
             md.push_str(&format!(
                 "| {} | {} | {} | {} | {} |\n",
@@ -80,7 +86,7 @@ impl ProjectionLog {
     }
 }
 
-/// 对整棵 block 树做投影（递归每一层）。
+/// Project the entire block tree (recursing into every layer).
 pub fn project_block_tree(block: &McVecBlock, table: &InstTable) -> (McVecBlock, ProjectionLog) {
     let mut log = ProjectionLog::default();
     let projected = project_block_inner(block, table, &mut log);
@@ -105,11 +111,12 @@ fn project_block_inner(
 }
 
 // ============================================================================
-// 单层投影
+// Single-layer projection
 // ============================================================================
 
-/// 伪端点判定：父节点是本层模块自身的 Port/Label（本层的边界声明，不是连接点）。
-/// 返回 entry 便于复用（kind / member_info）。
+/// Pseudo endpoint test: parent is the current layer module's own Port/Label
+/// (boundary declaration of this layer, not a connection point).
+/// Returns the entry for reuse (kind / member_info).
 fn pseudo_entry(id: i64, bid: i64, table: &InstTable) -> Option<&crate::instant::insttab::InstEntry> {
     if id < 0 {
         return None;
@@ -132,14 +139,14 @@ fn project_nets(
 ) -> Vec<McVecNet> {
     let bid = block.bid;
     let nets = &block.nets;
-    log.per_layer.push((layer.to_string(), nets.len(), 0)); // after 值最后回填
+    log.per_layer.push((layer.to_string(), nets.len(), 0)); // after value backfilled at the end
 
-    // ── 规则 (a)：union 分组 ─────────────────────────────────────────────
-    // key1: 伪端点 id —— 多张网共享同一个伪端点 ⇒ 同一条电气网
-    // key2: GROUND 哨兵 —— member_info.role == Ground 的伪端点全局同一地（裁决⑥）
+    // ── Rule (a): union grouping ─────────────────────────────────────────
+    // key1: pseudo endpoint id —— multiple nets sharing the same pseudo endpoint ⇒ one electrical net
+    // key2: GROUND sentinel —— pseudo endpoints with member_info.role == Ground are globally the same ground (ruling ⑥)
     let mut dsu = Dsu::new(nets.len());
     let mut first_by_pseudo: HashMap<i64, usize> = HashMap::new();
-    const GROUND: i64 = -1; // 哨兵 key（真实 id >= 0，不冲突）
+    const GROUND: i64 = -1; // sentinel key (real ids >= 0, no conflict)
     let mut first_ground: Option<usize> = None;
 
     for (ni, net) in nets.iter().enumerate() {
@@ -163,7 +170,7 @@ fn project_nets(
         }
     }
 
-    // ── 按 root 分组（保持首次出现顺序）──────────────────────────────────
+    // ── Group by root (preserving first-seen order) ──────────────────────
     let mut order: Vec<usize> = Vec::new();
     let mut members: HashMap<usize, Vec<usize>> = HashMap::new();
     for ni in 0..nets.len() {
@@ -179,7 +186,7 @@ fn project_nets(
     for root in order {
         let idxs = &members[&root];
 
-        // ── 端点收集：按 nid 顺序去重 ────────────────────────────────────
+        // ── Endpoint collection: dedup in nid order ───────────────────────
         let mut sorted: Vec<usize> = idxs.clone();
         sorted.sort_by_key(|&i| nets[i].nid);
         let mut all_ids: Vec<i64> = Vec::new();
@@ -191,12 +198,16 @@ fn project_nets(
             }
         }
 
-        // ── 命名（从端口声明读，不依赖成员网名——builder 网分组跨运行不稳定）──
-        //   未发生合并的单网组：保留原名（零风险）。
-        //   合并组：
-        //     · 组内含 Ground 角色伪端点 → 取组内 Label 伪端点的叶名（GND 组 → "GND"，裁决⑥）
-        //     · 组内含 Power 角色伪端点 → 取该伪端点路径末两段（→ "V3V3.VCC"）
-        //     · 其余 → 真实端点最多的成员网名（MIC.N + MIC.N~0 → "MIC.N~0"）
+        // ── Naming (read from port declarations, not member net names — builder net
+        //   grouping is unstable across runs) ──
+        //   Single-net group without merging: keep the original name (zero risk).
+        //   Merged group:
+        //     · contains a Ground-role pseudo endpoint → take the leaf name of a Label
+        //       pseudo endpoint in the group (GND group → "GND", ruling ⑥)
+        //     · contains a Power-role pseudo endpoint → take the last two segments of
+        //       its path (→ "V3V3.VCC")
+        //     · otherwise → the member net name with the most real endpoints
+        //       (MIC.N + MIC.N~0 → "MIC.N~0")
         let single = idxs.len() == 1;
         let name_src = if single {
             nets[sorted[0]].name.clone()
@@ -204,7 +215,7 @@ fn project_nets(
             group_display_name(&sorted, nets, bid, table)
         };
 
-        // ── 规则 (a) 审计：多网合一 ──────────────────────────────────────
+        // ── Rule (a) audit: many nets into one ────────────────────────────
         if !single {
             let names: Vec<&str> = sorted.iter().map(|&i| nets[i].name.as_str()).collect();
             log.records.push(ProjectionRecord {
@@ -212,15 +223,15 @@ fn project_nets(
                 rule: "a",
                 net: name_src.clone(),
                 endpoint: "-".to_string(),
-                note: format!("union {} 张网: {}", names.len(), names.join(" + ")),
+                note: format!("union {} nets: {}", names.len(), names.join(" + ")),
             });
         }
 
-        // ── 规则 (b)：同父 (Label, Port) 对 → 丢 Label 保 Port ────────────
+        // ── Rule (b): same-parent (Label, Port) pair → drop Label keep Port ──
         let mut dropped_b: Vec<i64> = Vec::new();
         for &pid in &all_ids {
             if pid < 0 || pseudo_entry(pid, bid, table).is_some() {
-                continue; // 伪端点由规则 (c) 处理，不参与 (b)
+                continue; // pseudo endpoints handled by rule (c), not part of (b)
             }
             if let Some(e) = table.get_entry(pid as u32) {
                 if e.kind != InstKind::Label {
@@ -249,12 +260,12 @@ fn project_nets(
                     rule: "b",
                     net: nets[sorted[0]].name.clone(),
                     endpoint: e.path.clone(),
-                    note: "同一端口的 Label 端点，归一到 Port 声明侧".to_string(),
+                    note: "Label endpoint of the same port, normalized to the Port declaration side".to_string(),
                 });
             }
         }
 
-        // ── 规则 (c)：伪端点剔除（先审计再丢）────────────────────────────
+        // ── Rule (c): pseudo endpoint removal (audit first, then drop) ────
         let mut dropped_c: Vec<&crate::instant::insttab::InstEntry> = Vec::new();
         for &pid in &all_ids {
             if let Some(e) = pseudo_entry(pid, bid, table) {
@@ -262,7 +273,7 @@ fn project_nets(
             }
         }
 
-        // ── 真实端点 = 全部 - (b 丢弃) - (c 伪端点) ───────────────────────
+        // ── Real endpoints = all - (b dropped) - (c pseudo endpoints) ─────
         let real: Vec<i64> = all_ids
             .iter()
             .copied()
@@ -271,7 +282,7 @@ fn project_nets(
             })
             .collect();
 
-        // 空网：整张丢（审计）
+        // Empty net: drop entirely (audited)
         if real.is_empty() {
             for e in &dropped_c {
                 log.records.push(ProjectionRecord {
@@ -279,39 +290,40 @@ fn project_nets(
                     rule: "c",
                     net: name_src.clone(),
                     endpoint: e.path.clone(),
-                    note: "伪端点剔除后网为空，整网丢弃".to_string(),
+                    note: "net empty after pseudo endpoint removal, entire net dropped".to_string(),
                 });
             }
             continue;
         }
 
-        // ── (c) 的常规审计（非空网逐端点记录）────────────────────────────
+        // ── Regular audit of (c) (record per endpoint for non-empty nets) ─
         for e in &dropped_c {
             log.records.push(ProjectionRecord {
                 layer: layer.to_string(),
                 rule: "c",
                 net: name_src.clone(),
                 endpoint: e.path.clone(),
-                note: "本层边界声明（Port/Label），不是电气连接点".to_string(),
+                note: "boundary declaration of this layer (Port/Label), not an electrical connection point".to_string(),
             });
         }
 
-        // ── ★ P7-3: 电源网规格（class + driver），全部来自端口声明 ────────
-        //   Ground 角色伪端点存在 → Ground（R-1，全局同一地，无 driver）；
-        //   Power 角色伪端点存在 → Power，driver 两级解析：
-        //     (a) 真实端点里 io==Out 且 member==Power（modldo.VCC / moddcdc.VCC_1V2）
-        //     (b) 否则对每个 Power 成员端点（io != In）做子层产生侧检查——
-        //         原始子块里该端点所在网若只穿过两脚无源件（如 usbsocket 的
-        //         vin.POWER_SYS 经 R0603），它就是源（speaker 直喂 8 脚 lpa ⇒ 消费侧）
+        // ── ★ P7-3: power net spec (class + driver), all from port declarations ──
+        //   Ground-role pseudo endpoint exists → Ground (R-1, globally the same ground, no driver);
+        //   Power-role pseudo endpoint exists → Power, driver resolved in two steps:
+        //     (a) a real endpoint with io==Out and member==Power (modldo.VCC / moddcdc.VCC_1V2)
+        //     (b) otherwise, for each Power member endpoint (io != In) do a sub-layer generation-side
+        //         check —— if the net containing that endpoint in the raw subblock only passes through
+        //         two-pin passives (e.g. usbsocket's vin.POWER_SYS via R0603), it is the source
+        //         (speaker feeding the 8-pin lpa directly ⇒ consumer side)
         let rail = detect_rail_spec(&all_ids, &real, block, table, layer);
 
-        // ── 产出：单一扁平组（rail/信号在 Phase 3 均按扁平端点集消费）────
+        // ── Output: a single flat group (rail/signal both consumed as flat endpoint sets in Phase 3) ──
         let mut net = McVecNet::new(nets[sorted[0]].nid, name_src, vec![McVec::new(real)]);
         net.rail = rail;
         out.push(net);
     }
 
-    // 回填 after
+    // Backfill after
     if let Some(entry) = log.per_layer.last_mut() {
         entry.2 = out.len();
     }
@@ -330,23 +342,27 @@ fn project_nets(
             .count(),
     );
     crate::vlog!(
-        "[project] layer '{layer}': nets {} -> {} (a: 合并 {merges} 组, b: 去重 {dedups}, c: 伪端点 {pseudos})",
+        "[project] layer '{layer}': nets {} -> {} (a: merged {merges} groups, b: deduped {dedups}, c: pseudo endpoints {pseudos})",
         nets.len(),
         out.len()
     );
     out
 }
 
-/// 合并组的显示名 —— **从端口声明读**，不依赖成员网名
-/// （builder 的网分组跨运行不稳定，从成员网名推显示名会翻车）。
+/// Display name of a merged group —— **read from port declarations**, not member net names
+/// (the builder's net grouping is unstable across runs; deriving display names from member
+/// net names would misfire).
 ///
-/// 1. 组内含 Ground 角色伪端点 → 组内 Label 伪端点的叶名（GND 组 → "GND"，裁决⑥全局地）
-/// 2. 组内含 Power 角色伪端点 → 该伪端点路径的末两段（→ "V3V3.VCC"）
-/// 3. 其余（信号组合并，如 MIC.N + MIC.N~0）→ 真实端点最多的成员网名（并列取 nid 最小）
+/// 1. Group contains a Ground-role pseudo endpoint → leaf name of a Label pseudo endpoint
+///    in the group (GND group → "GND", ruling ⑥ global ground)
+/// 2. Group contains a Power-role pseudo endpoint → last two segments of its path (→ "V3V3.VCC")
+/// 3. Otherwise (signal group merge, e.g. MIC.N + MIC.N~0) → the member net name with the
+///    most real endpoints (ties broken by smallest nid)
 fn group_display_name(sorted: &[usize], nets: &[McVecNet], bid: i64, table: &InstTable) -> String {
-    // 组内全部伪端点（按 nid 顺序遍历成员网，保证确定序）
-    // 注意：Ground/Power 角色挂在 Port 伪点上（V*.GND / V*.VCC 成员声明），
-    // 而 Label 伪点（main.GND）的 member_info 是 None —— 角色探测与取名单独两步。
+    // All pseudo endpoints in the group (iterate member nets in nid order for determinism)
+    // Note: Ground/Power roles sit on Port pseudo points (V*.GND / V*.VCC member declarations),
+    // while Label pseudo points (main.GND) have member_info == None —— role probing and
+    // name picking are two separate steps.
     let mut has_ground = false;
     let mut label_leaf: Option<String> = None;
     let mut power_port: Option<String> = None;
@@ -356,7 +372,7 @@ fn group_display_name(sorted: &[usize], nets: &[McVecNet], bid: i64, table: &Ins
             match e.member_info.as_ref().map(|m| m.role.clone()) {
                 Some(MemberRole::Ground) => has_ground = true,
                 Some(MemberRole::Power) => {
-                    // rail 成员：路径末两段（main.V3V3.VCC → "V3V3.VCC"）
+                    // rail member: last two path segments (main.V3V3.VCC → "V3V3.VCC")
                     if power_port.is_none() {
                         power_port = Some(last_two_segments(&e.path));
                     }
@@ -373,7 +389,7 @@ fn group_display_name(sorted: &[usize], nets: &[McVecNet], bid: i64, table: &Ins
     }
     if has_ground {
         if let Some(n) = label_leaf {
-            return n; // 全局地：Label 叶名即网名（GND 组 → "GND"，裁决⑥）
+            return n; // Global ground: the Label leaf name is the net name (GND group → "GND", ruling ⑥)
         }
     }
     if let Some(n) = power_port {
@@ -408,13 +424,14 @@ fn last_two_segments(path: &str) -> String {
 }
 
 // ============================================================================
-// ★ P7-3: 电源网规格解析（判据全部来自端口声明，零名字匹配）
+// ★ P7-3: power net spec resolution (criteria all from port declarations, zero name matching)
 // ============================================================================
 
 use crate::semantic::common::IOType;
 use crate::vector::model::{RailClass, RailSpec};
 
-/// 从一组的伪端点角色 + 真实端点声明解析电源网规格；普通信号组返回 `None`。
+/// Resolve the power net spec from a group's pseudo endpoint roles + real endpoint
+/// declarations; returns `None` for ordinary signal groups.
 fn detect_rail_spec(
     all_ids: &[i64],
     real: &[i64],
@@ -442,11 +459,11 @@ fn detect_rail_spec(
         }
     }
     if !has_ground && !has_power {
-        return None; // 普通信号网
+        return None; // ordinary signal net
     }
     let class = if has_ground { RailClass::Ground } else { RailClass::Power };
     let driver_pin = if class == RailClass::Ground {
-        None // R-1：地是回流端，out 声明（如 modldo 的 out GND）不是 driver
+        None // R-1: ground is the return side; an out declaration (e.g. modldo's out GND) is not a driver
     } else {
         resolve_power_driver(real, block, table)
     };
@@ -464,9 +481,9 @@ fn detect_rail_spec(
     })
 }
 
-/// Power rail 的产生侧（两级解析，见 detect_rail_spec 文档）。
+/// Generation side of a Power rail (two-step resolution, see detect_rail_spec docs).
 fn resolve_power_driver(real: &[i64], block: &McVecBlock, table: &InstTable) -> Option<i64> {
-    // (a) io == Out 且 member == Power
+    // (a) io == Out and member == Power
     let mut by_out: Vec<i64> = real
         .iter()
         .copied()
@@ -477,15 +494,16 @@ fn resolve_power_driver(real: &[i64], block: &McVecBlock, table: &InstTable) -> 
         return Some(by_out[0]);
     }
     if by_out.len() > 1 {
-        // 多 driver（DRC 异常态）：确定性取 id 最小者并记录
+        // Multiple drivers (DRC anomaly): deterministically take the smallest id and log it
         crate::vlog!(
-            "[project] rail 有 {} 个 Out+Power 端点（多 driver），取 id 最小者",
+            "[project] rail has {} Out+Power endpoints (multiple drivers), taking the smallest id",
             by_out.len()
         );
         return Some(*by_out.iter().min().unwrap());
     }
 
-    // (b) Power 成员端点（io != In）逐个做子层产生侧检查，唯一源才成立
+    // (b) For each Power member endpoint (io != In) do a sub-layer generation-side check;
+    //     only a unique source counts
     let mut sources: Vec<i64> = Vec::new();
     for &pid in real {
         if pid < 0 {
@@ -508,7 +526,7 @@ fn resolve_power_driver(real: &[i64], block: &McVecBlock, table: &InstTable) -> 
         1 => Some(sources[0]),
         0 => None,
         _ => {
-            crate::vlog!("[project] rail 有 {} 个候选源（歧义），按无 driver 处理", sources.len());
+            crate::vlog!("[project] rail has {} candidate sources (ambiguous), treating as no driver", sources.len());
             None
         }
     }
@@ -524,11 +542,12 @@ fn endpoint_is_out_power(pid: i64, table: &InstTable) -> bool {
         })
 }
 
-/// 子层产生侧检查：原始子块里该边界端点所在网，除边界声明（parent == 子模块）
-/// 与两脚无源件外不触任何有源器件 ⇒ 该端点是"产生侧"。
+/// Sub-layer generation-side check: in the raw subblock, the net containing this boundary
+/// endpoint touches no active device other than boundary declarations (parent == submodule)
+/// and two-pin passives ⇒ this endpoint is the "generation side".
 ///
-/// 标本：usbsocket.vin.POWER_SYS 原始网 = [R0603.2, 边界] → 只穿无源件 → 源；
-///       speaker.USB_VBUS_1.VDD_3V 原始网 = [lpa.7(8脚), C8.1, 边界] → 触 IC → 消费侧。
+/// Specimens: usbsocket.vin.POWER_SYS raw net = [R0603.2, boundary] → passes only passives → source;
+///            speaker.USB_VBUS_1.VDD_3V raw net = [lpa.7(8-pin), C8.1, boundary] → touches an IC → consumer side.
 fn is_rail_source_in_subblock(pin_id: i64, block: &McVecBlock, table: &InstTable) -> bool {
     let Some(parent_mod) = table
         .get_entry(pin_id as u32)
@@ -537,7 +556,7 @@ fn is_rail_source_in_subblock(pin_id: i64, block: &McVecBlock, table: &InstTable
         return false;
     };
     let Some(sub) = block.blocks.iter().find(|b| b.bid == parent_mod as i64) else {
-        return false; // 无子块（组件引脚等）——子层内部判定交给 (a) 级
+        return false; // no subblock (component pins etc.) —— sub-layer internal judgment goes to level (a)
     };
     for net in &sub.nets {
         if !net.all_point_ids().contains(&pin_id) {
@@ -552,7 +571,7 @@ fn is_rail_source_in_subblock(pin_id: i64, block: &McVecBlock, table: &InstTable
             };
             let Some(op) = oe.parent_id else { continue };
             if op == parent_mod {
-                continue; // 子块自己的边界声明，透明
+                continue; // the subblock's own boundary declaration, transparent
             }
             let passive = table
                 .get_entry(op)
@@ -560,7 +579,7 @@ fn is_rail_source_in_subblock(pin_id: i64, block: &McVecBlock, table: &InstTable
                     pe.kind == InstKind::Component && table.get_pins_of(op).len() <= 2
                 });
             if !passive {
-                return false; // 触到有源器件 ⇒ 消费侧
+                return false; // touches an active device ⇒ consumer side
             }
         }
     }
@@ -568,7 +587,7 @@ fn is_rail_source_in_subblock(pin_id: i64, block: &McVecBlock, table: &InstTable
 }
 
 // ============================================================================
-// Union-Find（与 coalesce.rs 同型，私有实现避免跨模块耦合）
+// Union-Find (same shape as coalesce.rs, private copy to avoid cross-module coupling)
 // ============================================================================
 
 struct Dsu {

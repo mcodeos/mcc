@@ -2,35 +2,35 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! # Zone 纸面粗排（M2-3）
+//! # Zone rough paper placement (M2-3)
 //!
-//! 将 zone 树转为纸面上的 ZonePlan，包括：
-//! 1. 每个 zone 的 rect 大小计算
-//! 2. zone 间贪心左右排序（信号流：电源 → 主控 → 外设）
-//! 3. 画布大小计算
+//! Converts the zone tree into ZonePlans on paper, including:
+//! 1. Rect size computation for each zone
+//! 2. Greedy left-to-right ordering between zones (signal flow: power → MCU → peripherals)
+//! 3. Canvas size computation
 
 use super::plan::{Rect, ZonePlan};
 use super::zone::ZoneTree;
 use crate::vector::graph::{BoxKind, McVecGraph};
 
-/// Zone 纸面排布参数
-const ZONE_GAP: f64 = 80.0; // zone 间距（M4-0: 从 40 增加到 80，预留走线通道）
-const ZONE_PAD: f64 = 20.0; // zone 内边距
-const ZONE_MIN_W: f64 = 200.0; // zone 最小宽度
-const ZONE_MIN_H: f64 = 150.0; // zone 最小高度
-const WIRE_CHANNEL: f64 = 60.0; // 走线通道宽度（与 geom.rs 一致）
-const TITLE_H: f64 = 30.0; // 标题栏高度
-const BOX_PER_ROW: usize = 4; // 每行 box 数
-const MIN_CANVAS_W: f64 = 1200.0; // 顶层最小画布宽
-const MIN_CANVAS_H: f64 = 800.0; // 顶层最小画布高
+/// Zone paper placement parameters
+const ZONE_GAP: f64 = 80.0; // zone gap (M4-0: increased from 40 to 80, reserving routing channels)
+const ZONE_PAD: f64 = 20.0; // zone padding
+const ZONE_MIN_W: f64 = 200.0; // zone minimum width
+const ZONE_MIN_H: f64 = 150.0; // zone minimum height
+const WIRE_CHANNEL: f64 = 60.0; // routing channel width (consistent with geom.rs)
+const TITLE_H: f64 = 30.0; // title bar height
+const BOX_PER_ROW: usize = 4; // boxes per row
+const MIN_CANVAS_W: f64 = 1200.0; // top-level minimum canvas width
+const MIN_CANVAS_H: f64 = 800.0; // top-level minimum canvas height
 
-// M4-1a: 子模块专用参数
-const SUB_ZONE_MIN_W: f64 = 120.0; // 子模块 zone 最小宽度
-const SUB_ZONE_MIN_H: f64 = 100.0; // 子模块 zone 最小高度
-const SUB_MIN_CANVAS_W: f64 = 400.0; // 子模块最小画布宽
-const SUB_MIN_CANVAS_H: f64 = 300.0; // 子模块最小画布高
+// M4-1a: submodule-specific parameters
+const SUB_ZONE_MIN_W: f64 = 120.0; // submodule zone minimum width
+const SUB_ZONE_MIN_H: f64 = 100.0; // submodule zone minimum height
+const SUB_MIN_CANVAS_W: f64 = 400.0; // submodule minimum canvas width
+const SUB_MIN_CANVAS_H: f64 = 300.0; // submodule minimum canvas height
 
-/// 根据 box 类型和 pin 数估算尺寸（与 geom::box_size 保持一致）
+/// Estimate size from box type and pin count (kept consistent with geom::box_size)
 fn est_box_size(kind: &BoxKind, pin_count: usize) -> (f64, f64) {
     match kind {
         BoxKind::PowerLabel | BoxKind::Dot => (24.0, 24.0),
@@ -48,22 +48,22 @@ fn est_box_size(kind: &BoxKind, pin_count: usize) -> (f64, f64) {
     }
 }
 
-/// 计算 zone 的纸面位置
+/// Compute paper positions for zones
 pub fn place_zones(graph: &McVecGraph, tree: &ZoneTree, is_submodule: bool) -> Vec<ZonePlan> {
     if tree.zones.is_empty() {
         return Vec::new();
     }
 
-    // ── 1. 计算每个 zone 的 rect（使用实际 box 尺寸） ──
+    // ── 1. Compute each zone's rect (using actual box sizes) ──
     let mut zone_rects: Vec<Rect> = Vec::new();
     for zone in &tree.zones {
         zone_rects.push(compute_zone_rect(zone, graph, is_submodule));
     }
 
-    // ── 2. 按 zone 间连接数做贪心排序 ──
+    // ── 2. Greedy ordering by inter-zone connection count ──
     let order = order_zones_by_size(tree);
 
-    // ── 3. 水平排列（左到右） ──
+    // ── 3. Horizontal arrangement (left to right) ──
     let mut x = ZONE_PAD;
     let mut max_h = 0.0f64;
     let mut plans: Vec<ZonePlan> = Vec::new();
@@ -95,7 +95,7 @@ pub fn place_zones(graph: &McVecGraph, tree: &ZoneTree, is_submodule: bool) -> V
     plans
 }
 
-/// 计算 zone 的 rect 大小（使用实际 box 尺寸 + 走线通道）
+/// Compute a zone's rect size (using actual box sizes + routing channels)
 fn compute_zone_rect(zone: &super::zone::Zone, graph: &McVecGraph, is_submodule: bool) -> Rect {
     let (min_w, min_h) = if is_submodule {
         (SUB_ZONE_MIN_W, SUB_ZONE_MIN_H)
@@ -112,7 +112,7 @@ fn compute_zone_rect(zone: &super::zone::Zone, graph: &McVecGraph, is_submodule:
         };
     }
 
-    // 收集该 zone 内所有 box 的实际尺寸
+    // Collect actual sizes of all boxes in this zone
     let mut max_w: f64 = 80.0;
     let mut max_h: f64 = 60.0;
     let mut found = 0usize;
@@ -128,34 +128,34 @@ fn compute_zone_rect(zone: &super::zone::Zone, graph: &McVecGraph, is_submodule:
         return Rect { x: 0.0, y: 0.0, w: min_w, h: min_h };
     }
 
-    // 按 arrangement 可能的最大层数估算（最多每层 1 个 box，即 N 层）
+    // Estimate by the arrangement's maximum possible layer count (at most 1 box per layer, i.e. N layers)
     let max_layers = box_count;
     let cols = BOX_PER_ROW.min(box_count);
     let rows = (box_count + cols - 1) / cols;
 
-    // 宽度 = 层数 × (max box 宽 + 走线通道) + 内边距
+    // Width = layers × (max box width + routing channel) + padding
     let w = (max_layers as f64 * (max_w + WIRE_CHANNEL) + ZONE_PAD * 2.0).max(min_w);
-    // 高度 = 行数 × (max box 高 + 间距) + 标题栏 + 内边距
+    // Height = rows × (max box height + gap) + title bar + padding
     let h = (rows as f64 * (max_h + 10.0) + TITLE_H + ZONE_PAD * 2.0).max(min_h);
 
     Rect { x: 0.0, y: 0.0, w, h }
 }
 
-/// 按 zone 内 box 数排序（大 zone 优先），root 放最前面
+/// Order zones by box count (large zones first), root placed at the very front
 fn order_zones_by_size(tree: &ZoneTree) -> Vec<usize> {
     let mut ids: Vec<usize> = (0..tree.zones.len()).collect();
     ids.sort_by_key(|&id| {
         let zone = &tree.zones[id];
-        // 根 zone 优先
+        // Root zones first
         let is_root = tree.roots.contains(&id);
         let box_count = zone.boxes.len();
-        // 根 zone 排最前，其余按 box 数降序
+        // Root zones at the very front, the rest by box count descending
         (!is_root, -(box_count as i64))
     });
     ids
 }
 
-/// 从 zone plans 计算画布大小（带最小约束，子模块使用更小的最小值）
+/// Compute canvas size from zone plans (with minimum constraints; submodules use smaller minimums)
 pub fn compute_canvas(plans: &[ZonePlan], is_submodule: bool) -> (f64, f64) {
     let (min_w, min_h) = if is_submodule {
         (SUB_MIN_CANVAS_W, SUB_MIN_CANVAS_H)
@@ -179,7 +179,7 @@ pub fn compute_canvas(plans: &[ZonePlan], is_submodule: bool) -> (f64, f64) {
 }
 
 // ============================================================================
-// 单元测试
+// Unit tests
 // ============================================================================
 
 #[cfg(test)]
@@ -228,7 +228,7 @@ mod tests {
 
         let tree = super::super::zone::ZoneTree::build(&graph);
         let plans = place_zones(&graph, &tree, false);
-        // 4 个单 box zone → 每个都应非零
+        // 4 single-box zones → each should be non-zero
         assert!(plans.len() >= 1);
         for plan in &plans {
             assert!(plan.rect.w > 0.0);

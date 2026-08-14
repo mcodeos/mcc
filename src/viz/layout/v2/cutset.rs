@@ -2,6 +2,6 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! # Cutset — 割集决策
+//! # Cutset — cut-set decisions
 //!
-//! 决定每条边是 wire 还是 label。M4 填充。
+//! Decides whether each edge is a wire or a label. Filled by M4.

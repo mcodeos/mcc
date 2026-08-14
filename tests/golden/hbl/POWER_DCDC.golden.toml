@@ -1,6 +1,6 @@
-# POWER_DCDC golden 网表
-# 依赖裁决：⑥ 全局 GND — 入/出端口 GND 同名 label 合一，是全局 GND 的第二座桥
-# 源码：power.mc:91-111
+# POWER_DCDC golden netlist
+# Dependency adjudication: ⑥ global GND — the in/out ports' same-name GND labels merge, the second bridge of global GND
+# Source: power.mc:91-111
 
 [meta]
 module = "POWER_DCDC"

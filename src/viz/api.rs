@@ -129,19 +129,19 @@ pub fn render_with_metrics(
         doc.total_svg_bytes()
     );
 
-    // ── ★ P7-1: renderdiff 报告（readings vs baseline/render_golden.toml）──
-    // 中途大面积红是预期形状（v6 §4）；此处只报告，不阻塞 —— Tier 1 电气
-    // 闸门（RENDER_GATE_FAILED）才是硬失败。
+    // ── ★ P7-1: renderdiff report (readings vs baseline/render_golden.toml) ──
+    // Large-scale red mid-way is the expected shape (v6 §4); reported here without
+    // blocking —— the Tier 1 electrical gate (RENDER_GATE_FAILED) is the hard failure.
     let _ = renderdiff_report(&metrics);
 
     debug::dump_document(&doc);
     (doc, metrics)
 }
 
-/// ★ P7-1: 拿 renderdiff readings 与 golden 比对，逐层输出报告。
+/// ★ P7-1: compare renderdiff readings against golden, reporting layer by layer.
 ///
-/// golden 路径：`MC_RENDER_GOLDEN` 环境变量 > `./baseline/render_golden.toml`。
-/// 找不到 golden 时打印一条 SKIP（可见的跳过，不是假绿 —— 纪律 9）。
+/// golden path: `MC_RENDER_GOLDEN` env var > `./baseline/render_golden.toml`.
+/// When golden is not found, prints a SKIP (a visible skip, not a false green —— discipline 9).
 pub fn renderdiff_report(
     metrics: &crate::viz::metrics::MetricsAccumulator,
 ) -> Option<Vec<crate::viz::metrics::renderdiff::LayerDiff>> {
@@ -154,7 +154,7 @@ pub fn renderdiff_report(
     {
         Ok(g) => g,
         Err(e) => {
-            crate::vlog!("[renderdiff] · SKIP golden 未加载（{path}: {e}）");
+            crate::vlog!("[renderdiff] · SKIP golden not loaded ({path}: {e})");
             return None;
         }
     };
@@ -170,7 +170,7 @@ pub fn renderdiff_report(
         diffs.push(d);
     }
     crate::vlog!(
-        "[renderdiff] TOTAL: {} red / {} green / {} skip（P7-1 阶段大面积红是正确形状）",
+        "[renderdiff] TOTAL: {} red / {} green / {} skip (large-scale red is the correct shape at the P7-1 stage)",
         red,
         green,
         skip
@@ -259,10 +259,11 @@ fn render_layer_recursive(
         cv
     };
 
-    // ★ P7-4f: apply_net_labels 只在 select.rs（route 前）调一次。
-    // 原此处的二次调用在 hbl 全部 7 层实测零几何写入（label 幂等保护：
-    // 已带 label 的网跳过），唯一作用是兜底拿 canvas —— 而 canvas 已由
-    // 上面的 canvas_hint / compute_canvas 算出，删除为纯等价变换。
+    // ★ P7-4f: apply_net_labels is called only once in select.rs (before route).
+    // The former second call here measured zero geometry writes across all 7 hbl
+    // layers (label idempotence guard: nets already carrying a label are skipped);
+    // its only role was a canvas fallback —— but canvas is already computed by
+    // canvas_hint / compute_canvas above, so removing it is a pure equivalence.
     crate::vector::graph::netprobe::probe_route(&graph); // ★ NEW
 
     let rep = super::route::audit::audit_all(&graph);
@@ -349,7 +350,7 @@ fn render_layer_recursive(
             crate::viz::stability::hash::canonical_hash(&conn_report.pins_reachable);
         metrics.accumulate_connectivity(&conn_report);
 
-        // ── ★ P7-1: renderdiff 量测（route 后 render 前的最终 graph）──
+        // ── ★ P7-1: renderdiff measurement (final graph after route, before render) ──
         let col = crate::viz::route::audit::audit_all(&graph);
         let reading = crate::viz::metrics::renderdiff::LayerReading::measure(
             &graph,

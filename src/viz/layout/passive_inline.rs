@@ -277,8 +277,9 @@ pub fn place_series_passives(graph: &mut McVecGraph) {
         }
 
         // For each net collect (net_idx, P's pin_id, neighbour box_id, neighbour pin_id).
-        // ★ M4-fix: 允许 rail 作为邻居（去耦电容、上拉/下拉电阻），
-        // 允许单端点 net（外部端口连接），允许多邻居 net（选第一个非被动邻居）。
+        // ★ M4-fix: allow rails as neighbours (decoupling caps, pull-up/pull-down resistors),
+        // allow single-endpoint nets (external port connections), allow multi-neighbour
+        // nets (pick the first non-passive neighbour).
         let mut sides: Vec<(usize, i64, i64, i64)> = Vec::new();
         let mut ok = true;
         for &ni in &touching {
@@ -328,31 +329,33 @@ pub fn place_series_passives(graph: &mut McVecGraph) {
             continue;
         }
 
-        // ★ M4-fix: 处理哨兵邻居（外部端口）。当一边的邻居是外部端口（box_id=-1）时，
-        // 将被动器件放在另一邻居的出口点的延长线上，朝向画布边缘。
+        // ★ M4-fix: handle sentinel neighbours (external ports). When one side's
+        // neighbour is an external port (box_id=-1), place the passive device on the
+        // extension of the other neighbour's exit point, facing the canvas edge.
         let has_sentinel = sides[0].2 < 0 || sides[1].2 < 0;
-        
+
         if has_sentinel {
-            // 找到非哨兵的那一边
+            // Find the non-sentinel side
             let (real_idx, _sentinel_idx) = if sides[0].2 >= 0 { (0, 1) } else { (1, 0) };
             let real_box = sides[real_idx].2;
             let real_pin = sides[real_idx].3;
             
-            // 从真实邻居的出口点出发，向远离被动器件当前位置的方向延伸
+            // From the real neighbour's exit point, extend away from the passive device's current position
             let passive_box = match graph.boxes.iter().find(|b| b.id == pid) {
                 Some(b) => b,
                 None => continue,
             };
             let passive_center = (passive_box.x + passive_box.w / 2.0, passive_box.y + passive_box.h / 2.0);
             
-            // 用真实邻居的出口点作为锚点
+            // Use the real neighbour's exit point as anchor
             let toward = Some(passive_center);
             let (real_exit, real_side) = match pin_exit_facing(graph, real_box, real_pin, toward) {
                 Some(v) => v,
                 None => continue,
             };
             
-            // 哨兵侧：在真实邻居出口点的反方向（远离真实邻居），延伸一段距离
+            // Sentinel side: opposite the real neighbour's exit point (away from the
+            // real neighbour), extended by some distance
             let real_center = match box_center(graph, real_box) {
                 Some(c) => c,
                 None => continue,

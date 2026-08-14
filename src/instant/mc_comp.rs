@@ -48,7 +48,7 @@ pub struct McComponentInst {
     /// NC (Not Connected) instance
     pub nc: bool,
 
-    /// ★ M0-B-E: 实例来源（声明 vs funcall）
+    /// ★ M0-B-E: instance origin (declaration vs funcall)
     pub origin: InstOrigin,
 
     /// Degraded instance (instantiation failed, created as placeholder to prevent dangling pins)

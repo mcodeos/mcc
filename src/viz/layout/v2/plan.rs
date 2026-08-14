@@ -2,33 +2,33 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! # Plan — 搜索器与几何层之间的唯一契约
+//! # Plan — the sole contract between the searcher and the geometry layer
 //!
-//! `Plan` 是搜索器的全部输出，也是几何层的全部输入。
-//! 一旦产出就是只读的；`geom::apply` 是唯一被允许写坐标的函数。
+//! `Plan` is the searcher's entire output and the geometry layer's entire input.
+//! Read-only once produced; `geom::apply` is the only function allowed to write coordinates.
 
 use crate::vector::graph::boxdef::McVecBox;
 
 // ============================================================================
-// Zone 计划
+// Zone plans
 // ============================================================================
 
-/// 单个 zone 的纸面位置计划
+/// Paper position plan of a single zone
 #[derive(Debug, Clone)]
 pub struct ZonePlan {
-    /// Zone 索引（对应 ZoneTree 中的 zone id）
+    /// Zone index (corresponding to the zone id in ZoneTree)
     pub zone: usize,
-    /// 该 zone 的 box ids
+    /// Box ids of this zone
     pub box_ids: Vec<i64>,
-    /// 纸面矩形 (x, y, w, h)
+    /// Paper rect (x, y, w, h)
     pub rect: Rect,
-    /// 标题锚点位置
+    /// Title anchor position
     pub title_anchor: Point,
-    /// 标题文本
+    /// Title text
     pub title: String,
 }
 
-/// 纸面矩形
+/// Paper rectangle
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Rect {
     pub x: f64,
@@ -37,7 +37,7 @@ pub struct Rect {
     pub h: f64,
 }
 
-/// 2D 点
+/// 2D point
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Point {
     pub x: f64,
@@ -45,28 +45,28 @@ pub struct Point {
 }
 
 // ============================================================================
-// 割集决策
+// Cut-set decisions
 // ============================================================================
 
-/// 一条边的割集决策：wire 还是 label
+/// Cut-set decision of an edge: wire or label
 #[derive(Debug, Clone)]
 pub struct CutDecision {
-    /// 端点对 (box_a, box_b) 或 (box_id, port_id)
+    /// Endpoint pair (box_a, box_b) or (box_id, port_id)
     pub edge: (i64, i64),
-    /// true = wire（画线），false = label（画标签）
+    /// true = wire (draw a line), false = label (draw a label)
     pub is_wire: bool,
 }
 
 // ============================================================================
-// 分层排列
+// Layered arrangement
 // ============================================================================
 
-/// 单个 zone 内部的分层排列（M3 填充）
+/// Layered arrangement inside a single zone (filled by M3)
 #[derive(Debug, Clone, Default)]
 pub struct Arrangement {
-    /// 所属 zone id
+    /// Owning zone id
     pub zone: usize,
-    /// 层 → 该层内的 box ids（从左到右）
+    /// Layer → box ids in that layer (left to right)
     pub layers: Vec<Vec<i64>>,
 }
 
@@ -74,23 +74,24 @@ pub struct Arrangement {
 // Plan
 // ============================================================================
 
-/// 布局计划：搜索的全部输出，几何层的全部输入。
+/// Layout plan: the searcher's entire output, the geometry layer's entire input.
 ///
-/// 一旦产出就是只读的；[`super::geom::apply`] 是唯一被允许写坐标的函数。
+/// Read-only once produced; [`super::geom::apply`] is the only function allowed
+/// to write coordinates.
 #[derive(Debug, Clone, Default)]
 pub struct Plan {
-    /// 分区及其纸面位置
+    /// Partitions and their paper positions
     pub zones: Vec<ZonePlan>,
-    /// 哪些边走 label（M4 填充）
+    /// Which edges go label (filled by M4)
     pub cuts: Vec<CutDecision>,
-    /// 每个 zone 内部的分层（M3 填充）
+    /// Layering inside each zone (filled by M3)
     pub arrangements: Vec<Arrangement>,
-    /// 画布大小
+    /// Canvas size
     pub canvas: (f64, f64),
 }
 
 impl Plan {
-    /// 创建平凡 Plan：所有节点退化成一个 zone，arrangement 暂为空。
+    /// Create a trivial Plan: all nodes degenerate into one zone, arrangement empty for now.
     pub fn trivial(boxes: &[McVecBox]) -> Self {
         let canvas = (800.0, 600.0);
         Self {
