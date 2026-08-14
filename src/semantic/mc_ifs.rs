@@ -165,17 +165,10 @@ impl HasFindInst for McInterface {
         &self,
         id: &str,
     ) -> Option<(McInstance, Option<std::ops::Range<usize>>)> {
-        // P1: params
-        for (name, span) in self.params.iter_defs_with_span() {
-            if name == id {
-                return Some((McInstance::Label(id.to_string()), Some(span)));
-            }
-        }
-        // P2: pin names (via pin_name_spans)
-        if let Some(span) = self.pins.pin_name_spans.get(id) {
-            return Some((McInstance::Label(id.to_string()), Some(span.clone())));
-        }
-        None
+        // Interface category chain (§3.3): ① params → ② pin names.
+        crate::semantic::scope::interface_scope(self)
+            .resolve(id)
+            .map(|r| (r.inst, r.span))
     }
 
     fn add_label_at(

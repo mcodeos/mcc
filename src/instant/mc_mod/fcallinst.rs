@@ -476,12 +476,21 @@ impl McModuleInst {
             for (_li, line) in func_def.lines.iter().enumerate() {
                 self.auto_inst_map = outer_auto_inst.clone();
                 // Substitute formal params -> actual args in each connection line
-                // Also substitute 'this' with caller_inst_name
+                // Also substitute 'this' with caller_inst_name via the unified
+                // instance-layer chain (mechanism A, §7.2.3): when the caller
+                // is a component instance, build an ExpansionContext so `this`
+                // references resolve through the same ScopeChain<NetPoint>
+                // used by run_component_method (path unification).
+                let expansion_ctx = caller_inst_name
+                    .and_then(|name| self.find_component(name))
+                    .map(|comp| ExpansionContext::new(comp, &bindings, self));
                 let substituted = if bindings.is_empty() && caller_inst_name.is_none() {
                     line.clone()
                 } else {
-                    Self::substitute_line(line, &bindings, None)
+                    Self::substitute_line(line, &bindings, expansion_ctx.as_ref())
                 };
+                // Drop expansion_ctx before the mutable self borrow below
+                drop(expansion_ctx);
                 self.process_line(&substituted)?;
             }
 
@@ -498,11 +507,15 @@ impl McModuleInst {
                 for conds in &func_def.conds {
                     let matched_lines = conds.evaluate(&params);
                     for line in matched_lines {
+                        let expansion_ctx = caller_inst_name
+                            .and_then(|name| self.find_component(name))
+                            .map(|comp| ExpansionContext::new(comp, &bindings, self));
                         let substituted = if bindings.is_empty() && caller_inst_name.is_none() {
                             line.clone()
                         } else {
-                            Self::substitute_line(line, &bindings, None)
+                            Self::substitute_line(line, &bindings, expansion_ctx.as_ref())
                         };
+                        drop(expansion_ctx);
                         self.process_line(&substituted)?;
                     }
                 }

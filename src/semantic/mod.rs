@@ -13,4 +13,5 @@ pub(crate) mod mc_func;
 pub(crate) mod mc_ifs;
 pub(crate) mod mc_inst;
 pub(crate) mod module;
+pub(crate) mod scope;
 pub mod validation;

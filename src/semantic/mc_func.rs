@@ -145,19 +145,9 @@ struct FuncBodyContext<'a> {
     parent: &'a mut dyn HasFindInst,
 }
 
-impl<'a> FuncBodyContext<'a> {
-    fn find_param(&self, id: &str) -> Option<McInstance> {
-        if self.param_names.iter().any(|n| n == id) {
-            Some(McInstance::Label(id.to_string()))
-        } else {
-            None
-        }
-    }
-}
-
 impl<'a> HasFindInst for FuncBodyContext<'a> {
     fn find_inst(&self, id: &str) -> Option<McInstance> {
-        self.find_param(id).or_else(|| self.parent.find_inst(id))
+        self.find_inst_with_span(id).map(|(inst, _)| inst)
     }
 
     fn find_inst_mut(&mut self, id: &str) -> Option<&mut crate::McInstance> {
@@ -168,12 +158,11 @@ impl<'a> HasFindInst for FuncBodyContext<'a> {
         &self,
         id: &str,
     ) -> Option<(McInstance, Option<std::ops::Range<usize>>)> {
-        // P1: func params first (no span for params)
-        if self.param_names.iter().any(|n| n == id) {
-            return Some((McInstance::Label(id.to_string()), None));
-        }
-        // P2+: delegate to parent (module/component)
-        self.parent.find_inst_with_span(id)
+        // instance_chain (§3.4): P1 func params → P2 parent container chain.
+        // Func params shadow the parent's same-named instances (param wins).
+        crate::semantic::scope::instance_chain(self.param_names, &*self.parent)
+            .resolve(id)
+            .map(|r| (r.inst, r.span))
     }
 
     fn add_label_at(

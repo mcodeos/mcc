@@ -30,28 +30,12 @@ use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
 use std::sync::Arc;
 
-/// ── P1: Robustly extract identifier from a MCAST_PARAM child node (V3V3 / V1V2 / [VDD,GND] / flash.SPI).
-/// Don't guess a single node type: try McIds::new on current node, if failed, unpack downwards (OPD/PARAM wrapper) and retry,
-/// up to 4 layers. Consistent with parse_declare's MCAST_OPD unpacking for instance name parsing.
-fn extract_param_ids(node: &AstNode) -> Option<McIds> {
-    let mut cur = node.clone();
-    for _ in 0..4 {
-        if let Some(ids) = McIds::new(&cur) {
-            if !ids.is_empty() {
-                return Some(ids);
-            }
-        }
-        match cur.get_sub_node() {
-            Some(sub) => cur = sub,
-            None => break,
-        }
-    }
-    None
-}
-
 /// ── P1: Collect constructor arguments from MCAST_INSTANCE (parenthesized arguments of mcu513(V3V3,V1V2) / flash(V3V3)).
 /// Arguments are attached inside the instance node, as the next sibling MCAST_PARAMS of id (mc_inst.rs:854 comment);
 /// some forms are attached to the next sibling of the instance node, try both places, take the first non-empty.
+/// Each argument is parsed by the canonical context-free value parser
+/// (McParamValue::new_no_ctx, mc_param.rs) — the literal dispatch that used
+/// to live here (INT / STRING / NC / UVALUE / identifier) is centralized there.
 fn collect_ctor_params(inst_node: &AstNode, inst_id_node: &AstNode) -> Vec<McParamValue> {
     for cand in [inst_id_node.get_next(), inst_node.get_next()] {
         let Some(n) = cand else {
@@ -63,41 +47,11 @@ fn collect_ctor_params(inst_node: &AstNode, inst_id_node: &AstNode) -> Vec<McPar
         let Some(psub) = n.get_sub_node() else {
             continue;
         };
-        let mut out: Vec<McParamValue> = Vec::new();
-        for p in psub.iter() {
-            if p.get_type() != MCAST_PARAM {
-                continue;
-            }
-            let Some(sub) = p.get_sub_node() else {
-                continue;
-            };
-            match sub.get_type() {
-                MCAST_INT => {
-                    if let Some(v) = McInt::new(&sub) {
-                        out.push(McParamValue::Int(v));
-                    }
-                }
-                MCAST_STRING => {
-                    if let Some(s) = McString::new(&sub) {
-                        out.push(McParamValue::String(s));
-                    }
-                }
-                MCAST_OPD_NC => out.push(McParamValue::NC(String::from("NC"))),
-                MCAST_UVALUE => {
-                    if let Some(uval) = McUnitValue::new(&sub) {
-                        out.push(McParamValue::UValue(uval));
-                    }
-                }
-                // net-ref / identifier (V3V3, V1V2, [VDD,GND], flash.SPI ...) —— robust extraction
-                _ => {
-                    if let Some(ids) = extract_param_ids(&sub) {
-                        if !ids.is_empty() {
-                            out.push(McParamValue::Ids(ids));
-                        }
-                    }
-                }
-            }
-        }
+        let out: Vec<McParamValue> = psub
+            .iter()
+            .filter(|p| p.get_type() == MCAST_PARAM)
+            .filter_map(|p| McParamValue::new_no_ctx(&p))
+            .collect();
         if !out.is_empty() {
             return out;
         }

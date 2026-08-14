@@ -671,7 +671,11 @@ impl McModuleInst {
     /// 1. Component pin references — owner is a component, verify pin exists
     /// 2. Sub-module port references — owner is a sub-module, verify port exists
     ///
-    /// Logs diagnostic warnings for unresolved references.
+    /// Emits user-visible warning diagnostics for unresolved references
+    /// (migrated from `tracing::warn!` per §7.2.3 — these are the func-body
+    /// expansion artifacts Pass1 does not see). Position is unknown at the
+    /// instance layer, so warnings are anchored at the file start (0,0),
+    /// mirroring the instantiation-layer precedent (PULLUP_DEGENERATE).
     /// Called before `build_net_table()`.
     pub(super) fn validate_expanded_net_points(&self) {
         for conn in &self.connections {
@@ -689,29 +693,39 @@ impl McModuleInst {
                             && !comp.pins.contains_key(pin_name)
                             && !comp.def.pins.names_to_id.contains_key(pin_name)
                         {
-                            tracing::warn!(
-                                "[P2-VALIDATE] module='{}' conn={} — pin '{}' not found in component '{}' (path={})",
-                                self.name,
-                                conn.id,
-                                pin_name,
-                                owner,
-                                pt.path
+                            let available: Vec<&str> =
+                                comp.pins.keys().map(|k| k.as_str()).collect();
+                            crate::db::diagnostic::diagnostic::diagnostic_log(
+                                crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                                crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
+                                0,
+                                0,
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                                    &[&pin_name, owner, &available.join(", ")],
+                                ),
+                                &[],
                             );
                         }
-                    } else if let Some(_sub) = self.find_submodule(owner) {
+                    } else if let Some(sub) = self.find_submodule(owner) {
                         // Sub-module port reference — verify port exists in sub-module
                         let port_name = pt
                             .path
                             .strip_prefix(&format!("{owner}."))
                             .unwrap_or(&pt.path);
-                        if !port_name.is_empty() && !_sub.is_port(port_name) {
-                            tracing::warn!(
-                                "[P2-VALIDATE] module='{}' conn={} — port '{}' not found in sub-module '{}' (path={})",
-                                self.name,
-                                conn.id,
-                                port_name,
-                                owner,
-                                pt.path
+                        if !port_name.is_empty() && !sub.is_port(port_name) {
+                            let available: Vec<&str> =
+                                sub.ports.iter().map(|p| p.name.as_str()).collect();
+                            crate::db::diagnostic::diagnostic::diagnostic_log(
+                                crate::errcodes::MODULE_PORT_NOT_FOUND,
+                                crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
+                                0,
+                                0,
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::MODULE_PORT_NOT_FOUND,
+                                    &[&port_name, owner, &available.join(", ")],
+                                ),
+                                &[],
                             );
                         }
                     }
