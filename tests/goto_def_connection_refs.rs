@@ -262,3 +262,42 @@ fn dotted_pin_name_resolves_by_longest_match() {
     );
 }
 
+#[test]
+fn dotted_chain_base_resolves_to_param_decl() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|e| e.into_inner());
+    let dump = load_and_dump();
+
+    // The base `dc` of `(spk.3 + spk.4) -> dc.GND` must resolve to the module
+    // param declaration `dc{VDD_3V3, GND}` (PortRef → ParamDef), not to the
+    // whole-chain member `GND` and not to the chain base's own text.
+    let arrow = SOURCE.find("-> dc.GND").expect("arrow dc.GND in source");
+    let dc_off = arrow + "-> ".len();
+    let base_span = (dc_off, dc_off + "dc".len());
+    let param_decl = SOURCE.find("dc{VDD_3V3, GND}").expect("param decl in source");
+    let ref_id = ref_interval(&dump, "PortRef", base_span)
+        .expect("PortRef interval for chain base dc");
+    assert_eq!(
+        map_def_span(&dump, "PortRef", ref_id),
+        Some((param_decl, param_decl + "dc{VDD_3V3, GND}".len())),
+        "chain base dc must map to ParamDef at {param_decl}..{}",
+        param_decl + "dc{VDD_3V3, GND}".len()
+    );
+
+    // The instance base `spk` in `spk.3` stays an InstRef → InstDef (not a
+    // PortRef), so numeric pin members keep resolving to pin-id defs.
+    let chain_span = {
+        let p = SOURCE.find("spk.3").expect("spk.3 in source");
+        (p, p + "spk.3".len())
+    };
+    let spk_def = SOURCE.find("SPEAKER.PHB2AWB spk").map(|p| p + "SPEAKER.PHB2AWB ".len())
+        .expect("spk instance in source");
+    let base_ref_id = ref_interval(&dump, "InstRef", (chain_span.0, chain_span.0 + 3))
+        .expect("InstRef interval for chain base spk");
+    assert_eq!(
+        map_def_span(&dump, "InstRef", base_ref_id),
+        Some((spk_def, spk_def + 3)),
+        "chain base spk must map to InstDef at {spk_def}..{}",
+        spk_def + 3
+    );
+}
+
