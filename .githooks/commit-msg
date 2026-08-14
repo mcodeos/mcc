@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+# Commit-msg hook: reject commit messages that contain CJK (Chinese)
+# characters.
+#
+# Git passes the prepared commit message file path as $1. English-only is a
+# project rule (see CLAUDE.md / AGENTS.md).
+import re
+import sys
+
+CJK_RE = re.compile(r"[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]")
+
+if len(sys.argv) < 2:
+    sys.exit(0)
+
+path = sys.argv[1]
+try:
+    text = open(path, encoding="utf-8").read()
+except OSError:
+    sys.exit(0)
+
+if CJK_RE.search(text):
+    print(
+        "commit-msg: commit message contains CJK (Chinese) — English only.",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+sys.exit(0)
