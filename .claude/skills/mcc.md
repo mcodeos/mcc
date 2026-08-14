@@ -905,16 +905,54 @@ curl -X POST http://127.0.0.1:8080/rpc \
 
 | Code | Meaning | Typical Cause |
 |---|---|---|
-| 1001-1004 | Duplicate definition | Same name used twice in scope |
-| 1100 | Component not found | Missing `use` import or typo |
-| 1101 | Module not found | Module name misspelled |
-| 1102 | Interface not found | Interface not imported |
-| 1103 | Enum not found | Enum value doesn't exist |
-| 1104 | Instance not found | Referencing undefined instance |
-| 1503 | Duplicate module | Module defined in multiple files |
-| 301-303 | Connection error | Pin count mismatch, wrong IO direction |
-| 1200-1202 | Port errors | Undefined port, duplicate port name |
-| 2001-2008 | Detector warnings | D1-D8 circuit structure issues |
+| 1001-1005 | Duplicate definition | Same name used twice in scope |
+| 1051-1060 | Definition structure / CMIE load | Missing subnodes, malformed IO type, define-as-CMIE |
+| 2001-2010 | `use` statement errors | Bad path, target not found, self import, alias collision |
+| 2051 / 2061 / 2071 | Use-stage dependency errors | Undeclared dep, symbol conflict, import not found |
+| 2080-2119 | Parser errors | Syntax error, invalid clause / pin / net / conds |
+| 2121-2127 | Name / declaration parse errors | Missing subnode, failed name extraction |
+| 2171-2172 | Unsupported / unresolved symbol | P1-P5 lookup failed, not supported yet |
+| 2901-2906 | Vector shape validation | Shape mismatch, transpose limit, expand mismatch |
+| 3001-3008 | Pin/port definition | Pin ID/name mismatch, count errors |
+| 3021-3023 | Attribute errors | Type mismatch, unsupported type, missing subnode |
+| 3041-3049 | Unit value (UVAL) errors | Invalid/unsupported unit, bad value format |
+| 3051-3054 | Module body errors | PINS unsupported, role unsupported, unexpected param |
+| 3071 / 3081 | Module method / clause | Method not found, unexpected clause type |
+| 3101-3111 | Params / functions | Invalid param, class/instance expected |
+| 3131-3135 | Function calls / lines | Missing name, parse failure, dropped line |
+| 3151-3180 | Instance / interface reference | Class unresolved, member / pin / port not found |
+| 4001-4027 | Connection / shape | Transpose mismatch, parallel/series invalid, dot misuse |
+| 4050-4058 | Netlist heuristics (D-series) | Ghost port, merged short, sort hazard, floating `_` |
+| 4081-4098 | Layout attribute errors | Missing subnode, type mismatch, malformed edge |
+| 4101-4118 | Netlist / interface binding | Multi-drive, no driver, unconnected, backfeed risk |
+| 4150-4175 | Instantiation checks | Chain link skipped, arg count mismatch, bind failed |
+| 5001-5003 | Cross-file duplicates | Same name defined in another file |
+| 5051-5057 | Naming / style | Lowercase component, single-char instance, shadows CMIE |
+| 5101-5104 | Reference integrity | Undeclared spec key, function without body |
+| 5151-5163 | Ports / pins | Duplicate port, unused pin/port, conflicting options |
+| 5201-5206 | Functions / roles / defaults | Bad param default, enum single value |
+| 5251-5267 | Definition structure (M-series) | Empty body, no pins, duplicate spec key |
+| 5301-5304 | `.int` class checks | Ambiguous name, class not loaded, unconventional suffix |
+| 5351-5357 | Instance / attribute checks | Reserved keyword, arg count, nesting too deep |
+| 5401-5412 | Enum / expression checks | Duplicate value, reversed range, `this` at top level |
+| 5451-5459 | Condition blocks | Empty body, if without else, NC at component level |
+| 5501-5511 | Hardware checks | Power pins excess, pin number gaps, NC contiguous |
+| 5551-5552 | Type / unit compatibility | Free closure variable, incompatible types |
+| 5641-5643 | Global diagnostics | Unused param/port, untyped param |
+| 6001-6004 | ERC | Single-point net, unconnected port, multi-drive, floating net |
+
+The D1-D8 detector codes referenced by build.rs tests map as follows:
+
+| Detector | Code | Constant |
+|---|---|---|
+| D1 | 4053 | SORT_HAZARD |
+| D2 | 4054 | FLOATING_PLACEHOLDER |
+| D3 | 4051 | NET_MERGED_SHORT |
+| D4 | 4050 | GHOST_PORT_BOX |
+| D5 | 4052 | NET_BUS_ORDER_MISMATCH |
+| D6 | 4057 | NET_DROPPED_STATEMENT |
+| D7 | 4056 | PULLUP_DEGENERATE |
+| D8 | 4027 | CONN_AMBIGUOUS_PRECEDENCE |
 
 ### 6.5 Validating Library Changes
 

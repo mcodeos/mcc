@@ -752,7 +752,13 @@ pub(crate) fn run_erc() -> RpcResult {
     let top = crate::mcb_get_first_module_name()
         .ok_or_else(|| JsonRpcError::custom(32112, "semantic: no modules found"))?;
 
-    let uri = crate::McURI::from(top.as_str());
+    // Resolve the top module to its defining file URI; using the bare module
+    // name as a URI makes mcc_build fail with "Target module not found".
+    let uri = crate::mcb_iter_modules()
+        .into_iter()
+        .find(|(name, _)| name == &top)
+        .map(|(_, u)| crate::McURI::from(u.as_str()))
+        .unwrap_or_else(|| crate::McURI::from(top.as_str()));
     let ident = crate::McIds::from(top.as_str());
 
     let inst = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
