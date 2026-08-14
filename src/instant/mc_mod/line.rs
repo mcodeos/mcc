@@ -1486,18 +1486,23 @@ impl McModuleInst {
             // }
             let trans_involved = matches!(left_member, McPhrase::Transposed(_))
                 || matches!(right_member, McPhrase::Transposed(_));
-            // ── §4 算子求值（eval.md §4.1 串联）：相邻成员的形状求值统一入口 ──
-            // line.rs 三条路径（shunt / lane-by-lane / adjacency）的相邻配对
-            // 都收敛到这一形状判定 + create_connection。
+            // ── §4 operator evaluation (eval.md §4.1 series): unified entry
+            // for shape evaluation of adjacent members ──
+            // The adjacent-pair logic of all three line.rs paths (shunt /
+            // lane-by-lane / adjacency) converges on this shape check +
+            // create_connection.
             let lhs_shape = Shape::vvec(left_points.len());
             let rhs_shape = Shape::vvec(right_points.len());
             match eval_binary(ConnOp::Series, lhs_shape, rhs_shape) {
                 Ok(_) => {
-                    // 行数匹配：整组配对（create_connection 内部再做 1:1 / 广播 / 接口展开）
+                    // Row counts match: pair the whole group
+                    // (create_connection does 1:1 / broadcast / interface expansion internally)
                     self.create_connection(left_points, right_points, dir, None)?;
                 }
-                // 转置桥接被动（§4 偏差）：行数不同但含转置成员时按 min 配对，
-                // 每个 pin 挂到对应 lane（eval.md §4.1 节点 vs 向量 的桥接语义）
+                // Transposed bridge passive (§4 deviation): row counts differ
+                // but a transposed member is involved; pair by min, hanging
+                // each pin on its corresponding lane (eval.md §4.1 node vs
+                // vector bridging semantics)
                 Err(ShapeError::RowMismatch { .. })
                     if trans_involved && !left_points.is_empty() && !right_points.is_empty() =>
                 {
@@ -1510,7 +1515,8 @@ impl McModuleInst {
                         self.create_connection(vec![l], vec![r], dir, None)?;
                     }
                 }
-                // 行数不匹配（非转置）：交给 create_connection 走 E2901 截断恢复
+                // Row count mismatch (non-transposed): hand to
+                // create_connection for E2901 truncation recovery
                 Err(_) => {
                     self.create_connection(left_points, right_points, dir, None)?;
                 }

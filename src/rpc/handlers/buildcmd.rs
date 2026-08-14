@@ -107,8 +107,11 @@ pub fn handle_convert(params: Option<Value>) -> RpcResult {
 // McVecGraph, renders, and returns the wrapped HTML (inline CSS + interact.js).
 
 pub fn handle_build_viz(params: Option<Value>) -> RpcResult {
+    let t_all = std::time::Instant::now();
     let p: BuildVizParams = parse_or_default(params)?;
+    let t0 = std::time::Instant::now();
     load_libs_rpc(&p.libs);
+    tracing::info!(target: "mcc::perf", step = "load_libs", ms = t0.elapsed().as_millis() as u64, "build.viz step");
 
     let (id, kind, root_str) = crate::workspace_info();
     let (entry_path, top) = if kind == "Anonymous" {
@@ -134,7 +137,9 @@ pub fn handle_build_viz(params: Option<Value>) -> RpcResult {
     };
 
     let mc_uri = McURI::from(entry_path.to_string_lossy().as_ref());
+    let t1 = std::time::Instant::now();
     crate::mcc_load_project(&mc_uri);
+    tracing::info!(target: "mcc::perf", step = "load_project", ms = t1.elapsed().as_millis() as u64, "build.viz step");
 
     let top_name = match top.as_deref() {
         Some(t) => t.to_string(),
@@ -152,6 +157,7 @@ pub fn handle_build_viz(params: Option<Value>) -> RpcResult {
     }
 
     // Flatten (Pass2 + InstTable) with panic guard, mirroring execute_pass2.
+    let t2 = std::time::Instant::now();
     let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         crate::mcc_build_flat(&ident, &mc_uri, 1000)
     }));
@@ -165,14 +171,20 @@ pub fn handle_build_viz(params: Option<Value>) -> RpcResult {
             ))
         }
     };
+    tracing::info!(target: "mcc::perf", step = "build_flat", ms = t2.elapsed().as_millis() as u64, "build.viz step");
 
     crate::vector::builder::reset_np_warn_count();
+    let t3 = std::time::Instant::now();
     let (vec_block, _report) = crate::build_mc_vec_with_report(&_inst, &table);
     let graph = crate::build_mc_vec_graph(&vec_block, &table);
+    tracing::info!(target: "mcc::perf", step = "vec_graph", ms = t3.elapsed().as_millis() as u64, "build.viz step");
 
     let opts = build_viz_render_opts(p.layouter.as_deref());
+    let t4 = std::time::Instant::now();
     let doc = crate::viz::api::render_with(graph, opts);
+    tracing::info!(target: "mcc::perf", step = "render", ms = t4.elapsed().as_millis() as u64, "build.viz step");
     let html = crate::viz::template::wrap_document(&doc);
+    tracing::info!(target: "mcc::perf", step = "total", ms = t_all.elapsed().as_millis() as u64, "build.viz step");
 
     Ok(json!({
         "command": "build.viz",

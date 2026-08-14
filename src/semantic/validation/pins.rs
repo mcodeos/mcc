@@ -5,9 +5,9 @@
 //! Pin usage checks — runs after Pass2 flattening.
 //!
 //! Design doc §4:
-//! - `check_unused_pins` (§4.2 检查 1): report Pin entries in the flattened
+//! - `check_unused_pins` (§4.2 check 1): report Pin entries in the flattened
 //!   InstTable that are not connected to any net.
-//! - `check_conflicting_pins` (§4.2 检查 2): report pinids that have multiple
+//! - `check_conflicting_pins` (§4.2 check 2): report pinids that have multiple
 //!   option names and where 2+ different option names are actually in use.
 //!
 //! Both checks work directly from the InstTable's Pin entries, which are
@@ -66,7 +66,7 @@ fn pin_display_name<'a>(pinid: &'a str, class_name: &'a str) -> Option<&'a str> 
     }
 }
 
-// ── §4.2 检查 1: Unused pins ──
+// ── §4.2 check 1: Unused pins ──
 ///
 /// For each Component instance, iterate over its Pin entries in the InstTable.
 /// A Pin entry is "unused" if it is not connected to any net (`get_net_of`
@@ -123,7 +123,7 @@ fn check_unused_pins(table: &InstTable, results: &mut Vec<PinCheckResult>) {
     }
 }
 
-// ── §4.2 检查 2: Conflicting pin option names ──
+// ── §4.2 check 2: Conflicting pin option names ──
 ///
 /// For each Component instance, group its Pin entries by pinid. For pinids
 /// that have 2+ Pin entries with different `class_name` values (option names)

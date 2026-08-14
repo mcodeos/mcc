@@ -140,11 +140,12 @@ impl McModuleInst {
             return Ok(());
         }
 
-        // ── §3 形状匹配判定（eval.md）────────────────────────────────
-        // 端点层形状为 N×1（每个 NetPoint 一行）。行数相同 → §3 允许，
-        // 走 1:1 配对（by-name / 排序 zip）；行数不同 → §3 拒绝，由下方
-        // 恢复分支处理：1:N 广播（组 / DC 总线 / 接口展开语义）或
-        // N:M 截断（真错位 → E2901 诊断）。
+        // ── §3 shape-match check (eval.md) ────────────────────────────────
+        // Endpoint-layer shape is N×1 (one NetPoint per row). Same row count
+        // → §3 allows 1:1 pairing (by-name / sorted zip); different row count
+        // → §3 rejects, handled by the recovery branch below: 1:N broadcast
+        // (group / DC bus / interface expansion semantics) or
+        // N:M truncation (genuine misalignment → E2901 diagnostic).
         let lhs_shape = Shape::vvec(left_size);
         let rhs_shape = Shape::vvec(right_size);
         let shape_match = ShapeMatcher::match_shape(lhs_shape, rhs_shape);
@@ -234,13 +235,18 @@ impl McModuleInst {
         }
 
         if let Some(m) = expand_match(&left_points, &right_points) {
-            // ── P4.2: §7 向量展开匹配（eval.md §7）───────────────────────
-            // 纯函数 expand_match 取代旧的 try_match_by_member_name + 排序 zip：
-            //   规则 1 层层对应 —— 两侧均带唯一非空 member 名且能一一配对 →
-            //                     按名配对（保持 lhs 顺序，确定性）；
-            //   规则 2 总数对应 —— 等量 → 按名稳定排序后 zip，兼产出 D5 信号；
-            //   规则 3 数量不匹配 → None（禁止隐式自动展开，落入下方恢复分支）。
-            // 此处 shape 匹配已放行（等量且两侧非空），expand_match 必然 Some。
+            // ── P4.2: §7 vector expansion matching (eval.md §7) ──────────────
+            // The pure function expand_match replaces the old
+            // try_match_by_member_name + sorted zip:
+            //   Rule 1 layer correspondence — both sides have unique non-empty
+            //              member names that can be paired one-to-one →
+            //              match by name (keep lhs order, deterministic);
+            //   Rule 2 total correspondence — equal counts → zip after stable
+            //              sort by name, also producing the D5 signal;
+            //   Rule 3 count mismatch → None (implicit auto-expansion is
+            //              forbidden, falls into the recovery branch below).
+            // Shape matching has already passed here (equal counts and both
+            // sides non-empty), so expand_match is necessarily Some.
             mcc_dbg!(
                 "inst::mod",
                 "[P4.2-CONN] create_connection: left_size={left_size}, right_size={right_size}, \
@@ -250,9 +256,11 @@ impl McModuleInst {
             );
 
             // ── D5: BUS_ORDER_MISMATCH ─────────────────────────────────────
-            // 双侧多点 1:1 连接、排序 zip 后所有对子 member 名互不相同 →
-            // 总线成员顺序可能错位（如 SPI SCLK↔MOSI）。单对不报：标量连接
-            // （如 VCC→VDD）名字不同是正常现象，不是总线错位。
+            // Multi-point 1:1 connection on both sides, and after the sorted
+            // zip all pair member names are mutually different → the bus member
+            // order may be misaligned (e.g. SPI SCLK↔MOSI). Not reported for a
+            // single pair: for a scalar connection (e.g. VCC→VDD) differing
+            // names are normal, not a bus misalignment.
             if m.pairs.len() >= 2 && m.all_members_mismatched {
                 BUS_BITS_MISMATCHED.store(m.pairs.len(), std::sync::atomic::Ordering::Relaxed);
                 let mismatches: Vec<String> = m
@@ -376,8 +384,9 @@ impl McModuleInst {
                 }
             }
         } else {
-            // §3 行数不匹配（N×1 vs M×1，N、M ≥ 2）：降级为警告，截断到 min。
-            // 不再静默截断 —— E2901 明确给出两侧形状。
+            // §3 row count mismatch (N×1 vs M×1, N, M ≥ 2): downgraded to a
+            // warning, truncated to min.
+            // No longer silently truncated — E2901 explicitly reports both shapes.
             self.record_warning(
                 crate::errcodes::CONN_SHAPE_ROW_MISMATCH_RECOVERED,
                 crate::errcodes::format_msg(

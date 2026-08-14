@@ -519,7 +519,7 @@ pub fn decompose(graph: &McVecGraph) -> Decomposition {
 }
 
 // ============================================================================
-// ★ apply_islands — 将分解结果落成几何（Phase 2: band 装配）
+// ★ apply_islands — commit the decomposition to geometry (Phase 2: band assembly)
 // ============================================================================
 
 /// Try to apply island-based layout. Returns `true` if **at least one** island was
@@ -628,7 +628,7 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
                     // ★ Debug assertion: terminals must belong to this island
                     debug_assert!(
                         isl_boxes.contains(&left_box) && isl_boxes.contains(&right_box),
-                        "island#{i}: 给模型的端子 ({left_box}, {right_box}) 不是这个岛的边界盒 {isl_boxes:?}"
+                        "island#{i}: the model terminals ({left_box}, {right_box}) are not boundary boxes of this island {isl_boxes:?}"
                     );
 
                     let passive_boxes: Vec<i64> =
@@ -682,7 +682,7 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
                     // ★ Debug assertion: terminals must belong to this island
                     debug_assert!(
                         isl_boxes.contains(&left_box) && isl_boxes.contains(&right_box),
-                        "island#{i}: 给模型的端子 ({left_box}, {right_box}) 不是这个岛的边界盒 {isl_boxes:?}"
+                        "island#{i}: the model terminals ({left_box}, {right_box}) are not boundary boxes of this island {isl_boxes:?}"
                     );
 
                     let left_name = box_label(&box_by_id, left_box);
@@ -994,7 +994,7 @@ fn place_terminal_box(
         if !b.pins.is_empty() && !b.pins.iter().any(|p| p.id == pin_id) {
             crate::viz::SYNTHETIC_PIN_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             mcc_dbg!("viz",
-                "[viz] GHOST_PIN: pin {pin_id} 不属于 box#{} (合成端子，可能来自端口标量/成员处理或未解析的端点引用)，跳过",
+                "[viz] GHOST_PIN: pin {pin_id} does not belong to box#{} (synthetic terminal, possibly from port scalar/member handling or an unresolved endpoint reference), skipping",
                 b.id
             );
             continue;
@@ -1061,7 +1061,7 @@ fn apply_chain_layout(
         };
         let g = i0.min(i1);
         if (i1 as i64 - i0 as i64).abs() != 1 {
-            crate::vlog!("[islands] band {bi}: 端子 ({t0}, {t1}) 在链上不相邻（gap={g}）— 跳过",);
+            crate::vlog!("[islands] band {bi}: terminals ({t0}, {t1}) are not adjacent on the chain (gap={g}) — skipping",);
             continue;
         }
         gaps[g].push(bi);
@@ -1263,7 +1263,7 @@ fn apply_chain_layout(
                     crate::viz::SYNTHETIC_PIN_COUNT
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     mcc_dbg!("viz",
-                        "[viz] GHOST_PIN: pin {pin_id} 不属于 box#{} (合成端子，可能来自端口标量/成员处理或未解析的端点引用)，跳过",
+                        "[viz] GHOST_PIN: pin {pin_id} does not belong to box#{} (synthetic terminal, possibly from port scalar/member handling or an unresolved endpoint reference), skipping",
                         b.id
                     );
                     continue;

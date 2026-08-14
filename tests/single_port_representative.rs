@@ -1,6 +1,6 @@
 // Copyright (c) 2026 MCode
 //
-// Integration tests for §4 single-port representative rule (eval.md §4 注记).
+// Integration tests for §4 single-port representative rule (eval.md §4 note).
 //
 // Rule: `+` / `-` / `<-` take operand 1 as representative, `->` takes operand 2.
 // Verified end-to-end through Pass2 connection anchoring:
@@ -72,11 +72,12 @@ fn assert_net_has(got: &[Vec<String>], members: &[&str]) {
     );
 }
 
-// ── `+` 取 op1：wire_parallel_internal 锚定 opd[0] ─────────────────────────
+// ── `+` takes op1: wire_parallel_internal anchors opd[0] ──────────────────
 
 #[test]
 fn plus_anchors_operand_one() {
-    // VEXT（op1）作为并联锚，VDD / V5V 都并入 VEXT 网 → 单条多点连接 {VEXT, VDD, V5V}。
+    // VEXT (op1) is the parallel anchor; VDD and V5V both merge into the VEXT
+    // net → one multi-point connection {VEXT, VDD, V5V}.
     let inst = build(
         r#"
 module main
@@ -88,11 +89,12 @@ module main
     assert_net_has(&nets(&inst), &["VEXT", "VDD", "V5V"]);
 }
 
-// ── `-` 取 op1：Series 链首 opd1 ──────────────────────────────────────────
+// ── `-` takes op1: Series chain head opd1 ─────────────────────────────────
 
 #[test]
 fn minus_keeps_operand_one_as_chain_head() {
-    // VEXT - R1 - GND：VEXT（op1）在链首，连接 VEXT↔R1.1、R1.2↔GND。
+    // VEXT - R1 - GND: VEXT (op1) is at the chain head; connections are
+    // VEXT↔R1.1 and R1.2↔GND.
     let inst = build(
         r#"
 component RES2()
@@ -112,7 +114,7 @@ module main
     let got = pairs(&inst);
     assert_paired(&got, "VEXT", "R1.1");
     assert_paired(&got, "R1.2", "GND");
-    // `-` 链是无向连接
+    // `-` chains are undirected connections
     assert!(
         inst.connections
             .iter()
@@ -121,11 +123,12 @@ module main
     );
 }
 
-// ── `->` 取 op2：LtoR 链尾是输出端 ─────────────────────────────────────────
+// ── `->` takes op2: LtoR chain tail is the output ─────────────────────────
 
 #[test]
-fn rightarrow_keeps_operand_two_as_chain_tail() {
-    // VEXT -> R1 -> GND：op2（GND）在链尾，连接 VEXT↔R1.1、R1.2↔GND。
+fn rarrow_takes_operand_two_as_output() {
+    // VEXT -> R1 -> GND: op2 (GND) is at the chain tail; connections are
+    // VEXT↔R1.1 and R1.2↔GND.
     let inst = build(
         r#"
 component RES2()
@@ -145,18 +148,18 @@ module main
     let got = pairs(&inst);
     assert_paired(&got, "VEXT", "R1.1");
     assert_paired(&got, "R1.2", "GND");
-    // `->` 链必须带 LtoR 方向
+    // `->` chains must carry the LtoR direction
     assert!(
         inst.connections.iter().any(|c| c.dir == mcc::ConnDir::LtoR),
         "expected a LtoR connection in {got:?}"
     );
 }
 
-// ── `<-` 取 op1：RtoL swap 后 op1 落链尾 ──────────────────────────────────
+// ── `<-` takes op1: after the RtoL swap, op1 lands on the chain tail ──────
 
 #[test]
 fn leftarrow_keeps_operand_one_as_target() {
-    // VEXT <- R1 <- GND：数据从 GND 经 R1 流向 VEXT（op1 目标网）。
+    // VEXT <- R1 <- GND: data flows from GND through R1 to VEXT (op1 target net).
     let inst = build(
         r#"
 component RES2()
@@ -176,7 +179,7 @@ module main
     let got = pairs(&inst);
     assert_paired(&got, "VEXT", "R1.2");
     assert_paired(&got, "R1.1", "GND");
-    // `<-` 链必须带 RtoL 方向
+    // `<-` chains must carry the RtoL direction
     assert!(
         inst.connections.iter().any(|c| c.dir == mcc::ConnDir::RtoL),
         "expected a RtoL connection in {got:?}"

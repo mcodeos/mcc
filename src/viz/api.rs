@@ -249,6 +249,7 @@ fn render_layer_recursive(
 
         // ── Phase D: build SchematicLayoutModel before layout for low-risk intent ──
         // Semantic and special analysis are read-only and don't need positions.
+        let _td = std::time::Instant::now();
         let schematic_model = {
             let semantic = SemanticModel::analyze(&graph);
             let special = PowerGroundBusModel::analyze(&graph, Some(&semantic));
@@ -261,8 +262,11 @@ fn render_layer_recursive(
             }
             model
         };
+        tracing::info!(target: "mcc::perf", step = "schematic_model", ms = _td.elapsed().as_millis() as u64, boxes = graph.boxes.len(), nets = graph.nets.len(), "render step");
 
+        let _tl = std::time::Instant::now();
         graph = layout_best(graph, candidates, is_root, Some(schematic_model));
+        tracing::info!(target: "mcc::perf", step = "layout_best", ms = _tl.elapsed().as_millis() as u64, "render step");
 
         // ── Phase 1.46b: Adjust Virtual Top Module Border position/size ──
         // After layout positions all boxes, adjust the dashed border boxes to surround internal components.
@@ -311,13 +315,15 @@ fn render_layer_recursive(
     metrics.accumulate_layer(&graph, &rep, canvas);
 
     // ── M12: Determinism report (after route, before render) ──
-    // ★ P0.5-3c: 补上 idiom_hash / placement_hash —— 在 layout_best 之后
-    // 重新检测 idiom 实例和约束（只读操作），填充到 determinism 报告中。
+    // ★ P0.5-3c: fill in idiom_hash / placement_hash —— after layout_best,
+    // re-detect idiom instances and constraints (read-only operations), and
+    // populate them into the determinism report.
+    let _tdr = std::time::Instant::now();
     let det_report = {
         let mut r = crate::viz::stability::report::DeterminismReport::from_graph(&graph);
         r.graph_input_hash = crate::viz::stability::hash::hash_box_geometry(&graph);
         r.route_schedule_hash = crate::viz::stability::hash::canonical_hash(&graph.nets.len());
-        // 收集 protected boxes（geom_locked 的）
+        // Collect protected boxes (those with geom_locked)
         let protected: HashSet<i64> = graph
             .boxes
             .iter()
@@ -331,12 +337,14 @@ fn render_layer_recursive(
             crate::viz::stability::hash::hash_idiom_instances(&idiom_instances, prefix);
         r.placement_constraint_hash =
             crate::viz::stability::hash::hash_placement_constraints(&constraints, prefix);
-        // placement_decision_hash 用 constraints hash 作为近似（实际 decisions
-        // 在 flow.rs 内计算，此处不可达；但顶层报告需要非空值）
+        // placement_decision_hash approximates with the constraints hash (the real
+        // decisions are computed inside flow.rs, unreachable here; but the top-level
+        // report needs a non-empty value)
         r.placement_decision_hash = r.placement_constraint_hash.clone();
         r
     };
     metrics.accumulate_determinism(&det_report);
+    tracing::info!(target: "mcc::perf", step = "det_report", ms = _tdr.elapsed().as_millis() as u64, "render step");
 
     // ── Semantic analysis (read-only, soft signal) ──
     let semantic = SemanticModel::analyze(&graph);

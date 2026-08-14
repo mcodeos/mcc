@@ -614,17 +614,17 @@ impl McConds {
 }
 
 // ============================================================================
-// McFuncConds — 解析后的条件块，存储 McPhrase 行用于实例化时评估
+// McFuncConds — parsed conditional blocks, storing McPhrase lines for evaluation at instantiation time
 // ============================================================================
 
-/// 解析后的单个条件分支
+/// A single parsed conditional branch
 #[derive(Debug, Clone)]
 pub struct McCondBlock {
     pub condition: McCondition,
     pub lines: Vec<McPhrase>,
 }
 
-/// 解析后的条件块集合（if/else if/else）
+/// A parsed collection of conditional blocks (if/else if/else)
 #[derive(Debug, Clone)]
 pub struct McFuncConds {
     pub if_blocks: Vec<McCondBlock>,
@@ -632,7 +632,7 @@ pub struct McFuncConds {
 }
 
 impl McFuncConds {
-    /// 从 McConds 和上下文解析出 McPhrase 行
+    /// Parse McPhrase lines from McConds and the given context
     pub fn from_conds(
         conds: &McConds,
         context: &mut dyn crate::semantic::mc_func::HasFindInst,

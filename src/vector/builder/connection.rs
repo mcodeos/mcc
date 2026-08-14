@@ -33,16 +33,16 @@ use super::super::model::{McVec, McVecNet};
 pub(crate) struct ConnPair {
     pub left: i64,
     pub right: i64,
-    /// 向量的第几道；标量连接为 None。来自 visit.rs 的 `for k in 0..max_w`。
+    /// Which lane of the vector; None for scalar connections. From the `for k in 0..max_w` loop in visit.rs.
     pub lane: Option<LaneRef>,
-    /// 源码里的箭头方向
+    /// Arrow direction in the source
     pub dir: PairDir,
-    /// 这一段是穿过哪个二端器件产生的
+    /// Which two-terminal device this segment passes through
     pub via: Option<i64>,
 }
 
 impl ConnPair {
-    /// 无 provenance 的构造（等价于改造前的行为）
+    /// Construction without provenance (equivalent to pre-refactor behavior)
     pub(crate) fn plain(left: i64, right: i64) -> Self {
         Self {
             left,
@@ -53,7 +53,7 @@ impl ConnPair {
         }
     }
 
-    /// 带方向的无 provenance 构造
+    /// Construction with direction but no provenance
     pub(crate) fn plain_with_dir(left: i64, right: i64, dir: PairDir) -> Self {
         Self {
             left,
@@ -64,7 +64,7 @@ impl ConnPair {
         }
     }
 
-    /// 带 lane 的构造
+    /// Construction with a lane
     pub(crate) fn laned(left: i64, right: i64, lane: LaneRef, dir: PairDir) -> Self {
         Self {
             left,
@@ -107,12 +107,12 @@ pub(crate) type NetGroupMap = BTreeMap<String, Vec<ConnPair>>;
 /// - **Chain**: All points appear exactly once → linear connection
 /// - **Degenerate**: Single pair → direct 1:1
 pub(crate) fn merge_pairs_to_vecnet(nid: i64, net_name: String, pairs: &[ConnPair]) -> McVecNet {
-    // ── 有 lane 信息时，直接按源码形状建组，不再靠频次猜 ──
+    // ── With lane info, build groups directly from the source shape instead of guessing by frequency ──
     if pairs.iter().any(|p| p.lane.is_some()) {
         if let Some(net) = build_from_lanes(nid, &net_name, pairs) {
             return net;
         }
-        // 建不出来（lane 不完整）→ 落回下面的旧逻辑，不 panic
+        // Couldn't build (lane incomplete) → fall back to the legacy logic below, no panic
     }
 
     let dir = majority_dir(pairs);
@@ -181,10 +181,10 @@ fn build_net_shape(dir: PairDir, pairs: &[ConnPair], nets: &[McVec]) -> NetShape
 }
 
 // ============================================================================
-// Lane-aware construction (补丁 3)
+// Lane-aware construction (patch 3)
 // ============================================================================
 
-/// 从 pairs 中计算多数方向
+/// Compute the majority direction from pairs
 fn majority_dir(pairs: &[ConnPair]) -> PairDir {
     let ltr = pairs.iter().filter(|p| p.dir == PairDir::LtoR).count();
     let rtl = pairs.iter().filter(|p| p.dir == PairDir::RtoL).count();
@@ -197,11 +197,11 @@ fn majority_dir(pairs: &[ConnPair]) -> PairDir {
     }
 }
 
-/// 有 lane 信息时，直接按源码形状建组，不再靠频次猜。
-/// 返回 `None` 时安静地落回旧逻辑，不 panic。
+/// With lane info, build groups directly from the source shape instead of guessing by frequency.
+/// Returns `None` to silently fall back to the legacy logic, no panic.
 fn build_from_lanes(nid: i64, name: &str, pairs: &[ConnPair]) -> Option<McVecNet> {
-    // 同一个 net 里的 pair 应该属于同一道；不同道在 visit.rs 就已经分到
-    // 不同的 sub_net_name 了，所以这里期望 lane 唯一。
+    // Pairs in the same net should belong to the same lane; different lanes were already
+    // split into different sub_net_names in visit.rs, so the lane is expected to be unique here.
     let mut lanes: BTreeSet<u16> = BTreeSet::new();
     for p in pairs {
         if let Some(l) = &p.lane {
@@ -209,12 +209,12 @@ fn build_from_lanes(nid: i64, name: &str, pairs: &[ConnPair]) -> Option<McVecNet
         }
     }
     if lanes.len() != 1 {
-        return None; // 混了多道 → 交给旧逻辑
+        return None; // mixed lanes → hand over to legacy logic
     }
 
     let lane = pairs.iter().find_map(|p| p.lane.clone())?;
 
-    // 方向：多数决
+    // Direction: majority vote
     let ltr = pairs.iter().filter(|p| p.dir == PairDir::LtoR).count();
     let rtl = pairs.iter().filter(|p| p.dir == PairDir::RtoL).count();
     let dir = if ltr > rtl {
@@ -225,7 +225,7 @@ fn build_from_lanes(nid: i64, name: &str, pairs: &[ConnPair]) -> Option<McVecNet
         PairDir::Undirected
     };
 
-    // 端点顺序：沿 pair 的 left→right 走链，不用 order_chain 猜起点
+    // Endpoint order: walk the chain along each pair's left→right, no order_chain start guessing
     let chain = order_by_direction(pairs, dir)?;
     let vecs: Vec<McVec> = chain.into_iter().map(McVec::single).collect();
 
@@ -239,7 +239,7 @@ fn build_from_lanes(nid: i64, name: &str, pairs: &[ConnPair]) -> Option<McVecNet
     Some(McVecNet::with_shape(nid, name.to_string(), vecs, shape))
 }
 
-/// 沿有向边排链：从第一个 left 开始，按 left→right 走链。
+/// Order the chain along directed edges: start from the first left, walk left→right.
 fn order_by_direction(pairs: &[ConnPair], _dir: PairDir) -> Option<Vec<i64>> {
     if pairs.is_empty() {
         return Some(vec![]);
@@ -248,14 +248,14 @@ fn order_by_direction(pairs: &[ConnPair], _dir: PairDir) -> Option<Vec<i64>> {
         return Some(vec![pairs[0].left, pairs[0].right]);
     }
 
-    // 构建邻接表
+    // Build an adjacency list
     let mut adj: HashMap<i64, Vec<i64>> = HashMap::new();
     for pair in pairs {
         adj.entry(pair.left).or_default().push(pair.right);
         adj.entry(pair.right).or_default().push(pair.left);
     }
 
-    // 找度数为 1 的节点作为起点
+    // Find a degree-1 node to use as the start
     let start = adj
         .iter()
         .find(|(_, neighbors)| neighbors.len() == 1)

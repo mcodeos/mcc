@@ -435,19 +435,19 @@ impl McVecBox {
         self.symbol.is_two_pin_passive()
     }
 
-    /// 容器/边框盒：只提供视觉边框，不参与任何碰撞判定。
-    /// 负 id 的盒子（如 `main` id=-1001）是 SubModule 的容器边框，
-    /// 天然框住所有子盒和连线，不算碰撞。
+    /// Container / border box: provides only a visual border and never participates in collision detection.
+    /// Boxes with a negative id (e.g. `main` id=-1001) are SubModule container borders;
+    /// they naturally enclose all child boxes and wires, so they are not counted as collisions.
     #[inline]
     pub fn is_container_box(&self) -> bool {
         self.id < 0 || self.kind == BoxKind::SubModule
     }
 
-    /// 这个无源器件的几何还没主 —— 只有它为真，兜底 pass 才可以动。
+    /// This passive's geometry has no owner yet —— only when this is true may the fallback pass move it.
     ///
-    /// `geom_locked` 才是"这个盒子的几何已有主"的真正语义，
-    /// `visual_role` 是渲染意图，两件事不该合用一个字段。
-    /// 三个 passive pass 的 filter 统一用这个谓词。
+    /// `geom_locked` is the real meaning of "this box's geometry already has an owner";
+    /// `visual_role` is a rendering intent, and the two should not share one field.
+    /// The three passive passes all use this predicate in their filters.
     #[inline]
     pub fn is_unowned_passive(&self) -> bool {
         self.is_two_pin_passive() && !self.geom_locked && self.visual_role.is_none()

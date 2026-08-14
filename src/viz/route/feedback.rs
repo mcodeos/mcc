@@ -449,7 +449,19 @@ pub fn run_route_feedback(
         ..Default::default()
     };
 
+    // ★ Divergence guard — the negotiated-congestion loop can oscillate: per-net
+    // "accepted" reroutes shift a crossing onto a different net without reducing
+    // the global count, so the loop used to burn all `max_iters` (8) × ~27 A* reroutes
+    // while conflicts grew (observed 30→188 cumulative). Track the global routing
+    // conflict count and stop as soon as an iteration fails to reduce it.
+    let mut best_conflicts = before_audit.wire_box + before_audit.wire_wire;
+
     for iter in 0..config.max_iters {
+        let _ti = std::time::Instant::now();
+        // Snapshot current routes so we can roll back if this iteration regresses
+        // globally (see divergence guard below).
+        let snapshot: Vec<Option<crate::vector::graph::netdef::Route>> =
+            graph.nets.iter().map(|n| n.route.clone()).collect();
         bump_crossings(grid, graph, config.hist_inc);
 
         // Collect conflict nets
@@ -567,6 +579,21 @@ pub fn run_route_feedback(
         if accepted_this_iter == 0 {
             break;
         }
+
+        // Global-progress check: stop if this iteration did not reduce total
+        // wire_box + wire_wire conflicts.
+        let cur = audit::audit_collisions(graph);
+        let cur_conflicts = cur.wire_box + cur.wire_wire;
+        tracing::info!(target: "mcc::perf", step = "feedback_iter", ms = _ti.elapsed().as_millis() as u64, iter = iter, conflicts = report.nets_considered, rerouted = rerouted_this_iter, accepted = accepted_this_iter, cur = cur_conflicts, best = best_conflicts, "route_feedback iter");
+        if cur_conflicts >= best_conflicts {
+            // Roll back this iteration: it accepted per-net reroutes that made the
+            // global conflict count worse. Restore the pre-iteration routes.
+            for (net, snap) in graph.nets.iter_mut().zip(snapshot) {
+                net.route = snap;
+            }
+            break;
+        }
+        best_conflicts = cur_conflicts;
     }
 
     // Final audit
@@ -712,6 +739,7 @@ pub fn run_route_feedback_loop(graph: &mut McVecGraph) {
     const NUDGE_STEP: f64 = 20.0;
 
     let initial = audit::audit_collisions(graph);
+    tracing::info!(target: "mcc::perf", step = "feedback_loop_initial", ww = initial.wire_wire, wb = initial.wire_box, "route_feedback_loop");
     if initial.wire_wire == 0 && initial.wire_box == 0 {
         return; // No conflicts, nothing to do
     }
@@ -775,22 +803,10 @@ pub fn run_route_feedback_loop(graph: &mut McVecGraph) {
         if improved {
             best_wire_wire = after.wire_wire;
             best_wire_box = after.wire_box;
-            crate::vlog!(
-                "[route::feedback] iter={} ACCEPT: wire_wire {}→{} wire_box {}→{}",
-                iter,
-                before.wire_wire,
-                after.wire_wire,
-                before.wire_box,
-                after.wire_box,
-            );
+            tracing::info!(target: "mcc::perf", step = "feedback_loop_accept", iter = iter, ww_before = before.wire_wire, ww_after = after.wire_wire, wb_before = before.wire_box, wb_after = after.wire_box, "route_feedback_loop");
         } else if no_regression && after.wire_wire == before.wire_wire {
             // No change, try different direction next iteration
-            crate::vlog!(
-                "[route::feedback] iter={} NO-CHANGE: wire_wire={} wire_box={}",
-                iter,
-                after.wire_wire,
-                after.wire_box,
-            );
+            tracing::info!(target: "mcc::perf", step = "feedback_loop_nochange", iter = iter, ww = after.wire_wire, wb = after.wire_box, "route_feedback_loop");
         } else {
             // Regression: undo the nudge and reroute
             for b in &mut graph.boxes {
@@ -806,14 +822,7 @@ pub fn run_route_feedback_loop(graph: &mut McVecGraph) {
                 }
             }
             crate::viz::route::scheduler::route_all_with_channels(graph);
-            crate::vlog!(
-                "[route::feedback] iter={} REJECT: wire_wire {}→{} wire_box {}→{} (regression)",
-                iter,
-                before.wire_wire,
-                after.wire_wire,
-                before.wire_box,
-                after.wire_box,
-            );
+            tracing::info!(target: "mcc::perf", step = "feedback_loop_reject", iter = iter, ww_before = before.wire_wire, ww_after = after.wire_wire, wb_before = before.wire_box, wb_after = after.wire_box, "route_feedback_loop");
             break; // Stop if regression
         }
     }

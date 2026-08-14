@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Milestone 6 — Layered Placement Prototype：语义驱动分层布局原型
+//! Milestone 6 — Layered Placement Prototype: semantics-driven layered placement
 //!
 //! **Status: experimental** — kept for comparison via `RenderOpts::layered()`.
 //!
