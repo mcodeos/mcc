@@ -211,9 +211,10 @@ fn classify_nets_by_box_coverage(nets: &[VizNet], layer_box_ids: &HashSet<i64>) 
 
         match mapped.len() {
             0 => orphan.push(net.clone()),
-            // ★ M4-fix: 单端点 net 是合法连接（如外部端口→内部元器件），
-            // 不应被丢弃。丢弃它们会导致被动器件只碰到 1 个 net，
-            // place_series_passives 无法将其放到线上。
+            // ★ M4-fix: a single-endpoint net is a legal connection (e.g., external
+            // port → internal component) and must not be dropped. Dropping them
+            // leaves passive components touching only 1 net, and
+            // place_series_passives cannot place them on the wire.
             1 => kept.push(net.clone()),
             _ => kept.push(net.clone()),
         }
@@ -326,10 +327,10 @@ mod tests {
         g.nets.push(mk_net(103, "C", vec![(99, 991)]));
 
         let r = promote_to_inter_box_only(&g);
-        // ★ M4-fix: 单端点 net 不再被丢弃，而是保留。
-        // net A (跨 box 1↔2) → kept
-        // net B (仅 box 1 内) → kept (单盒子 net 现在保留)
-        // net C (box 99 不在层内) → orphan
+        // ★ M4-fix: single-endpoint nets are no longer dropped, but kept.
+        // net A (across boxes 1↔2) → kept
+        // net B (inside box 1 only) → kept (single-box nets are now kept)
+        // net C (box 99 not in layer) → orphan
         assert_eq!(r.kept.len(), 2);
         assert_eq!(r.kept[0].name, "A");
         assert_eq!(r.kept[1].name, "B");

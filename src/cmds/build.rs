@@ -368,7 +368,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             let nc_report = mcc::instant::netcheck::run(&table.1);
             nc_report.print();
 
-            // ★ M1-4: 对齐度量（自测版）
+            // ★ M1-4: alignment metrics (self-test variant)
             let align_report = mcc::viz::metrics::align::AlignMetricsReport::compute(&table.1);
             align_report.print();
 

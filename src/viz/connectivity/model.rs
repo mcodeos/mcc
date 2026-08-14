@@ -48,8 +48,9 @@ pub struct RenderedPin {
     pub side: EntrySide,
     pub reachable_segment_ids: Vec<usize>,
     pub distance_to_nearest_segment: f64,
-    /// ★ P7-3: 该 pin 带端子装饰（接地符号 / rail 圆点）——没有连线，
-    /// 但电气上"已绘制"（符号即连接），可达性判定不得算它 unreachable。
+    /// ★ P7-3: this pin carries a terminal decoration (ground symbol / rail
+    /// dot) — it has no wire, but is electrically "drawn" (the symbol is the
+    /// connection), so reachability must not count it as unreachable.
     pub decorated: bool,
 }
 

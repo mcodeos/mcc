@@ -196,7 +196,7 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
                 b.visual_role = Some(VisualRole::BridgePassive);
             }
             apply_reserved_overrides(&mut b); // ★ Reserved: layout / custom symbol (default no-op)
-            // ★ M0-B-D/E: 透传 not_fitted / origin
+            // ★ M0-B-D/E: pass through not_fitted / origin
             b.not_fitted = entry.not_fitted;
             b.origin = entry.origin.clone();
             Some(b)
@@ -279,10 +279,12 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
 /// (`is_top_level = false`) doesn't synthesize, avoiding adding a set of power symbols out of
 /// thin air at every layer.
 pub fn build_mc_vec_graph(block: &McVecBlock, table: &InstTable) -> McVecGraph {
-    // ── ★ P7-2: pass2 → viz 投影层（viz/project.rs，全调用方唯一必经点）──
-    // 清洗三类网表噪声（标量 stub ∪ 成员网 / 同端口重复端点 / rail label 伪端点）。
-    // 这是 vector→viz 的唯一反向依赖：投影是 viz 侧策略，必须在边界统一生效。
-    // 审计日志见 baseline/render_projection.md。
+    // ── ★ P7-2: pass2 → viz projection layer (viz/project.rs, the single mandatory gateway for all callers) ──
+    // Cleanses three classes of netlist noise (scalar stub ∪ member nets /
+    // duplicate endpoints on the same port / rail label pseudo-endpoints).
+    // This is the only vector→viz reverse dependency: projection is a viz-side
+    // policy and must take effect uniformly at the boundary.
+    // Audit log: baseline/render_projection.md.
     let (projected, _projection_log) = crate::viz::project::project_block_tree(block, table);
     let graph = build_mc_vec_graph_inner(&projected, table, /*is_top_level=*/ true);
     super::netprobe::probe_block_to_graph(&projected, &graph); // ★ NEW
@@ -320,8 +322,8 @@ fn build_mc_vec_graph_inner(
             continue;
         }
         let id = iid as u32;
-        // ★ M4-fix: 顶层模块自身不应作为 SubModule 框出现在原理图中
-        // block.insts 可能包含顶层模块自身的 bid，detect_kind 会将其识别为 SubModule
+        // ★ M4-fix: the top-level module itself must not appear as a SubModule frame in the schematic
+        // block.insts may contain the top-level module's own bid; detect_kind would classify it as SubModule
         if is_top_level && id == block.bid as u32 {
             continue;
         }
@@ -616,7 +618,7 @@ fn build_mc_vec_graph_inner(
     }
 
     // ── ★ Phase 1.46: Virtual Top Module Border ──
-    // 为顶层模块创建虚线边框，但不渲染模块名（避免出现 "main" 标签）。
+    // Create a dashed border for the top-level module, but do not render the module name (avoid a "main" label).
     if is_top_level {
         let has_components = block.insts.iter().any(|&iid| {
             if iid < 0 { return false; }
@@ -639,10 +641,10 @@ fn build_mc_vec_graph_inner(
                         })
                     }).count();
 
-                    // ★ 使用空字符串作为 name，避免渲染 "main" 标签
+                    // ★ Use an empty string as name to avoid rendering a "main" label
                     let mut b = McVecBox::new_v2(
                         border_id,
-                        String::new(), // name = "" → 不渲染标签
+                        String::new(), // name = "" → no label rendered
                         String::new(), // class_name = ""
                         BoxKind::SubModule,
                         Symbol::Module,
@@ -750,7 +752,7 @@ fn build_mc_vec_graph_inner(
                         if table.is_bridge_passive(&parent_entry.path) {
                             b.visual_role = Some(VisualRole::BridgePassive);
                         }
-                        // ★ P7-1: Phase 1.5 Case A 合成盒子，G10 可数
+                        // ★ P7-1: Phase 1.5 Case A synthesized box, countable by G10
                         b.provenance = super::boxdef::BoxProvenance::SynthesizedFromEndpoint;
                         graph.boxes.push(b);
                         box_ids_set.insert(parent_id);
@@ -883,9 +885,11 @@ fn build_mc_vec_graph_inner(
                 // Phase 2 BFS can map the corresponding connection endpoints to this box, drill-down
                 // no longer loses labels.
                 //
-                // ★ M4-fix: 顶层模块也需要边界标签。之前 !is_top_level 阻止了顶层
-                // 端口创建边界标签框，导致 DAC_OUT/MIC.N 等端口在 Phase 3 丢失端点。
-                // 顶层模块没有 SubModule 框（Phase 1.45 跳过），所以端口无法映射到任何框。
+                // ★ M4-fix: the top-level module also needs boundary labels. Previously
+                // !is_top_level kept top-level ports from creating boundary label boxes,
+                // so ports like DAC_OUT/MIC.N lost endpoints in Phase 3. The top-level
+                // module has no SubModule frame (Phase 1.45 skips it), so ports could
+                // not map to any frame.
                 if block.bid >= 0 {
                     const MAX_HOPS_E1: u32 = 16;
                     let layer_bid = block.bid as u32;
@@ -973,7 +977,7 @@ fn build_mc_vec_graph_inner(
                 inst_path,
                 scope_chain,
             );
-            // ★ P7-1: Phase 1.5 通用 PowerLabel 合成盒子，G10 可数
+            // ★ P7-1: Phase 1.5 generic PowerLabel synthesized box, countable by G10
             b.provenance = super::boxdef::BoxProvenance::SynthesizedFromEndpoint;
             graph.boxes.push(b);
             box_ids_set.insert(u);
@@ -1009,12 +1013,15 @@ fn build_mc_vec_graph_inner(
         );
     }
 
-    // ── ★ P7-3: Phase 1.6（顶层合成 PowerLabel）已删除 ──────────────────
-    // 它存在的两个前提都被 P7-2/P7-3 拆掉了：
-    //   1. "顶层 rail 端点没有盒子承载" —— 投影层（viz/project.rs）已把 rail 变成
-    //      带声明的真实网（RailSpec），不再需要 PowerLabel 盒子来"吸收"；
-    //   2. "Phase 3.5 同名合成需要 toplevel_rails 集合" —— Phase 3.5 整体删除（见下）。
-    // 端子按纪律 11 降级为 pin 装饰（graph.rail_decorations），不进 boxes。
+    // ── ★ P7-3: Phase 1.6 (top-level synthesized PowerLabel) deleted ──────────────────
+    // Both premises of its existence were demolished by P7-2/P7-3:
+    //   1. "Top-level rail endpoints have no carrying box" —— the projection layer
+    //      (viz/project.rs) already turned rails into real nets with declarations
+    //      (RailSpec); no PowerLabel box is needed to "absorb" them anymore;
+    //   2. "Phase 3.5 same-name synthesis needs the toplevel_rails set" —— Phase 3.5
+    //      was deleted wholesale (see below).
+    // Terminals were demoted to pin decorations per discipline 11
+    // (graph.rail_decorations), not entering boxes.
 
     // ── Phase 2: build point_to_box mapping ──
     let point_to_box = build_point_to_box(table, &graph.boxes);
@@ -1070,10 +1077,12 @@ fn build_mc_vec_graph_inner(
         graph.nets.len()
     );
 
-    // ── ★ P7-3: Phase 3.5（同名 label 合成 rail/信号网）已删除 ───────────
-    // 它是纯名字匹配机（反模式 §2.3"名字即判据"），且在 P7-2 投影之后只会
-    // 产出与真实网重复的假网（main 层实测：MIC/[GND,VCC_1V2]/DAC_OUT/POWER_SYS
-    // 全部与 __net_32/34/V5V.VCC 重复）。跨模块连接由投影后的真实网承载。
+    // ── ★ P7-3: Phase 3.5 (same-name label synthesis of rail/signal nets) deleted ───────────
+    // It was a pure name-matching machine (anti-pattern §2.3 "name as criterion"),
+    // and after P7-2 projection it could only produce fake nets duplicating real
+    // ones (measured on the main layer: MIC/[GND,VCC_1V2]/DAC_OUT/POWER_SYS all
+    // duplicate __net_32/34/V5V.VCC). Cross-module connections are carried by the
+    // projected real nets.
 
     // ── M0-2: populate module_ports from port declarations ──
     {
@@ -1096,7 +1105,7 @@ fn build_mc_vec_graph_inner(
         graph.module_ports = module_ports;
     }
 
-    // ── M0-B-D/E: 日志汇总 not_fitted / origin ──
+    // ── M0-B-D/E: log summary of not_fitted / origin ──
     {
         let not_fitted_count = graph.boxes.iter().filter(|b| b.not_fitted).count();
         let not_fitted_names: Vec<&str> = graph.boxes.iter()
@@ -1213,10 +1222,10 @@ fn generate_viznets_from_block(
     /// NetShape-first: when shape is present, use groups to determine, no longer
     /// rely on `connection_type()` shape inference. Only falls back to
     /// `connection_type()` when shape is absent (legacy behavior).
-    /// ★ M0-C BLOCKED: 此函数将在 M0-A 完成后删除。
-///   届时 NetRole::Bus 由 M0-A 的 NetShape 直接填充（M0-B），
-///   NtoN 拆分和 Bus 升级两个分支改为读 `net.role == NetRole::Bus`。
-///   当前 NetShape 覆盖率不足，暂保留此启发式作为兜底。
+    /// ★ M0-C BLOCKED: this function will be deleted once M0-A completes.
+///   At that point NetRole::Bus is filled directly by M0-A's NetShape (M0-B),
+///   and the NtoN split and Bus upgrade branches read `net.role == NetRole::Bus` instead.
+///   NetShape coverage is currently insufficient; keep this heuristic as a fallback for now.
 fn is_real_bus(
         net: &McVecNet,
         kind: &NetKind,
@@ -1279,9 +1288,11 @@ fn is_real_bus(
     // ★ SPI expansion: construct port's child members (SCLK/MOSI/...) as endpoints, box reuses parent port's box.
     //   (Child members usually aren't in point_to_box -- they're not top-level net endpoints, so separately mapped to parent box.)
     //
-    // ★ M0-C BLOCKED: 此分支将在 M-1 完成后删除。
-    //   它存在的理由是"顶层 mcu.SPI 塌成了单点"——M-1-1 修复向量引用展开后，
-    //   mcu513.SPI 在 main 层会是 4 个独立端点，不再需要此 expansion 分支。
+    // ★ M0-C BLOCKED: this branch will be deleted once M-1 completes.
+    //   Its reason for existence is "top-level mcu.SPI collapsed into a single
+    //   point" —— after M-1-1 fixes vector reference expansion, mcu513.SPI will
+    //   be 4 independent endpoints at the main layer, and this expansion branch
+    //   is no longer needed.
     let make_child_endpoint = |child_id: i64, box_id: i64| -> EndpointRef {
         let (name, io, pn) = match table.get_entry(child_id as u32) {
             Some(e) => {
@@ -1512,8 +1523,9 @@ fn is_real_bus(
         };
 
         out.push(VizNet::new(net.nid, net.name.clone(), kind, role, endpoints));
-        // ★ P7-3: 投影层解析的电源网规格（class + driver_pin + volt）原样透传，
-        // layout 的 rail 三分法（R-1/R-2/R-3）消费它。
+        // ★ P7-3: the power net spec (class + driver_pin + volt) resolved by the
+        // projection layer is passed through as-is; the layout's rail trichotomy
+        // (R-1/R-2/R-3) consumes it.
         if let Some(spec) = &net.rail {
             out.last_mut().unwrap().rail = Some(spec.clone());
         }
@@ -1616,8 +1628,9 @@ fn map_all_descendants(
 //  dual-track this path is no longer needed. A net's topology is computed on-the-fly by
 //  `VizNet::topology()`.)
 
-// （★ P7-3 删除：synthesize_rail_nets / collect_exposed_labels / bfs_collect_labels
-//  同名 label 合成机器整体移除 —— 判据改读端口声明与投影后的真实网。）
+// (★ P7-3 deletion: synthesize_rail_nets / collect_exposed_labels / bfs_collect_labels
+//  — the same-name label synthesis machinery removed wholesale —— criteria now read
+//  port declarations and the post-projection real nets.)
 
 // ── ★ Phase 1.46b: Adjust Virtual Top Module Border position/size ─────────────────────────────
 //

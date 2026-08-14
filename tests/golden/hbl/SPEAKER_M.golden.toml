@@ -1,8 +1,8 @@
-# SPEAKER_M golden 网表
-# 依赖裁决：③ 转置 ' 不切网（C8 跨接 VDD/GND 之间）
-# 源码：periph.mc:95-115
-# ★ 注意：golden 文档形参名为 USB_VBUS_1{VDD_3V, GND}::DC(3.3V)，
-#   源码形参名为 dc{VDD_3V3, GND}::DC(3.3V)，TOML 以 golden 文档为准。
+# SPEAKER_M golden netlist
+# Dependency adjudication: ③ transpose ' does not split nets (C8 straddles VDD/GND)
+# Source: periph.mc:95-115
+# ★ Note: the golden doc's parameter name is USB_VBUS_1{VDD_3V, GND}::DC(3.3V),
+#   the source's parameter name is dc{VDD_3V3, GND}::DC(3.3V); the TOML follows the golden doc.
 
 [meta]
 module = "SPEAKER_M"

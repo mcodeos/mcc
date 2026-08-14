@@ -1,7 +1,7 @@
-# main golden 网表
-# 依赖裁决：⑥ 全局 GND — 经 ldo.2 + 模块内同名 label 推导
-# 源码：hbl.mc:11-59
-# ★ 注意：golden 文档 speaker 用 V5V 总线，源码用 V3V3，TOML 以 golden 文档为准。
+# main golden netlist
+# Dependency adjudication: ⑥ global GND — derived via ldo.2 + same-name labels inside modules
+# Source: hbl.mc:11-59
+# ★ Note: the golden doc's speaker uses the V5V bus while the source uses V3V3; the TOML follows the golden doc.
 
 [meta]
 module = "main"

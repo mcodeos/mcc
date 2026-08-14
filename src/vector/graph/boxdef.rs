@@ -128,35 +128,35 @@ pub struct BoxPin {
     pub description: String,
     /// Pin direction (input / output / power / ...)
     pub io: IoDirection,
-    /// ★ M0-2: 模块端口方向（in/out/io/ps），非端口为 PortDir::None
+    /// ★ M0-2: module port direction (in/out/io/ps); non-ports are PortDir::None
     pub port_dir: PortDir,
 }
 
 // ============================================================================
-// ★ M0-3: PinConstraint — 引脚布局约束等级
+// ★ M0-3: PinConstraint — pin placement constraint level
 // ============================================================================
 
-/// 引脚布局约束等级
+/// Pin placement constraint level
 ///
-/// 规则：
-/// - 源码写了 `layout` 块 → `FixedOrder`（边和顺序都固定，只允许整体镜像/旋转）
-/// - 否则 → `Free`（布局器可自由分配引脚到任意边、任意顺序）
+/// Rules:
+/// - Source has a `layout` block → `FixedOrder` (side and order both fixed; only whole-box mirror/rotation allowed)
+/// - Otherwise → `Free` (the placer may freely assign pins to any side, any order)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PinConstraint {
-    /// 布局器可自由分配引脚到任意边、任意顺序（当前行为）
+    /// The placer may freely assign pins to any side, any order (current behavior)
     #[default]
     Free,
-    /// 边固定，边内顺序可调
+    /// Side fixed, order within the side adjustable
     FixedSide,
-    /// 边和顺序都固定，只允许整体镜像/旋转
+    /// Side and order both fixed; only whole-box mirror/rotation allowed
     FixedOrder,
 }
 
 // ============================================================================
-// ★ M0-2: PortDir — 模块端口方向
+// ★ M0-2: PortDir — module port direction
 // ============================================================================
 
-/// 模块端口方向（来自 `in` / `out` / `io` / `ps` 声明）
+/// Module port direction (from `in` / `out` / `io` / `ps` declarations)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PortDir {
     In,
@@ -164,7 +164,7 @@ pub enum PortDir {
     Io,
     #[default]
     Ps,
-    /// 非端口（器件引脚）
+    /// Not a port (device pin)
     None,
 }
 
@@ -172,13 +172,15 @@ pub enum PortDir {
 // ★ P7-1: BoxProvenance — where did this box come from?
 // ============================================================================
 
-/// 盒子的来源标记（G10 结构守恒判据的数据基础）。
+/// Box provenance marker (the data basis of the G10 structure-conservation criterion).
 ///
-/// - `Declared`：来自 `block.insts`（真实例：器件 / 子模块 / 声明的标签）
-/// - `SynthesizedFromEndpoint`：`fromblock.rs` Phase 1.5 从 net 端点**合成**的盒子
-///   （网表 stub / 重复端点 / label 伪点直入 viz 的产物，golden 目标 = 0）
-/// - `SynthesizedRailFlag`：`rails.rs` 炸 rail 时合成的 per-consumer flag 盒子
-///   （golden 目标 = 0 —— 端子应是 pin 装饰不是盒子，见纪律 11）
+/// - `Declared`: from `block.insts` (real instances: devices / sub-modules / declared labels)
+/// - `SynthesizedFromEndpoint`: boxes **synthesized** by `fromblock.rs` Phase 1.5 from net
+///   endpoints (products of netlist stubs / duplicate endpoints / label pseudo-points
+///   entering viz directly; golden target = 0)
+/// - `SynthesizedRailFlag`: per-consumer flag boxes synthesized when `rails.rs` explodes
+///   a rail (golden target = 0 —— terminals should be pin decorations, not boxes;
+///   see discipline 11)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum BoxProvenance {
     #[default]
@@ -377,13 +379,13 @@ pub struct McVecBox {
     /// see [`PinLayout`].
     pub layout_hint: Option<PinLayout>,
 
-    /// ★ M0-3: 引脚布局约束等级。有 layout 块 → FixedOrder，否则 Free。
+    /// ★ M0-3: pin placement constraint level. Has a layout block → FixedOrder, otherwise Free.
     pub pin_constraint: PinConstraint,
 
-    /// ★ M0-B-D: 不焊接标记（来自 InstEntry.not_fitted）
+    /// ★ M0-B-D: not-fitted marker (from InstEntry.not_fitted)
     pub not_fitted: bool,
 
-    /// ★ M0-B-E: 实例来源（声明 vs funcall），来自 InstEntry.origin
+    /// ★ M0-B-E: instance origin (declaration vs funcall), from InstEntry.origin
     pub origin: crate::instant::insttab::InstOrigin,
 
     /// ★ Reserved interface ②: user-customized component symbol. `None` = uses system-provided
@@ -400,15 +402,18 @@ pub struct McVecBox {
     /// reposition boxes heuristically must skip these.
     pub geom_locked: bool,
 
-    /// ★ P7-4: 最后一个改动本盒几何（x/y/w/h/entry_points）的流水线段。
+    /// ★ P7-4: the last pipeline stage that changed this box's geometry
+    /// (x/y/w/h/entry_points).
     ///
-    /// 观测用（roadmap P7-4 任务 1）：由段边界快照对比写入（见
-    /// `McVecGraph::claim_geom_changes`），**只观测不阻止**。目标形态是
-    /// Placement（x/y）→ PinPlace（entry_point）→ Route（只读）三段，
-    /// 段间不许回写——`geom_writer` 的跨段变化就是回写的直接证据。
+    /// For observation (roadmap P7-4 task 1): written by stage-boundary snapshot
+    /// comparison (see `McVecGraph::claim_geom_changes`), **observe-only, no
+    /// blocking**. The target shape is Placement (x/y) → PinPlace
+    /// (entry_point) → Route (read-only), three stages with no write-back
+    /// between stages —— a cross-stage change of `geom_writer` is the direct
+    /// evidence of write-back.
     pub geom_writer: Option<&'static str>,
 
-    /// ★ P7-1: 盒子来源标记（默认 Declared）。renderdiff G10 用它数合成盒子。
+    /// ★ P7-1: box provenance marker (default Declared). renderdiff G10 uses it to count synthesized boxes.
     pub provenance: BoxProvenance,
 }
 
@@ -505,8 +510,8 @@ impl McVecBox {
         self.entry_points.iter().find(|e| e.pin_id == pin_id)
     }
 
-    /// ★ P7-4:几何写者观测（P7-4e 起判定上移到
-    /// `McVecGraph::claim_geom_changes`，按维度所有权判违规）。
+    /// ★ P7-4: geometry writer observation (since P7-4e the adjudication moved up to
+    /// `McVecGraph::claim_geom_changes`, judging violations by dimension ownership).
 
     /// ★ Set the box's physical pin list (called by builder)
     pub fn set_pins(&mut self, pins: Vec<BoxPin>) {
@@ -564,23 +569,23 @@ impl McVecBox {
 }
 
 // ============================================================================
-// ZoneBorder — 功能分区边框（M2-3）
+// ZoneBorder — functional zone border (M2-3)
 // ============================================================================
 
-/// 一个 zone 的边框信息，供渲染器画虚线圆角矩形 + 标题
+/// Border info of one zone, for the renderer to draw a dashed rounded rect + title
 #[derive(Debug, Clone)]
 pub struct ZoneBorder {
-    /// x 坐标
+    /// x coordinate
     pub x: f64,
-    /// y 坐标
+    /// y coordinate
     pub y: f64,
-    /// 宽度
+    /// width
     pub w: f64,
-    /// 高度
+    /// height
     pub h: f64,
-    /// 标题
+    /// title
     pub title: String,
-    /// 标题锚点
+    /// title anchor
     pub title_x: f64,
     pub title_y: f64,
 }

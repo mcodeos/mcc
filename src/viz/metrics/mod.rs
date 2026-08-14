@@ -789,7 +789,7 @@ pub struct MetricsAccumulator {
     determinism: Option<super::stability::report::DeterminismReport>,
     stability: Option<super::stability::report::StabilityReport>,
     connectivity: Option<super::connectivity::report::RenderedConnectivityReport>,
-    /// ★ P7-1: renderdiff per-layer readings（route 后 render 前量测）
+    /// ★ P7-1: renderdiff per-layer readings (measured after route, before render)
     pub renderdiff_layers: Vec<renderdiff::LayerReading>,
 }
 

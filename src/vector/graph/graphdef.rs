@@ -57,43 +57,48 @@ pub struct McVecGraph {
     /// Set by `islands::apply_islands`, read by `compute_fidelity` for the gate.
     pub islands_claimed: usize,
     pub islands_total: usize,
-    /// ★ M0-2: 模块端口列表（端口名、方向、网络角色），来自模块声明
+    /// ★ M0-2: module port list (port name, direction, net role), from the module declaration
     pub module_ports: Vec<(String, PortDir, NetRole)>,
-    /// ★ M2-3: Zone 边框列表（虚线圆角矩形 + 标题），由 v2 layout 填充
+    /// ★ M2-3: zone border list (dashed rounded rect + title), filled by v2 layout
     pub zone_borders: Vec<ZoneBorder>,
-    /// ★ M4-0: 画布提示（v2 layout 设置后，normalize 不再从 box 坐标重新计算）
+    /// ★ M4-0: canvas hint (once set by v2 layout, normalize no longer recomputes from box coordinates)
     pub canvas_hint: Option<(f64, f64)>,
-    /// ★ M4-1a: 是否为子模块图（子模块使用更小的画布最小约束）
+    /// ★ M4-1a: whether this is a sub-module graph (sub-modules use a smaller canvas minimum constraint)
     pub is_submodule: bool,
-    /// ★ P7-3: rail 端子装饰（纪律 11：端子不是盒子）。
+    /// ★ P7-3: rail terminal decorations (discipline 11: terminals are not boxes).
     ///
-    /// R-1/R-3 判为"就地落符号"的电源/地端点，以 pin 渲染属性存在：
-    /// 零布局成本、零布线成本、不进 `boxes`；渲染期由 pin 的 entry_point
-    /// 定位，符号复用 `PowerRailShape`。
+    /// Power/ground endpoints adjudicated by R-1/R-3 as "symbols placed in situ",
+    /// existing as pin render attributes: zero layout cost, zero routing cost,
+    /// never entering `boxes`; located at render time by the pin's entry_point,
+    /// with the symbol reusing `PowerRailShape`.
     pub rail_decorations: Vec<RailDecoration>,
-    /// ★ P7-4: 本层几何双写诊断（段边界快照对比采集，只观测不阻止）。
+    /// ★ P7-4: this layer's geometry double-write diagnostics (collected by stage-boundary snapshot comparison, observe-only, no blocking).
     ///
-    /// 维度所有权尺子（P7-4e）：xy/wh 归 Placement 段，pins 归 PinPlace 段，
-    /// Route 段只读。跨段且越权维度的写入记一条；段内多函数协作自由。
+    /// Dimension-ownership ruler (P7-4e): xy/wh belong to the Placement stage,
+    /// pins to the PinPlace stage, Route is read-only. A write that crosses
+    /// stages on an unauthorized dimension records one entry; intra-stage
+    /// multi-function cooperation is free.
     pub geom_double_writes: Vec<GeomDoubleWrite>,
 }
 
-/// ★ P7-4e: 几何段（roadmap 三段的落地细化）
+/// ★ P7-4e: geometry stages (the roadmap's three stages, refined for implementation)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GeomStage {
-    /// 决定 x/y/w/h：prepare / size / placement / schematic_model / two_lane /
-    /// idiom / post / renormalize / net_labels（网标盒初摆）
+    /// Decides x/y/w/h: prepare / size / placement / schematic_model / two_lane /
+    /// idiom / post / renormalize / net_labels (initial net-label box placement)
     Placement,
-    /// ★ PinFinal —— pin 驱动的几何终定：pin_place（分配 entry_point +
-    /// hub 放大）→ islands/被动件贴 pin 摆位。这些写者互相接力是功能
-    /// 需要（贴 pin 摆位依赖 pin 分配结果），段内全维度自由。
-    /// 对应 roadmap 的 PinPlace 段，按现实依赖细化命名。
+    /// ★ PinFinal —— pin-driven final geometry: pin_place (entry_point
+    /// allocation + hub enlargement) → islands/passives placed against pins.
+    /// These writers relaying each other is a functional need (placing against
+    /// pins depends on pin allocation results); all dimensions are free within
+    /// the stage. Corresponds to the roadmap's PinPlace stage, named after
+    /// real dependencies.
     PinFinal,
-    /// 只读几何：route / feedback(reroute 版) / borders
+    /// Read-only geometry: route / feedback (reroute variant) / borders
     Route,
 }
 
-/// 写者标签 → 逻辑段。
+/// Writer label → logical stage.
 pub fn stage_of(writer: &str) -> GeomStage {
     match writer {
         "7.pin_place" | "8.islands" | "8.sp_fallback" | "8.ladder_fallback"
@@ -105,33 +110,33 @@ pub fn stage_of(writer: &str) -> GeomStage {
     }
 }
 
-/// ★ P7-4: 同一盒子被越权段写几何的结构化诊断
+/// ★ P7-4: structured diagnostic for one box getting geometry written by an out-of-authority stage
 #[derive(Debug, Clone)]
 pub struct GeomDoubleWrite {
     pub box_id: i64,
     pub box_name: String,
     pub prev_writer: &'static str,
     pub cur_writer: &'static str,
-    /// 本次变化的维度：xy / wh / pins（新增盒子为 new）
+    /// Dimensions changed this time: xy / wh / pins ("new" for newly added boxes)
     pub dims: Vec<&'static str>,
 }
 
-/// ★ P7-4: 段边界几何快照（`geom_snapshot` 的返回值，按 box id 对齐）
+/// ★ P7-4: stage-boundary geometry snapshot (the return value of `geom_snapshot`, aligned by box id)
 #[derive(Debug, Clone)]
 pub struct BoxGeomSnapshot {
     sigs: Vec<(i64, f64, f64, f64, f64, Vec<super::boxdef::EntryPoint>)>,
 }
 
-/// ★ P7-3: 一个贴在 pin 上的电源/地端子符号
+/// ★ P7-3: a power/ground terminal symbol attached to a pin
 #[derive(Debug, Clone)]
 pub struct RailDecoration {
-    /// 所属盒子（真盒子，不是符号自身）
+    /// Owning box (a real box, not the symbol itself)
     pub box_id: i64,
-    /// 被装饰的 pin（InstTable entry id，同 EndpointRef.pin_id）
+    /// The decorated pin (InstTable entry id, same as EndpointRef.pin_id)
     pub pin_id: i64,
-    /// true = 接地符号（朝下，无文字）；false = rail 端子（朝上，圆点 + 网名）
+    /// true = ground symbol (pointing down, no text); false = rail terminal (pointing up, dot + net name)
     pub is_ground: bool,
-    /// 显示文本（rail 端子 = 网名；接地符号不用）
+    /// Display text (rail terminal = net name; unused for ground symbols)
     pub label: String,
 }
 
@@ -157,13 +162,14 @@ impl McVecGraph {
         }
     }
 
-    // ─── ★ P7-4: 几何写者观测（只观测不阻止） ────────────────────────────
+    // ─── ★ P7-4: geometry writer observation (observe-only, no blocking) ────────────────────────────
 
-    /// 段前快照：每盒 (id, x, y, w, h, entry_points)，**按 id 对齐**
-    /// （段可能删盒/增盒，下标对齐会错位）。
+    /// Pre-stage snapshot: per box (id, x, y, w, h, entry_points), **aligned by id**
+    /// (stages may add/remove boxes; index alignment would misalign).
     ///
-    /// 段结束后把快照交给 [`McVecGraph::claim_geom_changes`]，几何签名变化
-    /// 的盒子即被该段写入。等值重写视为未写（对输出无影响，不计入清单）。
+    /// After the stage ends, hand the snapshot to [`McVecGraph::claim_geom_changes`];
+    /// boxes whose geometry signature changed were written by that stage.
+    /// Equal-value rewrites count as unwritten (no output effect, not listed).
     pub fn geom_snapshot(&self) -> BoxGeomSnapshot {
         BoxGeomSnapshot {
             sigs: self
@@ -174,12 +180,15 @@ impl McVecGraph {
         }
     }
 
-    /// 段后认领：把几何变化的盒子记到 `writer` 名下，按维度所有权判违规：
-    /// - xy/wh 变化且 writer 不在 Placement 段 → 记诊断
-    /// - pins 变化且 writer 不在 PinPlace 段 → 记诊断
-    /// - 段新增的盒子（id 不在快照里）是首写，不记；Placement 段新增合法，
-    ///   其余段新增（理论上不存在）也会被 "new" 维度判违规。
-    /// 段内（同 `GeomStage`）协作写不记。返回本段写入的盒子数。
+    /// Post-stage claim: record boxes whose geometry changed under `writer`,
+    /// judging violations by dimension ownership:
+    /// - xy/wh changed and writer not in the Placement stage → record diagnostic
+    /// - pins changed and writer not in the PinPlace stage → record diagnostic
+    /// - Boxes newly added by the stage (id not in the snapshot) are first writes,
+    ///   not recorded; additions by Placement are legal, additions by other stages
+    ///   (theoretically nonexistent) are still flagged by the "new" dimension.
+    /// Cooperative writes within a stage (same `GeomStage`) are not recorded.
+    /// Returns the number of boxes written by this stage.
     pub fn claim_geom_changes(&mut self, snap: &BoxGeomSnapshot, writer: &'static str) -> usize {
         let stage = stage_of(writer);
         let mut written = 0usize;
@@ -203,8 +212,10 @@ impl McVecGraph {
             if dims.is_empty() {
                 continue;
             }
-            // ★ 虚线框豁免：负 id 的顶层模块边框（P7-3：负 id、空名）是
-            // 画布装饰，跟随内容物收缩，borders 段写它不构成几何双写。
+            // ★ Dashed-border exemption: the top-level module border with a
+            // negative id (P7-3: negative id, empty name) is canvas decoration
+            // that shrinks with its contents; the borders stage writing it is
+            // not a geometry double-write.
             if b.id < 0 {
                 continue;
             }
@@ -213,9 +224,9 @@ impl McVecGraph {
             written += 1;
             let violates = match stage {
                 GeomStage::Placement => dims.contains(&"pins"),
-                // PinFinal：pin 分配 + hub 放大 + 贴 pin 摆位，全维度自由
+                // PinFinal: pin allocation + hub enlargement + placement against pins, all dimensions free
                 GeomStage::PinFinal => false,
-                GeomStage::Route => true, // 只读段，任何几何变化都是违规
+                GeomStage::Route => true, // read-only stage; any geometry change is a violation
             };
             if violates {
                 if let Some(p) = prev {

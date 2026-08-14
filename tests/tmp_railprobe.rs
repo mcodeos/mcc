@@ -57,7 +57,7 @@ fn tmp_probe_rails() {
         println!("  net {} '{}' kind={:?}{} eps={:?}", n.nid, n.name, n.kind, rail, eps);
     }
 
-    // 跑完整渲染管线，看最终 edges / decorations
+    // Run the full render pipeline, to see final edges / decorations
     let (_doc, metrics) = mcc::viz::api::render_with_metrics(graph, mcc::viz::api::RenderOpts::default());
     for r in &metrics.renderdiff_layers {
         println!(

@@ -2,37 +2,41 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! ★ P7-3 —— Rail 三分法（契约 C1 的落地，MC_SCHEMATIC_ROADMAP_v6 §1.2）
+//! ★ P7-3 —— Rail triage (implementation of contract C1, MC_SCHEMATIC_ROADMAP_v6 §1.2)
 //!
-//! 对每一张带 [`RailSpec`]（由投影层 viz/project.rs 从端口声明解析）的网：
+//! For every net carrying a [`RailSpec`] (resolved from port declarations by the
+//! projection layer viz/project.rs):
 //!
 //! ```text
-//! driver(N) = spec.driver_pin 指向的端点所属盒子；None = 无源电源域（GND 属此类）
+//! driver(N) = the box owning the endpoint that spec.driver_pin points to; None = passive power domain (GND belongs here)
 //!
-//! R-1  无 driver 的 rail：一条边都不画。
-//!      顶层：consumer 侧也不落符号（框图连 GND 都不画，目标图 1）。
-//!      子层：每个端点就地落符号（Ground 类 → 接地符号朝下；Power 类 → 端子朝上）。
+//! R-1  rail without driver: draw no edges at all.
+//!      Top level: no symbols on the consumer side either (the block diagram draws not even GND, target figure 1).
+//!      Sub-layers: each endpoint gets an in-place symbol (Ground class → ground symbol pointing down; Power class → terminal pointing up).
 //!
-//! R-2  有 driver 的 rail，对每个 consumer C：
-//!      画 driver → C 的边 ⟺ C 是电源域节点（有 Power rail 的 Out 端点）或本层 hub
-//!      （信号度最高的盒子）。
+//! R-2  rail with a driver, for each consumer C:
+//!      draw the driver → C edge ⟺ C is a power-domain node (has an Out endpoint on a
+//!      Power rail) or the hub of this layer (the box with the highest signal degree).
 //!
-//! R-3  R-2 判为"不画边"的 consumer：
-//!      顶层不落任何符号；子层落一个就地 rail 端子符号（圆点 + 网名，朝上）。
+//! R-3  consumers judged "no edge" by R-2:
+//!      top level places no symbols; sub-layers place an in-place rail terminal symbol
+//!      (dot + net name, pointing up).
 //! ```
 //!
-//! ## 端子不是盒子（纪律 11）
-//! R-1/R-3 的符号全部进 `graph.rail_decorations`（pin 渲染属性）：
-//! 零布局成本、零布线成本、不进 `graph.boxes`。
-//! 只有 R-2 的 driver 段建真实 `VizNet` 参与布线，两端是真盒子。
+//! ## Terminals are not boxes (discipline 11)
+//! All R-1/R-3 symbols go into `graph.rail_decorations` (pin render attributes):
+//! zero layout cost, zero routing cost, never in `graph.boxes`.
+//! Only R-2 driver segments build real `VizNet`s participating in routing, both ends being real boxes.
 //!
-//! ## C5 · 顶层框图不画无源件
-//! 顶层（`is_top == true`）额外把二端无源件（R/C/L）从画布上拿掉并从信号网里
-//! 撤销其端点；被抽空（<2 端点）的网一并删除——去耦/上拉电阻属于器件级视图。
+//! ## C5 · top-level block diagram draws no passives
+//! The top level (`is_top == true`) additionally removes two-pin passives (R/C/L) from
+//! the canvas and revokes their endpoints from signal nets; nets emptied (<2 endpoints)
+//! are deleted too —— decoupling/pull-up resistors belong to the device-level view.
 //!
-//! ## 已删除（反模式 §2.3"名字即判据"）
+//! ## Removed (anti-pattern §2.3 "name as criterion")
 //! `explode_power_rails_to_flags` / `is_rail_box` / `name_has_power_token` ——
-//! 对每个 (rail, consumer) 无差别炸 flag、无 driver 概念的旧机器整体移除。
+//! the old machine that indiscriminately exploded flags per (rail, consumer) with no
+//! driver concept is removed wholesale.
 
 use std::collections::{HashMap, HashSet};
 
@@ -47,22 +51,24 @@ use crate::vector::model::RailClass;
 
 use super::normalize::{compute_canvas, normalize_positions};
 
-/// 是否电源/地标签盒子。
+/// Whether this is a power/ground label box.
 ///
-/// ★ P7-3：旧的 `is_rail_box` 是 `(symbol.is_power_rail() || kind==PowerLabel)
-/// && name_has_power_token(name)` —— 名字 token 表已随爆炸机器一起删除（反模式
-/// §2.3"名字即判据"）。替换为纯 kind 判定：rail flag 盒子在 P7-3 后已不存在，
-/// 剩下的 PowerLabel 是 `apply_net_labels` 造的网标盒子（也是要排除出核心布局的）。
-/// 下游 20+ 个"排除守卫"（pin_place / passive_inline / islands / sp / ladder /
-/// coalesce / semantic）语义不变，只是判据从名字改成结构。
+/// ★ P7-3: the old `is_rail_box` was `(symbol.is_power_rail() || kind==PowerLabel)
+/// && name_has_power_token(name)` —— the name token table was deleted along with the
+/// explosion machine (anti-pattern §2.3 "name as criterion"). Replaced with a pure kind
+/// check: rail flag boxes no longer exist after P7-3; the remaining PowerLabel boxes are
+/// net label boxes made by `apply_net_labels` (which also must be excluded from core layout).
+/// The 20+ downstream "exclusion guards" (pin_place / passive_inline / islands / sp /
+/// ladder / coalesce / semantic) keep their semantics; only the criterion changed from
+/// name to structure.
 pub fn is_rail_box(b: &McVecBox) -> bool {
     b.kind == BoxKind::PowerLabel
 }
 
-/// Driver 段网 id 基址（避免与既有 nid 冲突）
+/// Net id base for driver segments (avoids conflicts with existing nids)
 const DRIVER_NET_ID_BASE: i64 = 9_600_000_000;
 
-/// ★ P7-3 主入口：对本层执行 R-1/R-2/R-3 三分法 + （顶层）C5。
+/// ★ P7-3 main entry: run the R-1/R-2/R-3 triage on this layer + (top level) C5.
 pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
     let has_rails = graph.nets.iter().any(|n| n.rail.is_some());
     if !has_rails {
@@ -72,12 +78,13 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
         return;
     }
 
-    // ── 每盒元数据（在删除任何网之前计算）──────────────────────────────
-    // 电源域节点：拥有 Power rail 的 Out 端点（modldo.VCC / moddcdc.VCC_1V2）
+    // ── Per-box metadata (computed before deleting any nets) ────────────
+    // Power-domain nodes: boxes owning an Out endpoint on a Power rail (modldo.VCC / moddcdc.VCC_1V2)
     let mut power_domain_boxes: HashSet<i64> = HashSet::new();
-    // 信号度：本层信号网参与数（hub = 最高者，平局取 id 最小）。
-    // ★ Signal 与 SubModuleIO 都算——promote（P08）把跨模块 Signal 网改写成
-    //   SubModuleIO，只数 Signal 会得到空集、hub 判定失效（P7-3 实测踩过）。
+    // Signal degree: participation count in this layer's signal nets (hub = highest, ties by smallest id).
+    // ★ Both Signal and SubModuleIO count —— promote (P08) rewrites cross-module Signal
+    //   nets into SubModuleIO; counting only Signal yields an empty set and hub detection
+    //   breaks (hit in P7-3 field testing).
     let mut signal_degree: HashMap<i64, usize> = HashMap::new();
     for net in &graph.nets {
         match net.kind {
@@ -103,7 +110,7 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
         .max_by_key(|(id, deg)| (**deg, -*id))
         .map(|(id, _)| *id);
 
-    // ── 逐张 rail 网三分 ────────────────────────────────────────────────
+    // ── Triage each rail net ────────────────────────────────────────────
     let mut driver_edges: Vec<VizNet> = Vec::new();
     let mut decorations: Vec<RailDecoration> = Vec::new();
     let mut keep = vec![true; graph.nets.len()];
@@ -111,9 +118,9 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
 
     for (idx, net) in graph.nets.iter().enumerate() {
         let Some(spec) = net.rail.clone() else { continue };
-        keep[idx] = false; // 原始 rail 网必然被替换（边/装饰/删除）
+        keep[idx] = false; // the original rail net is always replaced (edges/decorations/deletion)
 
-        // 每盒取第一个端点为代表（同盒多 pin = 同一 consumer 的重复端点）
+        // First endpoint per box as representative (multiple pins in one box = duplicate endpoints of the same consumer)
         let mut per_box: Vec<(i64, EndpointRef)> = Vec::new();
         for e in &net.endpoints {
             if !per_box.iter().any(|(b, _)| *b == e.box_id) {
@@ -138,8 +145,8 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
 
         match driver {
             None => {
-                // ── R-1：无 driver（GND / 找不到产生侧）──────────────────
-                // S1：每个 GND 端点（逐 pin，同盒多 pin 也要）恰好 1 个符号
+                // ── R-1: no driver (GND / generation side not found) ──────────
+                // S1: every GND endpoint (pin by pin, including multiple pins in one box) gets exactly 1 symbol
                 if !is_top {
                     for e in &net.endpoints {
                         decorations.push(RailDecoration {
@@ -171,7 +178,7 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
                         ));
                         next_nid += 1;
                     } else if !is_top {
-                        // R-3 子层：就地 rail 端子
+                        // R-3 sub-layer: in-place rail terminal
                         decorations.push(RailDecoration {
                             box_id: cep.box_id,
                             pin_id: cep.pin_id,
@@ -180,8 +187,9 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
                         });
                     }
                 }
-                // 子层：没被任何 driver 段消费的 driver 引脚也要落端子，
-                // 否则该 pin 视觉悬空（电源从这来，画个圆点+网名）。
+                // Sub-layer: a driver pin not consumed by any driver segment also gets a
+                // terminal, otherwise the pin dangles visually (power comes from here;
+                // draw a dot + net name).
                 if !is_top && !driver_consumed {
                     decorations.push(RailDecoration {
                         box_id: drv_box,
@@ -194,7 +202,7 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
         }
     }
 
-    // ── 应用：rail 网 → driver 段 + 装饰 ────────────────────────────────
+    // ── Apply: rail nets → driver segments + decorations ────────────────
     let n_rail = keep.iter().filter(|k| !**k).count();
     let mut idx = 0usize;
     graph.nets.retain(|_| {
@@ -213,14 +221,15 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
         is_top
     );
 
-    // ── C5：顶层不画无源件 ──────────────────────────────────────────────
+    // ── C5: top level draws no passives ─────────────────────────────────
     if is_top {
         drop_top_passives(graph);
     }
 }
 
-/// ★ C5：把二端无源件从顶层拿掉（框图粒度），并撤销其在信号网上的端点。
-/// 被抽到 <2 端点的网（如只剩 flash.3 的上拉 _WP）一并删除。
+/// ★ C5: remove two-pin passives from the top level (block-diagram granularity) and
+/// revoke their endpoints on signal nets. Nets drained to <2 endpoints (e.g. the _WP
+/// pull-up left with only flash.3) are deleted too.
 fn drop_top_passives(graph: &mut McVecGraph) {
     let passive_ids: HashSet<i64> = graph
         .boxes
@@ -241,7 +250,7 @@ fn drop_top_passives(graph: &mut McVecGraph) {
         net.endpoints.retain(|e| !passive_ids.contains(&e.box_id));
         if net.endpoints.len() < 2 && before >= 2 {
             dropped_nets += 1;
-            continue; // 被抽空的网（单端悬空）不画
+            continue; // drained nets (single dangling end) are not drawn
         }
         cleaned.push(net);
     }
@@ -616,7 +625,7 @@ mod tests {
         assert_eq!(g.nets.len(), 1);
     }
 
-    // ── ★ P7-3 classify_rails 三分法测试（R-1 / R-2 / R-3 / C5）─────────────
+    // ── ★ P7-3 classify_rails triage tests (R-1 / R-2 / R-3 / C5) ──────────
 
     fn rail_net(
         nid: i64,
@@ -644,7 +653,7 @@ mod tests {
 
     #[test]
     fn r1_ground_no_driver_no_edge_no_symbol_at_top() {
-        // R-1 顶层：GND 无 driver —— 一条边都不画，也不落符号
+        // R-1 top level: GND without driver —— no edges drawn, no symbols placed
         let mut g = McVecGraph::new(0, "main".into());
         g.boxes.push(mk_mod(1, "A"));
         g.boxes.push(mk_mod(2, "B"));
@@ -656,13 +665,13 @@ mod tests {
             vec![(1, 11, IoDirection::Passive), (2, 21, IoDirection::Passive)],
         ));
         classify_rails(&mut g, /*is_top=*/ true);
-        assert!(g.nets.is_empty(), "GND 网应被删除: {:?}", g.nets);
-        assert!(g.rail_decorations.is_empty(), "顶层 R-1 不落符号");
+        assert!(g.nets.is_empty(), "GND net should be deleted: {:?}", g.nets);
+        assert!(g.rail_decorations.is_empty(), "top-level R-1 places no symbols");
     }
 
     #[test]
     fn r1_ground_symbols_per_pin_at_sub_layer() {
-        // R-1 子层：每个 GND 端点恰好 1 个接地符号（S1）
+        // R-1 sub-layer: every GND endpoint gets exactly 1 ground symbol (S1)
         let mut g = McVecGraph::new(0, "modA".into());
         g.boxes.push(mk_mod(1, "IC"));
         g.boxes.push(mk_mod(2, "C1"));
@@ -673,26 +682,27 @@ mod tests {
             None,
             vec![
                 (1, 11, IoDirection::Passive),
-                (1, 12, IoDirection::Passive), // 同盒第二个 GND pin
+                (1, 12, IoDirection::Passive), // second GND pin in the same box
                 (2, 21, IoDirection::Passive),
             ],
         ));
         classify_rails(&mut g, /*is_top=*/ false);
         assert!(g.nets.is_empty());
-        assert_eq!(g.rail_decorations.len(), 3, "每个端点一个符号（同盒多 pin 也要）");
+        assert_eq!(g.rail_decorations.len(), 3, "one symbol per endpoint (multiple pins in one box included)");
         assert!(g.rail_decorations.iter().all(|d| d.is_ground));
     }
 
     #[test]
     fn r2_edges_only_to_power_domain_and_hub() {
-        // 七行核对表的缩影：V3V3 = driver modldo → {moddcdc(电源域✓), mcu513(hub✓),
-        // speaker(✗), flash(✗)} → 恰好 2 条 driver 边；R-3 顶层不落符号
+        // Distillation of the seven-line checklist: V3V3 = driver modldo → {moddcdc(power
+        // domain✓), mcu513(hub✓), speaker(✗), flash(✗)} → exactly 2 driver edges;
+        // R-3 top level places no symbols
         let mut g = McVecGraph::new(0, "main".into());
-        g.boxes.push(mk_mod(1, "modldo"));   // driver（VCC Out）
-        g.boxes.push(mk_mod(2, "moddcdc"));  // 电源域节点（VCC_1V2 Out 在另一条 rail 上）
-        g.boxes.push(mk_mod(3, "mcu513"));   // hub（8 条信号网 → 这里给 2 条已是最大）
+        g.boxes.push(mk_mod(1, "modldo"));   // driver (VCC Out)
+        g.boxes.push(mk_mod(2, "moddcdc"));  // power-domain node (VCC_1V2 Out is on another rail)
+        g.boxes.push(mk_mod(3, "mcu513"));   // hub (8 signal nets → 2 here is already the max)
         g.boxes.push(mk_mod(4, "speaker"));
-        // 信号网：让 mcu513 成为 hub
+        // Signal nets: make mcu513 the hub
         g.nets.push(VizNet::new(
             20,
             "S1".into(),
@@ -713,7 +723,7 @@ mod tests {
                 EndpointRef::with_io(4, 42, "S", IoDirection::Input),
             ],
         ));
-        // moddcdc 的电源域资格：另一条 Power rail 上的 Out 端点（V1V2 由它驱动）
+        // moddcdc's power-domain qualification: an Out endpoint on another Power rail (V1V2 is driven by it)
         g.nets.push(rail_net(
             11,
             "V1V2",
@@ -721,7 +731,7 @@ mod tests {
             Some(22),
             vec![(2, 22, IoDirection::Output), (3, 33, IoDirection::Input)],
         ));
-        // 被测 rail：V3V3
+        // Rail under test: V3V3
         g.nets.push(rail_net(
             10,
             "V3V3",
@@ -729,37 +739,37 @@ mod tests {
             Some(11),
             vec![
                 (1, 11, IoDirection::Output),   // modldo.VCC = driver
-                (2, 21, IoDirection::Input),    // moddcdc 消费
-                (3, 34, IoDirection::Bidir),    // mcu513 消费
-                (4, 43, IoDirection::Input),    // speaker 消费
+                (2, 21, IoDirection::Input),    // moddcdc consumes
+                (3, 34, IoDirection::Bidir),    // mcu513 consumes
+                (4, 43, IoDirection::Input),    // speaker consumes
             ],
         ));
         classify_rails(&mut g, /*is_top=*/ true);
 
-        // V1V2: driver moddcdc(2) → mcu513(3, hub) 1 条；V3V3: modldo(1) → {moddcdc(2 电源域), mcu513(3 hub)} 2 条
+        // V1V2: driver moddcdc(2) → mcu513(3, hub) 1 edge; V3V3: modldo(1) → {moddcdc(2 power domain), mcu513(3 hub)} 2 edges
         let power_edges: Vec<&VizNet> = g
             .nets
             .iter()
             .filter(|n| matches!(n.kind, NetKind::Power))
             .collect();
-        assert_eq!(power_edges.len(), 3, "V1V2 1 条 + V3V3 2 条 = 3 条 driver 边");
+        assert_eq!(power_edges.len(), 3, "V1V2 1 edge + V3V3 2 edges = 3 driver edges");
         let v33: Vec<(i64, i64)> = power_edges
             .iter()
             .filter(|n| n.name == "V3V3")
             .map(|n| (n.endpoints[0].box_id, n.endpoints[1].box_id))
             .collect();
-        assert!(v33.contains(&(1, 2)), "modldo→moddcdc（电源域）: {v33:?}");
-        assert!(v33.contains(&(1, 3)), "modldo→mcu513（hub）: {v33:?}");
-        assert!(!v33.iter().any(|(_, t)| *t == 4), "speaker R-3 不画边");
-        assert!(g.rail_decorations.is_empty(), "顶层 R-3 不落符号");
+        assert!(v33.contains(&(1, 2)), "modldo→moddcdc (power domain): {v33:?}");
+        assert!(v33.contains(&(1, 3)), "modldo→mcu513 (hub): {v33:?}");
+        assert!(!v33.iter().any(|(_, t)| *t == 4), "speaker R-3 draws no edge");
+        assert!(g.rail_decorations.is_empty(), "top-level R-3 places no symbols");
     }
 
     #[test]
     fn r3_sub_layer_consumers_get_rail_terminals() {
-        // R-3 子层：不画边的 consumer 落 rail 端子（圆点+网名，非地）
+        // R-3 sub-layer: consumers without edges get rail terminals (dot + net name, not ground)
         let mut g = McVecGraph::new(0, "modLDO".into());
-        g.boxes.push(mk_mod(1, "ldo")); // driver（子层组件，pin 无 out → 由 spec 指定）
-        g.boxes.push(mk_mod(2, "CAP")); // 普通消费
+        g.boxes.push(mk_mod(1, "ldo")); // driver (sub-layer component, pin without out → designated by spec)
+        g.boxes.push(mk_mod(2, "CAP")); // ordinary consumer
         g.nets.push(rail_net(
             10,
             "VCC",
@@ -768,18 +778,18 @@ mod tests {
             vec![(1, 11, IoDirection::Passive), (2, 21, IoDirection::Passive)],
         ));
         classify_rails(&mut g, /*is_top=*/ false);
-        // 消费者 CAP 无资格 → 无边；子层落端子；driver pin 画了边就不再落
-        assert!(g.nets.iter().all(|n| n.rail.is_none()), "rail 网应被替换");
-        // hub 判定：无信号网 → hub=None；CAP 无电源域资格 → 0 边
-        // driver pin 未被边消费 → 也落端子
-        assert_eq!(g.rail_decorations.len(), 2, "driver pin + consumer pin 各一个端子");
+        // Consumer CAP unqualified → no edge; sub-layer places a terminal; driver pin drew an edge so gets none
+        assert!(g.nets.iter().all(|n| n.rail.is_none()), "rail nets should be replaced");
+        // hub determination: no signal nets → hub=None; CAP has no power-domain qualification → 0 edges
+        // driver pin not consumed by an edge → also gets a terminal
+        assert_eq!(g.rail_decorations.len(), 2, "one terminal each for driver pin + consumer pin");
         assert!(g.rail_decorations.iter().all(|d| !d.is_ground));
         assert_eq!(g.rail_decorations[0].label, "VCC");
     }
 
     #[test]
     fn c5_top_layer_drops_two_pin_passives() {
-        // C5：顶层不画无源件；被抽空的 _WP 网消失，跨模块网保留
+        // C5: top level draws no passives; the drained _WP net disappears, cross-module net kept
         let mut g = McVecGraph::new(0, "main".into());
         g.boxes.push(mk_mod(1, "flash"));
         g.boxes.push(mk_mod(2, "mcu"));
@@ -788,7 +798,7 @@ mod tests {
         res.symbol = Symbol::Resistor;
         res.class_name = "RES".into();
         g.boxes.push(res);
-        // _WP: flash.3 ~ RES.1 —— 抽走 RES 后只剩 1 端 → 删
+        // _WP: flash.3 ~ RES.1 —— after removing RES only 1 end remains → delete
         g.nets.push(VizNet::new(
             30,
             "_WP".into(),
@@ -799,7 +809,7 @@ mod tests {
                 EndpointRef::with_io(3, 31, "1", IoDirection::Passive),
             ],
         ));
-        // CSN: flash.1 ~ RES.2 ~ mcu.10 —— 抽走 RES 后仍 2 端 → 留
+        // CSN: flash.1 ~ RES.2 ~ mcu.10 —— after removing RES still 2 ends → keep
         g.nets.push(VizNet::new(
             31,
             "CSN".into(),
@@ -812,16 +822,16 @@ mod tests {
             ],
         ));
         classify_rails(&mut g, /*is_top=*/ true);
-        assert!(!g.boxes.iter().any(|b| b.id == 3), "无源件盒子应删除");
-        assert_eq!(g.nets.len(), 1, "_WP 删除、CSN 保留: {:?}", g.nets.iter().map(|n| &n.name).collect::<Vec<_>>());
+        assert!(!g.boxes.iter().any(|b| b.id == 3), "passive box should be deleted");
+        assert_eq!(g.nets.len(), 1, "_WP deleted, CSN kept: {:?}", g.nets.iter().map(|n| &n.name).collect::<Vec<_>>());
         assert_eq!(g.nets[0].name, "CSN");
         assert_eq!(g.nets[0].endpoints.len(), 2);
     }
 
     #[test]
     fn is_rail_box_is_kind_based_not_name_based() {
-        // ★ P7-3：name_has_power_token 关键字表已删除——判据只剩 kind
-        assert!(is_rail_box(&mk_rail(1, "任意名字", true)), "PowerLabel kind 即 rail box");
-        assert!(!is_rail_box(&mk_mod(2, "V3V3_ldo_power")), "名字带 token 也不算");
+        // ★ P7-3: the name_has_power_token keyword table is deleted —— the criterion is kind only
+        assert!(is_rail_box(&mk_rail(1, "any name", true)), "PowerLabel kind is a rail box");
+        assert!(!is_rail_box(&mk_mod(2, "V3V3_ldo_power")), "a name with a token still doesn't count");
     }
 }

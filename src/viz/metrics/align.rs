@@ -2,16 +2,18 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! # 对齐度量（M1-4 · 自测版）
+//! # Alignment metrics (M1-4 · self-test edition)
 //!
-//! 本模块提供**不依赖 KiCad 的自测版对齐度量**：
+//! This module provides **KiCad-independent self-test alignment metrics**:
 //!
-//! 1. **Rand index**：比较两种分区（模块结构 vs 自身）的一致性。
-//!    自测版用 .mc 的 module 结构做 ground truth，自洽性验证。
-//! 2. **网表指标**：与 netcheck 联动，产出 Tier 0 网表正确性汇总。
+//! 1. **Rand index**: consistency of two partitions (module structure vs itself).
+//!    The self-test edition uses the .mc module structure as ground truth for
+//!    self-consistency validation.
+//! 2. **Netlist metrics**: works with netcheck, producing a Tier 0 netlist
+//!    correctness summary.
 //!
-//! KiCad 版的对齐度量（Kendall τ、wire/label 准确率、交叉数对比等）
-//! 随 M1-3 一起推迟。
+//! KiCad-based alignment metrics (Kendall τ, wire/label accuracy, crossing-count
+//! comparison, etc.) are deferred along with M1-3.
 
 use std::collections::BTreeMap;
 
@@ -19,17 +21,17 @@ use crate::instant::insttab::InstTable;
 use crate::instant::netcheck;
 
 // ============================================================================
-// 分区结构
+// Partition structures
 // ============================================================================
 
-/// 一个分区（partition）：把一组 item_id 分到若干个 cluster_id 中。
+/// A partition: assigns a set of item_ids to several cluster_ids.
 #[derive(Debug, Clone)]
 pub struct Partition {
-    /// item_id → cluster_id 的映射
+    /// item_id → cluster_id mapping
     pub assignment: BTreeMap<u32, u32>,
-    /// 总 item 数
+    /// Total item count
     pub item_count: usize,
-    /// 总 cluster 数
+    /// Total cluster count
     pub cluster_count: usize,
 }
 
@@ -44,12 +46,13 @@ impl Partition {
         }
     }
 
-    /// 从 InstTable 的 module 结构构建分区：每个 Component 属于其最近的 Module。
+    /// Build a partition from InstTable's module structure: each Component belongs
+    /// to its nearest Module.
     pub fn from_module_structure(table: &InstTable) -> Self {
         let mut assignment = BTreeMap::new();
 
         for comp in table.get_components() {
-            // 向上遍历找最近的 Module 祖先
+            // Walk upward to find the nearest Module ancestor
             let mut cur = comp.parent_id;
             let mut module_id = 0u32;
             let mut guard = 0usize;
@@ -75,7 +78,7 @@ impl Partition {
         Self::from_assignment(assignment)
     }
 
-    /// 获取 item_id 的 cluster_id，未找到时返回 0
+    /// Get the cluster_id of an item_id; returns 0 when not found
     pub fn cluster_of(&self, item_id: u32) -> u32 {
         self.assignment.get(&item_id).copied().unwrap_or(0)
     }
@@ -85,16 +88,16 @@ impl Partition {
 // Rand index
 // ============================================================================
 
-/// 计算两个分区之间的 Rand index。
+/// Compute the Rand index between two partitions.
 ///
-/// Rand index = (a + b) / C(n, 2)，其中：
-/// - a = 两个分区中都在同一 cluster 的 item 对数
-/// - b = 两个分区中都在不同 cluster 的 item 对数
-/// - n = 总 item 数
+/// Rand index = (a + b) / C(n, 2), where:
+/// - a = item pairs in the same cluster in both partitions
+/// - b = item pairs in different clusters in both partitions
+/// - n = total item count
 ///
-/// 返回 0.0 ~ 1.0 之间的值，1.0 表示完全一致。
+/// Returns a value in 0.0 ~ 1.0; 1.0 means fully consistent.
 pub fn rand_index(p1: &Partition, p2: &Partition) -> f64 {
-    // 取两个分区的 item 交集
+    // Take the item intersection of the two partitions
     let items: Vec<u32> = p1
         .assignment
         .keys()
@@ -107,8 +110,8 @@ pub fn rand_index(p1: &Partition, p2: &Partition) -> f64 {
         return 1.0;
     }
 
-    let mut a = 0usize; // 同簇对数
-    let mut b = 0usize; // 异簇对数
+    let mut a = 0usize; // same-cluster pairs
+    let mut b = 0usize; // different-cluster pairs
 
     for i in 0..n {
         for j in (i + 1)..n {
@@ -126,35 +129,36 @@ pub fn rand_index(p1: &Partition, p2: &Partition) -> f64 {
     (a + b) as f64 / total_pairs as f64
 }
 
-/// 计算自洽性 Rand index：将 module 分区与自身比较，应始终为 1.0。
+/// Compute the self-consistency Rand index: compares the module partition with
+/// itself; should always be 1.0.
 pub fn self_consistency_rand(table: &InstTable) -> f64 {
     let p = Partition::from_module_structure(table);
     rand_index(&p, &p)
 }
 
 // ============================================================================
-// 对齐度量汇总
+// Alignment metrics summary
 // ============================================================================
 
-/// 对齐度量汇总报告
+/// Alignment metrics summary report
 #[derive(Debug, Default)]
 pub struct AlignMetricsReport {
-    /// 模块数
+    /// Module count
     pub module_count: usize,
-    /// 器件数
+    /// Component count
     pub component_count: usize,
-    /// Rand index（自洽性，应始终为 1.0）
+    /// Rand index (self-consistency, should always be 1.0)
     pub rand_self: f64,
-    /// netcheck 错误数
+    /// netcheck error count
     pub netcheck_errors: usize,
-    /// netcheck 警告数
+    /// netcheck warning count
     pub netcheck_warns: usize,
-    /// netcheck 是否干净（无 ERROR）
+    /// Whether netcheck is clean (no ERROR)
     pub netcheck_clean: bool,
 }
 
 impl AlignMetricsReport {
-    /// 从 InstTable 计算对齐度量（自测版）
+    /// Compute alignment metrics from InstTable (self-test edition)
     pub fn compute(table: &InstTable) -> Self {
         let nc_report = netcheck::run(table);
 
@@ -173,7 +177,7 @@ impl AlignMetricsReport {
         rep
     }
 
-    /// 渲染对齐度量表
+    /// Render the alignment metrics table
     pub fn render(&self) -> String {
         use std::fmt::Write;
         let mut s = String::new();
@@ -219,7 +223,7 @@ impl AlignMetricsReport {
 }
 
 // ============================================================================
-// 单元测试
+// Unit tests
 // ============================================================================
 
 #[cfg(test)]

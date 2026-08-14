@@ -79,20 +79,20 @@ pub enum IoDirection {
 }
 
 // ============================================================================
-// ★ M0-2: NetRole — 网络语义角色
+// ★ M0-2: NetRole — net semantic role
 // ============================================================================
 
-/// 网络在源码中的语义角色
+/// The net's semantic role in source
 ///
-/// 来源：源码显式声明（`::DC(5V)`、`ps` 端口），不用名字启发式。
-/// 默认 `Signal`。
+/// Source: explicit source declarations (`::DC(5V)`, `ps` ports), no name heuristics.
+/// Default `Signal`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NetRole {
-    /// 普通信号（默认）
+    /// Ordinary signal (default)
     Signal,
-    /// 电源网络，volt 来自 `::DC(5V)` 的字面量
+    /// Power net; volt comes from the `::DC(5V)` literal
     Rail { volt: Option<String> },
-    /// 总线，width 来自 bracket 宽度
+    /// Bus; width comes from the bracket width
     Bus { width: usize },
 }
 
@@ -129,7 +129,7 @@ pub struct VizNet {
     pub name: String,
     /// Net semantics (for router strategy selection)
     pub kind: NetKind,
-    /// ★ M0-2: 网络语义角色（Signal / Rail / Bus），来自源码显式声明
+    /// ★ M0-2: net semantic role (Signal / Rail / Bus), from explicit source declarations
     pub role: NetRole,
     /// All endpoints (no limit on count, can be 1 / 2 / 3 / N)
     pub endpoints: Vec<EndpointRef>,
@@ -137,8 +137,9 @@ pub struct VizNet {
     pub route: Option<Route>,
     /// Source position in the AST (for diagnostic source-line reporting)
     pub src_pos: Option<i32>,
-    /// ★ P7-3: 电源网规格（None = 普通信号网）。fromblock 从 McVecNet.rail 拷贝，
-    /// 由 viz/project.rs 按端口声明解析（class + driver_pin + volt）。
+    /// ★ P7-3: power net spec (None = ordinary signal net). Copied by fromblock from
+    /// McVecNet.rail, resolved by viz/project.rs from port declarations
+    /// (class + driver_pin + volt).
     pub rail: Option<super::super::model::RailSpec>,
 }
 

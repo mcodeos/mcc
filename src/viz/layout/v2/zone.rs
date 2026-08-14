@@ -2,70 +2,71 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! # Zone 树 — 功能分区
+//! # Zone tree — functional partitioning
 //!
-//! 从 `McVecBox.inst_path` 构建功能分区树。
-//! .mc 源码的 module 结构就是分区的天然答案，不需要聚类算法。
+//! Builds a functional partition tree from `McVecBox.inst_path`.
+//! The module structure of .mc source is the natural answer for partitioning;
+//! no clustering algorithm needed.
 //!
-//! 算法：
-//! 1. 按 inst_path 建前缀树
-//! 2. 压平单链
-//! 3. 合并小 zone（box 数 < MIN_ZONE_SIZE）
-//! 4. 深度上限 MAX_ZONE_DEPTH = 2
+//! Algorithm:
+//! 1. Build a prefix tree from inst_path
+//! 2. Flatten single chains
+//! 3. Merge small zones (box count < MIN_ZONE_SIZE)
+//! 4. Depth cap MAX_ZONE_DEPTH = 2
 
 use std::collections::BTreeMap;
 
 use crate::vector::graph::BoxKind;
 use crate::vector::graph::McVecGraph;
 
-/// 最小 zone 大小（box 数），小于此值的 zone 并入父 zone
+/// Minimum zone size (box count); zones below this are merged into the parent zone
 pub const MIN_ZONE_SIZE: usize = 3;
 
-/// 最大 zone 深度（纸面上超过两级视觉分区反而更乱）
+/// Maximum zone depth (more than two visual partition levels on paper is messier)
 pub const MAX_ZONE_DEPTH: usize = 2;
 
 // ============================================================================
-// Zone 数据结构
+// Zone data structures
 // ============================================================================
 
-/// 单个功能分区
+/// A single functional partition
 #[derive(Debug, Clone)]
 pub struct Zone {
     pub id: usize,
-    /// 路径，如 "main.modldo"
+    /// Path, e.g. "main.modldo"
     pub path: String,
-    /// 显示标题，如 "POWER_LDO"
+    /// Display title, e.g. "POWER_LDO"
     pub title: String,
-    /// 该 zone 内的 box ids
+    /// Box ids in this zone
     pub boxes: Vec<i64>,
-    /// 子 zone 索引
+    /// Child zone indices
     pub children: Vec<usize>,
-    /// 父 zone 索引
+    /// Parent zone index
     pub parent: Option<usize>,
 }
 
-/// 分区树
+/// Partition tree
 #[derive(Debug, Clone, Default)]
 pub struct ZoneTree {
     pub zones: Vec<Zone>,
-    /// 根 zone 索引
+    /// Root zone indices
     pub roots: Vec<usize>,
 }
 
 // ============================================================================
-// 内部：前缀树节点
+// Internal: prefix tree node
 // ============================================================================
 
-/// 前缀树节点（构建时使用）
+/// Prefix tree node (used during construction)
 #[derive(Debug, Clone)]
 struct TrieNode {
-    /// 完整路径（如 "main.modldo"）
+    /// Full path (e.g. "main.modldo")
     path: String,
-    /// 深度（从 0 开始）
+    /// Depth (starting from 0)
     depth: usize,
-    /// 该节点的 box ids（只有叶子才有 box）
+    /// Box ids of this node (only leaves carry boxes)
     boxes: Vec<i64>,
-    /// 子节点
+    /// Child nodes
     children: BTreeMap<String, TrieNode>,
 }
 
@@ -81,23 +82,24 @@ impl TrieNode {
 }
 
 // ============================================================================
-// 构建
+// Build
 // ============================================================================
 
 impl ZoneTree {
-    /// 构建分区树
+    /// Build the partition tree
     ///
-    /// 使用 `inst_path` 而不是 `scope_chain`（v2 修订），
-    /// 直接用 path 做前缀树，压平/合并规则不变，少一层同步风险。
+    /// Uses `inst_path` instead of `scope_chain` (v2 revision):
+    /// build the prefix tree directly from paths; flattening/merging rules
+    /// unchanged, one less layer of sync risk.
     pub fn build(graph: &McVecGraph) -> Self {
-        // ── 收集需要分区的 box ──
-        // PowerLabel / Dot 不进任何 zone（它们就近渲染）
+        // ── Collect boxes needing partitioning ──
+        // PowerLabel / Dot do not enter any zone (they render in place)
         let mut zone_boxes: Vec<(i64, String)> = Vec::new();
         for b in &graph.boxes {
             if b.kind == BoxKind::PowerLabel || b.kind == BoxKind::Dot {
                 continue;
             }
-            // M4-1B fix: 子模块内部 TwoPin 器件没有 inst_path，仍需纳入 zone
+            // M4-1B fix: TwoPin devices inside submodules have no inst_path, still need to join a zone
             let path = if b.inst_path.is_empty() {
                 "main".to_string()
             } else {
@@ -110,7 +112,7 @@ impl ZoneTree {
             return ZoneTree::default();
         }
 
-        // ── 1. 按 inst_path 建前缀树 ──
+        // ── 1. Build a prefix tree from inst_path ──
         let mut root = TrieNode::new("".to_string(), 0);
 
         for (box_id, path) in &zone_boxes {
@@ -123,31 +125,31 @@ impl ZoneTree {
                     .entry(seg.to_string())
                     .or_insert_with(|| TrieNode::new(full_path, i + 1));
             }
-            // 叶子节点：添加 box
+            // Leaf node: add the box
             node.boxes.push(*box_id);
         }
 
-        // ── 2. 压平单链 ──
-        // 只有一个孩子且自己没有直属 box 的 zone，与孩子合并
+        // ── 2. Flatten single chains ──
+        // A zone with only one child and no direct boxes of its own merges with that child
         let mut flattened: Vec<Zone> = Vec::new();
         flatten_trie(&mut root, &mut flattened, None);
 
-        // ── 3. 合并小 zone ──
-        // box 数 < MIN_ZONE_SIZE 的 zone 并入父 zone
+        // ── 3. Merge small zones ──
+        // Zones with box count < MIN_ZONE_SIZE are merged into the parent zone
         merge_small_zones(&mut flattened);
 
-        // ── 4. 深度限制 ──
-        // 超过 MAX_ZONE_DEPTH 的 zone 压到父 zone
+        // ── 4. Depth limit ──
+        // Zones beyond MAX_ZONE_DEPTH are squashed into the parent zone
         enforce_depth_limit(&mut flattened);
 
-        // ── 5. 计算 roots ──
+        // ── 5. Compute roots ──
         let roots: Vec<usize> = flattened
             .iter()
             .filter(|z| z.parent.is_none())
             .map(|z| z.id)
             .collect();
 
-        // ── 日志 ──
+        // ── Logging ──
         let leaf_count = flattened
             .iter()
             .filter(|z| z.children.is_empty())
@@ -176,12 +178,12 @@ impl ZoneTree {
 }
 
 // ============================================================================
-// 内部函数
+// Internal functions
 // ============================================================================
 
-/// 压平：将前缀树转为 Zone 列表，单链合并
+/// Flatten: convert the prefix tree into a Zone list, merging single chains
 fn flatten_trie(root: &mut TrieNode, zones: &mut Vec<Zone>, parent: Option<usize>) {
-    // 递归处理每个子节点
+    // Recurse into each child node
     let child_keys: Vec<String> = root.children.keys().cloned().collect();
     let mut child_zone_ids: Vec<usize> = Vec::new();
     let mut root_boxes: Vec<i64> = root.boxes.clone();
@@ -193,12 +195,12 @@ fn flatten_trie(root: &mut TrieNode, zones: &mut Vec<Zone>, parent: Option<usize
         if let Some(id) = created_id {
             child_zone_ids.push(id);
         } else {
-            // 子节点没有创建 zone，box 归入 root
+            // The child created no zone; boxes go to the root
             root_boxes.append(&mut boxes);
         }
     }
 
-    // 如果有子 zone 或自己有 box → 创建 zone
+    // If it has child zones or its own boxes → create a zone
     if !child_zone_ids.is_empty() || !root_boxes.is_empty() {
         let id = zones.len();
         let title = zone_title(if root.path.is_empty() { "main" } else { &root.path });
@@ -221,16 +223,16 @@ fn flatten_trie(root: &mut TrieNode, zones: &mut Vec<Zone>, parent: Option<usize
     }
 }
 
-/// 递归处理子树，返回 (boxes_to_attach, Option<zone_id>)
+/// Recursively process a subtree, returning (boxes_to_attach, Option<zone_id>)
 ///
-/// - 如果创建了 zone，返回 (remaining_boxes, Some(zone_id))
-/// - 如果被压平，返回 (all_boxes, None)
+/// - If a zone was created, returns (remaining_boxes, Some(zone_id))
+/// - If flattened, returns (all_boxes, None)
 fn flatten_subtree(
     node: &mut TrieNode,
     zones: &mut Vec<Zone>,
     parent: Option<usize>,
 ) -> (Vec<i64>, Option<usize>) {
-    // 先递归处理子节点
+    // Recurse into child nodes first
     let child_keys: Vec<String> = node.children.keys().cloned().collect();
     let mut child_zone_ids: Vec<usize> = Vec::new();
     let mut node_boxes: Vec<i64> = node.boxes.clone();
@@ -245,7 +247,7 @@ fn flatten_subtree(
         }
     }
 
-    // 压平：只有一个孩子且自己没有直属 box → 合并到孩子
+    // Flatten: only one child and no direct boxes of its own → merge into the child
     if child_zone_ids.len() == 1 && node_boxes.is_empty() {
         let child = &mut zones[child_zone_ids[0]];
         child.path = node.path.clone();
@@ -253,12 +255,12 @@ fn flatten_subtree(
         return (Vec::new(), Some(child_zone_ids[0]));
     }
 
-    // 没有孩子：不创建 zone，box 返回给父节点
+    // No children: create no zone; boxes return to the parent node
     if child_zone_ids.is_empty() {
         return (node_boxes, None);
     }
 
-    // 创建 zone
+    // Create a zone
     let id = zones.len();
     let title = zone_title(&node.path);
     let zone = Zone {
@@ -277,7 +279,7 @@ fn flatten_subtree(
     (Vec::new(), Some(id))
 }
 
-/// 合并小 zone：box 数 < MIN_ZONE_SIZE 的并入父 zone
+/// Merge small zones: zones with box count < MIN_ZONE_SIZE are merged into the parent zone
 fn merge_small_zones(zones: &mut Vec<Zone>) {
     let mut i = 0;
     while i < zones.len() {
@@ -287,17 +289,17 @@ fn merge_small_zones(zones: &mut Vec<Zone>) {
         }
 
         let pid = zones[i].parent.unwrap();
-        // 把 box 合并到父 zone
+        // Merge boxes into the parent zone
         let boxes = zones[i].boxes.clone();
         let children = zones[i].children.clone();
         zones[pid].boxes.extend(boxes);
 
-        // 把子 zone 的 children 重新挂到父 zone
+        // Re-attach the zone's children to the parent zone
         for &cid in &children {
             zones[cid].parent = Some(pid);
         }
 
-        // 从父 zone 的 children 中移除当前 zone
+        // Remove the current zone from the parent zone's children
         if let Some(pos) = zones[pid].children.iter().position(|&c| c == i) {
             zones[pid].children.remove(pos);
         }
@@ -307,9 +309,9 @@ fn merge_small_zones(zones: &mut Vec<Zone>) {
     }
 }
 
-/// 深度限制：超过 MAX_ZONE_DEPTH 的 zone 压到父 zone
+/// Depth limit: zones beyond MAX_ZONE_DEPTH are squashed into the parent zone
 fn enforce_depth_limit(zones: &mut Vec<Zone>) {
-    // 递归计算每个 zone 的实际深度
+    // Recursively compute each zone's actual depth
     let depths = compute_zone_depths(zones);
 
     let mut i = 0;
@@ -321,7 +323,7 @@ fn enforce_depth_limit(zones: &mut Vec<Zone>) {
         }
 
         let pid = zones[i].parent.unwrap();
-        // 把 box 和 children 合并到父 zone
+        // Merge boxes and children into the parent zone
         let boxes = zones[i].boxes.clone();
         let children = zones[i].children.clone();
         zones[pid].boxes.extend(boxes);
@@ -338,7 +340,7 @@ fn enforce_depth_limit(zones: &mut Vec<Zone>) {
     }
 }
 
-/// 计算每个 zone 的深度（从 root 开始）
+/// Compute each zone's depth (from the root)
 fn compute_zone_depths(zones: &[Zone]) -> BTreeMap<usize, usize> {
     let mut depths = BTreeMap::new();
     for zone in zones {
@@ -353,18 +355,18 @@ fn compute_zone_depths(zones: &[Zone]) -> BTreeMap<usize, usize> {
     depths
 }
 
-/// 生成 zone 标题：优先用最后一节的类名，退而用路径
+/// Generate the zone title: prefer the class name of the last segment, fall back to the path
 fn zone_title(path: &str) -> String {
-    // 取最后一段
+    // Take the last segment
     let leaf = path.rsplit('.').next().unwrap_or(path);
-    // 如果最后一段是 main 且路径只有 main，返回 "main"
+    // If the last segment is main and the path is only main, return "main"
     if path == "main" {
         return "main".to_string();
     }
     leaf.to_string()
 }
 
-/// 递归打印 zone 树
+/// Recursively print the zone tree
 fn log_zone_tree(zones: &[Zone], zone_id: usize, indent: usize) {
     let zone = &zones[zone_id];
     let prefix = "  ".repeat(indent);
@@ -383,7 +385,7 @@ fn log_zone_tree(zones: &[Zone], zone_id: usize, indent: usize) {
 }
 
 // ============================================================================
-// 单元测试
+// Unit tests
 // ============================================================================
 
 #[cfg(test)]
@@ -414,7 +416,7 @@ mod tests {
 
     #[test]
     fn test_zone_tree_trivial() {
-        // 所有 box 在 main 下 → 单 zone
+        // All boxes under main → single zone
         let mut graph = empty_graph();
         graph.boxes.push(make_box(1, "main.R1", BoxKind::TwoPin));
         graph.boxes.push(make_box(2, "main.R2", BoxKind::TwoPin));
@@ -428,7 +430,7 @@ mod tests {
 
     #[test]
     fn test_zone_tree_modules() {
-        // 多个子模块 → 多个 zone
+        // Multiple submodules → multiple zones
         let mut graph = empty_graph();
         graph.boxes.push(make_box(1, "main.modldo.ldo", BoxKind::MultiPin));
         graph.boxes.push(make_box(2, "main.moddcdc.dcdc", BoxKind::MultiPin));
@@ -436,7 +438,7 @@ mod tests {
         graph.boxes.push(make_box(4, "main.speaker.SPK", BoxKind::MultiPin));
 
         let tree = ZoneTree::build(&graph);
-        // 每个模块应该是一个 zone
+        // Each module should be one zone
         assert!(tree.roots.len() >= 1);
         let total_boxes: usize = tree.zones.iter().map(|z| z.boxes.len()).sum();
         assert_eq!(total_boxes, 4);
@@ -451,20 +453,20 @@ mod tests {
 
         let tree = ZoneTree::build(&graph);
         let total_boxes: usize = tree.zones.iter().map(|z| z.boxes.len()).sum();
-        // 只有 R1 进 zone，PowerLabel 不进
+        // Only R1 enters a zone; PowerLabel does not
         assert_eq!(total_boxes, 1);
     }
 
     #[test]
     fn test_zone_tree_nested() {
-        // 嵌套模块 → 压平后应合理
+        // Nested modules → reasonable structure after flattening
         let mut graph = empty_graph();
         graph.boxes.push(make_box(1, "main.pwr.ldo.ldo", BoxKind::MultiPin));
         graph.boxes.push(make_box(2, "main.pwr.dcdc.dcdc", BoxKind::MultiPin));
         graph.boxes.push(make_box(3, "main.audio.mic.MIC", BoxKind::MultiPin));
 
         let tree = ZoneTree::build(&graph);
-        // 应有合理的分区结构
+        // Should have a reasonable partition structure
         assert!(!tree.roots.is_empty());
     }
 }

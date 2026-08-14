@@ -691,11 +691,12 @@ fn bump_crossings(grid: &mut Grid, graph: &McVecGraph, amount: i64) {
 // ============================================================================
 // Phase E — Route feedback loop
 // ============================================================================
-// ★ P7-4e 删除：run_route_feedback_loop（nudge → reroute → accept）。
-// 它通过平移盒子 x/y（NUDGE_STEP）给布线让位，是 Route 段唯一的几何
-// 写入者（P7-4c 实测 19 处净位移），违反"Route 只读几何"的段契约。
-// 上方 grid 版 run_route_feedback（rip-up/reroute，不动盒子）保留——
-// 它才是符合段契约的布线质量反馈。
+// ★ P7-4e removed: run_route_feedback_loop (nudge → reroute → accept).
+// It freed routing space by shifting box x/y (NUDGE_STEP), the only geometry
+// writer inside the Route stage (19 net shifts measured in P7-4c), violating
+// the "Route reads geometry only" stage contract. The grid-based
+// run_route_feedback above (rip-up/reroute, never moves boxes) is kept —
+// it is the stage-compliant route-quality feedback.
 
 // ============================================================================
 // Tests

@@ -2,22 +2,23 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! # v2 · 绞杀者模式
+//! # v2 · strangler pattern
 //!
-//! 新布局管线，通过环境变量 `MC_LAYOUT_V2=1` 启用。
-//! 默认走旧路径，旧路径一行不改，直到 align 度量全绿。
+//! New layout pipeline, enabled via the `MC_LAYOUT_V2=1` environment variable.
+//! The default takes the old path, with not one line of the old path changed,
+//! until the align metrics are all green.
 //!
-//! ## 架构
+//! ## Architecture
 //!
 //! ```text
 //! solve(graph) → Plan
-//!   ├── zone::build_zone_tree(graph)     → ZoneTree   (M2-2)
-//!   ├── {zone 粗排}                       → ZonePlan[] (M2-3)
-//!   ├── quotient::build(graph, zones)    → 商图       (M3)
+//!   ├── zone::build_zone_tree(graph)     → ZoneTree    (M2-2)
+//!   ├── {zone rough placement}           → ZonePlan[]  (M2-3)
+//!   ├── quotient::build(graph, zones)    → quotient graph (M3)
 //!   ├── arrange::layers(quotient)        → Arrangement (M3)
 //!   └── cutset::decide(graph, zones)     → CutDecision (M4)
 //!
-//! geom::apply(graph, &plan)  ← 唯一几何写者
+//! geom::apply(graph, &plan)  ← the sole geometry writer
 //! ```
 
 pub mod arrange;
@@ -31,13 +32,13 @@ pub mod zone_placement;
 use crate::vector::graph::McVecGraph;
 use plan::Plan;
 
-/// 搜索入口：分析 graph → 产出 Plan。
+/// Search entry: analyze graph → produce a Plan.
 pub fn solve(graph: &McVecGraph) -> Plan {
     let tree = zone::ZoneTree::build(graph);
     let zone_plans = zone_placement::place_zones(graph, &tree, graph.is_submodule);
     let canvas = zone_placement::compute_canvas(&zone_plans, graph.is_submodule);
 
-    // ── M3: 对每个 zone 构建商图并做层排列 ──
+    // ── M3: build the quotient graph and layer-arrange each zone ──
     let mut arrangements: Vec<plan::Arrangement> = Vec::new();
     for zp in &zone_plans {
         if zp.box_ids.is_empty() {
@@ -47,7 +48,7 @@ pub fn solve(graph: &McVecGraph) -> Plan {
         if q.nodes.is_empty() {
             continue;
         }
-        // 精确搜索（N ≤ 7），超限时跳过
+        // Exact search (N ≤ 7); skip beyond the limit
         if q.nodes.len() <= arrange::EXACT_SEARCH_LIMIT {
             let candidates = arrange::solve(&q);
             if let Some((_cost, best)) = candidates.into_iter().next() {

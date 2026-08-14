@@ -121,7 +121,7 @@ impl McModuleInst {
                     }
                 }
             };
-        // ★ M0-B-E: 标记 funcall 来源
+        // ★ M0-B-E: mark the funcall origin
         inst.origin = InstOrigin::FuncCall { fn_name: type_name.clone() };
 
         // ── Iter-3.E3 + P4 ───────────────────────────────────────────────

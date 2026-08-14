@@ -2,15 +2,15 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! ★ P7-3 · Rail 三分法验收测试（MC_SCHEMATIC_ROADMAP_v6 P7-3 验收清单）
+//! ★ P7-3 · Rail trichotomy acceptance test (MC_SCHEMATIC_ROADMAP_v6 P7-3 acceptance checklist)
 //!
-//! - main 层：GND 边 = 0，rail flag 盒子 = 0，driver 段边 = 4，
-//!   与 §1.2 七行核对表逐条一致（边表断言在 tests/renderdiff.rs）。
-//! - main 层 `compute_isolated_ids` 返回空集（usbsocket/modldo/moddcdc 不再是孤岛）。
-//! - 子层：每个 GND 端点恰好 1 个接地符号（S1），
-//!   每个非 GND rail 端点恰好 1 个 rail 圆点（S2）。
+//! - main layer: GND edges = 0, rail flag boxes = 0, driver stage edges = 4,
+//!   matching the §1.2 seven-line checklist item by item (edge-table assertions live in tests/renderdiff.rs).
+//! - main layer `compute_isolated_ids` returns the empty set (usbsocket/modldo/moddcdc are no longer islands).
+//! - Sub-layers: every GND endpoint has exactly 1 ground symbol (S1),
+//!   every non-GND rail endpoint has exactly 1 rail dot (S2).
 //!
-//! 判据按**盒子名/网名**断言（id 跨进程不稳定）。
+//! Criteria are asserted by **box name/net name** (ids are unstable across processes).
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -22,7 +22,7 @@ fn hbl_project_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("projects/hbl")
 }
 
-/// mcc_* workspace 是全局状态，测试必须串行（与 tests/renderdiff.rs 同款）
+/// The mcc_* workspace is global state; tests must be serialized (same as tests/renderdiff.rs)
 static RENDER_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 fn build_graph() -> mcc::vector::graph::McVecGraph {
@@ -46,14 +46,14 @@ fn build_graph() -> mcc::vector::graph::McVecGraph {
 
 #[test]
 fn main_layer_isolated_set_is_empty() {
-    // 验收：driver 段边把 usbsocket/modldo/moddcdc 接进主流向，
-    // compute_isolated_ids(main, hub) 必须返回空集。
+    // Acceptance: driver stage edges bring usbsocket/modldo/moddcdc into the main flow;
+    // compute_isolated_ids(main, hub) must return the empty set.
     let _guard = RENDER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let mut graph = build_graph();
     mcc::vector::graph::apply_promote_recursive(&mut graph);
-    // 镜像流水线：classify_rails 先于孤岛计算（flow.rs phase_prepare → phase_placement）
+    // Mirror pipeline: classify_rails runs before island computation (flow.rs phase_prepare → phase_placement)
     mcc::viz::layout::rails::classify_rails(&mut graph, /*is_top=*/ true);
-    // hub = 信号度最高的盒子（main 层 = mcu513）
+    // hub = the box with the highest signal degree (main layer = mcu513)
     let mut degree: std::collections::HashMap<i64, usize> = std::collections::HashMap::new();
     for n in &graph.nets {
         let mut boxes: Vec<i64> = Vec::new();
@@ -79,7 +79,7 @@ fn main_layer_isolated_set_is_empty() {
         .find(|b| b.id == hub)
         .map(|b| b.name.clone())
         .unwrap_or_default();
-    assert_eq!(hub_name, "mcu513", "main 层 hub 应为 mcu513（信号度最高）");
+    assert_eq!(hub_name, "mcu513", "main layer hub should be mcu513 (highest signal degree)");
 
     let isolated: HashSet<i64> = mcc::viz::layout::flow::compute_isolated_ids(&graph, hub);
     let detail: Vec<String> = isolated
@@ -98,7 +98,7 @@ fn main_layer_isolated_set_is_empty() {
         .collect();
     assert!(
         isolated.is_empty(),
-        "main 层孤岛集应为空（电源模块已被 driver 段接入主流向），实际 {} 条：{:?}",
+        "main layer island set should be empty (power modules already wired into the main flow by the driver stage), got {} entries: {:?}",
         isolated.len(),
         detail
     );
@@ -106,9 +106,9 @@ fn main_layer_isolated_set_is_empty() {
 
 #[test]
 fn sub_layers_s1_s2_decoration_counts() {
-    // 验收：S1 —— 每个 GND 端点恰好 1 个接地符号（装饰数 = 子层 Ground rail 端点数）
-    //       S2 —— 每个 非 GND rail 端点恰好 1 个 rail 圆点
-    // 期望值来自 golden 网表（PASS2 §1.8）各模块 GND / 电源网端点数。
+    // Acceptance: S1 —— every GND endpoint has exactly 1 ground symbol (decoration count = sub-layer Ground rail endpoint count)
+    //             S2 —— every non-GND rail endpoint has exactly 1 rail dot
+    // Expected values come from the golden netlist (PASS2 §1.8) per-module GND / power net endpoint counts.
     let _guard = RENDER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let graph = build_graph();
     let (_doc, metrics) = render_with_metrics(graph, RenderOpts::default());
@@ -118,22 +118,24 @@ fn sub_layers_s1_s2_decoration_counts() {
             .renderdiff_layers
             .iter()
             .find(|r| r.layer == layer)
-            .unwrap_or_else(|| panic!("layer {layer} 不在报表里"))
+            .unwrap_or_else(|| panic!("layer {layer} is not in the report"))
     };
 
-    // main：R-1/R-3 顶层不落符号
+    // main: R-1/R-3 no symbols at top level
     let main = get("main");
-    assert_eq!(main.decorations_ground, 0, "顶层 R-1 不落 GND 符号");
-    assert_eq!(main.decorations_power, 0, "顶层 R-3 不落 rail 圆点");
+    assert_eq!(main.decorations_ground, 0, "top-level R-1 places no GND symbol");
+    assert_eq!(main.decorations_power, 0, "top-level R-3 places no rail dot");
 
-    // 子层期望 = golden 网表 rail 网端点数 − P7-2 规则(c)删掉的伪端点
-    // （每条 rail 网的 port.X / member.X 边界声明点各 1 个；推导见下）：
+    // Sub-layer expectations = golden netlist rail net endpoint counts − pseudo-endpoints
+    // removed by P7-2 rule (c) (each rail net's port.X / member.X boundary declaration
+    // points, 1 each; derivation below):
     //   mcu513   GND 9−1=8          power = VDD_3V3 7−1 + VCC_1V2 3−1 = 8
     //   mic      dc.GND 7−1=6       power = dc.VDD_3V3 3−1 = 2
     //   modldo   GND 4−1=3          power = POWER_SYS 4−1 + VCC 3−1 = 5
     //   moddcdc  GND 8−1=7          power = VDD_3V3 4−1 + VCC_1V2 5−1 = 7
     //   speaker  USB_VBUS_1.GND 8−1=7  power = VDD_3V 3−1 = 2
-    //            （VDD_3V3 网只剩 R7.1 单端点，P7-2 audit 已裁决为 stub 删除）
+    //            (the VDD_3V3 net is down to the single endpoint R7.1, already
+    //            adjudicated as a stub deletion by the P7-2 audit)
     //   usbsocket vin.GND 7−1=6     power = vin.POWER_SYS 2−1 = 1
     let expect: &[(&str, usize, usize)] = &[
         ("mcu513", 8, 8),
@@ -147,14 +149,14 @@ fn sub_layers_s1_s2_decoration_counts() {
         let r = get(layer);
         assert_eq!(
             r.decorations_ground, *gnd,
-            "层 {layer} S1 接地符号数（golden GND 端点数）"
+            "layer {layer} S1 ground symbol count (golden GND endpoint count)"
         );
         assert_eq!(
             r.decorations_power, *pwr,
-            "层 {layer} S2 rail 圆点数（golden 非 GND rail 端点数）"
+            "layer {layer} S2 rail dot count (golden non-GND rail endpoint count)"
         );
-        // S1/S2 的语义：这些端点不再有跨盒边
-        assert_eq!(r.gnd_edges, 0, "层 {layer} 不应有 GND 跨盒边");
-        assert_eq!(r.power_edges, 0, "层 {layer} 不应有 power 跨盒边");
+        // S1/S2 semantics: these endpoints no longer have cross-box edges
+        assert_eq!(r.gnd_edges, 0, "layer {layer} should have no cross-box GND edges");
+        assert_eq!(r.power_edges, 0, "layer {layer} should have no cross-box power edges");
     }
 }
