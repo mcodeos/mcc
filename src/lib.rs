@@ -80,7 +80,7 @@ pub use builder::{
     mcb_iter_modules_with_span, mcb_iter_ports, mcb_lib_info, mcb_load_lib, mcb_loaded_file_count,
     mcb_loaded_libs, mcb_module_count, mcb_parse_all_modules, mcb_pass2_flat, mcb_print,
     mcb_print_lines, mcb_print_loaded_files, mcb_unload_lib, unified_lookup, unified_lookup_all,
-    unified_lookup_with_scope, MccProjectTree, SubElementKind,
+    MccProjectTree, SubElementKind,
 };
 
 // ── Instant / Net ──

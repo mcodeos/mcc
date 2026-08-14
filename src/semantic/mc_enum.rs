@@ -137,21 +137,10 @@ impl HasFindInst for McEnumDef {
         &self,
         id: &str,
     ) -> Option<(McInstance, Option<std::ops::Range<usize>>)> {
-        let enum_name = self.name.to_string();
-        for value in &self.values {
-            if value.name.to_string() == id {
-                let span = value.span[0] as usize..value.span[1] as usize;
-                return Some((
-                    McInstance::EnumVal {
-                        enum_name,
-                        value_name: id.to_string(),
-                        span: Some(span.clone()),
-                    },
-                    Some(span),
-                ));
-            }
-        }
-        None
+        // Enum category chain (§3.3): a single ① enum-values scope unit.
+        crate::semantic::scope::enum_scope(self)
+            .resolve(id)
+            .map(|r| (r.inst, r.span))
     }
 
     fn add_label_at(

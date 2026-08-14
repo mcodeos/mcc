@@ -22,10 +22,12 @@
 
 use std::ops::Range;
 
+use crate::query::lookup::ContainerRef;
 use crate::refdef::types::{ChainSegment, SymbolKind};
 use crate::semantic::basic::mc_paramd::McParamDeclares;
 use crate::semantic::mc_func::HasFindInst;
 use crate::semantic::mc_inst::{McInstance, McInstances};
+use crate::semantic::scope as ns_scope;
 use crate::McURI;
 
 /// Definition target of a resolved member chain.
@@ -177,6 +179,13 @@ enum Hop<'a> {
         /// Class-definition file that owns the member.
         uri: McURI,
     },
+    /// ★ P3-P5 class-chain hit: the base name resolved to a
+    /// component/module/interface/enum **class** definition via the unified
+    /// [`ns_scope::first_hop`] exit (`BaseResolved::Container`, same-file
+    /// CMIE → use-chain → system lib). Not a member axis — a following
+    /// member segment ends the chain (the walk has no instance table to
+    /// recurse into for a class name).
+    Class(ContainerRef),
 }
 
 impl Hop<'_> {
@@ -201,7 +210,18 @@ impl Hop<'_> {
                     .unwrap_or_default(),
                 format!(" uri={}", uri.as_str()),
             ),
+            Hop::Class(c) => format!("Class{{{}}}", class_name(c)),
         }
+    }
+}
+
+/// Display name of a [`ContainerRef`] (used in hop descriptions).
+fn class_name(c: &ContainerRef) -> String {
+    match c {
+        ContainerRef::Component(comp) => comp.name.to_string(),
+        ContainerRef::Module(m) => m.name.to_string(),
+        ContainerRef::Interface(i) => i.name.to_string(),
+        ContainerRef::Enum(e) => e.name.to_string(),
     }
 }
 
@@ -213,7 +233,18 @@ impl Hop<'_> {
 ///    member hop; multi-member group (`MIC{P,N}`, `GPIO[1:2]`) is a whole ref.
 /// 3. Idx-aware whole-name resolution (`GPIO1` → list member `1`).
 /// 4. Terminal parameter declaration.
-fn first_hop<'a>(insts: &'a McInstances, params: &McParamDeclares, seg: &str) -> Option<Hop<'a>> {
+/// 5. P3-P5 class chain via the unified `scope::first_hop` exit
+///    (`BaseResolved::Container`): the base name resolves to a
+///    component/module/interface/enum class definition (same-file CMIE →
+///    use-chain → system library). Branches 1-4 above always win, so the
+///    grouped/idx semantics are unchanged; the class chain only fills the
+///    previously-empty miss path for bare class names.
+fn first_hop<'a>(
+    insts: &'a McInstances,
+    params: &McParamDeclares,
+    seg: &str,
+    uri: &McURI,
+) -> Option<Hop<'a>> {
     // 1. Exact key.
     if let Some(inst) = insts.get(seg) {
         mcc_dbg!(
@@ -307,6 +338,21 @@ fn first_hop<'a>(insts: &'a McInstances, params: &McParamDeclares, seg: &str) ->
         mcc_dbg!(
             "refdef::chain",
             "[first_hop] param term \"{}\" → {}",
+            seg,
+            hop.desc()
+        );
+        return Some(hop);
+    }
+    // 5. P3-P5 class chain — fills the miss path with class definitions
+    //    (e.g. `CAP`, `U_MCU`). Only bare base names reach here: the
+    //    grouped/idx branches above handled `MIC{P,N}` / `GPIO1` forms.
+    //    `parent = None`: chain.rs resolves against its own insts/params
+    //    tables (branches 1-4), so only the class-chain exit applies.
+    if let Some(ns_scope::BaseResolved::Container(c)) = ns_scope::first_hop(pname, &[], None, uri) {
+        let hop = Hop::Class(c);
+        mcc_dbg!(
+            "refdef::chain",
+            "[first_hop] class-chain \"{}\" → {}",
             seg,
             hop.desc()
         );
@@ -588,7 +634,7 @@ pub fn resolve_member_chain(
             return None;
         }
     };
-    let mut hop = match first_hop(insts, params, first) {
+    let mut hop = match first_hop(insts, params, first, uri) {
         Some(h) => h,
         None => {
             mcc_dbg!(
@@ -713,7 +759,7 @@ pub fn resolve_base_hit(
             return Some(hit);
         }
     }
-    let hop = first_hop(insts, params, base)?;
+    let hop = first_hop(insts, params, base, uri)?;
     finalize_hit(uri, hop, insts, params)
 }
 
@@ -746,7 +792,48 @@ fn finalize_hit(
         Hop::BusMember { bus, member } => bus_member_hit(uri, &bus, &member, insts),
         Hop::ListMember { list, member } => list_member_hit(uri, &list, &member, insts),
         Hop::Param(name) => param_hit(uri, &name, params),
+        Hop::Class(c) => class_hit(&c),
     }
+}
+
+/// Class-definition target (`CAP`, `U_MCU`, ...): `ClassDef` at the
+/// container's source span in its own definition file.
+fn class_hit(c: &ContainerRef) -> Option<ChainHit> {
+    let hit = match c {
+        ContainerRef::Component(comp) => ChainHit {
+            name: comp.name.to_string(),
+            def_kind: SymbolKind::ClassDef,
+            span: comp.span.start..comp.span.end,
+            uri: comp.uri.clone(),
+        },
+        ContainerRef::Module(m) => ChainHit {
+            name: m.name.to_string(),
+            def_kind: SymbolKind::ClassDef,
+            span: m.span.start..m.span.end,
+            uri: m.uri.clone(),
+        },
+        ContainerRef::Interface(i) => ChainHit {
+            name: i.name.to_string(),
+            def_kind: SymbolKind::ClassDef,
+            span: i.span.start..i.span.end,
+            uri: i.uri.clone(),
+        },
+        ContainerRef::Enum(e) => ChainHit {
+            name: e.name.to_string(),
+            def_kind: SymbolKind::ClassDef,
+            span: e.span[0] as usize..e.span[1] as usize,
+            uri: e.uri.clone(),
+        },
+    };
+    mcc_dbg!(
+        "refdef::chain",
+        "[class_hit] \"{}\" ClassDef span={:?}..{:?} uri={}",
+        hit.name,
+        hit.span.start,
+        hit.span.end,
+        hit.uri.as_str()
+    );
+    Some(hit)
 }
 
 /// Extract the container instance from an `Inst` / `CrossInst` hop.
@@ -755,7 +842,7 @@ fn container_inst<'a>(hop: &'a Hop<'a>) -> Option<&'a McInstance> {
     match hop {
         Hop::Inst { inst, .. } => Some(inst),
         Hop::CrossInst { inst, .. } => Some(inst),
-        _ => None,
+        Hop::BusMember { .. } | Hop::ListMember { .. } | Hop::Param(_) | Hop::Class(_) => None,
     }
 }
 
@@ -970,8 +1057,10 @@ mod tests {
     use crate::semantic::component::mc_layout::McLayout;
     use crate::semantic::component::mc_pins::{McPinPort, McPins};
     use crate::semantic::component::{Mc2Component, McComponent};
+    use crate::semantic::mc_enum::McEnumDef;
     use crate::semantic::mc_func::McFunctions;
     use crate::semantic::mc_inst::McInstance;
+    use crate::semantic::module::McModule;
 
     use crate::McIds;
     use std::sync::Arc;
@@ -1218,5 +1307,59 @@ mod tests {
         assert!(
             resolve_member_chain(&"main.mc".to_string(), "other.I2C0", &insts, &params).is_none()
         );
+    }
+
+    // ── class_hit: `ContainerRef` → `ClassDef` mapping (P3-P5 base fallback) ──
+
+    #[test]
+    fn class_hit_maps_component_def() {
+        let comp = Arc::new(McComponent {
+            name: McIds::from("RES"),
+            params: McParamDeclares::new(),
+            pins: McPins::new(),
+            attrs: McAttributes::new(),
+            funcs: McFunctions::new(),
+            insts: McInstances::new(),
+            layout: McLayout {
+                left: vec![],
+                right: vec![],
+                top: vec![],
+                bottom: vec![],
+            },
+            uri: "lib.mc".to_string(),
+            cond_pins: vec![],
+            cond_attrs: vec![],
+            span: 10..13,
+        });
+        let hit = class_hit(&ContainerRef::Component(comp)).unwrap();
+        assert_eq!(hit.name, "RES");
+        assert_eq!(hit.def_kind, SymbolKind::ClassDef);
+        assert_eq!(hit.span, 10..13);
+        assert_eq!(hit.uri.as_str(), "lib.mc");
+    }
+
+    #[test]
+    fn class_hit_maps_enum_def() {
+        let e = Arc::new(McEnumDef {
+            name: McIds::from("PKG"),
+            span: [20, 23],
+            values: vec![],
+            uri: "lib.mc".to_string(),
+        });
+        let hit = class_hit(&ContainerRef::Enum(e)).unwrap();
+        assert_eq!(hit.name, "PKG");
+        assert_eq!(hit.def_kind, SymbolKind::ClassDef);
+        assert_eq!(hit.span, 20..23);
+        assert_eq!(hit.uri.as_str(), "lib.mc");
+    }
+
+    #[test]
+    fn class_hit_maps_module_def() {
+        let m = Arc::new(McModule::test_stub("PWR"));
+        let hit = class_hit(&ContainerRef::Module(m)).unwrap();
+        assert_eq!(hit.name, "PWR");
+        assert_eq!(hit.def_kind, SymbolKind::ClassDef);
+        // test_stub span covers the bare name (0..len).
+        assert_eq!(hit.span, 0..3);
     }
 }

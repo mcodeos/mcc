@@ -703,6 +703,9 @@ pub const GHOST_PORT: u32 = 4055;
 /// '_X' prefix identifier used as a standalone operand — it is a member name, not the wire '_'.
 pub const LEAD_PREFIX_ID_AS_WIRE: u32 = 4058;
 
+/// Func param shadows a same-named component pin during func body expansion.
+pub const FUNC_PARAM_SHADOWS_PIN: u32 = 4059;
+
 /// Pullup/pulldown degenerated into a signal-signal bridge.
 pub const PULLUP_DEGENERATE: u32 = 4056;
 
@@ -1449,6 +1452,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(SORT_HAZARD, "Bus pin numbers are non-monotonic; member→pin mapping may be wrong after sorting.", "SORT_HAZARD: pin numbers in component '{0}' bus '{1}' are non-monotonic. Member→pin binding: [{2}]. Pin declaration order differs from member order, which may cause incorrect mapping after sorting."),
     entry!(FLOATING_PLACEHOLDER, "A '_' placeholder could not be bound to any pin.", "FLOATING_PLACEHOLDER: '_' placeholder in net '{0}' (module '{1}') could not be bound to any existing pin. The placeholder is floating."),
     entry!(LEAD_PREFIX_ID_AS_WIRE, "'_X' is a prefix identifier (member name), not the wire '_'.", "PREFIX_ID_AS_WIRE: '{0}' is a prefix identifier (member name) like '_OPEN', not the wire '_'. If you meant pass-through in a connection line, write '_' instead."),
+    entry!(FUNC_PARAM_SHADOWS_PIN, "Func param shadows a same-named component pin in function body expansion; the param takes priority.", "FUNC_PARAM_SHADOWS_PIN: func param '{0}' shadows pin of component '{1}' in function body expansion - param takes priority."),
     entry!(GHOST_PORT, "A net endpoint is not mapped to any box — possible unexposed module boundary port.", "GHOST_PORT: net '{0}' endpoint id={1} is not mapped to any box. This pin may cross a module boundary without being properly exposed as a port."),
     entry!(PULLUP_DEGENERATE, "Pullup/pulldown degenerated into a signal-signal bridge.", "PULLUP_DEGENERATE: '{0}' both ends are non-rail nets ({1} ~ {2}). Pullup/Pulldown may have degenerated into a signal-signal bridge instead of (signal, rail)."),
     entry!(NET_DROPPED_STATEMENT, "A single-element square bracket expands to an unknown instance; the statement may produce no nets or constraints.", "DROPPED_STATEMENT: indexed alias '{0}' expands to '{1}' which is not a known instance. The statement may produce no nets or constraints."),

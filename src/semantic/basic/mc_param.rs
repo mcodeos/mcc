@@ -160,6 +160,68 @@ impl McParamValue {
         }
     }
 
+    /// Parse a parameter value without an instance-lookup context.
+    ///
+    /// Used for instance construction args (e.g. `mcu513(V3V3, V1V2)`,
+    /// `::DC(3.3V)`) that are parsed before a function/module context
+    /// exists. Handles every literal kind of [`McParamValue::new`] plus
+    /// plain identifiers; kinds that need a [`HasFindInst`] context
+    /// (opd expressions, function calls, attribute bodies) return `None`
+    /// and are dropped, matching the historical instance-arg behavior.
+    ///
+    /// Plain identifiers keep the `Ids` representation: an OPD-wrapped id
+    /// (`param > opd > ids > id V3V3`) and a square vector (`[VDD, GND]`)
+    /// both produce `McParamValue::Ids` — [`McParamValue::new`] would
+    /// yield `Opd` / `Set` for those shapes, which changes downstream
+    /// binding. `McIds::new` already unwraps `MCAST_PARAM` / `MCAST_OPD`
+    /// wrappers, so no manual unpacking is needed.
+    pub fn new_no_ctx(node: &AstNode) -> Option<Self> {
+        match node.get_type() {
+            // MCAST_PARAM wraps exactly one value node; unwrap it and re-dispatch.
+            MCAST_PARAM => node.get_sub_node().and_then(|sub| Self::new_no_ctx(&sub)),
+            // Placeholder _ used for .Cap(_) etc.
+            MCAST_OPD_USCORE => Some(McParamValue::NONE(String::from("_"))),
+            MCAST_OPD_NC => Some(McParamValue::NC(String::from("NC"))),
+            MCAST_CONST => McConst::new(node).map(McParamValue::Const),
+            MCAST_INT => McInt::new(node).map(McParamValue::Int),
+            MCAST_HEX => McHex::new(node).map(McParamValue::Hex),
+            MCAST_FLOAT => McFloat::new(node).map(McParamValue::Float),
+            MCAST_STRING => McString::new(node).map(McParamValue::String),
+            MCAST_UVALUE | MCAST_UVALUE_AT | MCAST_RANGE_PLUSMINUS => {
+                McUnitValue::new(node).map(McParamValue::UValue)
+            }
+            // Bare (non-OPD) square vector `[VDD, GND]` as a direct value
+            // child — McIds::new accepts it since the grammar's non-`&`
+            // variant shares the MCAST_OPD_SQUARE_VEC member shape, so the
+            // argument is kept as Ids/Square instead of being dropped.
+            MCAST_SQUARE_VEC => McIds::new(node)
+                .filter(|ids| !ids.is_empty())
+                .map(McParamValue::Ids),
+            // Declared unit value (`name::DC(5V)`): a declaration structure,
+            // not a plain argument value. Defensively extract the declared
+            // name from the MCAST_INSTANCE child (mirroring
+            // McUnitValueDeclare::new) so the argument is never silently
+            // dropped; unit/default are only meaningful in declaration
+            // contexts and have no McParamValue representation.
+            MCAST_DECLARE_UV => {
+                let sub = node.get_sub_node()?;
+                let inst = sub.get_next()?;
+                if inst.get_type() != MCAST_INSTANCE {
+                    return None;
+                }
+                let name_node = inst.get_sub_node()?;
+                McIds::new(&name_node)
+                    .filter(|ids| !ids.is_empty())
+                    .map(McParamValue::Ids)
+            }
+            // Plain identifiers (MCAST_ID / IDA / IDS / MCAST_OPD / square
+            // vectors): McIds::new unwraps wrapper layers and yields Ids.
+            _ => McIds::new(node)
+                .filter(|ids| !ids.is_empty())
+                .map(McParamValue::Ids),
+        }
+    }
+
     /// Try to convert to identifier
     pub fn as_ids(&self) -> Option<&McIds> {
         match self {

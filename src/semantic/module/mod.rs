@@ -115,6 +115,27 @@ impl McModule {
         }
     }
 
+    /// Test-only stub constructor: builds a minimal module with no parsed
+    /// body. Available only under `#[cfg(test)]` so instance-layer scope
+    /// unit tests can construct a [`McModuleInst`] without an AST.
+    #[cfg(test)]
+    pub fn test_stub(name: &str) -> Self {
+        Self {
+            name: McIds::from(name),
+            params: McParamDeclares::new(),
+            insts: McInstances::new(),
+            lines: Vec::new(),
+            line_spans: Vec::new(),
+            funcs: McFunctions::new(),
+            uri: McURI::default(),
+            span: crate::ast::ast_semantic::Span {
+                start: 0,
+                end: name.len(),
+            },
+            anon_counter: 1,
+        }
+    }
+
     pub(crate) fn parse_params(&mut self, decl_node: &AstNode) {
         // Parameters divided into 2 categories: data and inst, each parsed separately
         // MCAST_PARAMS
@@ -654,43 +675,14 @@ impl HasFindInst for McModule {
         &self,
         id: &str,
     ) -> Option<(McInstance, Option<std::ops::Range<usize>>)> {
-        // P1: param ports (IO params) — highest priority
-        for (name, span) in self.params.iter_ports_with_span() {
-            if name == id {
-                return Some((McInstance::Label(id.to_string()), Some(span)));
-            }
-        }
-        // P2: param defs (non-port params)
-        for (name, span) in self.params.iter_defs_with_span() {
-            if name == id {
-                return Some((McInstance::Label(id.to_string()), Some(span)));
-            }
-        }
-        // P3: ports (instances with IOType ≠ None, e.g. In, Out, Power)
-        if let Some((iotype, inst)) = self.insts.get_with_iotype(id) {
-            if !matches!(iotype, IOType::None) {
-                let span = self.insts.get_port_span(id);
-                return Some((inst.clone(), span));
-            }
-        }
-        // P4: explicit labels (McInstance::Label entries in insts)
-        for (name, _kind, span) in self.insts.iter_labels_with_span() {
-            if name == id {
-                return Some((McInstance::Label(id.to_string()), Some(span)));
-            }
-        }
-        // P5: remaining non-port, non-label insts (Component/Module/Interface/Bus/List)
-        if let Some((iotype, inst)) = self.insts.get_with_iotype(id) {
-            if matches!(iotype, IOType::None) && !matches!(inst, McInstance::Label(_)) {
-                let span = self.insts.get_port_span(id);
-                return Some((inst.clone(), span));
-            }
-        }
-        // P6: funcs
-        if let Some(func) = self.funcs.find(id) {
-            return Some((McInstance::Func(Arc::new(func.clone())), None));
-        }
-        None
+        // P2 container category chain (§3.3): param ports → param defs →
+        // ports → labels → non-port insts (uniform Bus/List/Interface/
+        // Component coverage) → funcs. Each category is an independent scope
+        // unit in semantic::scope with the same hit logic (and stored spans)
+        // as the original hand-written chain it replaced.
+        crate::semantic::scope::module_scope(self)
+            .resolve(id)
+            .map(|r| (r.inst, r.span))
     }
 
     fn add_label_at(

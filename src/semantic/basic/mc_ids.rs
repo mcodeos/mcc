@@ -193,6 +193,16 @@ impl McIds {
                     segments.push(square_seg);
                 }
             }
+            // Bare (non-OPD-wrapped) square vector, `[VDD, GND]` as a direct
+            // child of a parameter/value node (grammar's non-`&` variant).
+            // Same member shape as MCAST_OPD_SQUARE_VEC, so parse_square
+            // applies unchanged; without this arm the node was dropped by
+            // the `_ => None` fallthrough.
+            MCAST_SQUARE_VEC => {
+                if let Some(square_seg) = Self::parse_square(node) {
+                    segments.push(square_seg);
+                }
+            }
             MCAST_IDS => {
                 // Original logic: handle MCAST_IDS case
                 let Some(ids_subnodes) = node.get_sub_node() else {
