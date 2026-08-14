@@ -78,6 +78,13 @@ mcc parse example.mc -D fcall=debug -vv
 mcc parse example.mc -D pass1=trace -D inst::dump=debug
 ```
 
+**Default logging is quiet.** Plain CLI runs (no `-v` / `-D`) emit warnings only
+(`warn` level). The file-configured `trace.level` / `trace.targets` in
+`~/.mcode/config/mcc.yaml` are loaded into runtime state for `trace.get` but are
+**not applied to CLI runs** — otherwise a file-configured `level: debug` would
+bury command results under INFO/DEBUG logs. File config takes effect only when
+you explicitly pass `-v` / `-D`, or via RPC `trace.set` on a server.
+
 ### RPC Debug Control
 
 ```json
@@ -240,6 +247,13 @@ mcc show params CAP --lib mcode
 mcc show roles SPI --lib mcode
 mcc show values CAP --lib mcode
 
+# Func sub-elements: funcs are NESTED (not top-level defs), so reference
+# them as OWNER.FUNC (dot-qualified; dotted class names work too, e.g.
+# MCU.US513_20_F.i2c → owner "MCU.US513_20_F", func "i2c").
+mcc show params US513.loadFlash -F example.mc        # func parameters (["spi"])
+mcc show nets US513.loadFlash -F example.mc          # func body line-level nets (no Pass2; each connection line → line_N)
+mcc show funcs US513 -F example.mc                   # list funcs of a module/component
+
 # Show all entities in a file / list loaded files
 mcc show file -F example.mc
 mcc show files
@@ -262,6 +276,8 @@ mcc show lapper -F path/to/file.mc -f json-pretty # JSON output
 ```
 
 Show targets: `all`, `file`, `files`, `lapper`, `ast`, `component`, `module`, `interface`, `enum`, `net`, `pins`, `ports`, `labels`, `instances`, `nets`, `attrs`, `funcs`, `params`, `roles`, `values`, `dump`
+
+> `nets` / `params` also accept `OWNER.FUNC` (dot-qualified func inside a module/component). `show nets <func>` reports func-body connection-line nets named `line_N` (no Pass2 — funcs depend on parameters and a calling context).
 
 > `show lapper` — see §6.6 for full debug workflow. Runs locally, outputs all symbol interval DEF/REF classifications and RefDefMap goto-def mappings.
 > `show sem` — RPC-based equivalent: `curl -s -X POST http://localhost:8080/rpc -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"sem","params":{"uri":"<path>"},"id":1}'`. Returns same lapper + RefDefMap data structure.
@@ -731,8 +747,13 @@ MCC_SYSTEM_ROOT=./mc RUST_BACKTRACE=1 cargo run -- mc/projects/hbl/hbl.mc
 ### 5.2 Logging
 
 ```bash
-# Increasing verbosity
-mcc parse example.mc               # warnings only
+# Default (no flags): warnings only. File-configured trace.level/targets are
+# NOT applied to CLI runs — debug output is explicit opt-in:
+mcc show pins RES --lib mcode            # clean result, no engine logs
+mcc -D sem:class show pins RES --lib mcode   # one module at debug level
+mcc -D pass1=trace parse example.mc      # alias + file config, explicit
+
+# Increasing verbosity (overrides the default warn level)
 mcc parse example.mc -v            # info
 mcc parse example.mc -vv           # debug
 mcc parse example.mc -vvv          # trace (very verbose)
@@ -884,16 +905,54 @@ curl -X POST http://127.0.0.1:8080/rpc \
 
 | Code | Meaning | Typical Cause |
 |---|---|---|
-| 1001-1004 | Duplicate definition | Same name used twice in scope |
-| 1100 | Component not found | Missing `use` import or typo |
-| 1101 | Module not found | Module name misspelled |
-| 1102 | Interface not found | Interface not imported |
-| 1103 | Enum not found | Enum value doesn't exist |
-| 1104 | Instance not found | Referencing undefined instance |
-| 1503 | Duplicate module | Module defined in multiple files |
-| 301-303 | Connection error | Pin count mismatch, wrong IO direction |
-| 1200-1202 | Port errors | Undefined port, duplicate port name |
-| 2001-2008 | Detector warnings | D1-D8 circuit structure issues |
+| 1001-1005 | Duplicate definition | Same name used twice in scope |
+| 1051-1060 | Definition structure / CMIE load | Missing subnodes, malformed IO type, define-as-CMIE |
+| 2001-2010 | `use` statement errors | Bad path, target not found, self import, alias collision |
+| 2051 / 2061 / 2071 | Use-stage dependency errors | Undeclared dep, symbol conflict, import not found |
+| 2080-2119 | Parser errors | Syntax error, invalid clause / pin / net / conds |
+| 2121-2127 | Name / declaration parse errors | Missing subnode, failed name extraction |
+| 2171-2172 | Unsupported / unresolved symbol | P1-P5 lookup failed, not supported yet |
+| 2901-2906 | Vector shape validation | Shape mismatch, transpose limit, expand mismatch |
+| 3001-3008 | Pin/port definition | Pin ID/name mismatch, count errors |
+| 3021-3023 | Attribute errors | Type mismatch, unsupported type, missing subnode |
+| 3041-3049 | Unit value (UVAL) errors | Invalid/unsupported unit, bad value format |
+| 3051-3054 | Module body errors | PINS unsupported, role unsupported, unexpected param |
+| 3071 / 3081 | Module method / clause | Method not found, unexpected clause type |
+| 3101-3111 | Params / functions | Invalid param, class/instance expected |
+| 3131-3135 | Function calls / lines | Missing name, parse failure, dropped line |
+| 3151-3180 | Instance / interface reference | Class unresolved, member / pin / port not found |
+| 4001-4027 | Connection / shape | Transpose mismatch, parallel/series invalid, dot misuse |
+| 4050-4058 | Netlist heuristics (D-series) | Ghost port, merged short, sort hazard, floating `_` |
+| 4081-4098 | Layout attribute errors | Missing subnode, type mismatch, malformed edge |
+| 4101-4118 | Netlist / interface binding | Multi-drive, no driver, unconnected, backfeed risk |
+| 4150-4175 | Instantiation checks | Chain link skipped, arg count mismatch, bind failed |
+| 5001-5003 | Cross-file duplicates | Same name defined in another file |
+| 5051-5057 | Naming / style | Lowercase component, single-char instance, shadows CMIE |
+| 5101-5104 | Reference integrity | Undeclared spec key, function without body |
+| 5151-5163 | Ports / pins | Duplicate port, unused pin/port, conflicting options |
+| 5201-5206 | Functions / roles / defaults | Bad param default, enum single value |
+| 5251-5267 | Definition structure (M-series) | Empty body, no pins, duplicate spec key |
+| 5301-5304 | `.int` class checks | Ambiguous name, class not loaded, unconventional suffix |
+| 5351-5357 | Instance / attribute checks | Reserved keyword, arg count, nesting too deep |
+| 5401-5412 | Enum / expression checks | Duplicate value, reversed range, `this` at top level |
+| 5451-5459 | Condition blocks | Empty body, if without else, NC at component level |
+| 5501-5511 | Hardware checks | Power pins excess, pin number gaps, NC contiguous |
+| 5551-5552 | Type / unit compatibility | Free closure variable, incompatible types |
+| 5641-5643 | Global diagnostics | Unused param/port, untyped param |
+| 6001-6004 | ERC | Single-point net, unconnected port, multi-drive, floating net |
+
+The D1-D8 detector codes referenced by build.rs tests map as follows:
+
+| Detector | Code | Constant |
+|---|---|---|
+| D1 | 4053 | SORT_HAZARD |
+| D2 | 4054 | FLOATING_PLACEHOLDER |
+| D3 | 4051 | NET_MERGED_SHORT |
+| D4 | 4050 | GHOST_PORT_BOX |
+| D5 | 4052 | NET_BUS_ORDER_MISMATCH |
+| D6 | 4057 | NET_DROPPED_STATEMENT |
+| D7 | 4056 | PULLUP_DEGENERATE |
+| D8 | 4027 | CONN_AMBIGUOUS_PRECEDENCE |
 
 ### 6.5 Validating Library Changes
 
@@ -1151,14 +1210,20 @@ tail -f ~/.mcode/logs/mcc-server.log
 
 ```yaml
 trace:
-  enabled: false
-  ast: false
-  lexer: false
-  parser: false
-  visit: false
-  pass1: false
-  pass2: false
-  server: false
+  # Base level: off | error | warn | info | debug | trace
+  # Applied only when CLI runs with -v / -D (or via RPC trace.set).
+  # Plain CLI commands (mcc show/parse/check ...) stay at the -v/-q-derived
+  # default (warn) so results are not buried under INFO/DEBUG logs.
+  level: warn
+  # Per-module overrides (mcc::sem::fcall: debug). Enabled per-run with -D:
+  #   mcc -D sem:class parse example.mc
+  # targets:
+  #   mcc::sem::fcall: debug
+  enabled: null
+  ast: null
+  lexer: null
+  parser: null
+  visit: null
 
 parser:
   sort_pins: "pinid"  # pinid | interface
@@ -1204,3 +1269,107 @@ logging:
   level: "info"    # debug | info | warn | error
   file: ""         # empty = stderr only
 ```
+
+---
+
+## 9. MCP Server (mcc-mcp)
+
+`mcc-mcp` is an MCP (Model Context Protocol) server binary that exposes the
+compiler to AI agents over stdio. Every tool delegates to the existing
+JSON-RPC handlers / libmcc API, so there is no duplicated business logic.
+The AI client discovers the tools automatically via `tools/list`; the tool
+name, description, and JSON schema are self-describing.
+
+- Binary: `target/debug/mcc-mcp` (source: `src/bin/mcc_mcp.rs`)
+- Design doc: `mcd/doc/mcp/mcc-mcp-server-design.md`
+
+### 9.1 Connection Configuration
+
+The server speaks MCP over stdio and is launched as a subprocess by the AI
+client. Bind one process to one project via `MCC_PROJECT_ROOT` (state model A).
+
+Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "mcc": {
+      "command": "/Users/dan/work/mo/mcc/target/debug/mcc-mcp",
+      "env": {
+        "MCC_PROJECT_ROOT": "/Users/dan/work/mo/mcd/projects/hbl"
+      }
+    }
+  }
+}
+```
+
+Claude Code:
+
+```bash
+claude mcp add mcc -- /Users/dan/work/mo/mcc/target/debug/mcc-mcp
+# with a project binding:
+claude mcp add mcc --env MCC_PROJECT_ROOT=/Users/dan/work/mo/mcd/projects/hbl \
+  -- /Users/dan/work/mo/mcc/target/debug/mcc-mcp
+```
+
+Cursor / Trae: Settings → MCP → Add server with `command` + `env` (same shape).
+
+Environment variables:
+
+| Variable | Purpose |
+|---|---|
+| `MCC_PROJECT_ROOT` | Project root this instance is bound to (optional; `mcc_load_project` also binds per call) |
+| `MCC_SYSTEM_ROOT` | Override the system root that contains the `mcode` library (optional; auto-probed otherwise) |
+
+Notes:
+- The `mcode` system library is force-loaded at startup, so `mcc_search_defs` /
+  `mcc_show_def` resolve mcode symbols without extra `libs` arguments.
+- Tool failures come back as MCP errors (`INTERNAL_ERROR`) with the original
+  RPC code in the `data.rpc_code` field.
+
+### 9.2 Tools (13)
+
+| Tool | Params (required first) | Purpose |
+|---|---|---|
+| `mcc_validate_component` | `content`, `libs?`, `strict?`, `errors_only?` | Validate an inline MCode snippet; returns diagnostics (E2xxx/E3xxx). Primary AI loop: generate → validate → fix. |
+| `mcc_parse_file` | `file_path`, `include_system?` | Parse a `.mc` file; returns AST summary and diagnostics. |
+| `mcc_explain_error` | `code?` | Explain an error code (e.g. 2008); omit `code` for the full error table. |
+| `mcc_load_project` | `entry` | Load a project entry `.mc` file and its use-dependencies into the workspace; derives the project root by walking up to `project.toml`. |
+| `mcc_check_file` | `file_path`, `libs?`, `strict?`, `errors_only?` | Check a single `.mc` file; returns diagnostics. |
+| `mcc_check_project` | `entry?`, `strict?`, `errors_only?` | Check the whole active project (load it first via `mcc_load_project`); `entry` is required when no project is loaded. |
+| `mcc_build` | `entry?`, `top?`, `include_system?`, `libs?` | Run Pass2 instantiation; returns module tree, connections, and nets. |
+| `mcc_search_defs` | `pattern`, `kind?`, `regex?`, `fuzzy?`, `top?`, `limit?` | Search loaded definitions (component / module / interface / enum / instance). |
+| `mcc_show_def` | `name`, `type_filter?`, `file?`, `top?` | Show detailed definition info: pins, params, funcs, interfaces. |
+| `mcc_lookup` | `className`, `subName?`, `subKind?`, `fromUri?` | Resolve a symbol (supports `uC.PA1` compound references) to its definition location. |
+| `mcc_erc` | — | Electrical rule check on the active workspace: single-point nets, unconnected ports, multi-drive, floating nets. |
+| `mcc_generate_netlist` | `entry`, `top?`, `format?`, `libs?` | Generate a netlist (text / JSON) for a `.mc` file. |
+| `mcc_export` | `kind` (netlist / bom / spice / kicad), `entry`, `top?`, `format?`, `libs?` | Export netlist / BOM / SPICE / KiCad for a `.mc` file. |
+
+### 9.3 Typical Workflow
+
+Follow the design → code → compile → debug → verify loop:
+
+```text
+1. Load project        mcc_load_project(entry="src/main.mc")
+2. Draft / iterate     mcc_validate_component(content="...", libs=["mcode"])
+3. Check               mcc_check_file(file_path="src/main.mc")          # single file
+                       mcc_check_project()                              # whole project (after 1)
+4. Understand errors   mcc_explain_error(code=2008)
+5. Find definitions    mcc_search_defs(pattern="RES", kind="component")
+                       mcc_show_def(name="RES")
+6. Resolve symbols     mcc_lookup(className="uC.PA1")
+7. Build               mcc_build(top="main")                            # Pass2 tree + nets
+8. Electrical check    mcc_erc                                          # after a build/load
+9. Export              mcc_generate_netlist(entry="src/main.mc", top="main")
+                       mcc_export(kind="bom", entry="src/main.mc", top="main")
+```
+
+Iteration loop: `mcc_validate_component` (or `mcc_check_file`) → fix the
+snippet / file → re-check until diagnostics are clean → `mcc_build` →
+`mcc_erc` → `mcc_export`.
+
+Notes:
+- `mcc_check_project` and `mcc_erc` need an active workspace: call
+  `mcc_load_project` (or `mcc_build`) first.
+- `mcc_search_defs` searches everything loaded so far; system mcode symbols
+  are always available because mcode is loaded at startup.

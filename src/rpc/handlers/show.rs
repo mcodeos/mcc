@@ -176,54 +176,23 @@ pub fn handle_show_component(params: Option<Value>) -> RpcResult {
         .iter()
         .find(|(n, _)| n == name_str)
         .map(|(n, u)| (n.clone(), u.clone()))
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("component not found: {name}")))?;
+        .ok_or_else(|| JsonRpcError::custom(32112, &format!("component not found: {name}")))?;
 
     let ident = crate::McIds::from(matched_name.as_str());
     let uri_obj = crate::McURI::from(uri.as_str());
 
     let cmie = crate::get_def(&ident, &uri_obj)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("component not found: {name}")))?;
+        .ok_or_else(|| JsonRpcError::custom(32112, &format!("component not found: {name}")))?;
 
     match cmie {
         crate::McCMIE::Component(comp) => {
-            // Build detailed pin information
-            let pins: Vec<serde_json::Value> = comp
-                .pins
-                .pins
-                .iter()
-                .map(|(pin_id, pin)| {
-                    // Try to extract description from values
-                    let mut desc = String::new();
-                    for val in pin.values.iter() {
-                        if let crate::McAttrVal::AttrLiteral(crate::McLiteral::String(s)) = val {
-                            if !desc.is_empty() {
-                                desc.push(' ');
-                            }
-                            desc.push_str(&s.value);
-                        }
-                    }
-
-                    let mut pin_json = json!({
-                        "id": pin_id,
-                        "iotype": format!("{:?}", pin.iotype),
-                        "names": pin.names,
-                    });
-                    if !desc.is_empty() {
-                        pin_json["description"] = json!(desc);
-                    }
-                    pin_json
-                })
-                .collect();
-
-            Ok(json!({
-                "name": matched_name,
-                "uri": uri,
-                "pins": pins,
-                "pin_count": comp.pins.pins.len(),
-            }))
+            let mut data = pins_json(&comp.pins);
+            data["name"] = json!(matched_name);
+            data["uri"] = json!(uri);
+            Ok(data)
         }
         _ => Err(JsonRpcError::custom(
-            -32002,
+            32111,
             &format!("'{name}' is not a Component"),
         )),
     }
@@ -244,13 +213,13 @@ pub fn handle_show_module(params: Option<Value>) -> RpcResult {
     let (_, module_uri) = modules
         .iter()
         .find(|(n, _)| n == name)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("module not found: {name}")))?;
+        .ok_or_else(|| JsonRpcError::custom(32112, &format!("module not found: {name}")))?;
 
     let uri = crate::McURI::from(module_uri.as_str());
     let ident = crate::McIds::from(name.as_str());
 
     let cmie = crate::get_def(&ident, &uri)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("module not found: {name}")))?;
+        .ok_or_else(|| JsonRpcError::custom(32112, &format!("module not found: {name}")))?;
 
     match cmie {
         crate::McCMIE::Module(module) => {
@@ -270,7 +239,7 @@ pub fn handle_show_module(params: Option<Value>) -> RpcResult {
             }))
         }
         _ => Err(JsonRpcError::custom(
-            -32002,
+            32111,
             &format!("'{name}' is not a Module"),
         )),
     }
@@ -293,13 +262,13 @@ pub fn handle_show_interface(params: Option<Value>) -> RpcResult {
         .iter()
         .find(|(n, _)| n == name_str)
         .map(|(n, u)| (n.clone(), u.clone()))
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("interface not found: {name}")))?;
+        .ok_or_else(|| JsonRpcError::custom(32112, &format!("interface not found: {name}")))?;
 
     let ident = crate::McIds::from(matched_name.as_str());
     let uri_obj = crate::McURI::from(uri.as_str());
 
     let cmie = crate::get_def(&ident, &uri_obj)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("interface not found: {name}")))?;
+        .ok_or_else(|| JsonRpcError::custom(32112, &format!("interface not found: {name}")))?;
 
     match cmie {
         crate::McCMIE::Interface(_) => Ok(json!({
@@ -307,7 +276,7 @@ pub fn handle_show_interface(params: Option<Value>) -> RpcResult {
             "uri": uri,
         })),
         _ => Err(JsonRpcError::custom(
-            -32002,
+            32111,
             &format!("'{name}' is not an Interface"),
         )),
     }
@@ -319,13 +288,13 @@ pub fn handle_show_net(params: Option<Value>) -> RpcResult {
     let p: ShowParams = parse_strict(params)?;
 
     let top_name = crate::mcb_get_first_module_name()
-        .ok_or_else(|| JsonRpcError::custom(-32003, "no module found"))?;
+        .ok_or_else(|| JsonRpcError::custom(32112, "no module found"))?;
 
     let uri = crate::McURI::from(top_name.as_str());
     let ident = crate::McIds::from(top_name.as_str());
 
     let inst = crate::mcc_build(&ident, &uri)
-        .map_err(|e| JsonRpcError::custom(-32002, &format!("build failed: {e}")))?;
+        .map_err(|e| JsonRpcError::custom(32111, &format!("build failed: {e}")))?;
 
     use std::collections::BTreeMap;
     let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -370,7 +339,7 @@ pub fn handle_show_net(params: Option<Value>) -> RpcResult {
             Some(points) => Ok(json!({ "name": name, "points": points })),
             None => {
                 let msg = format!("net not found: {name}");
-                Err(JsonRpcError::custom(32003, &msg))
+                Err(JsonRpcError::custom(32112, &msg))
             }
         }
     }
@@ -505,7 +474,7 @@ pub fn handle_show_enum(params: Option<Value>) -> RpcResult {
         .ok_or_else(|| JsonRpcError::custom(-32602, "show.enum: need to specify name"))?;
 
     let (cmie, uri) = find_def_by_name(name)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("enum not found: {name}")))?;
+        .ok_or_else(|| JsonRpcError::custom(32112, &format!("enum not found: {name}")))?;
 
     match cmie {
         crate::McCMIE::Enum(en) => {
@@ -518,7 +487,7 @@ pub fn handle_show_enum(params: Option<Value>) -> RpcResult {
             }))
         }
         _ => Err(JsonRpcError::custom(
-            -32002,
+            32111,
             &format!("'{name}' is not an Enum"),
         )),
     }
@@ -534,14 +503,14 @@ pub fn handle_show_pins(params: Option<Value>) -> RpcResult {
         .ok_or_else(|| JsonRpcError::custom(-32602, "show.pins: need to specify name"))?;
 
     let (cmie, _) = find_def_by_name(name)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
+        .ok_or_else(|| JsonRpcError::custom(32112, &format!("entity not found: {name}")))?;
 
     let pins = match &cmie {
         crate::McCMIE::Component(c) => &c.pins,
         crate::McCMIE::Interface(i) => &i.pins,
         _ => {
             return Err(JsonRpcError::custom(
-                -32002,
+                32111,
                 &format!("'{name}' does not have pins (only components and interfaces do)"),
             ))
         }
@@ -561,13 +530,13 @@ pub fn handle_show_ports(params: Option<Value>) -> RpcResult {
         .ok_or_else(|| JsonRpcError::custom(-32602, "show.ports: need to specify name"))?;
 
     let (cmie, _) = find_def_by_name(name)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
+        .ok_or_else(|| JsonRpcError::custom(32112, &format!("entity not found: {name}")))?;
 
     let module = match &cmie {
         crate::McCMIE::Module(m) => m,
         _ => {
             return Err(JsonRpcError::custom(
-                -32002,
+                32111,
                 &format!("'{name}' is not a Module"),
             ))
         }
@@ -602,13 +571,13 @@ pub fn handle_show_labels(params: Option<Value>) -> RpcResult {
         .ok_or_else(|| JsonRpcError::custom(-32602, "show.labels: need to specify name"))?;
 
     let (cmie, _) = find_def_by_name(name)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
+        .ok_or_else(|| JsonRpcError::custom(32112, &format!("entity not found: {name}")))?;
 
     let module = match &cmie {
         crate::McCMIE::Module(m) => m,
         _ => {
             return Err(JsonRpcError::custom(
-                -32002,
+                32111,
                 &format!("'{name}' is not a Module"),
             ))
         }
@@ -632,14 +601,14 @@ pub fn handle_show_instances(params: Option<Value>) -> RpcResult {
         .ok_or_else(|| JsonRpcError::custom(-32602, "show.instances: need to specify name"))?;
 
     let (cmie, _) = find_def_by_name(name)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
+        .ok_or_else(|| JsonRpcError::custom(32112, &format!("entity not found: {name}")))?;
 
     let insts = match &cmie {
         crate::McCMIE::Component(c) => &c.insts,
         crate::McCMIE::Module(m) => &m.insts,
         _ => {
             return Err(JsonRpcError::custom(
-                -32002,
+                32111,
                 &format!("'{name}' does not have instances (only components and modules do)"),
             ))
         }
@@ -668,6 +637,17 @@ pub fn handle_show_nets(params: Option<Value>) -> RpcResult {
         .as_ref()
         .ok_or_else(|| JsonRpcError::custom(-32602, "show.nets: need to specify name"))?;
 
+    // Func body nets: `OWNER.FUNC` — connection-line-level nets (no Pass2,
+    // funcs depend on parameters and a calling context).
+    if let Some(func) = find_func_by_path(name) {
+        let nets = func_nets_map(&func);
+        let items: Vec<Value> = nets
+            .iter()
+            .map(|(n, points)| json!({ "name": n, "points": points }))
+            .collect();
+        return Ok(json!({ "name": name, "kind": "func", "count": items.len(), "nets": items }));
+    }
+
     let top = p.top.as_ref().unwrap_or(name);
     let top_uri = crate::mcb_iter_modules()
         .iter()
@@ -679,8 +659,8 @@ pub fn handle_show_nets(params: Option<Value>) -> RpcResult {
     let inst = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         crate::mcc_build(&ident, &top_uri)
     }))
-    .map_err(|_| JsonRpcError::custom(-32002, "build panicked (engine Pass2 bug)"))?
-    .map_err(|e| JsonRpcError::custom(-32002, &format!("build failed: {e}")))?;
+    .map_err(|_| JsonRpcError::custom(32111, "build panicked (engine Pass2 bug)"))?
+    .map_err(|e| JsonRpcError::custom(32111, &format!("build failed: {e}")))?;
 
     let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for conn in &inst.connections {
@@ -728,14 +708,14 @@ pub fn handle_show_attrs(params: Option<Value>) -> RpcResult {
         .ok_or_else(|| JsonRpcError::custom(-32602, "show.attrs: need to specify name"))?;
 
     let (cmie, _) = find_def_by_name(name)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
+        .ok_or_else(|| JsonRpcError::custom(32112, &format!("entity not found: {name}")))?;
 
     let attrs = match &cmie {
         crate::McCMIE::Component(c) => &c.attrs,
         crate::McCMIE::Interface(i) => &i.attrs,
         _ => {
             return Err(JsonRpcError::custom(
-                -32002,
+                32111,
                 &format!("'{name}' does not have attributes (only components and interfaces do)"),
             ))
         }
@@ -760,14 +740,14 @@ pub fn handle_show_funcs(params: Option<Value>) -> RpcResult {
         .ok_or_else(|| JsonRpcError::custom(-32602, "show.funcs: need to specify name"))?;
 
     let (cmie, _) = find_def_by_name(name)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
+        .ok_or_else(|| JsonRpcError::custom(32112, &format!("entity not found: {name}")))?;
 
     let funcs = match &cmie {
         crate::McCMIE::Component(c) => &c.funcs,
         crate::McCMIE::Module(m) => &m.funcs,
         _ => {
             return Err(JsonRpcError::custom(
-                -32002,
+                32111,
                 &format!("'{name}' does not have functions (only components and modules do)"),
             ))
         }
@@ -788,8 +768,26 @@ pub fn handle_show_params(params: Option<Value>) -> RpcResult {
         .as_ref()
         .ok_or_else(|| JsonRpcError::custom(-32602, "show.params: need to specify name"))?;
 
+    // Func params: `OWNER.FUNC` (dot-qualified; funcs are not top-level defs).
+    if let Some(func) = find_func_by_path(name) {
+        let list: Vec<Value> = func
+            .params
+            .iter()
+            .map(|d| param_declare_to_json(d))
+            .collect();
+        let arity = func.params.arity();
+        return Ok(json!({
+            "name": name,
+            "kind": "func",
+            "count": list.len(),
+            "required": arity.required,
+            "optional": arity.optional,
+            "params": list
+        }));
+    }
+
     let (cmie, _) = find_def_by_name(name)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
+        .ok_or_else(|| JsonRpcError::custom(32112, &format!("entity not found: {name}")))?;
 
     let (param_list, arity) = match &cmie {
         crate::McCMIE::Component(c) => {
@@ -806,7 +804,7 @@ pub fn handle_show_params(params: Option<Value>) -> RpcResult {
         }
         _ => {
             return Err(JsonRpcError::custom(
-                -32002,
+                32111,
                 &format!("'{name}' does not have params"),
             ))
         }
@@ -830,13 +828,13 @@ pub fn handle_show_roles(params: Option<Value>) -> RpcResult {
         .ok_or_else(|| JsonRpcError::custom(-32602, "show.roles: need to specify name"))?;
 
     let (cmie, _) = find_def_by_name(name)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
+        .ok_or_else(|| JsonRpcError::custom(32112, &format!("entity not found: {name}")))?;
 
     let iface = match &cmie {
         crate::McCMIE::Interface(i) => i,
         _ => {
             return Err(JsonRpcError::custom(
-                -32002,
+                32111,
                 &format!("'{name}' is not an Interface"),
             ))
         }
@@ -864,13 +862,13 @@ pub fn handle_show_values(params: Option<Value>) -> RpcResult {
         .ok_or_else(|| JsonRpcError::custom(-32602, "show.values: need to specify name"))?;
 
     let (cmie, _) = find_def_by_name(name)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
+        .ok_or_else(|| JsonRpcError::custom(32112, &format!("entity not found: {name}")))?;
 
     let en = match &cmie {
         crate::McCMIE::Enum(e) => e,
         _ => {
             return Err(JsonRpcError::custom(
-                -32002,
+                32111,
                 &format!("'{name}' is not an Enum"),
             ))
         }
@@ -895,7 +893,7 @@ pub fn handle_show_dump(params: Option<Value>) -> RpcResult {
     }
 
     let (cmie, uri) = find_def_by_name(name)
-        .ok_or_else(|| JsonRpcError::custom(-32003, &format!("entity not found: {name}")))?;
+        .ok_or_else(|| JsonRpcError::custom(32112, &format!("entity not found: {name}")))?;
 
     let data = match &cmie {
         crate::McCMIE::Component(comp) => dump_component_json(name, comp, &uri),

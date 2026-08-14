@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Phase 4 · Idiom recognition (范式识别) + M11 Idiom-aware Placement
+//! Phase 4 · Idiom recognition (pattern recognition) + M11 Idiom-aware Placement
 //!
 //! Analyze a laid-out `McVecGraph` to identify sub-circuit idioms (decoupling
 //! caps, diff pairs, pullups, pulldowns, etc.) and compute penalties for violations

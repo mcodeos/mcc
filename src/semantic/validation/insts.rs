@@ -59,7 +59,20 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
             match instance {
                 crate::McInstance::Component(c2) => {
                     let class_name = c2.base.name.to_string();
-                    let def_param_count = c2.base.params.len();
+                    // ★ §P1 C6: a same-name constructor func declares the actual
+                    // constructor arity. `FLASH.GD25Q32E flash(V3V3)` binds its arg
+                    // to `func GD25Q32E([V3V3, GND]::DC(3.3V))` inside the component,
+                    // not to the (empty) header param list. Fall back to the header
+                    // params when no such func exists.
+                    let ctor = class_name
+                        .rsplit('.')
+                        .next()
+                        .and_then(|last| c2.base.funcs.find(last));
+                    let declared = match ctor {
+                        Some(f) => &f.params,
+                        None => &c2.base.params,
+                    };
+                    let def_param_count = declared.len();
                     // Strip NC modifiers from the call arg count
                     let call_arg_count = c2
                         .params
@@ -79,13 +92,11 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                                 "Instance '{}' of component '{}' passes {} args, but '{}' declares {} param(s).",
                                 inst_name, class_name, call_arg_count, class_name, def_param_count
                             ),
-                            code: 2801,
+                            code: crate::errcodes::INST_ARG_COUNT_MISMATCH,
                         });
                     } else if call_arg_count < def_param_count {
                         // Count required: only params that have NO unit type AND NO default value.
-                        let required = c2
-                            .base
-                            .params
+                        let required = declared
                             .iter()
                             .filter(|d| !d.has_unit_type() && !d.has_default_value())
                             .count();
@@ -100,15 +111,31 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                                     inst_name, class_name, call_arg_count, class_name, required,
                                     def_param_count, def_param_count - required
                                 ),
-                                code: 2801,
+                                code: crate::errcodes::INST_ARG_COUNT_MISMATCH,
                             });
                         }
                     }
                 }
                 crate::McInstance::Module(m2) => {
                     let class_name = m2.base.name.to_string();
-                    let module_params: Vec<_> =
-                        m2.base.params.iter().filter(|d| !d.is_port()).collect();
+                    // ★ DC interface params ([VDD_3V3,GND]::DC(3.3V)) ARE the
+                    // constructor args bound by position (`US513 mcu513(V3V3, V1V2)`
+                    // per §P1 C4), so they must count toward the declared arity.
+                    // Only pure ports (Label / Idx / ComponentInstance — e.g. the
+                    // `in signal, ps ground` kind of header entry) are excluded.
+                    let module_params: Vec<_> = m2
+                        .base
+                        .params
+                        .iter()
+                        .filter(|d| {
+                            !matches!(
+                                d.param_type.kind,
+                                crate::semantic::basic::mc_param_type::McParamTypeKind::Label
+                                    | crate::semantic::basic::mc_param_type::McParamTypeKind::Idx
+                                    | crate::semantic::basic::mc_param_type::McParamTypeKind::ComponentInstance { .. }
+                            )
+                        })
+                        .collect();
                     let def_param_count = module_params.len();
                     let call_arg_count = m2.args.len();
 
@@ -122,12 +149,17 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                                 "Instance '{}' of module '{}' passes {} args, but '{}' declares {} param(s).",
                                 inst_name, class_name, call_arg_count, class_name, def_param_count
                             ),
-                            code: 2801,
+                            code: crate::errcodes::INST_ARG_COUNT_MISMATCH,
                         });
                     } else if call_arg_count < def_param_count {
+                        // Required = non-port data params without a default.
+                        // Interface/InterfaceWithRole DC params are ports: they may
+                        // be left unbound here and supplied later via a constructor
+                        // funcall (`mic(V3V3)`) or a net line (`V3V3 -> mic.dc`),
+                        // so they never make the arg count "required".
                         let required = module_params
                             .iter()
-                            .filter(|d| !d.has_default_value())
+                            .filter(|d| !d.is_port() && !d.has_default_value())
                             .count();
                         if call_arg_count < required {
                             acc.push(CheckResult {
@@ -140,7 +172,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                                     inst_name, class_name, call_arg_count, class_name, required,
                                     def_param_count, def_param_count - required
                                 ),
-                                code: 2801,
+                                code: crate::errcodes::INST_ARG_COUNT_MISMATCH,
                             });
                         }
                     }
@@ -169,7 +201,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                                 "Instance '{}' of interface '{}' passes {} args, but '{}' declares {} param(s).",
                                 inst_name, class_name, call_arg_count, class_name, def_param_count
                             ),
-                            code: 2801,
+                            code: crate::errcodes::INST_ARG_COUNT_MISMATCH,
                         });
                     } else if call_arg_count < def_param_count {
                         let required = i2
@@ -189,7 +221,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                                     inst_name, class_name, call_arg_count, class_name, required,
                                     def_param_count, def_param_count - required
                                 ),
-                                code: 2801,
+                                code: crate::errcodes::INST_ARG_COUNT_MISMATCH,
                             });
                         }
                     }
@@ -244,7 +276,7 @@ fn check_role_empty_body(acc: &mut CheckAccumulator) {
                         "Role '{}' in interface '{}' has an empty body (no pins, attrs, or clauses).",
                         role.name, iface.name
                     ),
-                    code: 2802,
+                    code: crate::errcodes::ROLE_EMPTY_BODY,
                 });
             }
         }
@@ -288,7 +320,7 @@ fn check_role_name_conflict(acc: &mut CheckAccumulator) {
                         "Role '{}' in interface '{}' shares a name with a pin/port.",
                         role_name, iface.name
                     ),
-                    code: 2803,
+                    code: crate::errcodes::ROLE_NAME_SHADOWS,
                 });
             }
             if param_names.contains(&role_name) {
@@ -301,7 +333,7 @@ fn check_role_name_conflict(acc: &mut CheckAccumulator) {
                         "Role '{}' in interface '{}' shares a name with a parameter.",
                         role_name, iface.name
                     ),
-                    code: 2803,
+                    code: crate::errcodes::ROLE_NAME_SHADOWS,
                 });
             }
         }
@@ -339,7 +371,7 @@ fn check_func_param_iotype(acc: &mut CheckAccumulator) {
                                     func.name, entry.key().ident, pname,
                                     d.param_type.direction.unwrap().as_str()
                                 ),
-                                code: 2804,
+                                code: crate::errcodes::ATTR_NESTING_TOO_DEEP,
                             });
                         }
                     }
@@ -372,7 +404,7 @@ fn check_func_param_iotype(acc: &mut CheckAccumulator) {
                                     func.name, entry.key().ident, pname,
                                     d.param_type.direction.unwrap().as_str()
                                 ),
-                                code: 2804,
+                                code: crate::errcodes::ATTR_NESTING_TOO_DEEP,
                             });
                         }
                     }
@@ -414,7 +446,7 @@ fn check_role_param_outside_interface(acc: &mut CheckAccumulator) {
                                 entry.key().ident,
                                 pname
                             ),
-                            code: 2805,
+                            code: crate::errcodes::ATTR_PIN_GROUP_UNDEFINED,
                         });
                     }
                 }
@@ -445,7 +477,7 @@ fn check_role_param_outside_interface(acc: &mut CheckAccumulator) {
                                 entry.key().ident,
                                 pname
                             ),
-                            code: 2805,
+                            code: crate::errcodes::ATTR_PIN_GROUP_UNDEFINED,
                         });
                     }
                 }
@@ -515,7 +547,7 @@ fn check_non_constant_default(acc: &mut CheckAccumulator) {
                             entry.key().ident,
                             def_val
                         ),
-                        code: 2806,
+                        code: crate::errcodes::PINS_PLUS_AND_PINS_CONFLICT,
                     });
                 }
             }

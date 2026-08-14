@@ -268,7 +268,8 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
                 match mcc::mcc_build_flat(&mod_ident, &mod_uri, 1000) {
                     Ok((mod_inst, mod_table)) => {
-                        // ★ netcheck Tier 0: 网表体检（硬闸门，不绿则跳过该模块的 viz）
+                        // ★ netcheck Tier 0: netlist health check (hard gate;
+                        // a module failing it skips viz entirely)
                         let nc_report = mcc::instant::netcheck::run(&mod_table);
                         nc_report.print();
                         if !nc_report.is_clean() {
@@ -282,8 +283,16 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
                         }
 
                         mcc::vector::builder::reset_np_warn_count();
-                        let (vec_block, _report) =
+                        let (vec_block, report) =
                             mcc::build_mc_vec_with_report(&mod_inst, &mod_table);
+                        // ★ P5.3: NetShape coverage to CLI — N/M nets have shape info
+                        let ss = &report.shape_stats;
+                        eprintln!(
+                            "shape info: {}/{} nets have shape info ({:.0}%)",
+                            ss.from_source,
+                            ss.total_nets,
+                            ss.coverage() * 100.0
+                        );
                         let graph = mcc::build_mc_vec_graph(&vec_block, &mod_table);
 
                         total_boxes += graph.boxes.len();
@@ -342,7 +351,20 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             let table = mcc::mcc_build_flat(&ident, &entry_uri, 1000)
                 .map_err(|e| anyhow::anyhow!("mcc_build_flat failed: {}", e))?;
 
-            // ★ netcheck Tier 0: 网表体检（硬闸门，不绿则直接 fail）
+            // Pipeline diagnostics gated behind MC_VIZ_DUMP (silent by default).
+            if mcc::viz::log::enabled() {
+                let sub = inst.sub_modules.iter().find(|s| s.name == "mcu513");
+                mcc_dbg!(
+                    "build",
+                    "[CHK] inst-side mcu513.components = {}",
+                    sub.map(|s| s.components.len()).unwrap_or(0)
+                );
+                mcc_dbg!("build", "[DUMP] ====== InstTable contents ======");
+                table.1.dump();
+                mcc_dbg!("build", "[DUMP] ==============================");
+            }
+
+            // ★ netcheck Tier 0: netlist health check (hard gate; fails the build)
             let nc_report = mcc::instant::netcheck::run(&table.1);
             nc_report.print();
 
@@ -940,7 +962,7 @@ module top {
             build_err
         );
         assert!(
-            has_code(&diags, 2001),
+            has_code(&diags, mcc::errcodes::SORT_HAZARD),
             "D1 SORT_HAZARD should fire for non-monotonic pins [5,2]. Diags: {:?}",
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
         );
@@ -958,7 +980,7 @@ module top {
 "#;
         let diags = build_fixture_with_graph(fixture);
         assert!(
-            has_code(&diags, 2002),
+            has_code(&diags, mcc::errcodes::FLOATING_PLACEHOLDER),
             "D2 FLOATING_PLACEHOLDER should fire for unbound '_'. Diags: {:?}",
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
         );
@@ -980,8 +1002,43 @@ module top {
 "#;
         let diags = build_fixture_with_graph(fixture);
         assert!(
-            has_code(&diags, 2003),
+            has_code(&diags, mcc::errcodes::NET_MERGED_SHORT),
             "D3 MERGED_SHORT should fire for duplicate bracket entries. Diags: {:?}",
+            diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn d3_no_fire_for_legit_fanout() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // Fan-out `[P1, P2] -> [G, G]` produces the distinct pairs (P1, G) and
+        // (P2, G) — multiple pins merging onto one net is legitimate and must
+        // NOT be flagged as a merged short (regression: hbl periph.mc:51
+        // `-> [dc.GND, dc.GND]` used to fire E2003).
+        let fixture = r#"
+component RES {
+    pins = [
+        1 = P
+        2 = G
+    ]
+}
+module top {
+    io A, B
+    RES r1, r2
+    [r1.G, r2.G] -> [GND, GND]
+    A -> r1.P
+    B -> r2.P
+}
+"#;
+        let (diags, build_err) = build_fixture(fixture);
+        assert!(
+            build_err.is_none(),
+            "fan-out build should succeed. Build err: {:?}",
+            build_err
+        );
+        assert!(
+            !has_code(&diags, mcc::errcodes::NET_MERGED_SHORT),
+            "D3 MERGED_SHORT should NOT fire for legit fan-out. Diags: {:?}",
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
         );
     }
@@ -1008,7 +1065,7 @@ module top {
 "#;
         let diags = build_fixture_with_graph(fixture);
         assert!(
-            has_code(&diags, 2004),
+            has_code(&diags, mcc::errcodes::GHOST_PORT_BOX),
             "D4 GHOST_PORT should fire for placeholder pins. Diags: {:?}",
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
         );
@@ -1019,6 +1076,8 @@ module top {
     #[test]
     fn d5_bus_order_mismatch_all_pairs() {
         let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // Two distinct components: PORT_A{A, B} connects to PORT_B{X, Y} with
+        // no overlapping member names, so all pairs mismatch positionally.
         let fixture = r#"
 component MyChip {
     pins = [
@@ -1027,8 +1086,9 @@ component MyChip {
     ]
 }
 module top {
-    MyChip chip
-    chip{PORT_A} -> chip{PORT_B}
+    MyChip chipA
+    MyChip chipB
+    chipA{PORT_A} -> chipB{PORT_B}
 }
 "#;
         let (diags, build_err) = build_fixture(fixture);
@@ -1039,9 +1099,72 @@ module top {
             build_err
         );
         assert!(
-            has_code(&diags, 2005) || mismatched > 0,
+            has_code(&diags, mcc::errcodes::NET_BUS_ORDER_MISMATCH) || mismatched > 0,
             "D5 BUS_ORDER_MISMATCH should fire for A↔X, B↔Y. mismatched={} diags: {:?}",
             mismatched,
+            diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
+        );
+    }
+
+    // ── Arity-0 gate (line.rs instance-method dispatch) ────────────────
+    // A no-arg instance method called with arguments must NOT be dispatched:
+    // dispatching it would silently drop the caller's args and wrongly expand
+    // the no-arg body (e.g. `A -> GND_PIN` would short the pin to ground).
+    // NOTE: use a *component* method here — module-level arity-0 funcs are
+    // auto-invoked during instantiate (P2-8), which would mask the gate.
+
+    #[test]
+    fn arity_gate_noarg_method_with_args_not_dispatched() {
+        let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let fixture = r#"
+component CMP {
+    pins = [
+        1 = A
+        2 = GND_PIN
+    ]
+    func noarg() {
+        A -> GND_PIN
+    }
+}
+module top {
+    CMP c1
+    VCC -> c1.A
+    c1.noarg(VCC)
+}
+"#;
+        mcc::mcc_init_no_lib();
+        mcc::mcc_set_system_root(std::path::Path::new(""));
+        let uri = "/mcc/snippet.mc".to_string();
+        mcc::mcc_clear_workspace();
+        mcc::mcc_load_from_string(&uri, fixture);
+        let ident = McIds::from("top");
+        let inst = mcc::mcc_build(&ident, &uri).expect("mcc_build");
+        let diags = mcc::mcc_diagnose_all();
+
+        // Debug dump of every net so a regression shows exactly what got wired.
+        let net_dump: Vec<String> = inst
+            .nets
+            .iter()
+            .map(|(name, pts)| {
+                format!(
+                    "{name}=[{}]",
+                    pts.iter()
+                        .map(|p| format!("{}.{}", p.path, p.member_name.as_deref().unwrap_or("")))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            })
+            .collect();
+        eprintln!("TOP nets: {net_dump:?}");
+
+        // The arity-0 gate must intercept: the no-arg body `A -> GND_PIN` must
+        // NOT be expanded, so no single net may contain both c1.A and GND_PIN.
+        let shorted = inst.nets.values().any(|pts| {
+            pts.iter().any(|p| p.path == "c1.A") && pts.iter().any(|p| p.path.ends_with("GND_PIN"))
+        });
+        assert!(
+            !shorted,
+            "arity-0 method called with args was dispatched — body `A -> GND_PIN` expanded, pin shorted: {net_dump:?}. diags: {:?}",
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
         );
     }
@@ -1061,7 +1184,7 @@ module top {
 "#;
         let (diags, build_err) = build_fixture(fixture);
         assert!(
-            has_code(&diags, 2006),
+            has_code(&diags, mcc::errcodes::NET_DROPPED_STATEMENT),
             "D6 DROPPED_STATEMENT should fire for indexed alias. Build err: {:?}. Diags: {:?}",
             build_err,
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
@@ -1081,7 +1204,7 @@ module top {
 "#;
         let (diags, build_err) = build_fixture(fixture);
         assert!(
-            has_code(&diags, 2007),
+            has_code(&diags, mcc::errcodes::PULLUP_DEGENERATE),
             "D7 PULLUP_DEGENERATE should fire for signal-signal bridge. Build err: {:?}. Diags: {:?}",
             build_err,
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
@@ -1101,7 +1224,7 @@ module top {
 "#;
         let (diags, build_err) = build_fixture(fixture);
         assert!(
-            has_code(&diags, 2008),
+            has_code(&diags, mcc::errcodes::CONN_AMBIGUOUS_PRECEDENCE),
             "D8 AMBIGUOUS_PRECEDENCE should fire for mixed operators. Build err: {:?}. Diags: {:?}",
             build_err,
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()

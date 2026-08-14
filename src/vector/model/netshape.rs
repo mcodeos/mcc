@@ -2,68 +2,68 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! # 网络形状 —— 旁挂式 provenance
+//! # Net shape —— sidecar provenance
 //!
-//! ## 为什么是旁挂而不是改结构
+//! ## Why sidecar instead of restructuring
 //!
-//! `McVecNet` / `McVec` 已经有几百个调用点，整套 islands / sp_model /
-//! ladder_model 都建在上面。**动它们的形状 = 全库重编译 + 全部回归失效。**
+//! `McVecNet` / `McVec` already have hundreds of call sites, with the whole islands / sp_model /
+//! ladder_model stack built on top. **Changing their shape = recompiling the whole library + invalidating every regression.**
 //!
-//! 但真正丢失的信息只有三件：
-//!   1. 这条连接在源码里是**第几道** lane（`visit.rs` 的 `for k in 0..max_w`）
-//!   2. 源码里的**箭头方向**（`->` / `<-` / `-` / `+`）
-//!   3. 这一段是**穿过哪个二端器件**产生的
+//! But only three pieces of information are really lost:
+//!   1. **Which lane** this connection is in the source (the `for k in 0..max_w` loop in `visit.rs`)
+//!   2. The **arrow direction** in the source (`->` / `<-` / `-` / `+`)
+//!   3. **Which two-terminal device** this segment passes through
 //!
-//! 所以做法是：`McVecNet` 加**一个** `Option<NetShape>` 字段，
-//! `None` 时所有老代码行为逐位一致；有值时下游可以停止启发式反推。
+//! So the approach is: add **one** `Option<NetShape>` field to `McVecNet`;
+//! when `None`, all legacy code behaves bit-for-bit identically; when set, downstream can stop reverse-engineering heuristics.
 //!
 //! ```text
-//! 改动面：
-//!   McVec           0 个字段        ← 一动不动
-//!   McVecNet        +1 个 Option    ← 老构造函数保持原签名
-//!   ConnPair        +3 个字段       ← 构造点只有 4 处（visit.rs）
-//!   下游消费方       0 处必须改       ← 想用才用，不用就当没有
+//! Surface of change:
+//!   McVec           0 fields        ← untouched
+//!   McVecNet        +1 Option       ← legacy constructors keep their signatures
+//!   ConnPair        +3 fields       ← only 4 construction sites (visit.rs)
+//!   Downstream      0 required changes ← use it if you want; otherwise it's as if it doesn't exist
 //! ```
 //!
-//! ## 与 `connection_type()` 的关系
+//! ## Relation to `connection_type()`
 //!
-//! `McVecNet::connection_type()` 是从**合并后的点对**反推形状，
-//! 它是网络合并的副产物，会把等电位点误判成总线
-//! （`fromblock.rs::is_real_bus` 的注释已经承认了这点）。
+//! `McVecNet::connection_type()` reverse-engineers the shape from the **merged point pairs**;
+//! it is a byproduct of net merging and misclassifies equipotential points as buses
+//! (the comment in `fromblock.rs::is_real_bus` already acknowledges this).
 //!
-//! `NetShape` 是**源码写的**形状，两者不同源。
-//! 迁移路线：下游先读 `shape`，`None` 时再退回 `connection_type()`。
-//! 等 `shape` 覆盖率稳定到 95%+，再给 `connection_type()` 挂 `#[deprecated]`。
+//! `NetShape` is the shape **written in the source**; the two have different origins.
+//! Migration path: downstream reads `shape` first, and falls back to `connection_type()` when it is `None`.
+//! Once `shape` coverage stabilizes at 95%+, mark `connection_type()` with `#[deprecated]`.
 
 use std::fmt;
 
 // ============================================================================
-// PairDir —— 源码里的箭头方向
+// PairDir —— arrow direction in the source
 // ============================================================================
 
-/// 一段连接在源码里的方向。
+/// Direction of a connection segment in the source.
 ///
-/// 对应 `mcrule.md §10.1`：
-/// - `->` 带方向串联 -> [`PairDir::LtoR`]
-/// - `<-` 反向（规则文档标注为「保留，尚未完全支持」）-> [`PairDir::RtoL`]
-/// - `-` 串联 / `+` 并联 -> [`PairDir::Undirected`]
+/// Corresponds to `mcrule.md §10.1`:
+/// - `->` directed series -> [`PairDir::LtoR`]
+/// - `<-` reversed (marked as "reserved, not yet fully supported" in the rules doc) -> [`PairDir::RtoL`]
+/// - `-` series / `+` parallel -> [`PairDir::Undirected`]
 ///
-/// ★ 这是布局搜索的方向锚。没有它，`t4_current` 这类用例里所有边都是
-/// Neutral，最优解与其左右镜像代价完全相同，只能靠字典序决胜 ——
-/// 也就是「镜像 bug」的真身。
+/// ★ This is the directional anchor of the layout search. Without it, every edge in cases like
+/// `t4_current` is Neutral, the optimal solution and its mirror image cost exactly the same,
+/// and only lexicographic order breaks the tie —— that is the true identity of the "mirror bug".
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PairDir {
-    /// 左 -> 右
+    /// left -> right
     LtoR,
-    /// 右 -> 左
+    /// right -> left
     RtoL,
-    /// 无方向（`-` / `+`），或来源不明
+    /// undirected (`-` / `+`), or unknown origin
     #[default]
     Undirected,
 }
 
 impl PairDir {
-    /// 反转方向（交换 ConnPair 的 left/right 时用）
+    /// Reverse direction (used when swapping a ConnPair's left/right)
     pub fn flipped(self) -> Self {
         match self {
             PairDir::LtoR => PairDir::RtoL,
@@ -88,19 +88,19 @@ impl fmt::Display for PairDir {
 }
 
 // ============================================================================
-// LaneRef —— 向量的第几道
+// LaneRef —— which lane of the vector
 // ============================================================================
 
-/// 一条连接属于向量的哪一道。
+/// Which lane of the vector a connection belongs to.
 ///
-/// 来源：`visit.rs` 的 `for k in 0..max_w` 循环里的 `k` 与 `member_name_opt`。
-/// 这两个值在那个循环里是**完整的**，现在被 `ConnPair` 抹平，
-/// 然后由 `connection.rs::build_star_topology` 用频次统计猜回来。
+/// Source: the `k` and `member_name_opt` from the `for k in 0..max_w` loop in `visit.rs`.
+/// Both values are **complete** in that loop; they are now flattened by `ConnPair`
+/// and later guessed back by `connection.rs::build_star_topology` using frequency statistics.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LaneRef {
-    /// 第几道，从 0 开始
+    /// Which lane, starting from 0
     pub index: u16,
-    /// 这一道的成员名（`"P"` / `"VDD_3V3"` / `"SCLK"`），取不到时为 None
+    /// Member name of this lane (`"P"` / `"VDD_3V3"` / `"SCLK"`); None when unavailable
     pub name: Option<String>,
 }
 
@@ -120,20 +120,20 @@ impl fmt::Display for LaneRef {
 }
 
 // ============================================================================
-// GroupRole —— 一组端点在源码里扮演什么
+// GroupRole —— what role a group of endpoints plays in the source
 // ============================================================================
 
-/// `McVecNet.nets` 里每一组的角色。
+/// Role of each group in `McVecNet.nets`.
 ///
-/// 注意与 `ConnectionType` 的区别：`ConnectionType` 是**推断**出来的拓扑，
-/// 这个是**源码写的**角色。
+/// Note the difference from `ConnectionType`: `ConnectionType` is the **inferred** topology,
+/// while this is the role **written in the source**.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GroupRole {
-    /// 单点：`GND`、`R1.1`
+    /// Single point: `GND`, `R1.1`
     Scalar,
-    /// 总线的 N 道：`MIC{P,N}`、`[VDD_3V3, GND]`
+    /// N lanes of a bus: `MIC{P,N}`, `[VDD_3V3, GND]`
     BusLanes(usize),
-    /// 广播源：1 个点对 N 个点（`mcrule.md §10.4` 的「1 对多广播」）
+    /// Broadcast source: 1 point to N points ("1-to-N broadcast" in `mcrule.md §10.4`)
     Broadcast(usize),
 }
 
@@ -162,54 +162,55 @@ impl fmt::Display for GroupRole {
 }
 
 // ============================================================================
-// NetShape —— 挂在 McVecNet 上的那一个 Option
+// NetShape —— the one Option hanging on McVecNet
 // ============================================================================
 
-/// 一条网络在**源码里**的形状。
+/// The shape of a net **as written in the source**.
 ///
-/// 全部字段都由 `visit.rs` 在建 `ConnPair` 的那一刻填，
-/// 不做任何推断。取不到的字段留空，由日志里的覆盖率说话 ——
-/// **绝不用启发式补**，否则就退化成现在这样：三层猜测互相打架。
+/// All fields are filled by `visit.rs` at the moment the `ConnPair` is built,
+/// with no inference. Fields that can't be obtained are left empty, and the coverage
+/// in the logs speaks for itself —— **never backfill with heuristics**, or it degenerates
+/// into the current state: three layers of guesses fighting each other.
 #[derive(Debug, Clone, Default)]
 pub struct NetShape {
-    /// 各组的角色，顺序与 `McVecNet.nets` 一一对应
+    /// Role of each group, in one-to-one order with `McVecNet.nets`
     pub groups: Vec<GroupRole>,
 
-    /// 整条线的主方向（同一条 line 上多段方向不一致时取多数）
+    /// Overall direction of the whole line (majority when segments on the same line disagree)
     pub dir: PairDir,
 
-    /// 这条网所属的 lane（属于某个总线的第几道）；标量网为 None
+    /// The lane this net belongs to (which lane of a bus); None for scalar nets
     pub lane: Option<LaneRef>,
 
-    /// 源码里这条网串过的二端器件（**顺序即拓扑顺序**）
+    /// Two-terminal devices this net passes through in the source (**order is topological order**)
     ///
-    /// 用途：
-    /// - `M4` 割集的强制规则「带里含无源器件 -> 永远 Wire」直接读这个，
-    ///   不再用 `rails.rs` 的 `touches_passive` 启发式反推
-    /// - `M3` 商图判断一条边是 SP 带还是 direct 带
+    /// Purpose:
+    /// - The `M4` cut-set forced rule "passive device in the belt -> always Wire" reads this directly,
+    ///   no longer reverse-engineering with the `rails.rs` `touches_passive` heuristic
+    /// - `M3` quotient graph decides whether an edge is an SP belt or a direct belt
     pub series_chain: Vec<i64>,
 
-    /// 产生这条网的源码字节位置（诊断用）
+    /// Source byte position that produced this net (for diagnostics)
     pub src_pos: Option<i32>,
 }
 
 impl NetShape {
-    /// 这条网是不是总线的一道
+    /// Whether this net is one lane of a bus
     pub fn is_bus_lane(&self) -> bool {
         self.lane.is_some()
     }
 
-    /// 总线宽度（取各组里最宽的），标量返回 1
+    /// Bus width (widest of all groups); returns 1 for scalars
     pub fn bus_width(&self) -> usize {
         self.groups.iter().map(|g| g.width()).max().unwrap_or(1)
     }
 
-    /// 这条网穿过了无源器件（M4 的 forced-wire 判据）
+    /// Whether this net passes through a passive device (M4's forced-wire criterion)
     pub fn has_series_passive(&self) -> bool {
         !self.series_chain.is_empty()
     }
 
-    /// 有没有实际信息 —— 全空的 shape 等价于 None，不要存
+    /// Whether it carries any real information —— a fully empty shape is equivalent to None; don't store it
     pub fn is_informative(&self) -> bool {
         !self.groups.is_empty()
             || self.dir.is_directed()
@@ -233,16 +234,44 @@ impl fmt::Display for NetShape {
 }
 
 // ============================================================================
-// 覆盖率统计 —— 这是本次改造唯一的验收指标
+// Fix suggestions —— P5.4
 // ============================================================================
 
-/// `shape` 的填充覆盖率。
+/// Generate a fix suggestion for a vector shape mismatch (eval.md §3 / §7).
 ///
-/// **改造完成的判据不是「代码写完了」，是这张表里 `from_source` 占比 ≥ 90%。**
-/// 覆盖率低说明还有路径在走旧的推断分支，那些路径就是下一批要修的。
+/// Enriches diagnostics: when `create_connection` recovers from a row-count
+/// mismatch by truncation, the suggestion tells the user how to make the two
+/// sides pair 1:1 instead (expand a scalar into a vector / explicit `*`).
+/// Returns `None` when the row counts already agree (no mismatch to fix).
+pub fn suggest_shape_fix(lhs_rows: usize, rhs_rows: usize) -> Option<String> {
+    if lhs_rows == rhs_rows {
+        return None;
+    }
+    match (lhs_rows, rhs_rows) {
+        (1, n) => Some(format!(
+            "expand the left scalar into a {n}-row vector to pair 1:1, e.g. [GND, GND]"
+        )),
+        (n, 1) => Some(format!(
+            "expand the right scalar into a {n}-row vector to pair 1:1, e.g. [GND, GND]"
+        )),
+        (l, r) => Some(format!(
+            "row counts differ ({l}x1 vs {r}x1); use an explicit `*` expansion list \
+             (eval.md §7 rule 3) or `_` placeholders to align the widths"
+        )),
+    }
+}
+
+// ============================================================================
+// Coverage statistics —— the only acceptance metric for this change
+// ============================================================================
+
+/// Fill coverage of `shape`.
 ///
-/// ★ v4: `coverage()` = `from_source / total_nets`（有 shape 的网数 / 网总数），
-/// 而非 `from_source / (from_source + inferred)`（那恒为 100%）。
+/// **The criterion for "done" is not "code written", but `from_source` share ≥ 90% in this table.**
+/// Low coverage means some paths still take the old inference branch; those paths are the next batch to fix.
+///
+/// ★ v4: `coverage()` = `from_source / total_nets` (nets with a shape / total nets),
+/// not `from_source / (from_source + inferred)` (that is always 100%).
 #[derive(Debug, Default, Clone)]
 pub struct ShapeStats {
     pub total: usize,
@@ -254,7 +283,7 @@ pub struct ShapeStats {
     pub dir_undirected: usize,
     pub bus_nets: usize,
     pub max_bus_width: usize,
-    /// 没拿到 shape 的网名，用于定位下一个要修的路径
+    /// Names of nets without a shape, used to locate the next path to fix
     pub uncovered: Vec<String>,
 }
 
@@ -316,7 +345,7 @@ impl ShapeStats {
 }
 
 // ============================================================================
-// 测试
+// Tests
 // ============================================================================
 
 #[cfg(test)]
@@ -333,7 +362,7 @@ mod tests {
 
     #[test]
     fn empty_shape_is_not_informative() {
-        // 全空的 shape 应该存 None，不要制造「有 shape 但没信息」的中间态
+        // A fully empty shape should be stored as None; don't create an intermediate state of "has a shape but no information"
         assert!(!NetShape::default().is_informative());
         let s = NetShape {
             dir: PairDir::LtoR,
@@ -370,5 +399,30 @@ mod tests {
         st.observe("b", None);
         assert!((st.coverage() - 0.5).abs() < 1e-9);
         assert_eq!(st.uncovered, vec!["b".to_string()]);
+    }
+
+    // ── P5.4: shape fix suggestions ──
+
+    #[test]
+    fn suggest_fix_none_when_counts_agree() {
+        assert_eq!(suggest_shape_fix(2, 2), None);
+        assert_eq!(suggest_shape_fix(1, 1), None);
+    }
+
+    #[test]
+    fn suggest_fix_expand_scalar_to_vector() {
+        let s = suggest_shape_fix(1, 3).expect("scalar vs vector should suggest");
+        assert!(s.contains("[GND, GND]"), "got: {s}");
+        let s = suggest_shape_fix(4, 1).expect("vector vs scalar should suggest");
+        assert!(s.contains("[GND, GND]"), "got: {s}");
+    }
+
+    #[test]
+    fn suggest_fix_explicit_star_for_named_vectors() {
+        let s = suggest_shape_fix(3, 2).expect("N vs M should suggest");
+        assert!(
+            s.contains("`*`"),
+            "explicit `*` expansion hint expected; got: {s}"
+        );
     }
 }

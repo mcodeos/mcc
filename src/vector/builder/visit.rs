@@ -45,7 +45,7 @@ use super::debug;
 use super::resolve::resolve_netpoint_v2;
 use crate::semantic::common::ConnDir;
 
-/// 将源码连接符方向映射为 PairDir
+/// Map the source connector direction to PairDir
 fn conn_dir_to_pair_dir(d: ConnDir) -> PairDir {
     match d {
         ConnDir::LtoR => PairDir::LtoR,
@@ -143,8 +143,6 @@ impl<'a> McVecBuilder<'a> {
     ///   or use new [`McVecBuilder::try_build`] for `Result`
     pub fn build(&mut self, root: &McModuleInst) -> McVecBlock {
         let block = self.convert_module(root, "");
-        // Print summary once at end of build by default
-        self.report.print_summary();
         // ★ M-1'-A: Collect unique nets from block tree, observe once per net
         self.observe_block_nets(&block);
         debug_assert_eq!(
@@ -152,8 +150,12 @@ impl<'a> McVecBuilder<'a> {
             "ShapeStats: total({}) != total_nets({}) — observe() mismatch",
             self.shape_stats.total, self.shape_stats.total_nets
         );
+        // ★ P5.3: publish shape coverage into the report (N/M nets have shape info)
+        self.report.shape_stats = self.shape_stats.clone();
         // ★ M-1'-A: Log shape coverage statistics
         self.log_shape_stats();
+        // Print summary once at end of build by default
+        self.report.print_summary();
         block
     }
 
@@ -164,7 +166,6 @@ impl<'a> McVecBuilder<'a> {
     /// - `Strict` → `Err(DataLoss)` on any drop/partial/unresolved
     pub fn try_build(&mut self, root: &McModuleInst) -> Result<McVecBlock, BuilderError> {
         let block = self.convert_module(root, "");
-        self.report.print_summary();
         // ★ M-1'-A: Collect unique nets from block tree, observe once per net
         self.observe_block_nets(&block);
         debug_assert_eq!(
@@ -172,8 +173,11 @@ impl<'a> McVecBuilder<'a> {
             "ShapeStats: total({}) != total_nets({}) — observe() mismatch",
             self.shape_stats.total, self.shape_stats.total_nets
         );
+        // ★ P5.3: publish shape coverage into the report (N/M nets have shape info)
+        self.report.shape_stats = self.shape_stats.clone();
         // ★ M-1'-A: Log shape coverage statistics
         self.log_shape_stats();
+        self.report.print_summary();
 
         match self.mode {
             BuildMode::Tolerant => Ok(block),
@@ -495,14 +499,16 @@ impl<'a> McVecBuilder<'a> {
                         if pr.ids.is_empty() {
                             let pos = p.src_pos.unwrap_or(0) as u32;
                             diagnostic_log(
-                                2002,
+                                crate::errcodes::FLOATING_PLACEHOLDER,
                                 DiagnosticLevel::Error,
                                 pos,
                                 1,
-                                &format!(
-                                    "FLOATING_PLACEHOLDER: '_' placeholder in net '{}' (module '{}') \
-                                     could not be bound to any existing pin. The placeholder is floating.",
-                                    net_name, module_path
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::FLOATING_PLACEHOLDER,
+                                    &[
+                                        &net_name as &dyn std::fmt::Display,
+                                        &module_path as &dyn std::fmt::Display,
+                                    ],
                                 ),
                                 &[],
                             );
@@ -550,20 +556,19 @@ impl<'a> McVecBuilder<'a> {
                                 .and_then(|p| p.src_pos)
                                 .unwrap_or(0) as u32;
                             diagnostic_log(
-                                2003,
+                                crate::errcodes::NET_MERGED_SHORT,
                                 DiagnosticLevel::Error,
                                 pos,
                                 1,
-                                &format!(
-                                    "MERGED_SHORT: net '{}' (module '{}') has {} point(s) \
-                                     resolving to the same node (id={}). Paths: {:?}. \
-                                     This may indicate a bracket expansion duplicate or a port \
-                                     declared without bit width causing signal merging.",
-                                    net_name,
-                                    module_path,
-                                    paths.len(),
-                                    id,
-                                    unique_paths
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::NET_MERGED_SHORT,
+                                    &[
+                                        &net_name,
+                                        &module_path,
+                                        &paths.len() as &dyn std::fmt::Display,
+                                        &id as &dyn std::fmt::Display,
+                                        &format!("{:?}", unique_paths),
+                                    ],
                                 ),
                                 &[],
                             );

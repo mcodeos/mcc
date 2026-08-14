@@ -4,8 +4,9 @@
 
 //! Integration tests for `use` statement diagnostics (§11, §14 of use-design.md).
 //!
-//! These tests verify that E800 (undeclared dependency) and E801 (symbol conflict)
-//! diagnostics are properly emitted when parsing files with `use` statements.
+//! These tests verify that USE_DEP_NOT_DECLARED (2051, formerly E800) and
+//! USE_ALIAS_COLLISION (2005, formerly E2002) diagnostics are properly
+//! emitted when parsing files with `use` statements.
 
 use serde_json::Value;
 use std::process::Command;
@@ -45,20 +46,24 @@ module main {
         .expect("pass0 diagnostics");
     let codes: Vec<u64> = diags.iter().filter_map(|d| d["code"].as_u64()).collect();
     assert!(
-        codes.contains(&800),
-        "expected E800 in pass0 diagnostics, got codes: {codes:?}\nfull: {diags:#?}"
+        codes.contains(&2051),
+        "expected USE_DEP_NOT_DECLARED in pass0 diagnostics, got codes: {codes:?}\nfull: {diags:#?}"
     );
-    let e800 = diags.iter().find(|d| d["code"] == 800).expect("E800 entry");
+    let e800 = diags
+        .iter()
+        .find(|d| d["code"] == 2051)
+        .expect("USE_DEP_NOT_DECLARED entry");
     let msg = e800["message"].as_str().unwrap_or_default();
     assert!(
         msg.contains("nonexistent") && msg.contains("undeclared"),
-        "E800 message should mention 'nonexistent' and 'undeclared', got: {msg}"
+        "USE_DEP_NOT_DECLARED message should mention 'nonexistent' and 'undeclared', got: {msg}"
     );
 }
 
 /// §15: third-party library symbols should be hidden until explicitly `use`d.
-/// Referencing such a symbol without `use` should produce E1601 / E1401 / E2606
-/// (and NOT E800, since no `use` statement was written).
+/// Referencing such a symbol without `use` should produce unresolved-class
+/// diagnostics (3154 / 3157 / 5256) and NOT USE_DEP_NOT_DECLARED (2051), since
+/// no `use` statement was written.
 #[test]
 fn third_party_visibility_no_e800_when_not_used() {
     let source = r#"
@@ -72,12 +77,13 @@ module main {
         .expect("pass0 diagnostics");
     let codes: Vec<u64> = diags.iter().filter_map(|d| d["code"].as_u64()).collect();
     assert!(
-        !codes.contains(&800),
-        "E800 should not appear when no `use` statement references a third-party library, got codes: {codes:?}"
+        !codes.contains(&2051),
+        "USE_DEP_NOT_DECLARED should not appear when no `use` statement references a third-party library, got codes: {codes:?}"
     );
-    // We expect unresolved-class diagnostics
+    // We expect unresolved-class diagnostics (INST_CLASS_UNRESOLVED /
+    // INST_NODE_MISSING / INST_CLASS_NOT_LOADED)
     assert!(
-        codes.contains(&1601) || codes.contains(&1401) || codes.contains(&2606),
+        codes.contains(&3157) || codes.contains(&3154) || codes.contains(&5256),
         "expected unresolved-class diagnostic, got codes: {codes:?}"
     );
 }
@@ -133,7 +139,7 @@ fn alias_registers_spacename_without_collision() {
         ])
         .env(
             "MCC_SYSTEM_ROOT",
-            std::env::current_dir().unwrap().parent().unwrap(),
+            std::env::temp_dir().join("mcc-test-root"),
         )
         .output()
         .expect("run JSON parse on alias_user.mc");

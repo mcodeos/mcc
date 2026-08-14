@@ -36,7 +36,11 @@ impl McEnumDef {
         let subnodes = match node.get_sub_node() {
             Some(nodes) => nodes,
             None => {
-                dlog_error(1001, node, "Missing subnodes for enum");
+                dlog_error(
+                    crate::errcodes::ENUM_MISSING_SUBNODES,
+                    node,
+                    &crate::errcodes::format_msg(crate::errcodes::ENUM_MISSING_SUBNODES, &[]),
+                );
                 return None;
             }
         };
@@ -45,7 +49,11 @@ impl McEnumDef {
         let name_node: AstNode = match subnodes.iter().find(|x: &AstNode| x.is_type(MCAST_NAME)) {
             Some(node) => node,
             None => {
-                dlog_error(1001, &subnodes, "Missing name for enum");
+                dlog_error(
+                    crate::errcodes::ENUM_MISSING_NAME,
+                    &subnodes,
+                    &crate::errcodes::format_msg(crate::errcodes::ENUM_MISSING_NAME, &[]),
+                );
                 return None;
             }
         };
@@ -53,7 +61,11 @@ impl McEnumDef {
         let name_ids = match name_node.get_sub_node() {
             Some(nodes) => nodes,
             None => {
-                dlog_error(1001, &name_node, "Missing name ids for enum");
+                dlog_error(
+                    crate::errcodes::ENUM_MISSING_NAME_IDS,
+                    &name_node,
+                    &crate::errcodes::format_msg(crate::errcodes::ENUM_MISSING_NAME_IDS, &[]),
+                );
                 return None;
             }
         };
@@ -67,7 +79,11 @@ impl McEnumDef {
         {
             Some(node) => node,
             None => {
-                dlog_error(1001, &subnodes, "Missing values for enum");
+                dlog_error(
+                    crate::errcodes::ENUM_MISSING_VALUES,
+                    &subnodes,
+                    &crate::errcodes::format_msg(crate::errcodes::ENUM_MISSING_VALUES, &[]),
+                );
                 return None;
             }
         };
@@ -121,21 +137,10 @@ impl HasFindInst for McEnumDef {
         &self,
         id: &str,
     ) -> Option<(McInstance, Option<std::ops::Range<usize>>)> {
-        let enum_name = self.name.to_string();
-        for value in &self.values {
-            if value.name.to_string() == id {
-                let span = value.span[0] as usize..value.span[1] as usize;
-                return Some((
-                    McInstance::EnumVal {
-                        enum_name,
-                        value_name: id.to_string(),
-                        span: Some(span.clone()),
-                    },
-                    Some(span),
-                ));
-            }
-        }
-        None
+        // Enum category chain (§3.3): a single ① enum-values scope unit.
+        crate::semantic::scope::enum_scope(self)
+            .resolve(id)
+            .map(|r| (r.inst, r.span))
     }
 
     fn add_label_at(

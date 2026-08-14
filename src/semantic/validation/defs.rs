@@ -69,7 +69,7 @@ fn check_name_collision(acc: &mut CheckAccumulator) {
                      This creates ambiguity for name resolution.",
                     name
                 ),
-                code: 2701,
+                code: crate::errcodes::DEF_AMBIGUOUS_NAME,
             });
         }
     }
@@ -97,7 +97,7 @@ fn check_name_collision(acc: &mut CheckAccumulator) {
                      This creates ambiguity for name resolution.",
                     name
                 ),
-                code: 2701,
+                code: crate::errcodes::DEF_AMBIGUOUS_NAME,
             });
         }
     }
@@ -125,7 +125,7 @@ fn check_name_collision(acc: &mut CheckAccumulator) {
                      This creates ambiguity for name resolution.",
                     name
                 ),
-                code: 2701,
+                code: crate::errcodes::DEF_AMBIGUOUS_NAME,
             });
         }
     }
@@ -231,7 +231,7 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
                                 entry.key().ident,
                                 iface_name
                             ),
-                            code: 2702,
+                            code: crate::errcodes::DEF_REF_NOT_LOADED,
                         });
                     }
                 }
@@ -261,7 +261,7 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
                                 entry.key().ident,
                                 class_name
                             ),
-                            code: 2702,
+                            code: crate::errcodes::DEF_REF_NOT_LOADED,
                         });
                     }
                 }
@@ -297,7 +297,7 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
                                 entry.key().ident,
                                 cn
                             ),
-                            code: 2702,
+                            code: crate::errcodes::DEF_REF_NOT_LOADED,
                         });
                     }
                 }
@@ -329,7 +329,7 @@ fn check_int_suffix(acc: &mut CheckAccumulator) {
                          reserved for interface names.",
                         name
                     ),
-                    code: 2703,
+                    code: crate::errcodes::COMPONENT_INT_SUFFIX,
                 });
             }
         }
@@ -354,7 +354,7 @@ fn check_int_suffix(acc: &mut CheckAccumulator) {
                         "Enum '{}' has '.int' suffix, which is unconventional for enums.",
                         name
                     ),
-                    code: 2704,
+                    code: crate::errcodes::ENUM_INT_SUFFIX,
                 });
             }
         }
@@ -380,7 +380,7 @@ fn check_int_suffix(acc: &mut CheckAccumulator) {
                          for interfaces.",
                         name
                     ),
-                    code: 2704,
+                    code: crate::errcodes::ENUM_INT_SUFFIX,
                 });
             }
         }

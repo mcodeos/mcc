@@ -1107,11 +1107,12 @@ fn merge_kind(a: &NetKind, b: &NetKind) -> NetKind {
 }
 
 // ============================================================================
-// PROBE-D′ — rail-adjacent 去耦候选计数
+// PROBE-D′ — rail-adjacent decoupling candidate count
 // ----------------------------------------------------------------------------
-// 在 straighten_rail_passives 运行前统计"应当被它处理"的 (b) 类去耦候选。
-// 谓词与 straighten_rail_passives 的匹配逻辑逐条对齐。
-// 期望 [PROBE-D'] candidates = N 与 straighten 的 "straightened N" 相等。
+// Counts the (b)-class decoupling candidates that "should be handled" before
+// straighten_rail_passives runs. The predicate is aligned rule-by-rule with
+// straighten_rail_passives' matching logic.
+// Expect [PROBE-D'] candidates = N to equal straighten's "straightened N".
 // ============================================================================
 
 pub fn probe_rail_passive_candidates(graph: &McVecGraph) {
@@ -1179,17 +1180,17 @@ pub fn probe_rail_passive_candidates(graph: &McVecGraph) {
 
     names.sort();
     crate::vlog!(
-        "[PROBE-D'] rail-adjacent decap candidates = {}: {:?}  (期望 == straightened N)",
+        "[PROBE-D'] rail-adjacent decap candidates = {}: {:?}  (expected == straightened N)",
         names.len(),
         names
     );
 }
 
 // ============================================================================
-// PROBE-C — 普查每层"散乱元素"的真实构成
+// PROBE-C — census the real composition of "scattered elements" at each layer
 // ----------------------------------------------------------------------------
-// 三类：Dot 占位、0-degree 孤儿、dangling pin 悬空引脚。
-// 看哪一类数大，Plan C 就打哪一类。
+// Three classes: Dot placeholders, 0-degree orphans, dangling pins.
+// Whichever class is largest is what Plan C targets.
 // ============================================================================
 
 pub fn probe_scatter_census(graph: &McVecGraph) {
@@ -1254,10 +1255,10 @@ pub fn probe_scatter_census(graph: &McVecGraph) {
 }
 
 // ============================================================================
-// PROBE-COLL — 点名 box_box 碰撞对
+// PROBE-COLL — name-and-shame box_box collision pairs
 // ----------------------------------------------------------------------------
-// 在 audit_all 之前调用，输出每对重叠盒子的名字+kind+重叠量。
-// 据此定位是 place_flags 堆叠还是去重叠覆盖不足。
+// Called before audit_all; prints each overlapping box pair's name + kind + overlap amount.
+// Use it to tell whether the cause is place_flags stacking or insufficient de-overlap.
 // ============================================================================
 
 pub fn probe_box_collisions(graph: &McVecGraph) {

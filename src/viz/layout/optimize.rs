@@ -2,7 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! Phase 5 · Layout-route joint optimization (布局-布线联合优化)
+//! Phase 5 · Layout-route joint optimization
 //!
 //! Replaces the blind 12 px push-apart (`resolve_overlaps_iterative`) with a
 //! simulated-annealing `PlaceOptimizer` whose cost function includes a cheap

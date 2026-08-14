@@ -22,7 +22,7 @@ use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_endpoint::McEndpoint;
 use crate::semantic::basic::mc_param::McParamValue;
 use crate::semantic::basic::mc_phrase::McPhrase;
-use crate::semantic::common::{IOType, McCMIE};
+use crate::semantic::common::{ConnDir, IOType, McCMIE};
 use crate::semantic::mc_func::McFunction;
 use crate::semantic::mc_inst::McInstance;
 use crate::{current_uri, McIds};
@@ -317,7 +317,17 @@ impl McModuleInst {
                     );
                 }
                 McCMIE::Interface(_) => {
-                    // Interface cannot be used as FuncCall construction
+                    // Interface cannot be used as FuncCall construction.
+                    // Deliberately do NOT return here: fall through to the
+                    // user-func / instance-method lookup below (the caller may
+                    // still be a legitimate method call whose name collides
+                    // with an Interface type). The fall-through is structural —
+                    // code after the match runs only when no arm returned —
+                    // so keep it explicit for future readers.
+                    mcc_dbg!(
+                        "inst::fcall",
+                        "[WARN] Cannot instantiate Interface '{func_name}' as FuncCall"
+                    );
                 }
                 McCMIE::Enum(_) => {
                     mcc_dbg!(
@@ -353,67 +363,184 @@ impl McModuleInst {
         }
 
         // 2.5 Phase 2.3: Instance method call (uC.power(...), flash.init(...))
-        //     When caller is a declared sub-module instance and func_name is a
-        //     function defined in that module's type, expand the function body
-        //     in the current module scope (with parameter substitution)
-        //
-        // ── P0-3 fix: unified scope chain resolution via InstFindInst ──────────
-        // Replaces ad-hoc 2-level scope drilling with resolve_inst_chain(),
-        // supporting arbitrary-depth nesting (module → sub_module → component → …).
-        {
-            // Infer caller scope chain from left endpoint
-            let caller_path = left
-                .first()
-                .map(|elem| elem.name.clone())
-                .unwrap_or_default();
-            let scope_segments: Vec<String> =
-                caller_path.split('.').map(|s| s.to_string()).collect();
-
-            if !scope_segments.is_empty() && !scope_segments[0].is_empty() {
-                // Resolve the full scope chain via InstFindInst
-                if let Some(entry) = resolve_inst_chain(&scope_segments, &*self) {
-                    match entry {
-                        InstEntry::SubModule(sub_mod) => {
-                            // Sub-module's own method (e.g. mcu513.some_func())
-                            if let Some(func) = sub_mod.def.funcs.find(&name_str) {
-                                let func_clone = func.clone();
-                                let func_arity = func_clone.params.iter().count();
-                                let call_arity = params.len();
-                                // Don't dispatch no-arg version when caller passed args
-                                if !(func_arity == 0 && call_arity > 0) {
-                                    let full_scope = scope_segments.join(".");
-                                    return self.instantiate_instance_method(
-                                        &full_scope,
-                                        &func_clone,
-                                        params,
-                                        left,
-                                        right,
-                                    );
-                                }
-                            }
-                        }
-                        InstEntry::Component(comp) => {
-                            // Component method (e.g. uC.power(...), mcu513.uC.i2c(...))
-                            if let Some(func) = comp.def.funcs.find(&name_str) {
-                                let func_clone = func.clone();
-                                let full_scope = scope_segments.join(".");
-                                return self.instantiate_instance_method(
-                                    &full_scope,
-                                    &func_clone,
-                                    params,
-                                    left,
-                                    right,
-                                );
-                            }
-                        }
-                        _ => {} // Port/Label/Bus — not applicable for func calls
-                    }
-                }
-            }
+        //     When the caller is a declared sub-module/component instance and
+        //     func_name is a method of that instance's type, expand the method
+        //     body in the current module scope (with parameter substitution).
+        //     Unified scope-chain resolution via InstFindInst (P0-3) supports
+        //     arbitrary-depth nesting (module → sub_module → component → …).
+        //     `try_resolve_instance_method` returns Ok(None) when the caller
+        //     isn't a sub-module/component or the type has no such method —
+        //     we then continue to the final PassThrough handling below.
+        if let Some(fc) = self.try_resolve_instance_method(&name_str, params, left, right)? {
+            return Ok(fc);
         }
 
         // Unrecognized FuncCall → PassThrough (preserve existing behavior: endpoint direct mapping)
+        // Detailed diagnostics for troubleshooting: an unrecognized call usually means a
+        // misspelled method/class name, and the downstream `@?CLASS_n` ghost stub
+        // would otherwise swallow the whole net without any trace.
+        let caller_desc = caller
+            .map(|c| match c {
+                McPhrase::FuncCall(inner) => format!("FuncCall({})", inner.func_name),
+                McPhrase::Endpoint(_) => "Endpoint".into(),
+                _ => format!("{:?}", std::mem::discriminant(c)),
+            })
+            .unwrap_or_else(|| "None".into());
+        crate::db::diagnostic::diagnostic::dlog_trace(
+            944,
+            &format!(
+                "instantiate_funccall: module='{}' func='{name_str}' unrecognized → PassThrough | caller={caller_desc} | params={} | left_elems={} | right_elems={}",
+                self.name,
+                params.len(),
+                left.len(),
+                right.len(),
+            ),
+        );
+        self.record_warning(
+            crate::errcodes::INST_METHOD_FALLBACK,
+            crate::errcodes::format_msg(
+                crate::errcodes::INST_METHOD_FALLBACK,
+                &[&name_str, &self.name],
+            ),
+        );
         Ok(FuncCallInst::PassThrough)
+    }
+
+    /// Phase 2.3: Instance method call (uC.power(...), flash.init(...))
+    ///
+    /// Resolves the caller scope chain via `resolve_inst_chain` (P0-3 unified
+    /// InstFindInst resolution, supporting arbitrary-depth nesting) and expands
+    /// `func_name` when it is a method defined on the resolved instance's type.
+    ///
+    /// Returns:
+    ///   - `Ok(Some(inst))` — method found and instantiated
+    ///   - `Ok(None)`       — caller isn't a sub-module/component, or the type
+    ///     has no such method. The caller decides how to report the miss (the
+    ///     final PassThrough warning 944 in `instantiate_funccall` covers it).
+    fn try_resolve_instance_method(
+        &mut self,
+        name_str: &str,
+        params: &[McParamValue],
+        left: &[McBus],
+        right: &[McBus],
+    ) -> Result<Option<FuncCallInst>, InstError> {
+        // Infer caller scope chain from left endpoint
+        let caller_path = left
+            .first()
+            .map(|elem| elem.name.clone())
+            .unwrap_or_default();
+        let scope_segments: Vec<String> = caller_path.split('.').map(|s| s.to_string()).collect();
+        if scope_segments.is_empty() || scope_segments[0].is_empty() {
+            // No caller on the left endpoint — nothing to resolve.
+            crate::db::diagnostic::diagnostic::dlog_trace(
+                944,
+                &format!(
+                    "try_resolve_instance_method: no caller scope on left endpoint (caller_path='{caller_path}') — method '{name_str}' cannot be resolved (module='{}')",
+                    self.name,
+                ),
+            );
+            return Ok(None);
+        }
+
+        // Resolve the full scope chain via InstFindInst. `entry` is owned, so
+        // the `&self` borrow ends here and `&mut self` calls below are legal.
+        let Some(entry) = resolve_inst_chain(&scope_segments, &*self) else {
+            // Scope chain doesn't resolve to a declared instance — the caller
+            // is probably a typo or an undeclared instance name.
+            crate::db::diagnostic::diagnostic::dlog_trace(
+                944,
+                &format!(
+                    "try_resolve_instance_method: scope chain '{}' does not resolve to any declared instance — method '{name_str}' cannot be resolved (module='{}')",
+                    scope_segments.join("."),
+                    self.name,
+                ),
+            );
+            return Ok(None);
+        };
+        let full_scope = scope_segments.join(".");
+
+        match entry {
+            InstEntry::SubModule(sub_mod) => {
+                // Sub-module's own method (e.g. mcu513.some_func())
+                if let Some(func) = sub_mod.def.funcs.find(name_str) {
+                    let func_clone = func.clone();
+                    let func_arity = func_clone.params.iter().count();
+                    let call_arity = params.len();
+                    // Don't dispatch no-arg version when caller passed args
+                    if !(func_arity == 0 && call_arity > 0) {
+                        crate::db::diagnostic::diagnostic::dlog_trace(
+                            944,
+                            &format!(
+                                "try_resolve_instance_method: resolved '{full_scope}.{name_str}' (sub-module method) — instantiating in module '{}'",
+                                self.name,
+                            ),
+                        );
+                        return Ok(Some(self.instantiate_instance_method(
+                            &full_scope,
+                            &func_clone,
+                            params,
+                            left,
+                            right,
+                        )?));
+                    }
+                    crate::db::diagnostic::diagnostic::dlog_trace(
+                        944,
+                        &format!(
+                            "try_resolve_instance_method: sub-module '{full_scope}' method '{name_str}' has arity 0 but the call passed {call_arity} args — not dispatched (module='{}')",
+                            self.name,
+                        ),
+                    );
+                } else {
+                    crate::db::diagnostic::diagnostic::dlog_trace(
+                        944,
+                        &format!(
+                            "try_resolve_instance_method: sub-module '{full_scope}' has no method '{name_str}' (module='{}')",
+                            self.name,
+                        ),
+                    );
+                }
+            }
+            InstEntry::Component(comp) => {
+                // Component method (e.g. uC.power(...), mcu513.uC.i2c(...))
+                if let Some(func) = comp.def.funcs.find(name_str) {
+                    let func_clone = func.clone();
+                    crate::db::diagnostic::diagnostic::dlog_trace(
+                        944,
+                        &format!(
+                            "try_resolve_instance_method: resolved '{full_scope}.{name_str}' (component method) — instantiating in module '{}'",
+                            self.name,
+                        ),
+                    );
+                    return Ok(Some(self.instantiate_instance_method(
+                        &full_scope,
+                        &func_clone,
+                        params,
+                        left,
+                        right,
+                    )?));
+                }
+                crate::db::diagnostic::diagnostic::dlog_trace(
+                    944,
+                    &format!(
+                        "try_resolve_instance_method: component '{full_scope}' has no method '{name_str}' (module='{}')",
+                        self.name,
+                    ),
+                );
+            }
+            _ => {
+                // Port/Label/Bus — not applicable for func calls. Log the
+                // attempted chain for troubleshooting; the final PassThrough
+                // warning (944) in `instantiate_funccall` still applies.
+                crate::db::diagnostic::diagnostic::dlog_trace(
+                    944,
+                    &format!(
+                        "instantiate_funccall: instance-method chain '{full_scope}' resolved to a port/label/bus terminal — method call '{name_str}' not applicable (module='{}')",
+                        self.name,
+                    ),
+                );
+            }
+        }
+        Ok(None)
     }
 
     /// Look up user-defined function in current module's function table
@@ -459,6 +586,27 @@ impl McModuleInst {
         matches!(u.as_str(), "PULLUP" | "PULLDOWN")
     }
 
+    /// Collect every Series net-expression reachable from a McParamValue
+    /// (including through `Set`), as `(elems, dir)` pairs in order.
+    fn collect_series_params<'a>(
+        value: &'a McParamValue,
+        out: &mut Vec<(&'a [McPhrase], ConnDir)>,
+    ) {
+        match value {
+            McParamValue::Set(values) => {
+                for v in values {
+                    Self::collect_series_params(v, out);
+                }
+            }
+            McParamValue::Phrase(phrase) => {
+                if let McPhrase::Series(elems, dir) = phrase.as_ref() {
+                    out.push((elems.as_slice(), *dir));
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// Wire the 2 pins of the 2-pin element created by the caller per params
     ///
     /// See `is_builtin_twopin_net_fn` documentation for the calling convention.
@@ -468,22 +616,35 @@ impl McModuleInst {
         params: &[McParamValue],
         func_name: &str,
     ) -> Result<(), InstError> {
-        if self.name.contains("513") {
-            mcc_dbg!(
-                "inst::fcall",
-                "[TWOPIN-WIRE] module={} inst_name={inst_name} func={func_name} params={params:?}",
-                self.name
-            );
-        }
         // 1. Flatten all params into a McBus list, then expand to NetPoint
-        let mut elements: Vec<McBus> = Vec::new();
+        // Per-param groups are kept so Pullup/Pulldown can select the rail
+        // member (VCC/VDD) instead of the ground member when the rail arg
+        // expands into a multi-member DC bus (e.g. `Pullup(_CS, V3V3)` →
+        // V3V3 expands to [V3V3.GND, V3V3.VCC], pin2 must land on VCC).
+        let mut param_groups: Vec<Vec<NetPoint>> = Vec::new();
         for p in params {
-            elements.extend(Self::param_value_to_node_elements(p));
+            let mut group: Vec<NetPoint> = Vec::new();
+            // ── P2-13: Series net-expression param (e.g. `Cap([A -> B], GND)`) ──
+            // A net expression like `[dc.VDD_3V3 -> wm7121.VCC]` (possibly
+            // Set-wrapped: `Set([Phrase(Series(...))])`) as a two-pin builtin
+            // argument is a real sub-line: it must create the internal `A ↔ B`
+            // connection (chain each adjacent pair). Previously
+            // param_value_to_node_elements only returned the left endpoint and
+            // the internal chain was never wired (wm7121.VCC stayed floating).
+            let mut series_list: Vec<(&[McPhrase], ConnDir)> = Vec::new();
+            Self::collect_series_params(p, &mut series_list);
+            for (elems, dir) in &series_list {
+                self.process_series_branch_inplace(elems, *dir)?;
+            }
+            // Normal expansion: for a Series param `phrase.get_left()` already
+            // returns the chain's first element, consistent with the target
+            // the builtin element's pin should land on.
+            for e in Self::param_value_to_node_elements(p) {
+                group.extend(self.expand_node_element(&e));
+            }
+            param_groups.push(group);
         }
-        let mut targets: Vec<NetPoint> = Vec::new();
-        for e in &elements {
-            targets.extend(self.expand_node_element(e));
-        }
+        let targets: Vec<NetPoint> = param_groups.iter().flatten().cloned().collect();
         let _found = self.components.iter().any(|c| c.name == inst_name);
 
         // ── D7: PULLUP_DEGENERATE detection ──────────────────────────────────
@@ -519,14 +680,13 @@ impl McModuleInst {
             let t2_is_rail = is_rail(&targets[1]);
             if !t1_is_rail && !t2_is_rail {
                 crate::db::diagnostic::diagnostic::diagnostic_log(
-                    2007,
+                    crate::errcodes::PULLUP_DEGENERATE,
                     crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
                     0,
                     0,
-                    &format!(
-                        "PULLUP_DEGENERATE: '{}' both ends are non-rail nets ({} ~ {}). \
-                         Pullup/Pulldown may have degenerated into a signal-signal bridge instead of (signal, rail).",
-                        func_name, targets[0].path, targets[1].path
+                    &crate::errcodes::format_msg(
+                        crate::errcodes::PULLUP_DEGENERATE,
+                        &[&func_name, &targets[0].path, &targets[1].path],
                     ),
                     &[],
                 );
@@ -580,6 +740,40 @@ impl McModuleInst {
         //    1 target + Pullup/Pulldown → pin2 → target, pin1 left for outer chain
         //    ≥2 targets → pin1 → targets[0], pin2 → targets[1]
         //
+        // ── Pullup/Pulldown (signal, rail) ─────────────────────────────────
+        // `Pullup(_CS, V3V3)` has two params: signal and rail. When the rail
+        // arg expands into a multi-member DC bus (`V3V3` → [V3V3.GND, V3V3.VCC]),
+        // positional pairing would land pin2 on V3V3.GND. Pick the power
+        // member (VCC/VDD) for the rail end so the pull-up reaches the rail.
+        if is_pull && param_groups.len() >= 2 {
+            let sig = param_groups[0].first().cloned();
+            let rail = Self::pick_power_point(&param_groups[1]);
+            if let (Some(s), Some(r)) = (sig, rail) {
+                let id1 = self.next_conn_id();
+                self.connections
+                    .push(ConnectionInst::new(id1, vec![pin1, s]));
+                let id2 = self.next_conn_id();
+                self.connections
+                    .push(ConnectionInst::new(id2, vec![pin2, r]));
+                return Ok(());
+            }
+        }
+        // Single-target pull / fallback: pin2 → first target, pin1 left for outer chain
+        if is_pull {
+            if let Some(t) = targets.first().cloned() {
+                let id2 = self.next_conn_id();
+                self.connections
+                    .push(ConnectionInst::new(id2, vec![pin2, t]));
+            } else {
+                // No targets: pin2 → GND (mirror the .Cap(_) fallback)
+                let gnd = self.node_to_netpoint(&McBus::new("GND"));
+                let id2 = self.next_conn_id();
+                self.connections
+                    .push(ConnectionInst::new(id2, vec![pin2, gnd]));
+            }
+            return Ok(());
+        }
+
         // ── P1-1: `.Cap(x)` single-arg case, pin2 implicitly connects to GND ──────────────
         // Decoupling cap's other pin fixed to GND.
         let mut it = targets.into_iter();
@@ -594,10 +788,10 @@ impl McModuleInst {
                         .push(ConnectionInst::new(id2, vec![pin2, t1]));
                 } else {
                     // .Cap(x) → pin1 → x, pin2 → GND
+                    let gnd = self.node_to_netpoint(&McBus::new("GND"));
                     let id1 = self.next_conn_id();
                     self.connections
                         .push(ConnectionInst::new(id1, vec![pin1, t1]));
-                    let gnd = self.node_to_netpoint(&McBus::new("GND"));
                     let id2 = self.next_conn_id();
                     self.connections
                         .push(ConnectionInst::new(id2, vec![pin2, gnd]));
@@ -1169,5 +1363,44 @@ impl McModuleInst {
             new_components: Vec::new(),
             new_connections,
         })
+    }
+
+    /// Pick the power member of a rail endpoint list for Pullup/Pulldown.
+    ///
+    /// `Pullup(_CS, V3V3)` expands `V3V3` (a DC bus port) into
+    /// `[V3V3.GND, V3V3.VCC]`; the pull-up rail end must land on the power
+    /// member (VCC/VDD), not the ground member. Preference order:
+    /// 1. explicit power-named member (VDD*/VCC*/VIN*/VBAT*/VSYS*/V3V*/V5*)
+    /// 2. any non-ground member
+    /// 3. first member
+    fn pick_power_point(points: &[NetPoint]) -> Option<NetPoint> {
+        if points.is_empty() {
+            return None;
+        }
+        let is_ground = |p: &NetPoint| -> bool {
+            let name = p.path.rsplit('.').next().unwrap_or(&p.path);
+            let u = name.to_uppercase();
+            matches!(u.as_str(), "GND" | "VSS" | "AGND" | "DGND" | "PGND")
+                || u.starts_with("GND")
+                || u.starts_with("VSS")
+        };
+        let is_power = |p: &NetPoint| -> bool {
+            let name = p.path.rsplit('.').next().unwrap_or(&p.path);
+            let u = name.to_uppercase();
+            u.starts_with("VDD")
+                || u.starts_with("VCC")
+                || u.starts_with("VIN")
+                || u.starts_with("VBAT")
+                || u.starts_with("VSYS")
+                || u.starts_with("V3V")
+                || u.starts_with("V5")
+                || matches!(p.iotype, IOType::Power)
+        };
+        points
+            .iter()
+            .find(|p| is_power(p))
+            .or_else(|| points.iter().find(|p| !is_ground(p)))
+            .or_else(|| points.first())
+            .cloned()
     }
 }

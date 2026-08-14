@@ -37,9 +37,9 @@ impl ValidationCheck for StyleCheck {
         // J2: UPPERCASE instance names (deferred — needs inst scan in modules)
         // J3: Identifier shadows library name
         // J4: Empty () on parameterless components (deferred until source syntax is retained)
-        // J5: Copy-pasted function bodies (deferred — AST comparison needed)
+        // J5: Copy-pasted function bodies — implemented in extra.rs as check_dry_functions
         // F1: Reserved name usage
-        // F2: Naming convention (deferred — needs per-project config)
+        // F2: Naming convention — implemented in extra.rs as check_naming_convention
         // F3: Deprecated CMIE usage (deferred — needs deprecation metadata)
 
         check_lowercase_components(acc, &lib_names);
@@ -66,7 +66,7 @@ fn check_lowercase_components(acc: &mut CheckAccumulator, _lib_names: &HashSet<S
                         "Component '{}' starts with lowercase (convention: UPPER_SNAKE).",
                         name
                     ),
-                    code: 2201,
+                    code: crate::errcodes::NAME_COMPONENT_LOWERCASE,
                 });
             }
         }

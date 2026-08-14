@@ -4,17 +4,17 @@
 
 //! Group / Transposed processing + connection generation
 //!
-//! - `get_group_branch_count` / `check_group_broadcast` / `analyze_group_shapes`
+//! - `get_group_branch_count` / `check_group_broadcast`
 //! - `connect_to_group`             —— Connection strategy between Group and external points
-//! - `get_transposed_shape` / `is_transposed` / `get_original_shape_before_transpose`
 //! - `create_connection`            —— Generic N×M connection generation (1:1 / 1:N / N:1 / truncation)
 
+use super::expand::expand_match;
 use super::McModuleInst;
 use crate::db::diagnostic::diagnostic::{diagnostic_log, DiagnosticLevel};
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_phrase::McPhrase;
-use crate::semantic::common::ConnDir;
+use crate::semantic::common::{ConnDir, Shape, ShapeMatcher};
 
 /// D5 BUS_ORDER_MISMATCH: process-level count of mismatched bus bits.
 /// When all pairs in a bus connection have mismatched member names, D5 fires and
@@ -43,31 +43,6 @@ impl McModuleInst {
         match member {
             McPhrase::Group(ref g) => (g.left_match, g.right_match),
             _ => (true, true),
-        }
-    }
-
-    /// Get endpoint-count statistics for each branch inside a Group
-    ///
-    /// Returns (left_sizes, right_sizes)
-    #[allow(dead_code)]
-    pub(super) fn analyze_group_shapes(&mut self, member: &McPhrase) -> (Vec<usize>, Vec<usize>) {
-        match member {
-            McPhrase::Group(ref g) => {
-                let mut left_sizes = Vec::new();
-                let mut right_sizes = Vec::new();
-
-                for phrase in &g.opds {
-                    if let Ok(left_pts) = self.get_left_points_from_phrase(phrase) {
-                        left_sizes.push(left_pts.len());
-                    }
-                    if let Ok(right_pts) = self.get_right_points_from_phrase(phrase) {
-                        right_sizes.push(right_pts.len());
-                    }
-                }
-
-                (left_sizes, right_sizes)
-            }
-            _ => (vec![1], vec![1]),
         }
     }
 
@@ -128,9 +103,14 @@ impl McModuleInst {
         } else {
             // ★ Degraded to warning: connect as much as possible, truncate by min
             self.record_warning(
-                922,
-                format!(
-                    "Group shape mismatch: {external_size} external points vs {group_size} group points ({branch_count} branches), truncating"
+                crate::errcodes::CONN_GROUP_SHAPE_MISMATCH,
+                crate::errcodes::format_msg(
+                    crate::errcodes::CONN_GROUP_SHAPE_MISMATCH,
+                    &[
+                        &external_size as &dyn std::fmt::Display,
+                        &group_size as &dyn std::fmt::Display,
+                        &branch_count as &dyn std::fmt::Display,
+                    ],
                 ),
             );
             let min_size = external_size.min(group_size);
@@ -140,43 +120,6 @@ impl McModuleInst {
         }
 
         Ok(())
-    }
-
-    // ========================================================================
-    // Transpose and reverse processing (Iteration 7)
-    // ========================================================================
-
-    /// Compute the transposed shape
-    ///
-    /// Original shape: (left_count, right_count)
-    /// After transpose: (left_count + right_count, left_count + right_count)
-    ///
-    /// Transposing makes all ports of the element exposed on both sides
-    #[allow(dead_code)]
-    fn get_transposed_shape(inner_line: &McPhrase) -> (usize, usize) {
-        let left_count = inner_line.get_left().len();
-        let right_count = inner_line.get_right().len();
-        let total = left_count + right_count;
-        (total, total)
-    }
-
-    /// Check whether this is a transposed McPhrase
-    #[allow(dead_code)]
-    fn is_transposed(member: &McPhrase) -> bool {
-        matches!(member, McPhrase::Transposed(_))
-    }
-
-    /// Get the original shape before transposition
-    #[allow(dead_code)]
-    fn get_original_shape_before_transpose(member: &McPhrase) -> Option<(usize, usize)> {
-        match member {
-            McPhrase::Transposed(inner_line) => {
-                let left_count = inner_line.get_left().len();
-                let right_count = inner_line.get_right().len();
-                Some((left_count, right_count))
-            }
-            _ => None,
-        }
     }
 
     // ========================================================================
@@ -197,6 +140,25 @@ impl McModuleInst {
             return Ok(());
         }
 
+        // ── §3 shape-match check (eval.md) ────────────────────────────────
+        // Endpoint-layer shape is N×1 (one NetPoint per row). Same row count
+        // → §3 allows 1:1 pairing (by-name / sorted zip); different row count
+        // → §3 rejects, handled by the recovery branch below: 1:N broadcast
+        // (group / DC bus / interface expansion semantics) or
+        // N:M truncation (genuine misalignment → E2901 diagnostic).
+        let lhs_shape = Shape::vvec(left_size);
+        let rhs_shape = Shape::vvec(right_size);
+        let shape_match = ShapeMatcher::match_shape(lhs_shape, rhs_shape);
+        mcc_dbg!(
+            "inst::mod",
+            "[P2-4-CONN] create_connection shape check: {lhs_shape} x {rhs_shape} -> {}",
+            if shape_match.is_ok() {
+                "ok"
+            } else {
+                "row-mismatch"
+            }
+        );
+
         // Helper to create ConnectionInst with consistent lane+dir
         let mk_conn = |id, pts: Vec<NetPoint>, dir: ConnDir, lane: Option<u16>| -> ConnectionInst {
             let mut conn = ConnectionInst::new(id, pts).with_dir(dir);
@@ -207,12 +169,39 @@ impl McModuleInst {
         };
 
         // ── D3: MERGED_SHORT detection ──────────────────────────────────
-        // Check for duplicate paths in left or right points (bracket expansion
-        // like [A, A] creates duplicate connections that merge onto the same node).
+        // A merged short is a genuine defect only when the *same connection
+        // pair* (same left point + same right point) is created more than once,
+        // e.g. `[A, A] -> GND` produces (A, GND) twice. Fan-out such as
+        // `[P1, P2] -> [G, G]` produces the distinct pairs (P1, G) and (P2, G)
+        // and is legitimate (multiple pins merging onto one net) — do not flag it.
         {
-            let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
-            for p in left_points.iter().chain(right_points.iter()) {
-                if !seen.insert(&p.path) {
+            let pairs: Vec<(&str, &str)> = match (left_size, right_size) {
+                (1, _) => left_points
+                    .iter()
+                    .flat_map(|l| {
+                        right_points
+                            .iter()
+                            .map(move |r| (l.path.as_str(), r.path.as_str()))
+                    })
+                    .collect(),
+                (_, 1) => right_points
+                    .iter()
+                    .flat_map(|r| {
+                        left_points
+                            .iter()
+                            .map(move |l| (l.path.as_str(), r.path.as_str()))
+                    })
+                    .collect(),
+                _ => left_points
+                    .iter()
+                    .zip(right_points.iter())
+                    .map(|(l, r)| (l.path.as_str(), r.path.as_str()))
+                    .collect(),
+            };
+            let mut seen: std::collections::HashSet<(&str, &str)> =
+                std::collections::HashSet::new();
+            for (l, r) in pairs {
+                if !seen.insert((l, r)) {
                     // Use the NetPoint's src_pos for accurate error location;
                     // fall back to the current connection line's span, then the
                     // module definition's span start, so the diagnostic points
@@ -222,135 +211,137 @@ impl McModuleInst {
                         .as_ref()
                         .map(|s| s.start as i32)
                         .unwrap_or(self.def.span.start as i32);
-                    let pos = p.src_pos.unwrap_or(fallback) as u32;
-                    let len = p.path.len() as u32;
+                    let pos = left_points
+                        .first()
+                        .and_then(|p| p.src_pos)
+                        .unwrap_or(fallback) as u32;
+                    let len = l.len() as u32 + r.len() as u32 + 1;
                     let msg = format!(
-                        "node=0 MERGED_SHORT: duplicate path '{}' in connection. \
-                         A bracket expansion may contain duplicate entries causing signal merging.",
-                        p.path
+                        "node=0 MERGED_SHORT: duplicate connection pair '{l}' ↔ '{r}' in \
+                         connection. The same two points are connected more than once, \
+                         merging into a short."
                     );
-                    diagnostic_log(2003, DiagnosticLevel::Error, pos, len, &msg, &[]);
+                    diagnostic_log(
+                        crate::errcodes::NET_MERGED_SHORT,
+                        DiagnosticLevel::Error,
+                        pos,
+                        len,
+                        &msg,
+                        &[],
+                    );
                     break;
                 }
             }
         }
 
-        if left_size == right_size {
-            // ── P2-1: BUS BY NAME matching ──────────────────────────────────
-            // When both sides have member_name set (from bus port expansion),
-            // match by member name instead of position. This fixes SPI misalignment
-            // where flash.SPI(CS,MISO,MOSI,SCLK) was zipped positionally against
-            // uC.SPI(SCLK,MOSI,CSN,MISO) and got SCLK→MOSI etc.
-            let matched_by_name = if left_size >= 2 {
-                let mn_left: Vec<Option<&str>> = left_points
-                    .iter()
-                    .map(|p| p.member_name.as_deref())
-                    .collect();
-                let mn_right: Vec<Option<&str>> = right_points
-                    .iter()
-                    .map(|p| p.member_name.as_deref())
-                    .collect();
-                mcc_dbg!("inst::mod", 
-                    "[P2-4-CONN] create_connection: left_size={left_size}, right_size={right_size}, \
-                     left_paths={:?}, right_paths={:?}, left_member_names={mn_left:?}, right_member_names={mn_right:?}",
-                    left_points.iter().map(|p| &p.path).collect::<Vec<_>>(),
-                    right_points.iter().map(|p| &p.path).collect::<Vec<_>>(),
-                );
-                Self::try_match_by_member_name(&left_points, &right_points)
-            } else {
-                None
-            };
+        if let Some(m) = expand_match(&left_points, &right_points) {
+            // ── P4.2: §7 vector expansion matching (eval.md §7) ──────────────
+            // The pure function expand_match replaces the old
+            // try_match_by_member_name + sorted zip:
+            //   Rule 1 layer correspondence — both sides have unique non-empty
+            //              member names that can be paired one-to-one →
+            //              match by name (keep lhs order, deterministic);
+            //   Rule 2 total correspondence — equal counts → zip after stable
+            //              sort by name, also producing the D5 signal;
+            //   Rule 3 count mismatch → None (implicit auto-expansion is
+            //              forbidden, falls into the recovery branch below).
+            // Shape matching has already passed here (equal counts and both
+            // sides non-empty), so expand_match is necessarily Some.
+            mcc_dbg!(
+                "inst::mod",
+                "[P4.2-CONN] create_connection: left_size={left_size}, right_size={right_size}, \
+                 expand pairs={}, all_members_mismatched={}",
+                m.pairs.len(),
+                m.all_members_mismatched,
+            );
 
-            if let Some(pairs) = matched_by_name {
-                for (l, r) in pairs {
-                    let conn = mk_conn(self.next_conn_id(), vec![l, r], dir, lane);
-                    self.connections.push(conn);
-                }
-            } else {
-                // ── P2-4: sort both sides by member name for consistent zip ──
-                // When member names don't match exactly (e.g. VCC vs Vout vs VDD_3V3),
-                // alphabetical sorting ensures GND always matches GND and power rails
-                // match power rails, instead of relying on positional order which may
-                // differ between declaration order and sorted port members.
-                let mut left_sorted: Vec<(usize, &NetPoint)> =
-                    left_points.iter().enumerate().collect();
-                let mut right_sorted: Vec<(usize, &NetPoint)> =
-                    right_points.iter().enumerate().collect();
-                let has_member_names = left_points.iter().all(|p| p.member_name.is_some())
-                    && right_points.iter().all(|p| p.member_name.is_some());
-                if has_member_names {
-                    left_sorted.sort_by(|a, b| {
-                        a.1.member_name.as_deref().cmp(&b.1.member_name.as_deref())
-                    });
-                    right_sorted.sort_by(|a, b| {
-                        a.1.member_name.as_deref().cmp(&b.1.member_name.as_deref())
-                    });
-                }
-                // ── D5: BUS_ORDER_MISMATCH detection ──────────────────────────────
-                // When two multi-point lists are connected 1:1, compare the last
-                // segment of each path at the same index. If they differ, the bus
-                // member order may be misaligned.
-                if left_size >= 2 {
-                    let mut mismatches: Vec<String> = Vec::new();
-                    for (i, ((_, l), (_, r))) in
-                        left_sorted.iter().zip(right_sorted.iter()).enumerate()
-                    {
-                        let l_name = l.path.rsplit('.').next().unwrap_or(&l.path);
-                        let r_name = r.path.rsplit('.').next().unwrap_or(&r.path);
-                        if l_name != r_name {
-                            mismatches.push(format!("#{}: {}↔{}", i, l_name, r_name));
-                        }
-                    }
-                    if !mismatches.is_empty() && mismatches.len() == left_size {
-                        BUS_BITS_MISMATCHED.store(left_size, std::sync::atomic::Ordering::Relaxed);
-                        // Use the first left point's src_pos for error location;
-                        // fall back to the current line's span, then the module's.
-                        let fallback = self
-                            .current_line_span
-                            .as_ref()
-                            .map(|s| s.start as i32)
-                            .unwrap_or(self.def.span.start as i32);
-                        let pos = left_points
-                            .first()
-                            .and_then(|p| p.src_pos)
-                            .unwrap_or(fallback) as u32;
-                        let len = left_points
-                            .first()
-                            .map(|p| p.path.len() as u32)
-                            .unwrap_or(0);
-                        let msg = format!(
-                            "node=0 BUS_ORDER_MISMATCH: all {} pairs have mismatched member names: [{}]. \
-                             This may indicate bus member order misalignment between the two sides.",
-                            left_size, mismatches.join(", ")
-                        );
-                        diagnostic_log(2005, DiagnosticLevel::Error, pos, len, &msg, &[]);
-                    }
-                }
-                for ((_, l), (_, r)) in left_sorted.iter().zip(right_sorted.iter()) {
-                    let conn = mk_conn(
-                        self.next_conn_id(),
-                        vec![(*l).clone(), (*r).clone()],
-                        dir,
-                        lane,
-                    );
-                    self.connections.push(conn);
-                }
+            // ── D5: BUS_ORDER_MISMATCH ─────────────────────────────────────
+            // Multi-point 1:1 connection on both sides, and after the sorted
+            // zip all pair member names are mutually different → the bus member
+            // order may be misaligned (e.g. SPI SCLK↔MOSI). Not reported for a
+            // single pair: for a scalar connection (e.g. VCC→VDD) differing
+            // names are normal, not a bus misalignment.
+            if m.pairs.len() >= 2 && m.all_members_mismatched {
+                BUS_BITS_MISMATCHED.store(m.pairs.len(), std::sync::atomic::Ordering::Relaxed);
+                let mismatches: Vec<String> = m
+                    .pairs
+                    .iter()
+                    .enumerate()
+                    .map(|(i, (l, r))| {
+                        format!(
+                            "#{i}: {}↔{}",
+                            l.member_name.as_deref().unwrap_or(&l.path),
+                            r.member_name.as_deref().unwrap_or(&r.path),
+                        )
+                    })
+                    .collect();
+                // Use the first left point's src_pos for error location;
+                // fall back to the current line's span, then the module's.
+                let fallback = self
+                    .current_line_span
+                    .as_ref()
+                    .map(|s| s.start as i32)
+                    .unwrap_or(self.def.span.start as i32);
+                let pos = left_points
+                    .first()
+                    .and_then(|p| p.src_pos)
+                    .unwrap_or(fallback) as u32;
+                let len = left_points
+                    .first()
+                    .map(|p| p.path.len() as u32)
+                    .unwrap_or(0);
+                let msg = format!(
+                    "node=0 BUS_ORDER_MISMATCH: all {} pairs have mismatched member names: [{}]. \
+                     This may indicate bus member order misalignment between the two sides.",
+                    m.pairs.len(),
+                    mismatches.join(", "),
+                );
+                diagnostic_log(
+                    crate::errcodes::NET_BUS_ORDER_MISMATCH,
+                    DiagnosticLevel::Error,
+                    pos,
+                    len,
+                    &msg,
+                    &[],
+                );
+            }
+
+            for (l, r) in m.pairs {
+                let conn = mk_conn(self.next_conn_id(), vec![l, r], dir, lane);
+                self.connections.push(conn);
             }
         } else if left_size == 1 {
             let l = left_points
                 .into_iter()
                 .next()
                 .ok_or_else(|| InstError::Other("expected 1 left point".into()))?;
+            eprintln!("[P2-4-CONN-1N] module={} left_size=1 right_size={right_size} l={:?} r_paths={:?} r_members={:?}",
+                self.name, (l.path.clone(), l.member_name.clone()),
+                right_points.iter().map(|p| &p.path).collect::<Vec<_>>(),
+                right_points.iter().map(|p| &p.member_name).collect::<Vec<_>>());
             // ── P2: scalar ↔ DC bus → role-aligned, no broadcast (prevent power-to-ground short) ──
             if Self::is_dc_power_bus(&right_points) && !is_ground_name(last_seg(&l.path)) {
+                eprintln!(
+                    "[P2-4-CONN-1N] module={} is_dc_power_bus=true, connect_scalar_to_dc_bus",
+                    self.name
+                );
                 self.connect_scalar_to_dc_bus(&l, &right_points);
             } else if let Some(expanded) = self.try_member_passthrough_scalar(&l, &right_points) {
+                eprintln!(
+                    "[P2-4-CONN-1N] module={} try_member_passthrough_scalar expanded={:?}",
+                    self.name,
+                    expanded
+                        .iter()
+                        .map(|p| (p.path.clone(), p.member_name.clone()))
+                        .collect::<Vec<_>>()
+                );
                 // ── P2/A2: bare submodule port expanded by peer member then per-bit zip ──
                 for (le, r) in expanded.into_iter().zip(right_points.into_iter()) {
                     let conn = mk_conn(self.next_conn_id(), vec![le, r], dir, lane);
                     self.connections.push(conn);
                 }
             } else {
+                eprintln!("[P2-4-CONN-1N] module={} broadcast fallback", self.name);
                 for r in right_points {
                     let conn = mk_conn(self.next_conn_id(), vec![l.clone(), r], dir, lane);
                     self.connections.push(conn);
@@ -361,31 +352,77 @@ impl McModuleInst {
                 .into_iter()
                 .next()
                 .ok_or_else(|| InstError::Other("expected 1 right point".into()))?;
+            eprintln!("[P2-4-CONN-N1] module={} left_size={left_size} right_size=1 r={:?} l_paths={:?} l_members={:?}",
+                self.name, (r.path.clone(), r.member_name.clone()),
+                left_points.iter().map(|p| &p.path).collect::<Vec<_>>(),
+                left_points.iter().map(|p| &p.member_name).collect::<Vec<_>>());
             if Self::is_dc_power_bus(&left_points) && !is_ground_name(last_seg(&r.path)) {
+                eprintln!(
+                    "[P2-4-CONN-N1] module={} is_dc_power_bus=true, connect_scalar_to_dc_bus",
+                    self.name
+                );
                 self.connect_scalar_to_dc_bus(&r, &left_points);
             } else if let Some(expanded) = self.try_member_passthrough_scalar(&r, &left_points) {
+                eprintln!(
+                    "[P2-4-CONN-N1] module={} try_member_passthrough_scalar expanded={:?}",
+                    self.name,
+                    expanded
+                        .iter()
+                        .map(|p| (p.path.clone(), p.member_name.clone()))
+                        .collect::<Vec<_>>()
+                );
                 // ── P2/A2: same as above, scalar on the right ──
                 for (l, re) in left_points.into_iter().zip(expanded.into_iter()) {
                     let conn = mk_conn(self.next_conn_id(), vec![l, re], dir, lane);
                     self.connections.push(conn);
                 }
             } else {
+                eprintln!("[P2-4-CONN-N1] module={} broadcast fallback", self.name);
                 for l in left_points {
                     let conn = mk_conn(self.next_conn_id(), vec![l, r.clone()], dir, lane);
                     self.connections.push(conn);
                 }
             }
         } else {
-            // ★ Degraded to warning: do not abort, truncate connection by min(left, right)
+            // §3 row count mismatch (N×1 vs M×1, N, M ≥ 2): downgraded to a
+            // warning, truncated to min.
+            // No longer silently truncated — E2901 explicitly reports both shapes.
             self.record_warning(
-                920,
-                format!(
-                    "Shape mismatch: left={}, right={}, truncating to min({})",
-                    left_size,
-                    right_size,
-                    left_size.min(right_size)
+                crate::errcodes::CONN_SHAPE_ROW_MISMATCH_RECOVERED,
+                crate::errcodes::format_msg(
+                    crate::errcodes::CONN_SHAPE_ROW_MISMATCH_RECOVERED,
+                    &[
+                        &lhs_shape as &dyn std::fmt::Display,
+                        &rhs_shape as &dyn std::fmt::Display,
+                        &left_size.min(right_size) as &dyn std::fmt::Display,
+                    ],
                 ),
             );
+            // ── P5: E2904 (expand dim mismatch, eval.md §7 rule 3) ─────────
+            // When both sides carry named members, the mismatch is a
+            // bus-member expansion problem: implicit auto-expansion is
+            // forbidden, so a named N×1 vs M×1 pair needs an explicit `*`
+            // expansion list or `_` placeholders. Attach the P5.4 fix
+            // suggestion to the message.
+            if left_points
+                .iter()
+                .chain(right_points.iter())
+                .any(|p| p.member_name.as_deref().is_some_and(|n| !n.is_empty()))
+            {
+                let suggestion =
+                    crate::vector::model::netshape::suggest_shape_fix(left_size, right_size);
+                self.record_warning(
+                    crate::errcodes::SHAPE_EXPAND_DIM_MISMATCH,
+                    crate::errcodes::format_msg(
+                        crate::errcodes::SHAPE_EXPAND_DIM_MISMATCH,
+                        &[
+                            &left_size as &dyn std::fmt::Display,
+                            &right_size as &dyn std::fmt::Display,
+                            &suggestion.as_deref().unwrap_or("") as &dyn std::fmt::Display,
+                        ],
+                    ),
+                );
+            }
             let min_size = left_size.min(right_size);
             for (l, r) in left_points
                 .into_iter()
@@ -405,7 +442,14 @@ impl McModuleInst {
     /// Covers `usbsocket.vin -> V5V`: V5V~vin.POWER_SYS, vin.GND~GND (no short).
     fn connect_scalar_to_dc_bus(&mut self, scalar: &NetPoint, bus: &[NetPoint]) {
         for p in bus {
-            let last = p.path.rsplit('.').next().unwrap_or("");
+            // Prefer member_name for role detection: interface member points carry
+            // the member (e.g. ldo.VOUT.GND → member_name "GND") while the path is
+            // a physical pin id (e.g. "ldo.2") that name heuristics cannot classify.
+            let last = p
+                .member_name
+                .as_deref()
+                .or_else(|| Some(p.path.rsplit('.').next().unwrap_or("")))
+                .unwrap_or("");
             let id = self.next_conn_id();
             if is_ground_name(last) {
                 let gnd = self.node_to_netpoint(&McBus::new("GND"));
@@ -422,72 +466,6 @@ impl McModuleInst {
     /// i.e. it contains both power-rail members and ground members.
     fn is_dc_power_bus(points: &[NetPoint]) -> bool {
         is_dc_power_bus_points(points)
-    }
-
-    /// ── P2-1: try to match two point lists by member name instead of position ──
-    ///
-    /// Returns `Some(reordered_pairs)` if both sides have member_name set and
-    /// a one-to-one name match can be found. Returns `None` if matching fails
-    /// (missing names, duplicate names, or incomplete match).
-    fn try_match_by_member_name(
-        left: &[NetPoint],
-        right: &[NetPoint],
-    ) -> Option<Vec<(NetPoint, NetPoint)>> {
-        use std::collections::HashMap;
-
-        // Build: member_name → left point
-        let mut left_by_name: HashMap<&str, &NetPoint> = HashMap::new();
-        for l in left {
-            if let Some(ref name) = l.member_name {
-                if name.is_empty() {
-                    return None; // empty member name → fallback to position
-                }
-                if left_by_name.contains_key(name.as_str()) {
-                    return None; // duplicate member name → fallback to position
-                }
-                left_by_name.insert(name.as_str(), l);
-            } else {
-                return None; // missing member_name → fallback to position
-            }
-        }
-
-        // Build: member_name → right point
-        let mut right_by_name: HashMap<&str, &NetPoint> = HashMap::new();
-        for r in right {
-            if let Some(ref name) = r.member_name {
-                if name.is_empty() {
-                    return None;
-                }
-                if right_by_name.contains_key(name.as_str()) {
-                    return None;
-                }
-                right_by_name.insert(name.as_str(), r);
-            } else {
-                return None;
-            }
-        }
-
-        // Match: for each left name, find right name
-        // ★ P7-4 [DET]: iterate `left` (declaration order), NOT `left_by_name` —
-        // HashMap iteration order would rotate the emitted pairs, and
-        // `next_conn_id()` numbering then leaks that rotation into `__net_N`
-        // names downstream (two renders of the same source produced
-        // flash~mcu513:__net_26 vs __net_28).
-        let mut pairs: Vec<(NetPoint, NetPoint)> = Vec::new();
-        for l in left {
-            let name = l.member_name.as_deref().unwrap_or("");
-            if let Some(r) = right_by_name.get(name) {
-                pairs.push((l.clone(), (*r).clone()));
-            } else {
-                return None; // name not found on right side → fallback to position
-            }
-        }
-
-        if pairs.len() != left.len() || pairs.len() != right.len() {
-            return None; // incomplete match → fallback to position
-        }
-
-        Some(pairs)
     }
 
     /// ── P2/A2: boundary member passthrough (fallback) ─────────────────────────────────────
@@ -729,7 +707,14 @@ fn is_power_rail_name(s: &str) -> bool {
 /// Whether a set of endpoints constitutes a DC power bus (containing both power-rail members and ground members).
 /// Used by create_connection to determine whether broadcasting would short power to ground.
 fn is_dc_power_bus_points(points: &[NetPoint]) -> bool {
-    let has_pwr = points.iter().any(|p| is_power_rail_name(last_seg(&p.path)));
-    let has_gnd = points.iter().any(|p| is_ground_name(last_seg(&p.path)));
+    // Prefer member_name (interface member points carry it; e.g. ldo.VIN member
+    // "Vin"/"GND") and fall back to the path's last segment for plain labels.
+    fn role_name(p: &NetPoint) -> &str {
+        p.member_name
+            .as_deref()
+            .unwrap_or_else(|| p.path.rsplit('.').next().unwrap_or(&p.path))
+    }
+    let has_pwr = points.iter().any(|p| is_power_rail_name(role_name(p)));
+    let has_gnd = points.iter().any(|p| is_ground_name(role_name(p)));
     has_pwr && has_gnd
 }

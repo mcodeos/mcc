@@ -93,7 +93,7 @@ module main
         .expect("Pass 0 diagnostics");
     assert!(
         diagnostics.iter().any(|diagnostic| {
-            diagnostic["code"] == 2606
+            diagnostic["code"] == 5256
                 && diagnostic["message"]
                     .as_str()
                     .is_some_and(|message| message.contains("MISSING_PART"))

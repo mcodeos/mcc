@@ -126,7 +126,7 @@ pub fn handle_def(params: Option<Value>) -> RpcResult {
     match crate::lsp::gotodef::resolve(&p.name) {
         Some(result) => Ok(result),
         None => Err(JsonRpcError::custom(
-            -32003,
+            32112,
             &format!("definition not found: {}", p.name),
         )),
     }

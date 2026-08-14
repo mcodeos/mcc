@@ -6,8 +6,8 @@ use crate::ast::ast_semantic::Span;
 use crate::db::cmie::cmie::mcb_get_cmie_with_uri;
 use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
-use crate::semantic::mc_func::HasFindInst;
 use crate::semantic::module::McModule;
+use crate::semantic::scope::container_scope;
 use crate::{McCMIE, McIds, McSpaceName, McURI};
 use std::ops::Range;
 use std::sync::Arc;
@@ -27,36 +27,6 @@ pub fn unified_lookup(class_name: &str, from_uri: &McURI) -> Option<(McURI, Span
         McCMIE::Enum(e) => e.span[0] as usize..e.span[1] as usize,
     };
     Some((source_uri, span))
-}
-
-// === pub fn unified_lookup_with_scope( ===
-/// Priority-based lookup using ScopePath.
-///
-/// Searches in 5 levels for a class-level (component/module/interface/enum/function)
-/// definition matching `name`. Returns (uri, span, container_kind).
-///
-/// Priority: P1 (exact scope) → P2 (same container) → P3 (same file) →
-///           P4 (use chain)   → P5 (project/libs).
-pub fn unified_lookup_with_scope(
-    name: &str,
-    scope_path: &crate::ScopePath,
-) -> Option<(McURI, Range<usize>, crate::ContainerKind)> {
-    // P1-P2: search within current scope (container-aware)
-    let ids = McIds::from(name);
-    let (cmie, source_uri) = mcb_get_cmie_with_uri(&ids, &scope_path.uri)?;
-    let span = match &cmie {
-        McCMIE::Component(c) => c.span.clone(),
-        McCMIE::Module(m) => m.span.clone(),
-        McCMIE::Interface(i) => i.span.clone(),
-        McCMIE::Enum(e) => e.span[0] as usize..e.span[1] as usize,
-    };
-    let kind = match &cmie {
-        McCMIE::Component(_) => crate::ContainerKind::Component,
-        McCMIE::Module(_) => crate::ContainerKind::Module,
-        McCMIE::Interface(_) => crate::ContainerKind::Interface,
-        McCMIE::Enum(_) => crate::ContainerKind::Enum,
-    };
-    Some((source_uri, span, kind))
 }
 
 // === pub fn lookup_with_sub( ===
@@ -409,9 +379,10 @@ impl CmieKind {
 /// Holds an owned [`Arc`] to the container, avoiding lifetime coupling with
 /// the DashMap iterator.
 ///
-/// After obtaining a `ContainerRef`, callers delegate to
-/// [`HasFindInst::find_inst_with_span`] for member name resolution
-/// inside the container's internal namespace.
+/// After obtaining a `ContainerRef`, callers resolve members through the
+/// container's unified category chain ([`container_scope`], design
+/// name-resolution-chain-modular.md §3.3) or its thin `find_inst_with_span`
+/// wrapper.
 pub enum ContainerRef {
     Component(Arc<crate::semantic::component::McComponent>),
     Module(Arc<crate::semantic::module::McModule>),
@@ -420,17 +391,16 @@ pub enum ContainerRef {
 }
 
 impl ContainerRef {
-    /// Delegate to the container's [`HasFindInst::find_inst_with_span`].
+    /// Delegate to the container's unified category chain
+    /// ([`container_scope`], design name-resolution-chain-modular.md §3.3) —
+    /// thin wrapper returning the `(inst, span)` pair.
     pub fn find_inst_with_span(
         &self,
         name: &str,
     ) -> Option<(crate::McInstance, Option<Range<usize>>)> {
-        match self {
-            ContainerRef::Component(c) => c.find_inst_with_span(name),
-            ContainerRef::Module(m) => m.find_inst_with_span(name),
-            ContainerRef::Interface(i) => i.find_inst_with_span(name),
-            ContainerRef::Enum(e) => e.find_inst_with_span(name),
-        }
+        container_scope(self)
+            .resolve(name)
+            .map(|r| (r.inst, r.span))
     }
 }
 
@@ -577,8 +547,9 @@ impl SubElementKind {
 /// Phase 2 lookup: find a sub-element (pin, port, param, enum value, func, label)
 /// within a parent container identified by its definition URI and optional name.
 ///
-/// Uses [`find_container`] for cross-library container discovery, then delegates
-/// to [`HasFindInst::find_inst_with_span`] for member name resolution.
+/// Uses [`find_container`] for cross-library container discovery, then resolves
+/// the member through the container's unified category chain
+/// ([`container_scope`], design name-resolution-chain-modular.md §3.3).
 ///
 /// When `container_name` is [`None`], searches all containers of the matching
 /// kind at `parent_uri`.
@@ -596,15 +567,23 @@ pub fn lookup_sub_def(
     if let Some(cn) = container_name {
         let ids = McIds::from(cn);
         let container = find_container(&ids, parent_uri, cmie_kind)?;
-        let (inst, span) = container.find_inst_with_span(name)?;
-        return kind_matches_instance(kind, &inst).then_some(span)?;
+        let resolved = container_scope(&container).resolve(name)?;
+        return if kind_matches_instance(kind, &resolved.inst) {
+            resolved.span
+        } else {
+            None
+        };
     }
 
     // ── container_name is None: search all matching containers at this URI ──
     let uri_str = parent_uri.as_str();
     let try_container = |container: &ContainerRef| {
-        let (inst, span) = container.find_inst_with_span(name)?;
-        kind_matches_instance(kind, &inst).then_some(span)?
+        let resolved = container_scope(container).resolve(name)?;
+        if kind_matches_instance(kind, &resolved.inst) {
+            resolved.span
+        } else {
+            None
+        }
     };
 
     if matches!(cmie_kind, CmieKind::Component | CmieKind::Any) {

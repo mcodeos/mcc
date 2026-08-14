@@ -284,9 +284,10 @@ impl TerminalGraph {
     /// Star / two-terminal are degenerate cases — byte-identical to the old
     /// centre-based layout. Chain (3+ terminals) is the new supported shape.
     fn linear_order(&self) -> Vec<i64> {
-        let start = match self.any_node() {
-            Some(n) => n,
-            None => return Vec::new(),
+        let Some(start) = self.any_node() else {
+            // No terminal pairs — nothing to order. Callers treat the empty
+            // order as "no chain" and fall back to per-island placement.
+            return Vec::new();
         };
         let a = self.bfs_farthest(start);
         let b = self.bfs_farthest(a);
@@ -309,9 +310,10 @@ impl TerminalGraph {
                 .find(|n| order_set.contains(n))
                 .copied()
             {
-                let at = order.iter().position(|x| *x == anchor).unwrap();
-                // Insert to the right of the anchor
-                order.insert(at + 1, t);
+                if let Some(at) = order.iter().position(|x| *x == anchor) {
+                    // Insert to the right of the anchor
+                    order.insert(at + 1, t);
+                }
             }
         }
 
@@ -322,6 +324,12 @@ impl TerminalGraph {
 /// Build a TerminalGraph from raw terminal pairs (before models are built).
 /// `island_pairs` are `(island_idx, term_a, term_b)` from `find_terminals`.
 /// Direct bands are offset by `island_pairs.len()` to avoid index collision.
+///
+/// NOTE: band indices stored in `incident` must be **dense** (0..N) because
+/// they index directly into `ends`. The island index in the tuple is *not*
+/// guaranteed to be contiguous (stub / MultiPort / failed islands are skipped
+/// before reaching here), so using it as a band index caused an out-of-bounds
+/// panic in `TerminalGraph::adjacent`.
 fn build_terminal_graph_from_pairs(
     island_pairs: &[(usize, i64, i64)],
     direct_bands: &[DirectBand],
@@ -353,12 +361,15 @@ fn build_terminal_graph_from_pairs(
 /// Left = earlier in the chain, right = later. This naturally handles
 /// 2-terminal, star, and chain topologies without special cases.
 fn ordered_terminals_by_chain(a: i64, b: i64, order: &[i64]) -> (i64, i64) {
-    let pos_a = order.iter().position(|&t| t == a).unwrap();
-    let pos_b = order.iter().position(|&t| t == b).unwrap();
-    if pos_a < pos_b {
-        (a, b)
-    } else {
-        (b, a)
+    match (
+        order.iter().position(|&t| t == a),
+        order.iter().position(|&t| t == b),
+    ) {
+        (Some(pos_a), Some(pos_b)) if pos_a < pos_b => (a, b),
+        (Some(_), Some(_)) => (b, a),
+        // Terminal missing from the chain — keep the source ordering instead
+        // of panicking (can happen when a branch node is not on any chain).
+        _ => (a, b),
     }
 }
 
@@ -508,7 +519,7 @@ pub fn decompose(graph: &McVecGraph) -> Decomposition {
 }
 
 // ============================================================================
-// ★ apply_islands — 将分解结果落成几何（Phase 2: band 装配）
+// ★ apply_islands — commit the decomposition to geometry (Phase 2: band assembly)
 // ============================================================================
 
 /// Try to apply island-based layout. Returns `true` if **at least one** island was
@@ -617,7 +628,7 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
                     // ★ Debug assertion: terminals must belong to this island
                     debug_assert!(
                         isl_boxes.contains(&left_box) && isl_boxes.contains(&right_box),
-                        "island#{i}: 给模型的端子 ({left_box}, {right_box}) 不是这个岛的边界盒 {isl_boxes:?}"
+                        "island#{i}: the model terminals ({left_box}, {right_box}) are not boundary boxes of this island {isl_boxes:?}"
                     );
 
                     let passive_boxes: Vec<i64> =
@@ -671,7 +682,7 @@ pub fn apply_islands(graph: &mut McVecGraph, d: &Decomposition) -> bool {
                     // ★ Debug assertion: terminals must belong to this island
                     debug_assert!(
                         isl_boxes.contains(&left_box) && isl_boxes.contains(&right_box),
-                        "island#{i}: 给模型的端子 ({left_box}, {right_box}) 不是这个岛的边界盒 {isl_boxes:?}"
+                        "island#{i}: the model terminals ({left_box}, {right_box}) are not boundary boxes of this island {isl_boxes:?}"
                     );
 
                     let left_name = box_label(&box_by_id, left_box);
@@ -983,7 +994,7 @@ fn place_terminal_box(
         if !b.pins.is_empty() && !b.pins.iter().any(|p| p.id == pin_id) {
             crate::viz::SYNTHETIC_PIN_COUNT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             mcc_dbg!("viz",
-                "[viz] GHOST_PIN: pin {pin_id} 不属于 box#{} (合成端子，可能来自端口标量/成员处理或未解析的端点引用)，跳过",
+                "[viz] GHOST_PIN: pin {pin_id} does not belong to box#{} (synthetic terminal, possibly from port scalar/member handling or an unresolved endpoint reference), skipping",
                 b.id
             );
             continue;
@@ -1050,7 +1061,7 @@ fn apply_chain_layout(
         };
         let g = i0.min(i1);
         if (i1 as i64 - i0 as i64).abs() != 1 {
-            crate::vlog!("[islands] band {bi}: 端子 ({t0}, {t1}) 在链上不相邻（gap={g}）— 跳过",);
+            crate::vlog!("[islands] band {bi}: terminals ({t0}, {t1}) are not adjacent on the chain (gap={g}) — skipping",);
             continue;
         }
         gaps[g].push(bi);
@@ -1252,7 +1263,7 @@ fn apply_chain_layout(
                     crate::viz::SYNTHETIC_PIN_COUNT
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     mcc_dbg!("viz",
-                        "[viz] GHOST_PIN: pin {pin_id} 不属于 box#{} (合成端子，可能来自端口标量/成员处理或未解析的端点引用)，跳过",
+                        "[viz] GHOST_PIN: pin {pin_id} does not belong to box#{} (synthetic terminal, possibly from port scalar/member handling or an unresolved endpoint reference), skipping",
                         b.id
                     );
                     continue;
@@ -1579,5 +1590,19 @@ mod tests {
             vec![EndpointRef::new(101, 3, "3"), EndpointRef::new(102, 3, "3")],
         ));
         g
+    }
+
+    /// Empty terminal graph (e.g. islands whose terminals all failed
+    /// `find_terminals`) must not panic (P1-8).
+    #[test]
+    fn empty_terminal_graph_does_not_panic() {
+        let tg = TerminalGraph {
+            incident: std::collections::BTreeMap::new(),
+            ends: Vec::new(),
+        };
+        assert!(tg.linear_order().is_empty());
+        // Missing terminals fall back to source order instead of panicking.
+        assert_eq!(ordered_terminals_by_chain(1, 2, &[]), (1, 2));
+        assert_eq!(ordered_terminals_by_chain(1, 2, &[2, 3]), (1, 2));
     }
 }

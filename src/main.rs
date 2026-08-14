@@ -118,8 +118,17 @@ fn main() -> ExitCode {
     }
 
     // ── 3.6. Load trace config from file (global + project) ──────────
+    // Apply the file-configured level/targets only when the user explicitly
+    // asked for debug output (`-v` / `-D`); otherwise the file's `trace.level:
+    // debug` (or per-target overrides) would bury ordinary CLI results under
+    // INFO/DEBUG logs. `load_trace_config` still updates runtime state so
+    // `trace.get` queries and later `-D` merges see the file config.
     let project_root = std::env::current_dir().ok();
-    mcc::init_trace_config(project_root.as_deref());
+    if cli.verbose > 0 || !cli.debug_targets.is_empty() {
+        mcc::init_trace_config(project_root.as_deref());
+    } else {
+        mcc::load_trace_config(project_root.as_deref());
+    }
 
     // ── 3.7. Apply -D debug-target flags (CLI > config file) ─────────
     if !cli.debug_targets.is_empty() {

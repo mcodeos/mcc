@@ -155,7 +155,11 @@ impl McAttribute {
         let subnode2 = subnode1.get_next().expect(MISSING_SUBNODE);
 
         if !subnode1.is_type(MCAST_ATT_ID) {
-            dlog_error(601, &subnode1, TYPE_MISMATCH);
+            dlog_error(
+                crate::errcodes::ATTR_TYPE_MISMATCH,
+                &subnode1,
+                &crate::errcodes::format_msg(crate::errcodes::ATTR_TYPE_MISMATCH, &[]),
+            );
             return None;
         }
         //2. Check child node content: exists
@@ -269,12 +273,20 @@ impl McAttribute {
 
         //1. Type
         if !matches!(node.get_type(), MCAST_ATT_VALUES) {
-            dlog_error(601, node, TYPE_MISMATCH);
+            dlog_error(
+                crate::errcodes::ATTR_TYPE_MISMATCH,
+                node,
+                &crate::errcodes::format_msg(crate::errcodes::ATTR_TYPE_MISMATCH, &[]),
+            );
             return None;
         }
         //2. Child node: exists
         let Some(subnodes) = node.get_sub_node() else {
-            dlog_error(601, node, MISSING_SUBNODE);
+            dlog_error(
+                crate::errcodes::ATTR_MISSING_SUBNODE,
+                node,
+                &crate::errcodes::format_msg(crate::errcodes::ATTR_MISSING_SUBNODE, &[]),
+            );
             return None;
         };
 
@@ -357,9 +369,12 @@ impl McAttribute {
 
                 _ => {
                     dlog_error(
-                        603,
+                        crate::errcodes::ATTR_TYPE_NOT_SUPPORTED,
                         &each,
-                        &format!("Attribute type not support (node_type={})", each.get_type()),
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::ATTR_TYPE_NOT_SUPPORTED,
+                            &[&each.get_type() as &dyn std::fmt::Display],
+                        ),
                     );
                     continue;
                 }

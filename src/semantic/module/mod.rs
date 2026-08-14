@@ -5,6 +5,7 @@
 use super::{
     basic::mc_bus::{McBus, McList},
     basic::mc_endpoint::{McEndpoint, McInstanceRef},
+    basic::mc_fcall::McFuncCall,
     basic::mc_phrase::McPhrase,
     mc_func::{HasFindInst, McFunctions},
     mc_inst::{McInst, McInstance, McInstances},
@@ -17,7 +18,7 @@ use crate::semantic::component::Mc2Component;
 use crate::semantic::context::resolve_cmie;
 use crate::semantic::mc_func::McFuncReturn;
 use crate::{
-    ast::{ast_node::AstNode, c_macros::*, error::message::*},
+    ast::{ast_node::AstNode, c_macros::*},
     semantic::basic::mc_param::McParamDeclares,
     IOType, McCMIE, McIds, McParamValue, McURI,
 };
@@ -54,7 +55,11 @@ impl McModule {
                 .and_then(|n| McIds::new(&n));
 
             let Some(body) = subnodes.iter().find(|x| x.is_type(MCAST_BODY)) else {
-                dlog_error(804, node, MISSING_SUBNODE);
+                dlog_error(
+                    crate::errcodes::MODULE_MISSING_SUBNODE,
+                    node,
+                    &crate::errcodes::format_msg(crate::errcodes::MODULE_MISSING_SUBNODE, &[]),
+                );
                 return None;
             };
 
@@ -87,10 +92,47 @@ impl McModule {
             // 3. Parse body
             module.parse_body(&body);
 
+            // ★ P4.1 ("Pass1b" hook): the whole body — including all `func`
+            // definitions — is now parsed, so every FuncCall's return shape
+            // (eval.md §8.1) can be resolved against the complete funcs table.
+            // `this`/implicit → caller shape preserved; `return <expr>` → [0|N].
+            {
+                let lines = std::mem::take(&mut module.lines);
+                for mut line in lines {
+                    McFuncCall::fill_return_shapes(&mut line, &module);
+                    module.lines.push(line);
+                }
+            }
+
             Some(module)
         } else {
-            dlog_error(804, node, MISSING_SUBNODE);
+            dlog_error(
+                crate::errcodes::MODULE_MISSING_SUBNODE,
+                node,
+                &crate::errcodes::format_msg(crate::errcodes::MODULE_MISSING_SUBNODE, &[]),
+            );
             None
+        }
+    }
+
+    /// Test-only stub constructor: builds a minimal module with no parsed
+    /// body. Available only under `#[cfg(test)]` so instance-layer scope
+    /// unit tests can construct a [`McModuleInst`] without an AST.
+    #[cfg(test)]
+    pub fn test_stub(name: &str) -> Self {
+        Self {
+            name: McIds::from(name),
+            params: McParamDeclares::new(),
+            insts: McInstances::new(),
+            lines: Vec::new(),
+            line_spans: Vec::new(),
+            funcs: McFunctions::new(),
+            uri: McURI::default(),
+            span: crate::ast::ast_semantic::Span {
+                start: 0,
+                end: name.len(),
+            },
+            anon_counter: 1,
         }
     }
 
@@ -140,6 +182,35 @@ impl McModule {
                         );
                         if is_enum || is_interface {
                             self.params.parse(&param_node);
+                            // ★ LSP: register the interface class ref of a
+                            // module port (`[VDD_3V3,GND]::DC(3.3V)` → `DC`) so
+                            // goto-def lands on the library `interface DC`
+                            // definition (same path as component pin ::ifaces).
+                            if is_interface {
+                                if let Some((class_name, class_span)) =
+                                    Self::extract_declare_class_span(&subnode)
+                                {
+                                    tracing::info!(target: "mcc::lsp::audit",
+                                        "[AUDIT-ModulePort-Iface] class={class_name} span={class_span:?} uri={}",
+                                        self.uri);
+                                    crate::query::refs::mcb_register_declare_class(
+                                        &self.uri,
+                                        &class_name,
+                                        class_span,
+                                    );
+                                } else {
+                                    tracing::info!(target: "mcc::lsp::audit",
+                                        "[AUDIT-ModulePort-Iface] extract failed, subnode_type={}",
+                                        subnode.get_type());
+                                }
+                                // ★ LSP: curly interface params
+                                // (`dc{VDD_3V3, GND}::DC(3.3V)`) register a
+                                // BusDef with declaration-site member spans so
+                                // `dc.GND` / `dc.VDD_3V3` resolve via
+                                // bus_member_hit to the member text in THIS
+                                // file instead of a use-site span.
+                                Self::register_curly_param_bus_def(&subnode, &mut self.insts);
+                            }
                         } else {
                             self.insts.parse(&subnode, &self.uri);
                         }
@@ -151,7 +222,14 @@ impl McModule {
                     }
                     _ => {
                         // Unknown type, try to parse as data parameter
-                        dlog_error(803, &subnode, "Unexpected type in module param");
+                        dlog_error(
+                            crate::errcodes::MODULE_PARAM_TYPE_UNEXPECTED,
+                            &subnode,
+                            &crate::errcodes::format_msg(
+                                crate::errcodes::MODULE_PARAM_TYPE_UNEXPECTED,
+                                &[],
+                            ),
+                        );
                     }
                 }
             }
@@ -202,11 +280,22 @@ impl McModule {
                                     self.lines.push(net);
                                 }
                                 None => {
-                                    dlog_error(1301, &clause, "connection line failed to parse");
+                                    dlog_error(
+                                        crate::errcodes::CONN_LINE_PARSE_FAILED,
+                                        &clause,
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::CONN_LINE_PARSE_FAILED,
+                                            &[],
+                                        ),
+                                    );
                                 }
                             }
                         } else {
-                            dlog_error(1300, &clause, "Empty NET");
+                            dlog_error(
+                                crate::errcodes::FUNC_EMPTY_NET,
+                                &clause,
+                                &crate::errcodes::format_msg(crate::errcodes::FUNC_EMPTY_NET, &[]),
+                            );
                         }
                     }
 
@@ -220,17 +309,34 @@ impl McModule {
                     }
 
                     MCAST_ROLE => {
-                        dlog_error(801, &clause, "Module does not support role definition.");
+                        dlog_error(
+                            crate::errcodes::MODULE_ROLE_UNSUPPORTED,
+                            &clause,
+                            &crate::errcodes::format_msg(
+                                crate::errcodes::MODULE_ROLE_UNSUPPORTED,
+                                &[],
+                            ),
+                        );
                     }
                     MCAST_ATTRIBUTE_PIN | MCAST_ATTRIBUTE_PINADD => {
                         dlog_error(
-                            801,
+                            crate::errcodes::MODULE_PINS_UNSUPPORTED,
                             &clause,
-                            "Module does not support PINS directly. Use in/out/io declarations.",
+                            &crate::errcodes::format_msg(
+                                crate::errcodes::MODULE_PINS_UNSUPPORTED,
+                                &[],
+                            ),
                         );
                     }
                     _ => {
-                        dlog_error(1402, &clause, "Unexpected clause type in module body");
+                        dlog_error(
+                            crate::errcodes::UNEXPECTED_CLAUSE_TYPE,
+                            &clause,
+                            &crate::errcodes::format_msg(
+                                crate::errcodes::UNEXPECTED_CLAUSE_TYPE,
+                                &[],
+                            ),
+                        );
                     }
                 }
             }
@@ -287,20 +393,152 @@ impl McModule {
                 });
                 if !has_recorded_ref && !has_ast_usage {
                     crate::db::diagnostic::diagnostic::diagnostic_log(
-                        1405,
+                        crate::errcodes::PORT_NEVER_USED,
                         crate::db::diagnostic::diagnostic::DiagnosticLevel::Warning,
                         span.start as u32,
                         (span.end - span.start) as u32,
-                        &format!(
-                            "Port '{}' in '{}' is declared but never used in any net connection.",
-                            port_name, mod_name
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::PORT_NEVER_USED,
+                            &[&port_name, &mod_name],
                         ),
                         &[],
                     );
                 }
             }
+
+            // ★ Inline labels: register bare names referenced in net lines that
+            // are not ports/params/instances as Inline labels, so `show
+            // instances` lists them (e.g. `GND` in `... -> GND`).
+            let mut net_labels: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
+            for line in &self.lines {
+                crate::semantic::validation::body::collect_net_label_names(line, &mut net_labels);
+            }
+            for name in net_labels {
+                if !Self::is_plain_label_candidate(&name) {
+                    continue;
+                }
+                if self.insts.contains(&name) || self.params.contains(&name) {
+                    continue;
+                }
+                self.insts
+                    .create_inst(&name, McInstance::Label(name.clone()));
+                self.insts
+                    .set_label_kind(&name, crate::semantic::mc_inst::LabelKind::Inline);
+            }
         }
     }
+
+    /// A bare identifier eligible to become an inline net label: no member
+    /// separators (`.`/`{`), not an anonymous or bracketed name, not a
+    /// reserved keyword.
+    fn is_plain_label_candidate(name: &str) -> bool {
+        if name.is_empty()
+            || name == "this"
+            || name == "lead"
+            || name.starts_with('@')
+            || name.starts_with('[')
+            || name.starts_with('(')
+            || name.contains('.')
+            || name.contains('{')
+            || name.contains('(')
+            || name.contains(',')
+            || name.contains(char::is_whitespace)
+        {
+            return false;
+        }
+        true
+    }
+    /// Extract the interface class name and its source span from an
+    /// interface-typed module port parameter, e.g. `[VDD_3V3,GND]::DC(3.3V)`
+    /// → (`McIds(DC)`, <span of "DC">). Mirrors `McParamType::classify_declare`.
+    /// The `McIds` is taken directly from the AST node so the multi-segment
+    /// structure is preserved for downstream registration / resolution.
+    fn extract_declare_class_span(node: &AstNode) -> Option<(McIds, std::ops::Range<usize>)> {
+        let first_child = node.get_sub_node()?;
+        for child in first_child.iter() {
+            if child.get_type() != MCAST_CLASS {
+                continue;
+            }
+            if let Some(name_node) = child.get_sub_node() {
+                if let Some(ids) = McIds::new(&name_node) {
+                    let span = (name_node.get_pos() as usize)
+                        ..((name_node.get_pos() + name_node.get_len()) as usize);
+                    return Some((ids, span));
+                }
+            }
+        }
+        None
+    }
+
+    /// ★ LSP: register a BusDef for curly interface module params such as
+    /// `dc{VDD_3V3, GND}::DC(3.3V)`. The whole span covers the base identifier
+    /// and each member span points at the member text, so member refs
+    /// (`dc.GND`, `dc.VDD_3V3`) resolve to the declaration in THIS file via
+    /// `bus_member_hit` rather than a first-use site span.
+    fn register_curly_param_bus_def(node: &AstNode, insts: &mut McInstances) {
+        // MCAST_DECLARE → MCAST_INSTANCE → MCAST_OPD → MCAST_IDS[base, opd_curly[...]]
+        let Some(sub) = node.get_sub_node() else {
+            return;
+        };
+        let mut cur = sub;
+        let ids_node = loop {
+            if cur.get_type() == MCAST_INSTANCE {
+                let mut inner = cur.get_sub_node();
+                let ids = loop {
+                    match inner {
+                        Some(n) if n.get_type() == MCAST_IDS => break n,
+                        Some(n) => inner = n.get_sub_node(),
+                        None => return,
+                    }
+                };
+                break ids;
+            }
+            match cur.get_next() {
+                Some(nx) => cur = nx,
+                None => return,
+            }
+        };
+        let Some((busname, members)) = McIds::new(&ids_node).and_then(|ids| ids.as_bus()) else {
+            return;
+        };
+        if members.is_empty() {
+            return;
+        }
+        let whole_span = ids_node
+            .get_sub_node()
+            .filter(|n| n.get_type() == MCAST_ID)
+            .map(|n| {
+                let p = n.get_pos() as usize;
+                p..(p + busname.len())
+            })
+            .unwrap_or_else(|| {
+                let p = ids_node.get_pos() as usize;
+                p..(p + busname.len())
+            });
+        let mut member_spans: Vec<(String, std::ops::Range<usize>)> = Vec::new();
+        let mut mcur = ids_node.get_sub_node();
+        while let Some(child) = mcur {
+            if matches!(child.get_type(), MCAST_OPD_CURLY | MCAST_OPD_CURLY_MN) {
+                let mut mc = child.get_sub_node();
+                while let Some(m) = mc {
+                    if let Some(mname) = m.to_string() {
+                        let mstart = m.get_pos() as usize;
+                        let mlen = mname.len();
+                        member_spans.push((mname, mstart..(mstart + mlen)));
+                    }
+                    mc = m.get_next();
+                }
+            }
+            mcur = child.get_next();
+        }
+        if !member_spans.is_empty() {
+            tracing::info!(target: "mcc::lsp::audit",
+                "[AUDIT-ParamBusDef] bus={busname} span={whole_span:?} members={member_spans:?}");
+            insts.register_bus_def(&busname, whole_span, member_spans);
+        }
+    }
+
     pub(crate) fn find_inst(&self, id: &str) -> Option<McInstance> {
         self.insts.get(id).cloned()
     }
@@ -437,43 +675,14 @@ impl HasFindInst for McModule {
         &self,
         id: &str,
     ) -> Option<(McInstance, Option<std::ops::Range<usize>>)> {
-        // P1: param ports (IO params) — highest priority
-        for (name, span) in self.params.iter_ports_with_span() {
-            if name == id {
-                return Some((McInstance::Label(id.to_string()), Some(span)));
-            }
-        }
-        // P2: param defs (non-port params)
-        for (name, span) in self.params.iter_defs_with_span() {
-            if name == id {
-                return Some((McInstance::Label(id.to_string()), Some(span)));
-            }
-        }
-        // P3: ports (instances with IOType ≠ None, e.g. In, Out, Power)
-        if let Some((iotype, inst)) = self.insts.get_with_iotype(id) {
-            if !matches!(iotype, IOType::None) {
-                let span = self.insts.get_port_span(id);
-                return Some((inst.clone(), span));
-            }
-        }
-        // P4: explicit labels (McInstance::Label entries in insts)
-        for (name, _kind, span) in self.insts.iter_labels_with_span() {
-            if name == id {
-                return Some((McInstance::Label(id.to_string()), Some(span)));
-            }
-        }
-        // P5: remaining non-port, non-label insts (Component/Module/Interface/Bus/List)
-        if let Some((iotype, inst)) = self.insts.get_with_iotype(id) {
-            if matches!(iotype, IOType::None) && !matches!(inst, McInstance::Label(_)) {
-                let span = self.insts.get_port_span(id);
-                return Some((inst.clone(), span));
-            }
-        }
-        // P6: funcs
-        if let Some(func) = self.funcs.find(id) {
-            return Some((McInstance::Func(Arc::new(func.clone())), None));
-        }
-        None
+        // P2 container category chain (§3.3): param ports → param defs →
+        // ports → labels → non-port insts (uniform Bus/List/Interface/
+        // Component coverage) → funcs. Each category is an independent scope
+        // unit in semantic::scope with the same hit logic (and stored spans)
+        // as the original hand-written chain it replaced.
+        crate::semantic::scope::module_scope(self)
+            .resolve(id)
+            .map(|r| (r.inst, r.span))
     }
 
     fn add_label_at(
@@ -711,22 +920,45 @@ impl McModule {
             MCAST_ID | MCAST_IDA | MCAST_IDS | MCAST_SQUARE_VEC | MCAST_OPD_SQUARE_VEC
             | MCAST_OPD_CURLY => {
                 if let Some(text) = node.to_string() {
-                    let span =
-                        (node.get_pos() as usize)..((node.get_pos() + node.get_len()) as usize);
-                    let key = insts.resolve_idx(&text).unwrap_or(text);
-                    if insts.get(&key).is_some() && insts.port_spans().get(&key).is_none() {
-                        insts.store_port_span(&key, span.clone());
-                        // Register in name_to_declare_id so goto-def can find this inline port
-                        if let Some(mcode) = crate::db::cmie::tables::WORKSPACE.mcodes.get(uri) {
-                            if let Ok(mut sem) = mcode.symbols.lock() {
-                                sem.local_table.add_declare_with_name(
-                                    uri,
-                                    crate::ast::ast_semantic::SourceLocation::from_span(&span),
-                                    Some(key),
-                                    Some(scope),
-                                );
+                    // ★ §3.4.3 (rev) check-before-register: member chains
+                    // (`USB_VBUS_1.GND`, `dc.VDD_3V3`) are REFS to members of an
+                    // already-declared bus; the member defs were registered at the
+                    // declaration site (module param / io line) via register_bus_def
+                    // → BusMemberDef. Skipping them here prevents the whole-chain
+                    // span from being stored as the base bus's port span — which
+                    // would register spurious BusDef/LabelDef at the use site and
+                    // make F12 on the member self-locate (def == ref span).
+                    //
+                    // Two shapes slip through a plain dotted-text check:
+                    //   - the chain node itself (`USB_VBUS_1.GND`); and
+                    //   - its first MCAST_ID segment (`USB_VBUS_1`), whose
+                    //     `get_len()` is extended to the whole chain by
+                    //     mc_value_link (§5.1: never trust get_len() for ids
+                    //     chains) while `to_string()` returns only the segment.
+                    // `node_len > text.len()` detects the latter.
+                    let node_len = node.get_len() as usize;
+                    let is_member_chain = text.contains('.') || node_len > text.len();
+                    if is_member_chain {
+                        // member-chain ref: def already exists at declaration site
+                    } else {
+                        let start = node.get_pos() as usize;
+                        let span = start..(start + node_len);
+                        let key = insts.resolve_idx(&text).unwrap_or(text);
+                        if insts.get(&key).is_some() && insts.port_spans().get(&key).is_none() {
+                            insts.store_port_span(&key, span.clone());
+                            // Register in name_to_declare_id so goto-def can find this inline port
+                            if let Some(mcode) = crate::db::cmie::tables::WORKSPACE.mcodes.get(uri)
+                            {
+                                if let Ok(mut sem) = mcode.symbols.lock() {
+                                    sem.local_table.add_declare_with_name(
+                                        uri,
+                                        crate::ast::ast_semantic::SourceLocation::from_span(&span),
+                                        Some(key),
+                                        Some(scope),
+                                    );
+                                }
                             }
-                        }
+                        } // end else (non-member-chain def registration)
                     }
                 }
             }
@@ -771,20 +1003,50 @@ impl McModule {
                     let ids_node = phrase_node
                         .get_sub_node()
                         .unwrap_or_else(|| phrase_node.clone());
+                    let mut handled = false;
                     if let Some(ids) = crate::semantic::basic::mc_ids::McIds::new(&ids_node) {
                         let name = ids.to_string();
                         let member_span = (ids_node.get_pos() as usize)
                             ..((ids_node.get_pos() + ids_node.get_len()) as usize);
-                        let in_insts = insts.port_spans().contains_key(&name);
-                        let in_params = params.is_defined(&name);
-                        tracing::info!(
-                            "SQUARE_VEC_REF member='{name}' span=[{},{}] in_insts={in_insts} in_params={in_params} scope='{scope}'",
-                            member_span.start, member_span.end
-                        );
-                        if in_insts {
-                            insts.record_net_ref(member_span, &name, scope);
-                        } else if in_params {
-                            params.record_net_ref(member_span, &name, scope);
+                        // ★ Dot-chain members (`dc.VDD_3V3`, `lpa.IN.N`) must
+                        // NOT be folded into their base key here — resolve_idx
+                        // would map them to `dc`/`lpa` and lose the member
+                        // context. Route them through the chain path below.
+                        let is_chain = name.contains('.');
+                        if !is_chain {
+                            // Resolve the member to its owning port (e.g. `VDD_3V3`
+                            // inside `[VDD_3V3, GND]::DC(3.3V)` maps to the bracket
+                            // key) so usage of bracket members counts as usage of
+                            // the whole bracket port.
+                            let matched_key = insts.resolve_idx(&name);
+                            let in_params = params.is_defined(&name);
+                            tracing::info!(
+                                "SQUARE_VEC_REF member='{name}' span=[{},{}] key={:?} in_params={in_params} scope='{scope}'",
+                                member_span.start, member_span.end, matched_key
+                            );
+                            if let Some(key) = matched_key {
+                                insts.record_net_ref(member_span, &key, scope);
+                                handled = true;
+                            } else if in_params {
+                                params.record_net_ref(member_span, &name, scope);
+                                handled = true;
+                            }
+                        }
+                    }
+                    if !handled {
+                        // ★ Unmatched / chain members (e.g. `dc.VDD_3V3`,
+                        // `RES(..) -> (lpa.VO1 + spk.N)`) were previously
+                        // dropped entirely — recurse so the chain path
+                        // (has_dot_chain → try_record_chain_ref) registers
+                        // them instead. Walk next-siblings too: a member may
+                        // be a full connection (`dc.VDD_3V3 -> wm7121.VCC`)
+                        // whose arrow's right operand hangs off the left
+                        // operand's get_next() — without the walk it is
+                        // swallowed and never registered as a pin ref.
+                        let mut cur = Some(ids_node.clone());
+                        while let Some(c) = cur {
+                            Self::collect_net_refs_in_node(&c, insts, params, scope);
+                            cur = c.get_next();
                         }
                     }
                     current = phrase_node.get_next();
@@ -817,13 +1079,16 @@ impl McModule {
         };
 
         if !handled {
-            // ★ Chain detection: MCAST_OPD with dotted segments like
-            // `uC.i2c(0x36).I2C0`. Record the full chain as a net-ref so
-            // the chain resolver can find the cross-container member def
-            // (e.g., the MCU pin I2C0::I2C(Master) rather than the local
-            // module port I2C0).
-            if node.get_type() == MCAST_OPD {
-                Self::try_record_chain_ref(node, insts, scope);
+            // ★ Chain detection: an MCAST_OPD / MCAST_OPD_DOT with dotted
+            // segments like `uC.i2c(0x36).I2C0` (root is MCAST_OPD_DOT whose
+            // sub is the fcall and next is the member). Record the full chain
+            // as a net-ref so the chain resolver can find the cross-container
+            // member def (e.g., the MCU pin I2C0::I2C(Master) rather than the
+            // local module port I2C0).
+            if matches!(node.get_type(), MCAST_OPD | MCAST_OPD_DOT)
+                && Self::try_record_chain_ref(node, insts, scope)
+            {
+                return;
             }
             let Some(sub) = node.get_sub_node() else {
                 return;
@@ -877,11 +1142,12 @@ impl McModule {
         false
     }
 
-    /// Walk the AST children of a chain expression (MCAST_OPD) and extract
-    /// structured [`ChainSegment`]s. Records the chain via
+    /// Walk the AST children of a chain expression (MCAST_OPD / MCAST_OPD_DOT)
+    /// and extract structured [`ChainSegment`]s. Records the chain via
     /// [`McInstances::record_chain_ref`] so the chain resolver can use the
     /// already-parsed structure instead of re-parsing brackets from raw text.
-    fn try_record_chain_ref(node: &AstNode, insts: &mut McInstances, scope: &str) {
+    /// Returns `true` if the chain was recorded (≥2 segments).
+    fn try_record_chain_ref(node: &AstNode, insts: &mut McInstances, scope: &str) -> bool {
         let mut segments: Vec<ChainSegment> = Vec::new();
         let mut chain_end: Option<usize> = None;
         // Whether the last recorded segment came from a bracketed AST node
@@ -890,6 +1156,10 @@ impl McModule {
         // node spans, so a curly group always needs one extra byte for `}`.
         let mut closing_delim = false;
 
+        // A chain whose root is MCAST_OPD_DOT has the receiver/fcall as its
+        // `sub` and the member as the fcall's `next` (e.g. `uC.i2c(0x36).I2C0`
+        // parses as DOT(sub=FCALL(uC.i2c(0x36)), next=IDS(I2C0))). Start the
+        // walk at the sub node; the fcall's `next` is traversed as siblings.
         let mut current = node.get_sub_node();
         while let Some(n) = current {
             let ty = n.get_type();
@@ -934,17 +1204,7 @@ impl McModule {
             if ty == MCAST_ID || ty == MCAST_IDA || ty == MCAST_IDS {
                 Self::collect_ident_segments(&n, &mut segments, &mut chain_end, &mut closing_delim);
             } else if ty == MCAST_OPD_FCALL {
-                // Extract function name from first child (MCAST_ID).
-                if let Some(name_node) = n.get_sub_node() {
-                    if let Some(name) = name_node.to_string() {
-                        let end = n.get_pos() as usize + n.get_len() as usize;
-                        segments.push(ChainSegment::Fcall(name));
-                        chain_end = Some(end);
-                        // An fcall node is a bracketed AST node: `)` is
-                        // excluded from its span, so the chain needs +1.
-                        closing_delim = true;
-                    }
-                }
+                Self::collect_fcall_segments(&n, &mut segments, &mut chain_end, &mut closing_delim);
             } else if ty == MCAST_OPD {
                 // Nested MCAST_OPD wrapping the chain — recurse into it.
                 Self::walk_chain_children(&n, &mut segments, &mut chain_end, &mut closing_delim);
@@ -956,11 +1216,11 @@ impl McModule {
 
         // Need at least 2 segments for a cross-container chain (e.g., `uC.I2C0`).
         if segments.len() < 2 {
-            return;
+            return false;
         }
         let mut chain_end = match chain_end {
             Some(e) => e,
-            None => return,
+            None => return false,
         };
 
         // ★ The parser excludes closing delimiters from AST node spans: the
@@ -976,6 +1236,57 @@ impl McModule {
         let start = node.get_pos() as usize;
         let span = start..chain_end;
         insts.record_chain_ref(span, segments, scope);
+        true
+    }
+
+    /// Collect chain segments from a `MCAST_INSTANCE` node (the receiver of a
+    /// method call, e.g. `uC` in `uC.i2c(0x36)`). The instance wraps an
+    /// MCAST_OPD whose sub is the identifier(s), so delegate to the ident
+    /// walker.
+    fn collect_instance_segments(
+        n: &AstNode,
+        segments: &mut Vec<ChainSegment>,
+        chain_end: &mut Option<usize>,
+        closing_delim: &mut bool,
+    ) {
+        if let Some(opd) = n.get_sub_node() {
+            if let Some(ids) = opd.get_sub_node() {
+                Self::collect_ident_segments(&ids, segments, chain_end, closing_delim);
+            }
+        }
+    }
+
+    /// Collect chain segments from an `MCAST_OPD_FCALL` node. A method call
+    /// `uC.i2c(0x36)` has children [MCAST_INSTANCE uC, MCAST_NAME i2c,
+    /// MCAST_PARAMS 0x36]: push the receiver instance as an Ident segment and
+    /// the function name as an Fcall segment (the resolver treats Fcall as a
+    /// transparent hop since the function returns `this`).
+    fn collect_fcall_segments(
+        n: &AstNode,
+        segments: &mut Vec<ChainSegment>,
+        chain_end: &mut Option<usize>,
+        closing_delim: &mut bool,
+    ) {
+        let end = n.get_pos() as usize + n.get_len() as usize;
+        let mut child = n.get_sub_node();
+        while let Some(c) = child {
+            match c.get_type() {
+                MCAST_INSTANCE => {
+                    Self::collect_instance_segments(&c, segments, chain_end, closing_delim);
+                }
+                MCAST_NAME => {
+                    if let Some(name) = c.to_string() {
+                        if !name.is_empty() {
+                            segments.push(ChainSegment::Fcall(name));
+                            *chain_end = Some(end);
+                            *closing_delim = true;
+                        }
+                    }
+                }
+                _ => {}
+            }
+            child = c.get_next();
+        }
     }
 
     /// Walk children of a nested MCAST_OPD node, collecting chain segments.
@@ -1021,14 +1332,7 @@ impl McModule {
             if ty == MCAST_ID || ty == MCAST_IDA || ty == MCAST_IDS {
                 Self::collect_ident_segments(&n, segments, chain_end, closing_delim);
             } else if ty == MCAST_OPD_FCALL {
-                if let Some(name_node) = n.get_sub_node() {
-                    if let Some(name) = name_node.to_string() {
-                        let end = n.get_pos() as usize + n.get_len() as usize;
-                        segments.push(ChainSegment::Fcall(name));
-                        *chain_end = Some(end);
-                        *closing_delim = true;
-                    }
-                }
+                Self::collect_fcall_segments(&n, segments, chain_end, closing_delim);
             }
 
             current = n.get_next();
@@ -1052,6 +1356,13 @@ impl McModule {
                 let st = cur.get_type();
                 if st == MCAST_OPD_DOT {
                     if let Some(t) = cur.to_string() {
+                        // ★ Consecutive dots (`lpa.IN.N` → [DOT IN, DOT N]):
+                        // flush the previous member first so the middle
+                        // segment is not dropped (segments would become
+                        // [lpa, N] instead of [lpa, IN, N]).
+                        if let Some(prev) = pending_dot.take() {
+                            segments.push(ChainSegment::Ident(prev));
+                        }
                         pending_dot = Some(t);
                     }
                 } else if st == MCAST_OPD_CURLY || st == MCAST_OPD_CURLY_MN {

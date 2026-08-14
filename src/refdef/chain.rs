@@ -22,10 +22,12 @@
 
 use std::ops::Range;
 
+use crate::query::lookup::ContainerRef;
 use crate::refdef::types::{ChainSegment, SymbolKind};
 use crate::semantic::basic::mc_paramd::McParamDeclares;
 use crate::semantic::mc_func::HasFindInst;
 use crate::semantic::mc_inst::{McInstance, McInstances};
+use crate::semantic::scope as ns_scope;
 use crate::McURI;
 
 /// Definition target of a resolved member chain.
@@ -177,6 +179,13 @@ enum Hop<'a> {
         /// Class-definition file that owns the member.
         uri: McURI,
     },
+    /// ★ P3-P5 class-chain hit: the base name resolved to a
+    /// component/module/interface/enum **class** definition via the unified
+    /// [`ns_scope::first_hop`] exit (`BaseResolved::Container`, same-file
+    /// CMIE → use-chain → system lib). Not a member axis — a following
+    /// member segment ends the chain (the walk has no instance table to
+    /// recurse into for a class name).
+    Class(ContainerRef),
 }
 
 impl Hop<'_> {
@@ -201,7 +210,18 @@ impl Hop<'_> {
                     .unwrap_or_default(),
                 format!(" uri={}", uri.as_str()),
             ),
+            Hop::Class(c) => format!("Class{{{}}}", class_name(c)),
         }
+    }
+}
+
+/// Display name of a [`ContainerRef`] (used in hop descriptions).
+fn class_name(c: &ContainerRef) -> String {
+    match c {
+        ContainerRef::Component(comp) => comp.name.to_string(),
+        ContainerRef::Module(m) => m.name.to_string(),
+        ContainerRef::Interface(i) => i.name.to_string(),
+        ContainerRef::Enum(e) => e.name.to_string(),
     }
 }
 
@@ -213,7 +233,18 @@ impl Hop<'_> {
 ///    member hop; multi-member group (`MIC{P,N}`, `GPIO[1:2]`) is a whole ref.
 /// 3. Idx-aware whole-name resolution (`GPIO1` → list member `1`).
 /// 4. Terminal parameter declaration.
-fn first_hop<'a>(insts: &'a McInstances, params: &McParamDeclares, seg: &str) -> Option<Hop<'a>> {
+/// 5. P3-P5 class chain via the unified `scope::first_hop` exit
+///    (`BaseResolved::Container`): the base name resolves to a
+///    component/module/interface/enum class definition (same-file CMIE →
+///    use-chain → system library). Branches 1-4 above always win, so the
+///    grouped/idx semantics are unchanged; the class chain only fills the
+///    previously-empty miss path for bare class names.
+fn first_hop<'a>(
+    insts: &'a McInstances,
+    params: &McParamDeclares,
+    seg: &str,
+    uri: &McURI,
+) -> Option<Hop<'a>> {
     // 1. Exact key.
     if let Some(inst) = insts.get(seg) {
         mcc_dbg!(
@@ -307,6 +338,21 @@ fn first_hop<'a>(insts: &'a McInstances, params: &McParamDeclares, seg: &str) ->
         mcc_dbg!(
             "refdef::chain",
             "[first_hop] param term \"{}\" → {}",
+            seg,
+            hop.desc()
+        );
+        return Some(hop);
+    }
+    // 5. P3-P5 class chain — fills the miss path with class definitions
+    //    (e.g. `CAP`, `U_MCU`). Only bare base names reach here: the
+    //    grouped/idx branches above handled `MIC{P,N}` / `GPIO1` forms.
+    //    `parent = None`: chain.rs resolves against its own insts/params
+    //    tables (branches 1-4), so only the class-chain exit applies.
+    if let Some(ns_scope::BaseResolved::Container(c)) = ns_scope::first_hop(pname, &[], None, uri) {
+        let hop = Hop::Class(c);
+        mcc_dbg!(
+            "refdef::chain",
+            "[first_hop] class-chain \"{}\" → {}",
             seg,
             hop.desc()
         );
@@ -476,6 +522,34 @@ fn member_of(inst: &McInstance, member: &str) -> Option<Hop<'static>> {
             }
         }
         McInstance::Interface(i) => {
+            // ★ Local curly members take precedence over the interface class
+            // def: `io vin{POWER_SYS, GND}::DC(5V)` declares the member names
+            // (POWER_SYS / GND) at the port site, so `vin.GND` resolves to the
+            // member name text in THIS file (BusMemberDef via bus_def), not the
+            // interface member in the class definition file (dc.mc).
+            if let Some((busname, members)) = i.name.as_bus() {
+                if members.iter().any(|m| m == member) {
+                    mcc_dbg!(
+                        "refdef::chain",
+                        "[member_of] Interface \"{}\" member=\"{}\" → local BusMember{{{}.{}}}",
+                        i.name,
+                        member,
+                        busname,
+                        member
+                    );
+                    return Some(Hop::BusMember {
+                        bus: busname,
+                        member: member.to_string(),
+                    });
+                }
+                mcc_dbg!(
+                    "refdef::chain",
+                    "[member_of] Interface \"{}\" member=\"{}\" NOT local (members={:?}) — cross to class def",
+                    i.name,
+                    member,
+                    members
+                );
+            }
             let base = &i.base;
             match base.find_inst_with_span(member) {
                 Some((m_inst, span)) => {
@@ -519,6 +593,7 @@ fn member_of(inst: &McInstance, member: &str) -> Option<Hop<'static>> {
 fn cross_def_kind(inst: &McInstance) -> SymbolKind {
     match inst {
         McInstance::Label(_) => SymbolKind::PinNameDef,
+        McInstance::PinId(_) => SymbolKind::PinIdDef,
         McInstance::Bus(_) => SymbolKind::BusDef,
         McInstance::List(_) => SymbolKind::LabelDef,
         McInstance::Component(_) | McInstance::Module(_) => SymbolKind::InstDef,
@@ -559,7 +634,7 @@ pub fn resolve_member_chain(
             return None;
         }
     };
-    let mut hop = match first_hop(insts, params, first) {
+    let mut hop = match first_hop(insts, params, first, uri) {
         Some(h) => h,
         None => {
             mcc_dbg!(
@@ -576,31 +651,57 @@ pub fn resolve_member_chain(
         first,
         hop.desc()
     );
-    for seg in &segs[1..] {
-        let next = match &hop {
-            Hop::Inst { inst, .. } => resolve_next_member(inst, seg),
-            Hop::CrossInst { inst, .. } => resolve_next_member(inst, seg),
-            // A member or param has no deeper container in this version.
-            Hop::BusMember { .. } | Hop::ListMember { .. } | Hop::Param(_) => {
+    // ★ Longest-match walk: a dotted tail may be a single member name
+    // (e.g. pin `IN.N` inside `lpa.IN.N`, where LPA4871 declares pin
+    // `4 = IN.N`). At each position try the longest remaining suffix first
+    // (full join → shorter joins → single segment), consuming as many
+    // segments as the match covers. Genuine multi-level chains
+    // (`uC.I2C0.SCL`) still work: the full suffix misses, then the walk
+    // falls back to one segment and continues.
+    let mut i = 1;
+    while i < segs.len() {
+        let inst = match container_inst(&hop) {
+            Some(inst) => inst,
+            None => {
                 mcc_dbg!(
                     "refdef::chain",
-                    "[chain] hop {} has no deeper container for seg={:?} → None",
+                    "[chain] hop {} has no deeper container for segs[{}..]={:?} → None",
                     hop.desc(),
-                    seg
+                    i,
+                    &segs[i..]
                 );
                 return None;
             }
         };
-        match next {
+        let mut best: Option<Hop<'static>> = None;
+        let mut best_end = i + 1;
+        for end in ((i + 1)..=segs.len()).rev() {
+            let joined_name = segs[i..end].join(".");
+            if let Some(h) = resolve_next_member(inst, &joined_name) {
+                best = Some(h);
+                best_end = end;
+                break;
+            }
+        }
+        match best {
             Some(h) => {
-                mcc_dbg!("refdef::chain", "[chain] hop seg={:?} → {}", seg, h.desc());
+                mcc_dbg!(
+                    "refdef::chain",
+                    "[chain] hop segs[{}..{}]={:?} → {}",
+                    i,
+                    best_end,
+                    &segs[i..best_end],
+                    h.desc()
+                );
                 hop = h;
+                i = best_end;
             }
             None => {
                 mcc_dbg!(
                     "refdef::chain",
-                    "[chain] member MISS seg={:?} in hop={} → None",
-                    seg,
+                    "[chain] member MISS segs[{}..]={:?} in hop={} → None",
+                    i,
+                    &segs[i..],
                     hop.desc()
                 );
                 return None;
@@ -619,18 +720,57 @@ pub fn resolve_member_chain_from_segments(
     insts: &McInstances,
     params: &McParamDeclares,
 ) -> Option<ChainHit> {
+    // `inst.f(..).member`: an Fcall segment is transparent — the function
+    // returns `this` (chaining off a non-`this` return is rejected by
+    // check_chain_validity/1316), so `.member` resolves against the receiver
+    // instance. Skipping the Fcall avoids rebuilding a broken "uC..I2C0"
+    // double-dot text (an empty segment would fail member resolution).
     let ref_text: String = segs
         .iter()
-        .map(|s| match s {
-            ChainSegment::Ident(name) => name.clone(),
+        .filter_map(|s| match s {
+            ChainSegment::Ident(name) => Some(name.clone()),
             ChainSegment::Group { base, members } => {
-                format!("{}{{{}}}", base, members.join(","))
+                Some(format!("{}{{{}}}", base, members.join(",")))
             }
-            ChainSegment::Fcall(_) => String::new(),
+            ChainSegment::Fcall(_) => None,
         })
         .collect::<Vec<_>>()
         .join(".");
     resolve_member_chain(uri, &ref_text, insts, params)
+}
+
+/// Resolve only the base (first) segment of a member chain to its own def.
+///
+/// Used to register a separate base ref so hover / F12 on the base identifier
+/// (e.g. `spk` in `spk.3`, `USB_VBUS_1` in `USB_VBUS_1.GND`) resolves to the
+/// instance / parameter declaration instead of the whole-chain member target.
+///
+/// The module-parameter declaration is preferred over the inst-table bus entry:
+/// curly-bus params (`USB_VBUS_1{VDD_3V, GND}`) record a use-site span in the
+/// instance table but the declaration span in the param table.
+pub fn resolve_base_hit(
+    uri: &McURI,
+    base: &str,
+    insts: &McInstances,
+    params: &McParamDeclares,
+) -> Option<ChainHit> {
+    if params.is_defined(base) {
+        if let Some(hit) = finalize_hit(uri, Hop::Param(base.to_string()), insts, params) {
+            return Some(hit);
+        }
+    }
+    let hop = first_hop(insts, params, base, uri)?;
+    finalize_hit(uri, hop, insts, params)
+}
+
+/// Base identifier text of a chain segment — `Ident("uC")` → `"uC"`,
+/// `Group { base: "ADC", .. }` → `"ADC"`, `Fcall("i2c")` → `"i2c"`.
+pub fn base_segment_name(seg: &ChainSegment) -> String {
+    match seg {
+        ChainSegment::Ident(name) => name.clone(),
+        ChainSegment::Group { base, .. } => base.clone(),
+        ChainSegment::Fcall(name) => name.clone(),
+    }
 }
 
 /// Convert the final hop into a [`ChainHit`].
@@ -652,7 +792,48 @@ fn finalize_hit(
         Hop::BusMember { bus, member } => bus_member_hit(uri, &bus, &member, insts),
         Hop::ListMember { list, member } => list_member_hit(uri, &list, &member, insts),
         Hop::Param(name) => param_hit(uri, &name, params),
+        Hop::Class(c) => class_hit(&c),
     }
+}
+
+/// Class-definition target (`CAP`, `U_MCU`, ...): `ClassDef` at the
+/// container's source span in its own definition file.
+fn class_hit(c: &ContainerRef) -> Option<ChainHit> {
+    let hit = match c {
+        ContainerRef::Component(comp) => ChainHit {
+            name: comp.name.to_string(),
+            def_kind: SymbolKind::ClassDef,
+            span: comp.span.start..comp.span.end,
+            uri: comp.uri.clone(),
+        },
+        ContainerRef::Module(m) => ChainHit {
+            name: m.name.to_string(),
+            def_kind: SymbolKind::ClassDef,
+            span: m.span.start..m.span.end,
+            uri: m.uri.clone(),
+        },
+        ContainerRef::Interface(i) => ChainHit {
+            name: i.name.to_string(),
+            def_kind: SymbolKind::ClassDef,
+            span: i.span.start..i.span.end,
+            uri: i.uri.clone(),
+        },
+        ContainerRef::Enum(e) => ChainHit {
+            name: e.name.to_string(),
+            def_kind: SymbolKind::ClassDef,
+            span: e.span[0] as usize..e.span[1] as usize,
+            uri: e.uri.clone(),
+        },
+    };
+    mcc_dbg!(
+        "refdef::chain",
+        "[class_hit] \"{}\" ClassDef span={:?}..{:?} uri={}",
+        hit.name,
+        hit.span.start,
+        hit.span.end,
+        hit.uri.as_str()
+    );
+    Some(hit)
 }
 
 /// Extract the container instance from an `Inst` / `CrossInst` hop.
@@ -661,7 +842,7 @@ fn container_inst<'a>(hop: &'a Hop<'a>) -> Option<&'a McInstance> {
     match hop {
         Hop::Inst { inst, .. } => Some(inst),
         Hop::CrossInst { inst, .. } => Some(inst),
-        _ => None,
+        Hop::BusMember { .. } | Hop::ListMember { .. } | Hop::Param(_) | Hop::Class(_) => None,
     }
 }
 
@@ -869,16 +1050,18 @@ fn param_hit(uri: &McURI, name: &str, params: &McParamDeclares) -> Option<ChainH
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::ast_semantic::Span;
+
     use crate::semantic::basic::mc_bus::{McBus, McList};
     use crate::semantic::common::IOType;
     use crate::semantic::component::mc_attr::McAttributes;
     use crate::semantic::component::mc_layout::McLayout;
     use crate::semantic::component::mc_pins::{McPinPort, McPins};
     use crate::semantic::component::{Mc2Component, McComponent};
+    use crate::semantic::mc_enum::McEnumDef;
     use crate::semantic::mc_func::McFunctions;
     use crate::semantic::mc_inst::McInstance;
-    use crate::semantic::module::{Mc2Module, McModule};
+    use crate::semantic::module::McModule;
+
     use crate::McIds;
     use std::sync::Arc;
 
@@ -1124,5 +1307,59 @@ mod tests {
         assert!(
             resolve_member_chain(&"main.mc".to_string(), "other.I2C0", &insts, &params).is_none()
         );
+    }
+
+    // ── class_hit: `ContainerRef` → `ClassDef` mapping (P3-P5 base fallback) ──
+
+    #[test]
+    fn class_hit_maps_component_def() {
+        let comp = Arc::new(McComponent {
+            name: McIds::from("RES"),
+            params: McParamDeclares::new(),
+            pins: McPins::new(),
+            attrs: McAttributes::new(),
+            funcs: McFunctions::new(),
+            insts: McInstances::new(),
+            layout: McLayout {
+                left: vec![],
+                right: vec![],
+                top: vec![],
+                bottom: vec![],
+            },
+            uri: "lib.mc".to_string(),
+            cond_pins: vec![],
+            cond_attrs: vec![],
+            span: 10..13,
+        });
+        let hit = class_hit(&ContainerRef::Component(comp)).unwrap();
+        assert_eq!(hit.name, "RES");
+        assert_eq!(hit.def_kind, SymbolKind::ClassDef);
+        assert_eq!(hit.span, 10..13);
+        assert_eq!(hit.uri.as_str(), "lib.mc");
+    }
+
+    #[test]
+    fn class_hit_maps_enum_def() {
+        let e = Arc::new(McEnumDef {
+            name: McIds::from("PKG"),
+            span: [20, 23],
+            values: vec![],
+            uri: "lib.mc".to_string(),
+        });
+        let hit = class_hit(&ContainerRef::Enum(e)).unwrap();
+        assert_eq!(hit.name, "PKG");
+        assert_eq!(hit.def_kind, SymbolKind::ClassDef);
+        assert_eq!(hit.span, 20..23);
+        assert_eq!(hit.uri.as_str(), "lib.mc");
+    }
+
+    #[test]
+    fn class_hit_maps_module_def() {
+        let m = Arc::new(McModule::test_stub("PWR"));
+        let hit = class_hit(&ContainerRef::Module(m)).unwrap();
+        assert_eq!(hit.name, "PWR");
+        assert_eq!(hit.def_kind, SymbolKind::ClassDef);
+        // test_stub span covers the bare name (0..len).
+        assert_eq!(hit.span, 0..3);
     }
 }

@@ -111,6 +111,23 @@ pub(crate) struct BuildFullParams {
     pub(crate) libs: Vec<String>,
 }
 
+/// Params for `build.viz` — build + render to a self-contained HTML string.
+#[derive(Default, Deserialize)]
+pub(crate) struct BuildVizParams {
+    #[serde(default)]
+    pub(crate) entry: Option<String>,
+    #[serde(default)]
+    pub(crate) top: Option<String>,
+    /// Whether to include system library definitions, default true
+    #[serde(default = "default_true")]
+    pub(crate) include_system: bool,
+    #[serde(default)]
+    pub(crate) libs: Vec<String>,
+    /// Lock viz to a single layouter (flow|schematic_radial|schematic_sub|hierarchical|radial|layered).
+    #[serde(default)]
+    pub(crate) layouter: Option<String>,
+}
+
 pub(crate) struct FileEntry {
     pub(crate) uri: String,
     pub(crate) is_system: bool,

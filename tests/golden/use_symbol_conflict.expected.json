@@ -1,7 +1,7 @@
 {
   "diagnostics": [
     {
-      "code": 1000,
+      "code": 2082,
       "location": {
         "column": 1,
         "file": "/Users/dan/work/mo/mcc/tests/corpus/use_symbol_conflict.mc",
@@ -9,12 +9,38 @@
         "line": 1,
         "pos": 193
       },
-      "message": "syntax error",
+      "message": "Invalid clause in a body",
       "phase": "pass0",
       "severity": "error"
     },
     {
-      "code": 3009,
+      "code": 2082,
+      "location": {
+        "column": 1,
+        "file": "/Users/dan/work/mo/mcc/tests/corpus/use_symbol_conflict.mc",
+        "len": 3,
+        "line": 1,
+        "pos": 219
+      },
+      "message": "Invalid clause in a body",
+      "phase": "pass0",
+      "severity": "error"
+    },
+    {
+      "code": 2115,
+      "location": {
+        "column": 1,
+        "file": "/Users/dan/work/mo/mcc/tests/corpus/use_symbol_conflict.mc",
+        "len": 2,
+        "line": 1,
+        "pos": 240
+      },
+      "message": "Empty body \u2014 no clauses defined",
+      "phase": "pass0",
+      "severity": "warning"
+    },
+    {
+      "code": 5459,
       "location": {
         "column": 8,
         "file": "/Users/dan/work/mo/mcc/tests/corpus/use_symbol_conflict.mc",
@@ -30,11 +56,11 @@
   "summary": {
     "component_count": 0,
     "elapsed_ms": 0,
-    "errors": 1,
+    "errors": 2,
     "instance_count": 1,
     "interface_count": 0,
     "module_count": 1,
     "net_count": 0,
-    "warnings": 1
+    "warnings": 2
   }
 }

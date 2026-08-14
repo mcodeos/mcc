@@ -91,9 +91,9 @@ impl McUse {
             "../" => McUsePrefix::PathParent,
             _ => {
                 dlog_error(
-                    403,
+                    crate::db::diagnostic::errcodes::USE_URI_PREFIX_INVALID,
                     &pre_fix_node,
-                    "Unrecognized URI prefix — expected $, /, ./, or ../",
+                    &crate::errcodes::format_msg(crate::errcodes::USE_URI_PREFIX_INVALID, &[]),
                 );
                 return None;
             }
@@ -155,7 +155,11 @@ impl McUse {
                 }
             }
             _ => {
-                dlog_error(402, &module_file_node, "Invalid path in USE");
+                dlog_error(
+                    crate::errcodes::USE_PATH_INVALID,
+                    &module_file_node,
+                    &crate::errcodes::format_msg(crate::errcodes::USE_PATH_INVALID, &[]),
+                );
                 return None;
             }
         };
@@ -175,7 +179,20 @@ impl McUse {
                 MCAST_URI_VERSION => uri_version = n.to_string(),
                 MCAST_URI_ASID => uri_asid = n.to_string(),
                 MCAST_URI_IMPORT_IDS => uri_import_ids = n.subs_to_mcids_vec(),
-                _ => break,
+                // Report instead of silently dropping an unknown trailing node —
+                // it may indicate a grammar extension this compiler does not
+                // support yet (§4.3 P2-use).
+                other => {
+                    dlog_warning(
+                        crate::db::diagnostic::errcodes::USE_TRAILING_NODE,
+                        &n,
+                        &crate::db::diagnostic::errcodes::format_msg(
+                            crate::db::diagnostic::errcodes::USE_TRAILING_NODE,
+                            &[&format!("{:?}", other)],
+                        ),
+                    );
+                    break;
+                }
             }
             node1 = n.get_next();
         }
@@ -252,7 +269,14 @@ impl McUse {
                 // Log warning with dlog_warning if file_node is available
                 if let Some(fnode) = file_node {
                     let file_display = absolute_file_path.display();
-                    dlog_warning(403, fnode, &format!("use target not found: {file_display}"));
+                    dlog_warning(
+                        crate::db::diagnostic::errcodes::USE_TARGET_NOT_FOUND,
+                        fnode,
+                        &crate::db::diagnostic::errcodes::format_msg(
+                            crate::db::diagnostic::errcodes::USE_TARGET_NOT_FOUND,
+                            &[&file_display],
+                        ),
+                    );
                 } else {
                     debug!(
                         target: "mcc::use",

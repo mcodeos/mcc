@@ -127,7 +127,7 @@ fn check_mixed_path_separators(acc: &mut CheckAccumulator) {
                      Use one style consistently.",
                     uri
                 ),
-                code: 3201,
+                code: crate::errcodes::USE_MIXED_PATH_SEPARATORS,
             });
         }
     }
@@ -165,7 +165,7 @@ fn check_return_outside_function(acc: &mut CheckAccumulator) {
                             entry.key().ident,
                             text.trim()
                         ),
-                        code: 3202,
+                        code: crate::errcodes::FUNC_RETURN_OUTSIDE_FUNCTION,
                     });
                     break; // One diagnostic per module for this check
                 }
@@ -310,7 +310,7 @@ fn check_return_literal_in_text(
                      not a literal value.",
                     context, first_token
                 ),
-                code: 3203,
+                code: crate::errcodes::FUNC_RETURN_LITERAL_INVALID,
             });
         }
     }
@@ -348,7 +348,7 @@ fn check_empty_bracket_list(acc: &mut CheckAccumulator) {
                         entry.key().ident,
                         text.trim()
                     ),
-                    code: 3204,
+                    code: crate::errcodes::INST_EMPTY_TABLE,
                 });
             }
         }
@@ -389,7 +389,7 @@ fn check_this_lhs_declaration(acc: &mut CheckAccumulator) {
                         entry.key().ident,
                         text.trim()
                     ),
-                    code: 3205,
+                    code: crate::errcodes::INST_THIS_TYPE,
                 });
             }
         }
@@ -443,7 +443,7 @@ fn check_role_as_call_arg(acc: &mut CheckAccumulator) {
                             entry.key().ident,
                             inst_name
                         ),
-                        code: 3206,
+                        code: crate::errcodes::FUNC_ROLE_AS_ARG,
                     });
                 }
             }
@@ -540,7 +540,7 @@ fn check_condition_for_bitwise(
                          consider using explicit comparison (e.g., `(flags & MASK) != 0`).",
                         context
                     ),
-                    code: 3208,
+                    code: crate::errcodes::COND_SINGLE_BINARY,
                 });
             }
         }
@@ -610,7 +610,7 @@ fn check_unconnected_module_ports(acc: &mut CheckAccumulator) {
                         entry.key().ident,
                         port_name
                     ),
-                    code: 3207,
+                    code: crate::errcodes::MODULE_PORT_UNUSED,
                 });
             }
         }
@@ -625,7 +625,10 @@ fn check_unconnected_module_ports(acc: &mut CheckAccumulator) {
 
 /// Recursively walk a `McPhrase` and collect all endpoint base names,
 /// including names passed as function-call arguments.
-fn collect_referenced_names(phrase: &McPhrase, names: &mut HashSet<String>) {
+///
+/// `pub(crate)` — reused by `mcc show nets <OWNER.FUNC>` to build the
+/// func-body connection-line nets.
+pub(crate) fn collect_referenced_names(phrase: &McPhrase, names: &mut HashSet<String>) {
     match phrase {
         McPhrase::Lead => {}
         McPhrase::Endpoint(ep) => collect_endpoint_names(ep, names),
@@ -664,6 +667,40 @@ fn collect_referenced_names(phrase: &McPhrase, names: &mut HashSet<String>) {
             collect_referenced_names(inner, names);
             collect_endpoint_names(ep, names);
         }
+    }
+}
+
+/// Collect bare endpoint names from a module net phrase that should be
+/// treated as inline labels (for `show instances`).
+///
+/// Unlike [`collect_referenced_names`], this:
+///   - skips `FuncCall` nodes entirely — their parameters are arguments to
+///     component/module funcs (e.g. `X6.setup(GND, NC)`, `uC.power(...)`),
+///     not module-scope labels, and
+///   - ignores the member endpoint of `Member` phrases (`complex.pin`),
+///     since those are pin accesses, not label definitions.
+pub(crate) fn collect_net_label_names(phrase: &McPhrase, names: &mut HashSet<String>) {
+    match phrase {
+        McPhrase::Lead => {}
+        McPhrase::Endpoint(ep) => collect_endpoint_names(ep, names),
+        McPhrase::Series(items, _) | McPhrase::Parallel(items) | McPhrase::Multiple(items) => {
+            for item in items {
+                collect_net_label_names(item, names);
+            }
+        }
+        McPhrase::Group(g) => {
+            for item in &g.opds {
+                collect_net_label_names(item, names);
+            }
+        }
+        McPhrase::Transposed(p) => collect_net_label_names(p, names),
+        McPhrase::Closure(c) => {
+            for line in &c.body {
+                collect_net_label_names(line, names);
+            }
+        }
+        McPhrase::FuncCall(_) => {}
+        McPhrase::Member(inner, _) => collect_net_label_names(inner, names),
     }
 }
 

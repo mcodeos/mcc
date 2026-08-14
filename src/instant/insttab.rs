@@ -581,7 +581,7 @@ impl InstTable {
     }
 
     // ====================================================================
-    // Ground net merging (裁决⑥)
+    // Ground net merging (arbitration ⑥)
     // ====================================================================
 
     /// Merge all Ground-member nets into a single global GND net.

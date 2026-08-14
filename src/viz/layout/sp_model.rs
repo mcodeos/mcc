@@ -80,7 +80,7 @@ pub struct SpTree {
 
 #[derive(Debug, Clone)]
 pub enum SpKind {
-    /// A single 2-pin passive edge. `order` = index in `graph.boxes` = 源码书写顺序。
+    /// A single 2-pin passive edge. `order` = index in `graph.boxes` = source writing order.
     Leaf {
         box_id: i64,
         name: String,
@@ -115,7 +115,7 @@ impl SpTree {
         }
     }
 
-    /// 子树里最靠前的书写位置（确定性排序键）。
+    /// The earliest writing position in the subtree (deterministic sort key).
     pub fn min_order(&self) -> usize {
         match &self.kind {
             SpKind::Leaf { order, .. } => *order,
@@ -169,7 +169,7 @@ impl SpTree {
         }
     }
 
-    /// 按**源语法**打印（`-` 串联 / `+` 并联），便于和作者写的表达式逐字对照。
+    /// Print in **source syntax** (`-` series / `+` parallel), for verbatim comparison against the author-written expression.
     pub fn expr_source_syntax(&self) -> String {
         fn join(cs: &[SpTree], sep: &str) -> String {
             cs.iter()
@@ -788,8 +788,8 @@ pub fn orient_tree(t: &mut SpTree, a: usize, b: usize) {
 /// Vertical (top→bottom) ordering of parallel branches — a pure *rendering* choice, kept
 /// separate from topology on purpose.
 ///
-/// Uniform rule: `min_order()` asc — 作者书写顺序，上到下。
-/// 根与非根同一条规则，少一个特例。
+/// Uniform rule: `min_order()` asc — the author's writing order, top to bottom.
+/// Root and non-root use the same rule, one less special case.
 pub fn order_parallel(t: &mut SpTree, _is_root: bool) {
     match &mut t.kind {
         SpKind::Leaf { .. } => {}
@@ -1025,7 +1025,8 @@ mod tests {
         assert!(matches!(build_sp_model(&g), Err(SpBail::AnchorCount(0))));
     }
 
-    /// ★ 源表达式本身就是一棵 SP 树，"作者写的表达式" 与 "从 netlist 反推出来的表达式" 必须逐字相等。
+    /// ★ The source expression is itself an SP tree: the authored expression and the
+    /// netlist-derived expression must match verbatim.
     #[test]
     fn recovered_expression_matches_the_authored_source() {
         let m = build_sp_model(&golden()).unwrap();
@@ -1035,18 +1036,20 @@ mod tests {
         );
     }
 
-    /// ★ 作者书写顺序驱动并联分支的上下序：把源里两条支路对调（等价于 R3 分支先写），上下应该跟着换。
+    /// ★ The author's writing order drives the top-to-bottom order of parallel branches: swap
+    /// the two branches in the source (equivalent to writing the R3 branch first) and the
+    /// vertical order should follow.
     #[test]
     fn authored_branch_order_drives_top_to_bottom() {
         let mut g = golden();
         let i = g.boxes.iter().position(|b| b.id == 3).unwrap();
         let b3 = g.boxes.remove(i);
-        g.boxes.insert(0, b3); // R3 变成第一个书写的元件
+        g.boxes.insert(0, b3); // R3 becomes the first written component
         let m = build_sp_model(&g).unwrap();
         assert_eq!(m.root.expr(), "(R3 + ((R4 + C5) ∥ R6)) ∥ (R1 + C2)");
     }
 
-    /// dump 顺序：__net_0=B, __net_1=E, __net_2=D, __net_3=C(右端子), __net_4=A(左端子)
+    /// dump order: __net_0=B, __net_1=E, __net_2=D, __net_3=C (right terminal), __net_4=A (left terminal)
     fn real_netlist() -> McVecGraph {
         let mut g = McVecGraph::new(1, "main".into());
         g.boxes.push(passive(1, "R1", Symbol::Resistor));
@@ -1067,14 +1070,14 @@ mod tests {
         g
     }
 
-    /// ★ 节点下标顺序无关：真实 dump 顺序与 fixture 不同，但结果完全一致。
+    /// ★ Node index order is irrelevant: the real dump order differs from the fixture, but the result is identical.
     #[test]
     fn real_netlist_node_order_is_irrelevant() {
         let m = build_sp_model(&real_netlist()).expect("still SP");
         assert_eq!(m.root.expr(), "(R1 + C2) ∥ (R3 + ((R4 + C5) ∥ R6))");
         assert_eq!(m.root.size(), (3.0, 3.0));
         assert_eq!((m.left_node, m.right_node), (4, 3));
-        // 朝向按真实下标：C5 = E(1) → C(3)
+        // Orientation by real indices: C5 = E(1) → C(3)
         assert_eq!(span_of(&m.root, 5), Some((1, 3)));
         assert_eq!(span_of(&m.root, 1), Some((4, 0)), "R1: A → B");
     }

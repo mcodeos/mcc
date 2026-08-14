@@ -39,13 +39,13 @@ use crate::ast::ast_token::McSemTokens;
 use crate::ast::error::message::MISSING_SUBNODE;
 use crate::db::cmie::tables as workspace;
 use crate::db::diagnostic::diagnostic::{dlog_error, dlog_error_at, dlog_warning_at};
+use crate::db::diagnostic::errcodes;
 use crate::db::infra::global;
 use crate::db::infra::mc_use::{McUse, McUsePrefix};
 use crate::semantic::mc_enum::McEnumDef;
 use crate::semantic::mc_ifs::McInterface;
 use crate::{ast::ast_node::AstNode, ast::c_macros::*, semantic::common::McCMIE};
 use crate::{current_uri, mcb_loaded_libs, McComponent, McIds, McModule, McSpaceName, McURI};
-use core::panic;
 use line_index::LineIndex;
 use rust_lapper::Interval;
 use std::collections::BTreeMap;
@@ -334,10 +334,11 @@ impl McCode {
                     dlog_ptr = entry.next;
                 }
                 // Dedup: at overlapping positions, keep the highest code (most specific)
+                // Parser errors are below PARSER_WARNING_CODE_BASE; warnings are more specific.
                 raw.sort_by_key(|e| (e.2, e.3)); // sort by pos, then len
                 let mut last_end: u32 = 0;
                 for (code, level, pos, len, msg) in &raw {
-                    if *pos < last_end && *code < 1100 {
+                    if *pos < last_end && *code < errcodes::PARSER_WARNING_CODE_BASE {
                         continue; // skip less-specific error at same position
                     }
                     last_end = pos.saturating_add(*len);
@@ -453,7 +454,7 @@ impl McCode {
                 raw.sort_by_key(|e| (e.2, e.3));
                 let mut last_end: u32 = 0;
                 for (code, level, pos, len, msg) in &raw {
-                    if *pos < last_end && *code < 1100 {
+                    if *pos < last_end && *code < errcodes::PARSER_WARNING_CODE_BASE {
                         continue;
                     }
                     last_end = pos.saturating_add(*len);
@@ -708,7 +709,7 @@ impl McCode {
                 raw.sort_by_key(|e| (e.2, e.3));
                 let mut last_end: u32 = 0;
                 for (code, level, pos, len, msg) in &raw {
-                    if *pos < last_end && *code < 1100 {
+                    if *pos < last_end && *code < errcodes::PARSER_WARNING_CODE_BASE {
                         continue;
                     }
                     last_end = pos.saturating_add(*len);
@@ -803,12 +804,12 @@ impl McCode {
                 let lib_name = mcuse.orig_uri.split('/').next().unwrap_or("");
                 if !lib_name.is_empty() && !mcb_loaded_libs().contains(&lib_name.to_string()) {
                     dlog_warning_at(
-                        800,
+                        crate::errcodes::USE_DEP_NOT_DECLARED,
                         mcuse.pos,
                         mcuse.len,
-                        &format!(
-                            "use of undeclared dependency '{}': add it to project.toml [dependencies] or load via --lib",
-                            lib_name
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::USE_DEP_NOT_DECLARED,
+                            &[&lib_name],
                         ),
                     );
                 }
@@ -859,12 +860,12 @@ impl McCode {
                                 let names: Vec<String> =
                                     overlap.iter().map(|s| s.to_string()).collect();
                                 dlog_error_at(
-                                    801,
+                                    crate::errcodes::USE_SYMBOL_CONFLICT,
                                     mcuse.pos,
                                     mcuse.len,
-                                    &format!(
-                                        "symbol conflict in module '{}': {} collides with previous use from '{}'. Use 'as' alias to disambiguate",
-                                        module_name, names.join(", "), prev_uri
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::USE_SYMBOL_CONFLICT,
+                                        &[&module_name, &names.join(", "), &prev_uri],
                                     ),
                                 );
                             }
@@ -961,12 +962,12 @@ impl McCode {
                                 .insert(key, McSpaceName::new(class, mcuse.uri.clone()));
                         } else {
                             dlog_warning_at(
-                                804,
+                                crate::errcodes::USE_IMPORTED_NOT_FOUND,
                                 mcuse.pos,
                                 mcuse.len,
-                                &format!(
-                                    "imported symbol '{}' not found in '{}'",
-                                    class, mcuse.orig_uri
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::USE_IMPORTED_NOT_FOUND,
+                                    &[&class, &mcuse.orig_uri],
                                 ),
                             );
                         }
@@ -1076,12 +1077,12 @@ impl McCode {
                 let lib_name = mcuse.orig_uri.split('/').next().unwrap_or("");
                 if !lib_name.is_empty() && !mcb_loaded_libs().contains(&lib_name.to_string()) {
                     dlog_warning_at(
-                        800,
+                        crate::errcodes::USE_DEP_NOT_DECLARED,
                         mcuse.pos,
                         mcuse.len,
-                        &format!(
-                            "use of undeclared dependency '{}': add it to project.toml [dependencies] or load via --lib",
-                            lib_name
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::USE_DEP_NOT_DECLARED,
+                            &[&lib_name],
                         ),
                     );
                 }
@@ -1125,12 +1126,12 @@ impl McCode {
                                 let names: Vec<String> =
                                     overlap.iter().map(|s| s.to_string()).collect();
                                 dlog_error_at(
-                                    801,
+                                    crate::errcodes::USE_SYMBOL_CONFLICT,
                                     mcuse.pos,
                                     mcuse.len,
-                                    &format!(
-                                        "symbol conflict in module '{}': {} collides with previous use from '{}'. Use 'as' alias to disambiguate",
-                                        module_name, names.join(", "), prev_uri
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::USE_SYMBOL_CONFLICT,
+                                        &[&module_name, &names.join(", "), &prev_uri],
                                     ),
                                 );
                             }
@@ -1173,12 +1174,12 @@ impl McCode {
                                 .insert(key, McSpaceName::new(class, mcuse.uri.clone()));
                         } else {
                             dlog_warning_at(
-                                804,
+                                crate::errcodes::USE_IMPORTED_NOT_FOUND,
                                 mcuse.pos,
                                 mcuse.len,
-                                &format!(
-                                    "imported symbol '{}' not found in '{}'",
-                                    class, mcuse.orig_uri
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::USE_IMPORTED_NOT_FOUND,
+                                    &[&class, &mcuse.orig_uri],
                                 ),
                             );
                         }
@@ -1214,6 +1215,10 @@ impl McCode {
     /// List of class names defined in this file
     pub fn parse_cmie_names(&mut self) -> Vec<McIds> {
         let mut cmies: Vec<McIds> = Vec::<McIds>::new();
+        // (name, declaration node type) — needed to exempt legal
+        // enum + component/interface same-name coexistence (§2.3 of
+        // same-name-enum-component.md: enum+component namespaces merge).
+        let mut cmie_types: Vec<(McIds, u16)> = Vec::new();
         for node in self.ast.iter() {
             if node.is_type(MCAST_INTERFACE)
                 || node.is_type(MCAST_COMPONENT)
@@ -1221,6 +1226,7 @@ impl McCode {
                 || node.is_type(MCAST_ENUM)
                 || node.is_type(MCAST_DEFINE)
             {
+                let decl_type = node.get_type();
                 let subnodes = node.get_sub_node().expect(MISSING_SUBNODE);
                 if let Some(class_name) = McIds::new(
                     &subnodes
@@ -1231,18 +1237,42 @@ impl McCode {
                         .expect(MISSING_SUBNODE),
                 ) {
                     if cmies.contains(&class_name) {
-                        dlog_error(501, &node, "Definition already exists");
+                        // P0-3: enum + component/interface sharing a name is
+                        // legal (namespace merge). Other collisions still error.
+                        let exempt = cmie_types.iter().any(|(existing, t)| {
+                            *existing == class_name
+                                && (Self::is_enum_decl(*t) != Self::is_enum_decl(decl_type))
+                        });
+                        if !exempt {
+                            dlog_error(
+                                crate::errcodes::DEF_ALREADY_EXISTS,
+                                &node,
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::DEF_ALREADY_EXISTS,
+                                    &[],
+                                ),
+                            );
+                        }
                     } else {
                         self.spacenames.insert(
                             class_name.clone(),
                             McSpaceName::new(&class_name, self.uri.clone()),
                         );
-                        cmies.push(class_name);
+                        cmies.push(class_name.clone());
                     }
+                    cmie_types.push((class_name, decl_type));
                 }
             }
         }
         cmies
+    }
+
+    /// True when the declaration AST type is an `enum`.
+    ///
+    /// Used by [`parse_cmie_names`] to exempt legal enum + component/interface
+    /// same-name coexistence (§2.3 of same-name-enum-component.md).
+    fn is_enum_decl(decl_type: u16) -> bool {
+        decl_type == MCAST_ENUM
     }
 
     /// Load a single CMIE from mcode base lib and add to global tables
@@ -1274,7 +1304,14 @@ impl McCode {
                                             uri: self.uri.clone(),
                                         })
                                         .and_modify(|_| {
-                                            dlog_error(1002, &node, "Duplicate component");
+                                            dlog_error(
+                                                crate::errcodes::DUP_COMPONENT,
+                                                &node,
+                                                &crate::errcodes::format_msg(
+                                                    crate::errcodes::DUP_COMPONENT,
+                                                    &[],
+                                                ),
+                                            );
                                         })
                                         .or_insert(Arc::new(comp));
                                     return Some(McCMIE::Component(result.value().clone()));
@@ -1291,7 +1328,14 @@ impl McCode {
                                             uri: self.uri.clone(),
                                         })
                                         .and_modify(|_| {
-                                            dlog_error(1503, &node, "Duplicate module");
+                                            dlog_error(
+                                                crate::errcodes::DUP_MODULE,
+                                                &node,
+                                                &crate::errcodes::format_msg(
+                                                    crate::errcodes::DUP_MODULE,
+                                                    &[],
+                                                ),
+                                            );
                                         })
                                         .or_insert(Arc::new(mdl));
                                     return Some(McCMIE::Module(result.value().clone()));
@@ -1306,7 +1350,14 @@ impl McCode {
                                             uri: self.uri.clone(),
                                         })
                                         .and_modify(|_| {
-                                            dlog_error(1001, &node, "Duplicate interface");
+                                            dlog_error(
+                                                crate::errcodes::DUP_INTERFACE,
+                                                &node,
+                                                &crate::errcodes::format_msg(
+                                                    crate::errcodes::DUP_INTERFACE,
+                                                    &[],
+                                                ),
+                                            );
                                         })
                                         .or_insert(Arc::new(ifs));
                                     return Some(McCMIE::Interface(result.value().clone()));
@@ -1319,7 +1370,7 @@ impl McCode {
                                     //   accessible here. Clone out everything we need first
                                     //   because add_* methods take &mut self.
                                     let self_uri = self.uri.clone();
-                                    let class_name_str = enum_def.name.to_string();
+                                    let class_name_ids = McIds::from(enum_def.name.clone());
                                     let class_span =
                                         enum_def.span[0] as usize..enum_def.span[1] as usize;
                                     let value_spans: Vec<(usize, usize)> = enum_def
@@ -1329,7 +1380,7 @@ impl McCode {
                                         .collect();
                                     if let Some(class_id) = self.add_enum_class(
                                         &self_uri,
-                                        &class_name_str,
+                                        &class_name_ids,
                                         class_span.clone(),
                                     ) {
                                         for (idx, (vs, ve)) in value_spans.iter().enumerate() {
@@ -1352,7 +1403,14 @@ impl McCode {
                                         enums_guard
                                             .entry(space_name.clone())
                                             .and_modify(|_| {
-                                                dlog_error(1004, &node, "Duplicate enum");
+                                                dlog_error(
+                                                    crate::errcodes::DUP_ENUM,
+                                                    &node,
+                                                    &crate::errcodes::format_msg(
+                                                        crate::errcodes::DUP_ENUM,
+                                                        &[],
+                                                    ),
+                                                );
                                             })
                                             .or_insert(arc_enum.clone());
                                     } else {
@@ -1360,14 +1418,49 @@ impl McCode {
                                         enums_guard
                                             .entry(space_name.clone())
                                             .and_modify(|_| {
-                                                dlog_error(1004, &node, "Duplicate enum");
+                                                dlog_error(
+                                                    crate::errcodes::DUP_ENUM,
+                                                    &node,
+                                                    &crate::errcodes::format_msg(
+                                                        crate::errcodes::DUP_ENUM,
+                                                        &[],
+                                                    ),
+                                                );
                                             })
                                             .or_insert(arc_enum.clone());
                                     }
                                     return Some(McCMIE::Enum(arc_enum));
                                 }
                             }
-                            _ => panic!(),
+                            MCAST_DEFINE => {
+                                // P1-10: a define cannot be represented as an
+                                // McCMIE (component/module/interface/enum only).
+                                // Report the mismatch instead of panicking.
+                                dlog_error(
+                                    crate::errcodes::CMIE_IS_DEFINE,
+                                    &node,
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::CMIE_IS_DEFINE,
+                                        &[&name],
+                                    ),
+                                );
+                                return None;
+                            }
+                            // Defensive fallback: the outer scan guard only admits
+                            // the five declaration types above, so this arm is
+                            // unreachable in practice. Keep it diagnostic-based
+                            // rather than panicking (P1-10).
+                            _ => {
+                                dlog_error(
+                                    crate::errcodes::CMIE_LOAD_REJECTED,
+                                    &node,
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::CMIE_LOAD_REJECTED,
+                                        &[&node.get_type() as &dyn std::fmt::Display],
+                                    ),
+                                );
+                                return None;
+                            }
                         }
                     }
                 }
@@ -1385,7 +1478,7 @@ impl McCode {
             match node.get_type() {
                 MCAST_INTERFACE => {
                     if let Some(ifs) = McInterface::new(&node, &self.uri) {
-                        let ifs_name_str = ifs.name.to_string();
+                        let ifs_name_ids = McIds::from(ifs.name.clone());
                         let ifs_span = ifs.span.clone();
                         let self_uri = self.uri.clone();
                         let space_name = McSpaceName {
@@ -1396,7 +1489,14 @@ impl McCode {
                             global::mcc_interfaces
                                 .entry(space_name)
                                 .and_modify(|_| {
-                                    dlog_error(1001, &node, "Duplicate interface");
+                                    dlog_error(
+                                        crate::errcodes::DUP_INTERFACE,
+                                        &node,
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::DUP_INTERFACE,
+                                            &[],
+                                        ),
+                                    );
                                 })
                                 .or_insert(Arc::new(ifs));
                         } else {
@@ -1404,7 +1504,14 @@ impl McCode {
                                 .interfaces
                                 .entry(space_name)
                                 .and_modify(|_| {
-                                    dlog_error(1001, &node, "Duplicate interface");
+                                    dlog_error(
+                                        crate::errcodes::DUP_INTERFACE,
+                                        &node,
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::DUP_INTERFACE,
+                                            &[],
+                                        ),
+                                    );
                                 })
                                 .or_insert(Arc::new(ifs));
                         }
@@ -1412,7 +1519,7 @@ impl McCode {
                         // lapper_global_classes can create ClassDef intervals.
                         self.add_global_class(
                             &self_uri,
-                            &ifs_name_str,
+                            &ifs_name_ids,
                             ifs_span,
                             crate::ContainerKind::Interface,
                         );
@@ -1423,6 +1530,7 @@ impl McCode {
                         // ★ First clone the needed data (name + uri) for global_table,
                         // then move comp into the Arc table
                         let comp_name_str = comp.name.to_string();
+                        let comp_name_ids = McIds::from(comp.name.clone());
                         // Compute the correct span from the component node's subtree.
                         // Direct node.get_pos() returns 0 for MCAST_COMPONENT top-level nodes
                         // (a parser limitation). Instead, find the MCAST_NAME child and
@@ -1453,7 +1561,14 @@ impl McCode {
                                 global::mcc_components
                                     .entry(space_name)
                                     .and_modify(|_| {
-                                        dlog_error(1002, &node, "Duplicate component");
+                                        dlog_error(
+                                            crate::errcodes::DUP_COMPONENT,
+                                            &node,
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::DUP_COMPONENT,
+                                                &[],
+                                            ),
+                                        );
                                     })
                                     .or_insert(Arc::new(comp));
                             } else {
@@ -1461,7 +1576,14 @@ impl McCode {
                                     .components
                                     .entry(space_name)
                                     .and_modify(|_| {
-                                        dlog_error(1002, &node, "Duplicate component");
+                                        dlog_error(
+                                            crate::errcodes::DUP_COMPONENT,
+                                            &node,
+                                            &crate::errcodes::format_msg(
+                                                crate::errcodes::DUP_COMPONENT,
+                                                &[],
+                                            ),
+                                        );
                                     })
                                     .or_insert(Arc::new(comp));
                             }
@@ -1473,7 +1595,7 @@ impl McCode {
                         // causing LSP goto_definition's symbol_lapper to always be empty.
                         self.add_global_class(
                             &self_uri,
-                            &comp_name_str,
+                            &comp_name_ids,
                             comp_span,
                             crate::ContainerKind::Component,
                         );
@@ -1483,7 +1605,7 @@ impl McCode {
                     if let Some(enum_def) = McEnumDef::new(&node, &self.uri) {
                         // ★ LSP: register class + values in global table before the move.
                         let self_uri = self.uri.clone();
-                        let class_name_str = enum_def.name.to_string();
+                        let class_name_ids = McIds::from(enum_def.name.clone());
                         let class_span = enum_def.span[0] as usize..enum_def.span[1] as usize;
                         let value_spans: Vec<(usize, usize)> = enum_def
                             .values
@@ -1491,7 +1613,7 @@ impl McCode {
                             .map(|v| (v.span[0] as usize, v.span[1] as usize))
                             .collect();
                         if let Some(class_id) =
-                            self.add_enum_class(&self_uri, &class_name_str, class_span.clone())
+                            self.add_enum_class(&self_uri, &class_name_ids, class_span.clone())
                         {
                             for (idx, (vs, ve)) in value_spans.iter().enumerate() {
                                 self.add_enum_value(&self_uri, class_id, idx as u32, *vs..*ve);
@@ -1506,7 +1628,14 @@ impl McCode {
                             global::mcc_enums
                                 .entry(space_name)
                                 .and_modify(|_| {
-                                    dlog_error(1004, &node, "Duplicate enum");
+                                    dlog_error(
+                                        crate::errcodes::DUP_ENUM,
+                                        &node,
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::DUP_ENUM,
+                                            &[],
+                                        ),
+                                    );
                                 })
                                 .or_insert(Arc::new(enum_def));
                         } else {
@@ -1514,7 +1643,14 @@ impl McCode {
                                 .enums
                                 .entry(space_name)
                                 .and_modify(|_| {
-                                    dlog_error(1004, &node, "Duplicate enum");
+                                    dlog_error(
+                                        crate::errcodes::DUP_ENUM,
+                                        &node,
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::DUP_ENUM,
+                                            &[],
+                                        ),
+                                    );
                                 })
                                 .or_insert(Arc::new(enum_def));
                         }
@@ -1532,7 +1668,14 @@ impl McCode {
                             global::mcc_defines
                                 .entry(space_name)
                                 .and_modify(|_| {
-                                    dlog_error(1505, &node, "Duplicate define");
+                                    dlog_error(
+                                        crate::errcodes::DUP_DEFINE,
+                                        &node,
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::DUP_DEFINE,
+                                            &[],
+                                        ),
+                                    );
                                 })
                                 .or_insert(Arc::new(def));
                         } else {
@@ -1540,7 +1683,14 @@ impl McCode {
                                 .defines
                                 .entry(space_name)
                                 .and_modify(|_| {
-                                    dlog_error(1505, &node, "Duplicate define");
+                                    dlog_error(
+                                        crate::errcodes::DUP_DEFINE,
+                                        &node,
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::DUP_DEFINE,
+                                            &[],
+                                        ),
+                                    );
                                 })
                                 .or_insert(Arc::new(def));
                         }
@@ -1592,14 +1742,120 @@ impl McCode {
                 } else {
                     param.clone()
                 };
+                // Simple param (e.g. `spi`): McIds parses the node directly.
                 if let Some(ids) = McIds::new(&inner) {
                     let span =
                         (inner.get_pos() as usize)..((inner.get_pos() + inner.get_len()) as usize);
                     result.push((ids.to_string(), span));
+                    continue;
+                }
+                // Typed power param (e.g. `[V3V3, GND]::DC(3.3V)`): walk the
+                // subtree for square-vec nodes and register each member with
+                // its precise span, so func body refs resolve to the members.
+                let before = result.len();
+                Self::collect_square_vec_member_spans(&inner, &mut result);
+                if result.len() == before {
+                    // Single-ID typed param (e.g. `V3V3::DC(3.3V)`): the parser
+                    // emits DECLARE(class=TYPE, instance=NAME) here. Extract the
+                    // instance identifier so func body refs resolve to this
+                    // param def (not to another func's same-named param).
+                    Self::collect_declare_instance_spans(&inner, &mut result);
                 }
             }
         }
         result
+    }
+
+    /// Walk a param subtree for the single-ID typed form `NAME::TYPE(...)`,
+    /// which the parser emits as DECLARE(class=TYPE, instance=NAME). Extract
+    /// the instance identifier (`NAME`) with its precise span.
+    fn collect_declare_instance_spans(
+        node: &AstNode,
+        out: &mut Vec<(String, std::ops::Range<usize>)>,
+    ) {
+        if node.get_type() == MCAST_INSTANCE {
+            if let Some(sub) = node.get_sub_node() {
+                // instance → opd → ids (or direct ids)
+                let ids_node = if sub.get_type() == MCAST_OPD {
+                    sub.get_sub_node().unwrap_or_else(|| sub.clone())
+                } else {
+                    sub.clone()
+                };
+                if let Some(ids) = McIds::new(&ids_node) {
+                    let span = (ids_node.get_pos() as usize)
+                        ..((ids_node.get_pos() + ids_node.get_len()) as usize);
+                    out.push((ids.to_string(), span));
+                }
+            }
+            return; // instance children already captured
+        }
+        if let Some(sub) = node.get_sub_node() {
+            let mut cur = sub;
+            loop {
+                Self::collect_declare_instance_spans(&cur, out);
+                match cur.get_next() {
+                    Some(nx) => cur = nx,
+                    None => break,
+                }
+            }
+        }
+    }
+
+    /// Walk a param subtree for square-vec nodes (`[A, B]::DC(...)`) and push
+    /// each member with its precise span.
+    fn collect_square_vec_member_spans(
+        node: &AstNode,
+        out: &mut Vec<(String, std::ops::Range<usize>)>,
+    ) {
+        if matches!(node.get_type(), MCAST_SQUARE_VEC | MCAST_OPD_SQUARE_VEC) {
+            let mut current = node.get_sub_node();
+            while let Some(phrase_node) = current {
+                let ids_node = phrase_node
+                    .get_sub_node()
+                    .unwrap_or_else(|| phrase_node.clone());
+                if let Some(ids) = McIds::new(&ids_node) {
+                    let span = (ids_node.get_pos() as usize)
+                        ..((ids_node.get_pos() + ids_node.get_len()) as usize);
+                    out.push((ids.to_string(), span));
+                }
+                current = phrase_node.get_next();
+            }
+            return; // do not descend into members again
+        }
+        if let Some(sub) = node.get_sub_node() {
+            let mut cur = sub;
+            loop {
+                Self::collect_square_vec_member_spans(&cur, out);
+                match cur.get_next() {
+                    Some(nx) => cur = nx,
+                    None => break,
+                }
+            }
+        }
+    }
+
+    /// Walk a whole subtree (e.g. a component `func` node) and collect every
+    /// square-vec member (name, span) found inside. Used to register refs such
+    /// as `[VCC, VSS]` in component func bodies that name the component's own
+    /// pins.
+    fn collect_square_vec_members_in_subtree(
+        node: &AstNode,
+        out: &mut Vec<(String, std::ops::Range<usize>)>,
+    ) {
+        if matches!(node.get_type(), MCAST_SQUARE_VEC | MCAST_OPD_SQUARE_VEC) {
+            Self::collect_square_vec_member_spans(node, out);
+            return; // members already extracted; do not descend again
+        }
+        if let Some(sub) = node.get_sub_node() {
+            let mut cur = sub;
+            loop {
+                Self::collect_square_vec_members_in_subtree(&cur, out);
+                match cur.get_next() {
+                    Some(nx) => cur = nx,
+                    None => break,
+                }
+            }
+        }
     }
 
     fn extract_pin_name_spans(comp: &McComponent) -> Vec<(String, std::ops::Range<usize>)> {
@@ -1654,7 +1910,7 @@ impl McCode {
             if node_type == MCAST_MODULE {
                 if let Some(module) = McModule::new(&node, &self.uri) {
                     let module_name = module.name.clone();
-                    let module_name_str = module_name.to_string();
+                    let module_name_ids = McIds::from(module_name.clone());
                     let module_span = module.span.clone();
                     let self_uri = self.uri.clone();
                     let key = McSpaceName {
@@ -1667,7 +1923,7 @@ impl McCode {
                     // module names without ClassDef entries in the lapper.
                     self.add_global_class(
                         &self_uri,
-                        &module_name_str,
+                        &module_name_ids,
                         module_span,
                         crate::ContainerKind::Module,
                     );
@@ -1676,7 +1932,11 @@ impl McCode {
                         .modules
                         .entry(key)
                         .and_modify(|_| {
-                            dlog_error(1503, &node, "Duplicate module");
+                            dlog_error(
+                                crate::errcodes::DUP_MODULE,
+                                &node,
+                                &crate::errcodes::format_msg(crate::errcodes::DUP_MODULE, &[]),
+                            );
                         })
                         .or_insert(Arc::new(module));
                 }
@@ -1717,7 +1977,7 @@ impl McCode {
     pub fn add_global_class(
         &mut self,
         uri: &McURI,
-        class_name: &String,
+        class_name: &McIds,
         span: Span,
         kind: crate::ContainerKind,
     ) -> Option<DeclareId> {
@@ -1741,8 +2001,10 @@ impl McCode {
         if let Some(class_id) = result {
             tracing::info!(target: "mcc::lsp", "  add_global_class: registered '{}' ({}) in '{}' -> class_id={:?}", class_name, kind.as_str(), uri, class_id);
             let mut table = workspace::WORKSPACE.lsp.class_table.lock().unwrap();
+            // class_table is a plain-name index (queried externally by &str),
+            // so flatten the McIds here at the boundary.
             table.insert(
-                (uri.to_string(), kind, class_name.clone()),
+                (uri.to_string(), kind, class_name.to_string()),
                 (class_id, span),
             );
         }
@@ -1771,7 +2033,7 @@ impl McCode {
     pub fn add_enum_class(
         &mut self,
         uri: &McURI,
-        class_name: &str,
+        class_name: &McIds,
         span: Span,
     ) -> Option<DeclareId> {
         let result = match self.symbols.lock() {
@@ -1878,6 +2140,11 @@ impl McCode {
                             return SymbolKind::PinNameRef;
                         }
                     }
+                    crate::semantic::mc_inst::McInstance::BusRef { .. } => {
+                        // `comp.bus.member` — the base resolved to a bus ref,
+                        // so the member is a bus member, not a port.
+                        return SymbolKind::BusMemberRef;
+                    }
                     _ => {}
                 }
             }
@@ -1916,6 +2183,70 @@ impl McCode {
             SymbolKind::FuncDef => SymbolKind::FuncRef,
             SymbolKind::EnumValDef => SymbolKind::EnumValRef,
             _ => SymbolKind::FuncParamRef,
+        }
+    }
+
+    /// Fallback for func-body chain refs whose root is one of the component's
+    /// own pins (e.g. `VIN.Vin` inside `func enable` — `VIN` is a pin defined
+    /// by `pins = [...]`, not a func-local instance, so `resolve_member_chain`
+    /// misses it). Resolves the chain root against the component pin declares
+    /// and returns the ref kind for the pin family.
+    fn resolve_func_chain_own_pin(
+        uri: &McURI,
+        segments: &[crate::refdef::types::ChainSegment],
+        comp_ident: &str,
+        comp: &McComponent,
+        sem: &mut McSemSymbols,
+    ) -> Option<(DeclareId, SymbolKind)> {
+        // Rebuild the dotted text (`VIN.Vin`) and extract the chain root.
+        let full_name: String = segments
+            .iter()
+            .filter_map(|s| match s {
+                crate::refdef::types::ChainSegment::Ident(name) => Some(name.clone()),
+                crate::refdef::types::ChainSegment::Group { base, members } => {
+                    Some(format!("{}{{{}}}", base, members.join(",")))
+                }
+                crate::refdef::types::ChainSegment::Fcall(_) => None,
+            })
+            .collect::<Vec<_>>()
+            .join(".");
+        let root = match segments.first() {
+            Some(crate::refdef::types::ChainSegment::Ident(name)) => name.as_str(),
+            Some(crate::refdef::types::ChainSegment::Group { base, .. }) => base.as_str(),
+            _ => return None,
+        };
+        // The root must be one of the component's own pins.
+        let pin_names: std::collections::HashSet<String> = Self::extract_pin_name_spans(comp)
+            .into_iter()
+            .map(|(n, _)| n)
+            .collect();
+        if !pin_names.contains(root) {
+            return None;
+        }
+        let file_id = crate::ast::ast_semantic::intern(&mut sem.file_table, uri.as_str());
+        let comp_id = crate::ast::ast_semantic::intern(&mut sem.container_table, comp_ident);
+        // Prefer the exact dotted form (`VIN.Vin`), then the root (`VIN`).
+        let mut target: &str = &full_name;
+        loop {
+            if let Some((id, _)) =
+                sem.local_table
+                    .name_to_declare_id
+                    .get(&(file_id, comp_id, 0, target.to_string()))
+            {
+                let kind = if Self::extract_pin_iface_spans(comp)
+                    .iter()
+                    .any(|(n, _)| n == root)
+                {
+                    SymbolKind::PinIfaceRef
+                } else {
+                    SymbolKind::PinNameRef
+                };
+                return Some((*id, kind));
+            }
+            if target == root {
+                return None;
+            }
+            target = root;
         }
     }
 
@@ -2327,7 +2658,7 @@ impl McCode {
                                 def_kind: SymbolKind::ClassDef,
                                 cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
                             };
-                            map.add_name_alias(&self.uri, class_name, entry);
+                            map.add_name_alias(&self.uri, &class_name.to_string(), entry);
                         }
                     }
                     for ((def_uri, class_name), class_id) in &gt.enum_class_name_to_id {
@@ -2349,7 +2680,7 @@ impl McCode {
                                 def_kind: SymbolKind::EnumDef,
                                 cmie_kind: CmieKind::Enum as u8,
                             };
-                            map.add_name_alias(&self.uri, class_name, entry);
+                            map.add_name_alias(&self.uri, &class_name.to_string(), entry);
                         }
                     }
                 }
@@ -2404,6 +2735,10 @@ impl McCode {
                 Self::lapper_instance_decls_and_refs(&self.uri, &mut sem, &mut symbol_lapper);
                 Self::lapper_interfaces(&self.uri, &mut sem, &mut symbol_lapper);
                 Self::lapper_module_ports(&self.uri, &mut sem, &mut symbol_lapper);
+                // ★ Component defs must be registered before func-role resolution:
+                // funcall-arg refs (e.g. `CAP(...).Cap([AVDD09_CAP, GND])`) rely on
+                // the container-level P2 fallback finding the component's own pins.
+                Self::lapper_component_defs_register(&self.uri, &mut sem, &mut symbol_lapper);
 
                 let decl_count_file_id =
                     crate::ast::ast_semantic::intern(&mut sem.file_table, self.uri.as_str());
@@ -2419,6 +2754,12 @@ impl McCode {
                 Self::lapper_func_define_role(&self.uri, &self.ast, &mut sem, &mut symbol_lapper);
                 Self::lapper_function_params(&self.uri, &mut sem, &mut symbol_lapper);
                 Self::lapper_component_defs(&self.uri, &mut sem, &mut symbol_lapper);
+                Self::lapper_component_func_pin_refs(
+                    &self.uri,
+                    &self.ast,
+                    &mut sem,
+                    &mut symbol_lapper,
+                );
                 Self::lapper_enum_refs(&self.uri, &self.ast, &mut sem, &mut symbol_lapper);
                 Self::lapper_scoped_enum_bare_refs(
                     &self.uri,
@@ -2625,22 +2966,18 @@ impl McCode {
     /// been parsed, so we can search workspace + global library tables.
     /// If found, ensures the class is registered in `gt` and returns the real
     /// (class_id, target_uri, target_span). Returns None if still unresolved.
+    ///
+    /// `class_name` is the AST-derived `McIds` captured at registration time —
+    /// no disk re-read and no flattened-string rebuild needed (the latter
+    /// would collapse dotted names such as `MCU.US513_20_F` from `[Ida, DotIda]`
+    /// into a single `Ida`, breaking the structural `Eq` used by the tables).
     fn resolve_class_ref_at_span(
         ref_uri: &McURI,
-        ref_span: &std::ops::Range<usize>,
+        class_name: &McIds,
         gt: &mut crate::ast::ast_semantic::GlobalSymbolTable,
         _sem: &McSemSymbols,
     ) -> Option<(DeclareId, McURI, std::ops::Range<usize>)> {
-        // Read the file content to extract the class name from the reference span
-        let content = std::fs::read_to_string(std::path::Path::new(ref_uri.as_str())).ok()?;
-        let class_name = content.get(ref_span.start..ref_span.end)?;
-
-        // Trim constructor args (e.g., "CAP(1uF" → "CAP", "RES(0Ω" → "RES")
-        let clean_name: String = class_name
-            .chars()
-            .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '.')
-            .collect();
-        if clean_name.is_empty() {
+        if class_name.segments.is_empty() {
             return None;
         }
 
@@ -2651,8 +2988,7 @@ impl McCode {
         //   P3: Single DashMap.get via cmie_kind
         //   P4: Re-entry guard → name-only fallback
         //   P5: find_by_name_in_project_tables (final fallback)
-        let ids = crate::semantic::basic::mc_ids::McIds::from(clean_name.as_str());
-        if let Some(cmie) = crate::db::cmie::cmie::mcb_get_cmie(&ids, ref_uri) {
+        if let Some(cmie) = crate::db::cmie::cmie::mcb_get_cmie(class_name, ref_uri) {
             let (def_uri, def_span) = match &cmie {
                 crate::semantic::common::McCMIE::Component(c) => (c.uri.clone(), c.span.clone()),
                 crate::semantic::common::McCMIE::Module(m) => (m.uri.clone(), m.span.clone()),
@@ -2663,17 +2999,13 @@ impl McCode {
                 }
             };
             // Check if already registered; if so return existing id,
-            // otherwise register now.
-            let cid = {
-                let mut found = None;
-                for ((uri, name), &existing_cid) in gt.class_name_to_id.iter() {
-                    if name == &clean_name && uri == &def_uri {
-                        found = Some(existing_cid);
-                        break;
-                    }
-                }
-                found.unwrap_or_else(|| gt.add_class(&def_uri, &clean_name, def_span.clone()))
-            };
+            // otherwise register now. Key is (McURI, McIds): O(1) lookup via
+            // normalized McIds Eq/Hash (DotIda/Curly equivalence).
+            let cid = gt
+                .class_name_to_id
+                .get(&(def_uri.clone(), class_name.clone()))
+                .copied()
+                .unwrap_or_else(|| gt.add_class(&def_uri, class_name, def_span.clone()));
             return Some((cid, def_uri, def_span));
         }
 
@@ -2732,7 +3064,7 @@ impl McCode {
                         .unwrap();
                     tracing::info!(target: "mcc::lsp", "  create_lapper: lsp.declare_class_refs for '{}' = {} entries", uri, decl_refs.get(uri).map(|v| v.len()).unwrap_or(0));
                     if let Some(refs) = decl_refs.remove(uri) {
-                        for (decl_span, _class_id, target_uri, target_span) in refs {
+                        for (decl_span, _class_id, target_uri, target_span, class_name) in refs {
                             // ★ Fix (unified): Register each class ref with a
                             // locally-unique DeclareId.
                             //
@@ -2752,23 +3084,13 @@ impl McCode {
                             // Sentinel (target_uri=""): class was NOT found
                             // during registration. Fall back to late resolution
                             // via resolve_class_ref_at_span.
+                            //
+                            // ★ class_name is captured at registration time
+                            // (mcb_register_declare_class) instead of being
+                            // re-read from disk here — disk reads fail for
+                            // in-memory buffers / virtual URIs (LSP didOpen).
 
-                            // Read class name from the reference span
-                            let content =
-                                std::fs::read_to_string(std::path::Path::new(uri.as_str())).ok();
-                            let class_name: String = content
-                                .as_ref()
-                                .and_then(|c| c.get(decl_span.start..decl_span.end))
-                                .map(|s| {
-                                    s.chars()
-                                        .take_while(|c| {
-                                            c.is_alphanumeric() || *c == '_' || *c == '.'
-                                        })
-                                        .collect()
-                                })
-                                .unwrap_or_default();
-
-                            if class_name.is_empty() {
+                            if class_name.segments.is_empty() {
                                 continue;
                             }
 
@@ -2777,7 +3099,7 @@ impl McCode {
                             {
                                 // Sentinel: unresolved during registration
                                 if let Some(resolved) =
-                                    Self::resolve_class_ref_at_span(uri, &decl_span, &mut gt, &sem)
+                                    Self::resolve_class_ref_at_span(uri, &class_name, &mut gt, &sem)
                                 {
                                     (resolved.0, resolved.1, resolved.2)
                                 } else {
@@ -2902,7 +3224,8 @@ impl McCode {
             for (inst_name, (_iotype, inst)) in m.insts.insts() {
                 match inst {
                     crate::semantic::mc_inst::McInstance::Component(_)
-                    | crate::semantic::mc_inst::McInstance::Module(_) => {
+                    | crate::semantic::mc_inst::McInstance::Module(_)
+                    | crate::semantic::mc_inst::McInstance::Interface(_) => {
                         if let Some(spans) = m.insts.port_spans().get(inst_name) {
                             for span in spans {
                                 let (d, _) = crate::refdef::register::register_def(
@@ -3265,7 +3588,89 @@ impl McCode {
                     sem.ref_entries
                         .push((ref_kind, u32::from(decl_id), span.start, span.end));
                 }
+                // ★ Base-instance ref: the base identifier of a dotted member
+                // chain gets its own InstRef so hover / F12 on `spk` in
+                // `spk.3` (or `USB_VBUS_1` in `USB_VBUS_1.GND`) resolves to
+                // the base's own def instead of the whole-chain member target.
+                let segs = crate::refdef::chain::split_segments(port_name);
+                if segs.len() > 1 {
+                    // Only register the base ref when the recorded span covers
+                    // the whole chain (i.e. the span starts at the base).
+                    // record_scoped_net_ref records dotted member refs with a
+                    // member-only span — e.g. `GND` inside `[dc.GND, dc.GND]`
+                    // is stored as name `dc.GND` at span [member start, member
+                    // end]. register_chain_base_ref assumes span.start is the
+                    // base position, so without this guard it would emit a
+                    // PortRef at the member text (`GN` of `GND`), overlapping
+                    // the BusMemberRef. The base ref for those member-only
+                    // spans already exists (params net-ref on the base name).
+                    if span.end - span.start >= port_name.len() {
+                        Self::register_chain_base_ref(
+                            sem,
+                            symbol_lapper,
+                            &uri,
+                            &segs[0],
+                            &span,
+                            scope,
+                            &m.insts,
+                            &m.params,
+                        );
+                    }
+                }
             }
+            // ★ Chain references: AST-structured segments for cross-container
+            // member resolution (e.g. `uC.ADC{P,N}`, `uC.19`, `uC.i2c(0x36).I2C0`).
+            // Recorded by try_record_chain_ref from the AST; resolved here so
+            // goto-def / hover land on the member text.
+            for (span, segments, scope) in m.insts.iter_chain_refs() {
+                if let Some(hit) = crate::refdef::chain::resolve_member_chain_from_segments(
+                    &uri, segments, &m.insts, &m.params,
+                ) {
+                    let ref_kind = Self::chain_ref_kind(hit.def_kind);
+                    let (d, _) = crate::refdef::register::register_def(
+                        sem,
+                        &hit.uri,
+                        scope,
+                        None,
+                        &hit.name,
+                        hit.span.clone(),
+                        hit.def_kind,
+                    );
+                    symbol_lapper.insert(Interval {
+                        start: span.start,
+                        stop: span.end,
+                        val: SymbolType::new(ref_kind, u32::from(d)),
+                    });
+                    sem.ref_entries
+                        .push((ref_kind, u32::from(d), span.start, span.end));
+                    tracing::info!(target: "mcc::lsp::audit",
+                        "[AUDIT-ChainRef] segments={segments:?} → {} kind={ref_kind:?} def_uri={} def_span={:?} decl_id={d:?}",
+                        hit.name, hit.uri, hit.span);
+                    // ★ Base-instance ref for the chain (see net-refs above).
+                    if let Some(base) = segments
+                        .first()
+                        .map(crate::refdef::chain::base_segment_name)
+                    {
+                        Self::register_chain_base_ref(
+                            sem,
+                            symbol_lapper,
+                            &uri,
+                            &base,
+                            &span,
+                            scope,
+                            &m.insts,
+                            &m.params,
+                        );
+                    }
+                }
+            }
+            // Module-param net refs (`m.params.iter_net_refs()`) reference the
+            // module's own param/port declarations (e.g. the curly bus param
+            // `USB_VBUS_1` in `module M(USB_VBUS_1{VDD_3V, GND}::DC(3.3V))` used
+            // at `USB_VBUS_1 {VDD_3V, GND} -> ...`). Those defs are ParamDef /
+            // PortDef, so the ref kind must be PortRef: fill_refdef_layer2 maps
+            // InstRef only to InstDef, which would drop the entry and make F12
+            // self-locate instead of jumping to the param declaration.
             for (span, port_name, scope) in m.params.iter_net_refs() {
                 let sp = crate::refdef::register::scope_path_from_scope_str(&uri, scope);
                 let decl_id =
@@ -3274,10 +3679,10 @@ impl McCode {
                     symbol_lapper.insert(Interval {
                         start: span.start,
                         stop: span.end,
-                        val: SymbolType::new(SymbolKind::InstRef, u32::from(decl_id)),
+                        val: SymbolType::new(SymbolKind::PortRef, u32::from(decl_id)),
                     });
                     sem.ref_entries.push((
-                        SymbolKind::InstRef,
+                        SymbolKind::PortRef,
                         u32::from(decl_id),
                         span.start,
                         span.end,
@@ -3325,6 +3730,64 @@ impl McCode {
                 }
             }
         }
+    }
+
+    /// Register an InstRef for the base identifier of a dotted member chain,
+    /// covering only the base segment (the first `base.len()` bytes of `span`)
+    /// and resolving to the base's own definition.
+    ///
+    /// Without this, the whole-chain ref (`spk.3`, `USB_VBUS_1.GND`) is the
+    /// only interval covering the base text, so hover / F12 on the base
+    /// identifier resolves to the member target (pin `3`, bus member `GND`).
+    fn register_chain_base_ref(
+        sem: &mut McSemSymbols,
+        symbol_lapper: &mut DedupLapper,
+        uri: &McURI,
+        base: &str,
+        span: &std::ops::Range<usize>,
+        scope: &str,
+        insts: &crate::semantic::mc_inst::McInstances,
+        params: &crate::semantic::basic::mc_paramd::McParamDeclares,
+    ) {
+        if base.is_empty() {
+            return;
+        }
+        let base_len = base.len();
+        if base_len >= span.end - span.start {
+            return;
+        }
+        let base_span = span.start..(span.start + base_len);
+        let Some(hit) = crate::refdef::chain::resolve_base_hit(uri, base, insts, params) else {
+            return;
+        };
+        let (d, _) = crate::refdef::register::register_def(
+            sem,
+            &hit.uri,
+            scope,
+            None,
+            &hit.name,
+            hit.span.clone(),
+            hit.def_kind,
+        );
+        // ★ A param/port base (module param declaration) must resolve through
+        // PortRef so fill_refdef_layer2 (PortRef → [PortDef, ParamDef]) matches
+        // the ParamDef in def_map. InstRef only matches InstDef, which would
+        // leave the base ref unresolved (RefDefMap miss → self-locate / hover
+        // fallback) instead of jumping to the param declaration.
+        let ref_kind = match hit.def_kind {
+            SymbolKind::ParamDef | SymbolKind::PortDef => SymbolKind::PortRef,
+            _ => SymbolKind::InstRef,
+        };
+        symbol_lapper.insert(Interval {
+            start: base_span.start,
+            stop: base_span.end,
+            val: SymbolType::new(ref_kind, u32::from(d)),
+        });
+        sem.ref_entries
+            .push((ref_kind, u32::from(d), base_span.start, base_span.end));
+        tracing::info!(target: "mcc::lsp::audit",
+            "[AUDIT-BaseRef] base={base} chain_span={span:?} → {} kind={:?} ref_kind={ref_kind:?} def_uri={} def_span={:?} decl_id={d:?}",
+            hit.name, hit.def_kind, hit.uri, hit.span);
     }
 
     fn lapper_function_params(
@@ -3382,6 +3845,36 @@ impl McCode {
                             .push((ref_kind, u32::from(decl_id), span.start, span.end));
                     }
                 }
+                // ★ Chain references inside func bodies (e.g. `spi + uC.SPI`
+                // in us513.mc loadFlash). Recorded into `func.insts` by
+                // try_record_chain_ref; resolve against module insts because
+                // func bodies reference module-level instances (e.g. uC).
+                for (span, segments, scope) in func.insts.iter_chain_refs() {
+                    if let Some(hit) = crate::refdef::chain::resolve_member_chain_from_segments(
+                        &uri, segments, &m.insts, &m.params,
+                    ) {
+                        let ref_kind = Self::chain_ref_kind(hit.def_kind);
+                        let (d, _) = crate::refdef::register::register_def(
+                            sem,
+                            &hit.uri,
+                            scope,
+                            None,
+                            &hit.name,
+                            hit.span.clone(),
+                            hit.def_kind,
+                        );
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::new(ref_kind, u32::from(d)),
+                        });
+                        sem.ref_entries
+                            .push((ref_kind, u32::from(d), span.start, span.end));
+                        tracing::info!(target: "mcc::lsp::audit",
+                            "[AUDIT-ChainRef] segments={segments:?} → {} kind={ref_kind:?} def_uri={} def_span={:?} decl_id={d:?}",
+                            hit.name, hit.uri, hit.span);
+                    }
+                }
                 let func_scope = func.insts.scope.clone().unwrap_or_else(|| fscope.clone());
                 for (name, _label_kind, span) in func.insts.iter_labels_with_span() {
                     let (d, _) = crate::refdef::register::register_def(
@@ -3403,7 +3896,22 @@ impl McCode {
         }
     }
 
-    fn lapper_component_defs(uri: &McURI, sem: &mut McSemSymbols, symbol_lapper: &mut DedupLapper) {
+    /// Register component-level defs (params, pins, pin ids, ifaces, spec keys)
+    /// into the local symbol table.
+    ///
+    /// Kept separate from `lapper_component_defs` so it runs BEFORE
+    /// `lapper_func_define_role`: funcall-arg refs (e.g.
+    /// `CAP(...).Cap([AVDD09_CAP, GND])`) are resolved there, and the
+    /// container-level P2 fallback must already be able to find the
+    /// component's own pins. Previously pins were only registered inside
+    /// `lapper_component_defs` (which runs after func-role resolution), so such
+    /// args missed P2 and fell through to the P3 name-only scan — random
+    /// cross-container hits (e.g. GND → another component's func param).
+    fn lapper_component_defs_register(
+        uri: &McURI,
+        sem: &mut McSemSymbols,
+        symbol_lapper: &mut DedupLapper,
+    ) {
         let all_comps: Vec<(String, Arc<McComponent>, String)> = workspace::WORKSPACE
             .components
             .iter()
@@ -3521,6 +4029,30 @@ impl McCode {
                     val: SymbolType::new(SymbolKind::AttrDef, u32::from(sdecl_id)),
                 });
             }
+        }
+    }
+
+    fn lapper_component_defs(uri: &McURI, sem: &mut McSemSymbols, symbol_lapper: &mut DedupLapper) {
+        let all_comps: Vec<(String, Arc<McComponent>, String)> = workspace::WORKSPACE
+            .components
+            .iter()
+            .map(|e| {
+                (
+                    e.key().ident.to_string(),
+                    e.value().clone(),
+                    e.key().uri.to_string(),
+                )
+            })
+            .chain(global::mcc_components.iter().map(|e| {
+                (
+                    e.key().ident.to_string(),
+                    e.value().clone(),
+                    e.key().uri.to_string(),
+                )
+            }))
+            .filter(|(_, _, comp_uri)| comp_uri == uri.as_str())
+            .collect();
+        for (comp_ident, comp, _comp_uri) in &all_comps {
             for (span, port_name, scope) in comp.params.iter_net_refs() {
                 let sp = crate::refdef::register::scope_path_from_scope_str(&uri, scope);
                 let decl_id =
@@ -3617,6 +4149,280 @@ impl McCode {
                     }
                 }
             }
+            // ★ Component funcs: register func body refs (mirrors
+            // lapper_function_params for module funcs). Param defs for both
+            // module and component funcs are registered by
+            // lapper_func_define_role (extract_func_param_spans).
+            for func in comp.funcs.iter() {
+                // func.insts.scope may be a bare func name (e.g. "GD25Q32E")
+                // when the component is re-parsed in some library-loading
+                // passes; prefer the full "<comp>.<func>" scope so that
+                // lookup_declare_id's P1 (exact func-scope match) hits the
+                // param defs registered by lapper_func_define_role instead of
+                // falling back to a name-only match on an unrelated GND.
+                let func_scope = match func.insts.scope.as_deref() {
+                    Some(s) if s.contains('.') => s.to_string(),
+                    _ => format!("{}.{}", comp_ident, func.name),
+                };
+                // Func param net refs (e.g. `[V3V3, GND]` on the func's power
+                // param) → LabelRef to the param member defs.
+                for (span, port_name, scope) in func.params.iter_net_refs() {
+                    let scope = if scope.contains('.') {
+                        scope.clone()
+                    } else {
+                        func_scope.clone()
+                    };
+                    let sp = crate::refdef::register::scope_path_from_scope_str(&uri, &scope);
+                    let decl_id = crate::refdef::register::lookup_declare_id(
+                        &sem.local_table,
+                        port_name,
+                        &sp,
+                    );
+                    if let Some(decl_id) = decl_id {
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::new(SymbolKind::LabelRef, u32::from(decl_id)),
+                        });
+                        sem.ref_entries.push((
+                            SymbolKind::LabelRef,
+                            u32::from(decl_id),
+                            span.start,
+                            span.end,
+                        ));
+                    }
+                }
+                // Func body net refs — prefer the component's own pins, then
+                // fall back to generic dispatch against component insts.
+                for (span, port_name, scope) in func.insts.iter_net_refs() {
+                    let scope = if scope.contains('.') {
+                        scope.clone()
+                    } else {
+                        func_scope.clone()
+                    };
+                    let sp = crate::refdef::register::scope_path_from_scope_str(&uri, &scope);
+                    let decl_id = crate::refdef::register::lookup_declare_id(
+                        &sem.local_table,
+                        port_name,
+                        &sp,
+                    );
+                    let Some(decl_id) = decl_id else {
+                        continue;
+                    };
+                    let ref_kind = if pin_names.contains(port_name) {
+                        SymbolKind::PinNameRef
+                    } else if pin_ids.contains(port_name) {
+                        SymbolKind::PinIdRef
+                    } else if pin_ifaces.contains(port_name) {
+                        SymbolKind::PinIfaceRef
+                    } else {
+                        Self::resolve_net_ref_kind(port_name, &comp.insts)
+                    };
+                    symbol_lapper.insert(Interval {
+                        start: span.start,
+                        stop: span.end,
+                        val: SymbolType::new(ref_kind, u32::from(decl_id)),
+                    });
+                    sem.ref_entries
+                        .push((ref_kind, u32::from(decl_id), span.start, span.end));
+                }
+                // Chain references inside func bodies (e.g. `this.MIC.P`).
+                for (span, segments, scope) in func.insts.iter_chain_refs() {
+                    if let Some(hit) = crate::refdef::chain::resolve_member_chain_from_segments(
+                        &uri,
+                        segments,
+                        &comp.insts,
+                        &comp.params,
+                    ) {
+                        let ref_kind = Self::chain_ref_kind(hit.def_kind);
+                        // ★ Cross-file chain defs (e.g. `uC.I2C0` resolving into the
+                        // MCU component file) must not hijack this file's func-scope
+                        // scope_index entry. Only attach the local scope when the def
+                        // lives in the current file.
+                        let container: &str = if hit.uri == *uri { scope.as_str() } else { "" };
+                        let (d, _) = crate::refdef::register::register_def(
+                            sem,
+                            &hit.uri,
+                            container,
+                            None,
+                            &hit.name,
+                            hit.span.clone(),
+                            hit.def_kind,
+                        );
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::new(ref_kind, u32::from(d)),
+                        });
+                        sem.ref_entries
+                            .push((ref_kind, u32::from(d), span.start, span.end));
+                    } else if let Some((d, kind)) =
+                        Self::resolve_func_chain_own_pin(&uri, segments, comp_ident, comp, sem)
+                    {
+                        // ★ Fallback: the chain root is one of the component's
+                        // own pins (e.g. `VIN.Vin` inside `func enable` — `VIN`
+                        // is a pin, not a func-local instance, so the chain
+                        // resolver misses it). Resolve against the pin declare.
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::new(kind, u32::from(d)),
+                        });
+                        sem.ref_entries
+                            .push((kind, u32::from(d), span.start, span.end));
+                    }
+                }
+                // Func body labels → LabelDef.
+                for (name, _label_kind, span) in func.insts.iter_labels_with_span() {
+                    let (d, _) = crate::refdef::register::register_def(
+                        sem,
+                        &uri,
+                        &func_scope,
+                        None,
+                        name,
+                        span.clone(),
+                        SymbolKind::LabelDef,
+                    );
+                    symbol_lapper.insert(Interval {
+                        start: span.start,
+                        stop: span.end,
+                        val: SymbolType::new(SymbolKind::LabelDef, u32::from(d)),
+                    });
+                }
+            }
+        }
+    }
+
+    /// Register square-vec refs inside component func bodies that name the
+    /// component's own pins (e.g. `[VCC, VSS]`). `collect_net_refs_in_node`
+    /// skips such members (neither func params nor func-local instances), so
+    /// they are extracted here from the AST — after `lapper_component_defs`
+    /// has registered the component pin defs as PinNameDef.
+    fn lapper_component_func_pin_refs(
+        uri: &McURI,
+        ast: &AstNode,
+        sem: &mut McSemSymbols,
+        symbol_lapper: &mut DedupLapper,
+    ) {
+        // Component pin names in this file.
+        let mut comp_pins: std::collections::HashMap<String, std::collections::HashSet<String>> =
+            std::collections::HashMap::new();
+        {
+            let uri_str = uri.as_str();
+            for entry in workspace::WORKSPACE.components.iter() {
+                let key_uri = entry.key().uri.as_str();
+                if key_uri == uri_str || key_uri.ends_with(uri_str) || uri_str.ends_with(key_uri) {
+                    let names = Self::extract_pin_name_spans(entry.value())
+                        .into_iter()
+                        .map(|(n, _)| n)
+                        .collect();
+                    comp_pins.insert(entry.key().ident.to_string(), names);
+                }
+            }
+            for entry in global::mcc_components.iter() {
+                let key_uri = entry.key().uri.as_str();
+                if key_uri == uri_str || key_uri.ends_with(uri_str) || uri_str.ends_with(key_uri) {
+                    let names = Self::extract_pin_name_spans(entry.value())
+                        .into_iter()
+                        .map(|(n, _)| n)
+                        .collect();
+                    comp_pins.insert(entry.key().ident.to_string(), names);
+                }
+            }
+        }
+
+        // Container positioning — mirrors lapper_func_define_role.
+        let all_nodes: Vec<AstNode> = {
+            let mut acc = Vec::new();
+            let mut stack: Vec<AstNode> = ast.iter().collect();
+            while let Some(node) = stack.pop() {
+                if let Some(sub) = node.get_sub_node() {
+                    for child in sub.iter() {
+                        stack.push(child);
+                    }
+                }
+                acc.push(node);
+            }
+            acc
+        };
+        let mut container_stack: Vec<(String, usize)> = Vec::new();
+        let mut pos_to_container: Vec<(usize, String)> = Vec::new();
+        for node in &all_nodes {
+            let ntype = node.get_type();
+            let node_start = node.get_pos() as usize;
+            let node_end = node_start + node.get_len() as usize;
+            while let Some((_, end)) = container_stack.last() {
+                if node_start >= *end {
+                    container_stack.pop();
+                } else {
+                    break;
+                }
+            }
+            if ntype == MCAST_MODULE || ntype == MCAST_COMPONENT {
+                if let Some(sub) = node.get_sub_node() {
+                    if let Some(name_node) = sub.iter().find(|x| x.is_type(MCAST_NAME)) {
+                        if let Some(ids_node) = name_node.get_sub_node() {
+                            if let Some(ids) = McIds::new(&ids_node) {
+                                container_stack.push((ids.to_string(), node_end));
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some((name, _)) = container_stack.last() {
+                pos_to_container.push((node_start, name.clone()));
+            }
+        }
+        pos_to_container.sort_by_key(|(pos, _)| *pos);
+
+        for node in &all_nodes {
+            if node.get_type() != MCAST_FUNCTION {
+                continue;
+            }
+            let ids_node = node.get_sub_node().and_then(|n| n.get_sub_node());
+            let Some(ref ids) = ids_node else { continue };
+            let pos = ids.get_pos() as usize;
+            let comp_name = pos_to_container
+                .iter()
+                .take_while(|(p, _)| *p <= pos)
+                .last()
+                .map(|(_, name)| name.clone());
+            let Some(comp_name) = comp_name else { continue };
+            let Some(pins) = comp_pins.get(&comp_name) else {
+                continue;
+            };
+            let mut members = Vec::new();
+            Self::collect_square_vec_members_in_subtree(node, &mut members);
+            for (mname, mspan) in members {
+                if !pins.contains(&mname) {
+                    continue;
+                }
+                // ★ scope_index may hold stale entries for "<comp>" scopes
+                // registered from another file id (cross-file/duplicate
+                // loads), so resolve directly against this file's pin defs:
+                // (file_id, container_id=comp, func_id=0, name).
+                let file_id = crate::ast::ast_semantic::intern(&mut sem.file_table, uri.as_str());
+                let comp_id =
+                    crate::ast::ast_semantic::intern(&mut sem.container_table, &comp_name);
+                let got = sem
+                    .local_table
+                    .name_to_declare_id
+                    .get(&(file_id, comp_id, 0, mname.to_string()))
+                    .map(|(id, loc)| (*id, loc.clone()));
+                if let Some((d, _)) = got {
+                    symbol_lapper.insert(Interval {
+                        start: mspan.start,
+                        stop: mspan.end,
+                        val: SymbolType::new(SymbolKind::PinNameRef, u32::from(d)),
+                    });
+                    sem.ref_entries.push((
+                        SymbolKind::PinNameRef,
+                        u32::from(d),
+                        mspan.start,
+                        mspan.end,
+                    ));
+                }
+            }
         }
     }
 
@@ -3631,7 +4437,7 @@ impl McCode {
         // P3: current file's global table
         if let Ok(gt) = sem.global_table.lock() {
             for ((def_uri, name), class_id) in gt.enum_class_name_to_id.iter() {
-                if name == base_name {
+                if name == &McIds::from(base_name) {
                     if let Some((_u, span)) = gt.enum_class_id_to_span.get(class_id) {
                         return Some((def_uri.clone(), span.clone()));
                     }
@@ -3647,7 +4453,7 @@ impl McCode {
             if let Ok(ws_sym) = entry.value().symbols.lock() {
                 if let Ok(ws_gt) = ws_sym.global_table.lock() {
                     for ((def_uri, name), class_id) in ws_gt.enum_class_name_to_id.iter() {
-                        if name == base_name {
+                        if name == &McIds::from(base_name) {
                             if let Some((_u, span)) = ws_gt.enum_class_id_to_span.get(class_id) {
                                 return Some((def_uri.clone(), span.clone()));
                             }
@@ -3662,7 +4468,7 @@ impl McCode {
             if let Ok(ws_sym) = entry.value().symbols.lock() {
                 if let Ok(ws_gt) = ws_sym.global_table.lock() {
                     for ((def_uri, name), class_id) in ws_gt.enum_class_name_to_id.iter() {
-                        if name == base_name {
+                        if name == &McIds::from(base_name) {
                             if let Some((_u, span)) = ws_gt.enum_class_id_to_span.get(class_id) {
                                 return Some((def_uri.clone(), span.clone()));
                             }
@@ -3725,36 +4531,53 @@ impl McCode {
                 let (base_name, member_name, base_start, base_end, member_start, member_end) =
                     parsed;
 
-                let (class_id, value_idx) = {
+                let (class_id, value_idx, _cross_file_uri) = {
                     // Look up enum class_id: local table first, then cross-file.
+                    // ★ Both branches capture the defining uri so the value
+                    // span can always be registered below. Previously the
+                    // name-fallback hit (a class registered earlier in this
+                    // file's pass) returned xuri=None and skipped
+                    // add_enum_value, so later refs to the same cross-file
+                    // class (e.g. a second `PKG.SOMETHING` attribute) got a
+                    // packed value_id with no RefDefMap entry — goto-def
+                    // returned empty. This was order-dependent: lapper_enum_refs
+                    // visits attributes in reverse AST order.
                     let local_id = match sem.global_table.lock() {
-                        Ok(gt) => gt.lookup_enum_class(&uri, &base_name).or_else(|| {
-                            gt.enum_class_name_to_id
-                                .iter()
-                                .find_map(|((_uri, name), cid)| {
-                                    (name == &base_name).then_some(*cid)
-                                })
-                        }),
+                        Ok(gt) => gt
+                            .lookup_enum_class(&uri, &McIds::from(&base_name))
+                            .map(|cid| (uri.clone(), cid))
+                            .or_else(|| {
+                                gt.enum_class_name_to_id.iter().find_map(
+                                    |((cls_uri, name), cid)| {
+                                        (name == &McIds::from(&base_name))
+                                            .then_some((cls_uri.clone(), *cid))
+                                    },
+                                )
+                            }),
                         Err(_) => continue 'outer,
                     };
-                    let class_id = if local_id.map_or(false, |id| u32::from(id) != 0) {
-                        local_id.unwrap()
+                    let (cls, xuri) = if let Some((cls_uri, cid)) = local_id {
+                        (cid, Some(cls_uri))
                     } else {
                         // Cross-file search: register enum class in local table
                         // to get a locally-unique DeclareId (mirrors how
                         // lapper_global_classes handles cross-file ClassRef).
+                        // The defining file is remembered so its value spans
+                        // can be registered below under the local class_id.
                         match (
                             Self::find_enum_class_cross_file(uri, sem, &base_name),
                             sem.global_table.lock(),
                         ) {
-                            (Some((def_uri, def_span)), Ok(mut gt)) => {
-                                gt.add_enum_class(&def_uri, &base_name, def_span)
-                            }
-                            _ => DeclareId::default(),
+                            (Some((def_uri, def_span)), Ok(mut gt)) => (
+                                gt.add_enum_class(&def_uri, &McIds::from(&base_name), def_span),
+                                Some(def_uri),
+                            ),
+                            _ => (DeclareId::default(), None),
                         }
                     };
 
                     let mut idx = None;
+                    let mut value_span: Option<[u32; 2]> = None;
                     {
                         let enums_guard = &crate::db::cmie::tables::WORKSPACE.enums;
                         for entry in enums_guard.iter() {
@@ -3764,6 +4587,7 @@ impl McCode {
                             for (i, v) in entry.value().values.iter().enumerate() {
                                 if v.name.to_string() == member_name {
                                     idx = Some(i as u32);
+                                    value_span = Some(v.span);
                                     break;
                                 }
                             }
@@ -3779,6 +4603,7 @@ impl McCode {
                             for (i, v) in entry.value().values.iter().enumerate() {
                                 if v.name.to_string() == member_name {
                                     idx = Some(i as u32);
+                                    value_span = Some(v.span);
                                     break;
                                 }
                             }
@@ -3787,7 +4612,23 @@ impl McCode {
                     }
 
                     match idx {
-                        Some(i) => (class_id, i),
+                        Some(i) => {
+                            tracing::info!(target: "mcc::lsp::audit",
+                                "[AUDIT-EnumVal] base={base_name} member={member_name} cls={:?} xuri={:?} idx={} value_span={:?}",
+                                cls, xuri, i, value_span);
+                            // ★ Cross-file enum classes: register the value
+                            // spans under the locally-assigned class_id so the
+                            // RefDefMap 1e layer can map the packed EnumValRef
+                            // id (class_id<<16|idx) to the value def in the
+                            // defining file (e.g. `PKG.SOP8` → package.mc).
+                            if let (Some(def_uri), Some(span)) = (&xuri, value_span) {
+                                if let Ok(mut gt) = sem.global_table.lock() {
+                                    let span: Span = (span[0] as usize)..(span[1] as usize);
+                                    gt.add_enum_value(def_uri, cls, i, span);
+                                }
+                            }
+                            (cls, i, xuri)
+                        }
                         None => continue,
                     }
                 };
@@ -3920,13 +4761,14 @@ impl McCode {
                                 Ok(gt) => gt,
                                 Err(_) => continue,
                             };
-                            gt.lookup_enum_class(uri, &family_name).or_else(|| {
-                                gt.enum_class_name_to_id
-                                    .iter()
-                                    .find_map(|((_uri, name), cid)| {
-                                        (name == &family_name).then_some(*cid)
-                                    })
-                            })
+                            gt.lookup_enum_class(uri, &McIds::from(&family_name))
+                                .or_else(|| {
+                                    gt.enum_class_name_to_id.iter().find_map(
+                                        |((_uri, name), cid)| {
+                                            (name == &McIds::from(&family_name)).then_some(*cid)
+                                        },
+                                    )
+                                })
                         };
                         if local_id.map_or(false, |id| u32::from(id) != 0) {
                             local_id.unwrap()
@@ -3936,9 +4778,11 @@ impl McCode {
                                 Self::find_enum_class_cross_file(uri, sem, &family_name),
                                 sem.global_table.lock(),
                             ) {
-                                (Some((def_uri, def_span)), Ok(mut gt)) => {
-                                    gt.add_enum_class(&def_uri, &family_name, def_span)
-                                }
+                                (Some((def_uri, def_span)), Ok(mut gt)) => gt.add_enum_class(
+                                    &def_uri,
+                                    &McIds::from(&family_name),
+                                    def_span,
+                                ),
                                 _ => DeclareId::default(),
                             }
                         }
@@ -4020,7 +4864,9 @@ impl McCode {
                 container_names.len(), container_names);
         }
         let mut container_stack: Vec<(String, usize)> = Vec::new();
+        let mut func_stack: Vec<(String, usize)> = Vec::new();
         let mut pos_to_container: Vec<(usize, String)> = Vec::new();
+        let mut pos_to_func: Vec<(usize, String)> = Vec::new();
         for node in &all_nodes {
             let ntype = node.get_type();
             let node_start = node.get_pos() as usize;
@@ -4028,6 +4874,13 @@ impl McCode {
             while let Some((_, end)) = container_stack.last() {
                 if node_start >= *end {
                     container_stack.pop();
+                } else {
+                    break;
+                }
+            }
+            while let Some((_, end)) = func_stack.last() {
+                if node_start >= *end {
+                    func_stack.pop();
                 } else {
                     break;
                 }
@@ -4043,17 +4896,44 @@ impl McCode {
                     }
                 }
             }
+            if ntype == MCAST_FUNCTION {
+                if let Some(ids_node) = node.get_sub_node().and_then(|n| n.get_sub_node()) {
+                    if let Some(ids) = McIds::new(&ids_node) {
+                        func_stack.push((ids.to_string(), node_end));
+                    }
+                }
+            }
             if let Some((name, _)) = container_stack.last() {
                 pos_to_container.push((node_start, name.clone()));
             }
+            if let Some((fname, _)) = func_stack.last() {
+                pos_to_func.push((node_start, fname.clone()));
+            }
         }
         pos_to_container.sort_by_key(|(pos, _)| *pos);
+        pos_to_func.sort_by_key(|(pos, _)| *pos);
         let find_container = move |pos: usize| -> Option<String> {
             pos_to_container
                 .iter()
                 .take_while(|(p, _)| *p <= pos)
                 .last()
                 .map(|(_, name)| name.clone())
+        };
+        // Full scope for a position: "container.func" when inside a func body,
+        // otherwise just "container". Enables the lookup priority
+        // "func params/labels first, then parent container defs" (§3.2.2).
+        let find_container_for_scope = find_container.clone();
+        let find_scope = move |pos: usize| -> Option<String> {
+            let container = find_container_for_scope(pos)?;
+            let func = pos_to_func
+                .iter()
+                .take_while(|(p, _)| *p <= pos)
+                .last()
+                .map(|(_, f)| f.clone());
+            Some(match func {
+                Some(f) if !f.is_empty() => format!("{container}.{f}"),
+                _ => container,
+            })
         };
 
         for node in &all_nodes {
@@ -4238,49 +5118,66 @@ impl McCode {
                                 span.1,
                             ));
                         } else {
-                            if let Some(class_name) = Self::extract_class_name(&sub) {
-                                // P3-P5: CMIE member lookup via mcb_get_cmie
-                                if let Some(method_name) =
-                                    func_name.as_ref().map(|s| s.as_str().to_string())
+                            // ★ Chain fix: `mcu513.i2c().loadFlash(flash.SPI)` must
+                            // resolve `loadFlash` against the base instance's class
+                            // (US513 — chain funcs return `this`, see the function
+                            // call chain design), NOT against the intermediate
+                            // method name `i2c` that extract_class_name returns.
+                            // The base instance is preferred; the old last-name
+                            // extraction stays as a fallback (e.g. `RES(...).Pullup`).
+                            let class_name = Self::extract_chain_base_instance(&sub)
+                                .and_then(|inst| Self::find_instance_class_name(&inst, uri))
+                                .or_else(|| Self::extract_class_name(&sub));
+                            if let (Some(class_name), Some(method_name)) = (
+                                class_name,
+                                func_name.as_ref().map(|s| s.as_str().to_string()),
+                            ) {
+                                if let Some((def_uri, def_span, ref_kind)) =
+                                    crate::db::cmie::cmie::resolve_cmie_member(
+                                        &class_name,
+                                        &method_name,
+                                        uri,
+                                    )
                                 {
-                                    if let Some((def_uri, def_span, ref_kind)) =
-                                        crate::db::cmie::cmie::resolve_cmie_member(
-                                            &class_name,
-                                            &method_name,
-                                            uri,
-                                        )
-                                    {
-                                        let enclosing = find_container(span.0).unwrap_or_default();
-                                        let (decl_id, _loc) = crate::refdef::register::register_def(
-                                            sem,
-                                            &def_uri,
-                                            &enclosing,
-                                            None,
-                                            &method_name,
-                                            def_span,
-                                            SymbolKind::FuncDef,
-                                        );
-                                        symbol_lapper.insert(Interval {
-                                            start: span.0,
-                                            stop: span.1,
-                                            val: SymbolType::new(ref_kind, u32::from(decl_id)),
-                                        });
-                                        sem.ref_entries.push((
-                                            ref_kind,
-                                            u32::from(decl_id),
-                                            span.0,
-                                            span.1,
-                                        ));
-                                    } else {
-                                        dlog_error(
-                                            1501,
-                                            node,
-                                            &format!(
-                                                "function '{}' not found in class '{}'",
-                                                method_name, class_name
-                                            ),
-                                        );
-                                    }
+                                    // ★ Cross-file member defs (e.g. `CAP(...).Cap(_)`
+                                    // where the Cap method lives in cap.mc) must NOT be
+                                    // registered under the current file's container name.
+                                    // Doing so writes scope_index[container] with the def
+                                    // file's id, which hijacks the P2 container fallback
+                                    // for same-file defs (component pins / module ports).
+                                    // Register under the member's own class scope instead.
+                                    let (decl_id, _loc) = crate::refdef::register::register_def(
+                                        sem,
+                                        &def_uri,
+                                        &class_name,
+                                        None,
+                                        &method_name,
+                                        def_span,
+                                        SymbolKind::FuncDef,
+                                    );
+                                    symbol_lapper.insert(Interval {
+                                        start: span.0,
+                                        stop: span.1,
+                                        val: SymbolType::new(ref_kind, u32::from(decl_id)),
+                                    });
+                                    sem.ref_entries.push((
+                                        ref_kind,
+                                        u32::from(decl_id),
+                                        span.0,
+                                        span.1,
+                                    ));
+                                } else {
+                                    dlog_error(
+                                        crate::errcodes::MODULE_METHOD_NOT_FOUND,
+                                        node,
+                                        &crate::errcodes::format_msg(
+                                            crate::errcodes::MODULE_METHOD_NOT_FOUND,
+                                            &[
+                                                &method_name as &dyn std::fmt::Display,
+                                                &class_name as &dyn std::fmt::Display,
+                                            ],
+                                        ),
+                                    );
                                 }
                             }
                         }
@@ -4294,11 +5191,17 @@ impl McCode {
                         // self-locate (no navigation). See §8.2.
                     }
                     if let Some(enclosing) = find_container(span.0) {
+                        // ★ Lookup priority inside func bodies: func-scoped defs
+                        // (params/labels) first, then the parent container's defs
+                        // (component pins / module ports etc). Pass the full
+                        // "container.func" scope so lookup_declare_id's P1 (func
+                        // scope) and P2 (container fallback) both apply.
+                        let scope = find_scope(span.0).unwrap_or_else(|| enclosing.clone());
                         let refs = crate::refdef::collect::collect_funccall_arg_refs(
                             node,
                             &sem.local_table,
                             &uri,
-                            &enclosing,
+                            &scope,
                         );
                         for (span, did) in refs {
                             // ★ §4.3: Dispatch ref kind based on def type (not catch-all FuncParamRef)
@@ -4351,47 +5254,108 @@ impl McCode {
         Some(ids.to_string())
     }
 
+    /// Walk an `MCAST_INSTANCE` receiver chain down to the base instance name.
+    ///
+    /// `mcu513.i2c().loadFlash(...)` — the outer receiver's MCAST_INSTANCE
+    /// wraps the inner fcall `mcu513.i2c()`, whose own MCAST_INSTANCE wraps
+    /// the base `mcu513`. Chain funcs bind to the base object (funcs return
+    /// `this`), so member resolution must use the base instance's class, not
+    /// the intermediate method name. Returns the base instance name, or None
+    /// when the receiver is a plain class call (e.g. `RES(...).Pullup(...)`).
+    fn extract_chain_base_instance(sub: &Option<AstNode>) -> Option<String> {
+        let mut current = sub.clone()?;
+        loop {
+            if current.get_type() != MCAST_INSTANCE {
+                return None;
+            }
+            let inner = current.get_sub_node()?;
+            if inner.get_type() == MCAST_OPD_FCALL {
+                // Descend into the nested fcall's receiver (first MCAST_INSTANCE
+                // child). A plain class call like `RES(10kΩ)` has no instance
+                // child — abort so the caller falls back to extract_class_name.
+                current = inner
+                    .get_sub_node()?
+                    .iter()
+                    .find(|c| c.get_type() == MCAST_INSTANCE)?;
+                continue;
+            }
+            // Base receiver — MCAST_OPD (or similar) wrapping the identifiers.
+            let ids = inner.get_sub_node()?;
+            return McIds::new(&ids).map(|i| i.to_string());
+        }
+    }
+
+    /// Find the class name of an instance declared in the current file's
+    /// modules (or library modules). `US513 mcu513(...)` → "US513".
+    fn find_instance_class_name(inst_name: &str, uri: &McURI) -> Option<String> {
+        let uri_str = uri.as_str();
+        for table in [&workspace::WORKSPACE.modules, &global::mcc_modules] {
+            for entry in table.iter() {
+                let key_uri = entry.key().uri.as_str();
+                if !(key_uri == uri_str || key_uri.ends_with(uri_str) || uri_str.ends_with(key_uri))
+                {
+                    continue;
+                }
+                let m = entry.value();
+                if let Some(inst) = m.insts.get(inst_name) {
+                    match inst {
+                        crate::McInstance::Module(m2) => {
+                            return Some(m2.base.name.to_string());
+                        }
+                        crate::McInstance::Component(c2) => {
+                            return Some(c2.base.name.to_string());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        None
+    }
+
     /// Look up the human-readable message for a parser diagnostic code.
+    /// Codes follow the unified numbering (Pass1b parser cluster 2080-2116);
+    /// keep in sync with `errcodes.rs` descriptions.
     fn dlog_parser_message(code: u32) -> &'static str {
         match code {
-            // Errors (E1002–E1031)
-            1002 => "Invalid top-level declaration",
-            1003 => "Invalid clause in body",
-            1004 => "Invalid pin declaration",
-            1005 => "Pin ID must be a constant integer, not an expression",
-            1006 => "Pin name must be a constant identifier, not an expression",
-            1007 => "Net endpoint must be a port/label, not a literal",
-            1008 => "Invalid net/connection expression",
-            1009 => "Invalid if/else condition block",
-            1010 => "Invalid role block",
-            1011 => "Invalid function definition",
-            1012 => "Invalid pins declaration",
-            1013 => "Invalid import statement",
-            1014 => "Invalid condition body",
-            1015 => "Invalid instance declaration (:: syntax)",
-            1016 => "Invalid body",
-            1017 => "Invalid condition expression",
-            1018 => "Invalid parameter declaration",
-            1019 => "Invalid import path",
-            1020 => "Invalid expression list",
-            1021 => "Invalid operand list",
-            1022 => "Invalid parameter list",
-            1023 => "Invalid parameter declaration list",
-            1024 => "Invalid attribute value list",
-            1025 => "Invalid attribute line list",
-            1026 => "Invalid pin name list",
-            1027 => "Invalid instance list",
-            1028 => "Invalid else-if chain",
-            1029 => "Invalid identifier list",
-            1030 => "Invalid path in import",
-            1031 => "Invalid expression",
-            // Warnings (W1101–W1106)
-            1101 => "Single '|' as binary operator outside pin context",
-            1102 => "'±' as binary operator outside tolerance context",
-            1103 => "Transpose (') on a literal has no effect",
-            1104 => "Caret (^) on a literal has no effect",
-            1105 => "Empty body — no clauses defined",
-            1106 => "Empty pins declaration",
+            // Errors (2081–2110)
+            2081 => "Invalid top-level declaration",
+            2082 => "Invalid clause in a body",
+            2083 => "Invalid pin declaration",
+            2084 => "Pin ID must be a constant integer, not an expression",
+            2085 => "Pin name must be a constant identifier, not an expression",
+            2086 => "Net endpoint must be a port/label, not a literal",
+            2087 => "Invalid net/connection expression",
+            2088 => "Invalid if/else condition block",
+            2089 => "Invalid role block",
+            2090 => "Invalid function definition",
+            2091 => "Invalid pins declaration",
+            2092 => "Invalid import statement",
+            2093 => "Invalid condition body",
+            2094 => "Invalid instance declaration (:: syntax)",
+            2095 => "Invalid body",
+            2096 => "Invalid condition expression",
+            2097 => "Invalid parameter declaration",
+            2098 => "Invalid import path",
+            2099 => "Invalid expression list",
+            2100 => "Invalid operand list",
+            2101 => "Invalid parameter list",
+            2102 => "Invalid parameter declaration list",
+            2103 => "Invalid attribute value list",
+            2104 => "Invalid attribute line list",
+            2105 => "Invalid pin name list",
+            2106 => "Invalid instance list",
+            2107 => "Invalid else-if chain",
+            2108 => "Invalid identifier list",
+            2109 => "Invalid path in import",
+            2110 => "Invalid expression",
+            // Warnings (2111–2116)
+            2111 => "Single '|' used as a binary operator outside a pin context",
+            2112 => "'±' used as a binary operator outside a tolerance context",
+            2113 => "Transpose (') on a literal has no effect",
+            2114 => "Caret (^) on a literal has no effect",
+            2115 => "Empty body — no clauses defined",
+            2116 => "Empty pins declaration",
             _ => "Syntax error",
         }
     }
@@ -4443,4 +5407,278 @@ fn extract_dot_pair(value_node: &AstNode) -> Option<(String, String, u32, u32, u
         member_start,
         member_end,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The C parser (`mcc_load_from_string` → `mcc_lex`/`mcc_parse`) keeps
+    /// token/error state in process-global buffers, so it is not re-entrant.
+    /// Tests that drive it must be serialized to avoid cross-test corruption.
+    static PARSE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// Regression: declareb instances inside net expressions must be registered
+    /// as LSP declarations (`res[1:2]::RES(0Ω)` → res1/res2, `C4::CAP()` → C4).
+    ///
+    /// The twopin early-return in `McPhrase::new` (MCAST_DECLARE) bypasses
+    /// `context.parse_declare()`, so instance names were never registered —
+    /// only the class ref was. This test asserts the declaration is present in
+    /// `name_to_declare_id` and that `lapper_module_ports` produced a LabelDef
+    /// interval at the instance-name span (what mcext goto-def consumes).
+    #[test]
+    fn declareb_inline_inst_registers_lsp_declaration() {
+        let _guard = PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let uri: crate::McURI = "/mcc/declareb-inst.mc".to_string();
+        let source = r#"
+module main
+{
+    UART0 - res[1:2]::RES(0Ω) - UART1
+    MIC{P,N} -> [C4::CAP(),C5::CAP()] -> ADC{P,N}
+}
+"#;
+        crate::mcc_load_from_string(&uri, source);
+
+        let mcode = workspace::WORKSPACE.mcodes.get(&uri).expect("file loaded");
+        let sem = mcode.symbols.lock().expect("symbols lock");
+        let lt = &sem.local_table;
+
+        // 1. Declarations present in name_to_declare_id.
+        let file_id = crate::ast::ast_semantic::intern(&mut sem.file_table.clone(), uri.as_str());
+        let scope_id = lt.scope_index.get("main").copied();
+        let (cid, fnid) = scope_id
+            .map(|(_, c, f)| (c, f))
+            .unwrap_or((u32::MAX, u32::MAX));
+        for name in ["res1", "res2", "C4", "C5"] {
+            let key = (file_id, cid, fnid, name.to_string());
+            assert!(
+                lt.name_to_declare_id.contains_key(&key),
+                "declareb instance '{name}' must have a declaration in name_to_declare_id"
+            );
+        }
+
+        // 2. Lapper has a def interval covering each instance-name span.
+        // res1/res2 share the `res[1:2]` span; C4/C5 have their own spans.
+        let expected: Vec<(&str, std::ops::Range<usize>)> = vec![
+            (
+                "res1",
+                source.find("res[1:2]").unwrap()..source.find("res[1:2]").unwrap() + 8,
+            ),
+            (
+                "res2",
+                source.find("res[1:2]").unwrap()..source.find("res[1:2]").unwrap() + 8,
+            ),
+            (
+                "C4",
+                source.find("C4::CAP").unwrap()..source.find("C4::CAP").unwrap() + 2,
+            ),
+            (
+                "C5",
+                source.find("C5::CAP").unwrap()..source.find("C5::CAP").unwrap() + 2,
+            ),
+        ];
+        for (name, span) in expected {
+            let found = sem.symbol_lapper.iter().any(|iv| {
+                iv.val.kind == SymbolKind::LabelDef as u8
+                    && iv.start == span.start
+                    && iv.stop == span.end
+            });
+            assert!(
+                found,
+                "lapper must contain a LabelDef interval for declareb instance '{name}' at {span:?}"
+            );
+        }
+    }
+
+    /// Regression: member chains in net expressions (`uC.ADC{P,N}`, `uC.19`)
+    /// must produce lapper REF intervals resolved to the class-definition pin.
+    ///
+    /// `try_record_chain_ref` stores these in `chain_ref_spans`, but the
+    /// consumption loop in `lapper_module_ports` / `lapper_function_params`
+    /// was dropped in the a520f3a merge — so goto-def on the member text
+    /// found no interval. This test asserts each chain ref is present in the
+    /// lapper and maps (via ref_def_map) to the pin in the component.
+    #[test]
+    fn module_member_chain_refs_resolve_in_lapper() {
+        let _guard = PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let uri: crate::McURI = "/mcc/chainref.mc".to_string();
+        let source = r#"
+component MCU.X
+{
+    pins = [
+        io [6,7] = UART0::UART.TTL(DCE)
+        io [16,17] = ADC::ADC.DIFF(Receiver)
+        io [18,19] = GPIO[0,1]
+    ]
+}
+
+module main
+{
+    io UART0, MIC{P,N}
+    out SPK
+    MCU.X uC
+    UART0 - uC.UART0
+    MIC{P,N} -> uC.ADC{P,N}
+    uC.19 -> SPK
+}
+"#;
+        crate::mcc_load_from_string(&uri, source);
+
+        let mcode = workspace::WORKSPACE.mcodes.get(&uri).expect("file loaded");
+        let sem = mcode.symbols.lock().expect("symbols lock");
+
+        // Expected byte spans (source is pure ASCII here).
+        let adc_ref = source.find("uC.ADC{P,N}").unwrap()
+            ..source.find("uC.ADC{P,N}").unwrap() + "uC.ADC{P,N}".len();
+        let p19_ref = source.find("uC.19").unwrap()..source.find("uC.19").unwrap() + "uC.19".len();
+        let uart0_ref =
+            source.find("uC.UART0").unwrap()..source.find("uC.UART0").unwrap() + "uC.UART0".len();
+        let adc_def = source.find("ADC").unwrap()..source.find("ADC").unwrap() + 3;
+        let pin19_def = source.find("18,19").unwrap()..source.find("18,19").unwrap() + 5;
+        let uart0_def = source.find("UART0").unwrap()..source.find("UART0").unwrap() + 5;
+
+        // 1. Each member chain must have a REF interval at its text span.
+        let mut ref_ids: Vec<(
+            std::ops::Range<usize>,
+            SymbolKind,
+            u32,
+            std::ops::Range<usize>,
+        )> = Vec::new();
+        for (ref_span, def_span) in [
+            (adc_ref.clone(), adc_def.clone()),
+            (p19_ref.clone(), pin19_def.clone()),
+            (uart0_ref.clone(), uart0_def.clone()),
+        ] {
+            let mut found: Option<(SymbolKind, u32)> = None;
+            for iv in sem.symbol_lapper.iter() {
+                if iv.start == ref_span.start && iv.stop == ref_span.end {
+                    let kind: SymbolKind = unsafe { std::mem::transmute(iv.val.kind) };
+                    if kind.is_ref() {
+                        found = Some((kind, iv.val.id));
+                    }
+                }
+            }
+            assert!(
+                found.is_some(),
+                "lapper must contain a REF interval for member chain at {ref_span:?}"
+            );
+            ref_ids.push((ref_span, found.unwrap().0, found.unwrap().1, def_span));
+        }
+
+        // 2. Each chain ref must map (via ref_def_map) to the pin def span.
+        let rdm = sem.ref_def_map.as_ref().expect("ref_def_map is built");
+        for (ref_span, kind, id, def_span) in &ref_ids {
+            let entry = rdm
+                .entries
+                .get(&(*kind, *id))
+                .expect("chain ref must have a ref_def_map entry");
+            let loc = &entry.def_loc;
+            assert!(
+                loc.byte_start as usize == def_span.start && loc.byte_end as usize == def_span.end,
+                "chain ref at {ref_span:?} (kind={kind:?} id={id}) must resolve to pin def {def_span:?}, got {}..{}",
+                loc.byte_start,
+                loc.byte_end
+            );
+        }
+    }
+
+    /// Regression: a chain whose receiver is a method call returning `this`
+    /// (`uC.i2c(0x36).I2C0` → the uC instance's I2C0 pin) must be recorded as
+    /// a chain ref and resolve to the class-definition pin, not the local
+    /// module port.
+    ///
+    /// The chain root is MCAST_OPD_DOT (sub=FCALL, next=member), which
+    /// `try_record_chain_ref` previously did not handle — only MCAST_OPD
+    /// roots were recorded, so `uC.i2c(0x36).I2C0` fell through to plain
+    /// scoped net refs and `.I2C0` resolved to the module port I2C0.
+    #[test]
+    fn fcall_chain_member_resolves_to_instance_pin() {
+        let _guard = PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let uri: crate::McURI = "/mcc/fcallchain.mc".to_string();
+        let source = r#"
+interface I2C.SMBus(role)
+{
+    pins = [
+        1 = SDA
+        2 = SCL
+    ]
+    role Target { name = "I2C.SMBus Target" }
+    role Controller { name = "I2C.SMBus Controller" }
+}
+
+component MCU.X
+{
+    pins = [
+        io [1,2] = I2C0::I2C.SMBus(Target)
+        io [3,4] = XTAL
+    ]
+}
+
+module main
+{
+    io I2C0
+    MCU.X uC
+    uC.i2c(0x36).I2C0 -> I2C0
+}
+"#;
+        crate::mcc_load_from_string(&uri, source);
+
+        let mcode = workspace::WORKSPACE.mcodes.get(&uri).expect("file loaded");
+        let sem = mcode.symbols.lock().expect("symbols lock");
+
+        // Expected byte spans (source is pure ASCII here).
+        let chain_ref = source.find("uC.i2c(0x36).I2C0").unwrap()
+            ..source.find("uC.i2c(0x36).I2C0").unwrap() + "uC.i2c(0x36).I2C0".len();
+        let pin_def = source.find("I2C0::I2C.SMBus").unwrap()
+            ..source.find("I2C0::I2C.SMBus").unwrap() + "I2C0".len();
+        let module_port_def =
+            source.find("io I2C0").unwrap()..source.find("io I2C0").unwrap() + "I2C0".len();
+
+        // The chain ref span must cover the whole `uC.i2c(0x36).I2C0` text.
+        let chain_iv = sem
+            .symbol_lapper
+            .iter()
+            .find(|iv| iv.start == chain_ref.start && iv.stop == chain_ref.end)
+            .unwrap_or_else(|| {
+                let existing: Vec<_> = sem.symbol_lapper.iter().collect();
+                std::panic!(
+                    "lapper must contain a chain interval at {chain_ref:?}; got {existing:?}"
+                );
+            });
+        // `I2C0` is bound to the `I2C.SMBus` interface, so the chain member
+        // must surface as a PinIfaceRef (and its def as PinIfaceDef).
+        assert_eq!(
+            chain_iv.val.kind,
+            SymbolKind::PinIfaceRef as u8,
+            "chain interval must be a PinIfaceRef"
+        );
+
+        // The member text must map (via ref_def_map) to the I2C0 pin def in
+        // the MCU.X component, not to the module's own I2C0 port.
+        let rdm = sem.ref_def_map.as_ref().expect("ref_def_map built");
+        let entry = rdm
+            .entries
+            .get(&(SymbolKind::PinIfaceRef, chain_iv.val.id))
+            .expect("chain ref must have a ref_def_map entry");
+        assert_eq!(
+            entry.def_loc.byte_start as usize, pin_def.start,
+            "uC.i2c(0x36).I2C0 member must resolve to the MCU.X I2C0 pin def"
+        );
+        assert_ne!(
+            entry.def_loc.byte_start as usize, module_port_def.start,
+            "must NOT resolve to the module's own I2C0 port"
+        );
+    }
 }

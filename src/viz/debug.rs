@@ -82,7 +82,8 @@ pub fn dump_layout(graph: &McVecGraph, layouter_name: &str, canvas: (f64, f64)) 
         for j in (i + 1)..graph.boxes.len() {
             let a = &graph.boxes[i];
             let b = &graph.boxes[j];
-            // 容器/边框盒天然框住子盒，不算碰撞。
+            // Container/border boxes naturally enclose their child boxes, so they
+            // don't count as collisions.
             if a.is_container_box() || b.is_container_box() {
                 continue;
             }

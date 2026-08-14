@@ -89,10 +89,11 @@ fn validate_inst_member_ref(
             }
             McInstance::BusRef { .. } => {
                 dlog_error(
-                    1702,
+                    crate::errcodes::IFACE_COMPONENT_NOT_FOUND,
                     node,
-                    &format!(
-                        "Cannot access members on interface '{base_name}' using curly bracket syntax"
+                    &crate::errcodes::format_msg(
+                        crate::errcodes::IFACE_COMPONENT_NOT_FOUND,
+                        &[&base_name],
                     ),
                 );
                 return None;
@@ -209,13 +210,15 @@ fn validate_component_pin_ref(
                             .map(|(m, pid)| format!("{m}→pin{pid}"))
                             .collect();
                         dlog_error(
-                            2001,
+                            crate::errcodes::SORT_HAZARD,
                             node,
-                            &format!(
-                                "SORT_HAZARD: pin numbers in component '{}' bus '{}' are non-monotonic. \
-                                 Member→pin binding: [{}]. Pin declaration order differs from member order, \
-                                 which may cause incorrect mapping after sorting.",
-                                base_name, bus_name, binding.join(", ")
+                            &crate::errcodes::format_msg(
+                                crate::errcodes::SORT_HAZARD,
+                                &[
+                                    &base_name as &dyn std::fmt::Display,
+                                    &bus_name as &dyn std::fmt::Display,
+                                    &binding.join(", ") as &dyn std::fmt::Display,
+                                ],
                             ),
                         );
                     }
@@ -285,13 +288,15 @@ fn validate_component_pin_ref(
             .collect();
         let all_valid_str = all_valid.join(", ");
         dlog_error(
-            1801,
+            crate::errcodes::COMPONENT_PIN_NOT_FOUND,
             node,
-            &format!(
-                "Pin(s) '{}' not found in component '{}'. Available pins: [{}]",
-                invalid_members.join(", "),
-                base_name,
-                all_valid_str
+            &crate::errcodes::format_msg(
+                crate::errcodes::COMPONENT_PIN_NOT_FOUND,
+                &[
+                    &invalid_members.join(", ") as &dyn std::fmt::Display,
+                    &base_name as &dyn std::fmt::Display,
+                    &all_valid_str as &dyn std::fmt::Display,
+                ],
             ),
         );
         if valid_members.is_empty() {
@@ -358,13 +363,15 @@ fn validate_module_port_ref(
             .collect::<Vec<_>>()
             .join(", ");
         dlog_error(
-            1704,
+            crate::errcodes::MODULE_PORT_NOT_FOUND,
             node,
-            &format!(
-                "Port(s) '{}' not found in module '{}'. Available ports: [{}]",
-                invalid_members.join(", "),
-                base_name,
-                all_valid
+            &crate::errcodes::format_msg(
+                crate::errcodes::MODULE_PORT_NOT_FOUND,
+                &[
+                    &invalid_members.join(", ") as &dyn std::fmt::Display,
+                    &base_name as &dyn std::fmt::Display,
+                    &all_valid as &dyn std::fmt::Display,
+                ],
             ),
         );
         if valid_members.is_empty() {
@@ -438,13 +445,15 @@ fn validate_interface_member_ref(
             .collect::<Vec<_>>()
             .join(", ");
         dlog_error(
-            1706,
+            crate::errcodes::IFACE_PIN_NOT_FOUND,
             node,
-            &format!(
-                "Pin(s) '{}' not found in interface '{}'. Available pins: [{}]",
-                invalid_members.join(", "),
-                base_name,
-                all_valid
+            &crate::errcodes::format_msg(
+                crate::errcodes::IFACE_PIN_NOT_FOUND,
+                &[
+                    &invalid_members.join(", ") as &dyn std::fmt::Display,
+                    &base_name as &dyn std::fmt::Display,
+                    &all_valid as &dyn std::fmt::Display,
+                ],
             ),
         );
         if valid_members.is_empty() {
@@ -603,15 +612,17 @@ fn validate_component_interface_ref(
             .chain(pin_id_to_names.keys().map(|s| s.as_str()))
             .chain(pins_map.keys().map(|s| s.as_str()))
             .collect();
+        let iface_full = format!("{component}.{interface}");
         dlog_error(
-            1801,
+            crate::errcodes::IFACE_PIN_NOT_FOUND,
             node,
-            &format!(
-                "Pin(s) '{}' not found in interface '{}.{}'. Available pins: [{}]",
-                invalid_members.join(", "),
-                component,
-                interface,
-                all_valid.join(", ")
+            &crate::errcodes::format_msg(
+                crate::errcodes::IFACE_PIN_NOT_FOUND,
+                &[
+                    &invalid_members.join(", ") as &dyn std::fmt::Display,
+                    &iface_full as &dyn std::fmt::Display,
+                    &all_valid.join(", ") as &dyn std::fmt::Display,
+                ],
             ),
         );
         if valid_members.is_empty() {
