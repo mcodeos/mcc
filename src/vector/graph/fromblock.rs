@@ -304,6 +304,17 @@ fn build_mc_vec_graph_inner(
 
     let mut graph = McVecGraph::new(block.bid, root_name.clone());
 
+    // ── ★ P7-9: build pin_parent map (member port id → parent port group id) ──
+    // Used by the facade pass to collapse member ports (SCL/SDA → I2C0) to port groups.
+    // Walk the block's port groups, then each port group's member ports.
+    for pg in table.get_ports_of(block.bid as u32) {
+        for member in table.get_ports_of(pg.id) {
+            if member.kind == crate::instant::insttab::InstKind::Port {
+                graph.pin_parent.insert(member.id as i64, pg.id as i64);
+            }
+        }
+    }
+
     // ── Phase 1: block.insts -> boxes (duck typing recognition) ──
     let mut box_ids_set: std::collections::HashSet<u32> = std::collections::HashSet::new();
 

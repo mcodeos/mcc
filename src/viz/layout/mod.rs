@@ -22,6 +22,7 @@ pub mod chain;
 pub mod coalesce;
 pub mod components;
 pub mod entry_points;
+pub mod facade;
 pub mod flow;
 pub mod islands;
 pub mod ladder_model;

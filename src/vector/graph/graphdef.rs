@@ -21,6 +21,7 @@
 //! - `nets`       -- multi-endpoint hyperedge ([`VizNet`]), the only network model
 //! - `sub_graphs` -- recursive sub-graphs
 
+use std::collections::HashMap;
 use std::fmt;
 
 use super::boxdef::{McVecBox, PortDir, ZoneBorder};
@@ -79,6 +80,12 @@ pub struct McVecGraph {
     /// stages on an unauthorized dimension records one entry; intra-stage
     /// multi-function cooperation is free.
     pub geom_double_writes: Vec<GeomDoubleWrite>,
+    /// ★ P7-9: pin_id → parent port group id (for collapsing member ports to port groups).
+    /// Built by fromblock.rs from the InstTable. Only populated for port entries.
+    pub pin_parent: HashMap<i64, i64>,
+    /// ★ Wire/Label split: column pitch from the layouter (default 480.0 for top, 360.0 for sub).
+    /// Set by FlowLayouter::layout. Used by wire_label_split pass for adaptive threshold.
+    pub col_pitch: f64,
 }
 
 /// ★ P7-4e: geometry stages (the roadmap's three stages, refined for implementation)
@@ -159,6 +166,8 @@ impl McVecGraph {
             is_submodule: false,
             rail_decorations: vec![],
             geom_double_writes: vec![],
+            pin_parent: HashMap::new(),
+            col_pitch: 480.0,
         }
     }
 

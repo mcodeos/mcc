@@ -120,6 +120,19 @@ fn run_single(
     graph.claim_geom_changes(&g_snap, "12.net_labels");
     probe_box_collisions(&graph);
 
+    // ── Wire/Label split pass ──
+    let g_snap = graph.geom_snapshot();
+    let split_changed = t!("wire_label_split", {
+        crate::viz::route::wire_label_split::apply_wire_label_split(&mut graph)
+    });
+    if split_changed {
+        graph.claim_geom_changes(&g_snap, "12b.wire_label_split");
+        // Re-normalize if new label boxes were added
+        let g_snap2 = graph.geom_snapshot();
+        t!("renormalize_wls", renormalize(&mut graph));
+        graph.claim_geom_changes(&g_snap2, "12c.renormalize_wls");
+    }
+
     // ── Phase 2: route ──
     let g_snap = graph.geom_snapshot();
     t!("route_all", route_all_with_channels(&mut graph));

@@ -48,7 +48,7 @@
 //! | R14 ORPHAN_INSTANCE     | WARN  | instance registered but not in any net |
 //! | R15 SYNTHETIC_PIN       | WARN  | synthetic terminal (pin_id not belonging to any real pin, from port scalar/member handling) |
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt::Write as _;
 
 use super::insttab::{InstKind, InstTable};
@@ -225,7 +225,7 @@ impl Report {
 
 fn rule_level(rule: &str) -> Level {
     match rule {
-        "R03a" | "R12" => Level::Info,
+        "R01-e" | "R03a" | "R12" => Level::Info,
         "R06" | "R09" | "R14" | "R15" => Level::Warn,
         _ => Level::Error,
     }
@@ -234,6 +234,7 @@ fn rule_level(rule: &str) -> Level {
 fn rule_name(rule: &str) -> &'static str {
     match rule {
         "R01" => "R01 LITERAL_POINT",
+        "R01-e" => "R01-e WAIVED",
         "R02" => "R02 SHORT_PASSIVE",
         "R03" => "R03 SHORT_RAIL",
         "R03a" => "R03a RAIL_ALIAS",
@@ -516,6 +517,46 @@ fn rail_identity(s: &str) -> Option<String> {
 // R01 · unexpanded vector reference
 // ============================================================================
 
+/// ★ R01-e: check whether a literal path is a pure boundary port declaration.
+///
+/// A literal path like `dc{VDD_3V3, GND}` represents a port declaration (dc)
+/// with its members. If the base name (dc) is a Port or Label whose parent is a
+/// Module, the literal point is exempt from R01.
+///
+/// For anonymous port groups like `[VCC_1V2, GND]` (no base name before `[`),
+/// the members themselves are the boundary ports.
+fn is_boundary_port_decl(path: &str, boundary_leaves: &HashSet<String>) -> bool {
+    // Extract the base name: everything before the first {, [, or ,
+    let brace = path.find('{');
+    let bracket = path.find('[');
+    let comma = path.find(',');
+    let first = [brace, bracket, comma].iter().filter_map(|&x| x).min();
+    match first {
+        Some(0) => {
+            // No base name (starts with bracket/brace). Extract members and check them.
+            // e.g., [VCC_1V2, GND] -> members are VCC_1V2, GND
+            let inner = path
+                .trim_start_matches('[')
+                .trim_end_matches(']')
+                .trim_start_matches('{')
+                .trim_end_matches('}');
+            inner.split(',').any(|m| {
+                let member = m.trim();
+                !member.is_empty() && boundary_leaves.contains(member)
+            })
+        }
+        Some(pos) => {
+            // Has a base name, e.g., dc{VDD_3V3, GND} -> base is "dc"
+            let base = &path[..pos];
+            !base.is_empty() && boundary_leaves.contains(base)
+        }
+        None => {
+            // No brackets/braces/commas at all, check the whole path
+            !path.is_empty() && boundary_leaves.contains(path)
+        }
+    }
+}
+
 fn check_r01_literal_point(table: &InstTable, idx: &Index, rep: &mut Report) {
     // ★ Patch 2-1: isolated literal points are no longer in the InstTable,
     // so read the full list directly from LITERAL_POINT_DETAILS.
@@ -523,42 +564,89 @@ fn check_r01_literal_point(table: &InstTable, idx: &Index, rep: &mut Report) {
         .lock()
         .unwrap();
     if !details.is_empty() {
-        // ★ Deduplicate: bucket by path, keeping the occurrence count
+        // ★ R01-e: build a set of boundary port/label leaf names.
+        // A literal point is a "pure boundary port declaration" when its base name
+        // (or its members, for anonymous port groups) is a Port or Label whose
+        // parent is a Module. These are port-declaration views, not electrical
+        // connection points, and are exempt from R01.
+        let mut boundary_leaves: HashSet<String> = HashSet::new();
+        for module in table.get_modules() {
+            for child in table.children_of(module.id) {
+                if matches!(child.kind, InstKind::Port | InstKind::Label) {
+                    if let Some(leaf) = child.path.rsplit('.').next() {
+                        boundary_leaves.insert(leaf.to_string());
+                    }
+                }
+            }
+        }
+
+        // ★ Deduplicate: bucket by path, keeping the occurrence count.
+        // R01-e exempted paths are counted separately.
         let mut buckets: BTreeMap<&str, usize> = BTreeMap::new();
+        let mut waived = 0usize;
+        let mut waived_paths: Vec<String> = Vec::new();
         for (path, _) in details.iter() {
+            if is_boundary_port_decl(path, &boundary_leaves) {
+                waived += 1;
+                if !waived_paths.contains(&path.to_string()) {
+                    waived_paths.push(path.to_string());
+                }
+                continue;
+            }
             *buckets.entry(path.as_str()).or_insert(0) += 1;
         }
         let unique = buckets.len();
         let total: usize = buckets.values().sum();
-        set_scanned(rep, "R01", total);
+        set_scanned(rep, "R01", total + waived);
 
-        // Sort by descending occurrence count
-        let mut sorted: Vec<(&str, usize)> = buckets.into_iter().collect();
-        sorted.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+        // Report R01-e waived count (Info level, separate line)
+        if waived > 0 {
+            waived_paths.sort();
+            let waived_items: Vec<String> = waived_paths
+                .iter()
+                .map(|p| format!("`{p}`"))
+                .collect();
+            note(
+                rep,
+                "R01-e",
+                String::new(),
+                format!(
+                    "R01-e waived: {} (pure boundary port declaration: {})",
+                    waived,
+                    waived_items.join(", ")
+                ),
+            );
+        }
 
-        let items: Vec<String> = sorted
-            .iter()
-            .map(|(path, count)| {
-                if *count > 1 {
-                    format!("`{path}` ×{count}")
-                } else {
-                    format!("`{path}`")
-                }
-            })
-            .collect();
-        *rep.counts.entry("R01").or_insert(0) = unique;
-        rep.findings.push(Finding {
-            rule: "R01",
-            level: rule_level("R01"),
-            module: String::new(),
-            detail: format!(
-                "{} unexpanded vector reference(s) ({} unique, {} occurrences): {}",
-                total,
-                unique,
-                total,
-                items.join("  ")
-            ),
-        });
+        if !buckets.is_empty() {
+            // Sort by descending occurrence count
+            let mut sorted: Vec<(&str, usize)> = buckets.into_iter().collect();
+            sorted.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(b.0)));
+
+            let items: Vec<String> = sorted
+                .iter()
+                .map(|(path, count)| {
+                    if *count > 1 {
+                        format!("`{path}` ×{count}")
+                    } else {
+                        format!("`{path}`")
+                    }
+                })
+                .collect();
+            *rep.counts.entry("R01").or_insert(0) = unique;
+            rep.findings.push(Finding {
+                rule: "R01",
+                level: rule_level("R01"),
+                module: String::new(),
+                detail: format!(
+                    "{} unexpanded vector reference(s) ({} unique, {} occurrences): {}",
+                    total,
+                    unique,
+                    total,
+                    items.join("  ")
+                ),
+            });
+        }
         return; // no need to scan the InstTable after isolation
     }
 
