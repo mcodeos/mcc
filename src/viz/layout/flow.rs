@@ -160,6 +160,11 @@ impl FlowLayouter {
         //   (not in boxes); every later pass (coalesce / pin_place / islands /
         //   passive_inline) sees a pure signal graph.
         classify_rails(graph, /*is_top=*/ !self.is_sub_layout);
+        // ★ P7-9: pin facade — filter SubModule pins to only those used in nets.
+        // Collapses member ports to port groups, removes R-3 (consumer power) pins.
+        // Must run after classify_rails (R-3 detection) and before assign_default_sizes
+        // (pin count drives box size).
+        super::facade::pin_facade(graph);
         // ★ First reduce "one net per connection" into "one net per equipotential point".
         // The entire layout stack (sp_model / ladder_model / chain / trunk_tap) assumes
         // net == node, but the visit.rs builder path does no cross-net merging for
@@ -448,6 +453,9 @@ impl Layouter for FlowLayouter {
     }
 
     fn layout(&self, graph: &mut McVecGraph) -> (f64, f64) {
+        // ★ Wire/Label split: store col_pitch so the wire_label_split pass can read it.
+        graph.col_pitch = self.col_pitch;
+
         // ★ P7-0: per-layer baseline log — first reading for P7-1's renderdiff.
         crate::vlog!(
             "[layout] layer '{}' layouter={} col_pitch={} row_pitch={} bary_sweeps={} hub_min_degree={} recompute={}",

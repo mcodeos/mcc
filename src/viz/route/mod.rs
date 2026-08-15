@@ -34,6 +34,7 @@ pub mod star;
 pub mod straight;
 pub mod trunk_tap;
 pub mod wire_hops;
+pub mod wire_label_split;
 pub use bus_bundle::BusBundleRouter;
 pub use orthogonal::{label_anchor, orthogonal_path, points_to_svg_d, OrthogonalRouter};
 pub use side::{compute_exit_for_pin, compute_exit_to, ExitSide};
