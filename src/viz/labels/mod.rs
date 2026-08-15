@@ -439,7 +439,7 @@ fn collect_labels(graph: &McVecGraph) -> Vec<(LabelKey, String, f64, bool)> {
                     }
                 }
             }
-            Symbol::PowerRail { .. } | Symbol::Dot | Symbol::Unknown => {}
+            Symbol::PowerRail { .. } | Symbol::Dot | Symbol::Unknown | Symbol::PortTerminal { .. } => {}
         }
         index_counter.insert(b.id, idx);
     }

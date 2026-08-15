@@ -42,7 +42,9 @@
 use std::collections::HashMap;
 
 use crate::instant::insttab::{InstKind, InstTable, MemberRole};
-use crate::vector::model::{McVec, McVecBlock, McVecNet};
+use crate::vector::graph::netdef::IoDirection;
+use crate::vector::graph::naming;
+use crate::vector::model::{BoundaryInfo, McVec, McVecBlock, McVecNet};
 
 /// One projection action record (rule a=merge / b=endpoint dedup / c=pseudo endpoint removal)
 #[derive(Debug, Clone)]
@@ -122,17 +124,56 @@ fn pseudo_entry(
     bid: i64,
     table: &InstTable,
 ) -> Option<&crate::instant::insttab::InstEntry> {
+    pseudo_entry_with_ancestor(id, bid, table).map(|(e, _)| e)
+}
+
+/// ★ P7-8: walk ancestors up to bid (or MAX_HOPS), returning the pseudo endpoint
+/// and the nearest port-group ancestor (for BoundaryInfo).
+/// - One hop (DAC_OUT parent == bid): returns (DAC_OUT_entry, DAC_OUT_entry)
+/// - Two hops (SCL parent == I2C0 port, I2C0 parent == bid): returns (SCL_entry, I2C0_entry)
+const MAX_HOPS: u32 = 8;
+
+fn pseudo_entry_with_ancestor(
+    id: i64,
+    bid: i64,
+    table: &InstTable,
+) -> Option<(&crate::instant::insttab::InstEntry, &crate::instant::insttab::InstEntry)> {
     if id < 0 {
         return None;
     }
     let e = table.get_entry(id as u32)?;
-    let is_boundary =
-        e.parent_id == Some(bid as u32) && matches!(e.kind, InstKind::Port | InstKind::Label);
-    if is_boundary {
-        Some(e)
-    } else {
-        None
+    if !matches!(e.kind, InstKind::Port | InstKind::Label) {
+        return None;
     }
+    // Walk ancestor chain until we reach bid or exceed MAX_HOPS.
+    // Only walk through Port/Label entries; stop at Module/Component/etc.
+    // This prevents member ports of submodules (e.g. main.mcu513.VCC_1V2 whose
+    // parent is a Module entry) from being treated as pseudo endpoints of the
+    // parent layer (discipline 13: hierarchy checks must reach fixed point).
+    let mut current = e;
+    let mut ancestor = e;
+    for _ in 0..MAX_HOPS {
+        if current.parent_id == Some(bid as u32) {
+            return Some((e, ancestor));
+        }
+        match current.parent_id {
+            Some(pid) => {
+                if let Some(parent) = table.get_entry(pid) {
+                    if !matches!(parent.kind, InstKind::Port | InstKind::Label) {
+                        return None; // stop at Module / Component boundary
+                    }
+                    if matches!(parent.kind, InstKind::Port) {
+                        ancestor = parent; // nearest port-group ancestor
+                    }
+                    current = parent;
+                } else {
+                    return None;
+                }
+            }
+            None => return None,
+        }
+    }
+    None
 }
 
 fn project_nets(
@@ -272,19 +313,81 @@ fn project_nets(
             }
         }
 
-        // ── Rule (c): pseudo endpoint removal (audit first, then drop) ────
+        // ── ★ P7-8: Rule (c) split —— rail pseudo endpoints removed, non-rail become Boundary ──
+        // Rail pseudo endpoints (Ground/Power role): still removed from real (same as before).
+        // Non-rail pseudo endpoints (Signal module boundary): kept in real, annotated with
+        // BoundaryInfo so fromblock.rs creates a PortTerminal box per port group.
         let mut dropped_c: Vec<&crate::instant::insttab::InstEntry> = Vec::new();
+        let mut boundary: Option<BoundaryInfo> = None;
         for &pid in &all_ids {
-            if let Some(e) = pseudo_entry(pid, bid, table) {
-                dropped_c.push(e);
+            if let Some((e, ancestor)) = pseudo_entry_with_ancestor(pid, bid, table) {
+                let is_rail = e.member_info.as_ref().map_or_else(
+                    || {
+                        // Fallback: scalar ports without member_info (e.g.
+                        // speaker.VDD_3V3 declared as `in VDD_3V3`) — use
+                        // name-based classification as a secondary signal.
+                        // This is a port-level check, not a net-level name match.
+                        naming::is_power_rail(last_segment(&e.path).as_str())
+                    },
+                    |m| matches!(m.role, MemberRole::Ground | MemberRole::Power),
+                );
+                if is_rail {
+                    dropped_c.push(e);
+                } else {
+                    // Non-rail pseudo endpoint → mark as Boundary (port-group level)
+                    if boundary.is_none() {
+                        let io = match e.io_type {
+                            crate::semantic::common::IOType::In => IoDirection::Input,
+                            crate::semantic::common::IOType::Out => IoDirection::Output,
+                            crate::semantic::common::IOType::InOut => IoDirection::Bidir,
+                            _ => IoDirection::Passive,
+                        };
+                        let port_name = last_segment(&ancestor.path);
+                        boundary = Some(BoundaryInfo {
+                            port_group_id: ancestor.id as i64,
+                            port_name,
+                            io,
+                        });
+                    }
+                }
+            }
+        }
+        // If the group contains any rail pseudo endpoints, it is a rail group
+        // (Ground/Power) and should not carry a BoundaryInfo marker.
+        // This handles Labels like main.GND whose member_info is None but whose
+        // group has Ground-role Port pseudo endpoints from merged nets.
+        if !dropped_c.is_empty() {
+            boundary = None;
+            // Also add any remaining pseudo endpoints (e.g. Labels without member_info)
+            // to dropped_c so they are properly audited.
+            for &pid in &all_ids {
+                if let Some((e, _)) = pseudo_entry_with_ancestor(pid, bid, table) {
+                    if !dropped_c.iter().any(|d| d.id == e.id) {
+                        dropped_c.push(e);
+                    }
+                }
             }
         }
 
         // ── Real endpoints = all - (b dropped) - (c pseudo endpoints) ─────
+        // Rail groups: drop ALL pseudo endpoints (including Labels like main.GND
+        // whose own member_info is None but whose group is a rail group).
+        // Non-rail groups: keep pseudo endpoints (they become PortTerminal connections).
+        let group_is_rail = !dropped_c.is_empty();
         let real: Vec<i64> = all_ids
             .iter()
             .copied()
-            .filter(|&pid| !dropped_b.contains(&pid) && pseudo_entry(pid, bid, table).is_none())
+.filter(|&pid| {
+                if dropped_b.contains(&pid) {
+                    return false;
+                }
+                match pseudo_entry_with_ancestor(pid, bid, table) {
+                    Some((_, _)) => {
+                        !group_is_rail
+                    }
+                    None => true,
+                }
+            })
             .collect();
 
         // Empty net: drop entirely (audited)
@@ -301,14 +404,27 @@ fn project_nets(
             continue;
         }
 
-        // ── Regular audit of (c) (record per endpoint for non-empty nets) ─
+        // ── Audit of (c) rail pseudo endpoints (removed) ─
         for e in &dropped_c {
             log.records.push(ProjectionRecord {
                 layer: layer.to_string(),
                 rule: "c",
                 net: name_src.clone(),
                 endpoint: e.path.clone(),
-                note: "boundary declaration of this layer (Port/Label), not an electrical connection point".to_string(),
+                note: "rail boundary declaration of this layer (Port/Label), not an electrical connection point".to_string(),
+            });
+        }
+        // ── Audit of non-rail pseudo endpoints (kept as Boundary) ─
+        if let Some(ref bi) = boundary {
+            log.records.push(ProjectionRecord {
+                layer: layer.to_string(),
+                rule: "c",
+                net: name_src.clone(),
+                endpoint: bi.port_name.clone(),
+                note: format!(
+                    "non-rail boundary port group (id={}), kept as PortTerminal marker",
+                    bi.port_group_id
+                ),
             });
         }
 
@@ -325,6 +441,7 @@ fn project_nets(
         // ── Output: a single flat group (rail/signal both consumed as flat endpoint sets in Phase 3) ──
         let mut net = McVecNet::new(nets[sorted[0]].nid, name_src, vec![McVec::new(real)]);
         net.rail = rail;
+        net.boundary = boundary;
         out.push(net);
     }
 

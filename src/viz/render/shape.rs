@@ -65,6 +65,25 @@ pub fn render_box(b: &McVecBox) -> String {
         Symbol::Module => render_sub_module(b),
         Symbol::PowerRail { .. } => PowerRailShape.render(b),
         Symbol::Dot => render_dot_symbol(b),
+        Symbol::PortTerminal { .. } => {
+            // PortTerminal: small terminal at canvas edge, similar to PowerLabel but with port name
+            let cx = b.x + b.w / 2.0;
+            let cy = b.y + b.h / 2.0;
+            format!(
+                r##"    <rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}"
+            fill="none" stroke="#888" stroke-width="1.5" rx="2" ry="2"/>
+    <text x="{cx:.1}" y="{cy:.1}" text-anchor="middle"
+            font-size="9" fill="#666" dominant-baseline="central">{name}</text>
+"##,
+                x = b.x,
+                y = b.y,
+                w = b.w,
+                h = b.h,
+                cx = cx,
+                cy = cy,
+                name = escape_xml_attr(&b.name),
+            )
+        }
         Symbol::Unknown => {
             // ★ FIX: Unknown boxes with pin information (including Phase F.1 typed-chip placeholder
             //   pins / normal part real pins) now use IcShape to draw pin + number + name; only
@@ -155,6 +174,25 @@ fn render_box_legacy(b: &McVecBox) -> String {
         BoxKind::SubModule => render_sub_module(b),
         BoxKind::PowerLabel => PowerLabelShape.render(b),
         BoxKind::Dot => render_dot_symbol(b),
+        BoxKind::PortTerminal => {
+            // PortTerminal fallback: small rectangle with port name
+            let cx = b.x + b.w / 2.0;
+            let cy = b.y + b.h / 2.0;
+            format!(
+                r##"    <rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}"
+            fill="none" stroke="#888" stroke-width="1.5" rx="2" ry="2"/>
+    <text x="{cx:.1}" y="{cy:.1}" text-anchor="middle"
+            font-size="9" fill="#666" dominant-baseline="central">{name}</text>
+"##,
+                x = b.x,
+                y = b.y,
+                w = b.w,
+                h = b.h,
+                cx = cx,
+                cy = cy,
+                name = escape_xml_attr(&b.name),
+            )
+        }
     }
 }
 

@@ -318,6 +318,7 @@ pub fn detect_symbol(table: &InstTable, id: u32, kind: &BoxKind) -> Symbol {
             }
         },
         BoxKind::Dot => Symbol::Dot,
+        BoxKind::PortTerminal => Symbol::Unknown, // PortTerminal boxes are created with explicit Symbol
     }
 }
 

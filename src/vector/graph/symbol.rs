@@ -26,6 +26,8 @@
 
 use std::fmt;
 
+use super::netdef::IoDirection;
+
 // ============================================================================
 // Symbol enum
 // ============================================================================
@@ -67,6 +69,9 @@ pub enum Symbol {
     /// A non-power label dot / junction (e.g. `Vin`, `DATA`)
     Dot,
 
+    /// ★ P7-8: boundary port terminal (BoxKind::PortTerminal)
+    PortTerminal { io: IoDirection },
+
     // ── Fallback ──
     /// Unrecognized (degrades to BoxKind's default rendering)
     #[default]
@@ -88,7 +93,7 @@ impl Symbol {
             | Symbol::Diode
             | Symbol::Led
             | Symbol::Zener => Some(2),
-            Symbol::PowerRail { .. } => Some(1),
+            Symbol::PowerRail { .. } | Symbol::PortTerminal { .. } => Some(1),
             Symbol::Ic | Symbol::Module | Symbol::Dot | Symbol::Unknown => None,
         }
     }
@@ -177,6 +182,7 @@ impl fmt::Display for Symbol {
             Symbol::PowerRail { is_ground: true } => write!(f, "ground"),
             Symbol::PowerRail { is_ground: false } => write!(f, "power"),
             Symbol::Dot => write!(f, "dot"),
+            Symbol::PortTerminal { io } => write!(f, "port_terminal({io:?})"),
             Symbol::Unknown => write!(f, "unknown"),
         }
     }

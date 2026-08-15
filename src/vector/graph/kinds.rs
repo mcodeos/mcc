@@ -30,6 +30,10 @@ pub enum BoxKind {
     PowerLabel,
     /// Non-power label dot / junction (e.g. `Vin`)
     Dot,
+    /// ★ P7-8: boundary port terminal — a single-pin box at the canvas edge
+    /// representing a port group (not individual members). Created by fromblock.rs
+    /// from BoundaryInfo markers on projected nets.
+    PortTerminal,
 }
 
 impl fmt::Display for BoxKind {
@@ -40,6 +44,7 @@ impl fmt::Display for BoxKind {
             BoxKind::SubModule => write!(f, "sub_module"),
             BoxKind::PowerLabel => write!(f, "power_label"),
             BoxKind::Dot => write!(f, "dot"),
+            BoxKind::PortTerminal => write!(f, "port_terminal"),
         }
     }
 }

@@ -33,7 +33,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::vector::graph::naming;
 use crate::vector::graph::netdef::IoDirection;
-use crate::vector::graph::{EntrySide, McVecBox, McVecGraph, Symbol};
+use crate::vector::graph::{AnchorHint, BoxKind, EntrySide, McVecBox, McVecGraph, Symbol};
 
 use super::components::{build_adjacency, find_connected_components};
 use super::entry_points::{
@@ -195,6 +195,58 @@ impl FlowLayouter {
     ///
     /// Returns (root_id, isolated_ids) for later phases.
     fn phase_placement(&self, graph: &mut McVecGraph) -> (i64, HashSet<i64>) {
+        // ── ★ P7-7: anchor hinted boxes before main placement ───────────────
+        // Boxes with anchor_hint are placed at their host pin's position and
+        // locked, so they skip rank/column/park entirely.
+        let mut anchored_s3 = 0usize;
+        let mut anchored_total = 0usize;
+        {
+            // Collect anchor hints first (can't borrow graph mutably while iterating)
+            let hints: Vec<(i64, AnchorHint)> = graph
+                .boxes
+                .iter()
+                .filter_map(|b| b.anchor_hint.clone().map(|h| (b.id, h)))
+                .collect();
+            for (box_id, hint) in &hints {
+                let host = graph.boxes.iter().find(|b| b.id == hint.host_box);
+                let host_pin = host.and_then(|h| h.find_entry(hint.host_pin).cloned());
+                if let (Some(host), Some(pin)) = (host, host_pin) {
+                    // Compute the pin's absolute position on the host box
+                    let pin_x = match pin.side {
+                        EntrySide::Left => host.x,
+                        EntrySide::Right => host.x + host.w,
+                        _ => host.x + host.w * pin.offset,
+                    };
+                    let pin_y = match pin.side {
+                        EntrySide::Top => host.y,
+                        EntrySide::Bottom => host.y + host.h,
+                        _ => host.y + host.h * pin.offset,
+                    };
+                    // Place anchored box below the host pin (one grid step down)
+                    let grid = self.row_pitch.max(20.0);
+                    let target_x = pin_x;
+                    let target_y = pin_y + grid;
+                    if let Some(b) = graph.boxes.iter_mut().find(|b| b.id == *box_id) {
+                        b.x = target_x - b.w / 2.0;
+                        b.y = target_y;
+                        b.geom_locked = true;
+                        anchored_total += 1;
+                        // S3: |Δx| <= 1 grid step
+                        let dx = (b.x + b.w / 2.0 - pin_x).abs();
+                        if dx <= grid {
+                            anchored_s3 += 1;
+                        }
+                    }
+                }
+            }
+        }
+        crate::vlog!(
+            "[layout::rails] P7-7: anchored {} passive(s), S3 |Δx|<=1grid hit {}/{}",
+            anchored_total,
+            anchored_s3,
+            anchored_total,
+        );
+
         let ranks = assign_flow_ranks(graph, self.hub_min_degree);
         let columns = order_columns(graph, &ranks, self.bary_sweeps);
         self.place_columns(graph, &columns);
@@ -709,14 +761,16 @@ fn choose_root(
     indeg: &HashMap<i64, usize>,
     outdeg: &HashMap<i64, usize>,
 ) -> i64 {
-    if let Some(b) = graph.boxes.iter().find(|b| naming::is_main_chip(&b.name)) {
+    // ★ P7-8: PortTerminal boxes never participate in hub election
+    let is_core = |b: &&McVecBox| b.kind != BoxKind::PortTerminal;
+    if let Some(b) = graph.boxes.iter().filter(|b| is_core(b) && naming::is_main_chip(&b.name)).next() {
         return b.id;
     }
     // Sub-layer anchoring: prefer IC with most pins (top-level module is Module, won't match → behavior unchanged)
     if let Some(b) = graph
         .boxes
         .iter()
-        .filter(|b| matches!(b.symbol, Symbol::Ic))
+        .filter(|b| is_core(b) && matches!(b.symbol, Symbol::Ic))
         .max_by_key(|b| b.pin_count)
     {
         return b.id;
@@ -725,7 +779,8 @@ fn choose_root(
         .boxes
         .iter()
         .filter(|b| {
-            indeg.get(&b.id).copied().unwrap_or(0) == 0
+            is_core(b)
+                && indeg.get(&b.id).copied().unwrap_or(0) == 0
                 && outdeg.get(&b.id).copied().unwrap_or(0) > 0
         })
         .max_by_key(|b| outdeg.get(&b.id).copied().unwrap_or(0))
@@ -738,7 +793,7 @@ fn choose_root(
     graph
         .boxes
         .iter()
-        .filter(|b| !b.is_two_pin_passive())
+        .filter(|b| is_core(b) && !b.is_two_pin_passive())
         .max_by_key(|b| adj.get(&b.id).map(|v| v.len()).unwrap_or(0))
         .map(|b| b.id)
         .unwrap_or(graph.boxes[0].id)
@@ -746,7 +801,12 @@ fn choose_root(
 
 /// Signed rank for each core box (negative=left, 0=hub, positive=right)
 fn assign_flow_ranks(graph: &McVecGraph, hub_min_degree: usize) -> HashMap<i64, i32> {
-    let core_ids: Vec<i64> = graph.boxes.iter().map(|b| b.id).collect();
+    let core_ids: Vec<i64> = graph
+        .boxes
+        .iter()
+        .filter(|b| !b.geom_locked && b.kind != BoxKind::PortTerminal)
+        .map(|b| b.id)
+        .collect();
     let core_set: HashSet<i64> = core_ids.iter().copied().collect();
     let adj = build_adjacency(graph); // flags already extracted → core adjacency
     let (indeg, outdeg) = directed_degrees(graph, &core_set);
@@ -958,6 +1018,21 @@ pub fn compute_isolated_ids(graph: &McVecGraph, hub_id: i64) -> HashSet<i64> {
         .filter(|b| b.id < 0 && b.kind == crate::vector::graph::BoxKind::SubModule)
         .map(|b| b.id)
         .collect();
+    // ★ P7-7: boxes with anchor_hint are not isolated — they are placed by the
+    // anchor placer in phase_placement, not parked to empty space.
+    let anchored: HashSet<i64> = graph
+        .boxes
+        .iter()
+        .filter(|b| b.anchor_hint.is_some())
+        .map(|b| b.id)
+        .collect();
+    // ★ P7-8: PortTerminal boxes are at the canvas edge, not isolated.
+    let port_terminals: HashSet<i64> = graph
+        .boxes
+        .iter()
+        .filter(|b| b.kind == crate::vector::graph::BoxKind::PortTerminal)
+        .map(|b| b.id)
+        .collect();
     let mut out = HashSet::new();
     for c in &comps {
         if c.contains(&hub_id) {
@@ -965,6 +1040,12 @@ pub fn compute_isolated_ids(graph: &McVecGraph, hub_id: i64) -> HashSet<i64> {
         }
         for &id in c {
             if border.contains(&id) {
+                continue;
+            }
+            if anchored.contains(&id) {
+                continue;
+            }
+            if port_terminals.contains(&id) {
                 continue;
             }
             out.insert(id);

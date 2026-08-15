@@ -1025,6 +1025,19 @@ fn compute_entry_points(
         BoxKind::MultiPin => ep_for_multi_pin(pins, connected),
         BoxKind::SubModule => ep_for_sub_module(pins, connected),
         BoxKind::Dot => ep_for_power_label(b, pins),
+        BoxKind::PortTerminal => {
+            // PortTerminal: single pin, placed at canvas edge
+            if let Some(&(pin_id, ref pin_name)) = pins.first() {
+                vec![EntryPoint {
+                    pin_id,
+                    pin_name: pin_name.clone(),
+                    side: b.entry_points.first().map(|ep| ep.side.clone()).unwrap_or(EntrySide::Right),
+                    offset: 0.5,
+                }]
+            } else {
+                Vec::new()
+            }
+        }
     }
 }
 

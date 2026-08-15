@@ -90,6 +90,25 @@ pub struct McVecNet {
     pub shape: Option<super::netshape::NetShape>,
     /// ★ P7-3: power net spec (None = ordinary signal net). Filled by viz/project.rs from port declarations.
     pub rail: Option<RailSpec>,
+    /// ★ P7-8: boundary terminal marker. When a net has a pseudo endpoint that is the
+    /// module's own port declaration (not a rail), project.rs creates a BoundaryInfo
+    /// instead of removing the endpoint. fromblock.rs reads it to create a PortTerminal box.
+    pub boundary: Option<BoundaryInfo>,
+}
+
+/// ★ P7-8: boundary terminal info for port-level (not member-level) terminals.
+///
+/// Project.rs collects pseudo endpoints that are the module's own port declarations,
+/// walks up to the nearest port-group ancestor, and writes a BoundaryInfo per net.
+/// fromblock.rs reads it to create a single PortTerminal box per port group.
+#[derive(Debug, Clone)]
+pub struct BoundaryInfo {
+    /// The port group id (e.g., I2C0 for SCL/SDA; DAC_OUT for DAC_OUT itself).
+    pub port_group_id: i64,
+    /// The port group name (e.g., "I2C0", "DAC_OUT").
+    pub port_name: String,
+    /// IO direction of the port.
+    pub io: crate::vector::graph::netdef::IoDirection,
 }
 
 impl McVecNet {
@@ -101,6 +120,7 @@ impl McVecNet {
             nets,
             shape: None,
             rail: None,
+            boundary: None,
         }
     }
 
@@ -123,6 +143,7 @@ impl McVecNet {
             nets,
             shape,
             rail: None,
+            boundary: None,
         }
     }
 

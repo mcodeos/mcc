@@ -20,9 +20,7 @@ use crate::instant::insttab::{InstEntry, InstKind, InstTable};
 
 use super::super::model::netshape::{GroupRole, NetShape};
 use super::super::model::{ConnectionType, McVecBlock, McVecNet};
-use super::boxdef::{
-    BoxPin, CustomSymbol, IoSummary, McVecBox, PinConstraint, PinLayout, PortDir, VisualRole,
-};
+use super::boxdef::{BoxPin, CustomSymbol, EntryPoint, EntrySide, IoSummary, McVecBox, PinConstraint, PinLayout, PortDir, VisualRole};
 use super::detect::{
     compute_io, compute_scope_chain, detect_kind, detect_symbol, extract_designator,
     extract_last_segment, parse_pin_number, translate_io_type, warn_if_pin_mismatch, DetectedKind,
@@ -211,23 +209,11 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
             b.origin = entry.origin.clone();
             Some(b)
         }
-        DetectedKind::Label => {
-            let inst_path = entry.path.clone();
-            let scope_chain = compute_scope_chain(&inst_path);
-            Some(McVecBox::new_v2(
-                id as i64,
-                name,
-                String::new(),
-                BoxKind::Dot,
-                Symbol::Dot,
-                None,
-                None,
-                0,
-                IoSummary::new(),
-                inst_path,
-                scope_chain,
-            ))
-        }
+        // ★ P7-6: DetectedKind::Label branch removed — Label entries are no longer
+        // boxed anywhere. The only callers of make_box_from_id are backfill Component /
+        // Module (which never produce DetectedKind::Label) and the net-endpoint path
+        // (which only calls for Component/Module). If this branch is ever needed again,
+        // the caller must be tracked in its comment.
         DetectedKind::SubModule {
             port_count,
             class_name,
@@ -273,7 +259,7 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
                 scope_chain,
             ))
         }
-        DetectedKind::Skip => None,
+        DetectedKind::Skip | DetectedKind::Label => None,
     }
 }
 
@@ -298,6 +284,7 @@ pub fn build_mc_vec_graph(block: &McVecBlock, table: &InstTable) -> McVecGraph {
     let (projected, _projection_log) = crate::viz::project::project_block_tree(block, table);
     let graph = build_mc_vec_graph_inner(&projected, table, /*is_top_level=*/ true);
     super::netprobe::probe_block_to_graph(&projected, &graph); // ★ NEW
+    super::netprobe::probe_block_to_graph_per_layer(&projected, &graph); // ★ P7-6 inventory
     graph
 }
 
@@ -456,23 +443,12 @@ fn build_mc_vec_graph_inner(
                 box_ids_set.insert(id);
             }
             DetectedKind::Label => {
-                crate::velog!("[graph] ✓ Label: {name}");
-                let inst_path = entry.path.clone();
-                let scope_chain = compute_scope_chain(&inst_path);
-                graph.boxes.push(McVecBox::new_v2(
-                    id as i64,
-                    name,
-                    String::new(),
-                    BoxKind::Dot,
-                    Symbol::Dot,
-                    None,
-                    None,
-                    0,
-                    IoSummary::new(),
-                    inst_path,
-                    scope_chain,
-                ));
-                box_ids_set.insert(id);
+                // ★ P7-6: Label entries are literal views of port declarations, not
+                // drawable boxes. Skip them — same as the backfill path.
+                crate::velog!(
+                    "[graph] Phase 1 skip Label: '{}' (id={})",
+                    name, id
+                );
             }
             DetectedKind::Skip => {
                 if entry.kind == InstKind::Bus {
@@ -533,30 +509,17 @@ fn build_mc_vec_graph_inner(
                 continue;
             }
             match child.kind {
-                InstKind::Label | InstKind::Bus => {
-                    let cname = extract_last_segment(&child.path);
-                    let detected = detect_kind(table, child.id);
-                    if matches!(detected, DetectedKind::PowerLabel | DetectedKind::Skip) {
-                        continue;
-                    }
-                    if matches!(detected, DetectedKind::Label) {
-                        let inst_path = child.path.clone();
-                        let scope_chain = compute_scope_chain(&inst_path);
-                        graph.boxes.push(McVecBox::new_v2(
-                            child.id as i64,
-                            cname,
-                            String::new(),
-                            BoxKind::Dot,
-                            Symbol::Dot,
-                            None,
-                            None,
-                            0,
-                            IoSummary::new(),
-                            inst_path,
-                            scope_chain,
-                        ));
-                        box_ids_set.insert(child.id);
-                    }
+                InstKind::Label | InstKind::Bus | InstKind::Port | InstKind::Pin => {
+                    // ★ P7-6: skip Label / Port / Pin / Bus — these are literal views of
+                    // port declarations, not drawable boxes. Creating Dot boxes for them
+                    // produces degree=0 pins=0 garbage that pollutes box-count accounting.
+                    crate::velog!(
+                        "[graph] Phase 1.3 skip: '{}' (id={}, kind={:?}) depth={}",
+                        extract_last_segment(&child.path),
+                        child.id,
+                        child.kind,
+                        depth
+                    );
                 }
                 InstKind::Component => {
                     // ★ M4-1B: backfill fitted components not in block.insts
@@ -588,58 +551,12 @@ fn build_mc_vec_graph_inner(
                         box_ids_set.insert(child.id);
                     }
                 }
-                _ => {} // Port, Pin, etc. — skip
             }
         }
     }
     backfill_children_recursive(&mut graph, table, &mut box_ids_set, block.bid as u32, 0);
 
-    // ── ★ Phase 1.45: module with ports but no box → create SubModule box ─────────────────────
-    //
-    // When a module has port declarations but the module itself is not in box_ids_set (either
-    // because it has no internal instances, or its ports are referenced by connections but the
-    // module was never created as a box), Phase 1.5's endpoint walk-up will skip the module's
-    // own ports (parent_id = module bid, but module not in box_ids_set → "Skipping unresolved
-    // endpoint").
-    //
-    // This phase creates a SubModule box for the module itself, with its ports as pins, so the
-    // viz can render a module frame with port pins on the edges.
-    if block.bid >= 0 && !is_top_level {
-        let mod_id = block.bid as u32;
-        if !box_ids_set.contains(&mod_id) {
-            if let Some(mod_entry) = table.get_entry(mod_id) {
-                let ports = table.get_ports_of(mod_id);
-                if !ports.is_empty() {
-                    let class_name = mod_entry.class_name.clone();
-                    let io = compute_io(&ports);
-                    let box_pins = build_box_pins(&ports, &class_name);
-                    let port_count = ports.len();
-                    crate::velog!(
-                        "[graph] ✓ Phase 1.45: module '{}' (bid={}) has {} ports, creating SubModule box",
-                        root_name, mod_id, port_count
-                    );
-                    let inst_path = mod_entry.path.clone();
-                    let scope_chain = compute_scope_chain(&inst_path);
-                    let mut b = McVecBox::new_v2(
-                        mod_id as i64,
-                        root_name.clone(),
-                        class_name,
-                        BoxKind::SubModule,
-                        Symbol::Module,
-                        None,
-                        None,
-                        port_count,
-                        io,
-                        inst_path,
-                        scope_chain,
-                    );
-                    b.set_pins(box_pins);
-                    graph.boxes.push(b);
-                    box_ids_set.insert(mod_id);
-                }
-            }
-        }
-    }
+    // ── ★ P7-8: Phase 1.45 deleted (boundary terminalization replaces it with PortTerminal) ──
 
     // ── ★ Phase 1.46: Virtual Top Module Border ──
     // Create a dashed border for the top-level module, but do not render the module name (avoid a "main" label).
@@ -1026,7 +943,7 @@ fn build_mc_vec_graph_inner(
         }
     }
 
-    let mut count_by_kind = [0usize; 5]; // TwoPin/MultiPin/SubModule/PowerLabel/Dot
+    let mut count_by_kind = [0usize; 6]; // TwoPin/MultiPin/SubModule/PowerLabel/Dot/PortTerminal
     for b in &graph.boxes {
         let i = match b.kind {
             BoxKind::TwoPin => 0,
@@ -1034,17 +951,19 @@ fn build_mc_vec_graph_inner(
             BoxKind::SubModule => 2,
             BoxKind::PowerLabel => 3,
             BoxKind::Dot => 4,
+            BoxKind::PortTerminal => 5,
         };
         count_by_kind[i] += 1;
     }
     crate::velog!(
-        "[graph] '{}' box inventory: total={}, TwoPin={}, MultiPin={}, SubModule={}, PowerLabel={}",
+        "[graph] '{}' box inventory: total={}, TwoPin={}, MultiPin={}, SubModule={}, PowerLabel={}, PortTerminal={}",
         root_name,
         graph.boxes.len(),
         count_by_kind[0],
         count_by_kind[1],
         count_by_kind[2],
         count_by_kind[3],
+        count_by_kind[5],
     );
     if !graph.boxes.is_empty() && count_by_kind[0] + count_by_kind[1] + count_by_kind[2] == 0 {
         crate::velog!(
@@ -1055,15 +974,82 @@ fn build_mc_vec_graph_inner(
         );
     }
 
-    // ── ★ P7-3: Phase 1.6 (top-level synthesized PowerLabel) deleted ──────────────────
-    // Both premises of its existence were demolished by P7-2/P7-3:
-    //   1. "Top-level rail endpoints have no carrying box" —— the projection layer
-    //      (viz/project.rs) already turned rails into real nets with declarations
-    //      (RailSpec); no PowerLabel box is needed to "absorb" them anymore;
-    //   2. "Phase 3.5 same-name synthesis needs the toplevel_rails set" —— Phase 3.5
-    //      was deleted wholesale (see below).
-    // Terminals were demoted to pin decorations per discipline 11
-    // (graph.rail_decorations), not entering boxes.
+    // ── ★ P7-8: PortTerminal creation from BoundaryInfo markers ──────────────────────
+    // Replaces Phase 1.45 (deleted) and Phase E.1 (merged into this step).
+    // For each projected net with a BoundaryInfo marker (non-rail pseudo endpoint),
+    // create one PortTerminal box per port group. The PortTerminal box's id equals
+    // the port_group_id so that build_point_to_box maps all member endpoints to it.
+    {
+        let mut seen: std::collections::HashSet<i64> = std::collections::HashSet::new();
+        let mut count = 0usize;
+        for net in &block.nets {
+            if let Some(ref bi) = net.boundary {
+                if seen.insert(bi.port_group_id) {
+                    let port_name = bi.port_name.clone();
+                    let io = bi.io;
+                    // PortTerminal: 1 pin, small fixed size, placed at canvas edge by layout
+                    let mut io_summary = IoSummary::new();
+                    match io {
+                        IoDirection::Input => io_summary.inputs += 1,
+                        IoDirection::Output => io_summary.outputs += 1,
+                        _ => io_summary.other += 1,
+                    }
+                    let inst_path = table
+                        .get_entry(bi.port_group_id as u32)
+                        .map(|e| e.path.clone())
+                        .unwrap_or_default();
+                    let scope_chain = compute_scope_chain(&inst_path);
+                    let mut b = McVecBox::new_v2(
+                        bi.port_group_id,
+                        port_name.clone(),
+                        String::new(),
+                        BoxKind::PortTerminal,
+                        Symbol::PortTerminal { io },
+                        None,
+                        None,
+                        1,
+                        io_summary,
+                        inst_path,
+                        scope_chain,
+                    );
+                    // Single pin named after the port group
+                    b.entry_points = vec![EntryPoint {
+                        pin_id: bi.port_group_id,
+                        pin_name: port_name.clone(),
+                        side: match io {
+                            IoDirection::Input => EntrySide::Left,
+                            IoDirection::Output => EntrySide::Right,
+                            _ => EntrySide::Right,
+                        },
+                        offset: 0.5,
+                    }];
+                    b.set_pins(vec![BoxPin {
+                        id: bi.port_group_id,
+                        pin_id: bi.port_group_id.to_string(),
+                        description: String::new(),
+                        io,
+                        port_dir: PortDir::None,
+                    }]);
+                    crate::velog!(
+                        "[graph] ✓ P7-8 PortTerminal: '{}' (id={}, io={:?})",
+                        b.name,
+                        b.id,
+                        io
+                    );
+                    graph.boxes.push(b);
+                    box_ids_set.insert(bi.port_group_id as u32);
+                    count += 1;
+                }
+            }
+        }
+        if count > 0 {
+            crate::velog!(
+                "[graph] P7-8: created {} PortTerminal box(es) across {} boundary net(s)",
+                count,
+                block.nets.iter().filter(|n| n.boundary.is_some()).count()
+            );
+        }
+    }
 
     // ── Phase 2: build point_to_box mapping ──
     let point_to_box = build_point_to_box(table, &graph.boxes);
@@ -1657,6 +1643,10 @@ fn build_point_to_box(table: &InstTable, boxes: &[McVecBox]) -> HashMap<u32, u32
                 map_all_descendants(table, bid, bid, &mut point_to_box);
             }
             BoxKind::Dot => {
+                point_to_box.insert(bid, bid);
+            }
+            BoxKind::PortTerminal => {
+                map_all_descendants(table, bid, bid, &mut point_to_box);
                 point_to_box.insert(bid, bid);
             }
         }

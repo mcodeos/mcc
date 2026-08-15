@@ -20,7 +20,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use mcc::vector::model::McVecBlock;
-use mcc::{InstKind, InstTable, McIds};
+use mcc::{InstKind, InstTable, MemberRole, McIds};
 
 fn hbl_project_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("projects/hbl")
@@ -77,27 +77,39 @@ fn nets_of(block: &McVecBlock, table: &InstTable, prefix: &str) -> Vec<(String, 
         .collect()
 }
 
-/// Recursive assertion: after projection no endpoint is a "layer-boundary declaration" (parent == bid and Port/Label).
-fn assert_no_boundary_pseudo(block: &McVecBlock, table: &InstTable) {
+/// ★ P7-8: after projection, only **rail** pseudo endpoints (Ground/Power role)
+/// must be absent from real. Non-rail pseudo endpoints (Signal) are intentionally
+/// kept — they become PortTerminal connections in fromblock.rs.
+fn assert_no_rail_pseudo(block: &McVecBlock, table: &InstTable) {
     for net in &block.nets {
         for pid in net.all_point_ids() {
             if pid < 0 {
                 continue;
             }
             if let Some(e) = table.get_entry(pid as u32) {
-                assert!(
-                    !(e.parent_id == Some(block.bid as u32)
-                        && matches!(e.kind, InstKind::Port | InstKind::Label)),
-                    "layer '{}' net '{}' still has pseudo-endpoint '{}' (rule c not fully cleaned)",
-                    block.name,
-                    net.name,
-                    e.path
-                );
+                if e.parent_id == Some(block.bid as u32)
+                    && matches!(e.kind, InstKind::Port | InstKind::Label)
+                {
+                    let is_rail = e.member_info.as_ref().map_or(false, |m| {
+                        matches!(
+                            m.role,
+                            MemberRole::Ground
+                                | MemberRole::Power
+                        )
+                    });
+                    assert!(
+                        !is_rail,
+                        "layer '{}' net '{}' still has rail pseudo-endpoint '{}' (rule c not fully cleaned)",
+                        block.name,
+                        net.name,
+                        e.path
+                    );
+                }
             }
         }
     }
     for sub in &block.blocks {
-        assert_no_boundary_pseudo(sub, table);
+        assert_no_rail_pseudo(sub, table);
     }
 }
 
@@ -250,7 +262,7 @@ fn projection_main_layer_matches_pass2_golden() {
     assert!(micn.1.contains("mic.2") && micn.1.contains("C1.2") && micn.1.contains("dio2.1"));
 
     // ── Rule c: zero pseudo-endpoints across the whole tree ──
-    assert_no_boundary_pseudo(&projected, &table);
+    assert_no_rail_pseudo(&projected, &table);
 }
 
 #[test]
