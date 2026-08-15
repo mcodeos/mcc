@@ -33,6 +33,11 @@ pub fn classify_token_by_symbol(
                 if interval.val.kind == SymbolKind::ClassDef as u8 {
                     return 3; // CLASS
                 }
+                // Enum heads register as EnumDef (see lapper_global_classes) but
+                // are still class-like declarations — highlight them as CLASS.
+                if interval.val.kind == SymbolKind::EnumDef as u8 {
+                    return 3; // CLASS
+                }
                 if interval.val.kind == SymbolKind::ClassRef as u8 {
                     return 2; // TYPE
                 }
