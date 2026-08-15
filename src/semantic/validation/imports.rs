@@ -52,7 +52,7 @@ impl ValidationCheck for ImportsCheck {
             let mcode = entry.value();
 
             for mcu in &mcode.uselist {
-                // ★ Fix (Defect 76): Canonicalize the use-target URI so it matches
+                // ★ Canonicalize the use-target URI so it matches
                 // DashMap keys. Without this, relative paths like "./power.mc"
                 // would miss in mcodes.get() and produce false "target file not
                 // loaded" / "symbol not found" errors (K4/K5 false positives).

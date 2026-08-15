@@ -579,7 +579,7 @@ mod tests {
     use super::*;
     use crate::vector::graph::boxdef::{BoxPin, PortDir};
     use crate::vector::graph::netdef::EndpointRef;
-    use crate::vector::graph::{BoxKind, McVecBox, McVecGraph, NetKind, Symbol, NetRole, VizNet};
+    use crate::vector::graph::{BoxKind, McVecBox, McVecGraph, NetKind, NetRole, Symbol, VizNet};
 
     fn mk_box(id: i64, name: &str, kind: BoxKind, symbol: Symbol, pin_count: usize) -> McVecBox {
         let mut b = McVecBox::new_v2(

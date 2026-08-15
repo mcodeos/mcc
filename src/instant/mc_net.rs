@@ -643,7 +643,7 @@ pub(crate) fn normalize_pin_segments(path: &str) -> String {
 /// # Design constraints
 /// - Only handles **explicit bug artifacts**, not fuzzy matches
 /// - `MIC.P` (different segment names) is unaffected
-/// - `lp322dcdc.FB` (normal component.pin) is unaffected
+/// - `dcdc.FB` (normal component.pin) is unaffected
 /// - Empty string / single-segment path returns as is
 pub fn canonicalize_path(path: &str) -> String {
     if path.is_empty() {
@@ -842,8 +842,8 @@ impl NetTable {
     ///     "broadcast": when paired with a scalar endpoint on the other side,
     ///     all members inside the bracket should **not** be unioned with each
     ///     other (otherwise VDD_3V3 and GND would share a root).
-    ///   - hbl top-level has `moddcdc.[VDD_3V3, GND] ~ V3V3` + `moddcdc.[VCC_1V2, GND] ~ V1V2`
-    ///     two connections sharing `moddcdc.GND`, after expansion → all 5 main
+    ///   - the example project's top level has `dcdc.[VDD_3V3, GND] ~ V3V3` + `dcdc.[VCC_1V2, GND] ~ V1V2`
+    ///     two connections sharing `dcdc.GND`, after expansion → all 5 main
     ///     rails unioned to the same root, the entire top half of the graph
     ///     electrically shorted (measured net 101035 has 6 endpoints mixing
     ///     V1V2/V3V3/VDD_3V3/VCC_1V2/GND together).
@@ -875,7 +875,7 @@ impl NetTable {
 
         // ── Iter-10.1: normalize path ──
         let canon_paths: Vec<String> = kept.iter().map(|p| canonicalize_path(&p.path)).collect();
-        
+
         if kept.len() == 1 {
             let p = kept[0];
             self.ensure_point(&canon_paths[0], p.owner.clone(), p.iotype.clone());
@@ -986,8 +986,8 @@ impl NetTable {
             // ── ★ ITER-5: add "last-segment power/ground name" as fallback candidate ──
             // The old logic only fell back to `__net_N` after both tier1 and tier2
             // missed, leading to cases like:
-            //   group_points = [main.modldo.gnd, main.moddcdc.GND]
-            //   group_points = [main.modldo.vout, main.moddcdc.VDD_3V3]
+            //   group_points = [main.ldo.gnd, main.dcdc.GND]
+            //   group_points = [main.ldo.vout, main.dcdc.VDD_3V3]
             // These "SubModule↔SubModule internal bridge power/ground connections
             // with both-side path segment counts >= 2 and neither in port_names"
             // were named `__net_10` / `__net_11`, rendered with anonymous strings
@@ -1001,8 +1001,8 @@ impl NetTable {
             // `vector`). If hit, use that name (normalized UPPER) as the net name.
             //
             // Examples:
-            //   [modldo.gnd, moddcdc.GND]      → "GND"
-            //   [modldo.vout, moddcdc.VDD_3V3] → "VDD_3V3"
+            //   [ldo.gnd, dcdc.GND]      → "GND"
+            //   [ldo.vout, dcdc.VDD_3V3] → "VDD_3V3"
             // This way the downstream `from_block` `naming::classify_net` can
             // correctly classify Power/Ground, and ITER-4's hyperedge merge can
             // also find these nets by "duplicate name".

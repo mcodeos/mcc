@@ -167,7 +167,7 @@ pub fn canonicalize_class_alias(class_name: &str) -> Option<String> {
 ///
 /// **But** the bare call `PULLUP(10k)` (no caller, appearing alone as a 2-pin component) is
 /// another valid syntax, currently falls to the P0-4 stub path producing `@?PULLUP_N` -- this
-/// name doesn't exist in InstTable at all, the entire net is lost (the symptom of hbl's main
+/// name doesn't exist in InstTable at all, the entire net is lost (the symptom of the example project's main
 /// `__net_5`, failed=["@?PULLUP_1.1"]).
 ///
 /// Fix: add an additional alias fallback to `instantiate_funccall` that **only takes effect when
@@ -501,7 +501,7 @@ mod tests {
 
     #[test]
     fn twopin_class_dotted_head() {
-        // In hbl, when `DIO.ESD dio1` is registered, class.name == "DIO.ESD"
+        // In a typical project, when `DIO.ESD dio1` is registered, class.name == "DIO.ESD"
         // mc_phrase's is_known_2pin_class should hit
         assert!(is_known_twopin_class("DIO.ESD"));
         assert!(is_known_twopin_class("DIO.ZENER"));

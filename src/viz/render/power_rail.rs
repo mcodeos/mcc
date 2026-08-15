@@ -100,7 +100,11 @@ pub fn render_decoration(px: f64, py: f64, is_ground: bool, label: &str) -> Stri
     const H: f64 = 30.0;
     let mut b = McVecBox::new_v2(
         0,
-        if is_ground { String::new() } else { label.to_string() },
+        if is_ground {
+            String::new()
+        } else {
+            label.to_string()
+        },
         String::new(),
         crate::vector::graph::BoxKind::PowerLabel,
         Symbol::PowerRail { is_ground },

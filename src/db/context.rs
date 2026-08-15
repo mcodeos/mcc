@@ -7,7 +7,7 @@
 //! Provides concrete implementations of [`crate::semantic::context`] traits
 //! backed by the global workspace / system tables in `db/`.
 
-use crate::ast::ast_semantic::{DeclareId, SourceLocation, Span};
+use crate::ast::ast_semantic::{DeclareId, Span};
 use crate::semantic::context::{DiagnosticSeverity, DiagnosticSink, NameResolver, SymbolRegistry};
 use crate::{McCMIE, McIds, McURI};
 
@@ -66,11 +66,16 @@ impl SymbolRegistry for DbContext {
         let mc_uri = McURI::from(uri);
         if let Some(mcode) = crate::db::cmie::tables::WORKSPACE.mcodes.get(&mc_uri) {
             if let Ok(mut sem) = mcode.symbols.lock() {
-                let id = sem.local_table.add_declare_with_name(
+                // register under the real scope key (same
+                // (file_id, container_id, func_id) as lapper-time register_def)
+                // instead of the all-zero SourceLocation::from_span, so the
+                // parse-time id matches the InstDef id.
+                let id = crate::refdef::register::register_instance_decl_parse_time(
+                    &mut sem,
                     &mc_uri,
-                    SourceLocation::from_span(&span),
-                    Some(name.to_string()),
                     scope,
+                    name,
+                    span.clone(),
                 );
                 return id.raw();
             }

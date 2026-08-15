@@ -31,7 +31,21 @@ pub fn fill_refdef_layer2(
     for &(ref_kind, decl_id, ref_start, ref_stop) in ref_entries {
         let candidate_defs: &[SymbolKind] = match ref_kind {
             SymbolKind::InstRef => &[SymbolKind::InstDef],
-            SymbolKind::PortRef => &[SymbolKind::PortDef, SymbolKind::ParamDef],
+            // bare-identifier params register as UnknownDef via
+            // param_def_kind; without UnknownDef here the PortRef entries for
+            // untyped params were dropped by Layer 2 (upgrade_unknown_defs
+            // runs after Layer 2 and could not resurrect them).
+            // module square members (`[VDD_3V3,GND]::DC(3.3V)`)
+            // and module-level labels (e.g. `GND`) register as LabelDef, but
+            // their use sites resolve to PortRef via resolve_net_ref_kind —
+            // LabelDef must be a candidate or those refs are dropped. Listed
+            // last so a same-id PortDef/ParamDef wins when both exist.
+            SymbolKind::PortRef => &[
+                SymbolKind::PortDef,
+                SymbolKind::ParamDef,
+                SymbolKind::UnknownDef,
+                SymbolKind::LabelDef,
+            ],
             SymbolKind::LabelRef => &[SymbolKind::LabelDef],
             SymbolKind::FuncRef => &[SymbolKind::FuncDef],
             SymbolKind::BusRef => &[SymbolKind::BusDef], // ★ §16: exact match
@@ -96,8 +110,12 @@ pub fn fill_refdef_layer2(
             } else {
                 map.intern_file(file_uri)
             };
+            // Look up the scope by the DEF's position, not the ref's. The
+            // scope_map is keyed by def spans (built from name_to_declare_id
+            // source locations), so querying with (ref_start, ref_stop) always
+            // missed and left container_id at 0 for every Layer 2 entry.
             let scope = scope_map
-                .get(&(ref_start, ref_stop))
+                .get(&(def_start, def_stop))
                 .cloned()
                 .unwrap_or_default();
             let cid = map.intern_container(&scope);

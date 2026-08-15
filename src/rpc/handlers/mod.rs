@@ -1423,7 +1423,7 @@ pub(crate) fn find_def_by_name(name: &str) -> Option<(crate::McCMIE, String)> {
 /// therefore not top-level definitions: `main.setup` → `("main", "setup")`.
 ///
 /// The owner is everything before the **last** dot, so dotted class names work
-/// too: `MCU.US513_20_F.i2c` → `("MCU.US513_20_F", "i2c")`.
+/// too: `comp.sub.i2c` → `("comp.sub", "i2c")`.
 pub fn split_owner_member(name: &str) -> Option<(&str, &str)> {
     name.rsplit_once('.')
 }

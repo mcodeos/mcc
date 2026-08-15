@@ -35,7 +35,15 @@ fn golden_path() -> PathBuf {
 static RENDER_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// build hbl → render the whole tree → return per-layer renderdiff report strings
-fn render_once(golden: &RenderGolden) -> (Vec<String>, usize, usize, usize, Vec<(String, usize, usize, usize)>) {
+fn render_once(
+    golden: &RenderGolden,
+) -> (
+    Vec<String>,
+    usize,
+    usize,
+    usize,
+    Vec<(String, usize, usize, usize)>,
+) {
     let _guard = RENDER_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let project_root = hbl_project_dir();
     let entry_path = project_root.join("src/hbl.mc");
@@ -77,7 +85,12 @@ fn renderdiff_measures_all_seven_layers() {
     let (lines, _red, _green, _skip, per_layer) = render_once(&golden);
 
     // all 7 layers have readings
-    assert_eq!(per_layer.len(), 7, "must measure 7 layers: main + 6 sub-layers, got {:?}", per_layer);
+    assert_eq!(
+        per_layer.len(),
+        7,
+        "must measure 7 layers: main + 6 sub-layers, got {:?}",
+        per_layer
+    );
     for line in &lines {
         println!("{line}");
     }
@@ -98,7 +111,10 @@ fn renderdiff_main_layer_rail_contract_is_green_after_p73() {
     let golden = RenderGolden::load(&golden_path()).expect("golden parse");
     let (lines, _red, _green, _skip, per_layer) = render_once(&golden);
 
-    let main = per_layer.iter().find(|(l, ..)| l == "main").expect("main layer");
+    let main = per_layer
+        .iter()
+        .find(|(l, ..)| l == "main")
+        .expect("main layer");
     let (_, m_red, _m_green, _m_skip) = main;
     assert!(
         *m_red >= 2 && *m_red <= 6,
@@ -109,9 +125,18 @@ fn renderdiff_main_layer_rail_contract_is_green_after_p73() {
     let main_reading = metrics_main_reading(&golden);
     assert_eq!(main_reading.gnd_edges, 0, "R-1: GND edges = 0");
     assert_eq!(main_reading.power_edges, 4, "R-2: driver stage = 4");
-    assert_eq!(main_reading.two_pin_passives, 0, "C5: no passives drawn at top level");
-    assert_eq!(main_reading.rail_flag_boxes, 0, "discipline 11: terminals are not boxes");
-    assert_eq!(main_reading.synth_endpoint_boxes, 0, "synthesized boxes = 0");
+    assert_eq!(
+        main_reading.two_pin_passives, 0,
+        "C5: no passives drawn at top level"
+    );
+    assert_eq!(
+        main_reading.rail_flag_boxes, 0,
+        "discipline 11: terminals are not boxes"
+    );
+    assert_eq!(
+        main_reading.synth_endpoint_boxes, 0,
+        "synthesized boxes = 0"
+    );
 
     // The 4 driver edges' (from, to, label) match the golden edge table item by item
     let mut power_edges: Vec<(String, String, String)> = main_reading
@@ -128,12 +153,23 @@ fn renderdiff_main_layer_rail_contract_is_green_after_p73() {
         ("usbsocket".into(), "modldo".into(), "V5V.VCC".into()),
     ];
     want.sort();
-    assert_eq!(power_edges, want, "driver stage edge table should equal golden item by item");
+    assert_eq!(
+        power_edges, want,
+        "driver stage edge table should equal golden item by item"
+    );
 
     // ── Sub-layers: S1/S2 semantics = no cross-box rail edges (all symbols in place) ──
     for r in sub_readings(&golden) {
-        assert_eq!(r.gnd_edges, 0, "sub-layer {} GND edges should be 0", r.layer);
-        assert_eq!(r.power_edges, 0, "sub-layer {} power edges should be 0", r.layer);
+        assert_eq!(
+            r.gnd_edges, 0,
+            "sub-layer {} GND edges should be 0",
+            r.layer
+        );
+        assert_eq!(
+            r.power_edges, 0,
+            "sub-layer {} power edges should be 0",
+            r.layer
+        );
     }
 
     // The ruler is still measuring (discipline 9): all 7 layers of the tree have readings
@@ -145,7 +181,10 @@ fn renderdiff_main_layer_rail_contract_is_green_after_p73() {
 
 /// Get the main layer's full LayerReading (has gnd/power/passives fields beyond per_layer's count triple).
 fn metrics_main_reading(golden: &RenderGolden) -> mcc::viz::metrics::renderdiff::LayerReading {
-    readings(golden).into_iter().find(|r| r.layer == "main").expect("main reading")
+    readings(golden)
+        .into_iter()
+        .find(|r| r.layer == "main")
+        .expect("main reading")
 }
 
 fn sub_readings(golden: &RenderGolden) -> Vec<mcc::viz::metrics::renderdiff::LayerReading> {
@@ -242,7 +281,10 @@ fn renderdiff_verdict_types_distinguishable() {
     let joined = lines.join("\n");
     // The main layer has ✗ (red), ✓ (green), and · (SKIP) coexisting —— the ruler is measuring real things
     assert!(joined.contains("✗"), "the report must contain red");
-    assert!(joined.contains("·"), "the report must contain a visible SKIP");
+    assert!(
+        joined.contains("·"),
+        "the report must contain a visible SKIP"
+    );
     let _ = Verdict::Ok(String::new());
 }
 
@@ -269,7 +311,11 @@ fn renderdiff_geom_double_writes_baseline() {
         if r.geom_double_write_list.is_empty() {
             continue;
         }
-        println!("[{}] {} double-writes:", r.layer, r.geom_double_write_list.len());
+        println!(
+            "[{}] {} double-writes:",
+            r.layer,
+            r.geom_double_write_list.len()
+        );
         for d in &r.geom_double_write_list {
             println!("  {d}");
         }
@@ -319,5 +365,8 @@ fn renderdiff_device_contracts_s3_to_s9_green_after_p75() {
 
     // NC coverage: hbl declares 8 NC devices across 3 layers.
     let nc_total: usize = readings.iter().map(|r| r.g13.s8_nc_total).sum();
-    assert_eq!(nc_total, 8, "hbl has 8 NC devices (X6, wm7121, dio1, dio2, mic CAP_1/RES_1, speaker DIO_ESD_1/2)");
+    assert_eq!(
+        nc_total, 8,
+        "hbl has 8 NC devices (X6, wm7121, dio1, dio2, mic CAP_1/RES_1, speaker DIO_ESD_1/2)"
+    );
 }

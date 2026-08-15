@@ -77,10 +77,10 @@ pub struct Cost {
 // ============================================================================
 
 pub const W_CROSS: f64 = 1000.0;
-pub const W_BACK: f64 = 600.0;   // Cycle-breaking direction violation, should outweigh area
+pub const W_BACK: f64 = 600.0; // Cycle-breaking direction violation, should outweigh area
 pub const W_SPAN: f64 = 100.0;
 pub const W_PORT: f64 = 20.0;
-pub const W_SAMELAYER: f64 = 500.0;  // Same-layer soft penalty, below W_BACK(600)
+pub const W_SAMELAYER: f64 = 500.0; // Same-layer soft penalty, below W_BACK(600)
 pub const W_ORIENT: f64 = 400.0;
 pub const W_ORDER: f64 = 30.0;
 pub const W_AREA: f64 = 2.0;
@@ -247,12 +247,8 @@ fn exact_enumerate(q: &QuotientGraph) -> Vec<(Cost, Arrangement)> {
     let sides = compute_node_sides(q, &hard_dirs);
 
     // Precompute edge data
-    let node_to_idx: HashMap<NodeId, usize> = q
-        .nodes
-        .iter()
-        .enumerate()
-        .map(|(i, &id)| (id, i))
-        .collect();
+    let node_to_idx: HashMap<NodeId, usize> =
+        q.nodes.iter().enumerate().map(|(i, &id)| (id, i)).collect();
     let edges: Vec<EdgeData> = q
         .edges
         .iter()
@@ -281,8 +277,16 @@ fn exact_enumerate(q: &QuotientGraph) -> Vec<(Cost, Arrangement)> {
 
     // Output the initial permutation first
     evaluate_permutation(
-        &perm, max_cut, q, &edges, &sides, all_neutral,
-        &mut best, &mut best_weighted, &mut total_evals, &mut pruned_count,
+        &perm,
+        max_cut,
+        q,
+        &edges,
+        &sides,
+        all_neutral,
+        &mut best,
+        &mut best_weighted,
+        &mut total_evals,
+        &mut pruned_count,
     );
 
     let mut i = 1;
@@ -301,8 +305,16 @@ fn exact_enumerate(q: &QuotientGraph) -> Vec<(Cost, Arrangement)> {
             }
 
             evaluate_permutation(
-                &perm, max_cut, q, &edges, &sides, all_neutral,
-                &mut best, &mut best_weighted, &mut total_evals, &mut pruned_count,
+                &perm,
+                max_cut,
+                q,
+                &edges,
+                &sides,
+                all_neutral,
+                &mut best,
+                &mut best_weighted,
+                &mut total_evals,
+                &mut pruned_count,
             );
 
             c[i] += 1;
@@ -444,11 +456,8 @@ fn compute_partial_cost(
     }
 
     // Orient
-    let node_to_idx: HashMap<NodeId, usize> = nodes
-        .iter()
-        .enumerate()
-        .map(|(i, &id)| (id, i))
-        .collect();
+    let node_to_idx: HashMap<NodeId, usize> =
+        nodes.iter().enumerate().map(|(i, &id)| (id, i)).collect();
     for (li, layer) in layers.iter().enumerate() {
         for &nid in layer {
             if let Some(&idx) = node_to_idx.get(&nid) {
@@ -498,31 +507,25 @@ fn compute_partial_cost(
     }
 
     let max_nodes = layers.iter().map(|l| l.len()).max().unwrap_or(1);
-    let total_w = layers.iter().map(|l| l.len() as f64 * SP_COL_W).sum::<f64>()
+    let total_w = layers
+        .iter()
+        .map(|l| l.len() as f64 * SP_COL_W)
+        .sum::<f64>()
         + (layers.len().saturating_sub(1)) as f64 * SP_COL_W;
     let area = total_w; // Width-dominated, prevents tall-thin solutions from having smaller area than short-wide ones
 
-    Cost::from_counts(crossings, backward, span, 0, same_layer, orient, order, area)
+    Cost::from_counts(
+        crossings, backward, span, 0, same_layer, orient, order, area,
+    )
 }
 
 /// Count edge crossings between two layers
-fn count_crossings(
-    left: &[NodeId],
-    right: &[NodeId],
-    edges: &[EdgeData],
-    nodes: &[NodeId],
-) -> u32 {
+fn count_crossings(left: &[NodeId], right: &[NodeId], edges: &[EdgeData], nodes: &[NodeId]) -> u32 {
     // Collect edges from left to right
-    let left_pos: HashMap<NodeId, usize> = left
-        .iter()
-        .enumerate()
-        .map(|(i, &id)| (id, i))
-        .collect();
-    let right_pos: HashMap<NodeId, usize> = right
-        .iter()
-        .enumerate()
-        .map(|(i, &id)| (id, i))
-        .collect();
+    let left_pos: HashMap<NodeId, usize> =
+        left.iter().enumerate().map(|(i, &id)| (id, i)).collect();
+    let right_pos: HashMap<NodeId, usize> =
+        right.iter().enumerate().map(|(i, &id)| (id, i)).collect();
 
     let mut pairs: Vec<(usize, usize)> = Vec::new();
     for e in edges {
@@ -611,7 +614,9 @@ fn compute_full_cost(
         + (arr.layers.len().saturating_sub(1)) as f64 * SP_COL_W;
     let area = total_w; // Width-dominated
 
-    Cost::from_counts(crossings, backward, span, 0, same_layer, orient, order, area)
+    Cost::from_counts(
+        crossings, backward, span, 0, same_layer, orient, order, area,
+    )
 }
 
 // ============================================================================
@@ -635,12 +640,8 @@ pub fn break_cycles(q: &QuotientGraph) -> Vec<EdgeDir> {
     }
 
     // Build node_id → index mapping
-    let node_to_idx: HashMap<NodeId, usize> = q
-        .nodes
-        .iter()
-        .enumerate()
-        .map(|(i, &id)| (id, i))
-        .collect();
+    let node_to_idx: HashMap<NodeId, usize> =
+        q.nodes.iter().enumerate().map(|(i, &id)| (id, i)).collect();
 
     // Build adjacency lists (directed edges)
     let mut out_edges: Vec<Vec<usize>> = vec![Vec::new(); n];
@@ -792,12 +793,8 @@ enum NodeSide {
 /// b. Nodes with in-degree 0 after cycle breaking lean left
 fn compute_node_sides(q: &QuotientGraph, hard_dirs: &[EdgeDir]) -> Vec<NodeSide> {
     let n = q.nodes.len();
-    let node_to_idx: HashMap<NodeId, usize> = q
-        .nodes
-        .iter()
-        .enumerate()
-        .map(|(i, &id)| (id, i))
-        .collect();
+    let node_to_idx: HashMap<NodeId, usize> =
+        q.nodes.iter().enumerate().map(|(i, &id)| (id, i)).collect();
 
     let mut out_count = vec![0u32; n];
     let mut in_count = vec![0u32; n];
@@ -841,12 +838,8 @@ fn compute_node_sides(q: &QuotientGraph, hard_dirs: &[EdgeDir]) -> Vec<NodeSide>
 /// a Right-preferring node, or the in-layer relative order of Left/Right nodes
 /// mismatches expectations, count it as a violation.
 fn compute_orient_cost(q: &QuotientGraph, sides: &[NodeSide], arr: &Arrangement) -> u32 {
-    let node_to_idx: HashMap<NodeId, usize> = q
-        .nodes
-        .iter()
-        .enumerate()
-        .map(|(i, &id)| (id, i))
-        .collect();
+    let node_to_idx: HashMap<NodeId, usize> =
+        q.nodes.iter().enumerate().map(|(i, &id)| (id, i)).collect();
 
     let mut penalty = 0u32;
 
@@ -926,12 +919,8 @@ pub fn cost(q: &QuotientGraph, arr: &Arrangement) -> Cost {
     let hard_dirs = break_cycles(q);
     let sides = compute_node_sides(q, &hard_dirs);
 
-    let node_to_idx: HashMap<NodeId, usize> = q
-        .nodes
-        .iter()
-        .enumerate()
-        .map(|(i, &id)| (id, i))
-        .collect();
+    let node_to_idx: HashMap<NodeId, usize> =
+        q.nodes.iter().enumerate().map(|(i, &id)| (id, i)).collect();
     let edges: Vec<EdgeData> = q
         .edges
         .iter()
@@ -990,30 +979,54 @@ mod tests {
         g.boxes.push(mk_ic(3, "u3_spk", 3));
         g.boxes.push(mk_ic(4, "u4_ldo_out", 3));
         g.boxes.push(mk_ic(5, "u5_flash", 3));
-        g.nets.push(mk_signal_net(10, "u1_u2", vec![
-            mk_ep(1, 11, "OUT", IoDirection::Output),
-            mk_ep(2, 21, "IN", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(11, "u2_u4", vec![
-            mk_ep(2, 22, "OUT", IoDirection::Output),
-            mk_ep(4, 41, "IN", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(12, "u4_u3", vec![
-            mk_ep(4, 42, "OUT", IoDirection::Output),
-            mk_ep(3, 31, "IN", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(13, "u3_u5", vec![
-            mk_ep(3, 32, "OUT", IoDirection::Output),
-            mk_ep(5, 51, "IN", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(14, "u1_u4", vec![
-            mk_ep(1, 12, "CTRL", IoDirection::Output),
-            mk_ep(4, 43, "CTRL", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(15, "u1_u5", vec![
-            mk_ep(1, 13, "CLK", IoDirection::Output),
-            mk_ep(5, 52, "CLK", IoDirection::Input),
-        ]));
+        g.nets.push(mk_signal_net(
+            10,
+            "u1_u2",
+            vec![
+                mk_ep(1, 11, "OUT", IoDirection::Output),
+                mk_ep(2, 21, "IN", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            11,
+            "u2_u4",
+            vec![
+                mk_ep(2, 22, "OUT", IoDirection::Output),
+                mk_ep(4, 41, "IN", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            12,
+            "u4_u3",
+            vec![
+                mk_ep(4, 42, "OUT", IoDirection::Output),
+                mk_ep(3, 31, "IN", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            13,
+            "u3_u5",
+            vec![
+                mk_ep(3, 32, "OUT", IoDirection::Output),
+                mk_ep(5, 51, "IN", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            14,
+            "u1_u4",
+            vec![
+                mk_ep(1, 12, "CTRL", IoDirection::Output),
+                mk_ep(4, 43, "CTRL", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            15,
+            "u1_u5",
+            vec![
+                mk_ep(1, 13, "CLK", IoDirection::Output),
+                mk_ep(5, 52, "CLK", IoDirection::Input),
+            ],
+        ));
         let q = QuotientGraph::build(&g);
         (g, q)
     }
@@ -1029,7 +1042,10 @@ mod tests {
         let dirs = break_cycles(&q);
         assert_eq!(dirs.len(), 6, "t4_current has 6 edges");
         // DAG, cycle breaking should yield all Forward
-        let backward_count = dirs.iter().filter(|d| matches!(d, EdgeDir::Backward)).count();
+        let backward_count = dirs
+            .iter()
+            .filter(|d| matches!(d, EdgeDir::Backward))
+            .count();
         assert_eq!(backward_count, 0, "t4_current is a DAG, no backward edges");
     }
 
@@ -1039,20 +1055,34 @@ mod tests {
         let mut g = McVecGraph::new(0, "main".into());
         g.boxes.push(mk_ic(1, "u1", 3));
         g.boxes.push(mk_ic(2, "u2", 3));
-        g.nets.push(mk_signal_net(10, "u1_u2", vec![
-            mk_ep(1, 11, "OUT", IoDirection::Output),
-            mk_ep(2, 21, "IN", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(11, "u2_u1", vec![
-            mk_ep(2, 22, "OUT", IoDirection::Output),
-            mk_ep(1, 12, "IN", IoDirection::Input),
-        ]));
+        g.nets.push(mk_signal_net(
+            10,
+            "u1_u2",
+            vec![
+                mk_ep(1, 11, "OUT", IoDirection::Output),
+                mk_ep(2, 21, "IN", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            11,
+            "u2_u1",
+            vec![
+                mk_ep(2, 22, "OUT", IoDirection::Output),
+                mk_ep(1, 12, "IN", IoDirection::Input),
+            ],
+        ));
 
         let q = QuotientGraph::build(&g);
         let dirs = break_cycles(&q);
         assert_eq!(dirs.len(), 2);
-        let backward_count = dirs.iter().filter(|d| matches!(d, EdgeDir::Backward)).count();
-        assert_eq!(backward_count, 1, "t2_cycle should have exactly 1 backward edge");
+        let backward_count = dirs
+            .iter()
+            .filter(|d| matches!(d, EdgeDir::Backward))
+            .count();
+        assert_eq!(
+            backward_count, 1,
+            "t2_cycle should have exactly 1 backward edge"
+        );
     }
 
     /// t3_cycle: 3-node cycle, should have exactly 1 Backward
@@ -1062,24 +1092,42 @@ mod tests {
         g.boxes.push(mk_ic(1, "u1", 3));
         g.boxes.push(mk_ic(2, "u2", 3));
         g.boxes.push(mk_ic(3, "u3", 3));
-        g.nets.push(mk_signal_net(10, "u1_u2", vec![
-            mk_ep(1, 11, "OUT", IoDirection::Output),
-            mk_ep(2, 21, "IN", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(11, "u2_u3", vec![
-            mk_ep(2, 22, "OUT", IoDirection::Output),
-            mk_ep(3, 31, "IN", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(12, "u3_u1", vec![
-            mk_ep(3, 32, "OUT", IoDirection::Output),
-            mk_ep(1, 12, "IN", IoDirection::Input),
-        ]));
+        g.nets.push(mk_signal_net(
+            10,
+            "u1_u2",
+            vec![
+                mk_ep(1, 11, "OUT", IoDirection::Output),
+                mk_ep(2, 21, "IN", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            11,
+            "u2_u3",
+            vec![
+                mk_ep(2, 22, "OUT", IoDirection::Output),
+                mk_ep(3, 31, "IN", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            12,
+            "u3_u1",
+            vec![
+                mk_ep(3, 32, "OUT", IoDirection::Output),
+                mk_ep(1, 12, "IN", IoDirection::Input),
+            ],
+        ));
 
         let q = QuotientGraph::build(&g);
         let dirs = break_cycles(&q);
         assert_eq!(dirs.len(), 3);
-        let backward_count = dirs.iter().filter(|d| matches!(d, EdgeDir::Backward)).count();
-        assert_eq!(backward_count, 1, "t3_cycle should have exactly 1 backward edge");
+        let backward_count = dirs
+            .iter()
+            .filter(|d| matches!(d, EdgeDir::Backward))
+            .count();
+        assert_eq!(
+            backward_count, 1,
+            "t3_cycle should have exactly 1 backward edge"
+        );
     }
 
     /// t1_chain: simple chain, all Forward
@@ -1088,10 +1136,14 @@ mod tests {
         let mut g = McVecGraph::new(0, "main".into());
         g.boxes.push(mk_ic(1, "u1", 3));
         g.boxes.push(mk_ic(2, "u2", 3));
-        g.nets.push(mk_signal_net(10, "u1_u2", vec![
-            mk_ep(1, 11, "OUT", IoDirection::Output),
-            mk_ep(2, 21, "IN", IoDirection::Input),
-        ]));
+        g.nets.push(mk_signal_net(
+            10,
+            "u1_u2",
+            vec![
+                mk_ep(1, 11, "OUT", IoDirection::Output),
+                mk_ep(2, 21, "IN", IoDirection::Input),
+            ],
+        ));
 
         let q = QuotientGraph::build(&g);
         let dirs = break_cycles(&q);
@@ -1118,10 +1170,14 @@ mod tests {
         let mut g = McVecGraph::new(0, "main".into());
         g.boxes.push(mk_ic(1, "u1_src", 3));
         g.boxes.push(mk_ic(2, "u2_dst", 3));
-        g.nets.push(mk_signal_net(10, "u1_u2", vec![
-            mk_ep(1, 11, "OUT", IoDirection::Output),
-            mk_ep(2, 21, "IN", IoDirection::Input),
-        ]));
+        g.nets.push(mk_signal_net(
+            10,
+            "u1_u2",
+            vec![
+                mk_ep(1, 11, "OUT", IoDirection::Output),
+                mk_ep(2, 21, "IN", IoDirection::Input),
+            ],
+        ));
 
         let q = QuotientGraph::build(&g);
         let hard_dirs = break_cycles(&q);
@@ -1159,8 +1215,10 @@ mod tests {
         };
         let c = cost(&q, &arr);
         // Verify orient + order take effect in the optimal solution
-        assert!(c.weighted > 0.0 || (c.orient == 0 && c.order == 0),
-            "orient and order should be computed for t4_current");
+        assert!(
+            c.weighted > 0.0 || (c.orient == 0 && c.order == 0),
+            "orient and order should be computed for t4_current"
+        );
 
         // Mirror solution [3,5][1][2][4] should have higher orient cost
         let arr_mirror = Arrangement {
@@ -1187,14 +1245,26 @@ mod tests {
 
         let (cost, best) = &candidates[0];
         // Under current weights (W_BACK=600) the optimum is 3 layers, backward=1
-        assert_eq!(best.layers.len(), 3, "t4_current should have 3 layers, got {:?}", best.layers);
+        assert_eq!(
+            best.layers.len(),
+            3,
+            "t4_current should have 3 layers, got {:?}",
+            best.layers
+        );
         assert_eq!(best.layers[0], vec![1], "first layer should be [u1_mcu]");
-        assert_eq!(cost.backward, 1, "should have exactly 1 backward edge (u4→u3)");
+        assert_eq!(
+            cost.backward, 1,
+            "should have exactly 1 backward edge (u4→u3)"
+        );
         // The last layer should contain u4, u5
         let last: Vec<i64> = best.layers[2].clone();
         let mut last_sorted = last.clone();
         last_sorted.sort();
-        assert_eq!(last_sorted, vec![4, 5], "last layer should be [u4_ldo_out, u5_flash]");
+        assert_eq!(
+            last_sorted,
+            vec![4, 5],
+            "last layer should be [u4_ldo_out, u5_flash]"
+        );
     }
 
     /// t4_current: runner-up cost is not lower than the optimal
@@ -1208,7 +1278,8 @@ mod tests {
             assert!(
                 cost2.weighted >= cost1.weighted - 1e-9,
                 "second best should not be better than best: best={:.0}, second={:.0}",
-                cost1.weighted, cost2.weighted
+                cost1.weighted,
+                cost2.weighted
             );
         }
     }
@@ -1219,14 +1290,22 @@ mod tests {
         let mut g = McVecGraph::new(0, "main".into());
         g.boxes.push(mk_ic(1, "u1", 3));
         g.boxes.push(mk_ic(2, "u2", 3));
-        g.nets.push(mk_signal_net(10, "u1_u2", vec![
-            mk_ep(1, 11, "OUT", IoDirection::Output),
-            mk_ep(2, 21, "IN", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(11, "u2_u1", vec![
-            mk_ep(2, 22, "OUT", IoDirection::Output),
-            mk_ep(1, 12, "IN", IoDirection::Input),
-        ]));
+        g.nets.push(mk_signal_net(
+            10,
+            "u1_u2",
+            vec![
+                mk_ep(1, 11, "OUT", IoDirection::Output),
+                mk_ep(2, 21, "IN", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            11,
+            "u2_u1",
+            vec![
+                mk_ep(2, 22, "OUT", IoDirection::Output),
+                mk_ep(1, 12, "IN", IoDirection::Input),
+            ],
+        ));
 
         let q = QuotientGraph::build(&g);
         let candidates = solve(&q);
@@ -1246,18 +1325,30 @@ mod tests {
         g.boxes.push(mk_ic(1, "u1", 3));
         g.boxes.push(mk_ic(2, "u2", 3));
         g.boxes.push(mk_ic(3, "u3", 3));
-        g.nets.push(mk_signal_net(10, "u1_u2", vec![
-            mk_ep(1, 11, "OUT", IoDirection::Output),
-            mk_ep(2, 21, "IN", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(11, "u2_u3", vec![
-            mk_ep(2, 22, "OUT", IoDirection::Output),
-            mk_ep(3, 31, "IN", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(12, "u3_u1", vec![
-            mk_ep(3, 32, "OUT", IoDirection::Output),
-            mk_ep(1, 12, "IN", IoDirection::Input),
-        ]));
+        g.nets.push(mk_signal_net(
+            10,
+            "u1_u2",
+            vec![
+                mk_ep(1, 11, "OUT", IoDirection::Output),
+                mk_ep(2, 21, "IN", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            11,
+            "u2_u3",
+            vec![
+                mk_ep(2, 22, "OUT", IoDirection::Output),
+                mk_ep(3, 31, "IN", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            12,
+            "u3_u1",
+            vec![
+                mk_ep(3, 32, "OUT", IoDirection::Output),
+                mk_ep(1, 12, "IN", IoDirection::Input),
+            ],
+        ));
 
         let q = QuotientGraph::build(&g);
         let candidates = solve(&q);
@@ -1276,10 +1367,14 @@ mod tests {
         let mut g = McVecGraph::new(0, "main".into());
         g.boxes.push(mk_ic(1, "u1", 3));
         g.boxes.push(mk_ic(2, "u2", 3));
-        g.nets.push(mk_signal_net(10, "u1_u2", vec![
-            mk_ep(1, 11, "OUT", IoDirection::Output),
-            mk_ep(2, 21, "IN", IoDirection::Input),
-        ]));
+        g.nets.push(mk_signal_net(
+            10,
+            "u1_u2",
+            vec![
+                mk_ep(1, 11, "OUT", IoDirection::Output),
+                mk_ep(2, 21, "IN", IoDirection::Input),
+            ],
+        ));
 
         let q = QuotientGraph::build(&g);
         let candidates = solve(&q);
@@ -1297,14 +1392,22 @@ mod tests {
         g.boxes.push(mk_ic(1, "u1", 3));
         g.boxes.push(mk_ic(2, "u2", 3));
         g.boxes.push(mk_ic(3, "u3", 3));
-        g.nets.push(mk_signal_net(10, "u3_u1", vec![
-            mk_ep(3, 31, "OUT", IoDirection::Output),
-            mk_ep(1, 11, "IN", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(11, "u1_u2", vec![
-            mk_ep(1, 12, "OUT", IoDirection::Output),
-            mk_ep(2, 21, "IN", IoDirection::Input),
-        ]));
+        g.nets.push(mk_signal_net(
+            10,
+            "u3_u1",
+            vec![
+                mk_ep(3, 31, "OUT", IoDirection::Output),
+                mk_ep(1, 11, "IN", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            11,
+            "u1_u2",
+            vec![
+                mk_ep(1, 12, "OUT", IoDirection::Output),
+                mk_ep(2, 21, "IN", IoDirection::Input),
+            ],
+        ));
 
         let q = QuotientGraph::build(&g);
         let candidates = solve(&q);
@@ -1324,18 +1427,30 @@ mod tests {
         g.boxes.push(mk_ic(2, "u2", 3));
         g.boxes.push(mk_ic(3, "u3", 3));
         g.boxes.push(mk_ic(4, "u4", 3));
-        g.nets.push(mk_signal_net(10, "u3_u1", vec![
-            mk_ep(3, 31, "OUT", IoDirection::Output),
-            mk_ep(1, 11, "IN", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(11, "u1_u2", vec![
-            mk_ep(1, 12, "OUT", IoDirection::Output),
-            mk_ep(2, 21, "IN", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(12, "u2_u4", vec![
-            mk_ep(2, 22, "OUT", IoDirection::Output),
-            mk_ep(4, 41, "IN", IoDirection::Input),
-        ]));
+        g.nets.push(mk_signal_net(
+            10,
+            "u3_u1",
+            vec![
+                mk_ep(3, 31, "OUT", IoDirection::Output),
+                mk_ep(1, 11, "IN", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            11,
+            "u1_u2",
+            vec![
+                mk_ep(1, 12, "OUT", IoDirection::Output),
+                mk_ep(2, 21, "IN", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            12,
+            "u2_u4",
+            vec![
+                mk_ep(2, 22, "OUT", IoDirection::Output),
+                mk_ep(4, 41, "IN", IoDirection::Input),
+            ],
+        ));
 
         let q = QuotientGraph::build(&g);
         let candidates = solve(&q);
@@ -1365,30 +1480,54 @@ mod tests {
         g2.boxes.push(mk_ic(1003, "u3_spk", 3));
         g2.boxes.push(mk_ic(1004, "u4_ldo_out", 3));
         g2.boxes.push(mk_ic(1005, "u5_flash", 3));
-        g2.nets.push(mk_signal_net(1010, "u1_u2", vec![
-            mk_ep(1001, 1011, "OUT", IoDirection::Output),
-            mk_ep(1002, 1021, "IN", IoDirection::Input),
-        ]));
-        g2.nets.push(mk_signal_net(1011, "u2_u4", vec![
-            mk_ep(1002, 1022, "OUT", IoDirection::Output),
-            mk_ep(1004, 1041, "IN", IoDirection::Input),
-        ]));
-        g2.nets.push(mk_signal_net(1012, "u4_u3", vec![
-            mk_ep(1004, 1042, "OUT", IoDirection::Output),
-            mk_ep(1003, 1031, "IN", IoDirection::Input),
-        ]));
-        g2.nets.push(mk_signal_net(1013, "u3_u5", vec![
-            mk_ep(1003, 1032, "OUT", IoDirection::Output),
-            mk_ep(1005, 1051, "IN", IoDirection::Input),
-        ]));
-        g2.nets.push(mk_signal_net(1014, "u1_u4", vec![
-            mk_ep(1001, 1012, "CTRL", IoDirection::Output),
-            mk_ep(1004, 1043, "CTRL", IoDirection::Input),
-        ]));
-        g2.nets.push(mk_signal_net(1015, "u1_u5", vec![
-            mk_ep(1001, 1013, "CLK", IoDirection::Output),
-            mk_ep(1005, 1052, "CLK", IoDirection::Input),
-        ]));
+        g2.nets.push(mk_signal_net(
+            1010,
+            "u1_u2",
+            vec![
+                mk_ep(1001, 1011, "OUT", IoDirection::Output),
+                mk_ep(1002, 1021, "IN", IoDirection::Input),
+            ],
+        ));
+        g2.nets.push(mk_signal_net(
+            1011,
+            "u2_u4",
+            vec![
+                mk_ep(1002, 1022, "OUT", IoDirection::Output),
+                mk_ep(1004, 1041, "IN", IoDirection::Input),
+            ],
+        ));
+        g2.nets.push(mk_signal_net(
+            1012,
+            "u4_u3",
+            vec![
+                mk_ep(1004, 1042, "OUT", IoDirection::Output),
+                mk_ep(1003, 1031, "IN", IoDirection::Input),
+            ],
+        ));
+        g2.nets.push(mk_signal_net(
+            1013,
+            "u3_u5",
+            vec![
+                mk_ep(1003, 1032, "OUT", IoDirection::Output),
+                mk_ep(1005, 1051, "IN", IoDirection::Input),
+            ],
+        ));
+        g2.nets.push(mk_signal_net(
+            1014,
+            "u1_u4",
+            vec![
+                mk_ep(1001, 1012, "CTRL", IoDirection::Output),
+                mk_ep(1004, 1043, "CTRL", IoDirection::Input),
+            ],
+        ));
+        g2.nets.push(mk_signal_net(
+            1015,
+            "u1_u5",
+            vec![
+                mk_ep(1001, 1013, "CLK", IoDirection::Output),
+                mk_ep(1005, 1052, "CLK", IoDirection::Input),
+            ],
+        ));
 
         let q2 = QuotientGraph::build(&g2);
         let candidates2 = solve(&q2);
@@ -1441,17 +1580,29 @@ mod tests {
         let mut g = McVecGraph::new(0, "main".into());
         g.boxes.push(mk_ic(1, "u1_src", 3));
         g.boxes.push(mk_ic(2, "u2_dst", 3));
-        g.nets.push(mk_signal_net(10, "u1_u2", vec![
-            mk_ep(1, 11, "OUT", IoDirection::Output),
-            mk_ep(2, 21, "IN", IoDirection::Input),
-        ]));
+        g.nets.push(mk_signal_net(
+            10,
+            "u1_u2",
+            vec![
+                mk_ep(1, 11, "OUT", IoDirection::Output),
+                mk_ep(2, 21, "IN", IoDirection::Input),
+            ],
+        ));
 
         let q = QuotientGraph::build(&g);
         let candidates = solve(&q);
         let (_, best) = &candidates[0];
         assert_eq!(best.layers.len(), 2);
-        assert_eq!(best.layers[0], vec![1], "u1_src (OUT) should be on the left");
-        assert_eq!(best.layers[1], vec![2], "u2_dst (IN) should be on the right");
+        assert_eq!(
+            best.layers[0],
+            vec![1],
+            "u1_src (OUT) should be on the left"
+        );
+        assert_eq!(
+            best.layers[1],
+            vec![2],
+            "u2_dst (IN) should be on the right"
+        );
     }
 
     // ────────────────────────────────────────

@@ -539,7 +539,10 @@ fn generate_candidates(
     // ★ P7-5 S7: two-pin passives live in dense inter-lane gaps where all four
     // base positions can collide. Add perpendicular-shifted escape variants of
     // each base position before giving up.
-    if !matches!(owner.symbol, Symbol::Ic | Symbol::Module | Symbol::PowerRail { .. } | Symbol::Dot | Symbol::Unknown) {
+    if !matches!(
+        owner.symbol,
+        Symbol::Ic | Symbol::Module | Symbol::PowerRail { .. } | Symbol::Dot | Symbol::Unknown
+    ) {
         let shift = w * 0.75 + 8.0;
         let bases = [
             LabelPosition::Above,
@@ -799,7 +802,7 @@ pub fn label_placement_pipeline(
 mod tests {
     use super::*;
     use crate::vector::graph::netdef::Route;
-    use crate::vector::graph::{BoxKind, IoSummary, NetKind, Point, NetRole, VizNet};
+    use crate::vector::graph::{BoxKind, IoSummary, NetKind, NetRole, Point, VizNet};
 
     fn mk_box(
         id: i64,

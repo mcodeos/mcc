@@ -20,7 +20,7 @@ use crate::db::infra::init::*;
 /// we extract files from the map, parse outside the lock, then re-insert.
 ///
 /// ★ Fix: Parse modules in dependency order (topological sort based on uselist).
-/// Without this, DashMap iteration is unordered, so hbl.mc modules could be parsed
+/// Without this, DashMap iteration is unordered, so main.mc modules could be parsed
 /// before power.mc modules are registered, causing "definition not found" errors.
 pub fn mcb_parse_all_modules() {
     // 1. Collect all URIs and their dependencies

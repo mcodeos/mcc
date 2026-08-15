@@ -277,7 +277,7 @@ impl McCode {
                 self.ast = ast;
             }
 
-            // ★ Fix (Defect 15): Push line_index onto thread-local stack so
+            // ★ Push line_index onto thread-local stack so
             // Location::new can resolve (line, col) for E1000 errors.
             // At this point the file has not yet been inserted into
             // WORKSPACE.mcodes (that happens in loader.rs step 5.5).
@@ -1917,7 +1917,7 @@ impl McCode {
                         ident: module_name.clone(),
                         uri: self.uri.clone(),
                     };
-                    // ★ Fix (Defect 30): Register module in class_name_to_id so
+                    // ★ Register module in class_name_to_id so
                     // lapper_global_classes can create ClassDef intervals for goto-def.
                     // Previously only component and interface were registered, leaving
                     // module names without ClassDef entries in the lapper.
@@ -2700,6 +2700,39 @@ impl McCode {
         }
     }
 
+    /// True when two URIs refer to the same file. Prefers canonicalized
+    /// (symlink-resolved) comparison; falls back to a normalized string
+    /// comparison so relative/absolute/`./`-prefixed spellings of the same
+    /// path match without substring false positives.
+    fn uris_same_file(a: &str, b: &str) -> bool {
+        if a == b {
+            return true;
+        }
+        let norm = |s: &str| -> String {
+            let mut out = std::path::PathBuf::new();
+            for c in std::path::Path::new(s).components() {
+                match c {
+                    std::path::Component::CurDir => {}
+                    std::path::Component::ParentDir => {
+                        out.push("..");
+                    }
+                    other => out.push(other.as_os_str()),
+                }
+            }
+            out.to_string_lossy().to_string()
+        };
+        if norm(a) == norm(b) {
+            return true;
+        }
+        match (
+            std::fs::canonicalize(std::path::Path::new(a)),
+            std::fs::canonicalize(std::path::Path::new(b)),
+        ) {
+            (Ok(ca), Ok(cb)) => ca == cb,
+            _ => false,
+        }
+    }
+
     pub fn create_lapper(&mut self) {
         tracing::info!(target: "mcc::lsp", "[LAPPER_DEBUG] create_lapper START uri={}", self.uri);
         self.cross_file_targets.clear();
@@ -2867,16 +2900,19 @@ impl McCode {
         use crate::refdef::types::SymbolKind;
         use crate::semantic::basic::mc_param_type::McParamTypeKind;
 
-        // Collect (name → McParamTypeKind) from all containers for this URI
-        let mut param_types: std::collections::HashMap<String, McParamTypeKind> =
-            std::collections::HashMap::new();
+        // collect (name, param_type, def_span) directly from the
+        // param tables. The old code looked up map.name_index — which only
+        // contains class-level names, never params — so the upgrade loop was
+        // dead (no entry ever matched). Matching on the param def span bytes
+        // works because entries carry the def loc produced by register_def.
+        let mut param_defs: Vec<(String, McParamTypeKind, std::ops::Range<usize>)> = Vec::new();
 
         let collect =
             |params: &crate::semantic::basic::mc_paramd::McParamDeclares,
-             acc: &mut std::collections::HashMap<String, McParamTypeKind>| {
-                for (name, _span) in params.iter_defs_with_span() {
+             acc: &mut Vec<(String, McParamTypeKind, std::ops::Range<usize>)>| {
+                for (name, span) in params.iter_defs_with_span() {
                     if let Some(decl) = params.find(name) {
-                        acc.insert(name.to_string(), decl.param_type.kind.clone());
+                        acc.push((name.to_string(), decl.param_type.kind.clone(), span.clone()));
                     }
                 }
             };
@@ -2884,34 +2920,34 @@ impl McCode {
         // Modules
         for entry in crate::db::cmie::tables::WORKSPACE.modules.iter() {
             if entry.key().uri.as_str() == uri.as_str() {
-                collect(&entry.value().params, &mut param_types);
+                collect(&entry.value().params, &mut param_defs);
             }
         }
         // Components
         for entry in crate::db::cmie::tables::WORKSPACE.components.iter() {
             if entry.key().uri.as_str() == uri.as_str() {
-                collect(&entry.value().params, &mut param_types);
+                collect(&entry.value().params, &mut param_defs);
                 for func in entry.value().funcs.iter() {
-                    collect(&func.params, &mut param_types);
+                    collect(&func.params, &mut param_defs);
                 }
             }
         }
         // Interfaces
         for entry in crate::db::cmie::tables::WORKSPACE.interfaces.iter() {
             if entry.key().uri.as_str() == uri.as_str() {
-                collect(&entry.value().params, &mut param_types);
+                collect(&entry.value().params, &mut param_defs);
             }
         }
         // Func params (nested inside modules)
         for entry in crate::db::cmie::tables::WORKSPACE.modules.iter() {
             if entry.key().uri.as_str() == uri.as_str() {
                 for func in entry.value().funcs.iter() {
-                    collect(&func.params, &mut param_types);
+                    collect(&func.params, &mut param_defs);
                 }
             }
         }
 
-        if param_types.is_empty() {
+        if param_defs.is_empty() {
             return;
         }
 
@@ -2927,33 +2963,58 @@ impl McCode {
             }
         };
 
-        // Find and upgrade UnknownDef entries
+        // Find and upgrade UnknownDef entries — match the entry def span
+        // against the param def span directly.
         let mut upgrades: Vec<((SymbolKind, u32), SymbolKind)> = Vec::new();
         for ((kind, ref_id), entry) in &map.entries {
             if entry.def_kind != SymbolKind::UnknownDef {
                 continue;
             }
-            for (name, pt_kind) in &param_types {
+            for (_name, pt_kind, def_span) in &param_defs {
                 let new_kind = kind_map(pt_kind);
                 if new_kind == SymbolKind::UnknownDef {
                     continue;
                 }
-                // Check if this param's def_loc matches the entry's def_loc
-                if let Some(name_entry) = map.name_index.get(&(uri.to_string(), name.to_string())) {
-                    if name_entry.def_loc.byte_start == entry.def_loc.byte_start
-                        && name_entry.def_loc.byte_end == entry.def_loc.byte_end
-                    {
-                        upgrades.push(((*kind, *ref_id), new_kind));
-                        break;
-                    }
+                if entry.def_loc.byte_start == def_span.start as u32
+                    && entry.def_loc.byte_end == def_span.end as u32
+                {
+                    upgrades.push(((*kind, *ref_id), new_kind));
+                    break;
                 }
             }
         }
 
-        for ((old_kind, ref_id), new_kind) in upgrades {
-            if let Some(mut entry) = map.entries.remove(&(old_kind, ref_id)) {
+        for ((ref_kind, ref_id), new_kind) in upgrades {
+            // keep the (ref_kind, ref_id) key untouched — only the
+            // def_kind is upgraded. The old code re-inserted under the def
+            // kind, which rewrote the key and broke every consumer querying
+            // entries by (ref_kind, id). Sync the def_to_refs reverse index
+            // so find-all-references still sees the ref under the new kind.
+            if let Some(entry) = map.entries.get_mut(&(ref_kind, ref_id)) {
+                let old_kind = entry.def_kind;
+                if old_kind == new_kind {
+                    continue;
+                }
                 entry.def_kind = new_kind;
-                map.insert(new_kind, ref_id, entry);
+                let old_key = (
+                    old_kind,
+                    entry.def_loc.file_id,
+                    entry.def_loc.byte_start,
+                    entry.def_loc.byte_end,
+                );
+                if let Some(vec) = map.def_to_refs.get_mut(&old_key) {
+                    vec.retain(|r| *r != (ref_kind, ref_id));
+                }
+                let new_key = (
+                    new_kind,
+                    entry.def_loc.file_id,
+                    entry.def_loc.byte_start,
+                    entry.def_loc.byte_end,
+                );
+                map.def_to_refs
+                    .entry(new_key)
+                    .or_default()
+                    .push((ref_kind, ref_id));
             }
         }
     }
@@ -2969,7 +3030,7 @@ impl McCode {
     ///
     /// `class_name` is the AST-derived `McIds` captured at registration time —
     /// no disk re-read and no flattened-string rebuild needed (the latter
-    /// would collapse dotted names such as `MCU.US513_20_F` from `[Ida, DotIda]`
+    /// would collapse dotted names such as `comp.sub` from `[Ida, DotIda]`
     /// into a single `Ida`, breaking the structural `Eq` used by the tables).
     fn resolve_class_ref_at_span(
         ref_uri: &McURI,
@@ -3001,11 +3062,22 @@ impl McCode {
             // Check if already registered; if so return existing id,
             // otherwise register now. Key is (McURI, McIds): O(1) lookup via
             // normalized McIds Eq/Hash (DotIda/Curly equivalence).
-            let cid = gt
-                .class_name_to_id
-                .get(&(def_uri.clone(), class_name.clone()))
-                .copied()
-                .unwrap_or_else(|| gt.add_class(&def_uri, class_name, def_span.clone()));
+            // enums live in enum_class_name_to_id, never in
+            // class_name_to_id — add_class would mint a second, unrelated id.
+            // Route enum classes to the enum tables so ClassDef/EnumRef stay
+            // in a single ID space.
+            let cid = match &cmie {
+                crate::semantic::common::McCMIE::Enum(_) => gt
+                    .enum_class_name_to_id
+                    .get(&(def_uri.clone(), class_name.clone()))
+                    .copied()
+                    .unwrap_or_else(|| gt.add_enum_class(&def_uri, class_name, def_span.clone())),
+                _ => gt
+                    .class_name_to_id
+                    .get(&(def_uri.clone(), class_name.clone()))
+                    .copied()
+                    .unwrap_or_else(|| gt.add_class(&def_uri, class_name, def_span.clone())),
+            };
             return Some((cid, def_uri, def_span));
         }
 
@@ -3103,6 +3175,21 @@ impl McCode {
                                 {
                                     (resolved.0, resolved.1, resolved.2)
                                 } else {
+                                    // The entry was already removed above; put
+                                    // it back so a later create_lapper pass
+                                    // (after libraries load) can retry, instead
+                                    // of dropping the class ref permanently and
+                                    // leaving the span without any LSP data.
+                                    decl_refs
+                                        .entry(uri.as_str().to_string())
+                                        .or_default()
+                                        .push((
+                                            decl_span,
+                                            _class_id,
+                                            String::new(),
+                                            0..0,
+                                            class_name.clone(),
+                                        ));
                                     continue;
                                 }
                             } else {
@@ -3115,6 +3202,19 @@ impl McCode {
                                         if name == &class_name && u == &target_uri {
                                             found = Some(existing_cid);
                                             break;
+                                        }
+                                    }
+                                    // enums are keyed in
+                                    // enum_class_name_to_id, never class_name_to_id.
+                                    // Check the enum table before add_class so a
+                                    // class ref to an enum does not mint a second,
+                                    // unrelated id via add_class.
+                                    if found.is_none() {
+                                        if let Some(&eid) = gt
+                                            .enum_class_name_to_id
+                                            .get(&(target_uri.clone(), class_name.clone()))
+                                        {
+                                            found = Some(eid);
                                         }
                                     }
                                     found.unwrap_or_else(|| {
@@ -3146,22 +3246,24 @@ impl McCode {
                         // never find the RefDefMap entry keyed by (ClassRef, class_id).
                         // fill_refdef_layer2 uses class_id as the key, so lapper must
                         // also use class_id for the lookup to match.
-                        let class_id = gt
-                            .declare_id_to_class_id
-                            .get(refid)
-                            .copied()
-                            .unwrap_or(DeclareId::new(0));
-                        symbol_lapper.insert(Interval {
-                            start: span.start,
-                            stop: span.end,
-                            val: SymbolType::new(SymbolKind::ClassRef, u32::from(class_id)),
-                        });
-                        sem.ref_entries.push((
-                            SymbolKind::ClassRef,
-                            u32::from(class_id),
-                            span.start,
-                            span.end,
-                        ));
+                        // class_id=0 is a valid first-class id (the
+                        // per-file counter starts at 0), so it cannot be used as
+                        // a "not found" sentinel. Skip the ref when the mapping is
+                        // missing instead of emitting a bogus id=0 ClassRef that
+                        // would match the file's first class in Layer 2.
+                        if let Some(class_id) = gt.declare_id_to_class_id.get(refid).copied() {
+                            symbol_lapper.insert(Interval {
+                                start: span.start,
+                                stop: span.end,
+                                val: SymbolType::new(SymbolKind::ClassRef, u32::from(class_id)),
+                            });
+                            sem.ref_entries.push((
+                                SymbolKind::ClassRef,
+                                u32::from(class_id),
+                                span.start,
+                                span.end,
+                            ));
+                        }
                     }
                 }
 
@@ -3192,11 +3294,28 @@ impl McCode {
                 }
                 for (value_id, (loop_uri, span)) in gt.enum_value_id_to_span.iter() {
                     if loop_uri == uri {
+                        // EnumValDef must also enter def_map so
+                        // fill_refdef_layer2's EnumValRef → [EnumValDef] lookup
+                        // (`def_map.get(&(EnumValDef, value_id))`) can hit. It
+                        // only inserted into the lapper, so hover/find-refs on
+                        // the value def site had no map entry (Layer 1e masked
+                        // the miss by building its own table).
+                        let file_id =
+                            crate::ast::ast_semantic::intern(&mut sem.file_table, uri.as_str());
                         symbol_lapper.insert(Interval {
                             start: span.start,
                             stop: span.end,
                             val: SymbolType::new(SymbolKind::EnumValDef, u32::from(*value_id)),
                         });
+                        sem.def_map.insert(
+                            (SymbolKind::EnumValDef, u32::from(*value_id)),
+                            crate::ast::ast_semantic::SourceLocation::new(
+                                file_id,
+                                0,
+                                span.start as u32,
+                                span.end as u32,
+                            ),
+                        );
                     }
                 }
             }
@@ -3213,7 +3332,8 @@ impl McCode {
         sem: &mut McSemSymbols,
         symbol_lapper: &mut DedupLapper,
     ) {
-        // ── InstDef: module declare_instance (e.g. `MCU.US513_20_F uC`) ──
+        // ── InstDef: declare_instance declarations as InstDef ──
+        // Modules: `comp.sub uC` inside `mod.sub { ... }`.
         let modules = &crate::db::cmie::tables::WORKSPACE.modules;
         for entry in modules.iter() {
             if entry.key().uri.as_str() != uri.as_str() {
@@ -3227,11 +3347,56 @@ impl McCode {
                     | crate::semantic::mc_inst::McInstance::Module(_)
                     | crate::semantic::mc_inst::McInstance::Interface(_) => {
                         if let Some(spans) = m.insts.port_spans().get(inst_name) {
-                            for span in spans {
+                            // Only the first span is the declaration site
+                            // (store_port_span is called first from
+                            // parse_declare); later spans are use sites. Loop
+                            // over every span polluted the lapper with InstDef
+                            // intervals at reference positions and let the last
+                            // span overwrite the def_map entry.
+                            if let Some(span) = spans.first() {
                                 let (d, _) = crate::refdef::register::register_def(
                                     sem,
                                     uri,
                                     &mod_ident,
+                                    None,
+                                    inst_name,
+                                    span.clone(),
+                                    SymbolKind::InstDef,
+                                );
+                                symbol_lapper.insert(Interval {
+                                    start: span.start,
+                                    stop: span.end,
+                                    val: SymbolType::new(SymbolKind::InstDef, u32::from(d)),
+                                });
+                                tracing::info!(target: "mcc::lsp::audit",
+                                    "[AUDIT-InstDef] name={inst_name} span={span:?} decl_id={d:?}");
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        // Components: sub-instances declared inside a component body
+        // (e.g. `U_MCU` in a `component` block) never got an InstDef because
+        let comps = &crate::db::cmie::tables::WORKSPACE.components;
+        for entry in comps.iter() {
+            if entry.key().uri.as_str() != uri.as_str() {
+                continue;
+            }
+            let comp = entry.value();
+            let comp_ident = entry.key().ident.to_string();
+            for (inst_name, (_iotype, inst)) in comp.insts.insts() {
+                match inst {
+                    crate::semantic::mc_inst::McInstance::Component(_)
+                    | crate::semantic::mc_inst::McInstance::Module(_)
+                    | crate::semantic::mc_inst::McInstance::Interface(_) => {
+                        if let Some(spans) = comp.insts.port_spans().get(inst_name) {
+                            if let Some(span) = spans.first() {
+                                let (d, _) = crate::refdef::register::register_def(
+                                    sem,
+                                    uri,
+                                    &comp_ident,
                                     None,
                                     inst_name,
                                     span.clone(),
@@ -3287,7 +3452,7 @@ impl McCode {
         let interfaces = &crate::db::cmie::tables::WORKSPACE.interfaces;
         for entry in interfaces.iter() {
             let iface = entry.value();
-            if iface.uri.as_str() == uri_str {
+            if Self::uris_same_file(iface.uri.as_str(), uri_str) {
                 let mut param_decl_ids: std::collections::HashMap<String, DeclareId> =
                     std::collections::HashMap::new();
                 let iface_ident = iface.name.to_string();
@@ -3316,12 +3481,25 @@ impl McCode {
                             Some(span),
                         ) = val
                         {
+                            // AttrVariable refs target the interface
+                            // param def, so register as PortRef directly instead of
+                            // add_inst (which later becomes InstRef and never matches
+                            // ParamDef). Skip variables that are not params — do not
+                            // fall back to the id=0 sentinel.
                             let var_name = opd.to_string();
-                            let decl_id = param_decl_ids
-                                .get(&var_name)
-                                .copied()
-                                .unwrap_or(DeclareId::new(0));
-                            sem.local_table.add_inst(span.clone(), decl_id);
+                            if let Some(decl_id) = param_decl_ids.get(&var_name).copied() {
+                                symbol_lapper.insert(Interval {
+                                    start: span.start,
+                                    stop: span.end,
+                                    val: SymbolType::new(SymbolKind::PortRef, u32::from(decl_id)),
+                                });
+                                sem.ref_entries.push((
+                                    SymbolKind::PortRef,
+                                    u32::from(decl_id),
+                                    span.start,
+                                    span.end,
+                                ));
+                            }
                         }
                     }
                 }
@@ -3351,7 +3529,7 @@ impl McCode {
         let global_interfaces = &crate::db::infra::global::mcc_interfaces;
         for entry in global_interfaces.iter() {
             let iface = entry.value();
-            if iface.uri.as_str() == uri_str {
+            if Self::uris_same_file(iface.uri.as_str(), uri_str) {
                 let iface_name_g = iface.name.to_string();
                 let mut param_decl_ids: std::collections::HashMap<String, DeclareId> =
                     std::collections::HashMap::new();
@@ -3380,12 +3558,25 @@ impl McCode {
                             Some(span),
                         ) = val
                         {
+                            // AttrVariable refs target the interface
+                            // param def, so register as PortRef directly instead of
+                            // add_inst (which later becomes InstRef and never matches
+                            // ParamDef). Skip variables that are not params — do not
+                            // fall back to the id=0 sentinel.
                             let var_name = opd.to_string();
-                            let decl_id = param_decl_ids
-                                .get(&var_name)
-                                .copied()
-                                .unwrap_or(DeclareId::new(0));
-                            sem.local_table.add_inst(span.clone(), decl_id);
+                            if let Some(decl_id) = param_decl_ids.get(&var_name).copied() {
+                                symbol_lapper.insert(Interval {
+                                    start: span.start,
+                                    stop: span.end,
+                                    val: SymbolType::new(SymbolKind::PortRef, u32::from(decl_id)),
+                                });
+                                sem.ref_entries.push((
+                                    SymbolKind::PortRef,
+                                    u32::from(decl_id),
+                                    span.start,
+                                    span.end,
+                                ));
+                            }
                         }
                     }
                 }
@@ -3400,10 +3591,13 @@ impl McCode {
                         symbol_lapper.insert(Interval {
                             start: span.start,
                             stop: span.end,
-                            val: SymbolType::new(SymbolKind::InstRef, u32::from(decl_id)),
+                            // global-lib segment must use PortRef too —
+                            // InstRef only maps to InstDef and never matched the
+                            // ParamDef/UnknownDef defs registered above.
+                            val: SymbolType::new(SymbolKind::PortRef, u32::from(decl_id)),
                         });
                         sem.ref_entries.push((
-                            SymbolKind::InstRef,
+                            SymbolKind::PortRef,
                             u32::from(decl_id),
                             span.start,
                             span.end,
@@ -3801,6 +3995,7 @@ impl McCode {
             if entry.key().uri.as_str() != uri.as_str() {
                 continue;
             }
+            let mod_ident = entry.key().ident.to_string();
             for func in m.funcs.iter() {
                 let fscope = func.name.to_string();
                 for (span, port_name, scope) in func.params.iter_net_refs() {
@@ -3846,7 +4041,7 @@ impl McCode {
                     }
                 }
                 // ★ Chain references inside func bodies (e.g. `spi + uC.SPI`
-                // in us513.mc loadFlash). Recorded into `func.insts` by
+                // in a module func like do_flash). Recorded into `func.insts` by
                 // try_record_chain_ref; resolve against module insts because
                 // func bodies reference module-level instances (e.g. uC).
                 for (span, segments, scope) in func.insts.iter_chain_refs() {
@@ -3876,12 +4071,26 @@ impl McCode {
                     }
                 }
                 let func_scope = func.insts.scope.clone().unwrap_or_else(|| fscope.clone());
+                // Split the func scope into (container, func) — a dotted scope
+                // like "mod.do_flash" must register labels under
+                // container="mod", func="do_flash" so the key matches the
+                // param/label defs registered by lapper_func_define_role.
+                // Passing the whole dotted string as a single container
+                // produced a different (container_id) key, so func-body labels
+                // were invisible to lookup_declare_id.
+                let (label_container, label_func) = match func_scope.rfind('.') {
+                    Some(dot) => (
+                        func_scope[..dot].to_string(),
+                        Some(func_scope[dot + 1..].to_string()),
+                    ),
+                    None => (mod_ident.clone(), None),
+                };
                 for (name, _label_kind, span) in func.insts.iter_labels_with_span() {
                     let (d, _) = crate::refdef::register::register_def(
                         sem,
                         uri,
-                        &func_scope,
-                        None,
+                        &label_container,
+                        label_func.as_deref(),
                         name,
                         span.clone(),
                         SymbolKind::LabelDef,
@@ -3933,7 +4142,14 @@ impl McCode {
             .collect();
         for (comp_ident, comp, _comp_uri) in &all_comps {
             for (name, span) in comp.params.iter_defs_with_span() {
-                let def_kind = Self::param_def_kind(comp.params.find(name));
+                // Rule 6: untyped params -> UnknownDef, typed -> ParamDef.
+                // Square-vec members (e.g. VDD1 inside `[VDD1,GND1]::DC(3.3V)`)
+                // register as LabelDef instead, matching the module path (F0.3).
+                let def_kind = if comp.params.is_square_member(name) {
+                    SymbolKind::LabelDef
+                } else {
+                    Self::param_def_kind(comp.params.find(name))
+                };
                 let (d, _) = crate::refdef::register::register_def(
                     &mut *sem,
                     &uri,
@@ -3950,22 +4166,30 @@ impl McCode {
                 });
             }
             for (pin_name, mut pin_span) in Self::extract_pin_name_spans(comp) {
-                // ★ Fix: AST span may exclude leading/trailing delimiters
-                // (parser tokens).  Extend span to cover them so PinNameDef
-                // names are complete.
-                if let Ok(content) = std::fs::read_to_string(std::path::Path::new(uri.as_str())) {
+                // AST span may exclude leading/trailing delimiters (parser
+                // tokens). Extend the span to cover them so PinNameDef names
+                // are complete. Read only the boundary bytes — a full-file
+                // read per build is wasteful, and virtual URIs (LSP didOpen
+                // buffers) have no on-disk file, so the extension is skipped
+                // there (File::open fails and we fall back to the raw span).
+                use std::io::{Read as _, Seek as _, SeekFrom};
+                if let Ok(mut file) = std::fs::File::open(std::path::Path::new(uri.as_str())) {
                     // Trailing ) or } — e.g. "I2C(Master)" not "I2C(Master"
-                    if let Some(&ch) = content.as_bytes().get(pin_span.end) {
-                        if ch == b')' || ch == b'}' {
+                    if file.seek(SeekFrom::Start(pin_span.end as u64)).is_ok() {
+                        let mut buf = [0u8; 1];
+                        if file.read_exact(&mut buf).is_ok() && (buf[0] == b')' || buf[0] == b'}') {
                             pin_span.end += 1;
                         }
                     }
                     // Leading [ or { — e.g. "[VDD, GND]" not "VDD, GND]"
-                    if pin_span.start > 0 {
-                        if let Some(&ch) = content.as_bytes().get(pin_span.start - 1) {
-                            if ch == b'[' || ch == b'{' {
-                                pin_span.start -= 1;
-                            }
+                    if pin_span.start > 0
+                        && file
+                            .seek(SeekFrom::Start(pin_span.start as u64 - 1))
+                            .is_ok()
+                    {
+                        let mut buf = [0u8; 1];
+                        if file.read_exact(&mut buf).is_ok() && (buf[0] == b'[' || buf[0] == b'{') {
+                            pin_span.start -= 1;
                         }
                     }
                 }
@@ -4017,16 +4241,25 @@ impl McCode {
                 });
             }
             for (key_name, key_span) in Self::extract_spec_key_spans(comp) {
-                let sdecl_id = sem.local_table.add_declare_with_name(
+                // register via register_def (real scope + def_map).
+                // The old add_declare_with_name(SourceLocation::from_span) used
+                // the shared (0,0,0) namespace — def_map had no (AttrDef, id)
+                // entry, so FuncParamRef's AttrDef candidate could never match,
+                // and the (0,0,0) key made same-named spec keys across components
+                // share one DeclareId.
+                let (d, _) = crate::refdef::register::register_def(
+                    &mut *sem,
                     &uri,
-                    SourceLocation::from_span(&key_span),
-                    Some(key_name.clone()),
-                    Some(comp_ident),
+                    comp_ident,
+                    None,
+                    &key_name,
+                    key_span.clone(),
+                    SymbolKind::AttrDef,
                 );
                 symbol_lapper.insert(Interval {
                     start: key_span.start,
                     stop: key_span.end,
-                    val: SymbolType::new(SymbolKind::AttrDef, u32::from(sdecl_id)),
+                    val: SymbolType::new(SymbolKind::AttrDef, u32::from(d)),
                 });
             }
         }
@@ -4061,10 +4294,12 @@ impl McCode {
                     symbol_lapper.insert(Interval {
                         start: span.start,
                         stop: span.end,
-                        val: SymbolType::new(SymbolKind::InstRef, u32::from(decl_id)),
+                        // param refs target ParamDef/LabelDef, not
+                        // InstDef — InstRef never matched in fill_refdef_layer2.
+                        val: SymbolType::new(SymbolKind::PortRef, u32::from(decl_id)),
                     });
                     sem.ref_entries.push((
-                        SymbolKind::InstRef,
+                        SymbolKind::PortRef,
                         u32::from(decl_id),
                         span.start,
                         span.end,
@@ -4073,16 +4308,25 @@ impl McCode {
             }
             let comp_ident_label = comp_ident.clone();
             for (name, _label_kind, span) in comp.insts.iter_labels_with_span() {
-                let decl_id = sem.local_table.add_declare_with_name(
-                    &uri,
-                    SourceLocation::from_span(&span),
-                    Some(name.to_string()),
-                    Some(&comp_ident_label),
+                // register via register_def so the LabelDef lands in
+                // the real (file_id, comp_id, 0) scope and in def_map. The old
+                // add_declare_with_name(SourceLocation::from_span) used the shared
+                // (0,0,0) namespace — same-name labels in different components
+                // shared one DeclareId and never entered def_map, so LabelRef
+                // never matched in Layer 2.
+                let (d, _) = crate::refdef::register::register_def(
+                    sem,
+                    uri,
+                    &comp_ident_label,
+                    None,
+                    name,
+                    span.clone(),
+                    SymbolKind::LabelDef,
                 );
                 symbol_lapper.insert(Interval {
                     start: span.start,
                     stop: span.end,
-                    val: SymbolType::new(SymbolKind::LabelDef, u32::from(decl_id)),
+                    val: SymbolType::new(SymbolKind::LabelDef, u32::from(d)),
                 });
             }
             // ★ §15.1: Generate PinRef entries from component body references
@@ -4154,7 +4398,7 @@ impl McCode {
             // module and component funcs are registered by
             // lapper_func_define_role (extract_func_param_spans).
             for func in comp.funcs.iter() {
-                // func.insts.scope may be a bare func name (e.g. "GD25Q32E")
+                // func.insts.scope may be a bare func name (e.g. "do_flash")
                 // when the component is re-parsed in some library-loading
                 // passes; prefer the full "<comp>.<func>" scope so that
                 // lookup_declare_id's P1 (exact func-scope match) hits the
@@ -4272,13 +4516,23 @@ impl McCode {
                             .push((kind, u32::from(d), span.start, span.end));
                     }
                 }
-                // Func body labels → LabelDef.
+                // Func body labels → LabelDef. Split the dotted func_scope
+                // ("COMP.FUNC") into container + func so the DeclareId key
+                // matches the defs registered by lapper_func_define_role (same
+                // rationale as the module-side func label registration).
+                let (label_container, label_func) = match func_scope.rfind('.') {
+                    Some(dot) => (
+                        func_scope[..dot].to_string(),
+                        Some(func_scope[dot + 1..].to_string()),
+                    ),
+                    None => (comp_ident.to_string(), None),
+                };
                 for (name, _label_kind, span) in func.insts.iter_labels_with_span() {
                     let (d, _) = crate::refdef::register::register_def(
                         sem,
                         &uri,
-                        &func_scope,
-                        None,
+                        &label_container,
+                        label_func.as_deref(),
                         name,
                         span.clone(),
                         SymbolKind::LabelDef,
@@ -4311,7 +4565,7 @@ impl McCode {
             let uri_str = uri.as_str();
             for entry in workspace::WORKSPACE.components.iter() {
                 let key_uri = entry.key().uri.as_str();
-                if key_uri == uri_str || key_uri.ends_with(uri_str) || uri_str.ends_with(key_uri) {
+                if Self::uris_same_file(key_uri, uri_str) {
                     let names = Self::extract_pin_name_spans(entry.value())
                         .into_iter()
                         .map(|(n, _)| n)
@@ -4321,7 +4575,7 @@ impl McCode {
             }
             for entry in global::mcc_components.iter() {
                 let key_uri = entry.key().uri.as_str();
-                if key_uri == uri_str || key_uri.ends_with(uri_str) || uri_str.ends_with(key_uri) {
+                if Self::uris_same_file(key_uri, uri_str) {
                     let names = Self::extract_pin_name_spans(entry.value())
                         .into_iter()
                         .map(|(n, _)| n)
@@ -4445,36 +4699,33 @@ impl McCode {
             }
         }
 
-        // P4: other workspace files
-        for entry in workspace::WORKSPACE.mcodes.iter() {
-            if entry.key() == uri {
+        // P4: other workspace files — read the enums table directly instead
+        // of locking each file's symbols + global_table. Locking other files
+        // while the caller already holds this file's symbols lock can deadlock
+        // when two files create their lapper concurrently (A locks B while B
+        // locks A). McEnumDef carries uri + span, so no per-file lock is needed.
+        for entry in workspace::WORKSPACE.enums.iter() {
+            if entry.key().uri.as_str() == uri.as_str() {
                 continue;
             }
-            if let Ok(ws_sym) = entry.value().symbols.lock() {
-                if let Ok(ws_gt) = ws_sym.global_table.lock() {
-                    for ((def_uri, name), class_id) in ws_gt.enum_class_name_to_id.iter() {
-                        if name == &McIds::from(base_name) {
-                            if let Some((_u, span)) = ws_gt.enum_class_id_to_span.get(class_id) {
-                                return Some((def_uri.clone(), span.clone()));
-                            }
-                        }
-                    }
-                }
+            if entry.key().ident.to_string() == base_name {
+                return Some((
+                    entry.key().uri.clone(),
+                    (entry.value().span[0] as usize)..(entry.value().span[1] as usize),
+                ));
             }
         }
 
         // P5: system libraries
-        for entry in crate::db::infra::libmgr::mcc_blibs.iter() {
-            if let Ok(ws_sym) = entry.value().symbols.lock() {
-                if let Ok(ws_gt) = ws_sym.global_table.lock() {
-                    for ((def_uri, name), class_id) in ws_gt.enum_class_name_to_id.iter() {
-                        if name == &McIds::from(base_name) {
-                            if let Some((_u, span)) = ws_gt.enum_class_id_to_span.get(class_id) {
-                                return Some((def_uri.clone(), span.clone()));
-                            }
-                        }
-                    }
-                }
+        for entry in crate::db::infra::global::mcc_enums.iter() {
+            if entry.key().uri.as_str() == uri.as_str() {
+                continue;
+            }
+            if entry.key().ident.to_string() == base_name {
+                return Some((
+                    entry.key().uri.clone(),
+                    (entry.value().span[0] as usize)..(entry.value().span[1] as usize),
+                ));
             }
         }
 
@@ -4675,8 +4926,9 @@ impl McCode {
     ) {
         use rust_lapper::Interval;
 
-        // Collect all AST nodes via BFS
-        let all_nodes: Vec<AstNode> = {
+        // Collect all AST nodes via BFS (reverse order; sort below so the
+        // container-stack pop condition holds for a monotonic scan).
+        let mut all_nodes: Vec<AstNode> = {
             let mut acc: Vec<AstNode> = Vec::new();
             let mut stack: Vec<AstNode> = ast.iter().collect();
             while let Some(node) = stack.pop() {
@@ -4689,6 +4941,7 @@ impl McCode {
             }
             acc
         };
+        all_nodes.sort_by_key(|n| n.get_pos());
 
         // Build container stack: track which component encloses each position
         let mut container_stack: Vec<(String, usize)> = Vec::new();
@@ -4752,7 +5005,7 @@ impl McCode {
 
             let comp_ids = McIds::from(comp_name_str.as_str());
             match crate::db::cmie::cmie::lookup_scoped_enum_value(&bare_name, &comp_ids, uri) {
-                Some((_def_uri, _span, value_idx)) => {
+                Some((def_uri, value_span, value_idx)) => {
                     // Get the enum class to build value_id
                     let family_name = comp_ids.root_name().unwrap_or_default();
                     let class_id = {
@@ -4770,25 +5023,41 @@ impl McCode {
                                     )
                                 })
                         };
-                        if local_id.map_or(false, |id| u32::from(id) != 0) {
-                            local_id.unwrap()
-                        } else {
-                            // Cross-file search + local registration
-                            match (
-                                Self::find_enum_class_cross_file(uri, sem, &family_name),
-                                sem.global_table.lock(),
-                            ) {
-                                (Some((def_uri, def_span)), Ok(mut gt)) => gt.add_enum_class(
-                                    &def_uri,
-                                    &McIds::from(&family_name),
-                                    def_span,
-                                ),
-                                _ => DeclareId::default(),
+                        // presence of the mapping — not a nonzero
+                        // value — decides whether the class is registered;
+                        // class_id=0 is a legitimate id.
+                        match local_id {
+                            Some(id) => Some(id),
+                            None => {
+                                // Cross-file search + local registration
+                                match (
+                                    Self::find_enum_class_cross_file(uri, sem, &family_name),
+                                    sem.global_table.lock(),
+                                ) {
+                                    (Some((xuri, def_span)), Ok(mut gt)) => {
+                                        Some(gt.add_enum_class(
+                                            &xuri,
+                                            &McIds::from(&family_name),
+                                            def_span,
+                                        ))
+                                    }
+                                    _ => None,
+                                }
                             }
                         }
                     };
-                    if u32::from(class_id) == 0 {
+                    let Some(class_id) = class_id else {
                         continue;
+                    };
+                    // for a class defined in another file, register
+                    // the value span under the local class_id so the packed
+                    // EnumValRef resolves in the defining file (mirrors
+                    // lapper_enum_refs). Without this the RefDefMap 1e layer
+                    // has no entry and goto-def comes up empty.
+                    if def_uri.as_str() != uri.as_str() {
+                        if let Ok(mut gt) = sem.global_table.lock() {
+                            gt.add_enum_value(&def_uri, class_id, value_idx, value_span);
+                        }
                     }
                     let value_id = crate::ast::ast_semantic::GlobalSymbolTable::pack_enum_value_id(
                         class_id, value_idx,
@@ -4817,7 +5086,7 @@ impl McCode {
         sem: &mut McSemSymbols,
         symbol_lapper: &mut DedupLapper,
     ) {
-        let all_nodes: Vec<AstNode> = {
+        let mut all_nodes: Vec<AstNode> = {
             let mut acc = Vec::new();
             let mut stack: Vec<AstNode> = ast.iter().collect();
             while let Some(node) = stack.pop() {
@@ -4830,32 +5099,38 @@ impl McCode {
             }
             acc
         };
+        // The stack-based walk above visits nodes in reverse order. The
+        // container/func pop condition (`node_start >= end`) only holds for a
+        // position-monotonic scan, so sort by position first — otherwise a
+        // node after a nested container (or a non-func node between two
+        // siblings) is assigned to the wrong scope.
+        all_nodes.sort_by_key(|n| n.get_pos());
         let mut container_names: Vec<String> = Vec::new();
         {
             let uri_str = uri.as_str();
             let modules = &workspace::WORKSPACE.modules;
             for entry in modules.iter() {
                 let key_uri = entry.key().uri.as_str();
-                if key_uri == uri_str || key_uri.ends_with(uri_str) || uri_str.ends_with(key_uri) {
+                if Self::uris_same_file(key_uri, uri_str) {
                     container_names.push(entry.key().ident.to_string());
                 }
             }
             let comps = &workspace::WORKSPACE.components;
             for entry in comps.iter() {
                 let key_uri = entry.key().uri.as_str();
-                if key_uri == uri_str || key_uri.ends_with(uri_str) || uri_str.ends_with(key_uri) {
+                if Self::uris_same_file(key_uri, uri_str) {
                     container_names.push(entry.key().ident.to_string());
                 }
             }
             for entry in global::mcc_modules.iter() {
                 let key_uri = entry.key().uri.as_str();
-                if key_uri == uri_str || key_uri.ends_with(uri_str) || uri_str.ends_with(key_uri) {
+                if Self::uris_same_file(key_uri, uri_str) {
                     container_names.push(entry.key().ident.to_string());
                 }
             }
             for entry in global::mcc_components.iter() {
                 let key_uri = entry.key().uri.as_str();
-                if key_uri == uri_str || key_uri.ends_with(uri_str) || uri_str.ends_with(key_uri) {
+                if Self::uris_same_file(key_uri, uri_str) {
                     container_names.push(entry.key().ident.to_string());
                 }
             }
@@ -5084,26 +5359,20 @@ impl McCode {
                     let func_name = crate::semantic::basic::mc_ids::McIds::new(&ids_node)
                         .map(|ids| ids.to_string());
                     if has_instance {
-                        // ★ Fix: only create FuncRef if the function is found in
-                        // name_to_declare_id. Don't fall back to add_declare_with_name
-                        // (which produces a random ID that never matches RefDefMap,
-                        // causing P6 self-locate with no navigation).
+                        // Only create FuncRef if the function is found in the
+                        // enclosing scope. Don't fall back to
+                        // add_declare_with_name (which produces a random ID
+                        // that never matches RefDefMap, causing P6 self-locate
+                        // with no navigation), and don't scan name_to_declare_id
+                        // by name only — that HashMap iteration is
+                        // non-deterministic and picks a random def when several
+                        // containers declare the same func name. P1/P2 scope
+                        // lookup resolves the enclosing container/func instead.
                         if let Some(resolved_id) = func_name.as_ref().and_then(|n| {
-                            let filt_file_id =
-                                crate::ast::ast_semantic::intern(&mut sem.file_table, uri.as_str());
-                            let candidates: Vec<_> = sem
-                                .local_table
-                                .name_to_declare_id
-                                .iter()
-                                .filter(|((fid, _, _, name), _id)| {
-                                    *fid == filt_file_id && name.as_str() == n.as_str()
-                                })
-                                .collect();
-                            if candidates.is_empty() {
-                                None
-                            } else {
-                                Some(candidates[0].1 .0)
-                            }
+                            let scope = find_scope(node.get_pos() as usize).unwrap_or_default();
+                            let sp =
+                                crate::refdef::register::scope_path_from_scope_str(&uri, &scope);
+                            crate::refdef::register::lookup_declare_id(&sem.local_table, n, &sp)
                         }) {
                             // P1: local scope FuncRef
                             symbol_lapper.insert(Interval {
@@ -5118,9 +5387,9 @@ impl McCode {
                                 span.1,
                             ));
                         } else {
-                            // ★ Chain fix: `mcu513.i2c().loadFlash(flash.SPI)` must
-                            // resolve `loadFlash` against the base instance's class
-                            // (US513 — chain funcs return `this`, see the function
+                            // ★ Chain fix: `mcu.i2c().do_flash(flash.SPI)` must
+                            // resolve `do_flash` against the base instance's class
+                            // (mod.sub — chain funcs return `this`, see the function
                             // call chain design), NOT against the intermediate
                             // method name `i2c` that extract_class_name returns.
                             // The base instance is preferred; the old last-name
@@ -5256,9 +5525,9 @@ impl McCode {
 
     /// Walk an `MCAST_INSTANCE` receiver chain down to the base instance name.
     ///
-    /// `mcu513.i2c().loadFlash(...)` — the outer receiver's MCAST_INSTANCE
-    /// wraps the inner fcall `mcu513.i2c()`, whose own MCAST_INSTANCE wraps
-    /// the base `mcu513`. Chain funcs bind to the base object (funcs return
+    /// `mcu.i2c().do_flash(...)` — the outer receiver's MCAST_INSTANCE
+    /// wraps the inner fcall `mcu.i2c()`, whose own MCAST_INSTANCE wraps
+    /// the base `mcu`. Chain funcs bind to the base object (funcs return
     /// `this`), so member resolution must use the base instance's class, not
     /// the intermediate method name. Returns the base instance name, or None
     /// when the receiver is a plain class call (e.g. `RES(...).Pullup(...)`).
@@ -5286,14 +5555,13 @@ impl McCode {
     }
 
     /// Find the class name of an instance declared in the current file's
-    /// modules (or library modules). `US513 mcu513(...)` → "US513".
+    /// modules (or library modules). `mod.sub mcu(...)` → "mod.sub".
     fn find_instance_class_name(inst_name: &str, uri: &McURI) -> Option<String> {
         let uri_str = uri.as_str();
         for table in [&workspace::WORKSPACE.modules, &global::mcc_modules] {
             for entry in table.iter() {
                 let key_uri = entry.key().uri.as_str();
-                if !(key_uri == uri_str || key_uri.ends_with(uri_str) || uri_str.ends_with(key_uri))
-                {
+                if !Self::uris_same_file(key_uri, uri_str) {
                     continue;
                 }
                 let m = entry.value();

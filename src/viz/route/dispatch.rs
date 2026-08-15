@@ -341,7 +341,13 @@ pub fn route_layer_with_dispatch(graph: &mut McVecGraph) {
         // (Router::route doesn't modify graph, so this swap is safe)
         let mut tmp = std::mem::replace(
             &mut graph.nets[i],
-            VizNet::new(0, String::new(), NetKind::Signal, NetRole::Signal, Vec::new()),
+            VizNet::new(
+                0,
+                String::new(),
+                NetKind::Signal,
+                NetRole::Signal,
+                Vec::new(),
+            ),
         );
         let router = choice.into_router();
         router.route(graph, &mut tmp);

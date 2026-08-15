@@ -397,7 +397,7 @@ impl InstFindInst for McModuleInst {
 ///
 /// # Arguments
 ///
-/// * `chain` — DOT-separated name segments (e.g. `["mcu513", "uC", "VDD"]`)
+/// * `chain` — DOT-separated name segments (e.g. `["mcu", "uC", "VDD"]`)
 /// * `scope` — Starting scope (typically a [`McModuleInst`])
 ///
 /// # Returns
@@ -408,8 +408,8 @@ impl InstFindInst for McModuleInst {
 /// # Examples
 ///
 /// - `["uC", "VDD"]` on module → `InstEntry::Port(pin_netpoint)`
-/// - `["mcu513", "uC"]` on module → `InstEntry::Component(uC_arc)`
-/// - `["mcu513"]` on parent module → `InstEntry::SubModule(mcu513_arc)`
+/// - `["mcu", "uC"]` on module → `InstEntry::Component(uC_arc)`
+/// - `["mcu"]` on parent module → `InstEntry::SubModule(mcu_arc)`
 pub fn resolve_inst_chain(chain: &[String], scope: &dyn InstFindInst) -> Option<InstEntry> {
     if chain.is_empty() {
         return None;

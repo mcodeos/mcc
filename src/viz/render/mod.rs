@@ -118,7 +118,9 @@ impl SvgRenderer {
         // Power dots are drawn directly above the pin (pointing up), ground symbols
         // directly below the pin (pointing down).
         for d in &graph.rail_decorations {
-            let Some(b) = graph.boxes.iter().find(|b| b.id == d.box_id) else { continue };
+            let Some(b) = graph.boxes.iter().find(|b| b.id == d.box_id) else {
+                continue;
+            };
             let Some(ep) = b.entry_points.iter().find(|e| e.pin_id == d.pin_id) else {
                 continue;
             };
@@ -128,7 +130,12 @@ impl SvgRenderer {
                 crate::vector::graph::EntrySide::Bottom => (b.x + ep.offset * b.w, b.y + b.h),
                 crate::vector::graph::EntrySide::Left => (b.x, b.y + ep.offset * b.h),
             };
-            svg.push_str(&power_rail::render_decoration(px, py, d.is_ground, &d.label));
+            svg.push_str(&power_rail::render_decoration(
+                px,
+                py,
+                d.is_ground,
+                &d.label,
+            ));
         }
 
         svg.push_str("</svg>\n");

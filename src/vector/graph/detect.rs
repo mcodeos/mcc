@@ -66,7 +66,7 @@ pub fn detect_kind(table: &InstTable, id: u32) -> DetectedKind {
 
     let children = table.children_of(id);
 
-    // 2. Prefer SubModule (Iter 7 priority inversion, avoids mcu513 + 2 Pins being misjudged as TwoPin)
+    // 2. Prefer SubModule (Iter 7 priority inversion, avoids mcu + 2 Pins being misjudged as TwoPin)
     let port_count = children.iter().filter(|c| c.kind == InstKind::Port).count();
     let has_module_evidence = children.iter().any(|c| {
         c.kind == InstKind::Component
@@ -108,14 +108,14 @@ pub fn detect_kind(table: &InstTable, id: u32) -> DetectedKind {
 
     // ── ★ Phase F.1: Component with no registered Pin children -> still emit box ─────────────
     //
-    // Trigger scenario: in the hbl project, many "typed" chips (DCDC.LP3220AB5F, MCU.US513_20_F,
-    // LPA4871, MICROPHONE.WM7121P, Crystal2.DST310S, FLASH.GD25Q32E, USB.MINI_B,
-    // TEST_POINT, SPEAKER.PHB2AWB, etc.) during Pass2 registration **don't split pins into
+    // Trigger scenario: in a typical MCU project, many "typed" chips (DCDC.sub, MCU.sub,
+    // an audio amp, MICROPHONE.sub, Crystal2.sub, FLASH.sub, USB.sub,
+    // TEST_POINT, SPEAKER.sub, etc.) during Pass2 registration **don't split pins into
     // independent Pin child entries**, but let `chip.PIN_NAME` references go through
     // resolve_netpoint_v2's owner-fallback to resolve back to the chip's own id.
     //
     // Old logic: `total_pin_like == 0` -> default Skip -> these chips have no box at all,
-    // sub-module drill-down sees Figure 3 (moddcdc inner layer) where lp322dcdc is missing,
+    // sub-module drill-down sees Figure 3 (dcdc inner layer) where dcdc is missing,
     // and the 4 capacitors + 1 resistor + VDD_3V3 label around it are all floating with no
     // connection -- a disaster.
     //
@@ -179,7 +179,7 @@ fn guess_chip_pin_count(class_name: &str) -> usize {
     let upper = class_name.to_ascii_uppercase();
     // Known 1-2 pin "typed" components (can't discover pin count via normal child scanning)
     let two_pin_prefixes: &[&str] = &[
-        "CRYSTAL", // Crystal2.DST310S etc. (2-terminal crystal)
+        "CRYSTAL", // Crystal2.sub etc. (2-terminal crystal)
         "RESONATOR",
         "TEST_POINT",
         "TESTPOINT",
@@ -188,10 +188,10 @@ fn guess_chip_pin_count(class_name: &str) -> usize {
         "VARISTOR",
         "LED",
         "ZENER",
-        // typed 2-pin (note: `MICROPHONE.SIP2` is 2pin, `MICROPHONE.WM7121P` is 3pin
+        // typed 2-pin (note: `MICROPHONE.SIP2` is 2pin, `MICROPHONE.sub` is 3pin
         // -- class_name containing `SIP2` such "model number ending in 2" is most likely 2-pin)
         "MICROPHONE.SIP",
-        "SPEAKER.", // SPEAKER.PHB2AWB such audio speaker is 2-terminal
+        "SPEAKER.", // SPEAKER.sub such audio speakers are 2-terminal
     ];
     for p in two_pin_prefixes {
         if upper.starts_with(p) {
@@ -208,7 +208,7 @@ fn guess_chip_pin_count(class_name: &str) -> usize {
 
 /// Extract the last segment of a path
 ///
-/// `"main.mcu513.uC.XTAL"` -> `"XTAL"`
+/// `"main.mcu.uC.XTAL"` -> `"XTAL"`
 /// `"main.mic.MIC/P"` -> `"P"`
 pub fn extract_last_segment(path: &str) -> String {
     path.rsplit('.')
@@ -222,7 +222,7 @@ pub fn extract_last_segment(path: &str) -> String {
 
 /// ★ M0: compute parent module chain from an instance path
 ///
-/// `"main.modldo.ldo"` → `["main", "main.modldo"]`
+/// `"main.ldo.ldo"` → `["main", "main.ldo"]`
 /// `"main"` → `[]`
 /// `"main.flash.R10k_cs.1"` → `["main", "main.flash", "main.flash.R10k_cs"]`
 ///

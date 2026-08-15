@@ -150,14 +150,14 @@ pub fn renderdiff_report(
             .to_string_lossy()
             .into_owned()
     });
-    let golden = match crate::viz::metrics::renderdiff::RenderGolden::load(std::path::Path::new(&path))
-    {
-        Ok(g) => g,
-        Err(e) => {
-            crate::vlog!("[renderdiff] · SKIP golden not loaded ({path}: {e})");
-            return None;
-        }
-    };
+    let golden =
+        match crate::viz::metrics::renderdiff::RenderGolden::load(std::path::Path::new(&path)) {
+            Ok(g) => g,
+            Err(e) => {
+                crate::vlog!("[renderdiff] · SKIP golden not loaded ({path}: {e})");
+                return None;
+            }
+        };
 
     let mut diffs = Vec::new();
     let (mut red, mut green, mut skip) = (0usize, 0usize, 0usize);
@@ -236,10 +236,10 @@ fn render_layer_recursive(
         tracing::info!(target: "mcc::perf", step = "layout_best", ms = _tl.elapsed().as_millis() as u64, "render step");
 
         // ── Phase 1.46b: Adjust Virtual Top Module Border position/size ──
-    // After layout positions all boxes, adjust the dashed border boxes to surround internal components.
-    let g_snap = graph.geom_snapshot();
-    crate::vector::graph::fromblock::layout_post_adjust_borders(&mut graph);
-    graph.claim_geom_changes(&g_snap, "15.borders");
+        // After layout positions all boxes, adjust the dashed border boxes to surround internal components.
+        let g_snap = graph.geom_snapshot();
+        crate::vector::graph::fromblock::layout_post_adjust_borders(&mut graph);
+        graph.claim_geom_changes(&g_snap, "15.borders");
 
         // Compute canvas: v2 layouter sets canvas_hint to prevent recomputation
         let cv = if let Some(hint) = graph.canvas_hint {
@@ -260,7 +260,7 @@ fn render_layer_recursive(
     };
 
     // ★ P7-4f: apply_net_labels is called only once in select.rs (before route).
-    // The former second call here measured zero geometry writes across all 7 hbl
+    // The former second call here measured zero geometry writes across all 7 example
     // layers (label idempotence guard: nets already carrying a label are skipped);
     // its only role was a canvas fallback —— but canvas is already computed by
     // canvas_hint / compute_canvas above, so removing it is a pure equivalence.

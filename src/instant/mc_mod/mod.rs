@@ -121,7 +121,7 @@ pub struct McModuleInst {
 
     /// Set of module-level function names that have been auto-invoked.
     /// Prevents double execution when a function is both auto-invoked and
-    /// explicitly called from a parent module (e.g. `mcu513.i2c()`).
+    /// explicitly called from a parent module (e.g. `mcu.i2c()`).
     pub(super) auto_invoked_funcs: HashSet<String>,
 }
 
@@ -256,7 +256,7 @@ impl McModuleInst {
         // 3.5 Auto-invoke module-level parameterless functions (closures)
         // Module-level functions like `func i2c() { ... }` with no parameters
         // are auto-invoked during instantiation. Functions with parameters
-        // (e.g. `func loadFlash(spi)`) must be explicitly called.
+        // (e.g. `func do_flash(spi)`) must be explicitly called.
         self.auto_invoke_module_funcs();
 
         // 3.6 Post-processing (moved from instantiate_lines_resilient to cover auto-invoked closures)
@@ -287,7 +287,7 @@ impl McModuleInst {
     ///
     /// Module-level functions like `func i2c() { ... }` with no parameters
     /// are treated as closures and auto-invoked during instantiation.
-    /// Functions with parameters (e.g. `func loadFlash(spi)`) must be
+    /// Functions with parameters (e.g. `func do_flash(spi)`) must be
     /// explicitly called and are skipped here.
     pub(super) fn auto_invoke_module_funcs(&mut self) {
         let funcs: Vec<_> = self.def.funcs.iter().cloned().collect();
@@ -340,7 +340,7 @@ impl McModuleInst {
                 }
             }
             // Mark as auto-invoked to prevent double execution when
-            // explicitly called from a parent module (e.g. `mcu513.i2c()`).
+            // explicitly called from a parent module (e.g. `mcu.i2c()`).
             self.auto_invoked_funcs.insert(func.name.to_string());
         }
     }

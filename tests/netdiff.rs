@@ -528,10 +528,7 @@ fn build_actual_modules(table: &InstTable, tree: &MccProjectTree) -> Vec<ActualM
                     if let Some(pin_num) = extract_pin_number(pin_path) {
                         if let Some(parent) = parent_leaf_name(pin_path) {
                             let norm = format!("{}.{}", parent, pin_num);
-                            net_points
-                                .entry(net_name.clone())
-                                .or_default()
-                                .insert(norm);
+                            net_points.entry(net_name.clone()).or_default().insert(norm);
                         }
                     }
                 }

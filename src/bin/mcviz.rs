@@ -10,7 +10,7 @@
 //! cargo run --bin mcviz <project_root> <module_name> -o out.html
 //! cargo run --bin mcviz <project_root> <module_name> --json    # -> stdout JSON
 //! cargo run --bin mcviz <project_root> <module_name> --legacy  # legacy pipeline (fake expand, for compare test)
-//! cargo run --bin mcviz <project_root> <module_name> --entry hbl  # entry file differs from module name
+//! cargo run --bin mcviz <project_root> <module_name> --entry main  # entry file differs from module name
 //! ```
 //!
 //! ## P2 changes
@@ -219,9 +219,7 @@ fn main() {
     // (Previously fidelity_gate only logged; "a gate that only logs" is isomorphic
     // to the four false-green items in v5 §0.2)
     if mcc::viz::layout::select::RENDER_GATE_FAILED.load(std::sync::atomic::Ordering::Relaxed) {
-        eprintln!(
-            "[render-gate] ✗✗✗ Tier 1 CORRECTNESS FAILED (RENDER_GATE_FAILED) — exit 2"
-        );
+        eprintln!("[render-gate] ✗✗✗ Tier 1 CORRECTNESS FAILED (RENDER_GATE_FAILED) — exit 2");
         process::exit(2);
     }
 }
@@ -276,7 +274,9 @@ fn print_usage() {
     eprintln!("Examples:");
     eprintln!("  mcviz ./my_project Main -o circuit.html");
     eprintln!("  mcviz ./my_project Main --json > graph.json");
-    eprintln!("  mcviz ./my_project Main --entry hbl -o circuit.html  # entry file differs from module");
+    eprintln!(
+        "  mcviz ./my_project Main --entry main -o circuit.html  # entry file differs from module"
+    );
     eprintln!("  mcviz ./my_project Main --legacy -o circuit_old.html  # for comparison");
 }
 

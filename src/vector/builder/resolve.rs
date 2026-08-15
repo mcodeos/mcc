@@ -166,16 +166,16 @@ pub fn resolve_netpoint_v2(
 
     // ── ★ Phase D: bracket-port-member fallback ─────────────────────────────────
     //
-    // Symptom: hbl mcu513 module declares ports as `[VDD_3V3, GND]` and `[VCC_1V2, GND]`
-    // (registered in InstTable as `main.mcu513.[VDD_3V3, GND]` — bracket-form Port path),
-    // mcu513's body references bare names `VDD_3V3` or `VCC_1V2` — all three fallbacks miss,
+    // Symptom: the example mcu module declares ports as `[VDD_3V3, GND]` and `[VCC_1V2, GND]`
+    // (registered in InstTable as `main.mcu.[VDD_3V3, GND]` — bracket-form Port path),
+    // mcu's body references bare names `VDD_3V3` or `VCC_1V2` — all three fallbacks miss,
     // entire net "all dropped", cap5.1 etc. decoupling capacitor connections to power rails silently deleted.
     //
     // Add a new fallback level here: scan all Port entries under this module; if a Port path matches
     // `<module_path>.[<m1>, <m2>, ...]` and the bare name we're looking for == some `<mi>`, return
     // that Port's id as a hit. Semantically **equivalent to** "bare name X refers to member X of
-    // mcu513's bracket port [X, ...]", attaching the corresponding connection to that Port in topology —
-    // consistent behavior with explicitly writing `mcu513.[VDD_3V3, GND]` port reference.
+    // mcu's bracket port [X, ...]", attaching the corresponding connection to that Port in topology —
+    // consistent behavior with explicitly writing `mcu.[VDD_3V3, GND]` port reference.
     //
     // Trigger conditions:
     //   - point.path is a **bare name** (no `.`), point.owner is None
@@ -234,9 +234,9 @@ pub fn resolve_netpoint_v2(
 /// Checks if port_path matches `<module_path>.[<m1>, <m2>, ...]` and returns member list.
 ///
 /// Example:
-///   - `parse_bracket_port_members("main.mcu513.[VDD_3V3 "main.mcu "main.mcu513")`
+///   - `parse_bracket_port_members("main.mcu.[VDD_3V3 "main.mcu "main.mcu")`
 ///     → `Some(["VDD_3V3", "GND"])`
-///   - `parse_bracket_port_members("main.mcu513.SPI", "main.mcu513")` → `None`
+///   - `parse_bracket_port_members("main.mcu.SPI", "main.mcu")` → `None`
 ///
 /// Rules follow `insttab::expand_bracket_list`:
 ///   - Must start with `<module_path>.[` prefix

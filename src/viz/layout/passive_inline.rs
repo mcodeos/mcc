@@ -32,8 +32,8 @@
 use std::collections::HashSet;
 
 use crate::vector::graph::{
-    BoxKind, EndpointRef, EntryPoint, EntrySide, McVecBox, McVecGraph, NetKind, NetRole, VisualRole,
-    VizNet,
+    BoxKind, EndpointRef, EntryPoint, EntrySide, McVecBox, McVecGraph, NetKind, NetRole,
+    VisualRole, VizNet,
 };
 
 use super::rails::is_rail_box;
@@ -267,11 +267,25 @@ pub fn place_series_passives(graph: &mut McVecGraph) {
             .map(|(i, _)| i)
             .collect();
         if touching.len() != 2 {
-            let box_name = graph.boxes.iter().find(|b| b.id == pid).map(|b| b.name.as_str()).unwrap_or("?");
+            let box_name = graph
+                .boxes
+                .iter()
+                .find(|b| b.id == pid)
+                .map(|b| b.name.as_str())
+                .unwrap_or("?");
             eprintln!(
                 "[passive_inline] SKIP '{}' (id={}): touches {} nets (need 2). nets={:?}",
-                box_name, pid, touching.len(),
-                touching.iter().map(|&i| (graph.nets[i].nid, graph.nets[i].name.as_str(), graph.nets[i].endpoints.len())).collect::<Vec<_>>()
+                box_name,
+                pid,
+                touching.len(),
+                touching
+                    .iter()
+                    .map(|&i| (
+                        graph.nets[i].nid,
+                        graph.nets[i].name.as_str(),
+                        graph.nets[i].endpoints.len()
+                    ))
+                    .collect::<Vec<_>>()
             );
             continue; // bypass cap / chain / rail-only / unconnected → leave where layout put it
         }
@@ -293,9 +307,7 @@ pub fn place_series_passives(graph: &mut McVecGraph) {
                 net.endpoints.iter().filter(|e| e.box_id != pid).collect();
             match (p_pin, others.as_slice()) {
                 // Case 1: exactly one non-passive neighbour (rail OK, but not another passive)
-                (Some(pp), [o])
-                    if !passive_set.contains(&o.box_id) =>
-                {
+                (Some(pp), [o]) if !passive_set.contains(&o.box_id) => {
                     sides.push((ni, pp, o.box_id, o.pin_id));
                 }
                 // Case 2: multiple neighbours — pick the first non-passive one
@@ -314,8 +326,14 @@ pub fn place_series_passives(graph: &mut McVecGraph) {
                     sides.push((ni, pp, -1, -1));
                 }
                 _ => {
-                    let box_name = graph.boxes.iter().find(|b| b.id == pid).map(|b| b.name.as_str()).unwrap_or("?");
-                    let other_info: Vec<(i64, i64)> = others.iter().map(|o| (o.box_id, o.pin_id)).collect();
+                    let box_name = graph
+                        .boxes
+                        .iter()
+                        .find(|b| b.id == pid)
+                        .map(|b| b.name.as_str())
+                        .unwrap_or("?");
+                    let other_info: Vec<(i64, i64)> =
+                        others.iter().map(|o| (o.box_id, o.pin_id)).collect();
                     eprintln!(
                         "[passive_inline] MATCH_FAIL '{}' (id={}): p_pin={:?}, others={:?} (len={})",
                         box_name, pid, p_pin, other_info, others.len()
@@ -339,21 +357,24 @@ pub fn place_series_passives(graph: &mut McVecGraph) {
             let (real_idx, _sentinel_idx) = if sides[0].2 >= 0 { (0, 1) } else { (1, 0) };
             let real_box = sides[real_idx].2;
             let real_pin = sides[real_idx].3;
-            
+
             // From the real neighbour's exit point, extend away from the passive device's current position
             let passive_box = match graph.boxes.iter().find(|b| b.id == pid) {
                 Some(b) => b,
                 None => continue,
             };
-            let passive_center = (passive_box.x + passive_box.w / 2.0, passive_box.y + passive_box.h / 2.0);
-            
+            let passive_center = (
+                passive_box.x + passive_box.w / 2.0,
+                passive_box.y + passive_box.h / 2.0,
+            );
+
             // Use the real neighbour's exit point as anchor
             let toward = Some(passive_center);
             let (real_exit, real_side) = match pin_exit_facing(graph, real_box, real_pin, toward) {
                 Some(v) => v,
                 None => continue,
             };
-            
+
             // Sentinel side: opposite the real neighbour's exit point (away from the
             // real neighbour), extended by some distance
             let real_center = match box_center(graph, real_box) {
@@ -369,12 +390,28 @@ pub fn place_series_passives(graph: &mut McVecGraph) {
             let sentinel_side = real_side.clone();
             let sentinel_side2 = real_side.clone();
             let real_side2 = real_side.clone();
-            
-            let (ax, ay) = if real_idx == 0 { real_exit } else { sentinel_pt };
-            let sa = if real_idx == 0 { real_side } else { sentinel_side };
-            let (bx2, by2) = if real_idx == 0 { sentinel_pt } else { real_exit };
-            let sb = if real_idx == 0 { sentinel_side2 } else { real_side2 };
-            
+
+            let (ax, ay) = if real_idx == 0 {
+                real_exit
+            } else {
+                sentinel_pt
+            };
+            let sa = if real_idx == 0 {
+                real_side
+            } else {
+                sentinel_side
+            };
+            let (bx2, by2) = if real_idx == 0 {
+                sentinel_pt
+            } else {
+                real_exit
+            };
+            let sb = if real_idx == 0 {
+                sentinel_side2
+            } else {
+                real_side2
+            };
+
             let pin_a = sides[0].1;
             let mut pin_b = sides[1].1;
             if pin_a == pin_b {
@@ -389,7 +426,7 @@ pub fn place_series_passives(graph: &mut McVecGraph) {
                     ep.pin_id = pin_b;
                 }
             }
-            
+
             place_passive_between(graph, pid, (ax, ay), pin_a, sa, (bx2, by2), pin_b, sb);
             continue;
         }
@@ -1904,8 +1941,14 @@ pub fn stand_grounded_passives(graph: &mut McVecGraph) -> usize {
             continue;
         }
         let already_rung = graph.boxes[bi].h > graph.boxes[bi].w
-            && matches!(graph.boxes[bi].entry_points[0].side, EntrySide::Top | EntrySide::Bottom)
-            && matches!(graph.boxes[bi].entry_points[1].side, EntrySide::Top | EntrySide::Bottom);
+            && matches!(
+                graph.boxes[bi].entry_points[0].side,
+                EntrySide::Top | EntrySide::Bottom
+            )
+            && matches!(
+                graph.boxes[bi].entry_points[1].side,
+                EntrySide::Top | EntrySide::Bottom
+            );
 
         let (before, rest) = graph.boxes.split_at_mut(bi);
         let Some((b, tail)) = rest.split_first_mut() else {
@@ -1943,8 +1986,7 @@ pub fn stand_grounded_passives(graph: &mut McVecGraph) -> usize {
         // to sit under the fed pin (|Δx| = 0 keeps the contract measurable).
         let is_cap = matches!(
             b.symbol,
-            crate::vector::graph::Symbol::Capacitor
-                | crate::vector::graph::Symbol::PolarCapacitor
+            crate::vector::graph::Symbol::Capacitor | crate::vector::graph::Symbol::PolarCapacitor
         );
         if is_cap {
             if let Some(label) = rail_label_of(&graph.rail_decorations, b) {
@@ -2023,10 +2065,7 @@ fn slide_to_rail_anchor(
 /// Pick (top_index, bottom_index) for a BridgePassive: the GND-decorated end
 /// goes Bottom, a rail-decorated end goes Top; without decorations keep the
 /// current entry order.
-fn orientation_indices(
-    dec_ground: &HashSet<(i64, i64)>,
-    b: &McVecBox,
-) -> (usize, usize) {
+fn orientation_indices(dec_ground: &HashSet<(i64, i64)>, b: &McVecBox) -> (usize, usize) {
     let g0 = dec_ground.contains(&(b.id, b.entry_points[0].pin_id));
     let g1 = dec_ground.contains(&(b.id, b.entry_points[1].pin_id));
     if g0 {

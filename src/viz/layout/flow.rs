@@ -513,7 +513,7 @@ impl Layouter for FlowLayouter {
         //
         // ★ P7-4e removed: the L2 whole-graph SP / L3 whole-graph ladder bypasses
         // (originally try_build_sp_model / try_build_ladder_model grabbing locks when
-        // `!claimed`). P7-4c field testing showed zero hits across all 7 hbl layers
+        // `!claimed`). P7-4c field testing showed zero hits across all 7 example layers
         // (neither bypass ever wrote geometry), and islands already has Sp/Ladder
         // island handlers —— the four mutually-fallback branches converge into the
         // single dispatcher of "each island claims one model".
@@ -541,7 +541,7 @@ impl Layouter for FlowLayouter {
 /// Box height scaled by "total pin count" (only increase, never decrease).
 ///
 /// Pin count ≈ connected net count. More connections → taller box, pins on left/right naturally spread out;
-/// also ensures boxes like moddcdc with "few signals but many power outputs" have enough vertical space to spread flags.
+/// also ensures boxes like dcdc with "few signals but many power outputs" have enough vertical space to spread flags.
 fn size_by_core_fanout(graph: &mut McVecGraph) {
     const PITCH: f64 = 28.0; // Vertical spacing reserved for each pin
     const PAD: f64 = 26.0;
@@ -940,8 +940,8 @@ fn branches_excluding(root: i64, adj: &HashMap<i64, Vec<i64>>, core_ids: &[i64])
 /// When to call: must be after split_flags, before place_flags (flags extracted → build_adjacency
 /// is pure core adjacency, won't miscount components due to per-consumer flags).
 ///
-/// Example: usbsocket↔modldo only connected via Vin, only power (became flag) between it and main circuit (mcu...) →
-/// They are a connected component without hub → all enter isolated set. moddcdc if has real connection (like [VCC_1V2,GND]
+/// Example: usbsocket↔ldo only connected via Vin, only power (became flag) between it and main circuit (mcu...) →
+/// They are a connected component without hub → all enter isolated set. dcdc if has real connection (like [VCC_1V2,GND]
 /// bundle net) to main → in hub component → not in isolated set → stays in main layout.
 /// ★ P7-3 acceptance item: this set must be empty for the main layer (driver segment
 /// edges wire power modules into the main flow, so no more "power-only" islands).
@@ -1498,7 +1498,7 @@ fn outward_and_opposite(side: &EntrySide) -> (f64, f64, EntrySide) {
 mod tests {
     use super::*;
     use crate::vector::graph::NetKind;
-    use crate::vector::graph::{BoxKind, EndpointRef, IoSummary, Symbol, NetRole, VizNet};
+    use crate::vector::graph::{BoxKind, EndpointRef, IoSummary, NetRole, Symbol, VizNet};
 
     fn mk_mod(id: i64, name: &str, pins: usize) -> McVecBox {
         let mut b = McVecBox::new_v2(

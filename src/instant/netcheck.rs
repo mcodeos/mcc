@@ -434,7 +434,7 @@ fn leaf(path: &str) -> &str {
     a.rsplit('/').next().unwrap_or(a)
 }
 
-/// Drop the last segment: `"main.modldo.ldo.1"` -> `Some("main.modldo.ldo")`
+/// Drop the last segment: `"main.ldo.ldo.1"` -> `Some("main.ldo.ldo")`
 fn owner_path(path: &str) -> Option<&str> {
     // Split on '/' first, then '.', and take whichever separator comes later
     let dot = path.rfind('.');
@@ -1098,7 +1098,7 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
 
     // ★ P0.5-4: cross-level port union —— first merge same-rail nets of parent and child modules through port connection relations
     //
-    // Problem: `main.moddcdc::GND` and `main::GND` are connected through a port,
+    // Problem: `main.dcdc::GND` and `main::GND` are connected through a port,
     // but R11 cannot see this connection when bucketing by net, so it would
     // wrongly report SPLIT_RAIL.
     //
@@ -1164,7 +1164,7 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
                     }
                 }
                 InstKind::Label => {
-                    // 3) direct Label children (e.g. main.GND, main.mcu513.GND)
+                    // 3) direct Label children (e.g. main.GND, main.mcu.GND)
                     if let Some(rid) = rail_identity(&child.path) {
                         module_port_rails
                             .entry(m.id)

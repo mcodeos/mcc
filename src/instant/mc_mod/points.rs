@@ -553,8 +553,7 @@ impl McModuleInst {
                                 points.extend(lanes);
                                 continue;
                             }
-                            let path =
-                                self.normalize_one_inst_pin_path(&path).unwrap_or(path);
+                            let path = self.normalize_one_inst_pin_path(&path).unwrap_or(path);
                             if let Some(lanes) = self.expand_port_lanes(&path) {
                                 points.extend(lanes);
                             } else if is_owned {
@@ -595,8 +594,8 @@ impl McModuleInst {
             //
             // ── Iter-12.1b: cross-module component lookup ──
             // after instantiate_instance_method prefixes function body, caller becomes
-            // "mcu513.uC" (with module prefix). self (main) has no component named "mcu513.uC"
-            // component. Need to split into sub_name="mcu513" + comp_name="uC",
+            // "mcu.uC" (with module prefix). self (main) has no component named "mcu.uC"
+            // component. Need to split into sub_name="mcu" + comp_name="uC",
             // look up in submodule's components.
             McPhrase::Member(phrase, member_ep) => {
                 // try to extract member name
@@ -651,7 +650,7 @@ impl McModuleInst {
                                 "[P2-4-XTAL-DBG]   component {caller} NOT FOUND"
                             );
                         }
-                        // (B) cross-module component lookup: caller="mcu513.uC" → sub="mcu513", comp="uC"
+                        // (B) cross-module component lookup: caller="mcu.uC" → sub="mcu", comp="uC"
                         if let Some((sub_name, comp_name)) = caller.split_once('.') {
                             if let Some(sub) = self.find_submodule(sub_name) {
                                 if let Some(comp) =
@@ -1282,14 +1281,14 @@ impl McModuleInst {
             //
             // old P2-filter already handled `<CLASS>.in/out` form (CLASS not any known
             // instance → phantom placeholder). But **one case slipped through**: `<inst>.in/out` where
-            // `inst` is real component (e.g., mcu513.uC instance's uC component),
+            // `inst` is real component (e.g., mcu.uC instance's uC component),
             // **but** the component itself **doesn't have** a pin named `in`/`out`. In this case, `.in`/`.out`
             // is still mc_fcall.rs placeholder injected during outer chain continuation
             // (funccall_inst.rs Iter-3.E3 comment "phantom placeholder" concept), but because
             // first_part hit find_component, old P2-filter's "secondary confirm real instance" let it pass,
             // then here `<inst>.in` directly registered as real pin access NetPoint — subsequent union-find
             // merges all same inst `.in` together, cross-chain into strange "uC.in ~ CAP_1.1" and
-            // "CAP_1.2 ~ uC.out" non-physical connections (actually seen in hbl mcu513 dump).
+            // "CAP_1.2 ~ uC.out" non-physical connections (actually seen in an example project mcu dump).
             //
             // Fix strategy: after determining first_part is component, do another verification "is suffix really
             // declared pin". Verification relies on `c.def.pins.names_to_id` — authoritative pin name set
@@ -1573,7 +1572,7 @@ impl McModuleInst {
             if !port_name_raw.contains('.') {
                 if let Some(sub) = self.find_submodule(owner) {
                     // (a) anonymous bracket/curly port directly in reference:
-                    //     `moddcdc.[VDD_3V3, GND]` → members are in brackets,
+                    //     `dcdc.[VDD_3V3, GND]` → members are in brackets,
                     //     lane path is `owner.member` (no port name hierarchy,
                     //     consistent with submodule internal expansion treating members as top-level labels).
                     if port_name_raw.starts_with('[') || port_name_raw.starts_with('{') {
@@ -1712,7 +1711,7 @@ impl McModuleInst {
         //
         // (Iter-10 bucket D, bugfix_report errors 1 / 3 / 4 / 8 main path)
         //
-        // Trigger scenario: hbl project mcu513 module body:
+        // Trigger scenario: an example project's mcu module body:
         //   - `uC.UART0 -> res[1:2]::RES(100kΩ) -> ...`     (error 3)
         //   - `uC.21 -> ...` (actually should be `uC.I2C0`)    (error 1)
         //   - `X6.XTAL -> uC.XTAL`                            (error 8)
@@ -1776,15 +1775,10 @@ impl McModuleInst {
                         if let Some(pids) = comp.find_bus_port_pin_ids(port_base) {
                             if let Some((_, pin_id)) = pids.iter().find(|(m, _)| m == member) {
                                 let path = format!("{owner}.{pin_id}");
-                                let iotype = comp
-                                    .def
-                                    .pins
-                                    .get_pin_io(pin_id)
-                                    .unwrap_or(IOType::None);
-                                return Some(vec![NetPoint::with_owner(
-                                    &path, owner, iotype,
-                                )
-                                .with_member_name(member)]);
+                                let iotype =
+                                    comp.def.pins.get_pin_io(pin_id).unwrap_or(IOType::None);
+                                return Some(vec![NetPoint::with_owner(&path, owner, iotype)
+                                    .with_member_name(member)]);
                             }
                         }
                     }

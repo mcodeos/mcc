@@ -100,7 +100,7 @@ pub struct LocalSymbolTable {
     pub name_to_declare_id: HashMap<(u32, u32, u32, String), (DeclareId, SourceLocation)>,
 
     /// ★ Parallel index: scope string → (file_id, container_id, func_id).
-    /// For scope-based lookups (e.g. "US513.i2c" → IDs) without parsing scope strings.
+    /// For scope-based lookups (e.g. "mod.sub.i2c" → IDs) without parsing scope strings.
     pub scope_index: HashMap<String, (u32, u32, u32)>,
 
     pub inst_id_to_span: HashMap<ReferenceId, Span>,

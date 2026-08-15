@@ -8,9 +8,9 @@
 //!
 //! ```toml
 //! [project]
-//! name = "hbl"
+//! name = "example"
 //! version = "1.0.0"
-//! entry = "src/hbl.mc"       # Entry file (relative to project root)
+//! entry = "src/main.mc"       # Entry file (relative to project root)
 //! top_module = "main"        # Default top-level module
 //!
 //! [dependencies]

@@ -236,7 +236,7 @@ pub struct InstEntry {
     pub kind: InstKind,
     /// Parent instance ID (None for top-level module)
     pub parent_id: Option<u32>,
-    /// Definition class name: "Res", "MCU_ABC", "power_domain" (empty string for pin/port/label)
+    /// Definition class name: "Res", "comp.sub", "power_domain" (empty string for pin/port/label)
     pub class_name: String,
     /// IO type (only meaningful for Port/Pin, otherwise IOType::None)
     pub io_type: IOType,
@@ -724,18 +724,18 @@ impl InstTable {
             //
             // ── P2-4: include port name prefix for non-bracket ports ──
             // Bracket ports (e.g. [VDD_3V3, GND]) use flat member paths:
-            //   main.moddcdc.VDD_3V3
+            //   main.dcdc.VDD_3V3
             // Named ports (e.g. vin, vout, USB_VBUS_1) include port name:
-            //   main.modldo.vin.VCC
+            //   main.ldo.vin.VCC
             // This preserves the port→member relationship so netdiff can match
             // golden references like "vin.VCC" and "USB_VBUS_1.VDD_3V".
             for member in &port.bus_members {
                 let member_path = if port.name.contains('[') {
-                    // Bracket port: flat member path (e.g. [VDD_3V3, GND] → main.moddcdc.VDD_3V3)
+                    // Bracket port: flat member path (e.g. [VDD_3V3, GND] → main.dcdc.VDD_3V3)
                     format!("{}.{}", my_path, member)
                 } else if port.name.contains('{') {
                     // Curly port: extract base name prefix
-                    // e.g. vin{VCC, GND} → main.modldo.vin.VCC
+                    // e.g. vin{VCC, GND} → main.ldo.vin.VCC
                     // e.g. {VCC, GND} → main.xxx.VCC (no base name, flat)
                     let base = port.name.split('{').next().unwrap_or("");
                     if base.is_empty() {
@@ -971,7 +971,7 @@ impl InstTable {
             for np in net_points {
                 let mut ids = self.resolve_netpoint_path(&np.path, module_path);
                 // ── P2-2: register boundary connection pins on the fly ──
-                // When a boundary connection creates a pin like mcu513.10, it's not
+                // When a boundary connection creates a pin like mcu.10, it's not
                 // registered as a port or component pin in the InstTable. Register it
                 // as a Pin entry under the owner submodule so flatten_nets can resolve it.
                 if ids.is_empty() && np.owner.is_some() {
@@ -1060,7 +1060,7 @@ impl InstTable {
     ///
     /// ## Why (3) is needed: heterogeneous path separators
     /// InstTable registration rules:
-    /// - Component pin / module port / sub-module — joined by `.` (e.g. `main.mcu513.uC.XTAL`)
+    /// - Component pin / module port / sub-module — joined by `.` (e.g. `main.mcu.uC.XTAL`)
     /// - Bus member — joined by `/` (e.g. `main.power/VCC`, see flatten_module step 4)
     ///
     /// And `NetPoint.path` is **always assembled with `.`** in the phrase parsing stage,

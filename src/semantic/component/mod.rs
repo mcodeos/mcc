@@ -136,7 +136,7 @@ impl McComponent {
                 pin_nodes.iter().for_each(|x| new_comp.pins.parse(x));
 
                 // ── [P2-DEF] temporary probe: commented out
-                // if comp_name.to_string().contains("US513") {
+                // if comp_name.to_string().contains("comp.sub") {
                 //     let body_types: Vec<u16> = body_nodes.iter().map(|x| x.get_type()).collect();
                 //     let pin_node_types: Vec<u16> =
                 //         pin_nodes.iter().map(|x| x.get_type()).collect();

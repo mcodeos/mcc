@@ -102,7 +102,7 @@ pub fn mcb_add_from_string(uri: &McURI, content: &str) {
 /// # Example
 /// ```ignore
 /// let mut loaded = HashSet::new();
-/// mcb_add_recursive(&"hbl.mc".to_string(), &mut loaded);
+/// mcb_add_recursive(&"main.mc".to_string(), &mut loaded);
 /// ```
 pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_lib: bool) {
     // 1. Normalize path, avoid duplicate loading

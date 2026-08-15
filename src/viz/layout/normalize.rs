@@ -98,7 +98,7 @@ pub fn compute_canvas(graph: &McVecGraph) -> (f64, f64) {
 mod tests {
     use super::*;
     use crate::vector::graph::boxdef::IoSummary;
-    use crate::vector::graph::netdef::{Point, Route, Segment, NetRole, VizNet};
+    use crate::vector::graph::netdef::{NetRole, Point, Route, Segment, VizNet};
     use crate::vector::graph::{BoxKind, McVecBox, NetKind, Symbol};
 
     #[test]

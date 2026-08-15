@@ -162,7 +162,7 @@ impl McParamValue {
 
     /// Parse a parameter value without an instance-lookup context.
     ///
-    /// Used for instance construction args (e.g. `mcu513(V3V3, V1V2)`,
+    /// Used for instance construction args (e.g. `mcu(V3V3, V1V2)`,
     /// `::DC(3.3V)`) that are parsed before a function/module context
     /// exists. Handles every literal kind of [`McParamValue::new`] plus
     /// plain identifiers; kinds that need a [`HasFindInst`] context

@@ -361,8 +361,8 @@ const MIN_CHANNEL_SEGMENT: f64 = 40.0;
 /// ── ★ Phase E.2 ──
 /// **Maximum allowed displacement** for elbow channel snapping. If the channel
 /// reservation pulls the elbow further than this, skip the snap and keep the natural
-/// elbow —— otherwise we'll see cases like the hbl main layer where `__net_10`/`__net_11`
-/// signals were forcibly dragged from the middle of mcu513-speaker (x≈1066) to the
+/// elbow —— otherwise we'll see cases like the example project's main layer where `__net_10`/`__net_11`
+/// signals were forcibly dragged from the middle of mcu-speaker (x≈1066) to the
 /// rightmost channel (x≈1361), a +295px big detour, visually looking like the
 /// signal line "randomly runs to the corner".
 ///

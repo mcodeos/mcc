@@ -75,7 +75,7 @@ pub(crate) fn mcb_pass2(entry: &McSpaceName) -> Result<MccProjectTree, Box<dyn E
             matched_uri = uri;
             target_module_def = def;
         } else {
-            // 2. Suffix match fallback ("hbl.mc" vs "/abs/path/to/hbl.mc")
+            // 2. Suffix match fallback ("main.mc" vs "/abs/path/to/main.mc")
             let suffix = binding
                 .iter()
                 .find(|e| {

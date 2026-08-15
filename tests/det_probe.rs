@@ -25,7 +25,10 @@ static BUILD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 fn build_once() -> (String, String, String, String) {
     let _guard = BUILD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let project_root = hbl_project_dir();
-    let entry_uri = project_root.join("src/hbl.mc").to_string_lossy().into_owned();
+    let entry_uri = project_root
+        .join("src/hbl.mc")
+        .to_string_lossy()
+        .into_owned();
 
     mcc::mcc_init_no_lib();
     let mcode_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("mcode");
@@ -163,7 +166,9 @@ fn probe_two_builds_are_identical() {
                     }
                 }
             }
-            panic!("{name} fingerprint differs across two builds (first {shown} differences printed)");
+            panic!(
+                "{name} fingerprint differs across two builds (first {shown} differences printed)"
+            );
         }
     }
 }

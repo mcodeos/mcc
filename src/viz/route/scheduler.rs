@@ -247,7 +247,13 @@ pub fn route_layer_with_channels(graph: &mut McVecGraph) {
 
         // Borrow trick (same as dispatch.rs): extract the net so we can have
         // both &graph + &mut net at the same time
-        let placeholder = VizNet::new(0, String::new(), NetKind::Signal, NetRole::Signal, Vec::new());
+        let placeholder = VizNet::new(
+            0,
+            String::new(),
+            NetKind::Signal,
+            NetRole::Signal,
+            Vec::new(),
+        );
         let mut tmp = std::mem::replace(&mut graph.nets[plan.net_index], placeholder);
 
         route_one_net_with_channels(plan.choice, graph, &mut tmp, &mut channels);

@@ -504,7 +504,7 @@ fn sub_kind_to_cmie_kind(kind: SubElementKind) -> CmieKind {
 /// Kinds of sub-elements that can be looked up within a parent container.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SubElementKind {
-    /// Component pin (e.g. `PA1` within `MCU.US513_20_F`)
+    /// Component pin (e.g. `PA1` within `comp.sub`)
     Pin,
     /// Module/component port in instances (e.g. `io VDD` within module)
     Port,

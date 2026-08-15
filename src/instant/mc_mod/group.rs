@@ -475,16 +475,16 @@ impl McModuleInst {
     /// peer's member names into `sub.port.<member_i>`, returning the lanes aligned to the peer
     /// (order matches `others`). Any miss returns None.
     ///
-    /// Sole target scenario: `mic.MIC -> mcu513.MIC` (hbl:38). The left `mic.MIC` has been
-    /// expanded per mic's `out MIC{P,N}` into `[mic.P, mic.N]`; the right `mcu513.MIC` keeps
-    /// scalar because the MIC chain inside mcu513 (us513:155) never emits → port `bus_members`
+    /// Sole target scenario: `mic.MIC -> mcu.MIC` (main.mc:38). The left `mic.MIC` has been
+    /// expanded per mic's `out MIC{P,N}` into `[mic.P, mic.N]`; the right `mcu.MIC` keeps
+    /// scalar because the MIC chain inside mcu (main.mc:155) never emits → port `bus_members`
     /// is still empty, so it gets broadcast to both P/N and **shorts the differential pair**.
-    /// Here we expand `mcu513.MIC` into `mcu513.MIC.P` / `mcu513.MIC.N` and zip with the left,
-    /// so the boundary nets become the expected `mic.MIC.P ~ mcu513.MIC.P` /
-    /// `mic.MIC.N ~ mcu513.MIC.N`.
+    /// Here we expand `mcu.MIC` into `mcu.MIC.P` / `mcu.MIC.N` and zip with the left,
+    /// so the boundary nets become the expected `mic.MIC.P ~ mcu.MIC.P` /
+    /// `mic.MIC.N ~ mcu.MIC.N`.
     ///
     /// The guard stays narrow (must be a real submodule bare port hit by find_submodule + peer
-    /// ≥2 lanes, common prefix, distinct members): it does not affect `flash.SPI~mcu513.spi`
+    /// ≥2 lanes, common prefix, distinct members): it does not affect `flash.SPI~mcu.spi`
     /// (1-vs-1), DC bus (power/ground guard), or component pins. The only relaxation is on
     /// "peer-lane segment count" — accepting both `owner.member` (2 segments) and
     /// `owner.port.member` (3 segments, e.g. `mic.MIC.P`); any multi-hit case is still a
@@ -493,7 +493,7 @@ impl McModuleInst {
     ///
     /// ── S1 Bug A extension (2026-06) ─────────────────────────────────────
     /// Additionally supports scalar boundary formals inside a submodule's **internal body**
-    /// (e.g. `spi` inside `loadFlash(spi) { spi + uC.SPI }` body). Here `spi` is a boundary
+    /// (e.g. `spi` inside `do_flash(spi) { spi + uC.SPI }` body). Here `spi` is a boundary
     /// formal, treated as a bare label (1 point) in the submodule's Phase A body; the peer
     /// `uC.SPI` expands into 4 lanes (uC.8..11). The current implementation only recognizes
     /// the `sub.port` (2-segment) form, so bare `spi` (1 segment, a label) misses → falls
@@ -506,9 +506,9 @@ impl McModuleInst {
     /// and port name also falls back to eq_ignore_ascii_case.
     ///
     /// Note: this is the P2 round-2 **boundary fallback (A2)**, fixing the parent-level
-    /// `mic.MIC -> mcu513.MIC` differential-pair short; it does not fix the missing
-    /// `mcu513.MIC.{P,N} -> cap[4:5] -> uC.ADC.{P,N}` chain inside mcu513 (that's the
-    /// array instance at us513:155 not being materialized in the middle of the chain,
+    /// `mic.MIC -> mcu.MIC` differential-pair short; it does not fix the missing
+    /// `mcu.MIC.{P,N} -> cap[4:5] -> uC.ADC.{P,N}` chain inside mcu (that's the
+    /// array instance at main.mc:155 not being materialized in the middle of the chain,
     /// root cause C).
     fn try_member_passthrough_scalar(
         &self,
@@ -558,7 +558,7 @@ impl McModuleInst {
                         // ── P2-2: try physical pin ID lookup from submodule's components ──
                         // When the submodule's port has empty bus_members, look for a
                         // component inside the submodule that has a same-named bus port,
-                        // and use its physical pin IDs (e.g. mcu513.10 instead of mcu513.SPI.1).
+                        // and use its physical pin IDs (e.g. mcu.10 instead of mcu.SPI.1).
                         // First try member-name matching, then fall back to positional.
                         let pin_ids: Option<Vec<String>> =
                             submod.components.iter().find_map(|comp| {

@@ -25,8 +25,10 @@ use std::ops::Range;
 use crate::query::lookup::ContainerRef;
 use crate::refdef::types::{ChainSegment, SymbolKind};
 use crate::semantic::basic::mc_paramd::McParamDeclares;
+use crate::semantic::common::IOType;
 use crate::semantic::mc_func::HasFindInst;
 use crate::semantic::mc_inst::{McInstance, McInstances};
+use crate::semantic::module::McModule;
 use crate::semantic::scope as ns_scope;
 use crate::McURI;
 
@@ -491,7 +493,12 @@ fn member_of(inst: &McInstance, member: &str) -> Option<Hop<'static>> {
             let base = &m.base;
             match base.find_inst_with_span(member) {
                 Some((m_inst, span)) => {
-                    let kind = cross_def_kind(&m_inst);
+                    // Module ports (`in DAC_OUT`) are stored as Label instances
+                    // carrying a port-like IOType; `cross_def_kind` alone would
+                    // misclassify them as PinNameDef. Resolve through the module
+                    // insts table so ports land on PortDef (aligned with
+                    // lapper_module_ports / iter_ports_with_span).
+                    let kind = module_member_kind(base, member, &m_inst);
                     mcc_dbg!(
                         "refdef::chain",
                         "[member_of] Module \"{}\" member=\"{}\" → {} kind={:?} span={:?} uri={}",
@@ -605,6 +612,30 @@ fn cross_def_kind(inst: &McInstance) -> SymbolKind {
     }
 }
 
+/// Classify a member resolved inside a module class definition.
+///
+/// Self-describing variants (Bus / List / Component / ...) are classified by
+/// their own type via [`cross_def_kind`]. The only ambiguous case is
+/// `McInstance::Label`: module ports (`in DAC_OUT`) and module labels (`GND`)
+/// are both stored as `Label` — port-ness lives only in the IOType stored
+/// alongside in the insts table (`(IOType, McInstance)`). A `Label` carrying a
+/// port-like IOType maps to `PortDef` — the same predicate
+/// `iter_ports_with_span` uses for `lapper_module_ports`; everything else
+/// falls through to `cross_def_kind`.
+fn module_member_kind(base: &McModule, member: &str, inst: &McInstance) -> SymbolKind {
+    if let McInstance::Label(_) = inst {
+        if let Some((io, _)) = base.insts.get_with_iotype(member) {
+            if !matches!(
+                io,
+                IOType::None | IOType::Return | IOType::NonCon | IOType::Label
+            ) {
+                return SymbolKind::PortDef;
+            }
+        }
+    }
+    cross_def_kind(inst)
+}
+
 /// §4.3 (Phase 2): resolve a member-chain reference to its definition target.
 ///
 /// Single-container version — `ref_text` is resolved against `insts` (ports,
@@ -652,7 +683,7 @@ pub fn resolve_member_chain(
         hop.desc()
     );
     // ★ Longest-match walk: a dotted tail may be a single member name
-    // (e.g. pin `IN.N` inside `lpa.IN.N`, where LPA4871 declares pin
+    // (e.g. pin `IN.N` inside `lpa.IN.N`, where the amp component declares pin
     // `4 = IN.N`). At each position try the longest remaining suffix first
     // (full join → shorter joins → single segment), consuming as many
     // segments as the match covers. Genuine multi-level chains
@@ -1065,7 +1096,7 @@ mod tests {
     use crate::McIds;
     use std::sync::Arc;
 
-    /// Build a container mirroring the declarations in us513.mc:
+    /// Build a container mirroring the declarations in main.mc:
     /// `io MIC{P,N}`, `io GPIO[1:2]`, a plain label `V3V3`, a param `VCC_1V2`.
     fn make_insts() -> (McInstances, McParamDeclares) {
         let mut insts = McInstances::new();

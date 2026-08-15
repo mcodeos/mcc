@@ -67,7 +67,9 @@ fn nets_of(block: &McVecBlock, table: &InstTable, prefix: &str) -> Vec<(String, 
                     if id < 0 {
                         return None;
                     }
-                    table.get_entry(id as u32).map(|e| rel(&e.path, prefix).to_string())
+                    table
+                        .get_entry(id as u32)
+                        .map(|e| rel(&e.path, prefix).to_string())
                 })
                 .collect();
             (n.name.clone(), eps)
@@ -128,8 +130,12 @@ fn projection_main_layer_matches_pass2_golden() {
             .iter()
             .find(|(n, _, _)| *n == name)
             .map(|(_, before, after)| (*before, *after));
-        let (before, after) = got.unwrap_or_else(|| panic!("layer {name} is not in the projection result"));
-        assert_eq!(after, want, "layer {name}: {after} nets after projection, want {want} (before projection {before})");
+        let (before, after) =
+            got.unwrap_or_else(|| panic!("layer {name} is not in the projection result"));
+        assert_eq!(
+            after, want,
+            "layer {name}: {after} nets after projection, want {want} (before projection {before})"
+        );
     }
 
     // ── main layer GND: 4 nets merged into one (rule a), endpoints ⊆ golden main.GND's 8 points ──
@@ -157,8 +163,18 @@ fn projection_main_layer_matches_pass2_golden() {
     .iter()
     .map(|s| s.to_string())
     .collect();
-    for must in ["mcu513.GND", "modldo.GND", "moddcdc.GND", "speaker.USB_VBUS_1.GND", "usbsocket.vin.GND"] {
-        assert!(gnd.1.contains(must), "GND should contain {must}: {:?}", gnd.1);
+    for must in [
+        "mcu513.GND",
+        "modldo.GND",
+        "moddcdc.GND",
+        "speaker.USB_VBUS_1.GND",
+        "usbsocket.vin.GND",
+    ] {
+        assert!(
+            gnd.1.contains(must),
+            "GND should contain {must}: {:?}",
+            gnd.1
+        );
     }
     assert!(
         gnd.1.iter().all(|e| golden_gnd.contains(e)),
@@ -172,33 +188,65 @@ fn projection_main_layer_matches_pass2_golden() {
     );
 
     // ── V3V3.VCC: 3 nets merged into one (member net + VCC label view + VDD_3V3 label view) ──
-    let v33 = main_nets.iter().find(|(n, _)| n == "V3V3.VCC").expect("V3V3.VCC");
-    assert!(v33.1.contains("mic.dc.VDD_3V3"), "mic's VDD_3V3 should be merged into V3V3.VCC: {:?}", v33.1);
+    let v33 = main_nets
+        .iter()
+        .find(|(n, _)| n == "V3V3.VCC")
+        .expect("V3V3.VCC");
+    assert!(
+        v33.1.contains("mic.dc.VDD_3V3"),
+        "mic's VDD_3V3 should be merged into V3V3.VCC: {:?}",
+        v33.1
+    );
     assert!(v33.1.contains("flash.8"));
     assert!(v33.1.contains("modldo.VCC"));
     assert!(v33.1.contains("moddcdc.VDD_3V3"));
     assert!(v33.1.contains("mcu513.VDD_3V3"));
     assert!(v33.1.contains("speaker.VDD_3V3"));
     // Rule b: mic.VDD_3V3 (Label) is normalized to mic.dc.VDD_3V3 (Port declaration side)
-    assert!(!v33.1.contains("mic.VDD_3V3"), "rule b should remove duplicate Label endpoint mic.VDD_3V3");
+    assert!(
+        !v33.1.contains("mic.VDD_3V3"),
+        "rule b should remove duplicate Label endpoint mic.VDD_3V3"
+    );
 
     // ── The other rails match golden point by point ──
-    let v12 = main_nets.iter().find(|(n, _)| n == "V1V2.VCC").expect("V1V2.VCC");
+    let v12 = main_nets
+        .iter()
+        .find(|(n, _)| n == "V1V2.VCC")
+        .expect("V1V2.VCC");
     assert_eq!(v12.1.len(), 2);
-    let v5 = main_nets.iter().find(|(n, _)| n == "V5V.VCC").expect("V5V.VCC");
+    let v5 = main_nets
+        .iter()
+        .find(|(n, _)| n == "V5V.VCC")
+        .expect("V5V.VCC");
     assert_eq!(
         v5.1,
-        ["modldo.POWER_SYS", "speaker.USB_VBUS_1.VDD_3V", "usbsocket.vin.POWER_SYS"]
-            .iter()
-            .map(|s| s.to_string())
-            .collect::<BTreeSet<_>>()
+        [
+            "modldo.POWER_SYS",
+            "speaker.USB_VBUS_1.VDD_3V",
+            "usbsocket.vin.POWER_SYS"
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect::<BTreeSet<_>>()
     );
 
     // ── mic layer: MIC.N stub ∪ MIC.N~0 member net (rule a specimen) ──
-    let mic = main.blocks.iter().find(|b| b.name == "mic").expect("mic block");
+    let mic = main
+        .blocks
+        .iter()
+        .find(|b| b.name == "mic")
+        .expect("mic block");
     let mic_nets = nets_of(mic, &table, "main.mic.");
-    assert_eq!(mic_nets.len(), 4, "mic should have 4 nets (golden), got {:?}", mic_nets);
-    let micn = mic_nets.iter().find(|(n, _)| n == "MIC.N~0").expect("MIC.N~0");
+    assert_eq!(
+        mic_nets.len(),
+        4,
+        "mic should have 4 nets (golden), got {:?}",
+        mic_nets
+    );
+    let micn = mic_nets
+        .iter()
+        .find(|(n, _)| n == "MIC.N~0")
+        .expect("MIC.N~0");
     assert!(micn.1.contains("mic.2") && micn.1.contains("C1.2") && micn.1.contains("dio2.1"));
 
     // ── Rule c: zero pseudo-endpoints across the whole tree ──
@@ -211,9 +259,13 @@ fn projection_audit_md_is_written() {
     let _ = mcc::viz::project::project_block_tree(&raw, &table);
 
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("baseline/render_projection.md");
-    let md = std::fs::read_to_string(&path).expect("baseline/render_projection.md should have been written");
+    let md = std::fs::read_to_string(&path)
+        .expect("baseline/render_projection.md should have been written");
     // Every record points to (rule, layer, net, endpoint) —— spot-check three key records
-    assert!(md.contains("| a | main | GND"), "should have the GND four-nets-merged record:\n{md}");
+    assert!(
+        md.contains("| a | main | GND"),
+        "should have the GND four-nets-merged record:\n{md}"
+    );
     assert!(
         md.contains("union 4 nets: GND + V1V2.GND + V3V3.GND + V5V.GND"),
         "the merge record should list all merged net names:\n{md}"
@@ -226,5 +278,8 @@ fn projection_audit_md_is_written() {
         md.contains("| c | main | V5V.VCC | main.V5V.VCC"),
         "should have the rule c pseudo-endpoint record:\n{md}"
     );
-    assert!(md.contains("| mic | 5 | 4 |"), "the layer summary table should contain mic 5→4:\n{md}");
+    assert!(
+        md.contains("| mic | 5 | 4 |"),
+        "the layer summary table should contain mic 5→4:\n{md}"
+    );
 }

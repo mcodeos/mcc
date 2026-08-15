@@ -273,7 +273,7 @@ pub struct LookupResult {
     pub kind: LookupSymbolKind,
     /// The container that owns this definition.
     pub container: Option<ContainerInfo>,
-    /// Scope path string (e.g. "US513.i2c").
+    /// Scope path string (e.g. "mod.sub.i2c").
     pub scope: String,
     /// The definition name.
     pub name: String,

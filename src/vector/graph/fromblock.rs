@@ -20,11 +20,12 @@ use crate::instant::insttab::{InstEntry, InstKind, InstTable};
 
 use super::super::model::netshape::{GroupRole, NetShape};
 use super::super::model::{ConnectionType, McVecBlock, McVecNet};
-use super::boxdef::{BoxPin, CustomSymbol, IoSummary, McVecBox, PinConstraint, PinLayout, PortDir, VisualRole};
+use super::boxdef::{
+    BoxPin, CustomSymbol, IoSummary, McVecBox, PinConstraint, PinLayout, PortDir, VisualRole,
+};
 use super::detect::{
     compute_io, compute_scope_chain, detect_kind, detect_symbol, extract_designator,
-    extract_last_segment, parse_pin_number, translate_io_type, warn_if_pin_mismatch,
-    DetectedKind,
+    extract_last_segment, parse_pin_number, translate_io_type, warn_if_pin_mismatch, DetectedKind,
 };
 use super::graphdef::McVecGraph;
 use super::kinds::{BoxKind, NetKind};
@@ -186,8 +187,17 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
             let inst_path = entry.path.clone();
             let scope_chain = compute_scope_chain(&inst_path);
             let mut b = McVecBox::new_v2(
-                id as i64, name, class_name, kind, symbol, designator, None, pin_count, io,
-                inst_path, scope_chain,
+                id as i64,
+                name,
+                class_name,
+                kind,
+                symbol,
+                designator,
+                None,
+                pin_count,
+                io,
+                inst_path,
+                scope_chain,
             );
             b.set_pins(box_pins);
             warn_if_pin_mismatch(&b);
@@ -196,7 +206,7 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
                 b.visual_role = Some(VisualRole::BridgePassive);
             }
             apply_reserved_overrides(&mut b); // ★ Reserved: layout / custom symbol (default no-op)
-            // ★ M0-B-D/E: pass through not_fitted / origin
+                                              // ★ M0-B-D/E: pass through not_fitted / origin
             b.not_fitted = entry.not_fitted;
             b.origin = entry.origin.clone();
             Some(b)
@@ -274,7 +284,7 @@ fn make_box_from_id(table: &InstTable, id: u32) -> Option<McVecBox> {
 /// Build `McVecGraph` from `McVecBlock` + `InstTable`
 ///
 /// Top-level call (`is_top_level = true`) runs **P0-3**: synthesize undeclared power/ground
-/// PowerLabels at the top level (typical scenario: hbl's main only declares V1V2/V3V3/V5V Ports,
+/// PowerLabels at the top level (typical scenario: the example project's main only declares V1V2/V3V3/V5V Ports,
 /// no main.GND, but sub-modules all expose `GND` ports). Sub-graph recursion
 /// (`is_top_level = false`) doesn't synthesize, avoiding adding a set of power symbols out of
 /// thin air at every layer.
@@ -366,8 +376,17 @@ fn build_mc_vec_graph_inner(
                 let inst_path = entry.path.clone();
                 let scope_chain = compute_scope_chain(&inst_path);
                 let mut b = McVecBox::new_v2(
-                    id as i64, name, class_name, kind, symbol, designator, value, pin_count, io,
-                    inst_path, scope_chain,
+                    id as i64,
+                    name,
+                    class_name,
+                    kind,
+                    symbol,
+                    designator,
+                    value,
+                    pin_count,
+                    io,
+                    inst_path,
+                    scope_chain,
                 );
                 b.set_pins(box_pins);
                 warn_if_pin_mismatch(&b);
@@ -376,9 +395,9 @@ fn build_mc_vec_graph_inner(
                     b.visual_role = Some(VisualRole::BridgePassive);
                 }
                 apply_reserved_overrides(&mut b); // ★ Reserved: layout / custom symbol
-                // ★ M0-B-D/E: pass through not_fitted / origin (the primary
-                // Phase 1 path used to drop them; only the backfill path via
-                // make_box_from_id copied them — S8 saw zero NC devices)
+                                                  // ★ M0-B-D/E: pass through not_fitted / origin (the primary
+                                                  // Phase 1 path used to drop them; only the backfill path via
+                                                  // make_box_from_id copied them — S8 saw zero NC devices)
                 b.not_fitted = entry.not_fitted;
                 b.origin = entry.origin.clone();
                 graph.boxes.push(b);
@@ -626,25 +645,43 @@ fn build_mc_vec_graph_inner(
     // Create a dashed border for the top-level module, but do not render the module name (avoid a "main" label).
     if is_top_level {
         let has_components = block.insts.iter().any(|&iid| {
-            if iid < 0 { return false; }
-            table.get_entry(iid as u32).map_or(false, |e| matches!(e.kind, InstKind::Component))
+            if iid < 0 {
+                return false;
+            }
+            table
+                .get_entry(iid as u32)
+                .map_or(false, |e| matches!(e.kind, InstKind::Component))
         });
 
         if has_components {
-            let first_component_id = block.insts.iter().find(|&iid| {
-                if *iid < 0 { return false; }
-                table.get_entry(*iid as u32).map_or(false, |e| matches!(e.kind, InstKind::Component))
-            }).copied();
+            let first_component_id = block
+                .insts
+                .iter()
+                .find(|&iid| {
+                    if *iid < 0 {
+                        return false;
+                    }
+                    table
+                        .get_entry(*iid as u32)
+                        .map_or(false, |e| matches!(e.kind, InstKind::Component))
+                })
+                .copied();
 
             if let Some(comp_id) = first_component_id {
                 let border_id = -(comp_id as i64);
                 if !box_ids_set.contains(&(border_id as u32)) {
-                    let internal_count = block.insts.iter().filter(|&iid| {
-                        if *iid < 0 { return false; }
-                        table.get_entry(*iid as u32).map_or(false, |e| {
-                            matches!(e.kind, InstKind::Component | InstKind::Label)
+                    let internal_count = block
+                        .insts
+                        .iter()
+                        .filter(|&iid| {
+                            if *iid < 0 {
+                                return false;
+                            }
+                            table.get_entry(*iid as u32).map_or(false, |e| {
+                                matches!(e.kind, InstKind::Component | InstKind::Label)
+                            })
                         })
-                    }).count();
+                        .count();
 
                     // ★ Use an empty string as name to avoid rendering a "main" label
                     let mut b = McVecBox::new_v2(
@@ -770,13 +807,13 @@ fn build_mc_vec_graph_inner(
             //
             // Trigger scenario: top-level net references an external signal endpoint inside a
             // SubModule, e.g.
-            //   - `main.mcu513.SPI/SCLK`   (kind=Label, parent=mcu513.SPI Port, 1012)
-            //   - `main.mcu513.UART0`     (kind=Port,  parent=mcu513,           1007)
-            //   - `main.mcu513.DAC_OUT`   (kind=Port,  parent=mcu513,           1007)
-            //   - `main.mcu513.SPK_MUTE`  (kind=Port,  parent=mcu513,           1007)
+            //   - `main.mcu.SPI/SCLK`   (kind=Label, parent=mcu.SPI Port, 1012)
+            //   - `main.mcu.UART0`     (kind=Port,  parent=mcu,           1007)
+            //   - `main.mcu.DAC_OUT`   (kind=Port,  parent=mcu,           1007)
+            //   - `main.mcu.SPK_MUTE`  (kind=Port,  parent=mcu,           1007)
             //
             // Old logic only checked if the **direct parent** (above line 247-250) was a known box
-            // -- for `SPI/SCLK` type, the direct parent is `mcu513.SPI` Port (id 1012) not in
+            // -- for `SPI/SCLK` type, the direct parent is `mcu.SPI` Port (id 1012) not in
             // box_ids_set, so it doesn't continue. Then Fix C only handles Component parent, not
             // Port parent. Finally falling into the "looks_like_power / looks_like_bus_label"
             // check, all false -> prints `✗ Skipping unresolved endpoint`, leaving a bunch of
@@ -870,19 +907,19 @@ fn build_mc_vec_graph_inner(
                 // endpoint's ancestor chain can walk all the way up to `block.bid` itself (i.e.
                 // the endpoint is this layer's own external interface or internal named signal),
                 // but ITER-3 can't find any box in between (because the sub-layer's box_ids_set
-                // contains mcu513's children: CAP/RES/uC etc., not including mcu513 itself).
+                // contains mcu's children: CAP/RES/uC etc., not including mcu itself).
                 //
                 // Old logic: such endpoints would fall to `✗ Skipping unresolved endpoint`, the
-                // sub-layer render loses mcu513's own Port/Label edge labels, drill-down sees
+                // sub-layer render loses mcu's own Port/Label edge labels, drill-down sees
                 // a bunch of dangling connections (user feedback "second level has issues").
                 //
-                // Examples (mcu513 inner layer, block.bid=1010):
-                //   - `main.mcu513.UART0`        Port,  parent=1010 -> direct hit
-                //   - `main.mcu513.DAC_OUT`      Port,  parent=1010 -> direct hit
-                //   - `main.mcu513.[VCC_1V2, GND]` Port,  parent=1010 -> direct hit
-                //   - `main.mcu513.SPI/SCLK`     Label, parent=1015 (SPI Port), \
+                // Examples (mcu inner layer, block.bid=1010):
+                //   - `main.mcu.UART0`        Port,  parent=1010 -> direct hit
+                //   - `main.mcu.DAC_OUT`      Port,  parent=1010 -> direct hit
+                //   - `main.mcu.[VCC_1V2, GND]` Port,  parent=1010 -> direct hit
+                //   - `main.mcu.SPI/SCLK`     Label, parent=1015 (SPI Port), \
                 //                                       grandparent=1010 -> two-hop hit
-                //   - `main.mcu513.AVDD09_CAP`   Label, parent=1010 -> direct hit
+                //   - `main.mcu.AVDD09_CAP`   Label, parent=1010 -> direct hit
                 //                                                    (internal signal label)
                 //
                 // Fix: after hit, create a PowerLabel (actually "boundary label" reusing the same
@@ -1069,7 +1106,7 @@ fn build_mc_vec_graph_inner(
     //
     // Keep multi-endpoint topology directly, no longer split into "pairwise" pairs.
     // Before P03, this simultaneously filled `graph.edges` (binary) and `graph.nets`, P03 cut the former.
-    
+
     // ★ DEBUG: print block.nets structure
     graph.nets = generate_viznets_from_block(block, &point_to_box, table, &graph.boxes);
 
@@ -1098,9 +1135,10 @@ fn build_mc_vec_graph_inner(
             let port_dir = translate_io_to_port_dir(&p.io_type);
             let role = match &p.member_info {
                 Some(mi) => match mi.role {
-                    crate::instant::insttab::MemberRole::Power | crate::instant::insttab::MemberRole::Ground => {
-                        NetRole::Rail { volt: mi.voltage.as_ref().map(|v| v.to_string()) }
-                    }
+                    crate::instant::insttab::MemberRole::Power
+                    | crate::instant::insttab::MemberRole::Ground => NetRole::Rail {
+                        volt: mi.voltage.as_ref().map(|v| v.to_string()),
+                    },
                     _ => NetRole::Signal,
                 },
                 None => NetRole::Signal,
@@ -1113,19 +1151,27 @@ fn build_mc_vec_graph_inner(
     // ── M0-B-D/E: log summary of not_fitted / origin ──
     {
         let not_fitted_count = graph.boxes.iter().filter(|b| b.not_fitted).count();
-        let not_fitted_names: Vec<&str> = graph.boxes.iter()
+        let not_fitted_names: Vec<&str> = graph
+            .boxes
+            .iter()
             .filter(|b| b.not_fitted)
             .map(|b| b.name.as_str())
             .collect();
-        let declared = graph.boxes.iter().filter(|b| matches!(b.origin, crate::instant::insttab::InstOrigin::Declared)).count();
+        let declared = graph
+            .boxes
+            .iter()
+            .filter(|b| matches!(b.origin, crate::instant::insttab::InstOrigin::Declared))
+            .count();
         let funcall = graph.boxes.len() - declared;
-        let mut fcall_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut fcall_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
         for b in &graph.boxes {
             if let crate::instant::insttab::InstOrigin::FuncCall { ref fn_name } = b.origin {
                 *fcall_counts.entry(fn_name.clone()).or_insert(0) += 1;
             }
         }
-        let fcall_summary: Vec<String> = fcall_counts.iter()
+        let fcall_summary: Vec<String> = fcall_counts
+            .iter()
             .map(|(k, v)| format!("{k}:{v}"))
             .collect();
         crate::velog!(
@@ -1228,10 +1274,10 @@ fn generate_viznets_from_block(
     /// rely on `connection_type()` shape inference. Only falls back to
     /// `connection_type()` when shape is absent (legacy behavior).
     /// ★ M0-C BLOCKED: this function will be deleted once M0-A completes.
-///   At that point NetRole::Bus is filled directly by M0-A's NetShape (M0-B),
-///   and the NtoN split and Bus upgrade branches read `net.role == NetRole::Bus` instead.
-///   NetShape coverage is currently insufficient; keep this heuristic as a fallback for now.
-fn is_real_bus(
+    ///   At that point NetRole::Bus is filled directly by M0-A's NetShape (M0-B),
+    ///   and the NtoN split and Bus upgrade branches read `net.role == NetRole::Bus` instead.
+    ///   NetShape coverage is currently insufficient; keep this heuristic as a fallback for now.
+    fn is_real_bus(
         net: &McVecNet,
         kind: &NetKind,
         touches_passive: &dyn Fn(&[i64]) -> bool,
@@ -1295,7 +1341,7 @@ fn is_real_bus(
     //
     // ★ M0-C BLOCKED: this branch will be deleted once M-1 completes.
     //   Its reason for existence is "top-level mcu.SPI collapsed into a single
-    //   point" —— after M-1-1 fixes vector reference expansion, mcu513.SPI will
+    //   point" —— after M-1-1 fixes vector reference expansion, mcu.SPI will
     //   be 4 independent endpoints at the main layer, and this expansion branch
     //   is no longer needed.
     let make_child_endpoint = |child_id: i64, box_id: i64| -> EndpointRef {
@@ -1381,7 +1427,13 @@ fn is_real_bus(
                                             synth_nid += 1;
                                             x
                                         };
-                                        out.push(VizNet::new(nid, nm, NetKind::Signal, NetRole::Signal, eps));
+                                        out.push(VizNet::new(
+                                            nid,
+                                            nm,
+                                            NetKind::Signal,
+                                            NetRole::Signal,
+                                            eps,
+                                        ));
                                     }
                                     crate::velog!(
                                         "[graph] ✓ expanded collapsed bus/port '{}' -> {} signal nets",
@@ -1449,7 +1501,13 @@ fn is_real_bus(
                                 synth_nid += 1;
                                 x
                             };
-                            out.push(VizNet::new(nid, name, NetKind::Signal, NetRole::Signal, eps));
+                            out.push(VizNet::new(
+                                nid,
+                                name,
+                                NetKind::Signal,
+                                NetRole::Signal,
+                                eps,
+                            ));
                         }
                         continue; // already split by member -> skip whole Bus construction below
                     }
@@ -1516,7 +1574,8 @@ fn is_real_bus(
             NetKind::Power | NetKind::Ground => {
                 // Try to extract voltage from endpoint member_info
                 let volt = net.all_point_ids().iter().find_map(|&pid| {
-                    table.get_entry(pid as u32)
+                    table
+                        .get_entry(pid as u32)
                         .and_then(|e| e.member_info.as_ref())
                         .and_then(|mi| mi.voltage.as_ref())
                         .map(|v| v.to_string())
@@ -1527,7 +1586,13 @@ fn is_real_bus(
             _ => NetRole::Signal,
         };
 
-        out.push(VizNet::new(net.nid, net.name.clone(), kind, role, endpoints));
+        out.push(VizNet::new(
+            net.nid,
+            net.name.clone(),
+            kind,
+            role,
+            endpoints,
+        ));
         // ★ P7-3: the power net spec (class + driver_pin + volt) resolved by the
         // projection layer is passed through as-is; the layout's rail trichotomy
         // (R-1/R-2/R-3) consumes it.

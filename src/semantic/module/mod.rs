@@ -250,6 +250,9 @@ impl McModule {
                     MCAST_NET => {
                         if let Some(subnode) = clause.get_sub_node() {
                             if subnode.get_type() == MCAST_DECLARE {
+                                // ★ LSP: instance declarations also reference their ctor args (`speaker(V3V3)`) — record
+                                // them like MCAST_NET operands so F12 works.
+                                self.collect_declare_ctor_refs(&subnode);
                                 self.insts.parse(&subnode, &self.uri);
                                 continue;
                             }
@@ -305,6 +308,8 @@ impl McModule {
                     }
 
                     MCAST_DECLARE => {
+                        // ★ LSP: record ctor-arg refs for goto-def (see collect_declare_ctor_refs).
+                        self.collect_declare_ctor_refs(&clause);
                         self.insts.parse(&clause, &self.uri);
                     }
 
@@ -425,6 +430,48 @@ impl McModule {
                     .create_inst(&name, McInstance::Label(name.clone()));
                 self.insts
                     .set_label_kind(&name, crate::semantic::mc_inst::LabelKind::Inline);
+            }
+        }
+    }
+
+    /// ★ LSP: Record net refs for instance-declaration constructor arguments
+    /// (`speaker(V3V3)`, `mcu(V3V3, V1V2)`). Instance declarations only walk
+    /// `insts.parse` → `parse_declare`, which binds ctor args but never records
+    /// lapper refs — unlike MCAST_NET operands (`collect_net_refs_in_node`).
+    /// Route each `MCAST_PARAM` under every `MCAST_INSTANCE` through the same
+    /// collector so argument identifiers get a LabelRef/PortRef and F12 finds
+    /// their def (consistent with the MCAST_NET path).
+    fn collect_declare_ctor_refs(&mut self, clause: &AstNode) {
+        let scope = self.name.to_string();
+        let Some(sub) = clause.get_sub_node() else {
+            return;
+        };
+        for child in sub.iter() {
+            if child.get_type() != MCAST_INSTANCE {
+                continue;
+            }
+            // The ctor PARAMS node is the next sibling of the instance id node
+            // (or of the instance node when the id has no sub) — mirror
+            // collect_ctor_params in mc_inst.rs.
+            let inst_id = child.get_sub_node().unwrap_or_else(|| child.clone());
+            for cand in [inst_id.get_next(), child.get_next()] {
+                let Some(n) = cand else { continue };
+                if n.get_type() != MCAST_PARAMS {
+                    continue;
+                }
+                if let Some(psub) = n.get_sub_node() {
+                    for p in psub.iter() {
+                        if p.get_type() == MCAST_PARAM {
+                            Self::collect_net_refs_in_node(
+                                &p,
+                                &mut self.insts,
+                                &mut self.params,
+                                &scope,
+                            );
+                        }
+                    }
+                }
+                break;
             }
         }
     }

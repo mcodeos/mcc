@@ -33,8 +33,8 @@ impl McModuleInst {
     //
     // ### Problem origin
     //
-    // Source `hbl.mc`:
-    //   line: V3V3 -> moddcdc.[VDD_3V3, GND]    # Parent module main
+    // Source `main.mc`:
+    //   line: V3V3 -> dcdc.[VDD_3V3, GND]    # Parent module main
     // Sub-module `power.mc` POWER_DCDC:
     //   port: in  [VDD_3V3, GND]::DC()
     //
@@ -44,26 +44,26 @@ impl McModuleInst {
     //
     // ### What happens downstream in the flatten chain
     //
-    // Parent's raw connection `V3V3 ~ moddcdc.[VDD_3V3,GND]`, when reaching
+    // Parent's raw connection `V3V3 ~ dcdc.[VDD_3V3,GND]`, when reaching
     // `inst_table.rs::flatten_nets`, runs each `NetPoint.path`
     // through `expand_bracket_list`:
     //
     // ```text
-    // "moddcdc.[VDD_3V3,GND]"  ──►  ["moddcdc.VDD_3V3", "moddcdc.GND"]
+    // "dcdc.[VDD_3V3,GND]"  ──►  ["dcdc.VDD_3V3", "dcdc.GND"]
     // ```
     //
     // Expanded sub-paths are then resolved via `resolve_single_path`:
     //
-    //   (1) `main.moddcdc.VDD_3V3` ── must be registered in InstTable to hit
-    //   (2) `moddcdc.VDD_3V3`      ── fallback if (1) misses
-    //   (3) `main.moddcdc/VDD_3V3` ── bus member fallback (trailing `.`→`/`)
+    //   (1) `main.dcdc.VDD_3V3` ── must be registered in InstTable to hit
+    //   (2) `dcdc.VDD_3V3`      ── fallback if (1) misses
+    //   (3) `main.dcdc/VDD_3V3` ── bus member fallback (trailing `.`→`/`)
     //
-    // (1) is the only reachable path — it requires `main.moddcdc.VDD_3V3` to exist as some
+    // (1) is the only reachable path — it requires `main.dcdc.VDD_3V3` to exist as some
     // `InstEntry` (Label / Port / Bus) in the table. Phase 5 of `flatten_module`
     // registers each label in `inst.labels` as `{my_path}.{label_name}`. So **as long as
     // `VDD_3V3` is in the sub-module's `self.labels`**, the expanded lookup will hit.
     //
-    // Previously no injection → `main.moddcdc.VDD_3V3` doesn't exist → the corresponding
+    // Previously no injection → `main.dcdc.VDD_3V3` doesn't exist → the corresponding
     // endpoint in the parent's V3V3 net is empty → the entire POWER chain is electrically disconnected.
     //
     // ### Fix: inject members into `self.labels` according to port form
@@ -106,7 +106,7 @@ impl McModuleInst {
     //
     // To avoid this cross-port short, we'd need separate namespaces for each port's members
     // (e.g. `<port>/GND` port-scoped labels), but then `expand_bracket_list` produces
-    // `moddcdc.GND` which again faces the "parent can't find label in sub-module" old problem — core goal lost.
+    // `dcdc.GND` which again faces the "parent can't find label in sub-module" old problem — core goal lost.
     //
     // **Conclusion**: bracket-list syntax's "same-name member across ports" ambiguity is a
     // parser-level issue; fully resolving it requires body `[A, B]` to expand into List
@@ -130,7 +130,7 @@ impl McModuleInst {
     //     True fix needs to touch `mc_inst.rs::parse_declare` to preserve `inst_ids`
     //     or curly members, outside phases.rs scope.
     //
-    //   * Sub-module internal body line `[VDD_3V3, GND] -> lp322dcdc{Vin, GND}`
+    //   * Sub-module internal body line `[VDD_3V3, GND] -> dcdc{Vin, GND}`
     //     still won't expand — lines 164-168 of `mc_phrase.rs` makes pure bracket fall to
     //     `add_label(ids.to_string())`, becoming a single Label. Plus 1 vs 2
     //     adjacency shape issue, entire body line is missing. Iter-5.E vector expansion scope.
@@ -580,14 +580,14 @@ impl McModuleInst {
             // At this point old entry is a dangling reference, hitting it by new address **points to wrong instance**.
             //
             // Triggering example (captured in practice after Iter-6.S4 fix):
-            //   line N:   `mcu513.setup().capIt().i2c().loadFlash(flash)`
+            //   line N:   `mcu.setup().add_caps().i2c().do_flash(flash)`
             //             — Iter-6.S4 fallback wrote 4 stale entries
             //             (Note: that insert has been removed by Iter-6.S4.2, but dispatch
             //             success path, iterated calls, builtin twopin and other locations still write)
-            //   line N+1: `mic(V3V3).MIC -> mcu513{...} -> speaker{...}`
+            //   line N+1: `mic(V3V3).MIC -> mcu{...} -> speaker{...}`
             //             — mic FuncCall new address collides with line N's old address
-            //             — resolve_funccall_right finds "mcu513"
-            //             — mic.MIC incorrectly resolved as mcu513.DAC_OUT/SPK_MUTE
+            //             — resolve_funccall_right finds "mcu"
+            //             — mic.MIC incorrectly resolved as mcu.DAC_OUT/SPK_MUTE
             //             — 5 independent signals shorted into one super net
             //
             // Fix: clear before starting each line in top-level connections loop.
@@ -743,7 +743,7 @@ impl McModuleInst {
     /// Connect declared instance args to sub-module formal ports by **position**.
     ///
     /// Formal port order = order of interface ports in sub-module signature
-    /// (`module US513([VDD_3V3,GND]::DC, [VCC_1V2,GND]::DC)` → port0, port1).
+    /// (`module mod.sub([VDD_3V3,GND]::DC, [VCC_1V2,GND]::DC)` → port0, port1).
     ///
     /// Member alignment strategy (short-circuit safe):
     ///   1. Equal-width multi-member zip: `[A,B] -> port{X,Y}` → A~inst.X, B~inst.Y
@@ -911,7 +911,7 @@ impl McModuleInst {
     /// ── Root cause A fix: Call site arg→port binding (multi-member curly/bracket ports) ──────
     ///
     /// Used for the path of "declared sub-module called again with args" (funccall.rs's
-    /// `rebind_submodule_params`), e.g. hbl.mc's `mic(V3V3).MIC` — mic was declared
+    /// `rebind_submodule_params`), e.g. main.mc's `mic(V3V3).MIC` — mic was declared
     /// without args (`MIC_SIP mic`), the real arg `V3V3` is given in the body line.
     ///
     /// Key differences from `bind_actual_args_to_ports` (declared args path):
@@ -934,7 +934,7 @@ impl McModuleInst {
     ///
     /// * **Scalar interface ports** (`vin::DC(5V)`, no bus_members and no `{}`/`[]`) not in
     ///   this filter scope — they need to supplement `{VCC,GND}` members from interface type `DC`
-    ///   before binding, a separate sub-item not handled here (modldo grounding still pending).
+    ///   before binding, a separate sub-item not handled here (ldo grounding still pending).
     /// * Excess args beyond bindable ports emit warning 940 (mirroring
     ///   `bind_actual_args_to_ports`); port-side missed binding is covered
     ///   by `check_unbound_param_ports`.
@@ -1125,7 +1125,7 @@ impl McModuleInst {
     ///   * Catch truly floating cases like `SPEAKER_M speaker` where the source omits the power arg
     ///     (`dc{VDD_3V3,GND}` neither has a declared arg, nor is called via `speaker(...)` in the body line);
     ///   * Exclude **groundless** signal bus ports like `port1{A,B,C,D}` (no false positives);
-    ///   * Exclude modldo's scalar `vin` (no members, not in scope, its grounding is a separate matter).
+    ///   * Exclude ldo's scalar `vin` (no members, not in scope, its grounding is a separate matter).
     ///
     /// Determine "connected": self.connections has a point with path == prefix, or starting with `prefix.`.
     /// Prefix contains both bare `inst.MEMBER` and (for named ports) dotted `inst.base.MEMBER`,
@@ -1201,7 +1201,7 @@ impl McModuleInst {
     /// Execute component's "same-name constructor func".
     ///
     /// Convention: func's last segment name == component class's last segment name, that is the constructor
-    /// (component `FLASH.GD25Q32E` ↔ func `GD25Q32E`).
+    /// (component `FLASH.sub` ↔ func `sub`).
     /// Body expands inside **parent module self** (peripheral components belong to parent module BOM),
     /// pin references prefixed with instance name (`VCC` → `flash.VCC`); arg names / parent port names not prefixed.
     pub(super) fn run_component_constructor(
@@ -1285,9 +1285,9 @@ impl McModuleInst {
     /// declared members, so the parent module's reference to `<sub>.<port>` can expand
     /// by member in expand_port_lanes.
     ///
-    /// Example: mcu513 body `MIC{P,N} -> ...` makes buses["MIC"]=[P,N];
+    /// Example: mcu body `MIC{P,N} -> ...` makes buses["MIC"]=[P,N];
     ///     after final projection PortInst("MIC").bus_members=[P,N];
-    ///     parent layer `mic.MIC -> mcu513.MIC` both sides expand to [.P, .N] -> zip.
+    ///     parent layer `mic.MIC -> mcu.MIC` both sides expand to [.P, .N] -> zip.
     pub(super) fn infer_bare_port_members_from_buses(&mut self) {
         let inferred: Vec<(usize, Vec<String>)> = self
             .ports

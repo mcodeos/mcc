@@ -60,8 +60,8 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                 crate::McInstance::Component(c2) => {
                     let class_name = c2.base.name.to_string();
                     // ★ §P1 C6: a same-name constructor func declares the actual
-                    // constructor arity. `FLASH.GD25Q32E flash(V3V3)` binds its arg
-                    // to `func GD25Q32E([V3V3, GND]::DC(3.3V))` inside the component,
+                    // constructor arity. `comp.sub flash(V3V3)` binds its arg
+                    // to `func sub([V3V3, GND]::DC(3.3V))` inside the component,
                     // not to the (empty) header param list. Fall back to the header
                     // params when no such func exists.
                     let ctor = class_name
@@ -119,7 +119,7 @@ fn check_instance_param_mismatch(acc: &mut CheckAccumulator) {
                 crate::McInstance::Module(m2) => {
                     let class_name = m2.base.name.to_string();
                     // ★ DC interface params ([VDD_3V3,GND]::DC(3.3V)) ARE the
-                    // constructor args bound by position (`US513 mcu513(V3V3, V1V2)`
+                    // constructor args bound by position (`mod.sub mcu(V3V3, V1V2)`
                     // per §P1 C4), so they must count toward the declared arity.
                     // Only pure ports (Label / Idx / ComponentInstance — e.g. the
                     // `in signal, ps ground` kind of header entry) are excluded.

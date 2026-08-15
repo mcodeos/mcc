@@ -257,7 +257,7 @@ fn net_is_rail(net: &VizNet) -> bool {
 /// - For a real IC pin it is often the bare pin **number** (`"3"`), not the
 ///   functional name (`"LX"`).
 /// - For a rail-synth endpoint promoted by `promote_synthetic_pins`, it is the
-///   **net** name (which is how a hub pin ends up labelled `"lp322dcdc"`).
+///   **net** name (which is how a hub pin ends up labelled `"dcdc"`).
 ///
 /// The authoritative functional name lives in the hub box's `BoxPin.description`
 /// (mcode `pins = [ <number> = <description> ]`, e.g. `3 = LX`). Prefer that,

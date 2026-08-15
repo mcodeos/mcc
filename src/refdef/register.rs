@@ -13,7 +13,7 @@ use crate::McURI;
 // ── Scope path helper ──
 
 /// Build a ScopePath from a scope string and file URI.
-/// "US513" → module,  "US513.i2c" → func-in-module,  "" → file-level.
+/// "mod.sub" → module,  "mod.sub.i2c" → func-in-module,  "" → file-level.
 pub fn scope_path_from_scope_str(uri: &McURI, scope: &str) -> crate::ScopePath {
     if scope.is_empty() {
         crate::ScopePath::file_level(uri)
@@ -27,6 +27,39 @@ pub fn scope_path_from_scope_str(uri: &McURI, scope: &str) -> crate::ScopePath {
 }
 
 // ── Def registration ──
+
+/// Register an instance declaration at parse time using the same
+/// `(file_id, container_id, func_id)` key that lapper-time `register_def`
+/// uses for InstDef. Parse-time registration previously used
+/// `SourceLocation::from_span` (all-zero scope ids), so InstRef (carrying
+/// the parse-time id) and InstDef (carrying the lapper-time id) lived in two
+/// different DeclareId spaces and `fill_refdef_layer2` could never match them
+/// (Fix F0.1).
+pub fn register_instance_decl_parse_time(
+    sem: &mut McSemSymbols,
+    uri: &McURI,
+    scope: Option<&str>,
+    name: &str,
+    span: std::ops::Range<usize>,
+) -> DeclareId {
+    let file_id = intern(&mut sem.file_table, uri.as_str());
+    let (container_id, func_id) = match scope.unwrap_or("").rfind('.') {
+        Some(dot) => (
+            intern(&mut sem.container_table, &scope.as_ref().unwrap()[..dot]),
+            intern(&mut sem.func_table, &scope.as_ref().unwrap()[dot + 1..]),
+        ),
+        None => (intern(&mut sem.container_table, scope.unwrap_or("")), 0),
+    };
+    let loc = SourceLocation {
+        file_id,
+        container_id,
+        func_id,
+        byte_start: span.start as u32,
+        byte_end: span.end as u32,
+    };
+    sem.local_table
+        .add_declare_with_name(uri, loc, Some(name.to_string()), scope)
+}
 
 pub fn register_def(
     sem: &mut McSemSymbols,

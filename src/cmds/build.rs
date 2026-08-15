@@ -373,10 +373,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             align_report.print();
 
             if !nc_report.is_clean() {
-                mcc_dbg!(
-                    "build",
-                    "[gate] NETCHECK Tier 0 not clean -> build failed."
-                );
+                mcc_dbg!("build", "[gate] NETCHECK Tier 0 not clean -> build failed.");
                 return Ok(BuildOutcome { exit_code: 1 });
             }
 
