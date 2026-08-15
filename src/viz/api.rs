@@ -256,6 +256,116 @@ fn render_layer_recursive(
             layouter_name
         );
         debug::dump_layout(&graph, layouter_name, cv);
+
+        // ── ★ inventory dump: box provenance + isolated + single-endpoint nets ──
+        {
+            let mut component = 0usize;
+            let mut sub_module = 0usize;
+            let mut power_label = 0usize;
+            let mut _dot = 0usize;
+            let mut phase_145 = 0usize;
+            let mut port_terminal = 0usize;
+            for b in &graph.boxes {
+                match b.kind {
+                    crate::vector::graph::BoxKind::TwoPin
+                    | crate::vector::graph::BoxKind::MultiPin => component += 1,
+                    crate::vector::graph::BoxKind::SubModule => {
+                        sub_module += 1;
+                        if b.id == bid {
+                            phase_145 += 1;
+                        }
+                    }
+                    crate::vector::graph::BoxKind::PowerLabel => power_label += 1,
+                    crate::vector::graph::BoxKind::Dot => _dot += 1,
+                    crate::vector::graph::BoxKind::PortTerminal => port_terminal += 1,
+                }
+            }
+            let declared = graph.boxes.len() - power_label - phase_145 - port_terminal;
+            let synth_endpoint = power_label; // PowerLabel boxes = Phase E.1 boundary labels
+
+            // degree: number of unique net connections per box
+            let mut box_conn: std::collections::HashMap<i64, usize> =
+                std::collections::HashMap::new();
+            for net in &graph.nets {
+                for bid in net.box_ids() {
+                    *box_conn.entry(bid).or_default() += 1;
+                }
+            }
+            let hub_id = box_conn
+                .iter()
+                .max_by_key(|(_, &c)| c)
+                .map(|(&id, _)| id)
+                .unwrap_or(graph.boxes.first().map(|b| b.id).unwrap_or(0));
+
+            let isolated = crate::viz::layout::flow::compute_isolated_ids(&graph, hub_id);
+            let single_endpoint_nets = graph
+                .nets
+                .iter()
+                .filter(|n| n.box_ids().len() <= 1)
+                .count();
+
+            crate::vlog!(
+                "[inventory] layer '{}' boxes={} (Component={}, SubModule={}, PowerLabel={}) \
+                 provenance: Declared={}, SynthesizedFromEndpoint={}, Phase1_45={} \
+                 isolated={:?} nets_with_single_endpoint={}",
+                name,
+                graph.boxes.len(),
+                component,
+                sub_module,
+                power_label,
+                declared,
+                synth_endpoint,
+                phase_145,
+                isolated,
+                single_endpoint_nets,
+            );
+
+            // ── isolated box details: id:name:kind:degree ──
+            if !isolated.is_empty() {
+                let box_lookup: std::collections::HashMap<i64, (&crate::vector::graph::McVecBox, usize)> = graph
+                    .boxes
+                    .iter()
+                    .map(|b| (b.id, (b, box_conn.get(&b.id).copied().unwrap_or(0))))
+                    .collect();
+                let mut iso_ids: Vec<i64> = isolated.iter().copied().collect();
+                iso_ids.sort_unstable();
+                for &id in &iso_ids {
+                    if let Some(&(b, deg)) = box_lookup.get(&id) {
+                        crate::vlog!(
+                            "[inventory]   isolated: id={} name='{}' kind={} degree={} pins={}",
+                            b.id, b.name, b.kind, deg, b.pin_count,
+                        );
+                    }
+                }
+            }
+
+            // ── hub candidates: top-3 boxes by degree ──
+            let mut degs: Vec<(i64, usize)> = box_conn.iter().map(|(&id, &d)| (id, d)).collect();
+            degs.sort_by_key(|&(_, d)| std::cmp::Reverse(d));
+            let box_lookup2: std::collections::HashMap<i64, &crate::vector::graph::McVecBox> = graph
+                .boxes
+                .iter()
+                .map(|b| (b.id, b))
+                .collect();
+            for (id, deg) in degs.iter().take(3) {
+                if let Some(b) = box_lookup2.get(id) {
+                    crate::vlog!(
+                        "[inventory]   hub-candidate: id={} name='{}' kind={} degree={} pins={}",
+                        b.id, b.name, b.kind, deg, b.pin_count,
+                    );
+                }
+            }
+
+            // ── box 1010 degree (if present) ──
+            if let Some(b) = box_lookup2.get(&1010) {
+                let deg = box_conn.get(&1010).copied().unwrap_or(0);
+                crate::vlog!(
+                    "[inventory]   box-1010: id=1010 name='{}' kind={} degree={} pins={}",
+                    b.name, b.kind, deg, b.pin_count,
+                );
+            }
+        }
+
         cv
     };
 

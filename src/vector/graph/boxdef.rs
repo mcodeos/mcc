@@ -402,6 +402,10 @@ pub struct McVecBox {
     /// reposition boxes heuristically must skip these.
     pub geom_locked: bool,
 
+    /// ★ P7-7: rail anchor hint — where to place a degree=0 passive whose
+    /// both ends are rail. Set by classify_rails, consumed by phase_placement.
+    pub anchor_hint: Option<AnchorHint>,
+
     /// ★ P7-4: the last pipeline stage that changed this box's geometry
     /// (x/y/w/h/entry_points).
     ///
@@ -426,6 +430,22 @@ pub enum VisualRole {
     /// Series 2-pin passive already placed inline on a lane by a dedicated
     /// layouter (e.g. two_lane_ladder). Generic passive passes skip it.
     SeriesInline,
+}
+
+/// ★ P7-7: rail anchor hint — where a degree=0 passive should be placed.
+///
+/// When `classify_rails` removes rail nets, two-pin passives whose both ends are
+/// rail lose all net connections (degree=0) and would be parked as isolated.
+/// The anchor hint tells the placer where to pin them instead, using the rail net
+/// itself as the truth source (zero name matching).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnchorHint {
+    /// The box that stays connected after rail removal (the IC being decoupled).
+    pub host_box: i64,
+    /// The pin on host_box that belongs to this rail net.
+    pub host_pin: i64,
+    /// Which side of the host to place the passive on (Bottom / Right etc.).
+    pub side: EntrySide,
 }
 
 impl McVecBox {
@@ -500,6 +520,7 @@ impl McVecBox {
             custom_symbol: None,
             visual_role: None,
             geom_locked: false,
+            anchor_hint: None,
             geom_writer: None,
             provenance: BoxProvenance::Declared,
         }

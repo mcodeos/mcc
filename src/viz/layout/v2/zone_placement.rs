@@ -45,6 +45,7 @@ fn est_box_size(kind: &BoxKind, pin_count: usize) -> (f64, f64) {
             let h = (100.0_f64).max(pin_count as f64 * 8.0);
             (w, h)
         }
+        BoxKind::PortTerminal => (24.0, 24.0),
     }
 }
 

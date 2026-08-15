@@ -191,6 +191,85 @@ pub fn probe_block_to_graph(block: &McVecBlock, graph: &McVecGraph) {
     );
 }
 
+// ============================================================================
+// Probe A2: per-layer block→graph reconciliation (vlog! output, MC_VIZ_DUMP)
+// ============================================================================
+
+/// Per-layer: how many projected nets (McVecBlock) made it into VizNets (McVecGraph).
+/// Reports dropped net names per layer. Uses `vlog!` so it's visible with MC_VIZ_DUMP=1.
+pub fn probe_block_to_graph_per_layer(block: &McVecBlock, graph: &McVecGraph) {
+    // Per-layer: (projected net names, vizneted net names)
+    let mut per_layer: Vec<(String, Vec<String>, Vec<String>)> = Vec::new();
+    flatten_block_per_layer(block, &mut per_layer);
+    flatten_graph_per_layer(graph, &mut per_layer);
+
+    let mut all_dropped_total = 0usize;
+    for (layer, proj_names, viz_names) in &per_layer {
+        let proj_set: HashSet<&str> = proj_names.iter().map(|s| s.as_str()).collect();
+        let viz_set: HashSet<&str> = viz_names.iter().map(|s| s.as_str()).collect();
+        let dropped: Vec<&str> = proj_set.difference(&viz_set).copied().collect();
+        all_dropped_total += dropped.len();
+        if dropped.is_empty() {
+            crate::vlog!(
+                "[netprobe] layer '{}': projected_nets={}  vizneted={}  dropped=0",
+                layer, proj_names.len(), viz_names.len(),
+            );
+        } else {
+            let mut names: Vec<&str> = dropped.clone();
+            names.sort_unstable();
+            crate::vlog!(
+                "[netprobe] layer '{}': projected_nets={}  vizneted={}  dropped={}",
+                layer, proj_names.len(), viz_names.len(), dropped.len(),
+            );
+            crate::vlog!(
+                "[netprobe]   dropped: {}",
+                names.join(", "),
+            );
+        }
+    }
+    crate::vlog!(
+        "[netprobe] TOTAL dropped nets across all layers: {}",
+        all_dropped_total,
+    );
+}
+
+/// Recursively collect per-layer projected net names from McVecBlock.
+fn flatten_block_per_layer(
+    block: &McVecBlock,
+    per_layer: &mut Vec<(String, Vec<String>, Vec<String>)>,
+) {
+    let names: Vec<String> = block.nets.iter().map(|n| n.name.clone()).collect();
+    per_layer.push((block.name.clone(), names, Vec::new()));
+    for sub in &block.blocks {
+        flatten_block_per_layer(sub, per_layer);
+    }
+}
+
+/// Recursively collect per-layer VizNet names from McVecGraph.
+/// Matches against the block-side layers by name; if a layer name doesn't exist
+/// on the block side, it's appended as a new entry.
+fn flatten_graph_per_layer(
+    graph: &McVecGraph,
+    per_layer: &mut Vec<(String, Vec<String>, Vec<String>)>,
+) {
+    let names: Vec<String> = graph.nets.iter().map(|n| n.name.clone()).collect();
+    // Find matching layer by name
+    let mut found = false;
+    for (layer, _, viz_names) in per_layer.iter_mut() {
+        if *layer == graph.name {
+            *viz_names = names.clone();
+            found = true;
+            break;
+        }
+    }
+    if !found {
+        per_layer.push((graph.name.clone(), Vec::new(), names));
+    }
+    for sub in &graph.sub_graphs {
+        flatten_graph_per_layer(sub, per_layer);
+    }
+}
+
 /// Recursively flatten `McVecBlock`: collect each real endpoint id → list of net names, and tally the net count.
 fn flatten_block(block: &McVecBlock, ids: &mut HashMap<i64, Vec<String>>, net_count: &mut usize) {
     for net in &block.nets {

@@ -66,6 +66,10 @@ pub fn box_size(b: &McVecBox) -> (f64, f64) {
             // Small junction dot for non-power labels
             (10.0, 10.0)
         }
+        BoxKind::PortTerminal => {
+            // Small terminal at canvas edge, like a label
+            (14.0, 14.0)
+        }
     }
 }
 

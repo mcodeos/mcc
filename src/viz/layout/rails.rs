@@ -44,7 +44,7 @@ use crate::vector::graph::graphdef::RailDecoration;
 use crate::vector::graph::naming;
 use crate::vector::graph::netdef::{IoDirection, NetRole};
 use crate::vector::graph::{
-    BoxKind, EndpointRef, EntryPoint, EntrySide, IoSummary, McVecBox, McVecGraph, NetKind, Symbol,
+    AnchorHint, BoxKind, EndpointRef, EntryPoint, EntrySide, IoSummary, McVecBox, McVecGraph, NetKind, Symbol,
     VizNet,
 };
 use crate::vector::model::RailClass;
@@ -205,6 +205,76 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
             }
         }
     }
+
+    // ── ★ P7-7: compute anchor hints before deleting rail nets ─────────────
+    // For each rail net, find boxes that will become degree=0 after deletion
+    // (both ends are rail), and anchor them to the IC they're decoupling.
+    // The host is the box on the same rail net with the highest signal_degree
+    // (i.e., the IC that stays connected after rail removal).
+    let mut anchored = 0usize;
+    for net in &graph.nets {
+        if net.rail.is_none() {
+            continue; // only process rail nets
+        }
+        // R-1 (no driver): only sub-layers get anchors
+        if net.rail.as_ref().map_or(true, |s| s.driver_pin.is_none()) && is_top {
+            continue;
+        }
+        // Deduplicate endpoints per box
+        let mut per_box: Vec<(i64, EndpointRef)> = Vec::new();
+        for e in &net.endpoints {
+            if !per_box.iter().any(|(b, _)| *b == e.box_id) {
+                per_box.push((e.box_id, e.clone()));
+            }
+        }
+        // Find hosts: boxes on this rail net with signal_degree > 0
+        let hosts: Vec<i64> = per_box
+            .iter()
+            .map(|(b, _)| *b)
+            .filter(|b| signal_degree.get(b).copied().unwrap_or(0) > 0)
+            .collect();
+        if hosts.is_empty() {
+            continue;
+        }
+        // host = host with max pin_count
+        let host_box = hosts
+            .iter()
+            .filter_map(|&bid| {
+                graph.boxes.iter().find(|b| b.id == bid).map(|b| (bid, b.pin_count))
+            })
+            .max_by_key(|(_, pc)| *pc)
+            .map(|(bid, _)| bid);
+        let Some(host_box) = host_box else { continue };
+        let host_pin = per_box
+            .iter()
+            .find(|(b, _)| *b == host_box)
+            .map(|(_, e)| e.pin_id)
+            .unwrap_or(0);
+        let side = EntrySide::Bottom; // both Ground and Power rails: place passive below host
+        // Anchor boxes that will become degree=0
+        for (box_id, _) in &per_box {
+            if *box_id == host_box {
+                continue;
+            }
+            if signal_degree.get(box_id).copied().unwrap_or(0) > 0 {
+                continue; // still has signal connections, no anchor needed
+            }
+            if let Some(b) = graph.boxes.iter_mut().find(|b| b.id == *box_id) {
+                if b.anchor_hint.is_none() {
+                    b.anchor_hint = Some(AnchorHint {
+                        host_box,
+                        host_pin,
+                        side,
+                    });
+                    anchored += 1;
+                }
+            }
+        }
+    }
+    crate::vlog!(
+        "[layout::rails] P7-7: anchored {} passive(s) with rail anchor hints",
+        anchored
+    );
 
     // ── Apply: rail nets → driver segments + decorations ────────────────
     let n_rail = keep.iter().filter(|k| !**k).count();
