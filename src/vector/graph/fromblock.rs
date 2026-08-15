@@ -376,6 +376,11 @@ fn build_mc_vec_graph_inner(
                     b.visual_role = Some(VisualRole::BridgePassive);
                 }
                 apply_reserved_overrides(&mut b); // ★ Reserved: layout / custom symbol
+                // ★ M0-B-D/E: pass through not_fitted / origin (the primary
+                // Phase 1 path used to drop them; only the backfill path via
+                // make_box_from_id copied them — S8 saw zero NC devices)
+                b.not_fitted = entry.not_fitted;
+                b.origin = entry.origin.clone();
                 graph.boxes.push(b);
                 box_ids_set.insert(id);
             }
