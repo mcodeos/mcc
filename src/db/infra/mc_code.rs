@@ -3305,13 +3305,17 @@ impl McCode {
                         symbol_lapper.insert(Interval {
                             start: span.start,
                             stop: span.end,
-                            val: SymbolType::new(SymbolKind::ClassDef, id),
+                            val: SymbolType::new(SymbolKind::EnumDef, id),
                         });
-                        // ★ Fix: register enum ClassDef in def_map
+                        // ★ Fix: register enum head as EnumDef in def_map so
+                        // fill_refdef_layer2's EnumRef → [EnumDef] lookup
+                        // (`def_map.get(&(EnumDef, class_id))`) hits. Same-name
+                        // enum + component heads (e.g. `enum CAP` + `component
+                        // CAP` in one file) stay distinct in the dump.
                         let file_id =
                             crate::ast::ast_semantic::intern(&mut sem.file_table, uri.as_str());
                         sem.def_map.insert(
-                            (SymbolKind::ClassDef, id),
+                            (SymbolKind::EnumDef, id),
                             crate::ast::ast_semantic::SourceLocation::new(
                                 file_id,
                                 0,
