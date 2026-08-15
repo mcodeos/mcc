@@ -35,7 +35,6 @@
 
 use super::protocol::{JsonRpcError, RpcResult};
 use crate::db::cmie::tables as workspace;
-use crate::db::infra::mc_code::McCode;
 use crate::search_api::{walk_defs, SearchInputs, SearchKind};
 use crate::McURI;
 use serde::Deserialize;
@@ -255,7 +254,6 @@ fn execute_pass2(mc_uri: &McURI, top: Option<&str>) -> Result<(String, Value), J
     let top_name = match top {
         Some(t) => t.to_string(),
         None => crate::mcb_get_module_name_by_uri(mc_uri)
-            .or_else(crate::mcb_get_first_module_name)
             .ok_or_else(|| JsonRpcError::custom(32107, "no top module found"))?,
     };
 
@@ -701,19 +699,21 @@ pub(crate) fn refs_json(items: &[(String, String, [usize; 2])]) -> Vec<Value> {
 }
 
 pub(crate) fn load_libs_rpc(libs: &[String]) {
+    // Non-project mode: when the caller supplies no explicit library list,
+    // fall back to the global mcc.yaml [libs].load configuration so custom
+    // path libraries are still loaded (mcext-folder-parse-design.md §5.2).
+    let libs: Vec<String> = if libs.is_empty() {
+        crate::cli::config::get_libs_load_list(None).to_vec()
+    } else {
+        libs.to_vec()
+    };
     if libs.is_empty() {
         return;
     }
-    let system_root = crate::mcb_get_system_root();
-    let loaded = crate::mcb_loaded_libs();
-    for name in libs {
-        if loaded.contains(name) {
-            continue;
-        }
-        let root = system_root.join(name);
-        if root.exists() {
-            crate::mcb_load_lib(name, &root);
-        }
+    for name in &libs {
+        // Reuse the shared library loader: it supports absolute paths and .mc
+        // file forms, and skips libraries that are already loaded.
+        crate::mcb_load_lib_by_name(name);
     }
 }
 
@@ -1963,24 +1963,30 @@ pub(crate) fn instances_json(insts: &crate::McInstances, type_filter: Option<&st
 // Semantic data (sem tokens + symbols) for LSP
 // ============================================================================
 
-/// Detect project root from a file path and load the project
+/// Load the project for a file that is not yet in the active workspace.
+///
+/// Non-project mode: the workspace root is the configured project root (the
+/// folder opened in the editor). Only the opened file plus its `use` closure
+/// is loaded; sibling files are intentionally NOT added, so each file is
+/// parsed in its own semantic scope without bare-name pollution from
+/// unrelated definitions.
 pub(crate) fn auto_load_from_file_path(file_path: &Path) {
-    // Walk up from the file to find the project root (directory containing project.toml or .mc files)
     let project_root = find_project_root(file_path);
     info!(target: "crate::rpc", "auto_load: project_root={}", project_root.display());
 
-    // Create project workspace
-    let root_name = project_root
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| "project".to_string());
-    info!(target: "crate::rpc", "auto_load: creating workspace id={} root={}", root_name, project_root.display());
-    crate::workspace_create(&root_name, crate::WorkspaceKind::Project, &project_root);
-
-    // 1. Load entry file with mcc_load_project (triggers parse_pass1_types -> create_lapper)
-    let mut all_files = Vec::new();
-    scan_mc_files_recursive(&project_root, &project_root, &mut all_files);
-    info!(target: "crate::rpc", "auto_load: found {} .mc files", all_files.len());
+    // Reuse the active workspace when its root already matches; only create a
+    // new workspace when the root differs. This avoids snapshot/clear churn
+    // (workspace hopping) when files are opened one after another.
+    if workspace::WORKSPACE.active_root() != project_root {
+        let root_name = project_root
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| "project".to_string());
+        info!(target: "crate::rpc", "auto_load: creating workspace id={} root={}", root_name, project_root.display());
+        crate::workspace_create(&root_name, crate::WorkspaceKind::Project, &project_root);
+    } else {
+        info!(target: "crate::rpc", "auto_load: reusing active workspace root={}", project_root.display());
+    }
 
     // Load library dependencies from project.toml before parsing
     let file_uri = McURI::from(file_path.to_string_lossy().to_string());
@@ -1992,39 +1998,27 @@ pub(crate) fn auto_load_from_file_path(file_path: &Path) {
         crate::db::infra::libmgr::mcb_load_lib("mcode", &mcode_root);
     }
 
-    if let Some(entry_path) = all_files.first() {
-        let full = project_root.join(entry_path);
-        let uri = McURI::from(full.to_string_lossy().to_string());
-        info!(target: "crate::rpc", "auto_load: mcc_load_project({})", uri);
-        crate::mcc_load_project(&uri);
-    }
-
-    // 2. Add any remaining independent files that weren't loaded as dependencies
-    // (call parse_pass1_types directly to trigger create_lapper)
-    let loaded_uris: Vec<String> = workspace::WORKSPACE
-        .mcodes
-        .iter()
-        .map(|e| e.key().clone())
-        .collect();
-    for rel in &all_files {
-        let full = project_root.join(rel);
-        let uri_str = full.to_string_lossy().to_string();
-        let is_loaded = loaded_uris.iter().any(|u| u == &uri_str);
-        if !is_loaded {
-            if let Some(mut mcfile) = McCode::new(&uri_str, false) {
-                mcfile.parse_ast();
-                mcfile.parse_nsp();
-                mcfile.parse_pass1_types(); // triggers create_lapper
-                workspace::WORKSPACE.mcodes.insert(uri_str.clone(), mcfile);
-                info!(target: "crate::rpc", "auto_load: added independent {}", uri_str);
-            }
-        }
-    }
+    // Load only the entry file itself (plus its use closure via mcc_load_project).
+    // The entry is the opened file, not the first file of a directory scan: the
+    // former sibling loop is removed, so a directory scan would be wrong here.
+    let uri = McURI::from(file_path.to_string_lossy().to_string());
+    info!(target: "crate::rpc", "auto_load: mcc_load_project({})", uri);
+    crate::mcc_load_project(&uri);
 }
 
 /// Walk up from a file path to find the project root
 /// A project root is a directory containing project.toml or .mc files at top level
 pub(crate) fn find_project_root(file_path: &Path) -> PathBuf {
+    // Priority 1: the configured project root (the folder opened in the editor,
+    // set via mcext set_project_root). In non-project mode every .mc file under
+    // the opened folder is a peer, so the workspace root is always the folder
+    // itself. No upward search for a nested project.toml: sub-projects are
+    // handled as plain files (see design doc mcext-folder-parse-design.md §2.6).
+    let configured = crate::db::infra::init::mcb_get_project_root();
+    if configured.is_absolute() && !configured.as_os_str().is_empty() {
+        return configured;
+    }
+
     let mut current = if file_path.is_dir() {
         file_path.to_path_buf()
     } else {
@@ -2637,4 +2631,36 @@ pub fn register_all(
     builder = builder.register_method("completion", handle_completion);
     builder = builder.register_method("hover", handle_hover);
     builder
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn find_project_root_prefers_configured_root() {
+        // Save and restore the global project root so this test does not leak
+        // state into other tests running in the same process.
+        let saved = crate::db::infra::init::mcb_get_project_root();
+
+        let tmp = std::env::temp_dir().join(format!("mcc-root-test-{}", std::process::id()));
+        let sub = tmp.join("a").join("b");
+        fs::create_dir_all(&sub).unwrap();
+        let file = sub.join("x.mc");
+        fs::write(&file, "").unwrap();
+
+        // Configured root wins regardless of the file location: the opened
+        // folder is the single workspace root in non-project mode.
+        crate::db::infra::init::mcb_set_project_root(&tmp);
+        assert_eq!(find_project_root(&file), tmp);
+
+        // Empty configured root falls back to the original walk-up logic:
+        // the first directory containing .mc files (here: the file's parent).
+        crate::db::infra::init::mcb_set_project_root(std::path::Path::new(""));
+        assert_eq!(find_project_root(&file), sub);
+
+        fs::remove_dir_all(&tmp).unwrap();
+        crate::db::infra::init::mcb_set_project_root(&saved);
+    }
 }

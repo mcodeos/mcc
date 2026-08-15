@@ -276,6 +276,68 @@ pub fn mcb_lib_info(name: &str) -> Option<LibInfo> {
     })
 }
 
+/// Load a single library by name or path.
+///
+/// Supports absolute paths and `.mc` file forms (e.g. "mcode/mcode.mc"),
+/// and skips libraries that are already truly loaded (interfaces counted).
+/// Falls back to ~/.mcode when the system root is empty or the joined
+/// path does not exist. Shared by the CLI and the RPC layer so that
+/// non-project builds honor the global mcc.yaml [libs].load list.
+pub fn mcb_load_lib_by_name(lib_name: &str) {
+    let system_root = crate::mcb_get_system_root();
+
+    // Determine the actual root to use (flat layout).
+    let lib_path = if system_root.as_os_str().is_empty() {
+        let default_root = dirs::home_dir()
+            .map(|h| h.join(".mcode"))
+            .unwrap_or_else(|| std::path::PathBuf::from(".mcode"));
+        default_root.join(lib_name)
+    } else {
+        let joined = system_root.join(lib_name);
+        if !joined.exists() {
+            let default_root = dirs::home_dir()
+                .map(|h| h.join(".mcode"))
+                .unwrap_or_else(|| std::path::PathBuf::from(".mcode"));
+            default_root.join(lib_name)
+        } else {
+            joined
+        }
+    };
+
+    // Normalize: if lib_name is a .mc file path, extract the library name
+    // and root directory. e.g. "mcode/mcode.mc" -> name="mcode", root=system_root/mcode
+    let (name, root) = if lib_path.extension().map_or(false, |e| e == "mc") {
+        let name = lib_path
+            .file_stem()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .to_string();
+        let root = lib_path
+            .parent()
+            .map(|p| p.to_path_buf())
+            .unwrap_or(system_root);
+        (name, root)
+    } else {
+        (lib_name.to_string(), lib_path)
+    };
+
+    // Check if the library truly loaded interfaces (built-in components do
+    // not count; interfaces are required for the library to count as loaded).
+    let lib_info = crate::mcb_lib_info(&name);
+    let interface_count = lib_info.as_ref().map(|i| i.interface_count).unwrap_or(0);
+    if root.exists() && (!crate::mcb_loaded_libs().contains(&name) || interface_count == 0) {
+        tracing::info!(target: "mcc::lib",
+            lib = name,
+            path = ?root,
+            "loading library");
+        crate::mcb_load_lib(&name, &root);
+    } else if !root.exists() {
+        tracing::warn!(target: "mcc::lib",
+            lib = name,
+            "library not found in system root");
+    }
+}
+
 // ============================================================================
 // Internal helper functions
 // ============================================================================

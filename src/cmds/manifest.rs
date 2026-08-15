@@ -215,62 +215,7 @@ pub fn collect_libs(project_root: Option<&Path>, cli_libs: &[String]) -> Vec<Str
 /// Load exactly the given library names. No automatic global config loading.
 pub fn load_libs(lib_names: &[String]) {
     for lib_name in lib_names {
-        load_lib_by_name(lib_name);
-    }
-}
-
-/// Load a single library by name or path.
-fn load_lib_by_name(lib_name: &str) {
-    let system_root = mcc::mcb_get_system_root();
-
-    // Determine the actual root to use (flat layout).
-    let lib_path = if system_root.as_os_str().is_empty() {
-        let default_root = dirs::home_dir()
-            .map(|h| h.join(".mcode"))
-            .unwrap_or_else(|| std::path::PathBuf::from(".mcode"));
-        default_root.join(lib_name)
-    } else {
-        let joined = system_root.join(lib_name);
-        if !joined.exists() {
-            let default_root = dirs::home_dir()
-                .map(|h| h.join(".mcode"))
-                .unwrap_or_else(|| std::path::PathBuf::from(".mcode"));
-            default_root.join(lib_name)
-        } else {
-            joined
-        }
-    };
-
-    // Normalize: if lib_name is a .mc file path, extract the library name
-    // and root directory. e.g. "mcode/mcode.mc" → name="mcode", root=system_root/mcode
-    let (name, root) = if lib_path.extension().map_or(false, |e| e == "mc") {
-        let name = lib_path
-            .file_stem()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .to_string();
-        let root = lib_path
-            .parent()
-            .map(|p| p.to_path_buf())
-            .unwrap_or(system_root);
-        (name, root)
-    } else {
-        (lib_name.to_string(), lib_path)
-    };
-
-    // Check if library truly loaded interfaces (built-in components don't count, need interfaces to count as truly loaded)
-    let lib_info = mcc::mcb_lib_info(&name);
-    let interface_count = lib_info.as_ref().map(|i| i.interface_count).unwrap_or(0);
-    if root.exists() && (!mcc::mcb_loaded_libs().contains(&name) || interface_count == 0) {
-        tracing::info!(target: "mcc::lib",
-            lib = name,
-            path = ?root,
-            "loading library");
-        mcc::mcb_load_lib(&name, &root);
-    } else if !root.exists() {
-        tracing::warn!(target: "mcc::lib",
-            lib = name,
-            "library not found in system root");
+        mcc::mcb_load_lib_by_name(lib_name);
     }
 }
 
