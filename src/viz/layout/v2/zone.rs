@@ -33,7 +33,7 @@ pub const MAX_ZONE_DEPTH: usize = 2;
 #[derive(Debug, Clone)]
 pub struct Zone {
     pub id: usize,
-    /// Path, e.g. "main.modldo"
+    /// Path, e.g. "main.ldo"
     pub path: String,
     /// Display title, e.g. "POWER_LDO"
     pub title: String,
@@ -60,7 +60,7 @@ pub struct ZoneTree {
 /// Prefix tree node (used during construction)
 #[derive(Debug, Clone)]
 struct TrieNode {
-    /// Full path (e.g. "main.modldo")
+    /// Full path (e.g. "main.ldo")
     path: String,
     /// Depth (starting from 0)
     depth: usize,
@@ -150,11 +150,12 @@ impl ZoneTree {
             .collect();
 
         // ── Logging ──
-        let leaf_count = flattened
+        let leaf_count = flattened.iter().filter(|z| z.children.is_empty()).count();
+        let max_depth = flattened
             .iter()
-            .filter(|z| z.children.is_empty())
-            .count();
-        let max_depth = flattened.iter().map(|z| z.path.matches('.').count()).max().unwrap_or(0);
+            .map(|z| z.path.matches('.').count())
+            .max()
+            .unwrap_or(0);
         mcc_dbg!(
             "viz",
             "[zone] tree: {} root zone(s), {} leaf zone(s), depth={}",
@@ -170,10 +171,17 @@ impl ZoneTree {
             .filter(|z| z.boxes.len() < MIN_ZONE_SIZE && z.children.is_empty())
             .count();
         if tiny_merged > 0 {
-            mcc_dbg!("viz", "[zone] merged {} tiny zone(s) into parent", tiny_merged);
+            mcc_dbg!(
+                "viz",
+                "[zone] merged {} tiny zone(s) into parent",
+                tiny_merged
+            );
         }
 
-        ZoneTree { zones: flattened, roots }
+        ZoneTree {
+            zones: flattened,
+            roots,
+        }
     }
 }
 
@@ -203,7 +211,11 @@ fn flatten_trie(root: &mut TrieNode, zones: &mut Vec<Zone>, parent: Option<usize
     // If it has child zones or its own boxes → create a zone
     if !child_zone_ids.is_empty() || !root_boxes.is_empty() {
         let id = zones.len();
-        let title = zone_title(if root.path.is_empty() { "main" } else { &root.path });
+        let title = zone_title(if root.path.is_empty() {
+            "main"
+        } else {
+            &root.path
+        });
         let zone = Zone {
             id,
             path: if root.path.is_empty() {
@@ -432,10 +444,18 @@ mod tests {
     fn test_zone_tree_modules() {
         // Multiple submodules → multiple zones
         let mut graph = empty_graph();
-        graph.boxes.push(make_box(1, "main.modldo.ldo", BoxKind::MultiPin));
-        graph.boxes.push(make_box(2, "main.moddcdc.dcdc", BoxKind::MultiPin));
-        graph.boxes.push(make_box(3, "main.mic.MIC", BoxKind::MultiPin));
-        graph.boxes.push(make_box(4, "main.speaker.SPK", BoxKind::MultiPin));
+        graph
+            .boxes
+            .push(make_box(1, "main.modldo.ldo", BoxKind::MultiPin));
+        graph
+            .boxes
+            .push(make_box(2, "main.moddcdc.dcdc", BoxKind::MultiPin));
+        graph
+            .boxes
+            .push(make_box(3, "main.mic.MIC", BoxKind::MultiPin));
+        graph
+            .boxes
+            .push(make_box(4, "main.speaker.SPK", BoxKind::MultiPin));
 
         let tree = ZoneTree::build(&graph);
         // Each module should be one zone
@@ -448,8 +468,12 @@ mod tests {
     fn test_zone_tree_excludes_power_labels() {
         let mut graph = empty_graph();
         graph.boxes.push(make_box(1, "main.R1", BoxKind::TwoPin));
-        graph.boxes.push(make_box(2, "main.GND", BoxKind::PowerLabel));
-        graph.boxes.push(make_box(3, "main.VDD", BoxKind::PowerLabel));
+        graph
+            .boxes
+            .push(make_box(2, "main.GND", BoxKind::PowerLabel));
+        graph
+            .boxes
+            .push(make_box(3, "main.VDD", BoxKind::PowerLabel));
 
         let tree = ZoneTree::build(&graph);
         let total_boxes: usize = tree.zones.iter().map(|z| z.boxes.len()).sum();
@@ -461,9 +485,15 @@ mod tests {
     fn test_zone_tree_nested() {
         // Nested modules → reasonable structure after flattening
         let mut graph = empty_graph();
-        graph.boxes.push(make_box(1, "main.pwr.ldo.ldo", BoxKind::MultiPin));
-        graph.boxes.push(make_box(2, "main.pwr.dcdc.dcdc", BoxKind::MultiPin));
-        graph.boxes.push(make_box(3, "main.audio.mic.MIC", BoxKind::MultiPin));
+        graph
+            .boxes
+            .push(make_box(1, "main.pwr.ldo.ldo", BoxKind::MultiPin));
+        graph
+            .boxes
+            .push(make_box(2, "main.pwr.dcdc.dcdc", BoxKind::MultiPin));
+        graph
+            .boxes
+            .push(make_box(3, "main.audio.mic.MIC", BoxKind::MultiPin));
 
         let tree = ZoneTree::build(&graph);
         // Should have a reasonable partition structure

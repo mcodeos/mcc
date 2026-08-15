@@ -27,7 +27,7 @@
 //!
 //! ## ★ P08 (S4) Changes
 //! Previously `apply_promote_in_place` hard-overwrote the `kind` of all inter-box nets to
-//! `SubModuleIO`, causing top-level nets like "VCC connects to mcu513" to no longer be recognized
+//! `SubModuleIO`, causing top-level nets like "VCC connects to mcu" to no longer be recognized
 //! as power nets, and the hierarchical layout's "power on top" promise failed on the spot.
 //! P08 now uses [`merge_net_kinds`] to merge: Power/Ground take priority and won't be overridden
 //! by SubModuleIO.
@@ -233,9 +233,9 @@ fn classify_nets_by_box_coverage(nets: &[VizNet], layer_box_ids: &HashSet<i64>) 
 
 /// "Promote" a net's endpoints to sub-module ports
 ///
-/// When a cross-module net connects to a specific pin inside a sub-module (e.g. `mcu513.pin42`),
+/// When a cross-module net connects to a specific pin inside a sub-module (e.g. `mcu.pin42`),
 /// the top-level view should display this endpoint as the corresponding sub-module port
-/// (e.g. `mcu513.UART_TX`), rather than leaking the internal pin name.
+/// (e.g. `mcu.UART_TX`), rather than leaking the internal pin name.
 ///
 /// This function currently only does **box_id truncation** (assign endpoints to the top-level
 /// box they belong to). True "port name remapping" requires InstTable to provide `pin -> port`
@@ -286,9 +286,9 @@ pub fn lift_endpoints_to_layer_boxes(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vector::graph::netdef::NetRole;
     use crate::vector::graph::boxdef::{IoSummary, McVecBox};
     use crate::vector::graph::kinds::{BoxKind, NetKind};
+    use crate::vector::graph::netdef::NetRole;
 
     fn mk_box(id: i64, kind: BoxKind) -> McVecBox {
         McVecBox::new(

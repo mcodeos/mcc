@@ -314,7 +314,11 @@ pub fn build_trunk_tap_route<'a>(
                 .unwrap_or(false);
             if hit {
                 let detour = super::obstacles::best_orthogonal_path(
-                    sx, sy, trunk_pt.x, trunk_pt.y, opts.obstacles.unwrap(),
+                    sx,
+                    sy,
+                    trunk_pt.x,
+                    trunk_pt.y,
+                    opts.obstacles.unwrap(),
                 );
                 for (x1, y1, x2, y2) in detour {
                     route.segments.push(Segment {
@@ -374,10 +378,7 @@ fn collect_exits(graph: &McVecGraph, net: &VizNet) -> Vec<((f64, f64), ExitSide)
 ///
 /// ★ M4: obstacle-aware —— first try direction-aware orthogonal_path;
 /// if it hits an obstacle, fall back to best_orthogonal_path (4 L/Z candidates + detour).
-fn build_two_point_route(
-    exits: &[((f64, f64), ExitSide)],
-    obstacles: &ObstacleMap,
-) -> Route {
+fn build_two_point_route(exits: &[((f64, f64), ExitSide)], obstacles: &ObstacleMap) -> Route {
     let mut route = Route::new();
     let (a, sa) = exits[0];
     let (b, sb) = exits[1];

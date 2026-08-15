@@ -134,9 +134,7 @@ impl Router for StarRouter {
 
                 // ★ FIX (M4): use obstacle-aware spoke routing instead of
                 //   raw orthogonal_path which ignores obstacles.
-                for (x1, y1, x2, y2) in
-                    spoke_segments(&obstacles, sp, (cx, cy), ss, d_side)
-                {
+                for (x1, y1, x2, y2) in spoke_segments(&obstacles, sp, (cx, cy), ss, d_side) {
                     route.segments.push(Segment {
                         from: Point::new(x1, y1),
                         to: Point::new(x2, y2),

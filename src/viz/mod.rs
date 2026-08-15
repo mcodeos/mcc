@@ -74,9 +74,7 @@ pub use doc::VizDocument;
 pub use layer::VizLayer;
 
 // trait + default implementations
-pub use traits::{
-    DefaultRenderer, Layouter, LegacyRenderer, NoopRouter, Renderer, Router,
-};
+pub use traits::{DefaultRenderer, Layouter, LegacyRenderer, NoopRouter, Renderer, Router};
 
 // Layout algorithms
 pub use layout::FlowLayouter;

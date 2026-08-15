@@ -89,7 +89,7 @@ pub fn mcb_get_refs(name: &str) -> Vec<(String, String, Span)> {
 /// If already registered, returns the existing id; otherwise computes a stable
 /// (hash-based) DeclareId and stores it in an available file's global table.
 ///
-/// ★ Fix (Defect 73): Previously used `gt.add_class()` which assigns a sequential
+/// ★ Previously used `gt.add_class()` which assigns a sequential
 /// id from whatever file's per-file counter happened to be first in DashMap
 /// iteration order — non-deterministic and meaningless to the referencing file.
 /// Now uses `assign_declare_id_stable` for a deterministic id based on (uri, name).
@@ -140,7 +140,7 @@ fn register_lib_class_in_global_table(
 // === pub fn mcb_register_declare_class(uri: &McURI, class_name: McIds, span: Span) { ===
 /// 🆕 Register a class reference for goto-definition
 ///
-/// Called when a class name is used in a declare statement (e.g., `MCU.US513_20_F uC`).
+/// Called when a class name is used in a declare statement (e.g., `comp.sub uC`).
 /// Registers the class reference so LSP can jump from the reference to the class definition.
 pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Span) {
     // ★ Fix: mc_value_link (C-side) extends MCAST_IDS node `len` to include
@@ -332,7 +332,7 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
             class_name.clone(),
         ));
     } else {
-        // ★ Fix (Defect 72): Do NOT emit E1601 here during P4, because WORKSPACE.modules
+        // ★ Do NOT emit E1601 here during P4, because WORKSPACE.modules
         // is empty at that point (modules are registered in P5). The class ref is stored
         // below with DeclareId::default() sentinel; resolve_class_ref_at_span in
         // create_lapper will re-resolve it correctly after all modules are parsed.

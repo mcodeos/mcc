@@ -38,7 +38,10 @@ pub struct Partition {
 impl Partition {
     pub fn from_assignment(assignment: BTreeMap<u32, u32>) -> Self {
         let item_count = assignment.len();
-        let cluster_count = assignment.values().collect::<std::collections::BTreeSet<_>>().len();
+        let cluster_count = assignment
+            .values()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
         Self {
             assignment,
             item_count,
@@ -181,13 +184,19 @@ impl AlignMetricsReport {
     pub fn render(&self) -> String {
         use std::fmt::Write;
         let mut s = String::new();
-        let _ = writeln!(s, "┌ align_metrics ────────────────────────────────────────────────────");
+        let _ = writeln!(
+            s,
+            "┌ align_metrics ────────────────────────────────────────────────────"
+        );
         let _ = writeln!(
             s,
             "│ {} modules / {} components",
             self.module_count, self.component_count
         );
-        let _ = writeln!(s, "├───────────────────────────────────────────────────────────────────");
+        let _ = writeln!(
+            s,
+            "├───────────────────────────────────────────────────────────────────"
+        );
         let _ = writeln!(
             s,
             "│ Rand index (self-consistency):  {:.4}  {}",

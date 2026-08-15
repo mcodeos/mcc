@@ -320,7 +320,7 @@ pub fn promote_synthetic_pins(graph: &mut McVecGraph) {
 /// Composite / bundle ports (like `[VDD_3V3, VCC_1V2]`, `[X, GND]`) flatten to **one**
 /// `pin_id`, but may appear in **multiple different nets** simultaneously (3V3 net + 1V2 net, or GND net + signal net).
 /// Renderer draws one pin per `pin_id` → multiple wires connect at **one point**, visually multiple wires fan out from one
-/// point on component (user feedback: mcu513's 3V3/1V2, flash's left/right sides).
+/// point on component (user feedback: mcu's 3V3/1V2, flash's left/right sides).
 ///
 /// Note: This is different from offset collision — here component has only **one** entry point, rearranging offset
 /// can't help, must **split this pin into multiple independent pins**.
@@ -569,7 +569,7 @@ pub fn assign_entry_points_refine(graph: &mut McVecGraph) {
             let preferred = pick_side_by_direction(dx, dy);
 
             // ★ Collision-aware: if straight line "towards neighbor" (box center→neighbor center) passes through other boxes,
-            //   don't face it (will hit head-on, e.g., dc straight down towards speaker passes through moddcdc);
+            //   don't face it (will hit head-on, e.g., dc straight down towards speaker passes through dcdc);
             //   change to perpendicular side with more empty space, let router route around.
             let mut exclude: HashSet<i64> = nbrs.iter().copied().collect();
             exclude.insert(b.id);
@@ -1008,7 +1008,9 @@ fn compute_entry_points(
         b.pin_constraint == crate::vector::graph::PinConstraint::Free
             || b.layout_hint.as_ref().is_some_and(|l| !l.is_empty()),
         "box#{} '{}' pin_constraint={:?} but layout_hint is empty — cannot honor constraint",
-        b.id, b.name, b.pin_constraint
+        b.id,
+        b.name,
+        b.pin_constraint
     );
 
     // ★ Reserved interface ①: if component gives explicit layout hint, use it (builder doesn't fill today → None → skip).
@@ -1241,7 +1243,7 @@ fn ep_for_multi_pin(pins: &[(i64, String)], connected: &HashSet<i64>) -> Vec<Ent
     // Professional IC symbol layout: pins **all on left/right sides**, evenly spread, not stacked on top/bottom.
     //   - Top/bottom edges in auto mode **no pins** (reserved for power/ground flags by place_flags, and future overflow).
     //     Previously "throwing unconnected pins to top/bottom" caused long-named ports to crowd at narrow box's top/bottom edges, overlapping —
-    //     exactly the mcu513 top/bottom cluster in the screenshot. After changing to all-left/right, pins spread along height direction and won't crowd.
+    //     exactly the mcu top/bottom cluster in the screenshot. After changing to all-left/right, pins spread along height direction and won't crowd.
     //   - Connected pins placed at each side's **front** (core connection position), unconnected pins at each side's **end** (secondary position),
     //     but both on left/right, no conflict or waste.
     //   - Left/right count strictly balanced (alternating distribution), prevent same-direction clustering.

@@ -13,9 +13,9 @@
 //! In debug builds, after `apply` returns every box is tagged `geom_written_by_v2 = true`;
 //! any later pass that modifies coordinates panics and identifies the writer.
 
+use super::plan::Plan;
 use crate::vector::graph::boxdef::ZoneBorder;
 use crate::vector::graph::{BoxKind, McVecGraph};
-use super::plan::Plan;
 use std::collections::HashMap;
 
 /// Routing channel width (reserved between layers)
@@ -81,10 +81,7 @@ fn is_passive(kind: &BoxKind) -> bool {
 /// With no IC neighbor return None (grid fallback later).
 ///
 /// Returns HashMap<passive_box_id, Anchor>
-fn build_passive_anchors(
-    graph: &McVecGraph,
-    zone_box_ids: &[i64],
-) -> HashMap<i64, Anchor> {
+fn build_passive_anchors(graph: &McVecGraph, zone_box_ids: &[i64]) -> HashMap<i64, Anchor> {
     // Collect the zone's ICs and passive devices
     let ic_ids: Vec<i64> = graph
         .boxes
@@ -143,10 +140,7 @@ fn build_passive_anchors(
 
     for pid in &passive_ids {
         if let Some(ic_map) = connections.get(pid) {
-            if let Some((&best_ic, _)) = ic_map
-                .iter()
-                .max_by_key(|(_, count)| *count)
-            {
+            if let Some((&best_ic, _)) = ic_map.iter().max_by_key(|(_, count)| *count) {
                 // Alternate left/right assignment
                 let left = ic_left_count.get(&best_ic).copied().unwrap_or(0);
                 let right = ic_right_count.get(&best_ic).copied().unwrap_or(0);
@@ -210,7 +204,8 @@ pub fn apply(graph: &mut McVecGraph, plan: &Plan) {
     }
 
     // Build zone → arrangement mapping
-    let mut zone_arr: std::collections::HashMap<usize, &Vec<Vec<i64>>> = std::collections::HashMap::new();
+    let mut zone_arr: std::collections::HashMap<usize, &Vec<Vec<i64>>> =
+        std::collections::HashMap::new();
     for arr in &plan.arrangements {
         zone_arr.insert(arr.zone, &arr.layers);
     }

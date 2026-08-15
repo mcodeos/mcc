@@ -62,8 +62,8 @@ pub enum ResolutionOutcome {
     BracketExpanded { member: String },
     /// ── ★ Phase D ─────────────────────────────────────────────────
     /// bare name matches a member of a bracket-form Port in this module
-    /// example `path="VDD_3V3"` + `module_path="main.mcu513"` hits
-    /// `main.mcu513.[VDD_3V3, GND]` (id=NNN), returns that Port's id.
+    /// example `path="VDD_3V3"` + `module_path="main.mcu"` hits
+    /// `main.mcu.[VDD_3V3, GND]` (id=NNN), returns that Port's id.
     BracketPortMember { member: String, port_path: String },
     /// All failed
     Failed,

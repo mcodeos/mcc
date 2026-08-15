@@ -102,8 +102,8 @@ fn run_single(
     place_series_passives(&mut graph);
     place_passive_chains(&mut graph);
     place_bridge_passives(&mut graph); // ★ P2: bridge passives (transposed CAP in two-lane series)
-    // ★ P7-5 S3/S4a/S5: grounded passives stand vertically (GND end down);
-    // transposed rungs that bridge placement couldn't reach get the rung shape.
+                                       // ★ P7-5 S3/S4a/S5: grounded passives stand vertically (GND end down);
+                                       // transposed rungs that bridge placement couldn't reach get the rung shape.
     let stood = super::passive_inline::stand_grounded_passives(&mut graph);
     if stood > 0 {
         crate::vlog!("[layout::passive_inline] stood up {stood} grounded passive(s)");
@@ -376,7 +376,7 @@ fn compute_fidelity(
 mod tests {
     use super::*;
     use crate::vector::graph::boxdef::IoSummary;
-    use crate::vector::graph::{BoxKind, EndpointRef, McVecBox, NetKind, Symbol, NetRole, VizNet};
+    use crate::vector::graph::{BoxKind, EndpointRef, McVecBox, NetKind, NetRole, Symbol, VizNet};
     use crate::viz::layout::FlowLayouter;
     use crate::viz::traits::Layouter;
 

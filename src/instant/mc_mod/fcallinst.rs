@@ -122,7 +122,9 @@ impl McModuleInst {
                 }
             };
         // ★ M0-B-E: mark the funcall origin
-        inst.origin = InstOrigin::FuncCall { fn_name: type_name.clone() };
+        inst.origin = InstOrigin::FuncCall {
+            fn_name: type_name.clone(),
+        };
 
         // ── Iter-3.E3 + P4 ───────────────────────────────────────────────
         // Filter out synthetic interface placeholders that mc_fcall.rs injects when
@@ -136,18 +138,18 @@ impl McModuleInst {
         // Key fact: the left/right entering instantiate_**component**_construction
         // are **the component's own interface endpoints** — for legitimate items
         // (chain neighbor / net / real pin, e.g. V3V3 / flash.VCC /
-        // lp322dcdc.Vin / GND / flash._CS) **the trailing segment is never bare
+        // dcdc.Vin / GND / flash._CS) **the trailing segment is never bare
         // in / out**; only the synthetic placeholders from mc_fcall.rs:882/891
         // have trailing segments in / out (their base, after constructor/method
         // body prefixing, may be type_name(RES), host name
-        // (flash/lp322dcdc/uC/X6), or even flash.CAP multi-segment form — the
+        // (flash/dcdc/uC/X6), or even flash.CAP multi-segment form — the
         // original Iter-3.E3 only compared the exact string `{type_name}.in`,
         // missing all of them). Sub-module construction goes through
         // instantiate_**module**_construction, and `.in/.out` port expansion is
         // handled in resolve_funccall_*_points, not here. So dropping all
         // trailing "in/out" here is safe and complete (CLAUDE.md P4: clears the
         // `<host>.in ~ part.pin1` / `part.pin2 ~ <host>.out` phantom short
-        // circuits for flash/lp322dcdc/uC/X6).
+        // circuits for flash/dcdc/uC/X6).
         let is_placeholder =
             |e: &McBus| matches!(e.name.rsplit_once('.'), Some((_, "in")) | Some((_, "out")));
         let left_filtered: Vec<McBus> = left
@@ -670,10 +672,10 @@ impl McModuleInst {
 
     /// ── P3: Sub-module method ────────────────────────────────────────────────
     /// The method body expands **inside the sub-module instance**:
-    ///   - Internal components like `uC` are resolved in place (no longer leak `mcu513.uC`)
+    ///   - Internal components like `uC` are resolved in place (no longer leak `mcu.uC`)
     ///   - Pull-ups / address resistors created by `uC.i2c(0x36)` go into the **sub-module**'s components
     ///   - `uC.I2C0 ~ I2C0` becomes an internal sub-module connection
-    ///     (flattened: `mcu513.uC.I2C0 ~ mcu513.I2C0`)
+    ///     (flattened: `mcu.uC.I2C0 ~ mcu.I2C0`)
     /// Parent-scope formals (bound to parent module's component/port/label, e.g. `flash.SPI`):
     ///   - **Not substituted** in body; keep the formal name (e.g. `spi`) as the sub-module boundary label
     ///   - In the parent module, connect by `parent_actual ~ inst.formal`
@@ -687,7 +689,7 @@ impl McModuleInst {
         // ── P2-8: skip if already auto-invoked ──
         // Module-level functions (closures) with arity=0 are auto-invoked
         // during instantiate(). When a parent module explicitly calls the
-        // same function (e.g. `mcu513.i2c()`), the body should not be
+        // same function (e.g. `mcu.i2c()`), the body should not be
         // executed again — it would create duplicate components and wrong
         // connections.
         {
@@ -813,7 +815,7 @@ impl McModuleInst {
         }
 
         // Phase B: Boundary connections (in parent module self)
-        //   Parent actual (flash.SPI) ~ sub-module boundary label (mcu513.spi)
+        //   Parent actual (flash.SPI) ~ sub-module boundary label (mcu.spi)
         //   The 4-member expansion + zip of both SPI buses is completed by P2;
         //   P3 establishes this path first.
         //
@@ -874,7 +876,7 @@ impl McModuleInst {
             // ── P2-2: use the declared port name for the boundary connection ──
             // Use the declared port name (e.g. "SPI") instead of the formal
             // parameter name (e.g. "spi") to match the submodule's port declaration.
-            // Pin IDs are placed directly under the instance name (e.g. "mcu513.10")
+            // Pin IDs are placed directly under the instance name (e.g. "mcu.10")
             // to align with the golden netlist format.
             let boundary_name = format!("{inst_name}.{declared_port_name}");
             let pin_ids: Option<Vec<(String, String)>> =
@@ -901,15 +903,18 @@ impl McModuleInst {
             self.create_connection(left, right, ConnDir::Undirected, None)?;
 
             // ── P2-2: register boundary pin IDs as port members on the submodule ──
-            // The boundary connection creates pins like mcu513.10, which need to be
+            // The boundary connection creates pins like mcu.10, which need to be
             // registered as port entries in the InstTable for flatten_nets to resolve
             // them. Without this, the pins are silently dropped from the actual nets.
             if let Some(ref pids) = pin_ids {
                 if pids.len() >= 2 {
                     if let Some(sub) = self.sub_modules.iter_mut().find(|s| s.name == inst_name) {
-                        if let Some(port) = sub.ports.iter_mut().find(|p| p.name == declared_port_name) {
+                        if let Some(port) =
+                            sub.ports.iter_mut().find(|p| p.name == declared_port_name)
+                        {
                             if port.bus_members.is_empty() {
-                                let members: Vec<String> = pids.iter().map(|(_, pid)| pid.clone()).collect();
+                                let members: Vec<String> =
+                                    pids.iter().map(|(_, pid)| pid.clone()).collect();
                                 port.bus_members = members;
                             }
                         }
@@ -1031,21 +1036,42 @@ impl McModuleInst {
                         }
                     }
                 }
-                // ── P2-10 fix: For Interface ports, reorder members by the
-                // interface's pin declaration order (BTreeMap key order = pin ID order).
-                // Without this, BTreeMap iteration of names_to_id collects dot-separated
-                // member names alphabetically (e.g. UART0.RX before UART0.TX), causing
-                // cross-wiring with component arrays like res[1:2].
+                // ── P2-10 fix: For Interface ports, reorder members using the
+                // component's own dot-separated pin names (e.g. VIN.Vin, VIN.GND),
+                // in the interface's declaration order (registered_pins).
+                // The interface definition's base pin names (e.g. VCC/GND for a
+                // DC interface) are generic and do not match the component's
+                // member names; using them registers buses with wrong member
+                // names (e.g. ldo.VIN = [VCC, GND]) that never resolve to
+                // physical pins.
                 for (name, port) in comp.def.pins.names_to_id.iter() {
                     if let crate::semantic::component::mc_pins::McPinPort::Interface(iface) = port {
                         if bus_members.contains_key(name) {
-                            // Get member order from the interface's pin declaration
+                            let prefix = format!("{name}.");
                             let mut ordered: Vec<String> = Vec::new();
-                            // BTreeMap<pin_id, McPin> iterates in pin-ID order (1, 2, …)
-                            for pin in iface.base.pins.pins.values() {
-                                if let Some(first_name) = pin.names.first() {
-                                    if !ordered.contains(first_name) {
-                                        ordered.push(first_name.clone());
+                            // Walk the interface's registered pin IDs in
+                            // declaration order, then resolve each pin to the
+                            // component's own dot-separated member name.
+                            for pid in &iface.registered_pins {
+                                if let Some(member_names) = comp.def.pins.pin_id_to_names.get(pid) {
+                                    for n in member_names {
+                                        if let Some(m) = n.strip_prefix(&prefix) {
+                                            if !ordered.contains(&m.to_string()) {
+                                                ordered.push(m.to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            // Fall back to the interface's pin declaration order
+                            // when the component has no dot-separated names for
+                            // the port.
+                            if ordered.len() < 2 {
+                                for pin in iface.base.pins.pins.values() {
+                                    if let Some(first_name) = pin.names.first() {
+                                        if !ordered.contains(first_name) {
+                                            ordered.push(first_name.clone());
+                                        }
                                     }
                                 }
                             }
@@ -1214,7 +1240,7 @@ impl McModuleInst {
     /// so after a component method / constructor func body is processed, if any
     /// new connection has an endpoint that is exactly `<inst>.in` / `<inst>.out`,
     /// it must be a leaked phantom node (observed: `flash.in ~ CAP_1.1`,
-    /// `lp322dcdc.in ~ RES_1.1`, `uC.in ~ CAP_3.1`, `X6.in ~ CAP_4.1`). These
+    /// `dcdc.in ~ RES_1.1`, `uC.in ~ CAP_3.1`, `X6.in ~ CAP_4.1`). These
     /// phantom nodes cross-short with real connections (CLAUDE.md P4).
     ///
     /// points.rs's `[FIX-C]` is supposed to quarantine such `<host>.in` into
@@ -1468,7 +1494,7 @@ impl McModuleInst {
             // prefixed; others are prefixed.
             // Example: enable() body `Vin -> RES(47kΩ) -> EN`; Vin and EN are
             // aliases for component pins and must become
-            // `lp322dcdc.Vin` / `lp322dcdc.EN`.
+            // `dcdc.Vin` / `dcdc.EN`.
             // Previously, Label was cloned directly, producing ghosts like
             // ".1 : Vin.Vin ~ .1" (because Vin stayed as Label, and get_points
             // resolved it as the anonymous owner's pin).
@@ -1533,7 +1559,7 @@ impl McModuleInst {
             // ── P2 fix: Component / Module endpoints must also be prefixed ──────────────
             // Previously they were kept as-is, so `uC` (an internal component of
             // the sub-module) in the func body could not be found in the parent
-            // module's scope. Now we prefix to a `mcu513.uC` form Bus, allowing
+            // module's scope. Now we prefix to a `mcu.uC` form Bus, allowing
             // Pass2's scope-chain dispatch to correctly drill down into the
             // sub-module's internal components.
             //
@@ -1580,14 +1606,14 @@ impl McModuleInst {
                     phrase.clone()
                 } else {
                     let new_bus = McBus::new_with_members(inst_name, l.member.clone());
-                    McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(
-                        McInstance::Bus(new_bus),
-                    )))
+                    McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
+                        new_bus,
+                    ))))
                 }
             }
             // ── P3-1: Interface variant must be prefixed like Component/Module ──
             // When a component method body references its own interface port
-            // (e.g. XTAL in Crystal2.DST310S.setup), the Interface variant
+            // (e.g. XTAL in Crystal2.sub.setup), the Interface variant
             // needs to be prefixed with the instance name (e.g. X6.XTAL) so
             // that downstream expand_port_lanes can find the component and
             // resolve physical pin IDs.
@@ -1687,7 +1713,7 @@ impl McModuleInst {
         // ── P2 fix: dotted names no longer skip unconditionally ─────────
         // Previously: `uC.in`, `uC.VDD` were both skipped because they contain '.'.
         // But `uC` is an internal component of the sub-module, which needs to be
-        // prefixed to `mcu513.uC.VDD`.
+        // prefixed to `mcu.uC.VDD`.
         // Now: only skip when the first segment is in the skip set (e.g. `flash`
         // in `flash.SPI` is an actual); otherwise continue prefixing.
         if elem.name.contains('.') {

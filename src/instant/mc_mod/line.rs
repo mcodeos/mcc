@@ -837,9 +837,9 @@ impl McModuleInst {
                 // side size=0, connections swallowed.
                 //
                 // Verified hit cases (from 5.2-diag):
-                //   - `[VDD_3V3, GND] -> lp322dcdc{Vin, GND}` (power.mc:101)
+                //   - `[VDD_3V3, GND] -> dcdc{Vin, GND}` (power.mc:101)
                 //     → `Multiple([Label(VDD_3V3), Label(GND)])`, L_size=0
-                //   - `MIC{P,N} -> cap[4:5]::CAP(1uF) -> uC.ADC{P,N}` (us513.mc:147)
+                //   - `MIC{P,N} -> cap[4:5]::CAP(1uF) -> uC.ADC{P,N}` (main.mc:147)
                 //     → `Multiple([Component(@CAPx), Component(@CAPy)])`,
                 //     L_size=0 / R_size=0 → cap4/cap5 isolated
                 //   - `RES(10kΩ) -> [lpa.EN, US_SPEAKER_MUTE]` (periph.mc:104)
@@ -877,7 +877,7 @@ impl McModuleInst {
                 // produces [Bus(Name, [a]), Bus(Name, [b]), ...] multiple adjacent
                 // phrases entering Series.
                 //
-                // Verified case (us513.mc:147):
+                // Verified case (main.mc:147):
                 //   `MIC{P,N} -> cap[4:5]::CAP(1uF) -> uC.ADC{P,N}`
                 //   - line end `uC.ADC{P,N}` parsed correctly: Bus(uC.ADC, [P, N]) single
                 //     phrase (variants log: Bus(name='uC.ADC' members=[P,N]))
@@ -900,7 +900,7 @@ impl McModuleInst {
                 //   - `mic{1,2} -> CAP(_).Cap(_) -> MIC{P,N}` (parser already
                 //     correctly handles line-end curly as single Bus(MIC, [P, N])): adjacent phrase
                 //     name different (mic vs MIC), won't trigger.
-                //   - `mcu513{ MIC | DAC_OUT, SPK_MUTE }` (Node form): not
+                //   - `mcu{ MIC | DAC_OUT, SPK_MUTE }` (Node form): not
                 //     Single(Bus), won't trigger.
                 //   - `[VDD_3V3, GND]` (List/Multiple form): not Single(Bus),
                 //     won't trigger.
@@ -947,7 +947,7 @@ impl McModuleInst {
                 let inst_name = c.name.to_string();
 
                 // ── P0-1 fix ──────────────────────────────────────────────
-                // If user explicitly wrote member access (e.g., `lp322dcdc{Vin, GND}` or
+                // If user explicitly wrote member access (e.g., `dcdc{Vin, GND}` or
                 // `wm7121{2,3}`), expand these members into Bus.member, letting downstream
                 // get_left_points / get_right_points expand bus-to-bus.
                 //
@@ -1041,8 +1041,8 @@ impl McModuleInst {
                 }
 
                 // ── P1-A2 ────────────────────────────────────────────────
-                // Bare module reference `V3V3 -> moddcdc -> V1V2`: need to split module into
-                // Node (in side / out side), so `moddcdc` two sides don't get
+                // Bare module reference `V3V3 -> dcdc -> V1V2`: need to split module into
+                // Node (in side / out side), so `dcdc` two sides don't get
                 // union-find merged into one big net.
                 //
                 // Prefer declared submodule instance ports (pass2 reliable data),
@@ -1294,7 +1294,7 @@ impl McModuleInst {
                 // losing the XTAL member name and causing all XTAL pins to merge
                 // into one net instead of lane-by-lane matching.
                 let result = vec![McPhrase::Member(inner.clone(), member_ep.clone())];
-                if self.name == "mcu513" {
+                if self.name == "mcu" {
                     mcc_dbg!(
                         "inst::mod",
                         "[P2-4-PTM] Member kept: inner={inner:?}, member_ep={member_ep:?}"
@@ -1781,7 +1781,7 @@ impl McModuleInst {
                 // **without explicit `'` transpose** in scenarios like
                 // `XTAL + R442::RES(1MΩ)` (the canonical syntax per rules §10.5
                 // is `XTAL + R442::RES(1MΩ)'`, but engineers often omit it in
-                // practice, see us513.mc:82).
+                // practice, see main.mc:82).
                 //
                 // Handling: treat opd's left ++ right as N×1 view and zip with
                 // anchor. Equivalent to the compiler automatically adding `'`.
@@ -2262,8 +2262,8 @@ impl McModuleInst {
                 //
                 // Side effect tracking: after lifting, dispatch paths will see
                 // an already-processed caller first. For Endpoint-form caller
-                // (like mcu513 in `mcu513.setup()`) processing is no-op; for
-                // FuncCall-form caller (like `.capIt()` after `setup()`) it
+                // (like mcu in `mcu.setup()`) processing is no-op; for
+                // FuncCall-form caller (like `.add_caps()` after `setup()`) it
                 // recursively expands the setup body —— which is exactly the
                 // fix target.
                 if let Some(caller_line) = &fc.caller {
@@ -2299,7 +2299,7 @@ impl McModuleInst {
                 // Component instance method dispatch: forms like `uC.power(V3V3, V1V2)`.
                 // funccall.rs::instantiate_funccall currently only checks
                 // self.sub_modules, never dispatches methods on component instances
-                // —— causing `func power()` / `func i2c()` in MCU.US513_20_F to
+                // —— causing `func power()` / `func i2c()` in comp.sub to
                 // never expand.
                 //
                 // Here we do explicit dispatch before entering instantiate_funccall:
@@ -2309,7 +2309,7 @@ impl McModuleInst {
                 //   4. If corresponding func def found, call instantiate_instance_method
                 // This path also covers the Iter-1 cap[4:5] scenario where
                 // "caller is array but func is user method" extreme case
-                // (although not in hbl).
+                // (although not in the example project).
                 //
                 // ── Iter-3.A ────────────────────────────────────────────
                 // Important: must first exclude builtin 2-pin methods
@@ -2394,10 +2394,10 @@ impl McModuleInst {
                             }
 
                             // ── P1 fix: dotted scope-chain drill down ──────────────
-                            // inst_name like "mcu513.uC" → look up
-                            // components["uC"].funcs["i2c"] in sub_modules["mcu513"].
+                            // inst_name like "mcu.uC" → look up
+                            // components["uC"].funcs["i2c"] in sub_modules["mcu"].
                             // This handles the dispatch path after `uC.i2c(0x36)` in
-                            // func body is prefixed to `mcu513.uC.i2c(0x36)`.
+                            // func body is prefixed to `mcu.uC.i2c(0x36)`.
                             if inst_name.contains('.') {
                                 let segs: Vec<&str> = inst_name.split('.').collect();
                                 if segs.len() >= 2 {
@@ -2467,13 +2467,13 @@ impl McModuleInst {
                             // but the called method does not **exist** in that
                             // instance type's funcs table.
                             //
-                            // Typical scenario (hbl.mc:34):
-                            //   `mcu513.setup(V3V3, V1V2).capIt().i2c().loadFlash(flash)`
-                            // These 4 methods are currently not defined in the US513 module.
+                            // Typical scenario (main.mc:34):
+                            //   `mcu.setup(V3V3, V1V2).add_caps().i2c().do_flash(flash)`
+                            // These 4 methods are currently not defined in the module.
                             //
                             // Before fix: fall through to `instantiate_funccall` below,
                             //         treated as globally unknown class, generates
-                            //         `@?capIt_1` style stubs, polluting components list
+                            //         `@?add_caps_1` style stubs, polluting components list
                             //         + silently swallowing errors (iter6 P0-1).
                             // After fix: explicit warning + skip.
                             //   - Don't construct stub, don't call instantiate_funccall;
@@ -2492,21 +2492,21 @@ impl McModuleInst {
                             //
                             // Tests found this insert triggers a **stale entry bug from
                             // pointer reuse**:
-                            //   1. loadFlash chain's 4 layers each insert one
-                            //      auto_inst_map[layer_phrase_addr] = "mcu513"
+                            //   1. do_flash chain's 4 layers each insert one
+                            //      auto_inst_map[layer_phrase_addr] = "mcu"
                             //   2. After that line's process_line returns, the 4 McPhrase
                             //      nodes' memory is freed
                             //   3. When next line `mic(V3V3).MIC -> ...` is parsed, new
                             //      McPhrase is allocated on the heap, at least one new
                             //      address happens to land on the just-freed old address
                             //   4. resolve_funccall_right(mic FuncCall) uses the new
-                            //      address to query map, **hits stale entry** "mcu513"
-                            //      → mic is incorrectly parsed as mcu513's output port
-                            //   5. Eventually mic.MIC and mcu513's internal MIC/DAC_OUT/
+                            //      address to query map, **hits stale entry** "mcu"
+                            //      → mic is incorrectly parsed as mcu's output port
+                            //   5. Eventually mic.MIC and mcu's internal MIC/DAC_OUT/
                             //      SPK_MUTE three independent signals short into a 5-endpoint
                             //      super net
                             //
-                            // Since the chain in hbl is actually an isolated line, the
+                            // Since the chain in the example project is actually an isolated line, the
                             // assumption in (b) doesn't happen; and outer's parsing in
                             // (a) actually comes from extract_caller_inst_name going
                             // through FuncCall recursion (Iter-6.S2) to derive along
@@ -2548,9 +2548,9 @@ impl McModuleInst {
                 // Caller chain recursion was originally placed here, after Iter-2.2
                 // dispatch and before P1-D builtin twopin. But combined with
                 // Iter-6.S4's "undefined method warning + early exit" logic, chained
-                // calls like `mcu513.setup().capIt().i2c().loadFlash()` once outer
-                // (loadFlash) hits early exit, can never reach here —— inner i2c /
-                // capIt / setup three layers are silently skipped regardless of
+                // calls like `mcu.setup().add_caps().i2c().do_flash()` once outer
+                // (do_flash) hits early exit, can never reach here —— inner i2c /
+                // add_caps / setup three layers are silently skipped regardless of
                 // whether defined.
                 //
                 // Fix: lift the entire recursion before Iter-2.2 dispatch (see above),
@@ -2576,7 +2576,7 @@ impl McModuleInst {
                 //   1 arg, 1-wide: pin1 → arg   (pin2 left for outer chain to continue;
                 //                                e.g. in `CAP(v).Cap(x) -> y`, y connects to pin2)
                 //   1 arg, 2-wide: pin1 → arg[0], pin2 → arg[1]
-                //                  (e.g. `.Cap(lp322dcdc{Vin, GND})` or `.Cap([V, G])`)
+                //                  (e.g. `.Cap(dcdc{Vin, GND})` or `.Cap([V, G])`)
                 //   2 args:        pin1 → args[0], pin2 → args[1]
                 //   `.Cap(_)`:     all args are `_`, not wired here, passed to outer chain
                 //
@@ -2835,7 +2835,7 @@ impl McModuleInst {
 
                                 // ── ★ ITER-1 P0 fix: reuse real component name, eliminate @? mismatch ──────────
                                 //
-                                // Symptom: hbl mcu513 module's 3 decoupling caps
+                                // Symptom: the example mcu module's 3 decoupling caps
                                 //   `CAP_1` / `CAP_2` / `CAP_3` have already been
                                 //   actually registered in self.components by
                                 //   `instantiate_component_construction` via
@@ -3109,27 +3109,27 @@ impl McModuleInst {
             }
             // ── Iter-6.S2 ────────────────────────────────────────────────
             // Chained call support: caller is itself a FuncCall (e.g. `setup()`
-            // in `mcu513.setup().capIt()` is capIt's caller).
+            // in `mcu.setup().add_caps()` is add_caps's caller).
             //
             // Semantically, each layer's "this" on the chain is the innermost
             // real instance. Therefore recurse inward along fc.caller until
             // hitting an Endpoint or returning None.
             //
             // Example:
-            //   `mcu513.setup(V3V3, V1V2).capIt().i2c().loadFlash(flash)`
+            //   `mcu.setup(V3V3, V1V2).add_caps().i2c().do_flash(flash)`
             // parsed as
-            //   FuncCall { name=loadFlash, caller=
+            //   FuncCall { name=do_flash, caller=
             //     FuncCall { name=i2c, caller=
-            //       FuncCall { name=capIt, caller=
-            //         FuncCall { name=setup, caller=Endpoint(Module(mcu513)) }}}}
+            //       FuncCall { name=add_caps, caller=
+            //         FuncCall { name=setup, caller=Endpoint(Module(mcu)) }}}}
             //
-            // When taking loadFlash's caller_inst_name, this function drills
+            // When taking do_flash's caller_inst_name, this function drills
             // down layer by layer:
-            //   loadFlash.caller (FuncCall i2c)
-            //     → i2c.caller (FuncCall capIt)
-            //       → capIt.caller (FuncCall setup)
-            //         → setup.caller (Endpoint(Module(mcu513)))  ← end
-            //           → returns "mcu513"
+            //   do_flash.caller (FuncCall i2c)
+            //     → i2c.caller (FuncCall add_caps)
+            //       → add_caps.caller (FuncCall setup)
+            //         → setup.caller (Endpoint(Module(mcu)))  ← end
+            //           → returns "mcu"
             //
             // Compatible rollback: if a middle caller in the chain is None
             // (shouldn't happen in theory, parser should treat empty caller
@@ -3222,8 +3222,8 @@ impl McModuleInst {
                 //     early-exits treating caller as array, **skips P1-D
                 //     wire_builtin_twopin**, never connects pins 1/2, the
                 //     component is isolated.
-                //   - Verified foot-guns (power.mc:102 + modldo:65):
-                //       `CAP(10uF).Cap(lp322dcdc{Vin, GND})`  → @CAP1 isolated
+                //   - Verified foot-guns (power.mc:102 + ldo:65):
+                //       `CAP(10uF).Cap(dcdc{Vin, GND})`  → @CAP1 isolated
                 //       `vin -> ldo.VIN => CAP(10uF).Cap(_)`  → ldo.VIN is
                 //          also wrongly connected to both @CAP1.1 and @CAP2.1
                 //          (because @@ARRAY encoding makes

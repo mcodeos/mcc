@@ -79,7 +79,10 @@ fn main_layer_isolated_set_is_empty() {
         .find(|b| b.id == hub)
         .map(|b| b.name.clone())
         .unwrap_or_default();
-    assert_eq!(hub_name, "mcu513", "main layer hub should be mcu513 (highest signal degree)");
+    assert_eq!(
+        hub_name, "mcu513",
+        "main layer hub should be mcu513 (highest signal degree)"
+    );
 
     let isolated: HashSet<i64> = mcc::viz::layout::flow::compute_isolated_ids(&graph, hub);
     let detail: Vec<String> = isolated
@@ -92,7 +95,10 @@ fn main_layer_isolated_set_is_empty() {
                     .filter(|n| n.box_ids().contains(&b.id))
                     .map(|n| format!("{}({:?})", n.name, n.kind))
                     .collect();
-                format!("id={} name='{}' kind={:?} nets={:?}", b.id, b.name, b.kind, nets)
+                format!(
+                    "id={} name='{}' kind={:?} nets={:?}",
+                    b.id, b.name, b.kind, nets
+                )
             })
         })
         .collect();
@@ -123,8 +129,14 @@ fn sub_layers_s1_s2_decoration_counts() {
 
     // main: R-1/R-3 no symbols at top level
     let main = get("main");
-    assert_eq!(main.decorations_ground, 0, "top-level R-1 places no GND symbol");
-    assert_eq!(main.decorations_power, 0, "top-level R-3 places no rail dot");
+    assert_eq!(
+        main.decorations_ground, 0,
+        "top-level R-1 places no GND symbol"
+    );
+    assert_eq!(
+        main.decorations_power, 0,
+        "top-level R-3 places no rail dot"
+    );
 
     // Sub-layer expectations = golden netlist rail net endpoint counts − pseudo-endpoints
     // removed by P7-2 rule (c) (each rail net's port.X / member.X boundary declaration
@@ -156,7 +168,13 @@ fn sub_layers_s1_s2_decoration_counts() {
             "layer {layer} S2 rail dot count (golden non-GND rail endpoint count)"
         );
         // S1/S2 semantics: these endpoints no longer have cross-box edges
-        assert_eq!(r.gnd_edges, 0, "layer {layer} should have no cross-box GND edges");
-        assert_eq!(r.power_edges, 0, "layer {layer} should have no cross-box power edges");
+        assert_eq!(
+            r.gnd_edges, 0,
+            "layer {layer} should have no cross-box GND edges"
+        );
+        assert_eq!(
+            r.power_edges, 0,
+            "layer {layer} should have no cross-box power edges"
+        );
     }
 }

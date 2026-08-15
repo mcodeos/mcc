@@ -40,8 +40,8 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::vector::graph::naming;
 use crate::vector::graph::graphdef::RailDecoration;
+use crate::vector::graph::naming;
 use crate::vector::graph::netdef::{IoDirection, NetRole};
 use crate::vector::graph::{
     BoxKind, EndpointRef, EntryPoint, EntrySide, IoSummary, McVecBox, McVecGraph, NetKind, Symbol,
@@ -79,7 +79,7 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
     }
 
     // ── Per-box metadata (computed before deleting any nets) ────────────
-    // Power-domain nodes: boxes owning an Out endpoint on a Power rail (modldo.VCC / moddcdc.VCC_1V2)
+    // Power-domain nodes: boxes owning an Out endpoint on a Power rail (ldo.VCC / dcdc.VCC_1V2)
     let mut power_domain_boxes: HashSet<i64> = HashSet::new();
     // Signal degree: participation count in this layer's signal nets (hub = highest, ties by smallest id).
     // ★ Both Signal and SubModuleIO count —— promote (P08) rewrites cross-module Signal
@@ -117,7 +117,9 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
     let mut next_nid = DRIVER_NET_ID_BASE;
 
     for (idx, net) in graph.nets.iter().enumerate() {
-        let Some(spec) = net.rail.clone() else { continue };
+        let Some(spec) = net.rail.clone() else {
+            continue;
+        };
         keep[idx] = false; // the original rail net is always replaced (edges/decorations/deletion)
 
         // First endpoint per box as representative (multiple pins in one box = duplicate endpoints of the same consumer)
@@ -173,7 +175,9 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
                             next_nid,
                             net.name.clone(),
                             NetKind::Power,
-                            NetRole::Rail { volt: spec.volt.clone() },
+                            NetRole::Rail {
+                                volt: spec.volt.clone(),
+                            },
                             eps,
                         ));
                         next_nid += 1;
@@ -802,7 +806,11 @@ mod tests {
         let mut n = VizNet::new(
             nid,
             name.into(),
-            if class == RailClass::Ground { NetKind::Ground } else { NetKind::Power },
+            if class == RailClass::Ground {
+                NetKind::Ground
+            } else {
+                NetKind::Power
+            },
             NetRole::Rail { volt: None },
             eps.into_iter()
                 .map(|(b, p, io)| EndpointRef::with_io(b, p, name, io))
@@ -831,7 +839,10 @@ mod tests {
         ));
         classify_rails(&mut g, /*is_top=*/ true);
         assert!(g.nets.is_empty(), "GND net should be deleted: {:?}", g.nets);
-        assert!(g.rail_decorations.is_empty(), "top-level R-1 places no symbols");
+        assert!(
+            g.rail_decorations.is_empty(),
+            "top-level R-1 places no symbols"
+        );
     }
 
     #[test]
@@ -853,7 +864,11 @@ mod tests {
         ));
         classify_rails(&mut g, /*is_top=*/ false);
         assert!(g.nets.is_empty());
-        assert_eq!(g.rail_decorations.len(), 3, "one symbol per endpoint (multiple pins in one box included)");
+        assert_eq!(
+            g.rail_decorations.len(),
+            3,
+            "one symbol per endpoint (multiple pins in one box included)"
+        );
         assert!(g.rail_decorations.iter().all(|d| d.is_ground));
     }
 
@@ -863,9 +878,9 @@ mod tests {
         // domain✓), mcu513(hub✓), speaker(✗), flash(✗)} → exactly 2 driver edges;
         // R-3 top level places no symbols
         let mut g = McVecGraph::new(0, "main".into());
-        g.boxes.push(mk_mod(1, "modldo"));   // driver (VCC Out)
-        g.boxes.push(mk_mod(2, "moddcdc"));  // power-domain node (VCC_1V2 Out is on another rail)
-        g.boxes.push(mk_mod(3, "mcu513"));   // hub (8 signal nets → 2 here is already the max)
+        g.boxes.push(mk_mod(1, "modldo")); // driver (VCC Out)
+        g.boxes.push(mk_mod(2, "moddcdc")); // power-domain node (VCC_1V2 Out is on another rail)
+        g.boxes.push(mk_mod(3, "mcu513")); // hub (8 signal nets → 2 here is already the max)
         g.boxes.push(mk_mod(4, "speaker"));
         // Signal nets: make mcu513 the hub
         g.nets.push(VizNet::new(
@@ -903,10 +918,10 @@ mod tests {
             RailClass::Power,
             Some(11),
             vec![
-                (1, 11, IoDirection::Output),   // modldo.VCC = driver
-                (2, 21, IoDirection::Input),    // moddcdc consumes
-                (3, 34, IoDirection::Bidir),    // mcu513 consumes
-                (4, 43, IoDirection::Input),    // speaker consumes
+                (1, 11, IoDirection::Output), // modldo.VCC = driver
+                (2, 21, IoDirection::Input),  // moddcdc consumes
+                (3, 34, IoDirection::Bidir),  // mcu513 consumes
+                (4, 43, IoDirection::Input),  // speaker consumes
             ],
         ));
         classify_rails(&mut g, /*is_top=*/ true);
@@ -917,16 +932,29 @@ mod tests {
             .iter()
             .filter(|n| matches!(n.kind, NetKind::Power))
             .collect();
-        assert_eq!(power_edges.len(), 3, "V1V2 1 edge + V3V3 2 edges = 3 driver edges");
+        assert_eq!(
+            power_edges.len(),
+            3,
+            "V1V2 1 edge + V3V3 2 edges = 3 driver edges"
+        );
         let v33: Vec<(i64, i64)> = power_edges
             .iter()
             .filter(|n| n.name == "V3V3")
             .map(|n| (n.endpoints[0].box_id, n.endpoints[1].box_id))
             .collect();
-        assert!(v33.contains(&(1, 2)), "modldo→moddcdc (power domain): {v33:?}");
+        assert!(
+            v33.contains(&(1, 2)),
+            "modldo→moddcdc (power domain): {v33:?}"
+        );
         assert!(v33.contains(&(1, 3)), "modldo→mcu513 (hub): {v33:?}");
-        assert!(!v33.iter().any(|(_, t)| *t == 4), "speaker R-3 draws no edge");
-        assert!(g.rail_decorations.is_empty(), "top-level R-3 places no symbols");
+        assert!(
+            !v33.iter().any(|(_, t)| *t == 4),
+            "speaker R-3 draws no edge"
+        );
+        assert!(
+            g.rail_decorations.is_empty(),
+            "top-level R-3 places no symbols"
+        );
     }
 
     #[test]
@@ -944,10 +972,17 @@ mod tests {
         ));
         classify_rails(&mut g, /*is_top=*/ false);
         // Consumer CAP unqualified → no edge; sub-layer places a terminal; driver pin drew an edge so gets none
-        assert!(g.nets.iter().all(|n| n.rail.is_none()), "rail nets should be replaced");
+        assert!(
+            g.nets.iter().all(|n| n.rail.is_none()),
+            "rail nets should be replaced"
+        );
         // hub determination: no signal nets → hub=None; CAP has no power-domain qualification → 0 edges
         // driver pin not consumed by an edge → also gets a terminal
-        assert_eq!(g.rail_decorations.len(), 2, "one terminal each for driver pin + consumer pin");
+        assert_eq!(
+            g.rail_decorations.len(),
+            2,
+            "one terminal each for driver pin + consumer pin"
+        );
         assert!(g.rail_decorations.iter().all(|d| !d.is_ground));
         assert_eq!(g.rail_decorations[0].label, "VCC");
     }
@@ -987,8 +1022,16 @@ mod tests {
             ],
         ));
         classify_rails(&mut g, /*is_top=*/ true);
-        assert!(!g.boxes.iter().any(|b| b.id == 3), "passive box should be deleted");
-        assert_eq!(g.nets.len(), 1, "_WP deleted, CSN kept: {:?}", g.nets.iter().map(|n| &n.name).collect::<Vec<_>>());
+        assert!(
+            !g.boxes.iter().any(|b| b.id == 3),
+            "passive box should be deleted"
+        );
+        assert_eq!(
+            g.nets.len(),
+            1,
+            "_WP deleted, CSN kept: {:?}",
+            g.nets.iter().map(|n| &n.name).collect::<Vec<_>>()
+        );
         assert_eq!(g.nets[0].name, "CSN");
         assert_eq!(g.nets[0].endpoints.len(), 2);
     }
@@ -996,7 +1039,13 @@ mod tests {
     #[test]
     fn is_rail_box_is_kind_based_not_name_based() {
         // ★ P7-3: the name_has_power_token keyword table is deleted —— the criterion is kind only
-        assert!(is_rail_box(&mk_rail(1, "any name", true)), "PowerLabel kind is a rail box");
-        assert!(!is_rail_box(&mk_mod(2, "V3V3_ldo_power")), "a name with a token still doesn't count");
+        assert!(
+            is_rail_box(&mk_rail(1, "any name", true)),
+            "PowerLabel kind is a rail box"
+        );
+        assert!(
+            !is_rail_box(&mk_mod(2, "V3V3_ldo_power")),
+            "a name with a token still doesn't count"
+        );
     }
 }

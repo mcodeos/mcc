@@ -145,7 +145,13 @@ pub struct VizNet {
 
 impl VizNet {
     /// Create a new unrouted net
-    pub fn new(nid: i64, name: String, kind: NetKind, role: NetRole, endpoints: Vec<EndpointRef>) -> Self {
+    pub fn new(
+        nid: i64,
+        name: String,
+        kind: NetKind,
+        role: NetRole,
+        endpoints: Vec<EndpointRef>,
+    ) -> Self {
         Self {
             nid,
             name,

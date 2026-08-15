@@ -321,13 +321,13 @@ pub struct McVecBox {
 
     /// ★ M0: full hierarchical instance path
     ///
-    /// `"main.modldo.ldo"` vs `"main.mcu513.ldo"` — this is the prerequisite
+    /// `"main.ldo.ldo"` vs `"main.mcu.ldo"` — this is the prerequisite
     /// for M2 zone partitioning. `name` is still the leaf segment.
     pub inst_path: String,
 
     /// ★ M0: parent module chain (excluding the leaf)
     ///
-    /// `"main.modldo.ldo"` → `["main", "main.modldo"]`.
+    /// `"main.ldo.ldo"` → `["main", "main.ldo"]`.
     /// Computed from `inst_path` by splitting on `'.'`.
     pub scope_chain: Vec<String>,
 

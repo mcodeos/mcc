@@ -962,13 +962,13 @@ impl McComponentInst {
         }
 
         // ── Iter-10.D-fix1: Remove duplicate pids ─────────────────────────────────
-        // some components (e.g., lp322dcdc) register same physical pin with multiple
+        // some components (e.g., dcdc) register same physical pin with multiple
         // dotted name aliases in names_to_id (e.g., `GND.GND` and some other alias both map to
         // pid="2"), this case scan returns N entries but unique pid only 1.
         // This isn't a real bus port — real bus port should have N different physical pins.
-        // Before dedup, lp322dcdc.GND was incorrectly expanded to 2 lanes (both pointing to pid 2), causing
-        // `@CAP1.2 ~ lp322dcdc.GND` single-pin connection incorrectly expanded to two identical
-        // `@CAP1.2 ~ lp322dcdc.2`.
+        // Before dedup, dcdc.GND was incorrectly expanded to 2 lanes (both pointing to pid 2), causing
+        // `@CAP1.2 ~ dcdc.GND` single-pin connection incorrectly expanded to two identical
+        // `@CAP1.2 ~ dcdc.2`.
         let unique_pid_count = {
             use std::collections::BTreeSet;
             let set: BTreeSet<&String> = pid_with_name.iter().map(|(_, p)| p).collect();

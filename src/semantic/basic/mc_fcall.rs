@@ -1538,9 +1538,9 @@ impl McFuncCall {
     /// Walk a phrase down through chained `FuncCall`s to find the root
     /// receiver instance (the first non-FuncCall caller).
     ///
-    /// For `mcu513.setup().capIt().i2c()`, calling this on the outer i2c's
-    /// inner-FuncCall caller (i.e. capIt's FuncCall phrase) will recurse:
-    /// capIt → setup → mcu513 endpoint, returning the `mcu513` instance.
+    /// For `mcu.setup().add_caps().i2c()`, calling this on the outer i2c's
+    /// inner-FuncCall caller (i.e. add_caps's FuncCall phrase) will recurse:
+    /// add_caps → setup → mcu endpoint, returning the `mcu` instance.
     fn root_receiver(phrase: &McPhrase) -> Option<&McInstance> {
         match phrase {
             McPhrase::FuncCall(fc) => fc

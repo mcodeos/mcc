@@ -30,7 +30,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::ops::Range;
 use std::sync::Arc;
 
-/// ── P1: Collect constructor arguments from MCAST_INSTANCE (parenthesized arguments of mcu513(V3V3,V1V2) / flash(V3V3)).
+/// ── P1: Collect constructor arguments from MCAST_INSTANCE (parenthesized arguments of mcu(V3V3,V1V2) / flash(V3V3)).
 /// Arguments are attached inside the instance node, as the next sibling MCAST_PARAMS of id (mc_inst.rs:854 comment);
 /// some forms are attached to the next sibling of the instance node, try both places, take the first non-empty.
 /// Each argument is parsed by the canonical context-free value parser
@@ -1458,16 +1458,20 @@ impl McInstances {
                 // differ from inst_name (e.g. square interface `[VDD,GND]`).
                 let scope = self.scope.as_deref();
                 // ★ Try WORKSPACE first, fall back to direct register_def
+                // register under the real (file_id, container_id,
+                // func_id) scope — not the all-zero SourceLocation::from_span —
+                // so the parse-time InstRef id equals the lapper-time InstDef id.
                 let _ = crate::db::cmie::tables::WORKSPACE
                     .mcodes
                     .get(uri)
                     .and_then(|mcode| {
                         mcode.symbols.lock().ok().map(|mut sem| {
-                            sem.local_table.add_declare_with_name(
+                            crate::refdef::register::register_instance_decl_parse_time(
+                                &mut sem,
                                 uri,
-                                crate::ast::ast_semantic::SourceLocation::from_span(&inst_span),
-                                Some(inst_name.clone()),
                                 scope,
+                                &inst_name,
+                                inst_span.clone(),
                             )
                         })
                     });

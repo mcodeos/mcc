@@ -158,7 +158,7 @@ pub struct G13Reading {
     pub s5_rung_ok: usize,
     pub s5_rung_total: usize,
     /// Names of the rung devices that passed S5 (specimen assertions:
-    /// mic C1 / speaker C8 / mcu513 R442).
+    /// mic C1 / speaker C8 / mcu R1).
     #[serde(default)]
     pub s5_rung_ok_names: Vec<String>,
     /// S7 label rectangles intersecting any box or wire segment.
@@ -252,11 +252,7 @@ impl LayerReading {
                 NetKind::Power => pwr += 1,
                 _ => {}
             }
-            edges.push((
-                name_of(distinct[0]),
-                name_of(distinct[1]),
-                net.name.clone(),
-            ));
+            edges.push((name_of(distinct[0]), name_of(distinct[1]), net.name.clone()));
         }
 
         let (pins_total, pins_unreachable) = conn.unwrap_or((0, 0));
@@ -344,19 +340,18 @@ fn measure_device_contracts(graph: &McVecGraph) -> G13Reading {
                 .find(|d| d.box_id == box_id && d.pin_id == pin_id)
         };
     // For a box pin: kinds of the nets it touches (usually 0..1 for a 2-pin).
-    let pin_net_kinds =
-        |b: &crate::vector::graph::McVecBox, pin_id: i64| -> Vec<NetKind> {
-            graph
-                .nets
-                .iter()
-                .filter(|n| {
-                    n.endpoints
-                        .iter()
-                        .any(|e| e.box_id == b.id && e.pin_id == pin_id)
-                })
-                .map(|n| n.kind.clone())
-                .collect()
-        };
+    let pin_net_kinds = |b: &crate::vector::graph::McVecBox, pin_id: i64| -> Vec<NetKind> {
+        graph
+            .nets
+            .iter()
+            .filter(|n| {
+                n.endpoints
+                    .iter()
+                    .any(|e| e.box_id == b.id && e.pin_id == pin_id)
+            })
+            .map(|n| n.kind.clone())
+            .collect()
+    };
 
     // x position of a box pin (Top/Bottom → x along width; Left/Right → side x).
     let pin_x = |b: &crate::vector::graph::McVecBox, pin_id: i64| -> Option<f64> {
@@ -386,7 +381,11 @@ fn measure_device_contracts(graph: &McVecGraph) -> G13Reading {
                 m.entry(d.label.clone()).or_default().push(ax);
             }
         }
-        for n in graph.nets.iter().filter(|n| matches!(n.kind, NetKind::Power)) {
+        for n in graph
+            .nets
+            .iter()
+            .filter(|n| matches!(n.kind, NetKind::Power))
+        {
             if m.contains_key(&n.name) {
                 continue;
             }
@@ -471,8 +470,7 @@ fn measure_device_contracts(graph: &McVecGraph) -> G13Reading {
         // ── S3: decoupling cap (Capacitor, one rail end + one GND end) ──
         let is_cap = matches!(
             b.symbol,
-            crate::vector::graph::Symbol::Capacitor
-                | crate::vector::graph::Symbol::PolarCapacitor
+            crate::vector::graph::Symbol::Capacitor | crate::vector::graph::Symbol::PolarCapacitor
         );
         if is_cap {
             let g0 = is_gnd_end(0);
@@ -486,7 +484,7 @@ fn measure_device_contracts(graph: &McVecGraph) -> G13Reading {
                     .map(|d| d.label.clone())
                     .unwrap_or_default();
                 // N/A rule: the rail has no local fed pin at all (R-1 rail
-                // without a driver — e.g. moddcdc's VCC_1V2, whose only ends
+                // without a driver — e.g. dcdc's VCC_1V2, whose only ends
                 // are passive terminals). "Glue to the pin" cannot apply;
                 // the cap is judged by S4a only. Not counted in the total.
                 // (Fall through — S4a/S5 below still apply to this box.)
@@ -500,9 +498,9 @@ fn measure_device_contracts(graph: &McVecGraph) -> G13Reading {
                     Some(anchor_x) => {
                         r.s3_decouple_total += 1;
                         // Glue = |Δx| between cap center and the nearest fed pin.
-                        let aligned = anchor_x.iter().any(|&ax| {
-                            (b.x + b.w / 2.0 - ax).abs() <= b.w.max(1.0)
-                        });
+                        let aligned = anchor_x
+                            .iter()
+                            .any(|&ax| (b.x + b.w / 2.0 - ax).abs() <= b.w.max(1.0));
                         let rail_up = matches!(rail_ep.side, EntrySide::Top);
                         if vertical && rail_up && aligned {
                             r.s3_decouple_ok += 1;
@@ -535,8 +533,8 @@ fn measure_device_contracts(graph: &McVecGraph) -> G13Reading {
         // not cut any other net's wire (segments may only touch its own ends).
         if matches!(b.visual_role, Some(VisualRole::BridgePassive)) {
             r.s5_rung_total += 1;
-            let pins_top_bottom = matches!(e0.side, EntrySide::Top)
-                && matches!(e1.side, EntrySide::Bottom);
+            let pins_top_bottom =
+                matches!(e0.side, EntrySide::Top) && matches!(e1.side, EntrySide::Bottom);
             // A wire cuts the rung when a segment of a net NOT ending on this
             // box intersects the box rectangle.
             let cuts_net = segments.iter().any(|&(nid, x1, y1, x2, y2)| {
@@ -596,11 +594,9 @@ fn measure_device_contracts(graph: &McVecGraph) -> G13Reading {
                 .collect();
             if members.len() >= 2 {
                 for &m in &members {
-                    link.entry(m).or_default().extend(
-                        members
-                            .iter()
-                            .filter(|&&x| x != m),
-                    );
+                    link.entry(m)
+                        .or_default()
+                        .extend(members.iter().filter(|&&x| x != m));
                 }
             }
         }
@@ -664,8 +660,7 @@ fn measure_device_contracts(graph: &McVecGraph) -> G13Reading {
         for b in &graph.boxes {
             for lp in &b.label_placements {
                 r.s7_labels_total += 1;
-                let (lx1, ly1, lx2, ly2) =
-                    (lp.x, lp.y, lp.x + lp.w.max(1.0), lp.y + lp.h.max(1.0));
+                let (lx1, ly1, lx2, ly2) = (lp.x, lp.y, lp.x + lp.w.max(1.0), lp.y + lp.h.max(1.0));
                 let mut hit = false;
                 for ob in &graph.boxes {
                     if ob.id == b.id {
@@ -766,7 +761,16 @@ fn measure_device_contracts(graph: &McVecGraph) -> G13Reading {
 }
 
 /// Axis-aligned segment vs rect intersection (segments are axis-aligned here).
-fn seg_meets_rect(x1: f64, y1: f64, x2: f64, y2: f64, rx1: f64, ry1: f64, rx2: f64, ry2: f64) -> bool {
+fn seg_meets_rect(
+    x1: f64,
+    y1: f64,
+    x2: f64,
+    y2: f64,
+    rx1: f64,
+    ry1: f64,
+    rx2: f64,
+    ry2: f64,
+) -> bool {
     // horizontal segment
     if (y1 - y2).abs() < 0.5 {
         let (xa, xb) = if x1 < x2 { (x1, x2) } else { (x2, x1) };
@@ -905,7 +909,10 @@ impl RenderGolden {
                 )];
                 findings.push((
                     "G12".to_string(),
-                    Verdict::Skip(format!("no golden for layer, collisions box_box={} wire_box={} unjudged", r.box_box, r.wire_box)),
+                    Verdict::Skip(format!(
+                        "no golden for layer, collisions box_box={} wire_box={} unjudged",
+                        r.box_box, r.wire_box
+                    )),
                 ));
                 return LayerDiff {
                     layer: r.layer.clone(),
@@ -939,10 +946,8 @@ impl RenderGolden {
                 Verdict::Skip(format!("golden has no roster, eval={}", r.box_names.len())),
             ));
         } else {
-            let (missing, extra) = multiset_diff(
-                &sorted_lower(&g.box_names),
-                &sorted_lower(&r.box_names),
-            );
+            let (missing, extra) =
+                multiset_diff(&sorted_lower(&g.box_names), &sorted_lower(&r.box_names));
             if missing.is_empty() && extra.is_empty() {
                 findings.push((
                     "G10.names".into(),
@@ -987,7 +992,11 @@ impl RenderGolden {
         } else if r.pins_unreachable == 0 {
             findings.push((
                 "G10.conn".into(),
-                Verdict::Ok(format!("{}/{} pins reachable", r.pins_total - r.pins_unreachable, r.pins_total)),
+                Verdict::Ok(format!(
+                    "{}/{} pins reachable",
+                    r.pins_total - r.pins_unreachable,
+                    r.pins_total
+                )),
             ));
         } else {
             findings.push((
@@ -1029,7 +1038,10 @@ impl RenderGolden {
         if g.edge.is_empty() {
             findings.push((
                 "G11.edges".into(),
-                Verdict::Skip(format!("golden has no edge list, actual edges={}", r.edges.len())),
+                Verdict::Skip(format!(
+                    "golden has no edge list, actual edges={}",
+                    r.edges.len()
+                )),
             ));
         } else {
             let exp: Vec<(String, String, String)> = g
@@ -1037,8 +1049,7 @@ impl RenderGolden {
                 .iter()
                 .map(|e| (e.from.clone(), e.to.clone(), e.label.clone()))
                 .collect();
-            let act: Vec<(String, String, String)> =
-                r.edges.iter().map(|e| edge_key(e)).collect();
+            let act: Vec<(String, String, String)> = r.edges.iter().map(|e| edge_key(e)).collect();
             let (missing, extra) = multiset_diff_str3(&exp, &act);
             if missing.is_empty() && extra.is_empty() {
                 findings.push((
@@ -1157,9 +1168,18 @@ impl RenderGolden {
             "cross-module signals end on a labeled stub",
         ));
 
-        let red = findings.iter().filter(|f| matches!(f.1, Verdict::Fail(_))).count();
-        let green = findings.iter().filter(|f| matches!(f.1, Verdict::Ok(_))).count();
-        let skipped = findings.iter().filter(|f| matches!(f.1, Verdict::Skip(_))).count();
+        let red = findings
+            .iter()
+            .filter(|f| matches!(f.1, Verdict::Fail(_)))
+            .count();
+        let green = findings
+            .iter()
+            .filter(|f| matches!(f.1, Verdict::Ok(_)))
+            .count();
+        let skipped = findings
+            .iter()
+            .filter(|f| matches!(f.1, Verdict::Skip(_)))
+            .count();
         LayerDiff {
             layer: r.layer.clone(),
             findings,
@@ -1170,12 +1190,15 @@ impl RenderGolden {
     }
 }
 
-fn num_check(id: &str, expect: usize, actual: usize, evaluated: usize, note: String) -> (String, Verdict) {
+fn num_check(
+    id: &str,
+    expect: usize,
+    actual: usize,
+    evaluated: usize,
+    note: String,
+) -> (String, Verdict) {
     if evaluated == 0 {
-        return (
-            id.to_string(),
-            Verdict::Skip(format!("eval=0 ({note})")),
-        );
+        return (id.to_string(), Verdict::Skip(format!("eval=0 ({note})")));
     }
     if expect == actual {
         (

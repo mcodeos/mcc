@@ -33,7 +33,7 @@ impl McModuleInst {
     ///
     /// Old version did equality check, and WARN #921 and silently dropped new members.
     /// `InstTable` enumerates members in `bus_inst.members` enumeration.
-    /// Registered member paths (`main.mcu513.uC/UART0` etc.), once a member
+    /// Registered member paths (`main.mcu.uC/UART0` etc.), once a member
     /// is lost, the downstream `resolve_netpoint` bus-member fallback fails,
     /// and the connection is silently removed from the graph.
     ///
@@ -178,12 +178,12 @@ impl McModuleInst {
         let elements = if is_left { left } else { right };
 
         // ── P1-A3 ────────────────────────────────────────────────────────
-        // Curly-mn such as `modldo{vin|vout}` / `mcu513{MIC | DAC_OUT, SPK_MUTE}`
-        // containing `|` will be assembled by the parser as { name: "modldo",
+        // Curly-mn such as `ldo{vin|vout}` / `mcu{MIC | DAC_OUT, SPK_MUTE}`
+        // containing `|` will be assembled by the parser as { name: "ldo",
         // member: ["vin"] } — this "name is the instance, member is the port"
         // form. Note this is **not** an already-joined dotted path like
-        // "modldo.vin". The previous split_once('.') branch did not apply
-        // to "modldo", so it directly went to node_to_netpoint which ate
+        // "ldo.vin". The previous split_once('.') branch did not apply
+        // to "ldo", so it directly went to node_to_netpoint which ate
         // the member field, and all ports were directly mapped via
         // node_to_netpoint.
         if let Some(first) = elements.first() {

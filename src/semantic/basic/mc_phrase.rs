@@ -371,7 +371,7 @@ impl McPhrase {
                                     // Original code: context.add_label(ids.to_string())
                                     // treat `[VDD_3V3, GND]` as single Label string
                                     // "[VDD_3V3, GND]", causing:
-                                    //   1. body line `[VDD_3V3, GND] -> lp322dcdc{Vin, GND}`
+                                    //   1. body line `[VDD_3V3, GND] -> dcdc{Vin, GND}`
                                     //      left is 1×1 scalar, right is 2×1 bus, dimension mismatch
                                     //   2. DC interface's positive and GND can't be separated into independent nets
                                     //   3. global GND bus can't form a net
@@ -381,8 +381,8 @@ impl McPhrase {
                                     //
                                     // Example:
                                     //   `[VDD_3V3, GND]` → Multiple([Label("VDD_3V3"), Label("GND")])
-                                    //   `[VDD_3V3, GND] -> lp322dcdc{Vin, GND}`
-                                    //   → 2×2 zip: VDD_3V3~lp322dcdc.Vin, GND~lp322dcdc.GND
+                                    //   `[VDD_3V3, GND] -> dcdc{Vin, GND}`
+                                    //   → 2×2 zip: VDD_3V3~dcdc.Vin, GND~dcdc.GND
                                     let expanded = ids.expand();
                                     if expanded.len() >= 2 {
                                         let phrases: Vec<McPhrase> = expanded
@@ -816,16 +816,20 @@ impl McPhrase {
                                 if let Some(span) = &names_span {
                                     for name in &names {
                                         context.store_inst_span(name, span.clone());
+                                        // register under the real
+                                        // scope key so the inline instance id
+                                        // matches the lapper-time InstDef id.
                                         let _ = crate::db::cmie::tables::WORKSPACE
                                             .mcodes
                                             .get(context.uri())
                                             .and_then(|mcode| {
                                                 mcode.symbols.lock().ok().map(|mut sem| {
-                                                    sem.local_table.add_declare_with_name(
+                                                    crate::refdef::register::register_instance_decl_parse_time(
+                                                        &mut sem,
                                                         context.uri(),
-                                                        crate::ast::ast_semantic::SourceLocation::from_span(span),
-                                                        Some(name.clone()),
                                                         scope.as_deref(),
+                                                        name,
+                                                        span.clone(),
                                                     )
                                                 })
                                             });
@@ -1231,7 +1235,7 @@ impl McPhrase {
                 }
 
                 // ── P1/P6/speaker fix v2 ───────────────────────────────
-                // Use single "Bus with members" as fallback, aligning mcu513{DAC_OUT,SPK_MUTE} /
+                // Use single "Bus with members" as fallback, aligning mcu{DAC_OUT,SPK_MUTE} /
                 // dot_or_curly hit (line 1650-1655) canonical form; previously used
                 // Multiple([Bus,Bus]) wrong shape, dropped at is_connectable.
                 if let Some(name) = base_name {

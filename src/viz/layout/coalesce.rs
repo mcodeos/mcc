@@ -75,7 +75,7 @@ pub fn coalesce_equipotential_nets(graph: &mut McVecGraph) -> usize {
     // ── union-find over net indices, keyed on (box_id, pin_id) ──────────────
     // ★ P7-3: Power/Ground nets do not participate in merging —— rail semantics is
     //   taken over by the triage (R-1/R-2/R-3). Multiple driver segments of the same
-    //   rail deliberately share the driver pin (V3V3 = modldo→moddcdc + modldo→mcu513
+    //   rail deliberately share the driver pin (V3V3 = ldo→dcdc + ldo→mcu
     //   as two independent edges; the golden edge list requires them separate);
     //   merging by shared pin would swallow driver segments back into hyperedges.
     let mut dsu = Dsu::new(before);

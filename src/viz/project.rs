@@ -117,13 +117,17 @@ fn project_block_inner(
 /// Pseudo endpoint test: parent is the current layer module's own Port/Label
 /// (boundary declaration of this layer, not a connection point).
 /// Returns the entry for reuse (kind / member_info).
-fn pseudo_entry(id: i64, bid: i64, table: &InstTable) -> Option<&crate::instant::insttab::InstEntry> {
+fn pseudo_entry(
+    id: i64,
+    bid: i64,
+    table: &InstTable,
+) -> Option<&crate::instant::insttab::InstEntry> {
     if id < 0 {
         return None;
     }
     let e = table.get_entry(id as u32)?;
-    let is_boundary = e.parent_id == Some(bid as u32)
-        && matches!(e.kind, InstKind::Port | InstKind::Label);
+    let is_boundary =
+        e.parent_id == Some(bid as u32) && matches!(e.kind, InstKind::Port | InstKind::Label);
     if is_boundary {
         Some(e)
     } else {
@@ -160,7 +164,10 @@ fn project_nets(
                     }
                 }
                 // key2
-                if e.member_info.as_ref().map_or(false, |m| m.role == MemberRole::Ground) {
+                if e.member_info
+                    .as_ref()
+                    .map_or(false, |m| m.role == MemberRole::Ground)
+                {
                     match first_ground {
                         Some(other) => dsu.union(other, ni),
                         None => first_ground = Some(ni),
@@ -241,11 +248,9 @@ fn project_nets(
                     let has_port_sibling = all_ids.iter().any(|&other| {
                         other >= 0
                             && other != pid
-                            && table
-                                .get_entry(other as u32)
-                                .map_or(false, |oe| {
-                                    oe.parent_id == Some(parent) && oe.kind == InstKind::Port
-                                })
+                            && table.get_entry(other as u32).map_or(false, |oe| {
+                                oe.parent_id == Some(parent) && oe.kind == InstKind::Port
+                            })
                     });
                     if has_port_sibling {
                         dropped_b.push(pid);
@@ -260,7 +265,9 @@ fn project_nets(
                     rule: "b",
                     net: nets[sorted[0]].name.clone(),
                     endpoint: e.path.clone(),
-                    note: "Label endpoint of the same port, normalized to the Port declaration side".to_string(),
+                    note:
+                        "Label endpoint of the same port, normalized to the Port declaration side"
+                            .to_string(),
                 });
             }
         }
@@ -277,9 +284,7 @@ fn project_nets(
         let real: Vec<i64> = all_ids
             .iter()
             .copied()
-            .filter(|&pid| {
-                !dropped_b.contains(&pid) && pseudo_entry(pid, bid, table).is_none()
-            })
+            .filter(|&pid| !dropped_b.contains(&pid) && pseudo_entry(pid, bid, table).is_none())
             .collect();
 
         // Empty net: drop entirely (audited)
@@ -310,7 +315,7 @@ fn project_nets(
         // ── ★ P7-3: power net spec (class + driver), all from port declarations ──
         //   Ground-role pseudo endpoint exists → Ground (R-1, globally the same ground, no driver);
         //   Power-role pseudo endpoint exists → Power, driver resolved in two steps:
-        //     (a) a real endpoint with io==Out and member==Power (modldo.VCC / moddcdc.VCC_1V2)
+        //     (a) a real endpoint with io==Out and member==Power (ldo.VCC / dcdc.VCC_1V2)
         //     (b) otherwise, for each Power member endpoint (io != In) do a sub-layer generation-side
         //         check —— if the net containing that endpoint in the raw subblock only passes through
         //         two-pin passives (e.g. usbsocket's vin.POWER_SYS via R0603), it is the source
@@ -368,7 +373,9 @@ fn group_display_name(sorted: &[usize], nets: &[McVecNet], bid: i64, table: &Ins
     let mut power_port: Option<String> = None;
     'outer: for &i in sorted {
         for pid in nets[i].all_point_ids() {
-            let Some(e) = pseudo_entry(pid, bid, table) else { continue };
+            let Some(e) = pseudo_entry(pid, bid, table) else {
+                continue;
+            };
             match e.member_info.as_ref().map(|m| m.role.clone()) {
                 Some(MemberRole::Ground) => has_ground = true,
                 Some(MemberRole::Power) => {
@@ -461,9 +468,13 @@ fn detect_rail_spec(
     if !has_ground && !has_power {
         return None; // ordinary signal net
     }
-    let class = if has_ground { RailClass::Ground } else { RailClass::Power };
+    let class = if has_ground {
+        RailClass::Ground
+    } else {
+        RailClass::Power
+    };
     let driver_pin = if class == RailClass::Ground {
-        None // R-1: ground is the return side; an out declaration (e.g. modldo's out GND) is not a driver
+        None // R-1: ground is the return side; an out declaration (e.g. ldo's out GND) is not a driver
     } else {
         resolve_power_driver(real, block, table)
     };
@@ -509,7 +520,9 @@ fn resolve_power_driver(real: &[i64], block: &McVecBlock, table: &InstTable) -> 
         if pid < 0 {
             continue;
         }
-        let Some(e) = table.get_entry(pid as u32) else { continue };
+        let Some(e) = table.get_entry(pid as u32) else {
+            continue;
+        };
         let member_power = e
             .member_info
             .as_ref()
@@ -526,7 +539,10 @@ fn resolve_power_driver(real: &[i64], block: &McVecBlock, table: &InstTable) -> 
         1 => Some(sources[0]),
         0 => None,
         _ => {
-            crate::vlog!("[project] rail has {} candidate sources (ambiguous), treating as no driver", sources.len());
+            crate::vlog!(
+                "[project] rail has {} candidate sources (ambiguous), treating as no driver",
+                sources.len()
+            );
             None
         }
     }
@@ -549,10 +565,7 @@ fn endpoint_is_out_power(pid: i64, table: &InstTable) -> bool {
 /// Specimens: usbsocket.vin.POWER_SYS raw net = [R0603.2, boundary] → passes only passives → source;
 ///            speaker.USB_VBUS_1.VDD_3V raw net = [lpa.7(8-pin), C8.1, boundary] → touches an IC → consumer side.
 fn is_rail_source_in_subblock(pin_id: i64, block: &McVecBlock, table: &InstTable) -> bool {
-    let Some(parent_mod) = table
-        .get_entry(pin_id as u32)
-        .and_then(|e| e.parent_id)
-    else {
+    let Some(parent_mod) = table.get_entry(pin_id as u32).and_then(|e| e.parent_id) else {
         return false;
     };
     let Some(sub) = block.blocks.iter().find(|b| b.bid == parent_mod as i64) else {
@@ -573,11 +586,9 @@ fn is_rail_source_in_subblock(pin_id: i64, block: &McVecBlock, table: &InstTable
             if op == parent_mod {
                 continue; // the subblock's own boundary declaration, transparent
             }
-            let passive = table
-                .get_entry(op)
-                .map_or(false, |pe| {
-                    pe.kind == InstKind::Component && table.get_pins_of(op).len() <= 2
-                });
+            let passive = table.get_entry(op).map_or(false, |pe| {
+                pe.kind == InstKind::Component && table.get_pins_of(op).len() <= 2
+            });
             if !passive {
                 return false; // touches an active device ⇒ consumer side
             }

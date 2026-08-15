@@ -247,7 +247,9 @@ impl<'a> McVecBuilder<'a> {
                 None => {
                     // M4-1B: auto-named fitted components (CAP, RES, IND) may not be
                     // in InstTable yet. Search by parent_id + name instead.
-                    let comp_id = self.inst_table.children_of(bid as u32)
+                    let comp_id = self
+                        .inst_table
+                        .children_of(bid as u32)
                         .iter()
                         .find(|c| {
                             if let Some(e) = self.inst_table.get_entry(c.id) {
@@ -258,7 +260,9 @@ impl<'a> McVecBuilder<'a> {
                         })
                         .map(|c| c.id as i64);
                     if let Some(id) = comp_id {
-                        eprintln!("[visit]   ✓ auto-named '{comp_path}' → id={id} (by parent search)");
+                        eprintln!(
+                            "[visit]   ✓ auto-named '{comp_path}' → id={id} (by parent search)"
+                        );
                         block.insts.push(id);
                     } else {
                         eprintln!(
@@ -323,9 +327,7 @@ impl<'a> McVecBuilder<'a> {
                 {
                     eprintln!(
                         "[visit]   + backfilled '{}' (id={}, kind={}) from InstTable",
-                        child.path,
-                        child.id,
-                        child.kind
+                        child.path, child.id, child.kind
                     );
                     block.insts.push(child.id as i64);
                 }
@@ -402,13 +404,13 @@ impl<'a> McVecBuilder<'a> {
             // used `windows(2)` sliding-window pairing. This is correct for ordinary chain
             // connections (`A - B - C`), but catastrophically wrong for bracket-expanded connections:
             //
-            //   `moddcdc.[VDD_3V3, GND] -> [V3V3, GND]`
+            //   `dcdc.[VDD_3V3, GND] -> [V3V3, GND]`
             //     resolve → [vdd3v3_id, gnd_id, v3v3_id, gnd2_id]
             //     windows(2) → (vdd3v3, gnd), (gnd, v3v3), (v3v3, gnd2)
             //     ↑↑↑ The middle pair (gnd, v3v3) shorts "ground" and "3V3" ↑↑↑
             //
             // And these ConnPairs all fall under the same effective_net_name (e.g. "V3V3"), so
-            // the V3V3 net ends up with 4 endpoints including moddcdc.GND → whole-schematic electrical error.
+            // the V3V3 net ends up with 4 endpoints including dcdc.GND → whole-schematic electrical error.
             //
             // New implementation:
             //   - Each NetPoint individually runs resolve_netpoint_v2, gets (ids, members):
@@ -419,7 +421,7 @@ impl<'a> McVecBuilder<'a> {
             //     independent sub-nets**, each using bracket member name as sub-net name
             //     (e.g. split into separate "V3V3" net and "GND" net, mutually uncontaminated).
             //   - Other cases (pure scalar chain / heterogeneous mix) still use the original
-            //     windows(2) behavior, preserving chain semantics that hbl already handles.
+            //     windows(2) behavior, preserving chain semantics for the example project.
             //
             // Note: ResolutionOutcome::BracketExpanded { member } already carries the member name,
             // no need for additional path re-resolution.
@@ -791,7 +793,7 @@ impl<'a> McVecBuilder<'a> {
 
         // ── ★ FIX-B: Cross-net merge of groups sharing endpoints ─────────────────────────────────
         //
-        // Symptom: In hbl mcu513 module, the same physical pin (e.g. `cap5.1`, `CAP_1.1`) appears
+        // Symptom: In the example mcu module, the same physical pin (e.g. `cap5.1`, `CAP_1.1`) appears
         // in pairs of multiple nets simultaneously, rendering as:
         //   GND       (7 pts) : ... cap5.1 ...
         //   VCC_1V2   (2 pts) : VCC_1V2 ~ cap5.1

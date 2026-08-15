@@ -1285,7 +1285,7 @@ mod tests {
     };
     use crate::vector::graph::boxdef::{BoxPin, IoSummary, PortDir};
     use crate::vector::graph::netdef::{Point, Route, Segment};
-    use crate::vector::graph::{BoxKind, EndpointRef, McVecBox, Symbol, NetRole, VizNet};
+    use crate::vector::graph::{BoxKind, EndpointRef, McVecBox, NetRole, Symbol, VizNet};
 
     fn mk_box(id: i64, x: f64, y: f64) -> McVecBox {
         let mut b = McVecBox::new_v2(

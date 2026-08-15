@@ -106,7 +106,8 @@ fn compute_zone_rect(zone: &super::zone::Zone, graph: &McVecGraph, is_submodule:
     let box_count = zone.boxes.len();
     if box_count == 0 {
         return Rect {
-            x: 0.0, y: 0.0,
+            x: 0.0,
+            y: 0.0,
             w: min_w,
             h: min_h,
         };
@@ -125,7 +126,12 @@ fn compute_zone_rect(zone: &super::zone::Zone, graph: &McVecGraph, is_submodule:
         }
     }
     if found == 0 {
-        return Rect { x: 0.0, y: 0.0, w: min_w, h: min_h };
+        return Rect {
+            x: 0.0,
+            y: 0.0,
+            w: min_w,
+            h: min_h,
+        };
     }
 
     // Estimate by the arrangement's maximum possible layer count (at most 1 box per layer, i.e. N layers)
@@ -138,7 +144,12 @@ fn compute_zone_rect(zone: &super::zone::Zone, graph: &McVecGraph, is_submodule:
     // Height = rows × (max box height + gap) + title bar + padding
     let h = (rows as f64 * (max_h + 10.0) + TITLE_H + ZONE_PAD * 2.0).max(min_h);
 
-    Rect { x: 0.0, y: 0.0, w, h }
+    Rect {
+        x: 0.0,
+        y: 0.0,
+        w,
+        h,
+    }
 }
 
 /// Order zones by box count (large zones first), root placed at the very front
@@ -221,10 +232,18 @@ mod tests {
     #[test]
     fn test_place_zones_multiple() {
         let mut graph = McVecGraph::new(0, String::new());
-        graph.boxes.push(make_box(1, "main.modldo.ldo", BoxKind::MultiPin));
-        graph.boxes.push(make_box(2, "main.moddcdc.dcdc", BoxKind::MultiPin));
-        graph.boxes.push(make_box(3, "main.mic.MIC", BoxKind::MultiPin));
-        graph.boxes.push(make_box(4, "main.speaker.SPK", BoxKind::MultiPin));
+        graph
+            .boxes
+            .push(make_box(1, "main.modldo.ldo", BoxKind::MultiPin));
+        graph
+            .boxes
+            .push(make_box(2, "main.moddcdc.dcdc", BoxKind::MultiPin));
+        graph
+            .boxes
+            .push(make_box(3, "main.mic.MIC", BoxKind::MultiPin));
+        graph
+            .boxes
+            .push(make_box(4, "main.speaker.SPK", BoxKind::MultiPin));
 
         let tree = super::super::zone::ZoneTree::build(&graph);
         let plans = place_zones(&graph, &tree, false);
@@ -242,14 +261,24 @@ mod tests {
             ZonePlan {
                 zone: 0,
                 box_ids: vec![],
-                rect: Rect { x: 0.0, y: 0.0, w: 200.0, h: 150.0 },
+                rect: Rect {
+                    x: 0.0,
+                    y: 0.0,
+                    w: 200.0,
+                    h: 150.0,
+                },
                 title_anchor: super::super::plan::Point { x: 0.0, y: 0.0 },
                 title: String::new(),
             },
             ZonePlan {
                 zone: 1,
                 box_ids: vec![],
-                rect: Rect { x: 240.0, y: 0.0, w: 200.0, h: 150.0 },
+                rect: Rect {
+                    x: 240.0,
+                    y: 0.0,
+                    w: 200.0,
+                    h: 150.0,
+                },
                 title_anchor: super::super::plan::Point { x: 0.0, y: 0.0 },
                 title: String::new(),
             },

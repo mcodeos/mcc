@@ -114,9 +114,7 @@ impl QuotientGraph {
             let ic_eps: Vec<_> = net
                 .endpoints
                 .iter()
-                .filter(|ep| {
-                    nodes.contains(&ep.box_id)
-                })
+                .filter(|ep| nodes.contains(&ep.box_id))
                 .collect();
 
             if ic_eps.len() < 2 {
@@ -129,7 +127,8 @@ impl QuotientGraph {
                     let a = ic_eps[i];
                     let b = ic_eps[j];
 
-                    let (src, dst, prefer) = resolve_direction(a.box_id, b.box_id, a.io_type, b.io_type);
+                    let (src, dst, prefer) =
+                        resolve_direction(a.box_id, b.box_id, a.io_type, b.io_type);
 
                     edges.push(QEdge {
                         src,
@@ -143,7 +142,11 @@ impl QuotientGraph {
             }
         }
 
-        QuotientGraph { nodes, edges, labels }
+        QuotientGraph {
+            nodes,
+            edges,
+            labels,
+        }
     }
 
     /// Build the quotient graph from a graph, considering only nodes within the given box_ids
@@ -185,7 +188,8 @@ impl QuotientGraph {
                     let a = ic_eps[i];
                     let b = ic_eps[j];
 
-                    let (src, dst, prefer) = resolve_direction(a.box_id, b.box_id, a.io_type, b.io_type);
+                    let (src, dst, prefer) =
+                        resolve_direction(a.box_id, b.box_id, a.io_type, b.io_type);
 
                     edges.push(QEdge {
                         src,
@@ -199,7 +203,11 @@ impl QuotientGraph {
             }
         }
 
-        QuotientGraph { nodes, edges, labels }
+        QuotientGraph {
+            nodes,
+            edges,
+            labels,
+        }
     }
 }
 
@@ -292,11 +300,7 @@ pub(crate) mod test_util {
     }
 
     /// Build a signal net (with given endpoints)
-    pub fn mk_signal_net(
-        id: i64,
-        name: &str,
-        endpoints: Vec<EndpointRef>,
-    ) -> VizNet {
+    pub fn mk_signal_net(id: i64, name: &str, endpoints: Vec<EndpointRef>) -> VizNet {
         VizNet::new(id, name.into(), NetKind::Signal, NetRole::Signal, endpoints)
     }
 
@@ -332,30 +336,54 @@ mod tests {
         g.boxes.push(mk_ic(5, "u5_flash", 3));
 
         // 6 edges (all Neutral direction)
-        g.nets.push(mk_signal_net(10, "u1_u2", vec![
-            mk_ep(1, 11, "OUT", IoDirection::Output),
-            mk_ep(2, 21, "IN", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(11, "u2_u4", vec![
-            mk_ep(2, 22, "OUT", IoDirection::Output),
-            mk_ep(4, 41, "IN", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(12, "u4_u3", vec![
-            mk_ep(4, 42, "OUT", IoDirection::Output),
-            mk_ep(3, 31, "IN", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(13, "u3_u5", vec![
-            mk_ep(3, 32, "OUT", IoDirection::Output),
-            mk_ep(5, 51, "IN", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(14, "u1_u4", vec![
-            mk_ep(1, 12, "CTRL", IoDirection::Output),
-            mk_ep(4, 43, "CTRL", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(15, "u1_u5", vec![
-            mk_ep(1, 13, "CLK", IoDirection::Output),
-            mk_ep(5, 52, "CLK", IoDirection::Input),
-        ]));
+        g.nets.push(mk_signal_net(
+            10,
+            "u1_u2",
+            vec![
+                mk_ep(1, 11, "OUT", IoDirection::Output),
+                mk_ep(2, 21, "IN", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            11,
+            "u2_u4",
+            vec![
+                mk_ep(2, 22, "OUT", IoDirection::Output),
+                mk_ep(4, 41, "IN", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            12,
+            "u4_u3",
+            vec![
+                mk_ep(4, 42, "OUT", IoDirection::Output),
+                mk_ep(3, 31, "IN", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            13,
+            "u3_u5",
+            vec![
+                mk_ep(3, 32, "OUT", IoDirection::Output),
+                mk_ep(5, 51, "IN", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            14,
+            "u1_u4",
+            vec![
+                mk_ep(1, 12, "CTRL", IoDirection::Output),
+                mk_ep(4, 43, "CTRL", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            15,
+            "u1_u5",
+            vec![
+                mk_ep(1, 13, "CLK", IoDirection::Output),
+                mk_ep(5, 52, "CLK", IoDirection::Input),
+            ],
+        ));
         g
     }
 
@@ -379,14 +407,22 @@ mod tests {
         g.boxes.push(mk_ic(1, "u1", 3));
         g.boxes.push(mk_ic(2, "u2", 3));
         // Bidirectional connection forms a cycle
-        g.nets.push(mk_signal_net(10, "u1_u2", vec![
-            mk_ep(1, 11, "OUT", IoDirection::Output),
-            mk_ep(2, 21, "IN", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(11, "u2_u1", vec![
-            mk_ep(2, 22, "OUT", IoDirection::Output),
-            mk_ep(1, 12, "IN", IoDirection::Input),
-        ]));
+        g.nets.push(mk_signal_net(
+            10,
+            "u1_u2",
+            vec![
+                mk_ep(1, 11, "OUT", IoDirection::Output),
+                mk_ep(2, 21, "IN", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            11,
+            "u2_u1",
+            vec![
+                mk_ep(2, 22, "OUT", IoDirection::Output),
+                mk_ep(1, 12, "IN", IoDirection::Input),
+            ],
+        ));
 
         let q = QuotientGraph::build(&g);
         assert_eq!(q.nodes.len(), 2);
@@ -401,18 +437,30 @@ mod tests {
         g.boxes.push(mk_ic(2, "u2", 3));
         g.boxes.push(mk_ic(3, "u3", 3));
         // u1→u2→u3→u1 cycle
-        g.nets.push(mk_signal_net(10, "u1_u2", vec![
-            mk_ep(1, 11, "OUT", IoDirection::Output),
-            mk_ep(2, 21, "IN", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(11, "u2_u3", vec![
-            mk_ep(2, 22, "OUT", IoDirection::Output),
-            mk_ep(3, 31, "IN", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(12, "u3_u1", vec![
-            mk_ep(3, 32, "OUT", IoDirection::Output),
-            mk_ep(1, 12, "IN", IoDirection::Input),
-        ]));
+        g.nets.push(mk_signal_net(
+            10,
+            "u1_u2",
+            vec![
+                mk_ep(1, 11, "OUT", IoDirection::Output),
+                mk_ep(2, 21, "IN", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            11,
+            "u2_u3",
+            vec![
+                mk_ep(2, 22, "OUT", IoDirection::Output),
+                mk_ep(3, 31, "IN", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            12,
+            "u3_u1",
+            vec![
+                mk_ep(3, 32, "OUT", IoDirection::Output),
+                mk_ep(1, 12, "IN", IoDirection::Input),
+            ],
+        ));
 
         let q = QuotientGraph::build(&g);
         assert_eq!(q.nodes.len(), 3);
@@ -425,10 +473,14 @@ mod tests {
         let mut g = McVecGraph::new(0, "main".into());
         g.boxes.push(mk_ic(1, "u1", 3));
         g.boxes.push(mk_ic(2, "u2", 3));
-        g.nets.push(mk_signal_net(10, "u1_u2", vec![
-            mk_ep(1, 11, "OUT", IoDirection::Output),
-            mk_ep(2, 21, "IN", IoDirection::Input),
-        ]));
+        g.nets.push(mk_signal_net(
+            10,
+            "u1_u2",
+            vec![
+                mk_ep(1, 11, "OUT", IoDirection::Output),
+                mk_ep(2, 21, "IN", IoDirection::Input),
+            ],
+        ));
 
         let q = QuotientGraph::build(&g);
         assert_eq!(q.nodes.len(), 2);
@@ -442,14 +494,22 @@ mod tests {
         g.boxes.push(mk_ic(1, "u1", 3));
         g.boxes.push(mk_ic(2, "u2", 3));
         g.boxes.push(mk_ic(3, "u3", 3));
-        g.nets.push(mk_signal_net(10, "u3_u1", vec![
-            mk_ep(3, 31, "OUT", IoDirection::Output),
-            mk_ep(1, 11, "IN", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(11, "u1_u2", vec![
-            mk_ep(1, 12, "OUT", IoDirection::Output),
-            mk_ep(2, 21, "IN", IoDirection::Input),
-        ]));
+        g.nets.push(mk_signal_net(
+            10,
+            "u3_u1",
+            vec![
+                mk_ep(3, 31, "OUT", IoDirection::Output),
+                mk_ep(1, 11, "IN", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            11,
+            "u1_u2",
+            vec![
+                mk_ep(1, 12, "OUT", IoDirection::Output),
+                mk_ep(2, 21, "IN", IoDirection::Input),
+            ],
+        ));
 
         let q = QuotientGraph::build(&g);
         assert_eq!(q.nodes.len(), 3);
@@ -464,18 +524,30 @@ mod tests {
         g.boxes.push(mk_ic(2, "u2", 3));
         g.boxes.push(mk_ic(3, "u3", 3));
         g.boxes.push(mk_ic(4, "u4", 3));
-        g.nets.push(mk_signal_net(10, "u3_u1", vec![
-            mk_ep(3, 31, "OUT", IoDirection::Output),
-            mk_ep(1, 11, "IN", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(11, "u1_u2", vec![
-            mk_ep(1, 12, "OUT", IoDirection::Output),
-            mk_ep(2, 21, "IN", IoDirection::Input),
-        ]));
-        g.nets.push(mk_signal_net(12, "u2_u4", vec![
-            mk_ep(2, 22, "OUT", IoDirection::Output),
-            mk_ep(4, 41, "IN", IoDirection::Input),
-        ]));
+        g.nets.push(mk_signal_net(
+            10,
+            "u3_u1",
+            vec![
+                mk_ep(3, 31, "OUT", IoDirection::Output),
+                mk_ep(1, 11, "IN", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            11,
+            "u1_u2",
+            vec![
+                mk_ep(1, 12, "OUT", IoDirection::Output),
+                mk_ep(2, 21, "IN", IoDirection::Input),
+            ],
+        ));
+        g.nets.push(mk_signal_net(
+            12,
+            "u2_u4",
+            vec![
+                mk_ep(2, 22, "OUT", IoDirection::Output),
+                mk_ep(4, 41, "IN", IoDirection::Input),
+            ],
+        ));
 
         let q = QuotientGraph::build(&g);
         assert_eq!(q.nodes.len(), 4);
@@ -490,13 +562,20 @@ mod tests {
         g.boxes.push(mk_ic(2, "u2", 3));
         g.boxes.push(mk_ic(100, "V3V3", 1));
         // Signal net
-        g.nets.push(mk_signal_net(10, "u1_u2", vec![
-            mk_ep(1, 11, "OUT", IoDirection::Output),
-            mk_ep(2, 21, "IN", IoDirection::Input),
-        ]));
+        g.nets.push(mk_signal_net(
+            10,
+            "u1_u2",
+            vec![
+                mk_ep(1, 11, "OUT", IoDirection::Output),
+                mk_ep(2, 21, "IN", IoDirection::Input),
+            ],
+        ));
         // Power net (should be ignored)
         g.nets.push(VizNet::new(
-            11, "V3V3".into(), NetKind::Power, NetRole::Rail { volt: None },
+            11,
+            "V3V3".into(),
+            NetKind::Power,
+            NetRole::Rail { volt: None },
             vec![
                 EndpointRef::with_io(100, 1001, "V3V3", IoDirection::Power),
                 EndpointRef::with_io(1, 12, "VDD", IoDirection::Power),
