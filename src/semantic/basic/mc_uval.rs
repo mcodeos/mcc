@@ -594,22 +594,13 @@ fn parse_power_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
 fn parse_resist_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
     let (value, unit_str) = extract_value_and_unit(node, data)?;
 
-    let multiplier = match unit_str {
-        "R" | "Ω" => 1.0,
-        "mR" | "mΩ" => 1e-3,
-        "μR" | "µR" | "uR" | "μΩ" | "µΩ" | "uΩ" => 1e-6,
-        "nR" | "nΩ" => 1e-9,
-        "kR" | "kΩ" => 1e3,
-        "MR" | "MΩ" => 1e6,
-        "GR" | "GΩ" => 1e9,
-        _ => {
-            dlog_error(
-                crate::errcodes::UVAL_UNIT_UNSUPPORTED,
-                node,
-                &crate::errcodes::format_msg(crate::errcodes::UVAL_UNIT_UNSUPPORTED, &[&unit_str]),
-            );
-            return None;
-        }
+    let Some(multiplier) = resist_multiplier(unit_str) else {
+        dlog_error(
+            crate::errcodes::UVAL_UNIT_UNSUPPORTED,
+            node,
+            &crate::errcodes::format_msg(crate::errcodes::UVAL_UNIT_UNSUPPORTED, &[&unit_str]),
+        );
+        return None;
     };
 
     Some(McUnitValue {
@@ -619,6 +610,21 @@ fn parse_resist_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
         at: None,
         raw: None,
     })
+}
+
+/// Multiplier for a resistance unit suffix: symbol (Ω), R-code (R), or
+/// spelled form (ohm). Prefix variants cover milli/micro/nano/kilo/mega/giga.
+fn resist_multiplier(unit: &str) -> Option<f64> {
+    match unit {
+        "R" | "Ω" | "ohm" | "Ohm" => Some(1.0),
+        "mR" | "mΩ" | "mohm" | "mOhm" => Some(1e-3),
+        "μR" | "µR" | "uR" | "μΩ" | "µΩ" | "uΩ" | "μohm" | "µohm" | "uohm" => Some(1e-6),
+        "nR" | "nΩ" | "nohm" | "nOhm" => Some(1e-9),
+        "kR" | "kΩ" | "kohm" | "kOhm" => Some(1e3),
+        "MR" | "MΩ" | "Mohm" | "MOhm" => Some(1e6),
+        "GR" | "GΩ" | "Gohm" | "GOhm" => Some(1e9),
+        _ => None,
+    }
 }
 
 fn parse_temperature_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
@@ -1454,4 +1460,50 @@ fn parse_charge_unit(node: &AstNode, data: &str) -> Option<McUnitValue> {
         at: None,
         raw: None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resist_multiplier;
+
+    #[test]
+    fn resist_suffixes_symbol_and_r() {
+        assert_eq!(resist_multiplier("R"), Some(1.0));
+        assert_eq!(resist_multiplier("Ω"), Some(1.0));
+        assert_eq!(resist_multiplier("mΩ"), Some(1e-3));
+        assert_eq!(resist_multiplier("μΩ"), Some(1e-6));
+        assert_eq!(resist_multiplier("µΩ"), Some(1e-6));
+        assert_eq!(resist_multiplier("uΩ"), Some(1e-6));
+        assert_eq!(resist_multiplier("nΩ"), Some(1e-9));
+        assert_eq!(resist_multiplier("kΩ"), Some(1e3));
+        assert_eq!(resist_multiplier("MΩ"), Some(1e6));
+        assert_eq!(resist_multiplier("GΩ"), Some(1e9));
+    }
+
+    #[test]
+    fn resist_suffixes_spelled() {
+        assert_eq!(resist_multiplier("ohm"), Some(1.0));
+        assert_eq!(resist_multiplier("Ohm"), Some(1.0));
+        assert_eq!(resist_multiplier("mohm"), Some(1e-3));
+        assert_eq!(resist_multiplier("mOhm"), Some(1e-3));
+        assert_eq!(resist_multiplier("μohm"), Some(1e-6));
+        assert_eq!(resist_multiplier("µohm"), Some(1e-6));
+        assert_eq!(resist_multiplier("uohm"), Some(1e-6));
+        assert_eq!(resist_multiplier("nohm"), Some(1e-9));
+        assert_eq!(resist_multiplier("nOhm"), Some(1e-9));
+        assert_eq!(resist_multiplier("kohm"), Some(1e3));
+        assert_eq!(resist_multiplier("kOhm"), Some(1e3));
+        assert_eq!(resist_multiplier("Mohm"), Some(1e6));
+        assert_eq!(resist_multiplier("MOhm"), Some(1e6));
+        assert_eq!(resist_multiplier("Gohm"), Some(1e9));
+        assert_eq!(resist_multiplier("GOhm"), Some(1e9));
+    }
+
+    #[test]
+    fn resist_suffixes_unknown() {
+        assert_eq!(resist_multiplier("ohms"), None);
+        assert_eq!(resist_multiplier(""), None);
+        assert_eq!(resist_multiplier("H"), None);
+        assert_eq!(resist_multiplier("K"), None);
+    }
 }
