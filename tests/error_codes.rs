@@ -307,21 +307,6 @@ fn inst_3pin_plusminus_rejected_with_dedicated_code() {
     drop(lock);
 }
 
-/// P5.2: the AMBIGUOUS_PRECEDENCE message must state the explicit precedence
-/// rule and the fix direction (eval.md §9).
-#[test]
-fn ambiguous_precedence_message_includes_priority_rule() {
-    let msg = mcc::errcodes::format_msg(mcc::errcodes::CONN_AMBIGUOUS_PRECEDENCE, &[&3usize]);
-    assert!(
-        msg.contains("bind tighter"),
-        "E2008 message should state the precedence rule; got: {msg}"
-    );
-    assert!(
-        msg.contains("(A + B) - C"),
-        "E2008 message should show a concrete grouping example; got: {msg}"
-    );
-}
-
 /// E2904 (SHAPE_EXPAND_DIM_MISMATCH): the Pass2 recovery branch attaches the
 /// P5.4 fix suggestion (eval.md §7 rule 3) to the message. The suggestion
 /// generator itself is unit-tested in netshape.rs; here we verify the

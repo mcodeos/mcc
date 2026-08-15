@@ -178,7 +178,6 @@
   "4024": "Curly-member construction: right member list is empty.",
   "4025": "Cannot convert the curly-member result to a bus.",
   "4026": "Groups with different branch counts cannot connect.",
-  "4027": "AMBIGUOUS_PRECEDENCE: expression mixes + (parallel) with - or -> (series) operators without parentheses and spans {0} components (>2). Consider adding explicit parentheses (Group) to clarify the intended grouping.",
   "4050": "GHOST_PORT: box '{0}' (id={1}) has placeholder pin '{2}' (id={3}) that is not mapped to any real component pin. The component declared only an estimated pin count (pins = N) without actual pin definitions.",
   "4051": "MERGED_SHORT: net '{0}' (module '{1}') has {2} point(s) resolving to the same node (id={3}). Paths: {4}. This may indicate a bracket expansion duplicate or a port declared without bit width causing signal merging.",
   "4052": "Bus member order mismatch after sorting (E2005).",
