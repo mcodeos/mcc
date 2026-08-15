@@ -131,6 +131,21 @@ fn map_def_span(dump: &str, kind: &str, ref_id: u32) -> Option<(usize, usize)> {
         .next()
 }
 
+/// LAPPER_DEF interval (kind tag, decl id, span) for the dump line whose def
+/// span equals `span`.
+fn def_interval(dump: &str, kind: &str, span: (usize, usize)) -> Option<u32> {
+    dump.lines()
+        .filter(|l| l.contains("F12_DIAG LAPPER_DEF:"))
+        .filter(|l| l.contains(&format!("kind={kind}")))
+        .filter(|l| extract_span(l) == Some(span))
+        .filter_map(|l| {
+            l.find("id=")
+                .and_then(|i| l[i + 3..].split_whitespace().next())
+                .and_then(|s| s.parse().ok())
+        })
+        .next()
+}
+
 /// Loads SOURCE into a fresh workspace and returns the F12 dump for the uri.
 fn load_and_dump() -> String {
     mcc::mcc_init_no_lib();
@@ -423,5 +438,301 @@ fn dotted_funcall_class_ref_spans_full_class_name() {
                 && extract_span(l) == Some(broken)
         }),
         "no ClassRef interval may span 'ESD(\"ES' at {broken:?}"
+    );
+}
+
+#[test]
+fn bus_form_interface_pin_maps_to_bus_name() {
+    let _lock = TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    // A component pin declared with a bus-form interface
+    // (`VIN{Vin, GND}::DC(...)`) must resolve `ldo.VIN` to the bus-name
+    // identifier `VIN`, not to the whole bus expression `VIN{Vin, GND`
+    // (the option-level span covers the whole bus token).
+    const SRC: &str = r#"
+interface DC(volt)
+{
+    pins = [
+        1 = VOUT, "DC power positive"
+        2 = GND, "DC power ground"
+    ]
+}
+
+component LDO
+{
+    pins = [
+        in [1,2] = VIN{Vin, GND}::DC(2.5V~5.5V)
+    ]
+}
+
+module main
+{
+    LDO ldo
+    ldo.VIN -> GND
+}
+"#;
+    let uri: McURI = "/mcc/bus-form-iface-pin.mc".to_string();
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+    mcc::mcc_load_from_string(&uri, SRC);
+    let dump = mcc::dump_symbols_f12_text(&uri).expect("f12 dump");
+
+    let chain_span = {
+        let p = SRC.find("ldo.VIN").expect("ldo.VIN in source");
+        (p, p + "ldo.VIN".len())
+    };
+    let ref_id =
+        ref_interval(&dump, "PinIfaceRef", chain_span).expect("PinIfaceRef interval for ldo.VIN");
+    // The def must be the `VIN` identifier (3 bytes), not `VIN{Vin, GND`.
+    let vin_def = SRC
+        .find("VIN{Vin, GND}")
+        .expect("VIN pin declaration in source");
+    assert_eq!(
+        map_def_span(&dump, "PinIfaceRef", ref_id),
+        Some((vin_def, vin_def + 3)),
+        "ldo.VIN must map to the VIN pin-name identifier at {vin_def}..{}",
+        vin_def + 3
+    );
+    // And the PinNameDef for `VIN` must sit on the name, not the bus body.
+    assert!(
+        dump.lines().any(|l| {
+            l.contains("F12_DIAG LAPPER_DEF:")
+                && l.contains("kind=PinNameDef")
+                && extract_span(l) == Some((vin_def, vin_def + 3))
+        }),
+        "PinNameDef for VIN must be registered at {vin_def}..{}",
+        vin_def + 3
+    );
+}
+
+#[test]
+fn twopin_declareb_names_classified_as_instances() {
+    let _lock = TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    // Declareb inference rule (`idx::CLASS(...)`): a 2-pin component class
+    // (CAP/RES) makes the declared name an instance, so the lapper must
+    // register InstDef at the declaration span and InstRef for the use
+    // (declaration = use point, self-mapping) — not LabelDef/PortRef.
+    const SRC: &str = r#"
+module main
+{
+    VIN -> R1::RES(1kOhm) -> GND
+    VIN -> [C4::CAP(), C5::CAP()] -> GND
+    VIN -> res[1:2]::RES(0Ohm) -> GND
+}
+"#;
+    let uri: McURI = "/mcc/twopin-declareb.mc".to_string();
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+    mcc::mcc_load_from_string(&uri, SRC);
+    let dump = mcc::dump_symbols_f12_text(&uri).expect("f12 dump");
+
+    // `C4` inside `[C4::CAP(), C5::CAP()]` must be an InstDef (declaration
+    // point) with the use on the same span resolving to itself (self-mapping).
+    let c4_span = {
+        let p = SRC.find("C4").expect("C4 in source");
+        (p, p + "C4".len())
+    };
+    let def_id =
+        def_interval(&dump, "InstDef", c4_span).expect("InstDef interval for C4 declareb name");
+    let ref_id =
+        ref_interval(&dump, "InstRef", c4_span).expect("InstRef interval for C4 declareb name");
+    assert_eq!(
+        def_id, ref_id,
+        "C4 InstDef and InstRef must share the same DeclareId (self-mapping: \
+         declaration = use point)"
+    );
+    // No LabelDef may sit on the C4 span (previously the inline declareb name
+    // was misclassified as a label).
+    assert!(
+        !dump.lines().any(|l| {
+            l.contains("F12_DIAG LAPPER_DEF:")
+                && l.contains("kind=LabelDef")
+                && extract_span(l) == Some(c4_span)
+        }),
+        "no LabelDef interval may be registered at the C4 declareb span"
+    );
+
+    // `R1::RES(1kOhm)` — single named 2-pin declareb — same classification.
+    let r1_span = {
+        let p = SRC.find("R1").expect("R1 in source");
+        (p, p + "R1".len())
+    };
+    assert!(
+        dump.lines().any(|l| {
+            l.contains("F12_DIAG LAPPER_DEF:")
+                && l.contains("kind=InstDef")
+                && extract_span(l) == Some(r1_span)
+        }),
+        "R1 declareb name must be registered as InstDef at {r1_span:?}"
+    );
+
+    // Array declareb `res[1:2]::RES(0Ohm)` — each expanded member (res1/res2)
+    // gets an InstDef at the ids span.
+    let res_span = {
+        let p = SRC.find("res[1:2]").expect("res[1:2] in source");
+        (p, p + "res[1:2]".len())
+    };
+    assert!(
+        dump.lines().any(|l| {
+            l.contains("F12_DIAG LAPPER_DEF:")
+                && l.contains("kind=InstDef")
+                && extract_span(l) == Some(res_span)
+        }),
+        "array declareb members must be registered as InstDef at {res_span:?}"
+    );
+}
+
+#[test]
+fn interface_declareb_classified_as_label() {
+    let _lock = TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    // Declareb inference rule (`idx::CLASS(...)`): the def kind follows the
+    // declared class. An interface class (`DC`) makes the name a label/bus,
+    // not an instance — so `vin::DC(5V)` must be LabelDef with no InstDef
+    // (previously interface declareb was misclassified as InstDef).
+    const SRC: &str = r#"
+interface DC(volt)
+{
+    pins = [
+        1 = VCC, "positive"
+        2 = GND, "ground"
+    ]
+}
+
+module main
+{
+    VIN -> vin::DC(5V) -> GND
+    VIN -> [VDD, GND]::DC(5V) -> GND
+}
+"#;
+    let uri: McURI = "/mcc/iface-declareb.mc".to_string();
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+    mcc::mcc_load_from_string(&uri, SRC);
+    let dump = mcc::dump_symbols_f12_text(&uri).expect("f12 dump");
+
+    let vin_span = {
+        let p = SRC.find("vin::").expect("vin:: in source");
+        (p, p + "vin".len())
+    };
+    assert!(
+        dump.lines().any(|l| {
+            l.contains("F12_DIAG LAPPER_DEF:")
+                && l.contains("kind=LabelDef")
+                && extract_span(l) == Some(vin_span)
+        }),
+        "interface declareb name 'vin' must be LabelDef at {vin_span:?}"
+    );
+    assert!(
+        !dump.lines().any(|l| {
+            l.contains("F12_DIAG LAPPER_DEF:")
+                && l.contains("kind=InstDef")
+                && extract_span(l) == Some(vin_span)
+        }),
+        "interface declareb name 'vin' must NOT be InstDef at {vin_span:?}"
+    );
+
+    // Square-bus interface declareb `[VDD, GND]::DC(5V)` — same label rule.
+    // The def interval covers the member text `VDD, GND` (ids span, brackets
+    // excluded), matching the square-members registration.
+    let square_span = {
+        let p = SRC.find("VDD, GND").expect("VDD, GND in source");
+        (p, p + "VDD, GND".len())
+    };
+    assert!(
+        dump.lines().any(|l| {
+            l.contains("F12_DIAG LAPPER_DEF:")
+                && l.contains("kind=LabelDef")
+                && extract_span(l) == Some(square_span)
+        }),
+        "square interface declareb must be LabelDef at {square_span:?}"
+    );
+    assert!(
+        !dump.lines().any(|l| {
+            l.contains("F12_DIAG LAPPER_DEF:")
+                && l.contains("kind=InstDef")
+                && extract_span(l) == Some(square_span)
+        }),
+        "square interface declareb must NOT be InstDef at {square_span:?}"
+    );
+}
+
+#[test]
+fn bare_idx_upgraded_by_later_declareb() {
+    let _lock = TEST_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    // Bare-idx strategy: an untyped inline name (`C4`) is temporarily a
+    // LabelDef on first appearance. When a typed `C4::CAP()` appears later,
+    // the typed declaration is authoritative: it is the single InstDef and
+    // the earlier bare occurrence becomes an InstRef that resolves to it —
+    // it must NOT mint a second def (a stray LabelDef overlapping the ref).
+    const SRC: &str = r#"
+module main
+{
+    VIN -> C4 -> GND
+    VIN -> C4::CAP() -> GND
+}
+"#;
+    let uri: McURI = "/mcc/bare-then-typed.mc".to_string();
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+    mcc::mcc_load_from_string(&uri, SRC);
+    let dump = mcc::dump_symbols_f12_text(&uri).expect("f12 dump");
+
+    let bare_span = {
+        let p = SRC.find("C4 ->").expect("bare C4 in source");
+        (p, p + "C4".len())
+    };
+    let typed_span = {
+        let p = SRC.find("C4::").expect("typed C4 in source");
+        (p, p + "C4".len())
+    };
+    let typed_def = SRC.find("C4::CAP()").map(|p| p).expect("typed C4::CAP()");
+
+    // 1. The typed declaration is the single InstDef.
+    let def_id =
+        def_interval(&dump, "InstDef", typed_span).expect("InstDef interval for typed C4::CAP()");
+    // 2. The bare occurrence is an InstRef mapping to the typed InstDef
+    //    (upgrade: the typed declaration is authoritative and retroactive).
+    let ref_id = ref_interval(&dump, "InstRef", bare_span).expect("InstRef interval for bare C4");
+    assert_eq!(
+        map_def_span(&dump, "InstRef", ref_id),
+        Some((typed_def, typed_def + 2)),
+        "bare C4 must resolve to the typed InstDef at {typed_def}..{}",
+        typed_def + 2
+    );
+    // 3. The bare occurrence must not mint its own LabelDef.
+    assert!(
+        !dump.lines().any(|l| {
+            l.contains("F12_DIAG LAPPER_DEF:")
+                && l.contains("kind=LabelDef")
+                && extract_span(l) == Some(bare_span)
+        }),
+        "no LabelDef interval may be registered at the bare C4 span (typed \
+         declaration is the single def)"
+    );
+    // 4. Same DeclareId everywhere: bare ref, typed ref and typed def agree.
+    let typed_ref_id =
+        ref_interval(&dump, "InstRef", typed_span).expect("InstRef interval for typed C4::CAP()");
+    assert_eq!(
+        def_id, ref_id,
+        "bare C4 InstRef must share the typed InstDef's DeclareId"
+    );
+    assert_eq!(
+        def_id, typed_ref_id,
+        "typed C4 InstRef must share the typed InstDef's DeclareId (self-mapping)"
     );
 }

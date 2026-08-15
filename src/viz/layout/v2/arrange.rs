@@ -506,7 +506,6 @@ fn compute_partial_cost(
         }
     }
 
-    let max_nodes = layers.iter().map(|l| l.len()).max().unwrap_or(1);
     let total_w = layers
         .iter()
         .map(|l| l.len() as f64 * SP_COL_W)
@@ -605,7 +604,6 @@ fn compute_full_cost(
     let orient = compute_orient_cost(q, sides, arr);
     let order = compute_order_cost(q, arr);
 
-    let max_nodes = arr.layers.iter().map(|l| l.len()).max().unwrap_or(1);
     let total_w = arr
         .layers
         .iter()

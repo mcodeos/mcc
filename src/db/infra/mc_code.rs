@@ -1892,16 +1892,24 @@ impl McCode {
             .collect()
     }
 
-    pub fn parse_pass1_modules(&mut self) {
+    /// Parse all modules and (re)build the symbol lapper.
+    ///
+    /// Returns `true` when this call (re)built the lapper (full parse or
+    /// use-table-dirty rebuild), `false` when it was a no-op because the
+    /// lapper is already up to date (`modules_parsed` set, table not dirty).
+    /// Callers that need to guarantee a fresh lapper must rebuild when this
+    /// returns `false` — this lets `mcb_parse_all_modules` avoid the second
+    /// redundant `create_lapper()` for files this call just built.
+    pub fn parse_pass1_modules(&mut self) -> bool {
         if self.modules_parsed && !self.use_table_dirty {
-            return;
+            return false;
         }
         // ★ §7.6: Use table dirty — only rebuild RefDefMap/name_index,
         // no need to re-parse modules.
         if self.modules_parsed && self.use_table_dirty {
             self.create_lapper(); // includes inline Layer 2 + consolidate (Layer 1 + name_index)
             self.use_table_dirty = false;
-            return;
+            return true;
         }
         self.modules_parsed = true;
 
@@ -1942,12 +1950,8 @@ impl McCode {
                 }
             }
         }
-        // ★ Fix: Build the lapper after processing all modules.
-        // mcb_parse_all_modules() does remove+insert on the McCode, creating a new McCode instance.
-        // This new instance has the same Arc<Mutex<McSemSymbols>> (shared symbol data),
-        // but create_lapper() was NOT called on it, so symbol_lapper was empty.
-        // Call create_lapper here to ensure the lapper is built for the current file.
-        // ★ Fix: Build the lapper after processing all modules.
+        // Build the lapper after processing all modules so that
+        // module-level symbols are registered before ref resolution.
         self.create_lapper(); // includes inline Layer 2 + consolidate_ref_def_map (Layer 1 + name_index)
         self.use_table_dirty = false;
 
@@ -1961,6 +1965,7 @@ impl McCode {
                 }
             }
         }
+        true
     }
 
     /// Backward-compatible interface: parse all definitions sequentially (single-file scenario or system library)
@@ -2153,6 +2158,14 @@ impl McCode {
         // before defaulting to PortRef. This ensures instance references like
         // `X6` in `X6.setup(...)` are classified as InstRef, not PortRef,
         // so the tooltip shows "instance" instead of "label".
+        // ★ Declareb inference (`idx::CLASS(...)`): 2-pin declareb names
+        // (`C4::CAP()`) bypass parse_declare, so they are absent from insts;
+        // the parse-time hint classifies them as instance refs.
+        if let Some((kind, _)) = insts.declareb_def(port_name) {
+            if kind == SymbolKind::InstDef {
+                return SymbolKind::InstRef;
+            }
+        }
         if let Some((_iotype, inst)) = insts.insts().get(port_name) {
             if matches!(
                 inst,
@@ -2182,6 +2195,11 @@ impl McCode {
             SymbolKind::InstDef => SymbolKind::InstRef,
             SymbolKind::FuncDef => SymbolKind::FuncRef,
             SymbolKind::EnumValDef => SymbolKind::EnumValRef,
+            // Class-chain fallback (bare class names like `RES` / `CAP`): the
+            // hit is a ClassDef, so the ref must be a ClassRef — not the
+            // FuncParamRef catch-all (which would duplicate the ClassRef that
+            // lapper_global_classes already registers at the same span).
+            SymbolKind::ClassDef => SymbolKind::ClassRef,
             _ => SymbolKind::FuncParamRef,
         }
     }
@@ -2748,6 +2766,17 @@ impl McCode {
             sem.local_table
                 .scope_index
                 .retain(|_, (fid, _, _)| *fid != file_id);
+            // Drop def_map entries for this file too. They were registered
+            // during the previous lapper build; the name_to_declare_id keys
+            // that carried their ids are gone (retain above), so a rebuild
+            // allocates fresh DeclareIds. Without this cleanup the old
+            // generation stays behind as ghost (def_kind, decl_id) entries
+            // that no ref references, doubling def_map and polluting the
+            // span-based LabelRef/BusRef synthesis in fill_refdef_layer2.
+            // Cross-file entries (loc.file_id != this file) are kept: their
+            // name_to_declare_id keys survive the retain, so their ids are
+            // reused and they never duplicate.
+            sem.def_map.retain(|_, loc| loc.file_id != file_id);
             // Cleanup complete — stale entries removed
         }
         match self.symbols.lock() {
@@ -3342,10 +3371,14 @@ impl McCode {
             let m = entry.value();
             let mod_ident = entry.key().ident.to_string();
             for (inst_name, (_iotype, inst)) in m.insts.insts() {
+                // ★ Declareb inference: the def kind follows the declared
+                // class. Component/module instances (`C4::CAP()`) are InstDef;
+                // interface instances (`vin::DC(5V)`, `[VDD,GND]::DC(3.3V)`)
+                // are label/bus semantics and fall through to the module
+                // port_spans loop, which registers them as LabelDef.
                 match inst {
                     crate::semantic::mc_inst::McInstance::Component(_)
-                    | crate::semantic::mc_inst::McInstance::Module(_)
-                    | crate::semantic::mc_inst::McInstance::Interface(_) => {
+                    | crate::semantic::mc_inst::McInstance::Module(_) => {
                         if let Some(spans) = m.insts.port_spans().get(inst_name) {
                             // Only the first span is the declaration site
                             // (store_port_span is called first from
@@ -3387,33 +3420,66 @@ impl McCode {
             let comp = entry.value();
             let comp_ident = entry.key().ident.to_string();
             for (inst_name, (_iotype, inst)) in comp.insts.insts() {
-                match inst {
+                // ★ Declareb inference: the def kind follows the declared
+                // class. Component/module instances (`C4::CAP()`) are InstDef;
+                // interface instances (`vin::DC(5V)`) are label/bus semantics,
+                // so they register as LabelDef (a component body has no
+                // port_spans loop to fall back on).
+                let def_kind = match inst {
                     crate::semantic::mc_inst::McInstance::Component(_)
-                    | crate::semantic::mc_inst::McInstance::Module(_)
-                    | crate::semantic::mc_inst::McInstance::Interface(_) => {
-                        if let Some(spans) = comp.insts.port_spans().get(inst_name) {
-                            if let Some(span) = spans.first() {
-                                let (d, _) = crate::refdef::register::register_def(
-                                    sem,
-                                    uri,
-                                    &comp_ident,
-                                    None,
-                                    inst_name,
-                                    span.clone(),
-                                    SymbolKind::InstDef,
-                                );
-                                symbol_lapper.insert(Interval {
-                                    start: span.start,
-                                    stop: span.end,
-                                    val: SymbolType::new(SymbolKind::InstDef, u32::from(d)),
-                                });
-                                tracing::info!(target: "mcc::lsp::audit",
-                                    "[AUDIT-InstDef] name={inst_name} span={span:?} decl_id={d:?}");
-                            }
+                    | crate::semantic::mc_inst::McInstance::Module(_) => Some(SymbolKind::InstDef),
+                    crate::semantic::mc_inst::McInstance::Interface(_) => {
+                        Some(SymbolKind::LabelDef)
+                    }
+                    _ => None,
+                };
+                if let Some(def_kind) = def_kind {
+                    if let Some(spans) = comp.insts.port_spans().get(inst_name) {
+                        if let Some(span) = spans.first() {
+                            let (d, _) = crate::refdef::register::register_def(
+                                sem,
+                                uri,
+                                &comp_ident,
+                                None,
+                                inst_name,
+                                span.clone(),
+                                def_kind,
+                            );
+                            symbol_lapper.insert(Interval {
+                                start: span.start,
+                                stop: span.end,
+                                val: SymbolType::new(def_kind, u32::from(d)),
+                            });
+                            tracing::info!(target: "mcc::lsp::audit",
+                                "[AUDIT-InstDef] name={inst_name} span={span:?} decl_id={d:?} kind={def_kind:?}");
                         }
                     }
-                    _ => {}
                 }
+            }
+            // ★ Declareb inference: 2-pin declareb inside a component body
+            // (`C4::CAP()`) bypasses parse_declare, so the name never enters
+            // insts. Register InstDef at the hint's declaration span so
+            // component-body instances resolve like module-body ones.
+            for (inst_name, (kind, span)) in comp.insts.iter_declareb_defs() {
+                if *kind != SymbolKind::InstDef {
+                    continue;
+                }
+                let (d, _) = crate::refdef::register::register_def(
+                    sem,
+                    uri,
+                    &comp_ident,
+                    None,
+                    inst_name,
+                    span.clone(),
+                    SymbolKind::InstDef,
+                );
+                symbol_lapper.insert(Interval {
+                    start: span.start,
+                    stop: span.end,
+                    val: SymbolType::new(SymbolKind::InstDef, u32::from(d)),
+                });
+                tracing::info!(target: "mcc::lsp::audit",
+                    "[AUDIT-InstDef] name={inst_name} span={span:?} decl_id={d:?} (declareb hint)");
             }
         }
 
@@ -3717,7 +3783,21 @@ impl McCode {
                         continue;
                     }
                 }
+                // ★ Declareb inference (`idx::CLASS(...)`): 2-pin declareb
+                // names (`C4::CAP()`) carry a parse-time hint with their
+                // inferred def kind (InstDef for component/module classes) and
+                // declaration span. Register the def at the declaration span
+                // only. Other spans are bare uses of the typed name (e.g. a
+                // bare `C4` before `C4::CAP()`): the typed declaration is
+                // authoritative, so bare uses are ref-only and must not mint a
+                // second def (a stray LabelDef overlapping the InstRef).
+                let hint = m.insts.declareb_def(name);
                 for span in spans {
+                    let def_kind = match &hint {
+                        Some((kind, declareb_span)) if declareb_span == span => *kind,
+                        Some(_) => continue,
+                        _ => SymbolKind::LabelDef,
+                    };
                     let (d, _) = crate::refdef::register::register_def(
                         sem,
                         uri,
@@ -3725,15 +3805,15 @@ impl McCode {
                         None,
                         name,
                         span.clone(),
-                        SymbolKind::LabelDef,
+                        def_kind,
                     );
                     symbol_lapper.insert(Interval {
                         start: span.start,
                         stop: span.end,
-                        val: SymbolType::new(SymbolKind::LabelDef, u32::from(d)),
+                        val: SymbolType::new(def_kind, u32::from(d)),
                     });
                     tracing::info!(target: "mcc::lsp::audit",
-                        "[AUDIT-LabelDef] name={name} span={span:?} decl_id={d:?}");
+                        "[AUDIT-LabelDef] name={name} span={span:?} decl_id={d:?} kind={def_kind:?}");
                 }
             }
             for (span, port_name, scope) in m.insts.iter_net_refs() {
@@ -3754,20 +3834,33 @@ impl McCode {
                     if let Some(hit) = crate::refdef::chain::resolve_member_chain(
                         &uri, port_name, &m.insts, &m.params,
                     ) {
-                        let (d, _) = crate::refdef::register::register_def(
-                            sem,
-                            &hit.uri,
-                            scope,
-                            None,
-                            &hit.name,
-                            hit.span.clone(),
-                            hit.def_kind,
-                        );
-                        ref_kind = Self::chain_ref_kind(hit.def_kind);
-                        use_decl_id = Some(d);
-                        tracing::info!(target: "mcc::lsp::audit",
-                            "[AUDIT-NetRef-Chain] name={port_name} → {} kind={ref_kind:?} def_uri={} def_span={:?} decl_id={d:?}",
-                            hit.name, hit.uri, hit.span);
+                        // ★ Class-chain hits (bare class names like `CAP`/`RES`
+                        // resolved via the P3-P5 base fallback) are already
+                        // covered by lapper_global_classes, which emits the
+                        // canonical ClassRef at every class-name span.
+                        // Registering the class def again here mints a second
+                        // DeclareId for the same class (e.g. RES id=13 vs
+                        // id=199), so skip those hits.
+                        if hit.def_kind != SymbolKind::ClassDef {
+                            let (d, _) = crate::refdef::register::register_def(
+                                sem,
+                                &hit.uri,
+                                scope,
+                                None,
+                                &hit.name,
+                                hit.span.clone(),
+                                hit.def_kind,
+                            );
+                            ref_kind = Self::chain_ref_kind(hit.def_kind);
+                            use_decl_id = Some(d);
+                            tracing::info!(target: "mcc::lsp::audit",
+                                "[AUDIT-NetRef-Chain] name={port_name} → {} kind={ref_kind:?} def_uri={} def_span={:?} decl_id={d:?}",
+                                hit.name, hit.uri, hit.span);
+                        } else {
+                            tracing::info!(target: "mcc::lsp::audit",
+                                "[AUDIT-NetRef-Chain-SKIP] name={port_name} → {} (class hit handled by lapper_global_classes)",
+                                hit.name);
+                        }
                     }
                 }
                 if let Some(decl_id) = use_decl_id {
@@ -3820,26 +3913,33 @@ impl McCode {
                 if let Some(hit) = crate::refdef::chain::resolve_member_chain_from_segments(
                     &uri, segments, &m.insts, &m.params,
                 ) {
-                    let ref_kind = Self::chain_ref_kind(hit.def_kind);
-                    let (d, _) = crate::refdef::register::register_def(
-                        sem,
-                        &hit.uri,
-                        scope,
-                        None,
-                        &hit.name,
-                        hit.span.clone(),
-                        hit.def_kind,
-                    );
-                    symbol_lapper.insert(Interval {
-                        start: span.start,
-                        stop: span.end,
-                        val: SymbolType::new(ref_kind, u32::from(d)),
-                    });
-                    sem.ref_entries
-                        .push((ref_kind, u32::from(d), span.start, span.end));
-                    tracing::info!(target: "mcc::lsp::audit",
-                        "[AUDIT-ChainRef] segments={segments:?} → {} kind={ref_kind:?} def_uri={} def_span={:?} decl_id={d:?}",
-                        hit.name, hit.uri, hit.span);
+                    // ★ Class-chain hits (a chain ending on a bare class name)
+                    // are already covered by lapper_global_classes, which emits
+                    // the canonical ClassRef at every class-name span —
+                    // re-registering the class def here mints a second
+                    // DeclareId for the same class. Skip those hits.
+                    if hit.def_kind != SymbolKind::ClassDef {
+                        let ref_kind = Self::chain_ref_kind(hit.def_kind);
+                        let (d, _) = crate::refdef::register::register_def(
+                            sem,
+                            &hit.uri,
+                            scope,
+                            None,
+                            &hit.name,
+                            hit.span.clone(),
+                            hit.def_kind,
+                        );
+                        symbol_lapper.insert(Interval {
+                            start: span.start,
+                            stop: span.end,
+                            val: SymbolType::new(ref_kind, u32::from(d)),
+                        });
+                        sem.ref_entries
+                            .push((ref_kind, u32::from(d), span.start, span.end));
+                        tracing::info!(target: "mcc::lsp::audit",
+                            "[AUDIT-ChainRef] segments={segments:?} → {} kind={ref_kind:?} def_uri={} def_span={:?} decl_id={d:?}",
+                            hit.name, hit.uri, hit.span);
+                    }
                     // ★ Base-instance ref for the chain (see net-refs above).
                     if let Some(base) = segments
                         .first()
@@ -3885,6 +3985,11 @@ impl McCode {
             }
             let mod_ident_label = entry.key().ident.to_string();
             for (name, _label_kind, span) in m.insts.iter_labels_with_span() {
+                // ★ Declareb inference: hint names are instances (`C4::CAP()`),
+                // registered as InstDef by the port_spans loop — never label defs.
+                if m.insts.declareb_def(name).is_some() {
+                    continue;
+                }
                 let (d, _) = crate::refdef::register::register_def(
                     sem,
                     uri,
@@ -4048,6 +4153,13 @@ impl McCode {
                     if let Some(hit) = crate::refdef::chain::resolve_member_chain_from_segments(
                         &uri, segments, &m.insts, &m.params,
                     ) {
+                        // ★ Class-chain hits are already covered by
+                        // lapper_global_classes (canonical ClassRef at every
+                        // class-name span) — skip to avoid registering the
+                        // class def twice.
+                        if hit.def_kind == SymbolKind::ClassDef {
+                            continue;
+                        }
                         let ref_kind = Self::chain_ref_kind(hit.def_kind);
                         let (d, _) = crate::refdef::register::register_def(
                             sem,
@@ -4086,6 +4198,10 @@ impl McCode {
                     None => (mod_ident.clone(), None),
                 };
                 for (name, _label_kind, span) in func.insts.iter_labels_with_span() {
+                    // ★ Declareb inference: hint names are instances, never labels.
+                    if func.insts.declareb_def(name).is_some() {
+                        continue;
+                    }
                     let (d, _) = crate::refdef::register::register_def(
                         sem,
                         uri,
@@ -4308,6 +4424,10 @@ impl McCode {
             }
             let comp_ident_label = comp_ident.clone();
             for (name, _label_kind, span) in comp.insts.iter_labels_with_span() {
+                // ★ Declareb inference: hint names are instances, never labels.
+                if comp.insts.declareb_def(name).is_some() {
+                    continue;
+                }
                 // register via register_def so the LabelDef lands in
                 // the real (file_id, comp_id, 0) scope and in def_map. The old
                 // add_declare_with_name(SourceLocation::from_span) used the shared
@@ -4478,6 +4598,13 @@ impl McCode {
                         &comp.insts,
                         &comp.params,
                     ) {
+                        // ★ Class-chain hits are already covered by
+                        // lapper_global_classes (canonical ClassRef at every
+                        // class-name span) — skip to avoid registering the
+                        // class def twice.
+                        if hit.def_kind == SymbolKind::ClassDef {
+                            continue;
+                        }
                         let ref_kind = Self::chain_ref_kind(hit.def_kind);
                         // ★ Cross-file chain defs (e.g. `uC.I2C0` resolving into the
                         // MCU component file) must not hijack this file's func-scope
@@ -5415,15 +5542,36 @@ impl McCode {
                                     // file's id, which hijacks the P2 container fallback
                                     // for same-file defs (component pins / module ports).
                                     // Register under the member's own class scope instead.
-                                    let (decl_id, _loc) = crate::refdef::register::register_def(
-                                        sem,
+                                    //
+                                    // When the func is declared in the current file,
+                                    // lapper_func_define_role already registered it under
+                                    // the func scope ("{class}.{func}"). Reuse that
+                                    // DeclareId so the same symbol is not registered twice
+                                    // (e.g. `func power` under both "mod.power" and "mod").
+                                    let func_scope = format!("{class_name}.{method_name}");
+                                    let sp = crate::refdef::register::scope_path_from_scope_str(
                                         &def_uri,
-                                        &class_name,
-                                        None,
-                                        &method_name,
-                                        def_span,
-                                        SymbolKind::FuncDef,
+                                        &func_scope,
                                     );
+                                    let decl_id = match crate::refdef::register::lookup_declare_id(
+                                        &sem.local_table,
+                                        &method_name,
+                                        &sp,
+                                    ) {
+                                        Some(existing) => existing,
+                                        None => {
+                                            crate::refdef::register::register_def(
+                                                sem,
+                                                &def_uri,
+                                                &class_name,
+                                                None,
+                                                &method_name,
+                                                def_span,
+                                                SymbolKind::FuncDef,
+                                            )
+                                            .0
+                                        }
+                                    };
                                     symbol_lapper.insert(Interval {
                                         start: span.0,
                                         stop: span.1,
@@ -5751,13 +5899,13 @@ module main
         ];
         for (name, span) in expected {
             let found = sem.symbol_lapper.iter().any(|iv| {
-                iv.val.kind == SymbolKind::LabelDef as u8
+                iv.val.kind == SymbolKind::InstDef as u8
                     && iv.start == span.start
                     && iv.stop == span.end
             });
             assert!(
                 found,
-                "lapper must contain a LabelDef interval for declareb instance '{name}' at {span:?}"
+                "lapper must contain an InstDef interval for declareb instance '{name}' at {span:?}"
             );
         }
     }
