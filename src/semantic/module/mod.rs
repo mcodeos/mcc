@@ -11,7 +11,7 @@ use super::{
     mc_inst::{McInst, McInstance, McInstances},
 };
 use crate::db::context::DB;
-use crate::db::diagnostic::diagnostic::dlog_error;
+use crate::db::diagnostic::diagnostic::{dlog_error, Position};
 use crate::refdef::types::ChainSegment;
 use crate::semantic::basic::mc_param_type::{McParamType, McParamTypeKind};
 use crate::semantic::component::Mc2Component;
@@ -304,6 +304,12 @@ impl McModule {
 
                     MCAST_FUNCTION => {
                         let context = unsafe { &mut *(self as *mut McModule) };
+                        // ★ LSP: register interface class refs from the func
+                        // header (`func power(V3V3::DC(3.3V))` → `DC`) so
+                        // goto-def / hover resolve them (same path as module
+                        // ports). Must run before create_lapper consumes
+                        // declare_class_refs.
+                        crate::query::refs::register_func_header_iface_refs(&clause, &self.uri);
                         self.funcs.parse(&clause, context);
                     }
 
@@ -501,18 +507,44 @@ impl McModule {
     /// → (`McIds(DC)`, <span of "DC">). Mirrors `McParamType::classify_declare`.
     /// The `McIds` is taken directly from the AST node so the multi-segment
     /// structure is preserved for downstream registration / resolution.
-    fn extract_declare_class_span(node: &AstNode) -> Option<(McIds, std::ops::Range<usize>)> {
+    pub(crate) fn extract_declare_class_span(
+        node: &AstNode,
+    ) -> Option<(McIds, std::ops::Range<usize>)> {
         let first_child = node.get_sub_node()?;
         for child in first_child.iter() {
             if child.get_type() != MCAST_CLASS {
                 continue;
             }
-            if let Some(name_node) = child.get_sub_node() {
-                if let Some(ids) = McIds::new(&name_node) {
-                    let span = (name_node.get_pos() as usize)
-                        ..((name_node.get_pos() + name_node.get_len()) as usize);
-                    return Some((ids, span));
+            let Some(name_node) = child.get_sub_node() else {
+                continue;
+            };
+            // The class-name IDS can over-span the real name when the declare
+            // carries ctor args in the func-header grammar (`::DC(3.3V)` yields
+            // an IDS covering `DC(3.3V)` with only `DC` as a child), so compute
+            // the span from the name-constituent children (ID/IDA/dot members)
+            // and skip the ctor-arg container (MCAST_PARAMS). Falls back to the
+            // IDS node's own span for leaf IDS nodes (plain names).
+            let mut span_start: Option<Position> = None;
+            let mut span_end: Option<Position> = None;
+            let mut cur = name_node.get_sub_node();
+            while let Some(n) = cur {
+                if n.get_type() != MCAST_PARAMS {
+                    if span_start.is_none() {
+                        span_start = Some(n.get_pos());
+                    }
+                    span_end = Some(n.get_pos() + n.get_len());
                 }
+                cur = n.get_next();
+            }
+            let span = match (span_start, span_end) {
+                (Some(s), Some(e)) => (s as usize)..(e as usize),
+                _ => {
+                    (name_node.get_pos() as usize)
+                        ..((name_node.get_pos() + name_node.get_len()) as usize)
+                }
+            };
+            if let Some(ids) = McIds::new(&name_node) {
+                return Some((ids, span));
             }
         }
         None

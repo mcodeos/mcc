@@ -194,6 +194,45 @@ impl SymbolKind {
         }
     }
 
+    /// Inverse of `SymbolType.kind` — reconstruct a SymbolKind from its
+    /// u8 ordinal (as stored in the lapper). Used by position-aware LSP
+    /// queries (hover) that read the lapper and need the exact def kind.
+    pub fn from_raw(kind: u8) -> Option<Self> {
+        match kind {
+            0 => Some(Self::ClassDef),
+            1 => Some(Self::ClassRef),
+            2 => Some(Self::InstDef),
+            3 => Some(Self::InstRef),
+            4 => Some(Self::PortDef),
+            5 => Some(Self::PortRef),
+            6 => Some(Self::LabelDef),
+            7 => Some(Self::LabelRef),
+            8 => Some(Self::FuncDef),
+            9 => Some(Self::FuncRef),
+            10 => Some(Self::PinIdDef),
+            11 => Some(Self::PinIdRef),
+            12 => Some(Self::PinNameDef),
+            13 => Some(Self::PinNameRef),
+            14 => Some(Self::PinIfaceDef),
+            15 => Some(Self::PinIfaceRef),
+            16 => Some(Self::EnumDef),
+            17 => Some(Self::EnumRef),
+            18 => Some(Self::EnumValDef),
+            19 => Some(Self::EnumValRef),
+            20 => Some(Self::RoleDef),
+            21 => Some(Self::ParamDef),
+            22 => Some(Self::DefineDef),
+            23 => Some(Self::AttrDef),
+            24 => Some(Self::FuncParamRef),
+            25 => Some(Self::BusDef),
+            26 => Some(Self::BusRef),
+            27 => Some(Self::UnknownDef),
+            28 => Some(Self::BusMemberDef),
+            29 => Some(Self::BusMemberRef),
+            _ => None,
+        }
+    }
+
     pub fn is_ref(&self) -> bool {
         matches!(
             self,
@@ -276,6 +315,10 @@ pub struct RefDefEntry {
     pub def_kind: SymbolKind,
     /// CMIE table kind for O(1) direct DashMap lookup (0=Comp,1=Mod,2=Ifs,3=Enum,255=unknown)
     pub cmie_kind: u8,
+    /// ★ Exact def name captured at registration from the AST node
+    /// (e.g. `RES`, `QFN20`). Emitted into the RPC payload so hover can show
+    /// the def name without text-slicing the def line.
+    pub def_name: String,
 }
 
 // ── RefDefMap ──

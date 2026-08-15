@@ -21,11 +21,13 @@ pub struct LspTables {
     /// (uri, kind, class_name) → (class_id, target_span)
     pub class_table: Mutex<HashMap<(String, ContainerKind, String), (DeclareId, Span)>>,
     /// Declare class references: uri → [(decl_span, class_id, target_uri,
-    /// target_span, class_name)]. `class_name` is the AST-derived `McIds`
-    /// captured at registration time, so lapper creation does not need to
-    /// re-read the source from disk (which fails for in-memory buffers /
-    /// virtual URIs) nor rebuild a flattened string.
-    pub declare_class_refs: Mutex<HashMap<String, Vec<(Span, DeclareId, String, Span, McIds)>>>,
+    /// target_span, class_name, cmie_kind)]. `class_name` is the AST-derived
+    /// `McIds` captured at registration time, so lapper creation does not need
+    /// to re-read the source from disk (which fails for in-memory buffers /
+    /// virtual URIs) nor rebuild a flattened string. `cmie_kind` is the class's
+    /// real kind (Component/Module/Interface/Enum, or 255 UNKNOWN) so hover can
+    /// label an interface ref as `→ interface` instead of a generic `→ class`.
+    pub declare_class_refs: Mutex<HashMap<String, Vec<(Span, DeclareId, String, Span, McIds, u8)>>>,
 }
 
 impl LspTables {

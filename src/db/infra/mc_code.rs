@@ -82,10 +82,13 @@ pub struct McCode {
     pub(crate) use_table_dirty: bool,
     /// ★ Cross-file class ref targets cached from create_lapper() for consolidate_ref_def_map().
     /// Replaces GlobalSymbolTable.declare_id_to_target_span (§8.2 removal).
+    /// The trailing u8 is the class's CMIE kind (Component/Module/Interface/Enum
+    /// or 255 UNKNOWN), captured at registration so Layer 1c entries carry it.
     cross_file_targets: Vec<(
         crate::ast::ast_semantic::DeclareId,
         McURI,
         std::ops::Range<usize>,
+        u8,
     )>,
 }
 
@@ -2268,6 +2271,139 @@ impl McCode {
         }
     }
 
+    /// Resolve the AST-driven def name for `(def_kind, decl_id)` at `def_uri`.
+    ///
+    /// Chains the reliable sources in order:
+    /// 1. the caller's local `def_names` table (same-file defs — Layer 2 ids
+    ///    are minted locally by `register_def`, so every Layer 2 def hits here);
+    /// 2. reverse lookup in the current global table (classes/enums minted here
+    ///    when a cross-file ref resolved via `add_class`/`add_enum_class`).
+    ///
+    /// The def file's own tables are NEVER probed with a caller-side id — its
+    /// ids live in a different id space, and a same-id class there would alias
+    /// the wrong name (`CAP` id=9 here vs `CAP.SAFETY` id=9 in cap.mc). The one
+    /// exception is EnumValDef: a packed enum value_id carries the *def file's*
+    /// class_id (`(class_id << 16) | value_idx`), so it is looked up in the def
+    /// file's gt (`with_def_file_gt`). A miss returns "" — never a guess.
+    fn def_name_for(
+        gt: &crate::ast::ast_semantic::GlobalSymbolTable,
+        local_names: &std::collections::HashMap<
+            (crate::ast::ast_semantic::SymbolKind, u32),
+            String,
+        >,
+        def_uri: &str,
+        def_kind: crate::ast::ast_semantic::SymbolKind,
+        decl_id: u32,
+    ) -> String {
+        let n = crate::refdef::matching::resolve_def_name(local_names, def_uri, def_kind, decl_id);
+        if !n.is_empty() {
+            return n;
+        }
+        if def_kind == crate::ast::ast_semantic::SymbolKind::EnumValDef {
+            return Self::enum_value_def_name(gt, def_uri, decl_id);
+        }
+        Self::class_def_name(gt, def_uri, def_kind, decl_id)
+    }
+
+    /// Run `f` against the def file's own GlobalSymbolTable — the workspace file
+    /// or the loaded system library that owns `def_uri`.
+    ///
+    /// Cross-file ids are cast in the *def file's* id space (its gt's class_id
+    /// counter), so a reverse lookup by `(def_uri, id)` may only hit there, not in
+    /// the current file's gt. Uses `try_lock` to avoid deadlock while another pass
+    /// is mid-parse on that file.
+    fn with_def_file_gt<R>(
+        def_uri: &str,
+        f: impl Fn(&crate::ast::ast_semantic::GlobalSymbolTable) -> Option<R>,
+    ) -> Option<R> {
+        let mut result = None;
+        if let Some(code) = crate::db::cmie::tables::WORKSPACE.mcodes.get(def_uri) {
+            if let Ok(sem) = code.symbols.try_lock() {
+                if let Ok(g) = sem.global_table.try_lock() {
+                    result = f(&g);
+                }
+            }
+        }
+        if result.is_none() {
+            for b in crate::db::infra::libmgr::mcc_blibs.iter() {
+                if b.uri == def_uri {
+                    if let Ok(sem) = b.symbols.try_lock() {
+                        if let Ok(g) = sem.global_table.try_lock() {
+                            result = f(&g);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        result
+    }
+
+    /// Reverse-lookup an AST-driven class/enum name by `(def_uri, decl_id)`.
+    ///
+    /// The id was registered in this table when the class/enum was parsed
+    /// (same-file) or when a class ref resolved cross-file (`add_class`), so the
+    /// name is the real AST name (e.g. `RES` in the mcode library) — never a text
+    /// slice of the def line. Only the current file's gt is consulted: its ids
+    /// are minted by `add_class`/`add_enum_class` for every class this file
+    /// references, so a ClassRef that resolved here always has its (def_uri, id)
+    /// entry in this table. Probing the def file's gt with a caller-side id
+    /// would alias a different same-id class in the def file's own id space
+    /// (e.g. `CAP` id=9 here vs `CAP.SAFETY` id=9 in cap.mc) — never guess.
+    fn class_def_name(
+        gt: &crate::ast::ast_semantic::GlobalSymbolTable,
+        def_uri: &str,
+        def_kind: crate::ast::ast_semantic::SymbolKind,
+        decl_id: u32,
+    ) -> String {
+        let table = if def_kind == crate::ast::ast_semantic::SymbolKind::EnumDef {
+            &gt.enum_class_name_to_id
+        } else {
+            &gt.class_name_to_id
+        };
+        table
+            .iter()
+            .find(|((u, _n), c)| u == def_uri && u32::from(**c) == decl_id)
+            .map(|((_u, n), _c)| n.to_string())
+            .unwrap_or_default()
+    }
+
+    /// Resolve an enum value def name from the AST-driven workspace/global enum
+    /// tables. `value_id` packs (class_id << 16) | value_index (§refdef).
+    fn enum_value_def_name(
+        gt: &crate::ast::ast_semantic::GlobalSymbolTable,
+        def_uri: &str,
+        value_id: u32,
+    ) -> String {
+        let class_id = value_id >> 16;
+        let idx = (value_id & 0xFFFF) as usize;
+        let lookup_ident = |g: &crate::ast::ast_semantic::GlobalSymbolTable| {
+            g.enum_class_name_to_id
+                .iter()
+                .find(|((u, _n), c)| u == def_uri && u32::from(**c) == class_id)
+                .map(|((_u, n), _c)| n.clone())
+        };
+        let enum_ident = lookup_ident(gt).or_else(|| Self::with_def_file_gt(def_uri, lookup_ident));
+        let Some(ident) = enum_ident else {
+            return String::new();
+        };
+        let space = crate::semantic::common::McSpaceName {
+            ident,
+            uri: def_uri.to_string(),
+        };
+        if let Some(e) = crate::db::cmie::tables::WORKSPACE.enums.get(&space) {
+            if let Some(v) = e.values.get(idx) {
+                return v.name.to_string();
+            }
+        }
+        if let Some(e) = crate::db::infra::global::mcc_enums.get(&space) {
+            if let Some(v) = e.values.get(idx) {
+                return v.name.to_string();
+            }
+        }
+        String::new()
+    }
+
     /// Build RefDefMap from semantic tables.
     /// Runs after parse_pass1_modules() registers all symbols, before create_lapper().
     fn consolidate_ref_def_map(&mut self) {
@@ -2323,6 +2459,18 @@ impl McCode {
                         // what the lapper and ref_entries use. Previously
                         // used ref_id (ReferenceId) which is a different
                         // counter — causing goto_def to resolve wrong classes.
+                        let def_name = Self::def_name_for(
+                            &gt,
+                            &sem.def_names,
+                            def_uri,
+                            SymbolKind::ClassDef,
+                            u32::from(*class_id),
+                        );
+                        // ★ Resolve the class's real CMIE kind (Component/
+                        // Module/Interface/Enum) by name + def uri so a same-file
+                        // ref to an `interface`/`enum` hovers as `→ interface` /
+                        // `→ enum` instead of a generic `→ class`.
+                        let cmie_kind = crate::query::refs::cmie_kind_for(def_uri, &def_name);
                         map.insert(
                             SymbolKind::ClassRef,
                             u32::from(*class_id),
@@ -2337,7 +2485,8 @@ impl McCode {
                                     byte_end: span.end as u32,
                                 },
                                 def_kind: SymbolKind::ClassDef,
-                                cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
+                                cmie_kind,
+                                def_name,
                             },
                         );
                     }
@@ -2353,8 +2502,10 @@ impl McCode {
 
             // 1c. cross-file class ref targets (cached from create_lapper, §8.2)
             // ★ Fix: cross_file_targets now stores DeclareId (class_id) instead
-            // of ReferenceId, matching the ID space used by the lapper.
-            for (class_id, def_uri, span) in &self.cross_file_targets {
+            // of ReferenceId, matching the ID space used by the lapper. The
+            // trailing u8 is the class's CMIE kind, captured at registration so
+            // a cross-file ref to an `interface` hovers as `→ interface`.
+            for (class_id, def_uri, span, kind) in &self.cross_file_targets {
                 let fid = map.intern_file(def_uri);
                 let cid = map.intern_container("");
                 map.insert(
@@ -2371,7 +2522,14 @@ impl McCode {
                             byte_end: span.end as u32,
                         },
                         def_kind: SymbolKind::ClassDef,
-                        cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
+                        cmie_kind: *kind,
+                        def_name: Self::def_name_for(
+                            &gt,
+                            &sem.def_names,
+                            def_uri,
+                            SymbolKind::ClassDef,
+                            u32::from(*class_id),
+                        ),
                     },
                 );
             }
@@ -2442,6 +2600,13 @@ impl McCode {
                         },
                         def_kind: SymbolKind::EnumValDef,
                         cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
+                        def_name: Self::def_name_for(
+                            &gt,
+                            &sem.def_names,
+                            def_uri,
+                            SymbolKind::EnumValDef,
+                            *value_id,
+                        ),
                     },
                 );
             }
@@ -2500,6 +2665,13 @@ impl McCode {
                         },
                         def_kind: SymbolKind::EnumDef,
                         cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
+                        def_name: Self::def_name_for(
+                            &gt,
+                            &sem.def_names,
+                            def_uri,
+                            SymbolKind::EnumDef,
+                            *ref_id,
+                        ),
                     },
                 );
             }
@@ -2533,6 +2705,7 @@ impl McCode {
                     },
                     def_kind,
                     cmie_kind,
+                    def_name: name.to_string(),
                 };
                 map.name_index
                     .insert((self.uri.to_string(), name.to_string()), entry);
@@ -2637,6 +2810,7 @@ impl McCode {
                                     },
                                     def_kind: src_entry.def_kind,
                                     cmie_kind: src_entry.cmie_kind,
+                                    def_name: src_entry.def_name.clone(),
                                 };
                                 // Register original name (P4)
                                 map.name_index.insert(
@@ -2675,6 +2849,7 @@ impl McCode {
                                 },
                                 def_kind: SymbolKind::ClassDef,
                                 cmie_kind: crate::ast::ast_semantic::CmieKind::UNKNOWN,
+                                def_name: class_name.to_string(),
                             };
                             map.add_name_alias(&self.uri, &class_name.to_string(), entry);
                         }
@@ -2697,6 +2872,7 @@ impl McCode {
                                 },
                                 def_kind: SymbolKind::EnumDef,
                                 cmie_kind: CmieKind::Enum as u8,
+                                def_name: class_name.to_string(),
                             };
                             map.add_name_alias(&self.uri, &class_name.to_string(), entry);
                         }
@@ -2879,7 +3055,7 @@ impl McCode {
         self.consolidate_ref_def_map();
 
         // ★ Layer 2 — merge after Layer 1 so entries aren't overwritten.
-        let (scope_snapshot, def_map_snapshot, ref_entries_snapshot) = self
+        let (scope_snapshot, def_map_snapshot, ref_entries_snapshot, def_names_snapshot) = self
             .symbols
             .lock()
             .ok()
@@ -2898,13 +3074,19 @@ impl McCode {
                         ((loc.byte_start as usize, loc.byte_end as usize), scope)
                     })
                     .collect();
-                (scope_map, s.def_map.clone(), s.ref_entries.clone())
+                (
+                    scope_map,
+                    s.def_map.clone(),
+                    s.ref_entries.clone(),
+                    s.def_names.clone(),
+                )
             })
             .unwrap_or_else(|| {
                 (
                     std::collections::HashMap::new(),
                     std::collections::HashMap::new(),
                     Vec::new(),
+                    std::collections::HashMap::new(),
                 )
             });
         if let Ok(mut sem) = self.symbols.lock() {
@@ -2914,6 +3096,7 @@ impl McCode {
                     map,
                     &scope_snapshot,
                     &def_map_snapshot,
+                    &def_names_snapshot,
                     &ref_entries_snapshot,
                     &self.uri,
                     &file_table,
@@ -3066,7 +3249,7 @@ impl McCode {
         class_name: &McIds,
         gt: &mut crate::ast::ast_semantic::GlobalSymbolTable,
         _sem: &McSemSymbols,
-    ) -> Option<(DeclareId, McURI, std::ops::Range<usize>)> {
+    ) -> Option<(DeclareId, McURI, std::ops::Range<usize>, u8)> {
         if class_name.segments.is_empty() {
             return None;
         }
@@ -3079,13 +3262,29 @@ impl McCode {
         //   P4: Re-entry guard → name-only fallback
         //   P5: find_by_name_in_project_tables (final fallback)
         if let Some(cmie) = crate::db::cmie::cmie::mcb_get_cmie(class_name, ref_uri) {
-            let (def_uri, def_span) = match &cmie {
-                crate::semantic::common::McCMIE::Component(c) => (c.uri.clone(), c.span.clone()),
-                crate::semantic::common::McCMIE::Module(m) => (m.uri.clone(), m.span.clone()),
-                crate::semantic::common::McCMIE::Interface(i) => (i.uri.clone(), i.span.clone()),
+            let (def_uri, def_span, cmie_kind) = match &cmie {
+                crate::semantic::common::McCMIE::Component(c) => (
+                    c.uri.clone(),
+                    c.span.clone(),
+                    crate::refdef::types::CmieKind::Component as u8,
+                ),
+                crate::semantic::common::McCMIE::Module(m) => (
+                    m.uri.clone(),
+                    m.span.clone(),
+                    crate::refdef::types::CmieKind::Module as u8,
+                ),
+                crate::semantic::common::McCMIE::Interface(i) => (
+                    i.uri.clone(),
+                    i.span.clone(),
+                    crate::refdef::types::CmieKind::Interface as u8,
+                ),
                 crate::semantic::common::McCMIE::Enum(e) => {
                     let s = e.span;
-                    (e.uri.clone(), s[0] as usize..s[1] as usize)
+                    (
+                        e.uri.clone(),
+                        s[0] as usize..s[1] as usize,
+                        crate::refdef::types::CmieKind::Enum as u8,
+                    )
                 }
             };
             // Check if already registered; if so return existing id,
@@ -3107,7 +3306,7 @@ impl McCode {
                     .copied()
                     .unwrap_or_else(|| gt.add_class(&def_uri, class_name, def_span.clone())),
             };
-            return Some((cid, def_uri, def_span));
+            return Some((cid, def_uri, def_span, cmie_kind));
         }
 
         None
@@ -3119,20 +3318,21 @@ impl McCode {
             crate::ast::ast_semantic::DeclareId,
             McURI,
             std::ops::Range<usize>,
+            u8,
         )>,
         sem: &mut McSemSymbols,
         symbol_lapper: &mut DedupLapper,
     ) {
         match sem.global_table.lock() {
             Ok(mut gt) => {
-                let clsids: Vec<_> = gt
+                let classes: Vec<(McURI, McIds, crate::ast::ast_semantic::DeclareId)> = gt
                     .class_name_to_id
                     .iter()
                     .filter(|((u, _clsname), _clsid)| u == uri)
-                    .map(|(_key, clsid)| *clsid)
+                    .map(|((u, n), c)| (u.clone(), n.clone(), *c))
                     .collect();
 
-                for clsid in &clsids {
+                for (_class_uri, class_name, clsid) in &classes {
                     if let Some((_uri, span)) = gt.class_id_to_span.get(clsid) {
                         let id = u32::from(*clsid);
                         symbol_lapper.insert(Interval {
@@ -3154,6 +3354,10 @@ impl McCode {
                                 span.end as u32,
                             ),
                         );
+                        // ★ Capture the class def name from the global table key
+                        // (AST-driven) so RefDefMap RPC payloads carry it.
+                        sem.def_names
+                            .insert((SymbolKind::ClassDef, id), class_name.to_string());
                     }
                 }
 
@@ -3165,7 +3369,15 @@ impl McCode {
                         .unwrap();
                     tracing::info!(target: "mcc::lsp", "  create_lapper: lsp.declare_class_refs for '{}' = {} entries", uri, decl_refs.get(uri).map(|v| v.len()).unwrap_or(0));
                     if let Some(refs) = decl_refs.remove(uri) {
-                        for (decl_span, _class_id, target_uri, target_span, class_name) in refs {
+                        for (
+                            decl_span,
+                            _class_id,
+                            target_uri,
+                            target_span,
+                            class_name,
+                            cmie_kind,
+                        ) in refs
+                        {
                             // ★ Fix (unified): Register each class ref with a
                             // locally-unique DeclareId.
                             //
@@ -3195,73 +3407,85 @@ impl McCode {
                                 continue;
                             }
 
-                            let (local_class_id, ref_target_uri, ref_target_span) = if target_uri
-                                .is_empty()
-                            {
-                                // Sentinel: unresolved during registration
-                                if let Some(resolved) =
-                                    Self::resolve_class_ref_at_span(uri, &class_name, &mut gt, &sem)
-                                {
-                                    (resolved.0, resolved.1, resolved.2)
+                            let (local_class_id, ref_target_uri, ref_target_span, resolved_kind) =
+                                if target_uri.is_empty() {
+                                    // Sentinel: unresolved during registration
+                                    if let Some(resolved) = Self::resolve_class_ref_at_span(
+                                        uri,
+                                        &class_name,
+                                        &mut gt,
+                                        &sem,
+                                    ) {
+                                        (resolved.0, resolved.1, resolved.2, resolved.3)
+                                    } else {
+                                        // The entry was already removed above; put
+                                        // it back so a later create_lapper pass
+                                        // (after libraries load) can retry, instead
+                                        // of dropping the class ref permanently and
+                                        // leaving the span without any LSP data.
+                                        decl_refs
+                                            .entry(uri.as_str().to_string())
+                                            .or_default()
+                                            .push((
+                                                decl_span,
+                                                _class_id,
+                                                String::new(),
+                                                0..0,
+                                                class_name.clone(),
+                                                cmie_kind,
+                                            ));
+                                        continue;
+                                    }
                                 } else {
-                                    // The entry was already removed above; put
-                                    // it back so a later create_lapper pass
-                                    // (after libraries load) can retry, instead
-                                    // of dropping the class ref permanently and
-                                    // leaving the span without any LSP data.
-                                    decl_refs
-                                        .entry(uri.as_str().to_string())
-                                        .or_default()
-                                        .push((
-                                            decl_span,
-                                            _class_id,
-                                            String::new(),
-                                            0..0,
-                                            class_name.clone(),
-                                        ));
-                                    continue;
-                                }
-                            } else {
-                                // Normal case: target_uri/target_span are
-                                // already correct. Register in local table
-                                // to get a locally-unique DeclareId.
-                                let cid = {
-                                    let mut found = None;
-                                    for ((u, name), &existing_cid) in gt.class_name_to_id.iter() {
-                                        if name == &class_name && u == &target_uri {
-                                            found = Some(existing_cid);
-                                            break;
-                                        }
-                                    }
-                                    // enums are keyed in
-                                    // enum_class_name_to_id, never class_name_to_id.
-                                    // Check the enum table before add_class so a
-                                    // class ref to an enum does not mint a second,
-                                    // unrelated id via add_class.
-                                    if found.is_none() {
-                                        if let Some(&eid) = gt
-                                            .enum_class_name_to_id
-                                            .get(&(target_uri.clone(), class_name.clone()))
+                                    // Normal case: target_uri/target_span are
+                                    // already correct. Register in local table
+                                    // to get a locally-unique DeclareId.
+                                    let cid = {
+                                        let mut found = None;
+                                        for ((u, name), &existing_cid) in gt.class_name_to_id.iter()
                                         {
-                                            found = Some(eid);
+                                            if name == &class_name && u == &target_uri {
+                                                found = Some(existing_cid);
+                                                break;
+                                            }
                                         }
-                                    }
-                                    found.unwrap_or_else(|| {
-                                        gt.add_class(&target_uri, &class_name, target_span.clone())
-                                    })
+                                        // enums are keyed in
+                                        // enum_class_name_to_id, never class_name_to_id.
+                                        // Check the enum table before add_class so a
+                                        // class ref to an enum does not mint a second,
+                                        // unrelated id via add_class.
+                                        if found.is_none() {
+                                            if let Some(&eid) = gt
+                                                .enum_class_name_to_id
+                                                .get(&(target_uri.clone(), class_name.clone()))
+                                            {
+                                                found = Some(eid);
+                                            }
+                                        }
+                                        found.unwrap_or_else(|| {
+                                            gt.add_class(
+                                                &target_uri,
+                                                &class_name,
+                                                target_span.clone(),
+                                            )
+                                        })
+                                    };
+                                    (cid, target_uri, target_span, cmie_kind)
                                 };
-                                (cid, target_uri, target_span)
-                            };
 
                             let _refid =
                                 gt.add_declare_class(&uri, decl_span.clone(), local_class_id);
                             // ★ Fix: push class_id (DeclareId) instead of refid
                             // (ReferenceId) so Layer 1c uses the same ID space as
-                            // the lapper and ref_entries.
+                            // the lapper and ref_entries. The trailing u8 is the
+                            // class's CMIE kind (Component/Module/Interface/Enum
+                            // or 255 UNKNOWN), captured so Layer 1c entries carry
+                            // it into the RefDefMap for hover labels.
                             cross_file_targets.push((
                                 local_class_id,
                                 ref_target_uri,
                                 ref_target_span,
+                                resolved_kind,
                             ));
                         }
                     }
@@ -3296,7 +3520,7 @@ impl McCode {
                     }
                 }
 
-                for ((loop_uri, _name), class_id) in gt.enum_class_name_to_id.iter() {
+                for ((loop_uri, name), class_id) in gt.enum_class_name_to_id.iter() {
                     if loop_uri != uri {
                         continue;
                     }
@@ -3323,6 +3547,10 @@ impl McCode {
                                 span.end as u32,
                             ),
                         );
+                        // ★ Capture the enum head name from the global table key
+                        // (AST-driven) so RefDefMap RPC payloads carry it.
+                        sem.def_names
+                            .insert((SymbolKind::EnumDef, id), name.to_string());
                     }
                 }
                 for (value_id, (loop_uri, span)) in gt.enum_value_id_to_span.iter() {
@@ -3349,6 +3577,31 @@ impl McCode {
                                 span.end as u32,
                             ),
                         );
+                        // ★ Capture the enum value name from the AST node
+                        // (unpack value_id → class + idx → McEnumDef.values)
+                        // so RefDefMap RPC payloads carry it.
+                        let value_id_raw = u32::from(*value_id);
+                        let class_id = value_id_raw >> 16;
+                        let idx = (value_id_raw & 0xFFFF) as usize;
+                        // Look up the enum value name from the AST-derived
+                        // workspace table (unpack value_id → class + idx).
+                        let value_name = (|| {
+                            let (class_uri, n) = gt
+                                .enum_class_name_to_id
+                                .iter()
+                                .find(|((u, _n), c)| u == loop_uri && u32::from(**c) == class_id)
+                                .map(|((u, n), _c)| (u.clone(), n.clone()))?;
+                            let space = crate::semantic::common::McSpaceName {
+                                ident: n,
+                                uri: class_uri,
+                            };
+                            let e = crate::db::cmie::tables::WORKSPACE.enums.get(&space)?;
+                            e.values.get(idx).map(|v| v.name.to_string())
+                        })();
+                        if let Some(vn) = value_name {
+                            sem.def_names
+                                .insert((SymbolKind::EnumValDef, value_id_raw), vn);
+                        }
                     }
                 }
             }
@@ -6099,6 +6352,307 @@ module main
         assert_ne!(
             entry.def_loc.byte_start as usize, module_port_def.start,
             "must NOT resolve to the module's own I2C0 port"
+        );
+    }
+
+    /// Regression: position-aware hover must resolve same-name defs precisely
+    /// (`enum CAP` + `component CAP` in one file). A position at a component
+    /// class reference resolves to the component head via the lapper +
+    /// RefDefMap exact path; a position with no registered interval returns
+    /// None — never a name-based guess (which would misattribute the def).
+    #[test]
+    fn position_hover_resolves_same_name_enum_and_component() {
+        let _guard = PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let source = r#"
+enum CAP { X7R, MLCC, C0G }
+
+component CAP (diel = CAP.X7R)
+{
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+
+module main
+{
+    CAP C1
+    C1.1 -> V5V
+}
+"#;
+        let uri: crate::McURI = "/mcc/hover-cap.mc".to_string();
+        crate::mcc_load_from_string(&uri, source);
+        crate::mcc_build(&McIds::from("main"), &uri).expect("build failed");
+
+        let comp_head = source.find("component CAP").unwrap() + "component ".len();
+
+        // Component construction site: `CAP` in `CAP C1` is a class reference
+        // to the component — must resolve to the component head.
+        let comp_ref = source.find("CAP C1").unwrap();
+        let h =
+            crate::lsp::hover::hover("CAP", &uri, Some(comp_ref)).expect("hover at component ref");
+        assert_eq!(
+            h["kind"], "ClassDef",
+            "constructor must hit component head: {h}"
+        );
+        assert_eq!(
+            h["byte_start"].as_u64(),
+            Some(comp_head as u64),
+            "constructor span must point at component head: {h}"
+        );
+
+        // Enum reference site: `CAP` in `diel = CAP.X7R` has no dedicated
+        // lapper interval here (the parameter span covers the whole phrase),
+        // so the position-aware path must return None — never a wrong
+        // name-based guess at the same-named component.
+        let enum_ref = source.find("CAP.X7R").unwrap();
+        let h = crate::lsp::hover::hover("CAP", &uri, Some(enum_ref));
+        assert!(h.is_none(), "unresolved position must not fall back: {h:?}");
+
+        // Name-based path (no position) is inherently ambiguous for same-name
+        // defs — its result depends on name_index registration order. It
+        // exists only for legacy callers; the position-aware path is the
+        // authoritative one.
+        let h = crate::lsp::hover::hover("CAP", &uri, None).expect("hover without position");
+        assert!(
+            h["kind"] == "component" || h["kind"] == "enum",
+            "name-based must return a same-name kind: {h}"
+        );
+    }
+
+    /// Regression: strict position-aware goto-def shares the hover path
+    /// (`refdef::query::resolve_at`). A component class reference resolves to
+    /// the component head; a position with no registered interval returns None
+    /// — never a name-based guess at the same-named enum/component.
+    #[test]
+    fn position_goto_def_resolves_same_name_enum_and_component() {
+        let _guard = PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let source = r#"
+enum CAP { X7R, MLCC, C0G }
+
+component CAP (diel = CAP.X7R)
+{
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+
+module main
+{
+    CAP C1
+    C1.1 -> V5V
+}
+"#;
+        let uri: crate::McURI = "/mcc/gotodef-cap.mc".to_string();
+        crate::mcc_load_from_string(&uri, source);
+        crate::mcc_build(&McIds::from("main"), &uri).expect("build failed");
+
+        let comp_head = source.find("component CAP").unwrap() + "component ".len();
+
+        // `CAP` in `CAP C1` is a class reference → the component head.
+        let comp_ref = source.find("CAP C1").unwrap();
+        let d =
+            crate::lsp::gotodef::resolve_at_pos(&uri, comp_ref).expect("goto-def at component ref");
+        assert_eq!(
+            d["kind"], "ClassDef",
+            "goto-def must hit component head: {d}"
+        );
+        assert_eq!(
+            d["byte_start"].as_u64(),
+            Some(comp_head as u64),
+            "goto-def span must point at component head: {d}"
+        );
+
+        // Unregistered position (inside the param phrase) → strict None.
+        let enum_ref = source.find("CAP.X7R").unwrap();
+        let d = crate::lsp::gotodef::resolve_at_pos(&uri, enum_ref);
+        assert!(
+            d.is_none(),
+            "unresolved position must not fall back for goto-def: {d:?}"
+        );
+    }
+
+    /// Regression: completion must keep same-name candidates of different
+    /// kinds (`enum CAP` + `component CAP` in the project) instead of letting
+    /// the project scan swallow one of them by name-only dedup.
+    #[test]
+    fn completion_keeps_same_name_enum_and_component_candidates() {
+        let _guard = PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        crate::mcc_set_system_root(std::path::Path::new(""));
+        crate::mcc_clear_workspace();
+
+        let cap_src = r#"
+enum CAP { X7R, MLCC, C0G }
+
+component CAP (diel = CAP.X7R)
+{
+    pins = [
+        1 = 1
+        2 = 2
+    ]
+}
+
+module cap_mod
+{
+}
+"#;
+        let cap_uri: crate::McURI = "/mcc/comp-cap.mc".to_string();
+        crate::mcc_load_from_string(&cap_uri, cap_src);
+
+        let main_src = r#"
+use cap_mod
+
+module main
+{
+    CAP C1
+    C1.1 -> V5V
+}
+"#;
+        let main_uri: crate::McURI = "/mcc/comp-main.mc".to_string();
+        crate::mcc_load_from_string(&main_uri, main_src);
+        crate::mcc_build(&McIds::from("main"), &main_uri).expect("build failed");
+
+        let items = crate::lsp::completion::complete(&main_uri, Some("CAP"), None);
+        let mut has_component = false;
+        let mut has_enum = false;
+        for item in &items {
+            let kind = item["kind"].as_str().unwrap_or_default();
+            if kind == "component" {
+                has_component = true;
+            }
+            if kind == "enum" {
+                has_enum = true;
+            }
+        }
+        assert!(
+            has_component && has_enum,
+            "completion must offer both component CAP and enum CAP, got: {items:?}"
+        );
+    }
+
+    /// Regression: RefDefMap entries must carry an AST-driven `def_name` for
+    /// same-file and cross-file defs (class, enum, enum value). The name is
+    /// captured at registration from the AST node and reverse-looked-up in the
+    /// current file's symbol table when the id space differs across files —
+    /// never produced by text-slicing the def line, and never by probing the
+    /// def file's own table with a caller-side id (which can alias a different
+    /// same-id class, e.g. `CAP` id=9 here vs `CAP.SAFETY` id=9 in cap.mc).
+    ///
+    /// Uses the real `mcode` library so the cross-file refs (`RES` from
+    /// res.mc, `PKG.SOT_23_5` from package.mc) resolve through the library
+    /// loading path — virtual cross-file `use` of in-memory files cannot be
+    /// loaded from disk.
+    #[test]
+    fn ref_def_map_entries_carry_ast_def_names() {
+        let _guard = PARSE_LOCK.lock().expect("test parse lock");
+        crate::mcc_init_no_lib();
+        let mcode_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("mcode");
+        crate::mcc_set_system_root(mcode_dir.as_path());
+        crate::mcc_clear_workspace();
+        crate::mcb_load_lib("mcode", mcode_dir.as_path());
+
+        let main_src = r#"
+component TEST_PKG
+{
+    package = PKG.SOT_23_5
+}
+
+module TEST_IFS([VDD, GND]::DC(3.3V))
+{
+}
+
+module main
+{
+    RES R1
+    R1.1 -> V5V
+
+    // ★ func-header interface binding — must register the `DC` class ref
+    // just like a module port (regression guard for func-param refs).
+    func pwr([A, B]::DC(3.3V))
+    {
+    }
+}
+"#;
+        let main_uri: crate::McURI = "/mcc/defs-main.mc".to_string();
+        crate::mcc_load_from_string(&main_uri, main_src);
+        crate::mcc_build(&McIds::from("main"), &main_uri).expect("build failed");
+
+        let mcode = workspace::WORKSPACE
+            .mcodes
+            .get(&main_uri)
+            .expect("file loaded");
+        let sem = mcode.symbols.lock().expect("symbols lock");
+        let rdm = sem.ref_def_map.as_ref().expect("ref_def_map is built");
+
+        let mut class_names: Vec<&str> = Vec::new();
+        let mut enum_val_names: Vec<&str> = Vec::new();
+        for ((kind, _id), entry) in rdm.entries.iter() {
+            match kind {
+                SymbolKind::ClassRef => class_names.push(entry.def_name.as_str()),
+                SymbolKind::EnumValRef => enum_val_names.push(entry.def_name.as_str()),
+                _ => {}
+            }
+        }
+        assert!(
+            class_names.contains(&"RES"),
+            "cross-file ClassRef def_name must be 'RES', got: {class_names:?}"
+        );
+        assert!(
+            enum_val_names.contains(&"SOT_23_5"),
+            "cross-file EnumValRef def_name must be 'SOT_23_5', got: {enum_val_names:?}"
+        );
+
+        // ★ The ref's CMIE kind must reflect the real def kind, so hover can
+        // label a class ref to an `interface` as `→ interface` (not `→ class`):
+        // RES is a component (0), DC is an interface (2).
+        let mut res_kinds: Vec<u8> = Vec::new();
+        let mut dc_kinds: Vec<u8> = Vec::new();
+        for ((kind, _id), entry) in rdm.entries.iter() {
+            if *kind == SymbolKind::ClassRef {
+                match entry.def_name.as_str() {
+                    "RES" => res_kinds.push(entry.cmie_kind),
+                    "DC" => dc_kinds.push(entry.cmie_kind),
+                    _ => {}
+                }
+            }
+        }
+        assert!(
+            res_kinds.contains(&(crate::refdef::types::CmieKind::Component as u8)),
+            "ClassRef RES must carry Component cmie_kind, got: {res_kinds:?}"
+        );
+        assert!(
+            dc_kinds.contains(&(crate::refdef::types::CmieKind::Interface as u8)),
+            "ClassRef DC must carry Interface cmie_kind, got: {dc_kinds:?}"
+        );
+        // The RefDefMap entry is deduped by (kind, decl_id): every DC class ref
+        // resolves to the same interface and shares one map entry. Verify the
+        // func-header binding reached the lapper/ref_entries by counting the
+        // ClassRef spans for the DC class id — must cover BOTH the module port
+        // and the func-header declare.
+        let dc_class_id = rdm
+            .entries
+            .iter()
+            .find(|((k, _), e)| *k == SymbolKind::ClassRef && e.def_name.as_str() == "DC")
+            .map(|((_, id), _)| *id);
+        let dc_span_count = sem
+            .ref_entries
+            .iter()
+            .filter(|(k, id, _s, _e)| *k == SymbolKind::ClassRef && Some(*id) == dc_class_id)
+            .count();
+        assert!(
+            dc_span_count >= 2,
+            "DC ClassRef spans must include both the module port AND the \
+             func-header binding (got {dc_span_count})"
         );
     }
 }

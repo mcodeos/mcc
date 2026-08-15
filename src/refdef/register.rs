@@ -95,6 +95,10 @@ pub fn register_def(
         sem.local_table
             .add_declare_with_name(uri, loc, Some(name.to_string()), Some(&scope));
     sem.def_map.insert((def_kind, decl_id.raw()), loc);
+    // ★ Capture the def name from the AST node so RefDefMap RPC payloads can
+    // carry it (hover shows `RES` instead of slicing the def line).
+    sem.def_names
+        .insert((def_kind, decl_id.raw()), name.to_string());
     (decl_id, loc)
 }
 

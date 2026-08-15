@@ -578,7 +578,7 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
                     })
                     .unwrap_or_else(|| "?".to_string());
                 out.push_str(&format!(
-                    "F12_DIAG MAP: Ref({ref_kind}/{ref_ku}, id={ref_id:5}, name='{ref_name}') => Def({def_kind}/{def_ku}, span=[{start:5},{end:5}], file={def_file})\n",
+                    "F12_DIAG MAP: Ref({ref_kind}/{ref_ku}, id={ref_id:5}, name='{ref_name}') => Def({def_kind}/{def_ku}, span=[{start:5},{end:5}], file={def_file}, def_name='{def_name}', cmie_kind={cmie_kind})\n",
                     ref_kind = entry.ref_kind.kind_name(),
                     ref_ku = *ref_kind as u8,
                     ref_id = ref_id,
@@ -588,6 +588,8 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
                     start = entry.def_loc.byte_start,
                     end = entry.def_loc.byte_end,
                     def_file = def_file,
+                    def_name = entry.def_name,
+                    cmie_kind = entry.cmie_kind,
                 ));
             }
         }

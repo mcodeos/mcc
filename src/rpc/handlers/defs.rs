@@ -120,9 +120,28 @@ pub fn handle_def(params: Option<Value>) -> RpcResult {
     #[derive(Deserialize)]
     struct DefParams {
         name: String,
+        /// Optional cursor byte offset (with `uri`). When present, goto-def
+        /// resolves via the strict position-aware lapper + RefDefMap exact
+        /// path so same-name defs (e.g. `enum CAP` vs `component CAP`) stay
+        /// distinct. A miss is reported as not-found — never a name-based
+        /// fallback (which would misattribute the def).
+        #[serde(default)]
+        uri: Option<String>,
+        #[serde(default)]
+        position: Option<usize>,
     }
 
     let p: DefParams = parse_strict(params)?;
+    if let (Some(uri), Some(position)) = (&p.uri, p.position) {
+        return match crate::lsp::gotodef::resolve_at_pos(uri, position) {
+            Some(result) => Ok(result),
+            None => Err(JsonRpcError::custom(
+                32112,
+                &format!("definition not found: {}", p.name),
+            )),
+        };
+    }
+    // Legacy name-based path (callers without a cursor position).
     match crate::lsp::gotodef::resolve(&p.name) {
         Some(result) => Ok(result),
         None => Err(JsonRpcError::custom(

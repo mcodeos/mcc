@@ -158,7 +158,15 @@ impl McComponent {
                 body_nodes
                     .iter()
                     .filter(|x| x.is_type(MCAST_FUNCTION))
-                    .for_each(|x| new_comp.funcs.parse(&x, context));
+                    .for_each(|x| {
+                        // ★ LSP: register interface class refs from the func
+                        // header (`func GD25Q32E([V3V3, GND]::DC(3.3V))` →
+                        // `DC`) so goto-def / hover resolve them (same path as
+                        // module ports). Must run before create_lapper consumes
+                        // declare_class_refs.
+                        crate::query::refs::register_func_header_iface_refs(&x, &new_comp.uri);
+                        new_comp.funcs.parse(&x, context);
+                    });
 
                 //6. todo: role
                 //7. conds

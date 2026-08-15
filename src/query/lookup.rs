@@ -262,18 +262,23 @@ pub(crate) fn collect_from_project(
     results: &mut Vec<crate::LookupResult>,
     max: usize,
 ) {
-    // Component classes
+    // Component classes. Dedup by (name, kind) so a same-name enum (e.g.
+    // `enum CAP` beside `component CAP`) is NOT swallowed by a name-only check.
     for entry in workspace::WORKSPACE.components.iter() {
         let name = entry.key().ident.to_string();
         let uri = entry.key().uri.clone();
-        if !results.iter().any(|r: &crate::LookupResult| r.name == name) {
+        let kind = crate::LookupSymbolKind::Component;
+        if !results
+            .iter()
+            .any(|r: &crate::LookupResult| r.name == name && r.kind == kind)
+        {
             add_result(
                 results,
                 max,
                 crate::LookupResult {
                     uri,
                     span: entry.value().span.start..entry.value().span.end,
-                    kind: crate::LookupSymbolKind::Component,
+                    kind,
                     container: None,
                     scope: String::new(),
                     name,
@@ -285,14 +290,18 @@ pub(crate) fn collect_from_project(
     for entry in workspace::WORKSPACE.modules.iter() {
         let name = entry.key().ident.to_string();
         let uri = entry.key().uri.clone();
-        if !results.iter().any(|r: &crate::LookupResult| r.name == name) {
+        let kind = crate::LookupSymbolKind::Module;
+        if !results
+            .iter()
+            .any(|r: &crate::LookupResult| r.name == name && r.kind == kind)
+        {
             add_result(
                 results,
                 max,
                 crate::LookupResult {
                     uri,
                     span: entry.value().span.start..entry.value().span.end,
-                    kind: crate::LookupSymbolKind::Module,
+                    kind,
                     container: None,
                     scope: String::new(),
                     name,
