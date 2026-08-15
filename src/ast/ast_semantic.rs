@@ -29,6 +29,11 @@ pub struct McSemSymbols {
     /// Populated during lapper ref registration, consumed by fill_refdef_layer2
     /// (eliminates lapper scan for ref→def matching).
     pub ref_entries: Vec<(SymbolKind, u32, usize, usize)>,
+    /// ★ Def names by (def_kind, decl_id) — captured at def registration from
+    /// the AST node (class name, enum value name, ...). Emitted into the
+    /// RefDefMap RPC payload so mcext hover can show the exact def name
+    /// (e.g. `RES`) without text slicing of the def line.
+    pub def_names: HashMap<(SymbolKind, u32), String>,
     /// ★ SourceLocation tables: intern file/container/func names to u32 IDs.
     pub file_table: Vec<String>,
     pub container_table: Vec<String>,
@@ -50,6 +55,7 @@ impl McSemSymbols {
             ref_def_map: None,
             def_map: HashMap::new(),
             ref_entries: Vec::new(),
+            def_names: HashMap::new(),
             file_table: vec![String::new()],
             container_table: vec![String::new()],
             func_table: vec![String::new()],
@@ -558,6 +564,7 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
                     "def_kind": e.def_kind as u8,
                     "container_id": e.def_loc.container_id,
                     "cmie_kind": e.cmie_kind,
+                    "def_name": e.def_name,
                 })
             }).collect::<Vec<_>>(),
             "files": &m.files,

@@ -5,6 +5,8 @@
 use crate::ast::ast_semantic::{DeclareId, Span};
 use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
+use crate::refdef::types::CmieKind;
+use crate::semantic::common::McSpaceName;
 use crate::McIds;
 use crate::McURI;
 
@@ -159,9 +161,14 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
 
         // First try: exact URI match (same file as reference)
         let same_uri_result = class_table.iter().find_map(
-            |((target_uri, _kind, name), &(class_id, ref target_span))| {
+            |((target_uri, kind, name), &(class_id, ref target_span))| {
                 if name == &name_str && target_uri == &uri_str {
-                    Some((class_id, target_uri.clone(), target_span.clone()))
+                    Some((
+                        class_id,
+                        target_uri.clone(),
+                        target_span.clone(),
+                        container_kind_cmie(kind),
+                    ))
                 } else {
                     None
                 }
@@ -171,9 +178,14 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
         // Second try: different URI (fallback for cross-file references)
         let other_uri_result = if same_uri_result.is_none() {
             class_table.iter().find_map(
-                |((target_uri, _kind, name), &(class_id, ref target_span))| {
+                |((target_uri, kind, name), &(class_id, ref target_span))| {
                     if name == &name_str && target_uri != &uri_str {
-                        Some((class_id, target_uri.clone(), target_span.clone()))
+                        Some((
+                            class_id,
+                            target_uri.clone(),
+                            target_span.clone(),
+                            container_kind_cmie(kind),
+                        ))
                     } else {
                         None
                     }
@@ -193,7 +205,7 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
     };
 
     // Step 2: Try workspace files' global tables if not found above
-    let from_mcodes: Option<(DeclareId, String, Span)> = if found.is_none() {
+    let from_mcodes: Option<(DeclareId, String, Span, u8)> = if found.is_none() {
         let binding = &workspace::WORKSPACE.mcodes;
         let mut result = None;
         for entry in binding.iter() {
@@ -202,7 +214,12 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
                     for ((file_uri, name), &cid) in gt.class_name_to_id.iter() {
                         if name == &McIds::from(name_str.as_str()) {
                             if let Some((_, tspan)) = gt.class_id_to_span.get(&cid) {
-                                result = Some((cid, file_uri.clone(), tspan.clone()));
+                                result = Some((
+                                    cid,
+                                    file_uri.clone(),
+                                    tspan.clone(),
+                                    cmie_kind_for(&file_uri, &name_str),
+                                ));
                                 break;
                             }
                         }
@@ -230,31 +247,41 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
     // ★ Fix: Register found classes in the global table to get a real DeclareId
     // instead of using DeclareId::default(). Without this, all library class
     // refs map to class_id=0 with invalid def spans in Layer 1.
-    let from_syslibs: Option<(DeclareId, String, Span)> = if class_info.is_none() {
+    let from_syslibs: Option<(DeclareId, String, Span, u8)> = if class_info.is_none() {
         let mut result = None;
 
-        // Helper macro to reduce repetition
+        // Helper macro to reduce repetition. The kind is known from the table
+        // being searched (Component/Module/Interface/Enum), so it is captured
+        // here instead of re-guessed from the name later.
         macro_rules! try_register {
-            ($def_uri:expr, $def_span:expr) => {
+            ($def_uri:expr, $def_span:expr, $kind:expr) => {
                 let def_uri_str = ($def_uri).to_string();
                 let def_span_range = ($def_span);
                 let class_id =
                     register_lib_class_in_global_table(&def_uri_str, &name_str, &def_span_range);
-                result = Some((class_id, def_uri_str, def_span_range));
+                result = Some((class_id, def_uri_str, def_span_range, $kind as u8));
             };
         }
 
         // 2.5a: Search workspace tables first (project-level definitions from `use` directives)
         for entry in workspace::WORKSPACE.components.iter() {
             if entry.key().ident.to_string() == name_str {
-                try_register!(entry.key().uri, entry.value().span.clone());
+                try_register!(
+                    entry.key().uri,
+                    entry.value().span.clone(),
+                    CmieKind::Component
+                );
                 break;
             }
         }
         if result.is_none() {
             for entry in workspace::WORKSPACE.modules.iter() {
                 if entry.key().ident.to_string() == name_str {
-                    try_register!(entry.key().uri, entry.value().span.clone());
+                    try_register!(
+                        entry.key().uri,
+                        entry.value().span.clone(),
+                        CmieKind::Module
+                    );
                     break;
                 }
             }
@@ -262,7 +289,11 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
         if result.is_none() {
             for entry in workspace::WORKSPACE.interfaces.iter() {
                 if entry.key().ident.to_string() == name_str {
-                    try_register!(entry.key().uri, entry.value().span.clone());
+                    try_register!(
+                        entry.key().uri,
+                        entry.value().span.clone(),
+                        CmieKind::Interface
+                    );
                     break;
                 }
             }
@@ -271,7 +302,11 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
             for entry in workspace::WORKSPACE.enums.iter() {
                 if entry.key().ident.to_string() == name_str {
                     let s = entry.value().span;
-                    try_register!(entry.key().uri, s[0] as usize..s[1] as usize);
+                    try_register!(
+                        entry.key().uri,
+                        s[0] as usize..s[1] as usize,
+                        CmieKind::Enum
+                    );
                     break;
                 }
             }
@@ -281,7 +316,11 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
         if result.is_none() {
             for entry in global::mcc_components.iter() {
                 if entry.key().ident.to_string() == name_str {
-                    try_register!(entry.key().uri, entry.value().span.clone());
+                    try_register!(
+                        entry.key().uri,
+                        entry.value().span.clone(),
+                        CmieKind::Component
+                    );
                     break;
                 }
             }
@@ -289,7 +328,11 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
         if result.is_none() {
             for entry in global::mcc_modules.iter() {
                 if entry.key().ident.to_string() == name_str {
-                    try_register!(entry.key().uri, entry.value().span.clone());
+                    try_register!(
+                        entry.key().uri,
+                        entry.value().span.clone(),
+                        CmieKind::Module
+                    );
                     break;
                 }
             }
@@ -297,7 +340,11 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
         if result.is_none() {
             for entry in global::mcc_interfaces.iter() {
                 if entry.key().ident.to_string() == name_str {
-                    try_register!(entry.key().uri, entry.value().span.clone());
+                    try_register!(
+                        entry.key().uri,
+                        entry.value().span.clone(),
+                        CmieKind::Interface
+                    );
                     break;
                 }
             }
@@ -306,7 +353,11 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
             for entry in global::mcc_enums.iter() {
                 if entry.key().ident.to_string() == name_str {
                     let s = entry.value().span;
-                    try_register!(entry.key().uri, s[0] as usize..s[1] as usize);
+                    try_register!(
+                        entry.key().uri,
+                        s[0] as usize..s[1] as usize,
+                        CmieKind::Enum
+                    );
                     break;
                 }
             }
@@ -318,7 +369,7 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
     let class_info = class_info.or(from_syslibs);
 
     // Step 3: Store in workspace-level table
-    if let Some((class_id, target_uri, target_span)) = class_info {
+    if let Some((class_id, target_uri, target_span, cmie_kind)) = class_info {
         let span_clone = span.clone();
         let uri_str = uri.to_string();
         tracing::info!(target: "crate::lsp", "  register_declare_class: storing ref decl_span={:?} -> class_id={:?} target={}", span_clone, class_id, target_uri);
@@ -330,6 +381,7 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
             target_uri,
             target_span,
             class_name.clone(),
+            cmie_kind,
         ));
     } else {
         // ★ Do NOT emit E1601 here during P4, because WORKSPACE.modules
@@ -354,6 +406,104 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
             "".to_string(),
             0..0,
             class_name.clone(),
+            CmieKind::UNKNOWN,
         ));
     }
+}
+
+/// Register interface class refs found in a `func` header parameter list
+/// (e.g. `func GD25Q32E([V3V3, GND]::DC(3.3V))` → class ref `DC`), mirroring
+/// the module-port registration in module/mod.rs. Without this, class refs in
+/// func headers are never entered into the lapper / RefDefMap, so goto-def
+/// and hover cannot resolve them (unlike module ports and component pin
+/// bindings).
+pub(crate) fn register_func_header_iface_refs(
+    func_node: &crate::ast::ast_node::AstNode,
+    uri: &McURI,
+) {
+    use crate::ast::c_macros::{MCAST_DECLARE, MCAST_PARAM, MCAST_PARAMS};
+    use crate::semantic::basic::mc_param_type::{McParamType, McParamTypeKind};
+    // MCAST_FUNCTION → MCAST_PARAMS → (MCAST_PARAM → MCAST_DECLARE)*
+    let Some(params_node) = func_node
+        .get_sub_node()
+        .and_then(|sub| sub.iter().find(|n| n.get_type() == MCAST_PARAMS))
+    else {
+        return;
+    };
+    let Some(first_param) = params_node.get_sub_node() else {
+        return;
+    };
+    for param_node in first_param.iter() {
+        // Unwrap MCAST_PARAM wrappers (mc_pard rules can nest them).
+        let mut declare_node = param_node.get_sub_node();
+        while let Some(n) = &declare_node {
+            if n.get_type() != MCAST_PARAM {
+                break;
+            }
+            declare_node = n.get_sub_node();
+        }
+        let Some(declare_node) = declare_node else {
+            continue;
+        };
+        if declare_node.get_type() != MCAST_DECLARE {
+            continue;
+        }
+        // Only interface-typed declares (e.g. `::DC(3.3V)`), same detection
+        // as module ports — enum/plain declares are handled elsewhere.
+        let pt = McParamType::from_ast(&declare_node);
+        let is_interface = matches!(
+            pt.kind,
+            McParamTypeKind::Interface { .. } | McParamTypeKind::InterfaceWithRole { .. }
+        );
+        if !is_interface {
+            continue;
+        }
+        if let Some((class_name, class_span)) =
+            crate::semantic::module::McModule::extract_declare_class_span(&declare_node)
+        {
+            mcb_register_declare_class(uri, &class_name, class_span);
+        }
+    }
+}
+
+/// Map a `ContainerKind` (class_table key) to the CMIE kind ordinal carried by
+/// RefDefEntry. Function/File kinds are not classes — they map to UNKNOWN.
+fn container_kind_cmie(kind: &crate::ContainerKind) -> u8 {
+    use crate::ContainerKind;
+    match kind {
+        ContainerKind::Component => CmieKind::Component as u8,
+        ContainerKind::Module => CmieKind::Module as u8,
+        ContainerKind::Interface => CmieKind::Interface as u8,
+        ContainerKind::Enum => CmieKind::Enum as u8,
+        _ => CmieKind::UNKNOWN,
+    }
+}
+
+/// Resolve a class's CMIE kind by name + defining uri from the workspace and
+/// system library tables (name-based — never id-guessing across files).
+/// Used by class-ref registration (refs.rs) and by Layer 1a in mc_code.rs,
+/// so a class ref to an `interface` hovers as `→ interface`.
+pub(crate) fn cmie_kind_for(def_uri: &str, name: &str) -> u8 {
+    let space = McSpaceName {
+        ident: McIds::from(name),
+        uri: def_uri.to_string(),
+    };
+    if workspace::WORKSPACE.components.contains_key(&space)
+        || global::mcc_components.contains_key(&space)
+    {
+        return CmieKind::Component as u8;
+    }
+    if workspace::WORKSPACE.modules.contains_key(&space) || global::mcc_modules.contains_key(&space)
+    {
+        return CmieKind::Module as u8;
+    }
+    if workspace::WORKSPACE.interfaces.contains_key(&space)
+        || global::mcc_interfaces.contains_key(&space)
+    {
+        return CmieKind::Interface as u8;
+    }
+    if workspace::WORKSPACE.enums.contains_key(&space) || global::mcc_enums.contains_key(&space) {
+        return CmieKind::Enum as u8;
+    }
+    CmieKind::UNKNOWN
 }

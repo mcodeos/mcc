@@ -92,3 +92,25 @@ pub fn resolve(name: &str) -> Option<Value> {
         })),
     }
 }
+
+/// Strict position-aware goto-def: lapper interval at `offset` + RefDefMap
+/// exact resolution (shared with hover). Returns the def location and its real
+/// kind (`ClassDef` / `EnumDef` / ...) — never a name-based guess, which would
+/// misattribute same-name defs such as `enum CAP` vs `component CAP`.
+/// Returns `None` when the position has no registered interval or no map entry.
+pub fn resolve_at_pos(uri: &str, offset: usize) -> Option<Value> {
+    use crate::refdef::query::resolve_at;
+
+    let mc_uri = McURI::from(uri);
+    let mcfile = crate::db::cmie::tables::WORKSPACE.mcodes.get(&mc_uri)?;
+    let sym = mcfile.symbols.lock().ok()?;
+    let map = sym.ref_def_map.as_ref()?;
+    let hit = resolve_at(map, &sym.symbol_lapper, offset)?;
+
+    Some(json!({
+        "kind": hit.def_kind.kind_name(),
+        "uri": hit.file_uri,
+        "byte_start": hit.byte_start,
+        "byte_end": hit.byte_end,
+    }))
+}

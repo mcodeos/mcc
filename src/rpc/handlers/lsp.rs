@@ -225,9 +225,14 @@ pub fn handle_hover(params: Option<Value>) -> RpcResult {
     struct HoverParams {
         name: String,
         uri: String,
+        /// Optional cursor byte offset. When present, hover resolves via the
+        /// position-aware lapper + RefDefMap exact path so same-name defs
+        /// (e.g. `enum CAP` vs `component CAP`) stay distinct.
+        #[serde(default)]
+        position: Option<usize>,
     }
 
     let p: HoverParams = parse_strict(params)?;
-    let result = crate::lsp::hover::hover(&p.name, &p.uri);
+    let result = crate::lsp::hover::hover(&p.name, &p.uri, p.position);
     Ok(serde_json::json!({ "result": result }))
 }

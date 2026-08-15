@@ -6,6 +6,7 @@
 //!
 //! Provides a clean facade for pass2 and LSP consumers (see design doc §16).
 
+use crate::ast::ast_semantic::SymbolRangeLapper;
 use crate::refdef::types::{RefDefEntry, RefDefMap, SymbolKind};
 
 /// Result of a goto-definition lookup.
@@ -15,6 +16,28 @@ pub struct GotoDefResult {
     pub byte_start: u32,
     pub byte_end: u32,
     pub def_kind: SymbolKind,
+}
+
+/// Position-aware resolution: find the lapper interval covering `offset` and
+/// resolve `(ref_kind, ref_id)` → def through the exact RefDefMap path.
+///
+/// Strict by design — returns `None` when the position has no registered
+/// interval or the ref has no map entry. Callers must NOT fall back to a
+/// name-based lookup, since same-name defs (e.g. `enum CAP` vs
+/// `component CAP`) would be misattributed.
+pub fn resolve_at(
+    map: &RefDefMap,
+    lapper: &SymbolRangeLapper,
+    offset: usize,
+) -> Option<GotoDefResult> {
+    // rust_lapper's `find(start, stop)` overlaps are strict
+    // (`start < stop && stop > start`), so a point query must widen the stop.
+    let interval = lapper
+        .find(offset, offset + 1)
+        .into_iter()
+        .find(|iv| iv.start <= offset && offset < iv.stop)?;
+    let kind = SymbolKind::from_raw(interval.val.kind)?;
+    goto_def(map, kind, interval.val.id)
 }
 
 /// F12 goto-def: resolve (ref_kind, ref_id) → definition location.

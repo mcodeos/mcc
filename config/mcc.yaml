@@ -1,0 +1,58 @@
+# MCC Compiler Configuration
+# ~/.mcode/config/mcc.yaml
+
+# ── Trace / Debug ──────────────────────────────────────────────────────
+trace:
+  # Base level: off | error | warn | info | debug | trace
+  level: debug
+
+  # Per-module debug targets. Comment out any to silence.
+  # Level: off | error | warn | info | debug | trace
+  targets:
+    # Parse
+    mcc::parse::ast: debug
+    mcc::parse::phrase: debug
+    # Semantic
+    mcc::sem::fcall: debug
+    mcc::sem::conds: debug
+    mcc::sem::class: debug
+    mcc::sem::inst: debug
+    mcc::sem::module: debug
+    mcc::sem::comp: debug
+    # Instantiate
+    mcc::inst::mod: debug
+    mcc::inst::comp: debug
+    mcc::inst::fcall: debug
+    mcc::inst::points: debug
+    mcc::inst::table: debug
+    mcc::inst::dump: debug
+    # Vector / Viz
+    mcc::vec: debug
+    mcc::viz: debug
+    # LSP / Query
+    mcc::lsp::query: debug
+    mcc::lsp::lapper: debug
+    # CLI
+    mcc::build: debug
+    mcc::config: debug
+
+  # C-side parser trace (legacy bool)
+  enabled: null
+  ast: null
+  lexer: null
+  parser: null
+  visit: null
+
+# ── Parser ─────────────────────────────────────────────────────────────
+parser:
+  max_depth: null
+  strict: null
+
+# ── Output ─────────────────────────────────────────────────────────────
+output:
+  format: null
+  color: null
+
+# ── Libraries ──────────────────────────────────────────────────────────
+libs:
+  load: []

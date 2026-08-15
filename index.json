@@ -1,0 +1,76 @@
+{
+  "3rdparty": [],
+  "system": [
+    {
+      "name": ".githooks",
+      "path": ".githooks",
+      "version": "0.0.0"
+    },
+    {
+      "name": "mcode",
+      "path": "mcode",
+      "version": "0.0.0"
+    },
+    {
+      "name": "target",
+      "path": "target",
+      "version": "0.0.0"
+    },
+    {
+      "name": "tests",
+      "path": "tests",
+      "version": "0.0.0"
+    },
+    {
+      "name": ".claude",
+      "path": ".claude",
+      "version": "0.0.0"
+    },
+    {
+      "name": "baseline",
+      "path": "baseline",
+      "version": "0.0.0"
+    },
+    {
+      "name": ".cargo",
+      "path": ".cargo",
+      "version": "0.0.0"
+    },
+    {
+      "name": "scripts",
+      "path": "scripts",
+      "version": "0.0.0"
+    },
+    {
+      "name": ".github",
+      "path": ".github",
+      "version": "0.0.0"
+    },
+    {
+      "name": "mc",
+      "path": "mc",
+      "version": "0.0.0"
+    },
+    {
+      "name": "doc",
+      "path": "doc",
+      "version": "0.0.0"
+    },
+    {
+      "name": ".git",
+      "path": ".git",
+      "version": "0.0.0"
+    },
+    {
+      "name": ".vscode",
+      "path": ".vscode",
+      "version": "0.0.0"
+    },
+    {
+      "name": "src",
+      "path": "src",
+      "version": "0.0.0"
+    }
+  ],
+  "version": 1
+}

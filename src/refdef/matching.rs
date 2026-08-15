@@ -10,6 +10,28 @@ use crate::refdef::types::{CmieKind, RefDefEntry, RefDefMap, SourceLocation, Sym
 use crate::McURI;
 use std::collections::HashMap;
 
+/// Resolve a def name for `(def_kind, decl_id)`.
+///
+/// Only the caller's local `def_names` table (keyed in the caller's own id
+/// space) is consulted. The def file's own `def_names` is keyed in the *def
+/// file's* id space, so probing it with a caller-side decl_id can alias a
+/// different same-id class (e.g. `CAP` vs `CAP.SAFETY` both holding id 9 in
+/// different files) and return the wrong name. Cross-file defs are resolved
+/// by the caller via gt reverse-lookup (see `McCode::def_name_for`), never by
+/// id-guessing into another file's table. The name always comes from mcc's AST
+/// at registration — never a text slice of the def line.
+pub fn resolve_def_name(
+    local_names: &HashMap<(SymbolKind, u32), String>,
+    _def_uri: &str,
+    def_kind: SymbolKind,
+    decl_id: u32,
+) -> String {
+    local_names
+        .get(&(def_kind, decl_id))
+        .cloned()
+        .unwrap_or_default()
+}
+
 /// Build RefDefMap Layer 2 inline from the freshly-built lapper.
 /// Matches InstanceRef/LabelRef/FunctionRef/etc. to their defs via shared DeclareId.
 /// Called at end of create_lapper() — no separate lapper re-scan.
@@ -17,6 +39,7 @@ pub fn fill_refdef_layer2(
     map: &mut RefDefMap,
     scope_map: &HashMap<(usize, usize), String>,
     def_map_src: &HashMap<(SymbolKind, u32), SourceLocation>,
+    def_names: &HashMap<(SymbolKind, u32), String>,
     ref_entries: &[(SymbolKind, u32, usize, usize)],
     file_uri: &McURI,
     file_table: &[String],
@@ -99,17 +122,17 @@ pub fn fill_refdef_layer2(
             }
             // Use original file_id from SourceLocation for cross-file defs.
             // Falls back to current file_uri if file_id is 0 (same-file).
-            let fid = if loc.file_id != 0 {
+            let def_uri_str = if loc.file_id != 0 {
                 let idx = loc.file_id as usize;
                 if idx < file_table.len() {
-                    let def_uri_str = &file_table[idx];
-                    map.intern_file(&McURI::from(def_uri_str.as_str()))
+                    file_table[idx].clone()
                 } else {
-                    map.intern_file(file_uri)
+                    file_uri.clone()
                 }
             } else {
-                map.intern_file(file_uri)
+                file_uri.clone()
             };
+            let fid = map.intern_file(&McURI::from(def_uri_str.as_str()));
             // Look up the scope by the DEF's position, not the ref's. The
             // scope_map is keyed by def spans (built from name_to_declare_id
             // source locations), so querying with (ref_start, ref_stop) always
@@ -119,6 +142,11 @@ pub fn fill_refdef_layer2(
                 .cloned()
                 .unwrap_or_default();
             let cid = map.intern_container(&scope);
+            // Name from the AST-driven def_names table (local id space only).
+            // Every Layer 2 def id is minted locally by register_def, so a
+            // local lookup always hits; never probe the def file's own table
+            // with this id (different id space — see resolve_def_name).
+            let def_name = resolve_def_name(def_names, &def_uri_str, def_kind, decl_id);
             map.insert(
                 ref_kind,
                 decl_id,
@@ -134,6 +162,7 @@ pub fn fill_refdef_layer2(
                     },
                     def_kind,
                     cmie_kind: CmieKind::UNKNOWN,
+                    def_name,
                 },
             );
         }
@@ -172,6 +201,7 @@ pub fn fill_refdef_layer2(
                     },
                     def_kind: SymbolKind::PortDef,
                     cmie_kind: CmieKind::UNKNOWN,
+                    def_name: resolve_def_name(def_names, file_uri, SymbolKind::PortDef, decl_id),
                 },
             );
         }
@@ -227,6 +257,7 @@ pub fn fill_refdef_layer2(
                         },
                         def_kind: SymbolKind::LabelDef,
                         cmie_kind: CmieKind::UNKNOWN,
+                        def_name: resolve_def_name(def_names, file_uri, SymbolKind::LabelDef, lid),
                     },
                 );
             }
@@ -282,6 +313,7 @@ pub fn fill_refdef_layer2(
                         },
                         def_kind: SymbolKind::BusDef,
                         cmie_kind: CmieKind::UNKNOWN,
+                        def_name: resolve_def_name(def_names, file_uri, SymbolKind::BusDef, bid),
                     },
                 );
             }
@@ -343,6 +375,7 @@ pub fn fill_refdef_layer2(
                         },
                         def_kind: SymbolKind::BusDef,
                         cmie_kind: CmieKind::UNKNOWN,
+                        def_name: resolve_def_name(def_names, file_uri, SymbolKind::BusDef, bid),
                     },
                 );
             }
