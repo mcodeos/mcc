@@ -7,7 +7,7 @@ use crate::db::context::DB;
 use crate::db::diagnostic::diagnostic::{dlog_error, dlog_warning};
 
 use crate::query::refs::mcb_register_declare_class;
-use crate::refdef::types::ChainSegment;
+use crate::refdef::types::{ChainSegment, SymbolKind};
 use crate::semantic::basic::mc_bus::{McBus, McList};
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::basic::mc_ida::McIda;
@@ -306,6 +306,15 @@ pub struct McInstances {
     /// (bus name → whole bus + member spans). Single source of truth for
     /// member-level goto-def; expanded by lapper_module_ports.
     bus_defs: BTreeMap<String, BusDef>,
+    /// ★ Declareb kind hints (`idx::CLASS(...)` inference rule): a 2-pin
+    /// declareb (`C4::CAP()`, `R1::RES(1kOhm)`) bypasses `parse_declare`
+    /// (it is parsed as a FuncCall for Pass2 transpose/NC semantics), so the
+    /// name never enters `insts` and the lapper cannot classify it from the
+    /// instance table. The parse-time hint records the def kind inferred from
+    /// the class (Component/Module → `InstDef`; Interface → label/bus) and the
+    /// declaration span; `lapper_module_ports` registers `InstDef` at that
+    /// span and `resolve_net_ref_kind` answers `InstRef` for use sites.
+    declareb_defs: HashMap<String, (SymbolKind, Range<usize>)>,
 }
 
 impl McInstances {
@@ -318,6 +327,7 @@ impl McInstances {
             scope: None,
             label_kinds: HashMap::new(),
             bus_defs: BTreeMap::new(),
+            declareb_defs: HashMap::new(),
         }
     }
 
@@ -488,6 +498,29 @@ impl McInstances {
     /// Iterate all registered bus defs.
     pub fn iter_bus_defs(&self) -> impl Iterator<Item = &BusDef> {
         self.bus_defs.values()
+    }
+
+    /// Record a declareb kind hint. First registration wins: the declaration
+    /// is the first typed occurrence of the name; later same-name declareb is
+    /// a use/ref, not a second def.
+    pub(crate) fn record_declareb_def(&mut self, name: &str, kind: SymbolKind, span: Range<usize>) {
+        self.declareb_defs
+            .entry(name.to_string())
+            .or_insert((kind, span));
+    }
+
+    /// Look up the declareb hint for a name (inferred def kind + declaration span).
+    pub fn declareb_def(&self, name: &str) -> Option<(SymbolKind, Range<usize>)> {
+        self.declareb_defs
+            .get(name)
+            .map(|(kind, span)| (*kind, span.clone()))
+    }
+
+    /// Iterate all declareb hints.
+    pub fn iter_declareb_defs(
+        &self,
+    ) -> impl Iterator<Item = (&String, &(SymbolKind, Range<usize>))> {
+        self.declareb_defs.iter()
     }
 
     /// Iterate all ports with their spans (multiple entries per key for DOT patterns)

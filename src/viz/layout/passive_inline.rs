@@ -248,12 +248,6 @@ pub fn place_series_passives(graph: &mut McVecGraph) {
         return;
     }
     let passive_set: HashSet<i64> = passive_ids.iter().copied().collect();
-    let rail_ids: HashSet<i64> = graph
-        .boxes
-        .iter()
-        .filter(|b| is_rail_box(b))
-        .map(|b| b.id)
-        .collect();
 
     let mut synth_pin = PASSIVE_PIN_BASE;
 

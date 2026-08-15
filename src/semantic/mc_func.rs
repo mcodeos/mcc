@@ -116,6 +116,21 @@ pub trait HasFindInst {
     /// Default implementation is a no-op for contexts that don't track spans.
     fn store_inst_span(&mut self, _name: &str, _span: std::ops::Range<usize>) {}
 
+    /// ★ Record a declareb kind hint (`idx::CLASS(...)` inference): a 2-pin
+    /// declareb (`C4::CAP()`) is parsed as a FuncCall and bypasses
+    /// `parse_declare`, so the name never enters `insts`. The hint carries the
+    /// def kind inferred from the class (Component/Module → `InstDef`) and the
+    /// declaration span; the lapper uses it to classify the name as an
+    /// instance instead of a label. Default implementation is a no-op for
+    /// contexts that don't track instances.
+    fn record_declareb_def(
+        &mut self,
+        _name: &str,
+        _kind: crate::refdef::types::SymbolKind,
+        _span: std::ops::Range<usize>,
+    ) {
+    }
+
     /// Look up a user-defined function in the surrounding scope and report
     /// its return kind. Used by [`McFuncCall`] to validate method chains.
     ///
@@ -237,6 +252,15 @@ impl<'a> HasFindInst for FuncBodyContext<'a> {
 
     fn store_inst_span(&mut self, name: &str, span: std::ops::Range<usize>) {
         self.parent.store_inst_span(name, span)
+    }
+
+    fn record_declareb_def(
+        &mut self,
+        name: &str,
+        kind: crate::refdef::types::SymbolKind,
+        span: std::ops::Range<usize>,
+    ) {
+        self.parent.record_declareb_def(name, kind, span)
     }
 
     fn find_func_return(&self, name: &str) -> Option<McFuncReturn> {
@@ -896,6 +920,15 @@ impl HasFindInst for McFunction {
 
     fn store_inst_span(&mut self, name: &str, span: std::ops::Range<usize>) {
         self.insts.store_port_span(name, span);
+    }
+
+    fn record_declareb_def(
+        &mut self,
+        name: &str,
+        kind: crate::refdef::types::SymbolKind,
+        span: std::ops::Range<usize>,
+    ) {
+        self.insts.record_declareb_def(name, kind, span);
     }
 
     fn scope_name(&self) -> Option<String> {

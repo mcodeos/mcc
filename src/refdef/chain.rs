@@ -623,7 +623,11 @@ fn cross_def_kind(inst: &McInstance) -> SymbolKind {
 /// `iter_ports_with_span` uses for `lapper_module_ports`; everything else
 /// falls through to `cross_def_kind`.
 fn module_member_kind(base: &McModule, member: &str, inst: &McInstance) -> SymbolKind {
-    if let McInstance::Label(_) = inst {
+    // Module ports may be stored as Label (plain `in DAC_OUT`) or Interface
+    // (interface-typed `io vin{...}::DC(5V)`) instances, both carrying a
+    // port-like IOType. Check the IOType so both land on PortDef, aligned
+    // with iter_ports_with_span / lapper_module_ports.
+    if matches!(inst, McInstance::Label(_) | McInstance::Interface(_)) {
         if let Some((io, _)) = base.insts.get_with_iotype(member) {
             if !matches!(
                 io,

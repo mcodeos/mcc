@@ -473,6 +473,15 @@ impl HasFindInst for McComponent {
         false
     }
 
+    fn record_declareb_def(
+        &mut self,
+        name: &str,
+        kind: crate::refdef::types::SymbolKind,
+        span: std::ops::Range<usize>,
+    ) {
+        self.insts.record_declareb_def(name, kind, span);
+    }
+
     fn scope_name(&self) -> Option<String> {
         Some(self.name.to_string())
     }

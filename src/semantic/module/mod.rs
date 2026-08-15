@@ -937,6 +937,15 @@ impl HasFindInst for McModule {
         self.insts.store_port_span(name, span);
     }
 
+    fn record_declareb_def(
+        &mut self,
+        name: &str,
+        kind: crate::refdef::types::SymbolKind,
+        span: std::ops::Range<usize>,
+    ) {
+        self.insts.record_declareb_def(name, kind, span);
+    }
+
     fn upgrade_label_to_bus(&mut self, name: &str) -> bool {
         if let Some(inst) = self.insts.get_mut(name) {
             if matches!(inst, McInstance::Label(_)) {

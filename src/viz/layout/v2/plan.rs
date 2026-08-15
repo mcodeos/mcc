@@ -7,8 +7,6 @@
 //! `Plan` is the searcher's entire output and the geometry layer's entire input.
 //! Read-only once produced; `geom::apply` is the only function allowed to write coordinates.
 
-use crate::vector::graph::boxdef::McVecBox;
-
 // ============================================================================
 // Zone plans
 // ============================================================================
@@ -88,28 +86,4 @@ pub struct Plan {
     pub arrangements: Vec<Arrangement>,
     /// Canvas size
     pub canvas: (f64, f64),
-}
-
-impl Plan {
-    /// Create a trivial Plan: all nodes degenerate into one zone, arrangement empty for now.
-    pub fn trivial(boxes: &[McVecBox]) -> Self {
-        let canvas = (800.0, 600.0);
-        Self {
-            zones: vec![ZonePlan {
-                zone: 0,
-                box_ids: Vec::new(),
-                rect: Rect {
-                    x: 0.0,
-                    y: 0.0,
-                    w: canvas.0,
-                    h: canvas.1,
-                },
-                title_anchor: Point { x: 0.0, y: 0.0 },
-                title: String::new(),
-            }],
-            cuts: Vec::new(),
-            arrangements: Vec::new(),
-            canvas,
-        }
-    }
 }

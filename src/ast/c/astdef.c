@@ -181,13 +181,6 @@ static void mc_sem_emit_token(short type, unsigned int pos, unsigned int len) {
     }
 }
 
-static bool mc_sem_has_token_at(unsigned int pos) {
-    for (mc_sem_token* t = g_sem_token_list; t != NULL; t = t->next) {
-        if (t->pos <= pos && pos < t->pos + t->len) return true;
-    }
-    return false;
-}
-
 static void mc_sem_scan_comments(const char* source, size_t source_len) {
     if (source == NULL || source_len == 0) return;
     int _found = 0, _skipped = 0;

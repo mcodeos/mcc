@@ -21,6 +21,7 @@ use crate::{
         diagnostic::diagnostic::{dlog_error, dlog_trace, dlog_warning},
     },
     query::refs::{mcb_register_declare_class, mcb_register_instance_ref},
+    refdef::types::SymbolKind,
     semantic::{
         basic::{mc_opd::McOpd, mc_param::McParamValue},
         context::resolve_cmie,
@@ -803,6 +804,11 @@ impl McPhrase {
                             }
                             let is_twopin =
                                 crate::vector::graph::naming::is_known_twopin_class(&fname);
+                            // Keep the FuncCall path for 2-pin classes: Pass2 relies
+                            // on it for transpose (`R442::RES(1MΩ)'`) and NC-param
+                            // semantics. LSP classification of the declared names
+                            // (C4/C5 → inst) is supplied separately via
+                            // record_declareb_def below.
                             let build = is_twopin;
                             if build {
                                 // ★ LSP: Register declareb instance declarations
@@ -816,6 +822,19 @@ impl McPhrase {
                                 if let Some(span) = &names_span {
                                     for name in &names {
                                         context.store_inst_span(name, span.clone());
+                                        // ★ Declareb inference rule (`idx::CLASS(...)`):
+                                        // the class is a 2-pin component (twopin list),
+                                        // so the declared name is an instance. Record
+                                        // the hint so the lapper classifies it as
+                                        // InstDef/InstRef (not LabelDef/PortRef) even
+                                        // though it bypasses parse_declare. First
+                                        // registration wins (declaration = first
+                                        // typed occurrence).
+                                        context.record_declareb_def(
+                                            name,
+                                            SymbolKind::InstDef,
+                                            span.clone(),
+                                        );
                                         // register under the real
                                         // scope key so the inline instance id
                                         // matches the lapper-time InstDef id.

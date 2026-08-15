@@ -423,6 +423,21 @@ impl McPins {
                                         } else {
                                             iface.name.to_string()
                                         };
+                                        // The option-level span covers the whole bus
+                                        // expression (`VIN{Vin, GND`); the bus name is
+                                        // its leading identifier — trim to it so
+                                        // goto-definition lands on `VIN`, not the bus
+                                        // members.
+                                        let span = if iface.name.is_bus() && !key.is_empty() {
+                                            let end = span.start.saturating_add(key.len());
+                                            if end <= span.end {
+                                                span.start..end
+                                            } else {
+                                                span
+                                            }
+                                        } else {
+                                            span
+                                        };
                                         self.pin_name_spans.insert(key, span);
                                     }
                                     McPinPort::Bus(bus) => {

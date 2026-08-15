@@ -105,12 +105,15 @@ pub fn mcb_parse_all_modules() {
                     idx.clone(),
                 )
             });
-            mcfile.parse_pass1_modules();
-            // ★ Robustness: ensure lapper is built even when parse_pass1_modules
-            //   returns early (e.g., modules_parsed flag already set). Without this,
-            //   files loaded as dependencies via mcb_add_recursive may have an empty
-            //   symbol_lapper after remove+insert cycles.
-            mcfile.create_lapper();
+            // parse_pass1_modules returns false only when the lapper was
+            // already built (modules_parsed set, table not dirty) — e.g. on
+            // repeated mcb_parse_all_modules calls. Rebuild only then, so a
+            // freshly parsed file does not run create_lapper twice back to
+            // back (which re-registered every symbol under fresh ids and
+            // doubled def_map before the per-file cleanup).
+            if !mcfile.parse_pass1_modules() {
+                mcfile.create_lapper();
+            }
             // _guard drops here, automatically pops line_index
             workspace::WORKSPACE.mcodes.insert(uri, mcfile);
         } else {

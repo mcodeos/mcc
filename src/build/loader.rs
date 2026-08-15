@@ -198,7 +198,9 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
             .entry(canonical_uri.clone())
             .and_modify(|entry| entry.spacenames.clone_from(&mcfile.spacenames));
     }
-    // Note: create_lapper is called at the end of parse_pass1_modules() inside parse_pass1_types.
+    // Note: the symbol lapper is not built here — parse_pass1_types only
+    // registers CMIE definitions. Module parsing and create_lapper happen in
+    // mcb_parse_all_modules(), which every project-load entry point calls.
     trace!(
         target: "mcc::builder",
         file = %file_str,
