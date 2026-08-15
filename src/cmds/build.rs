@@ -1207,24 +1207,4 @@ module top {
             diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
         );
     }
-
-    // ── D8 AMBIGUOUS_PRECEDENCE ─────────────────────────────────────────
-
-    #[test]
-    fn d8_ambiguous_precedence_mixed_ops() {
-        let _lock = TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-        let fixture = r#"
-module top {
-    io A, B, C, D
-    A -> B + C -> D
-}
-"#;
-        let (diags, build_err) = build_fixture(fixture);
-        assert!(
-            has_code(&diags, mcc::errcodes::CONN_AMBIGUOUS_PRECEDENCE),
-            "D8 AMBIGUOUS_PRECEDENCE should fire for mixed operators. Build err: {:?}. Diags: {:?}",
-            build_err,
-            diags.iter().map(|d| (d.code, &d.msg)).collect::<Vec<_>>()
-        );
-    }
 }

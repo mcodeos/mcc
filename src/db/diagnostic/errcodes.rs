@@ -675,9 +675,6 @@ pub const CURLY_NOT_BUS: u32 = 4025;
 /// Groups with different branch counts cannot connect.
 pub const GROUP_BRANCH_COUNT_MISMATCH: u32 = 4026;
 
-/// Expression mixes + (parallel) with - or -> (series) operators without parentheses, spanning more than two components.
-pub const CONN_AMBIGUOUS_PRECEDENCE: u32 = 4027;
-
 // ============================================================================
 // Pass2: netlist heuristics (D-series / layout) (4050-4099)
 // ============================================================================
@@ -1444,7 +1441,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(CURLY_RIGHT_EMPTY, "Curly-member construction: right member list is empty.", "Curly-member construction: right member list is empty."),
     entry!(CURLY_NOT_BUS, "Cannot convert the curly-member result to a bus.", "Cannot convert the curly-member result to a bus."),
     entry!(GROUP_BRANCH_COUNT_MISMATCH, "Groups with different branch counts cannot connect.", "Groups with different branch counts cannot connect."),
-    entry!(CONN_AMBIGUOUS_PRECEDENCE, "Expression mixes + (parallel) with - or -> (series) operators without parentheses, spanning more than two components.", "AMBIGUOUS_PRECEDENCE: expression mixes + (parallel) with - or -> (series) operators without parentheses and spans {0} components (>2). `->`/`<-` bind tighter than `+`/`-` (eval.md §9); wrap the intended sub-expression in explicit parentheses (Group) to disambiguate, e.g. `(A + B) - C` or `A + (B - C)`."),
     // ---- section ----
     entry!(GHOST_PORT_BOX, "A box has a placeholder pin not mapped to any real component pin.", "GHOST_PORT: box '{0}' (id={1}) has placeholder pin '{2}' (id={3}) that is not mapped to any real component pin. The component declared only an estimated pin count (pins = N) without actual pin definitions."),
     entry!(NET_MERGED_SHORT, "Multiple points resolve to the same node — possible short circuit (E2003).", "MERGED_SHORT: net '{0}' (module '{1}') has {2} point(s) resolving to the same node (id={3}). Paths: {4}. This may indicate a bracket expansion duplicate or a port declared without bit width causing signal merging."),

@@ -921,7 +921,7 @@ curl -X POST http://127.0.0.1:8080/rpc \
 | 3101-3111 | Params / functions | Invalid param, class/instance expected |
 | 3131-3135 | Function calls / lines | Missing name, parse failure, dropped line |
 | 3151-3180 | Instance / interface reference | Class unresolved, member / pin / port not found |
-| 4001-4027 | Connection / shape | Transpose mismatch, parallel/series invalid, dot misuse |
+| 4001-4026 | Connection / shape | Transpose mismatch, parallel/series invalid, dot misuse |
 | 4050-4058 | Netlist heuristics (D-series) | Ghost port, merged short, sort hazard, floating `_` |
 | 4081-4098 | Layout attribute errors | Missing subnode, type mismatch, malformed edge |
 | 4101-4118 | Netlist / interface binding | Multi-drive, no driver, unconnected, backfeed risk |
@@ -941,7 +941,7 @@ curl -X POST http://127.0.0.1:8080/rpc \
 | 5641-5643 | Global diagnostics | Unused param/port, untyped param |
 | 6001-6004 | ERC | Single-point net, unconnected port, multi-drive, floating net |
 
-The D1-D8 detector codes referenced by build.rs tests map as follows:
+The D1-D7 detector codes referenced by build.rs tests map as follows:
 
 | Detector | Code | Constant |
 |---|---|---|
@@ -952,7 +952,6 @@ The D1-D8 detector codes referenced by build.rs tests map as follows:
 | D5 | 4052 | NET_BUS_ORDER_MISMATCH |
 | D6 | 4057 | NET_DROPPED_STATEMENT |
 | D7 | 4056 | PULLUP_DEGENERATE |
-| D8 | 4027 | CONN_AMBIGUOUS_PRECEDENCE |
 
 ### 6.5 Validating Library Changes
 

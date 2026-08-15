@@ -407,8 +407,6 @@ M = [
      "Layout edge node type mismatch."),
     (2008, "mc_layout.rs", 4088, "LAYOUT_EDGE_NAME_MISSING_SUBNODE",
      "Layout edge name is missing a subnode."),
-    (2008, "mc_phrase.rs:ambiguous-precedence", 4027, "CONN_AMBIGUOUS_PRECEDENCE",
-     "Expression mixes + (parallel) with - or -> (series) operators without parentheses, spanning more than two components."),
     (2009, "mc_layout.rs", 4089, "LAYOUT_VALUE_MISSING_SUBNODE",
      "Layout value is missing a subnode."),
     (2010, "mc_layout.rs", 4090, "LAYOUT_VALUE_TYPE_MISMATCH",

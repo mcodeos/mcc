@@ -1563,11 +1563,7 @@ impl McPhrase {
             }
 
             MCAST_OPD_PLUS => {
-                // ── D8: AMBIGUOUS_PRECEDENCE detection ──────────────────────
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
-                let loc_node = first_expr_leaf(&opd1_node);
-                check_ambiguous_precedence(node, &loc_node);
-
                 let opd2_node = opd1_node.get_next().expect(MISSING_SUBNODE);
 
                 // P2-7-XTAL: trace raw AST node types before McPhrase::new
@@ -1710,11 +1706,7 @@ impl McPhrase {
             }
 
             MCAST_OPD_MINUS => {
-                // ── D8: AMBIGUOUS_PRECEDENCE detection ──────────────────────
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
-                let loc_node = first_expr_leaf(&opd1_node);
-                check_ambiguous_precedence(node, &loc_node);
-
                 let opd2_node = opd1_node.get_next().expect(MISSING_SUBNODE);
 
                 let opd1 = McPhrase::new(&opd1_node, context)?;
@@ -1784,11 +1776,7 @@ impl McPhrase {
             }
 
             MCAST_OPD_RIGHTARROW => {
-                // ── D8: AMBIGUOUS_PRECEDENCE detection ──────────────────────
                 let opd1_node = node.get_sub_node().expect(MISSING_SUBNODE);
-                let loc_node = first_expr_leaf(&opd1_node);
-                check_ambiguous_precedence(node, &loc_node);
-
                 let opd2_node = opd1_node.get_next().expect(MISSING_SUBNODE);
                 // ── P2-DEBUG ──
                 {
@@ -3249,112 +3237,6 @@ impl std::fmt::Display for McPhrase {
 // ============================================================================
 // Auxiliary functions
 // ============================================================================
-
-/// ── D8: AMBIGUOUS_PRECEDENCE detection ─────────────────────────────────
-/// Walk the AST subtree to check if the expression mixes `+` (parallel) with
-/// `-` or `->` (series) operators without explicit parentheses (Group),
-/// spanning more than 3 leaf components. If so, emit a warning because the
-/// intended grouping may differ from the parser's precedence.
-/// `loc_node` specifies the node for error location (use first operand to avoid trailing comments).
-fn check_ambiguous_precedence(node: &AstNode, loc_node: &AstNode) {
-    let (leaf_count, has_plus, has_minus, has_arrow) = analyze_expr_tree(node);
-    // Only flag as ambiguous when `+` (parallel) is mixed with `-` or `->` (series).
-    // Mixing `-` and `->` alone is NOT ambiguous — both are series operators that
-    // differ only in directionality, and left-to-right associativity gives a
-    // single unambiguous parse (e.g. `A - B -> C` is always `(A - B) -> C`).
-    let mixed = has_plus && (has_minus || has_arrow);
-    // The parser now creates GROUP nodes for `(expr)`, so explicit parentheses
-    // correctly reset the ambiguity scope in analyze_expr_tree. Only warn when
-    // there are more than 2 leaves and operators are genuinely mixed.
-    if mixed && leaf_count > 2 {
-        dlog_warning(
-            crate::errcodes::CONN_AMBIGUOUS_PRECEDENCE,
-            loc_node,
-            &crate::errcodes::format_msg(
-                crate::errcodes::CONN_AMBIGUOUS_PRECEDENCE,
-                &[&leaf_count as &dyn std::fmt::Display],
-            ),
-        );
-    }
-}
-
-/// Drill down to the first non-op leaf node in an expression tree,
-/// to avoid spanning multi-line comments in error locations.
-fn first_expr_leaf(node: &AstNode) -> AstNode {
-    let t = node.get_type();
-    match t {
-        MCAST_OPD_PLUS | MCAST_OPD_MINUS | MCAST_OPD_RIGHTARROW | MCAST_OPD_LEFTARROW => {
-            if let Some(sub) = node.get_sub_node() {
-                return first_expr_leaf(&sub);
-            }
-        }
-        _ => {}
-    }
-    node.clone()
-}
-
-/// Walk the AST subtree and return (leaf_count, has_plus, has_minus, has_arrow).
-fn analyze_expr_tree(node: &AstNode) -> (usize, bool, bool, bool) {
-    let t = node.get_type();
-    match t {
-        MCAST_OPD_PLUS | MCAST_OPD_MINUS | MCAST_OPD_RIGHTARROW | MCAST_OPD_LEFTARROW => {
-            let is_plus = t == MCAST_OPD_PLUS;
-            let is_minus = t == MCAST_OPD_MINUS;
-            let is_arrow = t == MCAST_OPD_RIGHTARROW || t == MCAST_OPD_LEFTARROW;
-            let mut total = 0usize;
-            let mut hp = is_plus;
-            let mut hm = is_minus;
-            let mut ha = is_arrow;
-            if let Some(sub) = node.get_sub_node() {
-                let (c, p, m, a) = analyze_expr_tree(&sub);
-                total += c;
-                hp |= p;
-                hm |= m;
-                ha |= a;
-                if let Some(next) = sub.get_next() {
-                    let (c, p, m, a) = analyze_expr_tree(&next);
-                    total += c;
-                    hp |= p;
-                    hm |= m;
-                    ha |= a;
-                }
-            }
-            if total == 0 {
-                total = 1; // degenerate case: count as at least 1
-            }
-            (total, hp, hm, ha)
-        }
-        MCAST_OPD_GROUP => {
-            // Group (parentheses) resets the ambiguity scope — treat as a single leaf
-            (1, false, false, false)
-        }
-        _ => {
-            // Leaf component: count as exactly 1, regardless of internal AST
-            // structure (e.g. GPIO[2] has IDA + SQUARE children, RES(100kΩ) has
-            // IDS + PARAMS children — all are part of the same logical leaf).
-            // Still propagate operator flags from children in case of nested
-            // expressions inside non-operator wrappers.
-            let mut hp = false;
-            let mut hm = false;
-            let mut ha = false;
-            if let Some(sub) = node.get_sub_node() {
-                let (_, p, m, a) = analyze_expr_tree(&sub);
-                hp |= p;
-                hm |= m;
-                ha |= a;
-                let mut next = sub.get_next();
-                while let Some(n) = next {
-                    let (_, p, m, a) = analyze_expr_tree(&n);
-                    hp |= p;
-                    hm |= m;
-                    ha |= a;
-                    next = n.get_next();
-                }
-            }
-            (1, hp, hm, ha)
-        }
-    }
-}
 
 fn infer_shape_and_upgrade(
     opd1: McPhrase,

@@ -1518,13 +1518,6 @@
       "desc": "Layout edge name is missing a subnode."
     },
     {
-      "old": 2008,
-      "site": "mc_phrase.rs:ambiguous-precedence",
-      "new": 4027,
-      "name": "CONN_AMBIGUOUS_PRECEDENCE",
-      "desc": "Expression mixes + (parallel) with - or -> (series) operators without parentheses, spanning more than two components."
-    },
-    {
       "old": 2009,
       "site": "mc_layout.rs",
       "new": 4089,
@@ -4179,13 +4172,6 @@
       }
     ],
     "2008": [
-      {
-        "old": 2008,
-        "site": "mc_phrase.rs:ambiguous-precedence",
-        "new": 4027,
-        "name": "CONN_AMBIGUOUS_PRECEDENCE",
-        "desc": "Expression mixes + (parallel) with - or -> (series) operators without parentheses, spanning more than two components."
-      },
       {
         "old": 2008,
         "site": "mc_layout.rs",
