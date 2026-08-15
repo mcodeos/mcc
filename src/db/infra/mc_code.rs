@@ -5942,19 +5942,46 @@ impl McCode {
             if current.get_type() != MCAST_INSTANCE {
                 return None;
             }
-            let inner = current.get_sub_node()?;
+            let Some(inner) = current.get_sub_node() else {
+                return None;
+            };
             if inner.get_type() == MCAST_OPD_FCALL {
-                // Descend into the nested fcall's receiver (first MCAST_INSTANCE
-                // child). A plain class call like `RES(10kΩ)` has no instance
-                // child — abort so the caller falls back to extract_class_name.
-                current = inner
-                    .get_sub_node()?
-                    .iter()
-                    .find(|c| c.get_type() == MCAST_INSTANCE)?;
+                let receiver = inner
+                    .get_sub_node()
+                    .and_then(|s2| s2.iter().find(|c| c.get_type() == MCAST_INSTANCE));
+                let Some(receiver) = receiver else {
+                    return None;
+                };
+                current = receiver;
                 continue;
             }
             // Base receiver — MCAST_OPD (or similar) wrapping the identifiers.
             let ids = inner.get_sub_node()?;
+            if inner.get_type() == MCAST_DECLARE {
+                // Same-line instance declare + method call
+                // (`DCDC.LP3220AB5F lp322dcdc.enable()`): the FCALL's INSTANCE
+                // receiver wraps the DECLARE node. The instance name is
+                // either a direct MCAST_IDS child or wrapped in an
+                // MCAST_INSTANCE child that follows the MCAST_CLASS child.
+                let mut name_ids = None;
+                let mut cur = Some(ids);
+                while let Some(n) = cur {
+                    if n.get_type() == MCAST_CLASS {
+                        cur = n.get_next();
+                        continue;
+                    }
+                    if n.get_type() == MCAST_INSTANCE {
+                        name_ids = n.get_sub_node();
+                        break;
+                    }
+                    if n.get_type() == MCAST_IDS {
+                        name_ids = Some(n);
+                        break;
+                    }
+                    cur = n.get_next();
+                }
+                return name_ids.and_then(|n| McIds::new(&n)).map(|i| i.to_string());
+            }
             return McIds::new(&ids).map(|i| i.to_string());
         }
     }
