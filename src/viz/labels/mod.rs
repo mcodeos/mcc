@@ -32,6 +32,9 @@ const OFF_CANVAS_PENALTY: f64 = 1_000_000.0;
 const LABEL_LABEL_PENALTY: f64 = 10_000.0;
 const LABEL_BOX_PENALTY: f64 = 8_000.0;
 const LABEL_WIRE_PENALTY: f64 = 5_000.0;
+/// ★ P7-5 S7: hiding beats any overlap (cheapest overlap penalty is
+/// LABEL_WIRE_PENALTY = 5000) but loses to any clean position (≤ 40).
+const HIDDEN_PENALTY: f64 = 3_000.0;
 const NON_DEFAULT_POSITION_PENALTY: f64 = 20.0;
 
 const DESIGNATOR_FONT: f64 = 11.0;
@@ -354,6 +357,31 @@ fn collect_labels(graph: &McVecGraph) -> Vec<(LabelKey, String, f64, bool)> {
 
     for b in &graph.boxes {
         let mut idx = index_counter.get(&b.id).copied().unwrap_or(0);
+        // ★ P7-5 S8: NC (not-fitted) devices get exactly ONE text — the
+        // designator (or box name) prefixed with NC_ — regardless of symbol
+        // class, so the reader can tell placeholder parts from fitted ones.
+        if b.not_fitted {
+            let base = b
+                .designator
+                .as_deref()
+                .filter(|d| !d.is_empty())
+                .unwrap_or(&b.name);
+            if !base.is_empty() {
+                out.push((
+                    LabelKey {
+                        owner_box_id: b.id,
+                        kind: LabelKind::Designator,
+                        index: idx,
+                    },
+                    format!("NC_{base}"),
+                    DESIGNATOR_FONT,
+                    true,
+                ));
+                idx += 1;
+            }
+            index_counter.insert(b.id, idx);
+            continue;
+        }
 
         match b.symbol {
             Symbol::Resistor
@@ -468,7 +496,19 @@ fn generate_candidates(
                 LabelPosition::Below,
             ]
         }
-        _ => return Vec::new(),
+        _ => {
+            if !owner.not_fitted {
+                return Vec::new();
+            }
+            // NC devices always need their NC_ text: fall back to the
+            // passive position set for symbol classes without positions.
+            vec![
+                LabelPosition::Above,
+                LabelPosition::Below,
+                LabelPosition::Left,
+                LabelPosition::Right,
+            ]
+        }
     };
 
     let default_pos = if is_designator {
@@ -480,7 +520,7 @@ fn generate_candidates(
         LabelPosition::Below
     };
 
-    positions
+    let mut out: Vec<LabelCandidate> = positions
         .into_iter()
         .map(|pos| {
             let rect = compute_rect(pos, owner, w, h, font_size);
@@ -494,7 +534,67 @@ fn generate_candidates(
                 is_default: pos == default_pos,
             }
         })
-        .collect()
+        .collect();
+
+    // ★ P7-5 S7: two-pin passives live in dense inter-lane gaps where all four
+    // base positions can collide. Add perpendicular-shifted escape variants of
+    // each base position before giving up.
+    if !matches!(owner.symbol, Symbol::Ic | Symbol::Module | Symbol::PowerRail { .. } | Symbol::Dot | Symbol::Unknown) {
+        let shift = w * 0.75 + 8.0;
+        let bases = [
+            LabelPosition::Above,
+            LabelPosition::Below,
+            LabelPosition::Left,
+            LabelPosition::Right,
+        ];
+        for base in bases {
+            let r = compute_rect(base, owner, w, h, font_size);
+            let variants = match base {
+                LabelPosition::Above | LabelPosition::Below => {
+                    [(r.x - shift, r.y), (r.x + shift, r.y)]
+                }
+                _ => [(r.x, r.y - shift), (r.x, r.y + shift)],
+            };
+            for (vx, vy) in variants {
+                let pos = LabelPosition::Custom { x: vx, y: vy };
+                let rect = compute_rect(pos, owner, w, h, font_size);
+                let penalty =
+                    score_candidate(&rect, pos, owner, default_pos, canvas, placed_rects, graph);
+                out.push(LabelCandidate {
+                    key: *key,
+                    position: pos,
+                    bounds: rect,
+                    penalty,
+                    is_default: false,
+                });
+            }
+        }
+    }
+
+    // ★ P7-5 S7: last resort — hide rather than overlap (a hidden label is
+    // recoverable information; an overlapping one corrupts the drawing).
+    // NC (not-fitted) devices may NEVER hide: their NC_ text is the S8
+    // contract, so hiding is as bad as leaving the canvas.
+    out.push(LabelCandidate {
+        key: *key,
+        position: LabelPosition::Hidden,
+        bounds: compute_rect(LabelPosition::Hidden, owner, w, h, font_size),
+        penalty: LabelPenalty {
+            total: if owner.not_fitted {
+                OFF_CANVAS_PENALTY
+            } else {
+                HIDDEN_PENALTY
+            },
+            label_overlap: 0,
+            box_overlap: 0,
+            wire_overlap: 0,
+            off_canvas: false,
+            non_default_position: true,
+        },
+        is_default: false,
+    });
+
+    out
 }
 
 // ============================================================================

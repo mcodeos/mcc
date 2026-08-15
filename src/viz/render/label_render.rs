@@ -41,14 +41,16 @@ pub fn render_designator_and_value(b: &McVecBox) -> String {
     let designator = b.designator.as_deref().unwrap_or("");
     let value = b.value.as_deref().unwrap_or("");
 
+    // M8: Use placed labels if available. ★ P7-5 S8: check this BEFORE the
+    // empty-field guard — NC devices get their "NC_<name>" text exclusively
+    // through placements (their designator/value fields are empty).
+    if !b.label_placements.is_empty() {
+        return render_placed_labels(b);
+    }
+
     // Both empty → draw nothing
     if designator.is_empty() && value.is_empty() {
         return String::new();
-    }
-
-    // M8: Use placed labels if available
-    if !b.label_placements.is_empty() {
-        return render_placed_labels(b);
     }
 
     let cx = b.x + b.w / 2.0;
@@ -206,25 +208,48 @@ fn render_placed_labels(b: &McVecBox) -> String {
     use crate::vector::graph::boxdef::LabelPlacementKind;
     let mut out = String::new();
     for hint in &b.label_placements {
-        let class = match hint.kind {
-            LabelPlacementKind::Designator => "designator",
-            LabelPlacementKind::Value => "value",
-        };
-        let fw = if matches!(hint.kind, LabelPlacementKind::Designator) {
-            " font-weight=\"600\""
+        // ★ P7-5 S8: not-fitted devices render dimmed + italic so the NC_
+        // prefix is also visually distinct at a glance.
+        let (class, fw, fill, italic) = if b.not_fitted {
+            (
+                if matches!(hint.kind, LabelPlacementKind::Designator) {
+                    "designator nc"
+                } else {
+                    "value nc"
+                },
+                if matches!(hint.kind, LabelPlacementKind::Designator) {
+                    " font-weight=\"600\""
+                } else {
+                    ""
+                },
+                "#aaa",
+                " font-style=\"italic\"",
+            )
         } else {
-            ""
-        };
-        let fill = if matches!(hint.kind, LabelPlacementKind::Designator) {
-            "#333"
-        } else {
-            "#666"
+            (
+                if matches!(hint.kind, LabelPlacementKind::Designator) {
+                    "designator"
+                } else {
+                    "value"
+                },
+                if matches!(hint.kind, LabelPlacementKind::Designator) {
+                    " font-weight=\"600\""
+                } else {
+                    ""
+                },
+                if matches!(hint.kind, LabelPlacementKind::Designator) {
+                    "#333"
+                } else {
+                    "#666"
+                },
+                "",
+            )
         };
         let bx = hint.x + hint.w / 2.0;
         let by = hint.y + hint.h;
         out.push_str(&format!(
             r##"    <text class="{class}" x="{x:.1}" y="{y:.1}"
-            text-anchor="{anchor}" font-size="{fs:.0}"{fw}
+            text-anchor="{anchor}" font-size="{fs:.0}"{fw}{italic}
             fill="{fill}">{text}</text>
 "##,
             class = class,
@@ -233,6 +258,7 @@ fn render_placed_labels(b: &McVecBox) -> String {
             anchor = hint.text_anchor,
             fs = hint.font_size,
             fw = fw,
+            italic = italic,
             fill = fill,
             text = escape_xml(&hint.text),
         ));

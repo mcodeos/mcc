@@ -280,3 +280,44 @@ fn renderdiff_geom_double_writes_baseline() {
         "geometry single-writer contract broken: {total} cross-stage unauthorized writes (list in output above)"
     );
 }
+
+/// ★ P7-5 acceptance contract: device-level contracts S3~S9 green.
+///
+/// - S3/S4a/S4b/S5: every layer with a non-empty total must be ok == total.
+/// - S5 specimens (roadmap §1.3): mic C1 / speaker C8 / mcu513 R442 must all
+///   appear in the rung pass list (no device-name special-casing upstream —
+///   the `'` modifier drives it; this only pins the result).
+/// - S7: zero label overlaps across all layers (baseline was mic=1).
+/// - S8: every NC device carries the NC_ prefix (hbl: mcu513 X6,
+///   mic wm7121/dio1/dio2/CAP_1/RES_1, speaker DIO_ESD_1/2).
+/// - S9: zero dangling single-endpoint signal nets (baseline was 7).
+#[test]
+fn renderdiff_device_contracts_s3_to_s9_green_after_p75() {
+    let golden = RenderGolden::load(&golden_path()).expect("golden parse");
+    let readings = readings(&golden);
+    assert_eq!(readings.len(), 7, "7 layers");
+
+    let mut rung_names: Vec<String> = Vec::new();
+    for r in &readings {
+        let g = &r.g13;
+        assert_eq!(g.s3_decouple_ok, g.s3_decouple_total, "{} S3", r.layer);
+        assert_eq!(g.s4_gnd_vertical_ok, g.s4_gnd_total, "{} S4a", r.layer);
+        assert_eq!(g.s4_chain_aligned_ok, g.s4_chain_total, "{} S4b", r.layer);
+        assert_eq!(g.s5_rung_ok, g.s5_rung_total, "{} S5", r.layer);
+        assert_eq!(g.s7_label_overlaps, 0, "{} S7 label overlap", r.layer);
+        assert_eq!(g.s8_nc_ok, g.s8_nc_total, "{} S8 NC prefix", r.layer);
+        assert_eq!(g.s9_stub_total, 0, "{} S9 dangling nets", r.layer);
+        rung_names.extend(g.s5_rung_ok_names.iter().cloned());
+    }
+
+    for specimen in ["C1", "C8", "R442"] {
+        assert!(
+            rung_names.contains(&specimen.to_string()),
+            "S5 specimen {specimen} missing from rung pass list: {rung_names:?}"
+        );
+    }
+
+    // NC coverage: hbl declares 8 NC devices across 3 layers.
+    let nc_total: usize = readings.iter().map(|r| r.g13.s8_nc_total).sum();
+    assert_eq!(nc_total, 8, "hbl has 8 NC devices (X6, wm7121, dio1, dio2, mic CAP_1/RES_1, speaker DIO_ESD_1/2)");
+}

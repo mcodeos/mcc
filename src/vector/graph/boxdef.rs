@@ -92,7 +92,7 @@ pub struct EntryPoint {
 }
 
 /// Box edge the pin is on
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum EntrySide {
     Top,
     Right,

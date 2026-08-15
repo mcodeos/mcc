@@ -1811,3 +1811,241 @@ mod m11_diagnostic_tests {
         assert!(issues.is_empty());
     }
 }
+
+// ============================================================================
+// ★ P7-5 S3/S4a/S5 · stand_grounded_passives — vertical orientation pass
+// ============================================================================
+
+/// ★ P7-5: make grounded passives stand vertically, and rescue transposed
+/// rungs that `place_bridge_passives` could not place.
+///
+/// Runs **after** the three inline passes (same PinFinal stage, before net
+/// labels / routing). Reads the pin-level rail roles from
+/// `graph.rail_decorations` (P7-3 consumed the GND/rail nets into
+/// decorations, so net kinds are gone for those ends).
+///
+/// * **S4a/S3** — a two-pin passive with exactly one GND-decorated end swaps
+///   w/h (center preserved) and gets its pins on Top/Bottom: the other end
+///   (rail or signal) on Top, the GND end on Bottom (the ground symbol hangs
+///   below the pin, `render_decoration` anchors on the entry point).
+/// * **S5 fallback** — a `BridgePassive` that is not vertical with Top/Bottom
+///   pins yet (e.g. both ends are rail decorations, so no lane anchors existed
+///   for `place_bridge_passives`) is forced into the rung shape the same way;
+///   the rail end goes Top, the GND end Bottom.
+///
+/// Returns the number of boxes stood up. Never touches net topology; boxes
+/// already vertical with Top/Bottom pins are left alone.
+pub fn stand_grounded_passives(graph: &mut McVecGraph) -> usize {
+    // (box_id, pin_id) → is_ground from decorations.
+    let mut dec_ground: HashSet<(i64, i64)> = HashSet::new();
+    // rail label → x of the fed pin on non-TwoPin boxes (S3 glue target).
+    let mut rail_anchor_x: std::collections::HashMap<String, Vec<f64>> =
+        std::collections::HashMap::new();
+    for d in &graph.rail_decorations {
+        if d.is_ground {
+            dec_ground.insert((d.box_id, d.pin_id));
+        } else {
+            let is_passive = graph
+                .boxes
+                .iter()
+                .find(|b| b.id == d.box_id)
+                .map(|b| matches!(b.kind, BoxKind::TwoPin))
+                .unwrap_or(true);
+            if !is_passive {
+                if let Some(ab) = graph.boxes.iter().find(|b| b.id == d.box_id) {
+                    if let Some(ep) = ab.find_entry(d.pin_id) {
+                        let ax = match ep.side {
+                            EntrySide::Left => ab.x,
+                            EntrySide::Right => ab.x + ab.w,
+                            _ => ab.x + ab.w * ep.offset,
+                        };
+                        rail_anchor_x.entry(d.label.clone()).or_default().push(ax);
+                    }
+                }
+            }
+        }
+    }
+    // Fallback anchors: a Power net named exactly like the rail label feeds a
+    // non-TwoPin box (driver pins carry no decoration — R-2 draws the edge
+    // instead of a symbol), so read the pin x from the net endpoints.
+    for n in &graph.nets {
+        if !matches!(n.kind, NetKind::Power) {
+            continue;
+        }
+        let slot = match rail_anchor_x.entry(n.name.clone()) {
+            std::collections::hash_map::Entry::Occupied(_) => continue,
+            std::collections::hash_map::Entry::Vacant(v) => v,
+        };
+        let mut xs: Vec<f64> = Vec::new();
+        for e in &n.endpoints {
+            let Some(ab) = graph.boxes.iter().find(|b| b.id == e.box_id) else {
+                continue;
+            };
+            if matches!(ab.kind, BoxKind::TwoPin) {
+                continue;
+            }
+            if let Some(ep) = ab.find_entry(e.pin_id) {
+                let ax = match ep.side {
+                    EntrySide::Left => ab.x,
+                    EntrySide::Right => ab.x + ab.w,
+                    _ => ab.x + ab.w * ep.offset,
+                };
+                xs.push(ax);
+            }
+        }
+        if !xs.is_empty() {
+            slot.insert(xs);
+        }
+    }
+
+    let mut stood = 0usize;
+    for bi in 0..graph.boxes.len() {
+        if graph.boxes[bi].entry_points.len() != 2 {
+            continue;
+        }
+        let already_rung = graph.boxes[bi].h > graph.boxes[bi].w
+            && matches!(graph.boxes[bi].entry_points[0].side, EntrySide::Top | EntrySide::Bottom)
+            && matches!(graph.boxes[bi].entry_points[1].side, EntrySide::Top | EntrySide::Bottom);
+
+        let (before, rest) = graph.boxes.split_at_mut(bi);
+        let Some((b, tail)) = rest.split_first_mut() else {
+            continue;
+        };
+        let others: Vec<&McVecBox> = before.iter().chain(tail.iter()).collect();
+
+        if matches!(b.visual_role, Some(VisualRole::BridgePassive)) {
+            // S5: enforce the rung shape regardless of decorations. When both
+            // ends are rail decorations (no lane anchors existed for the
+            // bridge pass), the device is really a cross-rail decoupling cap —
+            // glue it under the fed pin like S3 before standing it up.
+            if !already_rung {
+                if let Some(label) = rail_label_of(&graph.rail_decorations, b) {
+                    slide_to_rail_anchor(b, &rail_anchor_x, &label);
+                }
+                let (top_i, bot_i) = orientation_indices(&dec_ground, b);
+                stand_up(b, top_i, bot_i);
+                stood += 1;
+            }
+            // G12 guard for both cases (fresh slide or the original bridge
+            // placement): nudge only on a REAL overlap (audit-grade 3px
+            // inflation), so legitimate tight lane placements survive.
+            nudge_clear_of_boxes(b, &others);
+            continue;
+        }
+
+        // S4a/S3: exactly one GND-decorated end → stand vertically.
+        let g0 = dec_ground.contains(&(b.id, b.entry_points[0].pin_id));
+        let g1 = dec_ground.contains(&(b.id, b.entry_points[1].pin_id));
+        if g0 == g1 {
+            continue; // 0 or 2 ground ends: not a grounded passive
+        }
+        // S3 glue: a decoupling cap (RAIL + GND ends) also slides horizontally
+        // to sit under the fed pin (|Δx| = 0 keeps the contract measurable).
+        let is_cap = matches!(
+            b.symbol,
+            crate::vector::graph::Symbol::Capacitor
+                | crate::vector::graph::Symbol::PolarCapacitor
+        );
+        if is_cap {
+            if let Some(label) = rail_label_of(&graph.rail_decorations, b) {
+                slide_to_rail_anchor(b, &rail_anchor_x, &label);
+            }
+        }
+        if already_rung {
+            continue;
+        }
+        let (top_i, bot_i) = if g0 { (1, 0) } else { (0, 1) };
+        stand_up(b, top_i, bot_i);
+        if is_cap {
+            nudge_clear_of_boxes(b, &others);
+        }
+        stood += 1;
+    }
+    stood
+}
+
+/// ★ P7-5 G12 guard: after the S3/S5 glue slide, the passive can overlap the
+/// anchor box (or a sibling cap on the same rail anchor). Push it down until
+/// the rectangles no longer intersect at audit grade — x stays anchored so
+/// S3's |Δx| contract is unaffected. 3px inflation (audit uses 2px): tight
+/// but legitimate lane placements survive, real overlaps move.
+fn nudge_clear_of_boxes(b: &mut McVecBox, others: &[&McVecBox]) {
+    const INFLATE: f64 = 3.0;
+    for _ in 0..6 {
+        let hit = others.iter().find(|ob| {
+            b.x < ob.x + ob.w + INFLATE
+                && b.x + b.w + INFLATE > ob.x
+                && b.y < ob.y + ob.h + INFLATE
+                && b.y + b.h + INFLATE > ob.y
+        });
+        match hit {
+            None => return,
+            Some(ob) => {
+                // Land fully below the inflated rect: b.y - INFLATE must be
+                // >= ob bottom + INFLATE, so gap = 2*INFLATE + slack.
+                b.y = ob.y + ob.h + 2.0 * INFLATE + 4.0;
+            }
+        }
+    }
+}
+
+/// The label of the non-ground (rail) decoration on this box, if any end
+/// carries one.
+fn rail_label_of(
+    decs: &[crate::vector::graph::graphdef::RailDecoration],
+    b: &McVecBox,
+) -> Option<String> {
+    decs.iter()
+        .find(|d| d.box_id == b.id && !d.is_ground)
+        .map(|d| d.label.clone())
+}
+
+/// Slide the box horizontally so its center x matches the nearest anchor pin
+/// of the rail (S3 glue).
+fn slide_to_rail_anchor(
+    b: &mut McVecBox,
+    rail_anchor_x: &std::collections::HashMap<String, Vec<f64>>,
+    label: &str,
+) {
+    if let Some(axs) = rail_anchor_x.get(label) {
+        let cx = b.x + b.w / 2.0;
+        if let Some(&ax) = axs.iter().min_by(|p, q| {
+            (*p - cx)
+                .abs()
+                .partial_cmp(&(*q - cx).abs())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        }) {
+            b.x = ax - b.w / 2.0;
+        }
+    }
+}
+
+/// Pick (top_index, bottom_index) for a BridgePassive: the GND-decorated end
+/// goes Bottom, a rail-decorated end goes Top; without decorations keep the
+/// current entry order.
+fn orientation_indices(
+    dec_ground: &HashSet<(i64, i64)>,
+    b: &McVecBox,
+) -> (usize, usize) {
+    let g0 = dec_ground.contains(&(b.id, b.entry_points[0].pin_id));
+    let g1 = dec_ground.contains(&(b.id, b.entry_points[1].pin_id));
+    if g0 {
+        (1, 0)
+    } else if g1 {
+        (0, 1)
+    } else {
+        (0, 1)
+    }
+}
+
+/// Swap w/h (center preserved) and rewrite the two entry points to Top/Bottom.
+fn stand_up(b: &mut McVecBox, top_i: usize, bot_i: usize) {
+    let (cx, cy) = (b.x + b.w / 2.0, b.y + b.h / 2.0);
+    std::mem::swap(&mut b.w, &mut b.h);
+    b.x = cx - b.w / 2.0;
+    b.y = cy - b.h / 2.0;
+    b.entry_points[top_i].side = EntrySide::Top;
+    b.entry_points[top_i].offset = 0.5;
+    b.entry_points[bot_i].side = EntrySide::Bottom;
+    b.entry_points[bot_i].offset = 0.5;
+}

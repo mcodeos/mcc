@@ -274,6 +274,9 @@ fn render_layer_recursive(
         rep.wire_wire,
         rep.total()
     );
+    for d in &rep.details {
+        crate::vlog!("[viz::audit] detail: {d}");
+    }
 
     // ── M8: Label placement optimization (after route, before metrics) ──
     let label_report = label_placement_pipeline(&mut graph, canvas);
