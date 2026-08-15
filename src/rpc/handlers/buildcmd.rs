@@ -144,7 +144,6 @@ pub fn handle_build_viz(params: Option<Value>) -> RpcResult {
     let top_name = match top.as_deref() {
         Some(t) => t.to_string(),
         None => crate::mcb_get_module_name_by_uri(&mc_uri)
-            .or_else(crate::mcb_get_first_module_name)
             .ok_or_else(|| JsonRpcError::custom(32107, "no top module found"))?,
     };
 
