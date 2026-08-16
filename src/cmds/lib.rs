@@ -317,51 +317,18 @@ fn cmd_show(name: &str, format: OutputFormat) -> Result<()> {
 // Helpers
 // ============================================================================
 
-/// Resolve the on-disk root directory for a library.
-/// Priority: 1. mcode → data_root/mcode  2. public → data_root/<name>@*
+/// Resolve the on-disk root directory for a library, delegating to the single
+/// library-root resolver shared with the RPC/IDE path (system root first, then
+/// data_root fallback — use-design §19.5 rule 2). No per-command project
+/// directory probing: the system root is always the data root.
 fn resolve_lib_root(name: &str) -> Result<PathBuf> {
-    // Built-in mcode
-    if name == "mcode" {
-        // Prefer the local mc/mcode/ directory (consistent with the parser)
-        let local_mc = std::env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join("mc/mcode");
-        if local_mc.exists() {
-            return Ok(local_mc);
-        }
-        // Fallback: datadir::mcode_dir()
-        let p = datadir::mcode_dir();
-        if p.exists() {
-            return Ok(p);
-        }
-        anyhow::bail!("lib load: mcode directory does not exist");
-    }
-
-    // Public: look under data_root for <name>@<any_version>
-    let tp = datadir::data_root();
-    if tp.exists() {
-        if let Ok(entries) = std::fs::read_dir(&tp) {
-            let prefix = format!("{}@", name);
-            for entry in entries.flatten() {
-                let fname = entry.file_name().to_string_lossy().to_string();
-                if fname.starts_with(&prefix) && entry.path().is_dir() {
-                    return Ok(entry.path());
-                }
-            }
-        }
-    }
-
-    // Also check the bare directory without @version
-    let bare = tp.join(name);
-    if bare.exists() {
-        return Ok(bare);
-    }
-
-    anyhow::bail!(
-        "lib load: install directory for '{}' not found. Run `mcc lib install {} --from <path>` first",
-        name,
-        name
-    );
+    mcc::resolve_lib_root(name).ok_or_else(|| {
+        anyhow::anyhow!(
+            "lib load: install directory for '{}' not found. Run `mcc lib install {} --from <path>` first",
+            name,
+            name
+        )
+    })
 }
 
 /// Scan third-party libraries installed on disk.

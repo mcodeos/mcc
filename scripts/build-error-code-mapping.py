@@ -75,6 +75,8 @@ M = [
     # ═══ Pass1b: use-stage diagnostics (2050-2079) ═══
     (800, "mc_code.rs", 2051, "USE_DEP_NOT_DECLARED",
      "Use of an undeclared dependency — add it to project.toml [dependencies] or load via --lib."),
+    (800, "mc_code.rs", 2052, "USE_LIB_NOT_FOUND",
+     "The library is not installed in the system root — install it with `mcc lib install` or load it with --lib."),
     (801, "mc_code.rs", 2061, "USE_SYMBOL_CONFLICT",
      "An imported symbol conflicts with an existing name."),
     (804, "mc_code.rs", 2071, "USE_IMPORTED_NOT_FOUND",

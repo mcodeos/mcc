@@ -1323,39 +1323,13 @@ pub(crate) fn activate_workspace(name: &str) -> Result<(), JsonRpcError> {
 }
 
 pub(crate) fn resolve_lib_root(name: &str) -> Result<PathBuf, JsonRpcError> {
-    if name == "mcode" {
-        // Try default mcode_dir first
-        let p = mcode_dir();
-        if p.exists() {
-            return Ok(p);
-        }
-        // Fallback: try sibling directory (mcc_system_root/../mcode)
-        let sibling = mcc_system_root().join("..").join("mcode");
-        if sibling.exists() {
-            return Ok(sibling);
-        }
-        return Err(JsonRpcError::custom(32102, "mcode dir not found"));
-    }
-    let tp = mcc_system_root();
-    if tp.exists() {
-        let prefix = format!("{name}@");
-        if let Ok(entries) = fs::read_dir(&tp) {
-            for e in entries.flatten() {
-                let fname = e.file_name().to_string_lossy().to_string();
-                if fname.starts_with(&prefix) && e.path().is_dir() {
-                    return Ok(e.path());
-                }
-            }
-        }
-        let bare = tp.join(name);
-        if bare.exists() {
-            return Ok(bare);
-        }
-    }
-    Err(JsonRpcError::custom(
-        -32102,
-        &format!("library '{name}' not installed"),
-    ))
+    // Delegate to the single library-root resolver so the RPC/IDE path and the
+    // CLI path agree: system root first (always the data root: MCC_SYSTEM_ROOT
+    // env, then ~/.mcode), then data_root fallback. mcode resolves under
+    // each root with a sibling fallback; other libraries match versioned
+    // `<name>@<version>` then bare `<name>` (use-design §19.5 rule 2).
+    crate::db::infra::libmgr::resolve_lib_root(name)
+        .ok_or_else(|| JsonRpcError::custom(-32102, &format!("library '{name}' not installed")))
 }
 
 // ============================================================================
@@ -1995,9 +1969,12 @@ pub(crate) fn auto_load_from_file_path(file_path: &Path) {
     ensure_library_loaded(&file_uri);
 
     // Force-load mcode: mcb_init_system_lib may have registered an empty placeholder.
-    // Reload from the real mcode directory to ensure library components are available.
-    if let Ok(mcode_root) = resolve_lib_root("mcode") {
-        crate::db::infra::libmgr::mcb_load_lib("mcode", &mcode_root);
+    // Reload from the real mcode directory to ensure library components are
+    // available. Respect libs.disable_mcode so the switch applies here too.
+    if crate::cli::config::should_load_mcode(Some(&project_root)) {
+        if let Ok(mcode_root) = resolve_lib_root("mcode") {
+            crate::db::infra::libmgr::mcb_load_lib("mcode", &mcode_root);
+        }
     }
 
     // Load only the entry file itself (plus its use closure via mcc_load_project).
@@ -2010,7 +1987,7 @@ pub(crate) fn auto_load_from_file_path(file_path: &Path) {
 
 /// Walk up from a file path to find the project root
 /// A project root is a directory containing a project manifest
-/// (manifest.toml / project.toml / mcc.toml) or .mc files at top level
+/// (project.toml / manifest.toml / mcc.toml) or .mc files at top level
 pub(crate) fn find_project_root(file_path: &Path) -> PathBuf {
     // Priority 1: the configured project root (the folder opened in the editor,
     // set via mcext set_project_root). In non-project mode every .mc file under

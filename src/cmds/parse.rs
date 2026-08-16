@@ -1198,8 +1198,11 @@ fn endpoint_label(ep: &McEndpoint) -> String {
 
 fn emit_error(args: &ParseArgs, err: RpcError) -> Result<()> {
     if args.dlog {
+        // dlog mode only suppresses the pretty envelope, not fatal errors.
+        // Emit any accumulated diagnostics, then surface the error so the
+        // process exits non-zero instead of silently succeeding.
         print_dlog_diagnostics();
-        return Ok(());
+        return Err(anyhow::anyhow!(err.message));
     }
     if args.format.is_structured() {
         let env = Envelope::err(err);

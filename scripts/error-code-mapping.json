@@ -160,6 +160,13 @@
       "desc": "Use of an undeclared dependency — add it to project.toml [dependencies] or load via --lib."
     },
     {
+      "old": 800,
+      "site": "mc_code.rs",
+      "new": 2052,
+      "name": "USE_LIB_NOT_FOUND",
+      "desc": "The library is not installed in the system root — install it with `mcc lib install` or load it with --lib."
+    },
+    {
       "old": 801,
       "site": "mc_code.rs",
       "new": 2061,
@@ -2594,6 +2601,13 @@
         "new": 2051,
         "name": "USE_DEP_NOT_DECLARED",
         "desc": "Use of an undeclared dependency — add it to project.toml [dependencies] or load via --lib."
+      },
+      {
+        "old": 800,
+        "site": "mc_code.rs",
+        "new": 2052,
+        "name": "USE_LIB_NOT_FOUND",
+        "desc": "The library is not installed in the system root — install it with `mcc lib install` or load it with --lib."
       }
     ],
     "801": [

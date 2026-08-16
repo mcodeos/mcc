@@ -86,9 +86,9 @@ impl Drop for LibLoadGuard {
 /// Find the on-disk root directory of a library, for non-project `use` lazy
 /// loading (use-design §19.5 rule 2).
 ///
-/// Mirrors the RPC-side `resolve_lib_root` semantics so CLI and server agree
-/// on where third-party libraries live: the runtime system root is searched
-/// first (MCC_SYSTEM_ROOT env, a local `mc/`/`mcode/` project root, or the
+/// Single source of truth for library-root discovery, shared by the CLI and
+/// the RPC/IDE path (RPC delegates here). The runtime system root is searched
+/// first (always the data root: `MCC_SYSTEM_ROOT` env, then
 /// `~/.mcode` default — see `mcc_set_system_root`), with `data_root()` as the
 /// fallback. mcode resolves under each root (with a sibling fallback); other
 /// libraries match versioned directories (`<name>@<version>`), then a bare
@@ -373,38 +373,38 @@ pub fn mcb_lib_info(name: &str) -> Option<LibInfo> {
 ///
 /// Supports absolute paths and `.mc` file forms (e.g. "mcode/mcode.mc"),
 /// and skips libraries that are already truly loaded (interfaces counted).
-/// Falls back to ~/.mcode when the system root is empty or the joined
+/// Falls back to data_root when the system root is empty or the joined
 /// path does not exist. Shared by the CLI and the RPC layer so that
 /// non-project builds honor the global mcc.yaml [libs].load list.
 pub fn mcb_load_lib_by_name(lib_name: &str) {
     let system_root = crate::mcb_get_system_root();
-    let default_root = dirs::home_dir()
-        .map(|h| h.join(".mcode"))
-        .unwrap_or_else(|| std::path::PathBuf::from(".mcode"));
+    let data_root = crate::cli::datadir::data_root();
 
     // Determine the actual root to use. Path-like names (absolute paths,
     // `a/b` forms, `.mc` files) resolve against the system root directly.
     // Bare library names go through the version-aware `resolve_lib_root`
     // (system root first, then data root; `<name>@<version>` directories are
     // matched before the bare `<name>` directory) so third-party libraries
-    // installed as versioned directories load correctly.
+    // installed as versioned directories load correctly. Both fall back to
+    // data_root (never a hardcoded ~/.mcode) so discovery stays on the
+    // unified data root (use-design §19.10 D4).
     let is_path_like = lib_name.contains('/')
         || lib_name.contains('\\')
         || lib_name.ends_with(".mc")
         || std::path::Path::new(lib_name).is_absolute();
     let lib_path = if is_path_like {
         if system_root.as_os_str().is_empty() {
-            default_root.join(lib_name)
+            data_root.join(lib_name)
         } else {
             let joined = system_root.join(lib_name);
             if !joined.exists() {
-                default_root.join(lib_name)
+                data_root.join(lib_name)
             } else {
                 joined
             }
         }
     } else {
-        resolve_lib_root(lib_name).unwrap_or_else(|| default_root.join(lib_name))
+        resolve_lib_root(lib_name).unwrap_or_else(|| data_root.join(lib_name))
     };
 
     // Normalize: if lib_name is a .mc file path, extract the library name

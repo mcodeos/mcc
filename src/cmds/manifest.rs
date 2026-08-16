@@ -68,7 +68,7 @@ impl Manifest {
     }
 
     /// Find manifest from project root.
-    /// Prefers `manifest.toml`, then `project.toml`, then `mcc.toml`.
+    /// Prefers `project.toml`, then `manifest.toml`, then `mcc.toml`.
     /// Delegates to the shared lib-layer helper so CLI, RPC and MCP agree on
     /// the candidate set.
     pub fn find_in(root: &Path) -> Option<PathBuf> {
@@ -308,7 +308,7 @@ pub fn load_libs(lib_names: &[String]) {
 }
 
 /// Walk up from `target` (a file or directory path) to find the project root:
-/// the nearest ancestor directory containing `manifest.toml`, `project.toml`,
+/// the nearest ancestor directory containing `project.toml`, `manifest.toml`,
 /// or `mcc.toml` (in that order, see [`Manifest::find_in`]). Falls back to the
 /// target's own directory (or its parent for a file) when nothing is found.
 /// Relative targets are resolved against the current directory first, so the
@@ -340,7 +340,7 @@ pub fn find_project_root(target: Option<&str>) -> Option<PathBuf> {
 ///
 /// Initializes the engine without the config-gated system library, sets the
 /// system root to the auto-discovered base, walks up from `target` to find the
-/// project root (a directory containing manifest.toml / project.toml /
+/// project root (a directory containing project.toml / manifest.toml /
 /// mcc.toml, see [`find_project_root`]), then loads libraries from global
 /// config, project config, manifest, CLI --lib, plus the mcode default
 /// (unless disabled by libs.disable_mcode).

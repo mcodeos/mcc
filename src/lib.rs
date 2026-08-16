@@ -9,9 +9,8 @@
 
 //1. lib internal
 use crate::db::diagnostic::diagnostic::Diagnostic;
-use std::env;
 use std::error::Error;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use tracing::debug;
 
@@ -80,8 +79,8 @@ pub use builder::{
     mcb_iter_interfaces_with_span, mcb_iter_modules, mcb_iter_modules_with_span, mcb_iter_ports,
     mcb_lib_info, mcb_load_lib, mcb_load_lib_by_name, mcb_loaded_file_count, mcb_loaded_libs,
     mcb_module_count, mcb_parse_all_modules, mcb_pass2_flat, mcb_print, mcb_print_lines,
-    mcb_print_loaded_files, mcb_unload_lib, unified_lookup, unified_lookup_all, MccProjectTree,
-    SubElementKind,
+    mcb_print_loaded_files, mcb_unload_lib, resolve_lib_root, unified_lookup, unified_lookup_all,
+    MccProjectTree, SubElementKind,
 };
 
 // ── Instant / Net ──
@@ -163,55 +162,22 @@ pub fn mcc_log_global_diag(d: &GlobalDiag) {
     );
 }
 
-/// Set system root path (parent directory of mcode library)
+/// Set system root path (parent directory of mcode library).
 ///
-/// When to call:
-/// - Call once at server startup
-/// - Subsequent calls automatically skip if already set
-///
-/// Path resolution priority:
-/// 1. Environment variable `MCC_SYSTEM_ROOT`
-/// 2. `{path}/mc/` directory
-/// 3. `~/.mcode/` directory
-pub fn mcc_set_system_root(path: &Path) {
-    use crate::cli::datadir;
-
+/// The system root is always the data root (`MCC_SYSTEM_ROOT` env, then
+/// `~/.mcode`); project-directory probing was removed (use-design §19.10 D4).
+/// Subsequent calls skip when already set.
+pub fn mcc_set_system_root(_path: &Path) {
     let current = builder::mcb_get_system_root();
     if !current.as_os_str().is_empty() {
         debug!(target: "mcc::sysinit", system_root = ?current, "already set, skip");
         return;
     }
 
-    // S3 fix: empty path means base uses cwd (absolute path), avoid relative path 'mc' being misused
-    let base = if path.as_os_str().is_empty() {
-        env::current_dir().unwrap_or_default()
-    } else {
-        path.to_path_buf()
-    };
-    let candidate_mc = base.join("mc");
-    let candidate_mcode = base.join("mcode");
-
-    let system_root = if let Ok(val) = env::var(datadir::MCC_SYSTEM_ENV) {
-        let p = PathBuf::from(&val);
-        debug!(target: "mcc::sysinit", path = %val, "using MCC_SYSTEM_ROOT");
-        if p.is_absolute() {
-            p
-        } else {
-            env::current_dir().unwrap_or_default().join(p)
-        }
-    } else if candidate_mc.exists() || candidate_mcode.exists() {
-        // ── S3 fix ──
-        // Detection: if mc/ or mcode/ subdirectory exists under the project root,
-        // use project root as system_root. lib_root = system_root.join(lib_name).
-        debug!(target: "mcc::sysinit", path = ?base, "using project root (mc/ or mcode/ subdir found)");
-        base
-    } else {
-        let default_path = datadir::data_root();
-        debug!(target: "mcc::sysinit", path = ?default_path, "using default");
-        default_path
-    };
-
-    debug!(target: "mcc::sysinit", system_root = ?system_root);
+    // System root is always the data root; `data_root()` honors
+    // `MCC_SYSTEM_ROOT` then falls back to `~/.mcode`.
+    let system_root = crate::cli::datadir::data_root();
+    debug!(target: "mcc::sysinit", system_root = ?system_root, "using data root");
     builder::mcb_set_system_root(&system_root);
 }
 

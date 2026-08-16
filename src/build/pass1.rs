@@ -217,9 +217,8 @@ pub(crate) fn scan_mc_files(dir: &Path) -> Vec<PathBuf> {
 ///   - If the environment variable is not set, defaults to ~/.mcode/mcode
 ///
 /// Config-based loading:
-///   - Check `libs.load` config (mcc.yaml or project.toml)
-///   - If empty: do not load mcode by default
-///   - If contains "mcode": load mcode library
+///   - mcode loads by default in every mode
+///   - Only `libs.disable_mcode: true` disables it (see `should_load_mcode`)
 pub fn mcb_init_system_lib() {
     use crate::cli::config::should_load_mcode;
 

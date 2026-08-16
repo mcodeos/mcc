@@ -232,7 +232,7 @@ impl MccMcpServer {
         Parameters(req): Parameters<LoadProjectRequest>,
     ) -> Result<Json<Value>, McpError> {
         // Derive the project root the same way the CLI does: walk up from the
-        // entry looking for a project manifest (manifest.toml / project.toml /
+        // entry looking for a project manifest (project.toml / manifest.toml /
         // mcc.toml); fall back to the entry's parent dir.
         let entry_path = std::path::Path::new(&req.entry);
         let mut current: Option<&std::path::Path> = if entry_path.is_dir() {

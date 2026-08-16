@@ -41,6 +41,7 @@
   "2009": "A use path mixes '.' and '/' separators.",
   "2010": "unexpected trailing node {0} in USE statement; it is ignored",
   "2051": "use of undeclared dependency '{0}': add it to project.toml [dependencies] or load via --lib",
+  "2052": "library '{0}' not found in the system root; install it with `mcc lib install` or load it with --lib",
   "2061": "symbol conflict in module '{0}': {1} collides with previous use from '{2}'. Use 'as' alias to disambiguate",
   "2071": "imported symbol '{0}' not found in '{1}'",
   "2080": "Generic syntax error.",

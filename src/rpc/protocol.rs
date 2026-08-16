@@ -7,6 +7,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::sync::{LazyLock, Mutex};
 
 #[derive(Debug, Deserialize)]
 pub struct JsonRpcRequest {
@@ -122,6 +123,18 @@ pub struct RpcMethodRegistry {
     methods: HashMap<String, Box<dyn Fn(Option<Value>) -> RpcResult + Send + Sync>>,
 }
 
+/// Serializes RPC handler execution process-wide.
+///
+/// The mcc engine keeps global tables (components/modules/interfaces/defines)
+/// that handlers mutate — e.g. `init` clears and reloads the mcode library
+/// while `load_project` parses files against those very tables. RPC handlers
+/// run on the tokio blocking pool (see server.rs), so without a lock two
+/// requests can interleave and either resolve symbols against half-cleared
+/// tables (spurious E3071/E3110) or corrupt state and crash the process.
+/// mcc is single-threaded by design; this lock restores that guarantee at the
+/// dispatch point for every RPC client (mcext, MCP, scripts).
+static RPC_STATE_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
 impl RpcMethodRegistry {
     pub fn new() -> Self {
         Self {
@@ -137,6 +150,18 @@ impl RpcMethodRegistry {
     }
 
     pub fn call(&self, method: &str, params: Option<Value>) -> RpcResult {
+        // server.info is a read-only liveness probe (mcext's connect check,
+        // see mccsrv.rs) and must never block behind a long-running build, so
+        // it is exempt from the serialization lock.
+        //
+        // The guard must stay alive for the entire handler execution. Declaring
+        // it inside an `if` block would drop it before the handler runs, which
+        // releases the lock early and lets two handlers interleave.
+        let _guard = if method != "server.info" {
+            Some(RPC_STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner()))
+        } else {
+            None
+        };
         match self.methods.get(method) {
             Some(handler) => handler(params),
             None => Err(JsonRpcError::method_not_found()),

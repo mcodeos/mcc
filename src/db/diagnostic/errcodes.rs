@@ -192,6 +192,9 @@ pub const USE_TRAILING_NODE: u32 = 2010;
 /// Use of an undeclared dependency — add it to project.toml [dependencies] or load via --lib.
 pub const USE_DEP_NOT_DECLARED: u32 = 2051;
 
+/// Library referenced by `use` is not installed in the system root.
+pub const USE_LIB_NOT_FOUND: u32 = 2052;
+
 /// An imported symbol conflicts with an existing name.
 pub const USE_SYMBOL_CONFLICT: u32 = 2061;
 
@@ -1296,6 +1299,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(USE_TRAILING_NODE, "Unexpected trailing node in a USE statement; it is ignored.", "unexpected trailing node {0} in USE statement; it is ignored"),
     // ---- section ----
     entry!(USE_DEP_NOT_DECLARED, "Use of an undeclared dependency — add it to project.toml [dependencies] or load via --lib.", "use of undeclared dependency '{0}': add it to project.toml [dependencies] or load via --lib"),
+    entry!(USE_LIB_NOT_FOUND, "The library is not installed in the system root — install it with `mcc lib install` or load it with --lib.", "library '{0}' not found in the system root; install it with `mcc lib install` or load it with --lib"),
     entry!(USE_SYMBOL_CONFLICT, "An imported symbol conflicts with an existing name.", "symbol conflict in module '{0}': {1} collides with previous use from '{2}'. Use 'as' alias to disambiguate"),
     entry!(USE_IMPORTED_NOT_FOUND, "The imported symbol was not found in the target file.", "imported symbol '{0}' not found in '{1}'"),
     // ---- section ----
