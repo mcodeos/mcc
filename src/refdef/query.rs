@@ -8,6 +8,7 @@
 
 use crate::ast::ast_semantic::SymbolRangeLapper;
 use crate::refdef::types::{RefDefEntry, RefDefMap, SymbolKind};
+use crate::semantic::common::uri_of_file_id;
 
 /// Result of a goto-definition lookup.
 #[derive(Debug, Clone)]
@@ -44,11 +45,7 @@ pub fn resolve_at(
 /// Returns None if the ref is not found in the map.
 pub fn goto_def(map: &RefDefMap, ref_kind: SymbolKind, ref_id: u32) -> Option<GotoDefResult> {
     map.get(ref_kind, ref_id).map(|entry| {
-        let file_uri = map
-            .files
-            .get(entry.def_loc.file_id as usize)
-            .cloned()
-            .unwrap_or_default();
+        let file_uri = uri_of_file_id(entry.def_loc.file_id).to_string();
         GotoDefResult {
             file_uri,
             byte_start: entry.def_loc.byte_start,
@@ -66,11 +63,7 @@ pub fn goto_def_by_name(
     class_name: &str,
 ) -> Option<GotoDefResult> {
     map.get_by_name(file_uri, class_name).map(|entry| {
-        let file_uri = map
-            .files
-            .get(entry.def_loc.file_id as usize)
-            .cloned()
-            .unwrap_or_default();
+        let file_uri = uri_of_file_id(entry.def_loc.file_id).to_string();
         GotoDefResult {
             file_uri,
             byte_start: entry.def_loc.byte_start,
@@ -101,9 +94,14 @@ pub fn iter_entries(map: &RefDefMap) -> impl Iterator<Item = (&(SymbolKind, u32)
     map.entries.iter()
 }
 
-/// Get the file URI for a file_id in the RefDefMap's file table.
-pub fn file_uri(map: &RefDefMap, file_id: u32) -> Option<&str> {
-    map.files.get(file_id as usize).map(|s| s.as_str())
+/// Get the file URI for a file_id in the global UriTable.
+pub fn file_uri(_map: &RefDefMap, file_id: u32) -> Option<String> {
+    let uri = uri_of_file_id(file_id);
+    if uri.is_empty() {
+        None
+    } else {
+        Some(uri.to_string())
+    }
 }
 
 /// Search all loaded RefDefMaps for a definition by name (cross-file).
@@ -115,11 +113,7 @@ pub fn search_all_by_name(name: &str) -> Option<(String, String)> {
         if let Ok(sym) = mcfile.symbols.lock() {
             if let Some(ref map) = sym.ref_def_map {
                 if let Some(def_entry) = map.get_by_name(&mcfile.uri, name) {
-                    let def_uri = map
-                        .files
-                        .get(def_entry.def_loc.file_id as usize)
-                        .cloned()
-                        .unwrap_or_default();
+                    let def_uri = uri_of_file_id(def_entry.def_loc.file_id).to_string();
                     let def_kind = def_entry.def_kind.kind_name().to_string();
                     return Some((def_uri, def_kind));
                 }

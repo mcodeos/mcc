@@ -145,7 +145,7 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
         let uris: HashSet<String> = lib_entry
             .spacenames
             .values()
-            .map(|sn| sn.uri.clone())
+            .map(|sn| sn.uri.to_string())
             .collect();
         remove_by_uris(&global::mcc_components, &uris);
         remove_by_uris(&global::mcc_interfaces, &uris);
@@ -190,7 +190,11 @@ pub fn mcb_unload_lib(name: &str) -> bool {
     };
 
     // Collect all uri prefixes in this library
-    let uris: HashSet<String> = blib.spacenames.values().map(|sn| sn.uri.clone()).collect();
+    let uris: HashSet<String> = blib
+        .spacenames
+        .values()
+        .map(|sn| sn.uri.to_string())
+        .collect();
 
     // Remove all definitions with this uri prefixes in system tables and workspace tables
     remove_by_uris(&global::mcc_components, &uris);
@@ -374,7 +378,7 @@ fn collect_spacenames_by_prefix_global<T>(
 fn remove_by_uris<T>(table: &DashMap<McSpaceName, Arc<T>>, uris: &HashSet<String>) {
     let to_remove: Vec<McSpaceName> = table
         .iter()
-        .filter(|e| uris.contains(&e.key().uri))
+        .filter(|e| uris.contains(e.key().uri.as_uri().as_ref()))
         .map(|e| e.key().clone())
         .collect();
     for key in to_remove {

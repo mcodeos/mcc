@@ -160,7 +160,7 @@ module main
     // P3: a file's own def is visible from itself.
     let a_dc = McSpaceName {
         ident: McIds::from("DC"),
-        uri: a.clone(),
+        uri: mcc::uri_intern(&a),
     };
     assert!(is_visible(&a, &a_dc), "own-file def must be visible (P3)");
 
@@ -175,7 +175,7 @@ module main
     // library in `ref_def_map_entries_carry_ast_def_names` (in-crate).
     let mcode_dc = McSpaceName {
         ident: McIds::from("DC"),
-        uri: McURI::from("mcode/ifs/dc.mc"),
+        uri: mcc::uri_intern("mcode/ifs/dc.mc"),
     };
     assert!(!is_visible(&b, &mcode_dc));
 }

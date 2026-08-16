@@ -116,7 +116,7 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
             .unwrap_or_else(|| "main".to_string());
         let entry = mcc::McSpaceName {
             ident: mcc::McIds::from(mod_name.as_str()),
-            uri: _uri.clone(),
+            uri: mcc::uri_intern(&_uri),
         };
         let mut errors = 0usize;
         if let Ok((_tree, table)) = mcc::mcb_pass2_flat(&entry, 1) {
@@ -144,7 +144,7 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
             .unwrap_or_else(|| "main".to_string());
         let entry = mcc::McSpaceName {
             ident: mcc::McIds::from(mod_name.as_str()),
-            uri: _uri.clone(),
+            uri: mcc::uri_intern(&_uri),
         };
         let mut errors = 0usize;
         match mcc::mcb_pass2_flat(&entry, 1) {

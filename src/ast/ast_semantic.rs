@@ -543,7 +543,6 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
         use std::hash::{Hash, Hasher};
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         m.entries.len().hash(&mut hasher);
-        m.files.len().hash(&mut hasher);
         m.containers.len().hash(&mut hasher);
         m.name_index.len().hash(&mut hasher);
         if let Some((_, e)) = m.entries.iter().next() {
@@ -553,6 +552,20 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
             e.def_loc.byte_end.hash(&mut hasher);
         }
         let result_id = hasher.finish();
+
+        // files: index == interned file_id → uri. The legacy per-map `files`
+        // array is replaced by the process-global UriTable (§5.5), so rebuild
+        // the array up to the highest file_id referenced by this map.
+        let max_file_id = m
+            .entries
+            .values()
+            .map(|e| e.def_loc.file_id)
+            .chain(m.def_to_refs.keys().map(|(_, fid, _, _)| *fid))
+            .max()
+            .unwrap_or(0);
+        let files: Vec<String> = (0..=max_file_id)
+            .map(|fid| crate::semantic::common::uri_of_file_id(fid).to_string())
+            .collect();
 
         json!({
             "entries": m.entries.iter().map(|((_kind, _id), e)| {
@@ -567,7 +580,7 @@ pub fn symbol_table_to_json(symbols: &McSemSymbols, uri: &McURI) -> serde_json::
                     "def_name": e.def_name,
                 })
             }).collect::<Vec<_>>(),
-            "files": &m.files,
+            "files": files,
             "containers": &m.containers,
             "kind_names": (0u8..=29).map(|i| {
                 let kind: crate::ast::ast_semantic::SymbolKind = unsafe { std::mem::transmute(i) };

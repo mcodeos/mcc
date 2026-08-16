@@ -12,8 +12,9 @@ use crate::{
     McIds, MCAST_IOTYPE, MCAST_IOTYPE_ANL, MCAST_IOTYPE_IN, MCAST_IOTYPE_IO, MCAST_IOTYPE_LABEL,
     MCAST_IOTYPE_NC, MCAST_IOTYPE_OUT, MCAST_IOTYPE_PS, MCAST_IOTYPE_RETURN,
 };
+use std::collections::HashMap;
 use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock, Mutex};
 
 #[derive(Debug, Clone)]
 pub enum IOType {
@@ -77,15 +78,20 @@ pub enum McCMIE {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct McSpaceName {
     pub ident: McIds, //comp/mod/ifs/enum
-    pub uri: McURI,   //dir.file
+    pub uri: UriId,   //dir.file (interned)
 }
 
 impl McSpaceName {
     pub(crate) fn new(ident: &McIds, uri: McURI) -> Self {
         Self {
             ident: ident.clone(),
-            uri,
+            uri: uri_intern(&uri),
         }
+    }
+
+    /// Resolve the interned URI back to a string (output / serialization use).
+    pub(crate) fn uri_string(&self) -> Arc<str> {
+        uri_resolve(self.uri)
     }
 }
 
@@ -94,11 +100,123 @@ impl std::fmt::Display for McSpaceName {
         let ident_str = self.ident.to_string();
         // Pad ident to min 25 chars for alignment
         let padded = format!("{ident_str:<25}");
-        write!(f, "{} @{}", padded, self.uri)
+        write!(f, "{} @{}", padded, self.uri_string())
     }
 }
 
 pub type McURI = String;
+
+// ============================================================================
+// UriId: global append-only URI interning (design: name-space-global.md §5.5)
+// ============================================================================
+
+/// Globally-unique id for an interned file URI. Ids are never recycled, so a
+/// published `UriId` stays valid across unload/reset (entries may stop being
+/// referenced, but the id itself never dangles).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct UriId(pub u32);
+
+impl UriId {
+    /// Resolve this id back to its URI string.
+    pub fn as_uri(&self) -> Arc<str> {
+        uri_resolve(*self)
+    }
+
+    /// Suffix test against the resolved URI string (convenience so call sites
+    /// can keep `space.uri.ends_with(x)` after the String → UriId migration).
+    pub fn ends_with(&self, pat: &str) -> bool {
+        self.as_uri().ends_with(pat)
+    }
+
+    /// Substring test against the resolved URI string (same convenience).
+    pub fn contains(&self, pat: &str) -> bool {
+        self.as_uri().contains(pat)
+    }
+}
+
+impl std::fmt::Display for UriId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_uri())
+    }
+}
+
+// Equality against plain strings, so call sites can compare an interned id
+// with a raw URI without resolving explicitly (`space.uri == some_uri`).
+impl PartialEq<str> for UriId {
+    fn eq(&self, other: &str) -> bool {
+        self.as_uri().as_ref() == other
+    }
+}
+impl PartialEq<&str> for UriId {
+    fn eq(&self, other: &&str) -> bool {
+        self.as_uri().as_ref() == *other
+    }
+}
+impl PartialEq<String> for UriId {
+    fn eq(&self, other: &String) -> bool {
+        self.as_uri().as_ref() == other.as_str()
+    }
+}
+impl PartialEq<UriId> for str {
+    fn eq(&self, other: &UriId) -> bool {
+        self == other.as_uri().as_ref()
+    }
+}
+impl PartialEq<UriId> for String {
+    fn eq(&self, other: &UriId) -> bool {
+        self.as_str() == other.as_uri().as_ref()
+    }
+}
+
+/// Append-only interning table: `id → uri` and `uri → id`.
+struct UriTable {
+    strings: Vec<Arc<str>>,
+    ids: HashMap<String, UriId>,
+}
+
+impl UriTable {
+    fn new() -> Self {
+        Self {
+            // id 0 is reserved for the empty uri (matches the legacy
+            // file_id 0 = "" convention of the removed per-file file tables).
+            strings: vec![Arc::from("")],
+            ids: HashMap::new(),
+        }
+    }
+
+    fn intern(&mut self, uri: &str) -> UriId {
+        if let Some(id) = self.ids.get(uri) {
+            return *id;
+        }
+        let id = UriId(self.strings.len() as u32);
+        self.strings.push(Arc::from(uri));
+        self.ids.insert(uri.to_string(), id);
+        id
+    }
+
+    fn resolve(&self, id: UriId) -> Arc<str> {
+        self.strings.get(id.0 as usize).cloned().unwrap_or_default()
+    }
+}
+
+/// Process-global URI table (append-only; never cleared — `mcc_reset` only
+/// stops referencing old entries, the ids stay valid).
+static URI_TABLE: LazyLock<Mutex<UriTable>> = LazyLock::new(|| Mutex::new(UriTable::new()));
+
+/// Intern `uri`, returning its stable global id.
+pub fn uri_intern(uri: &str) -> UriId {
+    URI_TABLE.lock().unwrap().intern(uri)
+}
+
+/// Resolve `id` back to its URI string.
+pub fn uri_resolve(id: UriId) -> Arc<str> {
+    URI_TABLE.lock().unwrap().resolve(id)
+}
+
+/// Resolve a raw interned file id (e.g. `SourceLocation.file_id`) to its URI.
+pub fn uri_of_file_id(file_id: u32) -> Arc<str> {
+    uri_resolve(UriId(file_id))
+}
 
 // ============================================================================
 // ScopePath: hierarchical container chain for def/ref positioning

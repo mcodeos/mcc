@@ -6,6 +6,7 @@
 //!
 //! Originally `builder/current_uri.rs`. Roots and parsing state remain in `db/infra/global.rs`.
 
+use crate::db::infra::mc_use::McUse;
 use crate::McURI;
 use line_index::LineIndex;
 use std::cell::RefCell;
@@ -99,4 +100,62 @@ pub(crate) fn lookup_line_col(uri: &McURI, pos: u32) -> Option<(u32, u32)> {
         }
         None
     })
+}
+
+// ============================================================================
+// Current parsing file's uselist (thread-local stack)
+// ============================================================================
+//
+// When module parsing runs (`McCode::parse_pass1_modules`), the file being
+// parsed is typically removed from `mcodes` first (callers take `&mut` for
+// the parse, see `mcb_parse_all_modules` in pass1.rs). P4 use-chain
+// resolution (`db/resolve/visibility.rs::use_chain_reaches`) then cannot
+// read the file's own `uselist` from `mcodes` to start the walk, so we stash
+// it here. Mirrors the `LineIndexGuard` pattern above.
+
+thread_local! {
+    static CURRENT_PARSING_USES: RefCell<Vec<(McURI, Vec<McUse>)>> =
+        const { RefCell::new(Vec::new()) };
+}
+
+/// Push a file's `uselist` onto the thread-local stack.
+/// Call this before parsing a file that is not present in `mcodes`.
+pub(crate) fn push_parsing_uses(uri: McURI, uselist: Vec<McUse>) {
+    CURRENT_PARSING_USES.with(|cell| cell.borrow_mut().push((uri, uselist)));
+}
+
+/// Pop the most recently pushed `uselist` from the stack.
+pub(crate) fn pop_parsing_uses() {
+    CURRENT_PARSING_USES.with(|cell| cell.borrow_mut().pop());
+}
+
+/// Look up a file's `uselist` on the thread-local stack, searching from
+/// most-recently-pushed to oldest. Returns `None` if the file is not stashed.
+pub(crate) fn lookup_parsing_uses(uri: &McURI) -> Option<Vec<McUse>> {
+    CURRENT_PARSING_USES.with(|cell| {
+        let cell = cell.borrow();
+        for (stored_uri, uselist) in cell.iter().rev() {
+            if stored_uri == uri {
+                return Some(uselist.clone());
+            }
+        }
+        None
+    })
+}
+
+/// RAII guard that pushes a file's `uselist` on construction and pops on
+/// drop. Prevents manual push/pop pairing bugs.
+pub(crate) struct ParsingUsesGuard;
+
+impl ParsingUsesGuard {
+    pub(crate) fn new(uri: McURI, uselist: Vec<McUse>) -> Self {
+        push_parsing_uses(uri, uselist);
+        Self
+    }
+}
+
+impl Drop for ParsingUsesGuard {
+    fn drop(&mut self) {
+        pop_parsing_uses();
+    }
 }

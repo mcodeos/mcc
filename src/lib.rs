@@ -37,8 +37,9 @@ pub mod viz;
 pub use crate::semantic::basic::mc_bus::McBus;
 pub use crate::semantic::basic::mc_opd::McOpd;
 pub use crate::semantic::common::{
-    classify_lead, classify_phrase_leads, ContainerInfo, ContainerKind, IOType, LeadKind,
-    LookupResult, LookupSymbolKind, McCMIE, McSpaceName, McURI, ScopeFilter, ScopePath,
+    classify_lead, classify_phrase_leads, uri_intern, uri_of_file_id, uri_resolve, ContainerInfo,
+    ContainerKind, IOType, LeadKind, LookupResult, LookupSymbolKind, McCMIE, McSpaceName, McURI,
+    ScopeFilter, ScopePath, UriId,
 };
 pub use crate::semantic::{
     basic::{
@@ -331,7 +332,7 @@ pub fn get_def(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
 pub fn get_component_def(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     let space_name = McSpaceName {
         ident: class_name.clone(),
-        uri: uri.clone(),
+        uri: crate::semantic::common::uri_intern(uri),
     };
     // Try workspace components first, then global
     if let Some(c) = crate::db::cmie::tables::WORKSPACE
@@ -529,7 +530,14 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
             if map.entries.is_empty() {
                 out.push_str("  (empty)\n");
             }
-            out.push_str(&format!("  files:     {:?}\n", map.files));
+            out.push_str(&format!(
+                "  files:     {} interned (global UriTable)\n",
+                map.entries
+                    .values()
+                    .map(|e| e.def_loc.file_id)
+                    .collect::<std::collections::HashSet<_>>()
+                    .len()
+            ));
             out.push_str(&format!("  containers:{:?}\n", map.containers));
             let kind_names: Vec<&str> = (0u8..=29)
                 .map(|i| {
@@ -542,11 +550,13 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
             let mut entries: Vec<_> = map.entries.iter().collect();
             entries.sort_by_key(|((rk, rid), _)| (*rk as u8, *rid));
             for ((ref_kind, ref_id), entry) in &entries {
-                let def_file = map
-                    .files
-                    .get(entry.def_loc.file_id as usize)
-                    .map(|s| s.as_str())
-                    .unwrap_or("?");
+                let def_file = crate::semantic::common::uri_of_file_id(entry.def_loc.file_id);
+                let def_file_str = def_file.to_string();
+                let def_file_ref = if def_file_str.is_empty() {
+                    "?"
+                } else {
+                    def_file_str.as_str()
+                };
                 let ref_name = sym
                     .ref_entries
                     .iter()
@@ -563,10 +573,8 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
                         // generated from PortRef+LabelDef co-location in
                         // fill_refdef_layer2), the ref_name equals the def name.
                         // Extract it from the def_loc span in the def file.
-                        let def_file = map.files.get(entry.def_loc.file_id as usize)?;
                         let def_content =
-                            std::fs::read_to_string(std::path::Path::new(def_file.as_str()))
-                                .ok()?;
+                            std::fs::read_to_string(std::path::Path::new(def_file_ref)).ok()?;
                         let ds = entry.def_loc.byte_start as usize;
                         let de = entry.def_loc.byte_end as usize;
                         def_content.get(ds..de).map(|s| s.to_string())

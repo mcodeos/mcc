@@ -74,7 +74,7 @@ pub(crate) fn find_scoped_enum_for_component(
 
     let space_name = McSpaceName {
         ident: McIds::from(family_name.as_str()),
-        uri: uri.clone(),
+        uri: crate::semantic::common::uri_intern(uri),
     };
 
     // Search workspace enums first, then global
@@ -90,7 +90,7 @@ pub(crate) fn find_scoped_enum_for_component(
     // by bare name (a name-only scan could hit an unrelated same-named enum).
     for entry in workspace::WORKSPACE.enums.iter() {
         if entry.key().ident.to_string() == family_name
-            && crate::db::resolve::use_chain_reaches(uri, entry.key().uri.as_str())
+            && crate::db::resolve::use_chain_reaches(uri, entry.key().uri.as_uri().as_ref())
         {
             return Some(entry.value().clone());
         }

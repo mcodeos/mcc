@@ -50,7 +50,10 @@ fn check_name_collision(acc: &mut CheckAccumulator) {
     for name in comp_names.intersection(&iface_names) {
         let comp_spans: Vec<_> = comps
             .iter()
-            .filter(|e| e.key().ident.to_string() == *name && !super::is_test_file(&e.key().uri))
+            .filter(|e| {
+                e.key().ident.to_string() == *name
+                    && !super::is_test_file(e.key().uri.as_uri().as_ref())
+            })
             .map(|e| {
                 (
                     e.key().uri.clone(),
@@ -62,7 +65,7 @@ fn check_name_collision(acc: &mut CheckAccumulator) {
             acc.push(CheckResult {
                 check_name: "defs",
                 severity: CheckSeverity::Warning,
-                uri: Some(uri.clone()),
+                uri: Some(uri.to_string()),
                 span: Some(span.clone()),
                 message: format!(
                     "'{}' is defined as both a component and an interface. \
@@ -78,7 +81,10 @@ fn check_name_collision(acc: &mut CheckAccumulator) {
     for name in iface_names.intersection(&enum_names) {
         let iface_spans: Vec<_> = ifaces
             .iter()
-            .filter(|e| e.key().ident.to_string() == *name && !super::is_test_file(&e.key().uri))
+            .filter(|e| {
+                e.key().ident.to_string() == *name
+                    && !super::is_test_file(e.key().uri.as_uri().as_ref())
+            })
             .map(|e| {
                 (
                     e.key().uri.clone(),
@@ -90,7 +96,7 @@ fn check_name_collision(acc: &mut CheckAccumulator) {
             acc.push(CheckResult {
                 check_name: "defs",
                 severity: CheckSeverity::Warning,
-                uri: Some(uri.clone()),
+                uri: Some(uri.to_string()),
                 span: Some(span.clone()),
                 message: format!(
                     "'{}' is defined as both an interface and an enum. \
@@ -106,7 +112,10 @@ fn check_name_collision(acc: &mut CheckAccumulator) {
     for name in comp_names.intersection(&mod_names) {
         let comp_spans: Vec<_> = comps
             .iter()
-            .filter(|e| e.key().ident.to_string() == *name && !super::is_test_file(&e.key().uri))
+            .filter(|e| {
+                e.key().ident.to_string() == *name
+                    && !super::is_test_file(e.key().uri.as_uri().as_ref())
+            })
             .map(|e| {
                 (
                     e.key().uri.clone(),
@@ -118,7 +127,7 @@ fn check_name_collision(acc: &mut CheckAccumulator) {
             acc.push(CheckResult {
                 check_name: "defs",
                 severity: CheckSeverity::Info,
-                uri: Some(uri.clone()),
+                uri: Some(uri.to_string()),
                 span: Some(span.clone()),
                 message: format!(
                     "'{}' is defined as both a component and a module. \
@@ -224,7 +233,7 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
                         acc.push(CheckResult {
                             check_name: "defs",
                             severity: CheckSeverity::Warning,
-                            uri: Some(uri.clone()),
+                            uri: Some(uri.to_string()),
                             span: Some(span),
                             message: format!(
                                 "Component '{}' binds to interface '{}' which is not loaded.",
@@ -254,7 +263,7 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
                         acc.push(CheckResult {
                             check_name: "defs",
                             severity: CheckSeverity::Warning,
-                            uri: Some(uri.clone()),
+                            uri: Some(uri.to_string()),
                             span: Some(comp.span.start..comp.span.end),
                             message: format!(
                                 "Component '{}' param references class '{}' which is not loaded.",
@@ -290,7 +299,7 @@ fn check_missing_cmie(acc: &mut CheckAccumulator) {
                         acc.push(CheckResult {
                             check_name: "defs",
                             severity: CheckSeverity::Warning,
-                            uri: Some(uri.clone()),
+                            uri: Some(uri.to_string()),
                             span: Some(m.span.start..m.span.end),
                             message: format!(
                                 "Module '{}' references class '{}' which is not loaded.",
@@ -322,7 +331,7 @@ fn check_int_suffix(acc: &mut CheckAccumulator) {
                 acc.push(CheckResult {
                     check_name: "defs",
                     severity: CheckSeverity::Warning,
-                    uri: Some(uri.clone()),
+                    uri: Some(uri.to_string()),
                     span: Some(c.span.start..c.span.end),
                     message: format!(
                         "Component '{}' has '.int' suffix. '.int' is conventionally \
@@ -348,7 +357,7 @@ fn check_int_suffix(acc: &mut CheckAccumulator) {
                 acc.push(CheckResult {
                     check_name: "defs",
                     severity: CheckSeverity::Info,
-                    uri: Some(uri.clone()),
+                    uri: Some(uri.to_string()),
                     span: Some(entry.value().span[0] as usize..entry.value().span[1] as usize),
                     message: format!(
                         "Enum '{}' has '.int' suffix, which is unconventional for enums.",
@@ -373,7 +382,7 @@ fn check_int_suffix(acc: &mut CheckAccumulator) {
                 acc.push(CheckResult {
                     check_name: "defs",
                     severity: CheckSeverity::Info,
-                    uri: Some(uri.clone()),
+                    uri: Some(uri.to_string()),
                     span: Some(iface.span.start..iface.span.end),
                     message: format!(
                         "Interface '{}' has '.int' suffix, which is unconventional \
