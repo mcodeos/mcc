@@ -189,18 +189,12 @@ fn run_local(args: &ShowArgs) -> Result<()> {
 /// One-shot environment setup: init engine, load `--lib` libraries, load the
 /// target file. All handlers assume this ran, so none of them re-init.
 fn prepare(args: &ShowArgs) {
-    mcc::mcc_init_no_lib();
-    mcc::mcc_set_system_root(Path::new(""));
-
-    if !args.lib.is_empty() {
-        crate::cmds::manifest::load_libs(&crate::cmds::manifest::collect_libs(None, &args.lib));
-    }
-
     // File target keeps the path in <name>; all others use `-F/--file`.
     let file_opt = match args.target {
         ShowTarget::File => args.name.as_deref(),
         _ => args.file.as_deref(),
     };
+    crate::cmds::manifest::init_local(file_opt, &args.lib);
 
     if let Some(f) = file_opt {
         let actual = resolve_file(f);
@@ -443,18 +437,15 @@ fn show_lapper(args: &ShowArgs) -> Result<()> {
     }
 
     // Not loaded yet — load project and try again.
-    // Load library dependencies from project.toml first.
-    let project_root = {
-        let mut current = path.to_path_buf();
-        loop {
-            if current.join("project.toml").exists() {
-                break current;
-            }
-            if !current.pop() {
-                break path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
-            }
-        }
-    };
+    // Unified with the shared init: the nearest project manifest
+    // (manifest.toml / project.toml / mcc.toml) drives the dependency set,
+    // and the project root is set so project-relative `use` paths resolve
+    // correctly.
+    let project_root = super::manifest::find_project_root(Some(file_path))
+        .unwrap_or_else(|| path.parent().map(|p| p.to_path_buf()).unwrap_or_default());
+    if !project_root.as_os_str().is_empty() {
+        mcc::mcc_set_project_root(&project_root);
+    }
     let libs = super::manifest::collect_libs(Some(&project_root), &[]);
     super::manifest::load_libs(&libs);
     mcc::mcc_load_project(&mc_uri);

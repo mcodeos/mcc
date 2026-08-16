@@ -59,35 +59,12 @@ pub fn run(args: &ParseArgs) -> Result<()> {
         }
     }
 
-    // ── 0.5. Local mode initialization (don't load library by default), then explicitly load via --lib ──
-    mcc::mcc_init_no_lib();
-    // Empty path → system root is auto-discovered from cwd (env or cwd/mc/ or ~/.mcode/).
-    mcc::mcc_set_system_root(std::path::Path::new(""));
-    // Load libraries from all config sources: global config + project config + manifest + CLI --lib.
+    // ── 0.5. Local mode initialization (shared helper) ──
+    // Loads libraries from all config sources: global config + project config +
+    // manifest + CLI --lib, plus the mcode default (unless disabled).
     // Without this, local-mode parse can't see mcode's interfaces and emits spurious
     // E1304 / E2702 warnings for every `X::Interface(...)` reference.
-    let project_root = args.target.as_deref().and_then(|t| {
-        let p = Path::new(t);
-        // Walk up the directory tree to find the project root
-        // (the directory containing project.toml).
-        let mut current: Option<&Path> = if p.is_dir() { Some(p) } else { p.parent() };
-        while let Some(dir) = current {
-            if dir.join("project.toml").exists() {
-                return Some(dir.to_path_buf());
-            }
-            current = dir.parent();
-        }
-        // Fallback: use the original heuristic (dir or parent of file).
-        if p.is_dir() {
-            Some(p.to_path_buf())
-        } else {
-            p.parent().map(|p| p.to_path_buf())
-        }
-    });
-    if let Some(root) = project_root.as_deref() {
-        mcc::mcc_set_project_root(root);
-    }
-    manifest::load_libs(&manifest::collect_libs(project_root.as_deref(), &args.lib));
+    manifest::init_local(args.target.as_deref(), &args.lib);
 
     // ── 0.6. Pass 0 snapshot: lib load + C parser error attribution ──
     // Must snapshot after mcc_load_project and before tracker.new(),
@@ -102,12 +79,31 @@ pub fn run(args: &ParseArgs) -> Result<()> {
     } else if let Some(t) = &args.target {
         let p = Path::new(t);
         if p.is_dir() {
-            match manifest::build_from_manifest(p, args.top.as_deref(), None) {
+            match manifest::build_from_manifest(p, args.top.as_deref(), args.entry.as_deref()) {
                 Ok((entry_uri, top)) => {
                     forced_top = Some(top);
                     McURI::from(entry_uri.as_str())
                 }
-                Err(e) => return emit_error(args, RpcError::invalid_params(format!("{:#}", e))),
+                Err(_) => {
+                    // P2 (§19.5 rule 3): directory without a usable manifest —
+                    // browse-mode entry selection. One entry file plus its `use`
+                    // closure, not the whole directory (mirrors IDE auto_load).
+                    match manifest::select_browse_entry(p, args.entry.as_deref()) {
+                        Ok(entry_path) => {
+                            mcc::mcc_set_project_root(p);
+                            let entry_uri = entry_path.to_string_lossy().to_string();
+                            mcc::mcc_load_project(&entry_uri);
+                            forced_top = args
+                                .top
+                                .clone()
+                                .or_else(|| mcc::mcb_get_module_name_by_uri(&entry_uri));
+                            McURI::from(entry_uri.as_str())
+                        }
+                        Err(e) => {
+                            return emit_error(args, RpcError::invalid_params(format!("{:#}", e)))
+                        }
+                    }
+                }
             }
         } else {
             let uri = McURI::from(t.as_str());

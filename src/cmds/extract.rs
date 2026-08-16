@@ -40,11 +40,8 @@ pub fn run(args: &ExtractArgs) -> Result<()> {
         }
     }
 
-    // Initialize (do not load system libraries)
-    mcc::mcc_init_no_lib();
-
-    // Local mode also loads --lib (the other half of Fix 2)
-    manifest::load_libs(&manifest::collect_libs(None, &args.lib));
+    // Shared local initialization: engine + libs (global config, --lib, mcode default).
+    manifest::init_local(args.file.as_deref(), &args.lib);
 
     // components / interfaces operate on already-loaded libraries; no file required
     match args.target {

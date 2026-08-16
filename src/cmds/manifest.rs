@@ -68,16 +68,11 @@ impl Manifest {
     }
 
     /// Find manifest from project root.
-    /// Prefers `manifest.toml`, then `mcc.toml`.
+    /// Prefers `manifest.toml`, then `project.toml`, then `mcc.toml`.
+    /// Delegates to the shared lib-layer helper so CLI, RPC and MCP agree on
+    /// the candidate set.
     pub fn find_in(root: &Path) -> Option<PathBuf> {
-        let candidates = ["manifest.toml", "project.toml", "mcc.toml"];
-        for name in &candidates {
-            let p = root.join(name);
-            if p.exists() {
-                return Some(p);
-            }
-        }
-        None
+        mcc::cli::datadir::find_manifest_in(root)
     }
 
     /// Generate default manifest content.
@@ -133,10 +128,18 @@ pub fn build_from_manifest(
     let manifest = Manifest::find_in(project_root).and_then(|p| Manifest::load(&p).ok());
 
     let (entry, top) = if let Some(ref m) = manifest {
+        let override_entry = cli_entry.is_some();
         let entry = cli_entry
             .map(|s| project_root.join(s))
             .unwrap_or_else(|| m.entry_path(project_root));
-        let top = m.top_module_or(cli_top);
+        // A CLI --entry replaces the manifest entry, so the manifest's
+        // top_module no longer applies; the entry file's module (or --top)
+        // wins instead.
+        let top = if override_entry {
+            cli_top.map(|s| s.to_string())
+        } else {
+            m.top_module_or(cli_top)
+        };
         (entry, top)
     } else {
         let entry = cli_entry
@@ -184,6 +187,86 @@ pub fn build_from_manifest(
     Ok((entry_uri, top_name))
 }
 
+/// Browse-mode entry selection for a directory that has no manifest
+/// (§19.5 rule 3 of use-design.md).
+///
+/// Priority:
+/// 1. Explicit `--entry`: resolved against `root`.
+/// 2. The unique `.mc` file under `root` that declares `module main`.
+/// 3. An error prompting `--entry` when zero or several candidates exist.
+pub fn select_browse_entry(root: &Path, cli_entry: Option<&str>) -> Result<PathBuf> {
+    if let Some(entry) = cli_entry {
+        let p = root.join(entry);
+        if !p.is_file() {
+            anyhow::bail!("browse: entry file not found: {}", p.display());
+        }
+        return Ok(p);
+    }
+
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    scan_entries_with_module_main(root, &mut candidates);
+    candidates.sort();
+
+    match candidates.len() {
+        0 => anyhow::bail!(
+            "browse: no `.mc` file declaring `module main` under {}; use --entry to select an entry file",
+            root.display()
+        ),
+        1 => Ok(candidates.remove(0)),
+        n => {
+            let names: Vec<String> = candidates.iter().map(|p| p.display().to_string()).collect();
+            anyhow::bail!(
+                "browse: {} `.mc` files declare `module main` under {} ({}); use --entry to select one",
+                n,
+                root.display(),
+                names.join(", ")
+            );
+        }
+    }
+}
+
+/// Recursively collect `.mc` files under `current` that declare `module main`.
+/// Hidden directories (leading `.`) are skipped.
+fn scan_entries_with_module_main(current: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(current) else {
+        return;
+    };
+    for e in entries.flatten() {
+        let p = e.path();
+        if p.is_dir() {
+            if !p
+                .file_name()
+                .is_some_and(|n| n.to_string_lossy().starts_with('.'))
+            {
+                scan_entries_with_module_main(&p, out);
+            }
+        } else if p.extension().is_some_and(|ext| ext == "mc") && file_declares_module_main(&p) {
+            out.push(p);
+        }
+    }
+}
+
+/// True when `path` contains a top-level `module main` declaration
+/// (comments and `module main2`-style identifiers do not count).
+fn file_declares_module_main(path: &Path) -> bool {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return false;
+    };
+    for line in content.lines() {
+        let line = line.trim_start();
+        if line.is_empty() || line.starts_with("//") || line.starts_with('#') {
+            continue;
+        }
+        let line = line.strip_prefix("pub ").unwrap_or(line);
+        if let Some(rest) = line.strip_prefix("module main") {
+            if rest.is_empty() || rest.starts_with('{') || rest.starts_with(char::is_whitespace) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// Collect library names from all config sources, with deduplication.
 ///
 /// Sources (in order):
@@ -209,6 +292,11 @@ pub fn collect_libs(project_root: Option<&Path>, cli_libs: &[String]) -> Vec<Str
             libs.push(l.clone());
         }
     }
+    // mcode standard library auto-loads by default unless disabled
+    // (see LibsConfig::should_load_mcode / libs.disable_mcode).
+    if mcc::should_load_mcode(project_root) && !libs.iter().any(|l| l.to_lowercase() == "mcode") {
+        libs.push("mcode".to_string());
+    }
     libs
 }
 
@@ -217,6 +305,57 @@ pub fn load_libs(lib_names: &[String]) {
     for lib_name in lib_names {
         mcc::mcb_load_lib_by_name(lib_name);
     }
+}
+
+/// Walk up from `target` (a file or directory path) to find the project root:
+/// the nearest ancestor directory containing `manifest.toml`, `project.toml`,
+/// or `mcc.toml` (in that order, see [`Manifest::find_in`]). Falls back to the
+/// target's own directory (or its parent for a file) when nothing is found.
+/// Relative targets are resolved against the current directory first, so the
+/// returned root is always absolute.
+pub fn find_project_root(target: Option<&str>) -> Option<PathBuf> {
+    let t = target?;
+    let raw = Path::new(t);
+    let p = if raw.is_absolute() {
+        raw.to_path_buf()
+    } else {
+        std::env::current_dir().ok()?.join(raw)
+    };
+    let mut current: Option<&Path> = if p.is_dir() { Some(&p) } else { p.parent() };
+    while let Some(dir) = current {
+        if Manifest::find_in(dir).is_some() {
+            return Some(dir.to_path_buf());
+        }
+        current = dir.parent();
+    }
+    // Fallback: use the original heuristic (dir or parent of file).
+    if p.is_dir() {
+        Some(p)
+    } else {
+        p.parent().map(|p| p.to_path_buf())
+    }
+}
+
+/// Shared initialization for all single-process local commands.
+///
+/// Initializes the engine without the config-gated system library, sets the
+/// system root to the auto-discovered base, walks up from `target` to find the
+/// project root (a directory containing manifest.toml / project.toml /
+/// mcc.toml, see [`find_project_root`]), then loads libraries from global
+/// config, project config, manifest, CLI --lib, plus the mcode default
+/// (unless disabled by libs.disable_mcode).
+///
+/// Returns the resolved project root if any.
+pub fn init_local(target: Option<&str>, cli_libs: &[String]) -> Option<PathBuf> {
+    mcc::mcc_init_no_lib();
+    // Empty path → system root is auto-discovered from cwd (env or cwd/mc/ or ~/.mcode/).
+    mcc::mcc_set_system_root(Path::new(""));
+    let project_root = find_project_root(target);
+    if let Some(root) = project_root.as_deref() {
+        mcc::mcc_set_project_root(root);
+    }
+    load_libs(&collect_libs(project_root.as_deref(), cli_libs));
+    project_root
 }
 
 // ============================================================================
@@ -254,5 +393,96 @@ infineon = "2.1.0"
         assert!(s.contains("name = \"test_proj\""));
         assert!(s.contains("entry = \"src/main.mc\""));
         assert!(s.contains("mcode = \"*\""));
+    }
+
+    // ── browse-mode entry selection (§19.5 rule 3) ──
+
+    fn temp_browse_root(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("mcc-browse-{}-{}", name, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn select_browse_entry_unique() {
+        let root = temp_browse_root("unique");
+        std::fs::write(root.join("main.mc"), "module main {}\n").unwrap();
+        std::fs::write(root.join("lib.mc"), "component A(rs::UV.OHM) {}\n").unwrap();
+
+        let entry = select_browse_entry(&root, None).unwrap();
+        assert_eq!(entry, root.join("main.mc"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn select_browse_entry_ambiguous() {
+        let root = temp_browse_root("ambiguous");
+        std::fs::write(root.join("a.mc"), "module main {}\n").unwrap();
+        std::fs::write(root.join("b.mc"), "module main {}\n").unwrap();
+
+        let err = select_browse_entry(&root, None).unwrap_err().to_string();
+        assert!(err.contains("2 `.mc` files"), "unexpected error: {err}");
+        assert!(err.contains("--entry"), "should prompt --entry: {err}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn select_browse_entry_no_module_main() {
+        let root = temp_browse_root("none");
+        std::fs::write(root.join("lib.mc"), "component A(rs::UV.OHM) {}\n").unwrap();
+
+        let err = select_browse_entry(&root, None).unwrap_err().to_string();
+        assert!(
+            err.contains("no `.mc` file declaring `module main`"),
+            "unexpected error: {err}"
+        );
+        assert!(err.contains("--entry"), "should prompt --entry: {err}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn select_browse_entry_explicit_entry() {
+        let root = temp_browse_root("explicit");
+        std::fs::write(root.join("main.mc"), "module main {}\n").unwrap();
+        std::fs::write(root.join("other.mc"), "module main {}\n").unwrap();
+
+        let entry = select_browse_entry(&root, Some("other.mc")).unwrap();
+        assert_eq!(entry, root.join("other.mc"));
+
+        let err = select_browse_entry(&root, Some("missing.mc"))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            err.contains("entry file not found"),
+            "unexpected error: {err}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn file_declares_module_main_edge_cases() {
+        let root = temp_browse_root("edge");
+        let cases = [
+            (
+                "comment.mc",
+                "// module main comment\ncomponent A {}\n",
+                false,
+            ),
+            ("main2.mc", "module main2 {}\n", false),
+            ("pub_main.mc", "pub module main {\n}\n", true),
+            ("braced.mc", "module main {\n}\n", true),
+            ("main_only.mc", "module main\n", true),
+        ];
+        for (name, content, expect) in cases {
+            let p = root.join(name);
+            std::fs::write(&p, content).unwrap();
+            assert_eq!(
+                file_declares_module_main(&p),
+                expect,
+                "unexpected result for {name}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

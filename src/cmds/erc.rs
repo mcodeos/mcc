@@ -30,15 +30,25 @@ pub fn run(args: &ErcArgs) -> Result<()> {
 }
 
 fn run_local(args: &ErcArgs) -> Result<()> {
-    mcc::mcc_init_no_lib();
-    if !args.lib.is_empty() {
-        manifest::load_libs(&manifest::collect_libs(None, &args.lib));
-    }
+    manifest::init_local(args.target.as_deref(), &args.lib);
 
     if let Some(t) = &args.target {
         let p = Path::new(t);
         if p.is_dir() {
-            manifest::build_from_manifest(p, None, None)?;
+            // Project mode: manifest-driven; browse fallback (§19.5 rule 3 of
+            // use-design.md) when the directory has no manifest.
+            match manifest::build_from_manifest(p, None, args.entry.as_deref()) {
+                Ok(_) => {}
+                Err(manifest_err) => {
+                    let entry = manifest::select_browse_entry(p, args.entry.as_deref()).map_err(
+                        |browse_err| {
+                            anyhow::anyhow!("{} (manifest: {:#})", browse_err, manifest_err)
+                        },
+                    )?;
+                    let entry_uri = entry.to_string_lossy().to_string();
+                    mcc::mcc_load_project(&entry_uri);
+                }
+            }
         } else {
             let path = if p.is_absolute() {
                 p.to_path_buf()

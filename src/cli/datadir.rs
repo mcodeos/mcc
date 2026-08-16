@@ -25,10 +25,27 @@
 //! suffix naturally separates the two (mcode has no version suffix;
 //! 3rd-party libs always carry one).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use tracing::debug;
 
 pub const MCC_SYSTEM_ENV: &str = "MCC_SYSTEM_ROOT";
+
+/// Candidate project-manifest file names, in priority order. CLI, RPC and MCP
+/// all use this same set, so a project root is detected uniformly regardless
+/// of entry point (use-design §19.5).
+pub const PROJECT_MANIFEST_NAMES: [&str; 3] = ["manifest.toml", "project.toml", "mcc.toml"];
+
+/// Return the first existing project manifest in `root` (see
+/// [`PROJECT_MANIFEST_NAMES`]), or `None` when none of the candidates exist.
+pub fn find_manifest_in(root: &Path) -> Option<PathBuf> {
+    for name in PROJECT_MANIFEST_NAMES {
+        let p = root.join(name);
+        if p.exists() {
+            return Some(p);
+        }
+    }
+    None
+}
 
 /// MCC data root directory (single source of truth).
 /// Priority: `$MCC_SYSTEM_ROOT` > `~/.mcode`.

@@ -107,6 +107,12 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
     tracker.skip();
 
     // ── 0. Initialize system root (same as parse command) ──
+    // Reset the engine first: when mcc is embedded as a library (or a prior
+    // init left tables dirty), mcode may already be loaded from the *unset*
+    // system root (~/.mcode). Clearing the tables ensures mcode is reloaded
+    // from the true system root below, otherwise a local `mcode/` or
+    // $MCC_SYSTEM_ROOT would be shadowed by the stale ~/.mcode copy.
+    mcc::mcc_init_no_lib();
     mcc::mcc_set_system_root(std::path::Path::new(""));
     let project_root: PathBuf = resolve_project_root(args);
     // Defect 9: set project root before loading libraries so that

@@ -232,7 +232,8 @@ impl MccMcpServer {
         Parameters(req): Parameters<LoadProjectRequest>,
     ) -> Result<Json<Value>, McpError> {
         // Derive the project root the same way the CLI does: walk up from the
-        // entry looking for project.toml; fall back to the entry's parent dir.
+        // entry looking for a project manifest (manifest.toml / project.toml /
+        // mcc.toml); fall back to the entry's parent dir.
         let entry_path = std::path::Path::new(&req.entry);
         let mut current: Option<&std::path::Path> = if entry_path.is_dir() {
             Some(entry_path)
@@ -241,7 +242,7 @@ impl MccMcpServer {
         };
         let mut root: Option<std::path::PathBuf> = None;
         while let Some(dir) = current {
-            if dir.join("project.toml").exists() {
+            if mcc::cli::datadir::find_manifest_in(dir).is_some() {
                 root = Some(dir.to_path_buf());
                 break;
             }
@@ -456,15 +457,10 @@ async fn main() -> anyhow::Result<()> {
     // 1. System root: mcc_set_system_root handles MCC_SYSTEM_ROOT env and
     //    default probing (base/mc, base/mcode, data dir).
     mcc::mcc_set_system_root(std::path::Path::new(""));
-    // 2. Init builder + load the mcode system library.
+    // 2. Init builder + load the mcode system library. mcc_init() calls
+    //    mcb_init_system_lib(), which loads mcode by default unless
+    //    libs.disable_mcode is set (see LibsConfig::should_load_mcode).
     mcc::mcc_init();
-    // `mcb_init_system_lib` only inserts an empty placeholder unless the
-    // `libs.load` config enables mcode, so force a real load. mcb_load_lib
-    // bypasses the `loaded` check that load_libs_rpc uses.
-    let mcode_root = mcc::mcb_get_system_root().join("mcode");
-    if mcode_root.exists() {
-        mcc::mcb_load_lib("mcode", &mcode_root);
-    }
     // 3. Optional project binding (state model A: one process per project).
     if let Ok(project_root) = std::env::var("MCC_PROJECT_ROOT") {
         if !project_root.is_empty() {
