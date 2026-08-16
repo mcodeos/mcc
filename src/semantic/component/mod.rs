@@ -22,7 +22,6 @@ use crate::{
     ast::ast_node::AstNode,
     ast::c_macros::*,
     db::cmie::tables as workspace,
-    db::infra::global,
     semantic::basic::mc_bus::{McBus, McList},
     semantic::basic::mc_ids::McIds,
     semantic::basic::mc_param::{McParamBindings, McParamValue},
@@ -645,40 +644,57 @@ pub(crate) fn port_to_instance(port: &McPinPort) -> McInstance {
 ///
 /// A "scoped enum" is an enum whose name matches a component's **family name**
 /// (e.g. `enum CAP` makes `X7R` visible inside component `CAP_0603`).
-/// Returns `(enum_name, span)` if found.
+///
+/// Resolution follows the unified P1-P5 policy (§5.4): the enum **class** is
+/// resolved first (P3 exact key in the referencing file, then P4 through the
+/// use chain, then P5 mcode), and only then is the value located inside that
+/// class's values — the value is never located by a name-only workspace scan.
+///
+/// Returns `(enum_name, def_uri, class_id, value_span)`:
+/// - `def_uri` — the file that defines the enum class;
+/// - `class_id` — the RefDefMap class id of the enum class registered in the
+///   referencing file's global table (the packed value id =
+///   `class_id + value index`); `None` when the class is not registered there.
 pub(crate) fn find_scoped_enum_value(
+    from_uri: &McURI,
     family_name: &McIds,
     id: &str,
-) -> Option<(String, Range<usize>)> {
+) -> Option<(String, McURI, Option<u32>, Range<usize>)> {
     let family = family_name.to_string();
 
-    // Search workspace enums first
-    for entry in workspace::WORKSPACE.enums.iter() {
-        let enum_def = entry.value();
-        if enum_def.name.to_string() == family {
-            for value in &enum_def.values {
-                if value.name.to_string() == id {
-                    return Some((family, value.span[0] as usize..value.span[1] as usize));
-                }
-            }
-            return None; // enum found but value not in it
-        }
-    }
+    // ① Resolve the enum class first (§5.4.3): P3 exact key → P4 use chain →
+    //    P5 mcode. `find_scoped_enum_for_component` implements exactly this
+    //    and carries the class's defining URI.
+    let enum_def = crate::db::cmie::cmie::find_scoped_enum_for_component(family_name, from_uri)?;
+    let def_uri = enum_def.uri.clone();
 
-    // Fall back to global enums
-    for entry in global::mcc_enums.iter() {
-        let enum_def = entry.value();
-        if enum_def.name.to_string() == family {
-            for value in &enum_def.values {
-                if value.name.to_string() == id {
-                    return Some((family, value.span[0] as usize..value.span[1] as usize));
-                }
-            }
-            return None; // enum found but value not in it
+    // ② Locate the value inside the resolved class's values.
+    for value in &enum_def.values {
+        if value.name.to_string() == id {
+            let span = value.span[0] as usize..value.span[1] as usize;
+            let class_id = lookup_enum_class_id(from_uri, &def_uri, family_name);
+            return Some((family, def_uri, class_id, span));
         }
     }
 
     None
+}
+
+/// Look up the RefDefMap class id of an enum class, as registered in the
+/// referencing file's global table (keyed by `(def_uri, class_name)` —
+/// mirroring `lapper_enum_refs`). Returns `None` when the referencing file is
+/// not loaded or the class was never registered there.
+///
+/// Uses non-blocking `try_lock`: this lookup can run on the `create_lapper`
+/// locked path (via `member_of` → `find_inst_with_span` → `ScopedEnumScope`),
+/// where the same file's symbol tables are already held — a blocking `.lock()`
+/// would self-deadlock (std Mutex is not reentrant). A lock failure degrades
+/// gracefully to `None` (class id unavailable), never to a hang.
+fn lookup_enum_class_id(from_uri: &McURI, def_uri: &McURI, class_name: &McIds) -> Option<u32> {
+    let mcfile = workspace::WORKSPACE.mcodes.get(from_uri)?;
+    let sem = mcfile.symbols.try_lock().ok()?;
+    let gt = sem.global_table.try_lock().ok()?;
+    gt.lookup_enum_class(def_uri, class_name).map(u32::from)
 }
 
 impl std::fmt::Display for Mc2Component {

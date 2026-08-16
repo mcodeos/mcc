@@ -469,13 +469,23 @@ fn member_of(inst: &McInstance, member: &str) -> Option<Hop<'static>> {
             match base.find_inst_with_span(member) {
                 Some((m_inst, span)) => {
                     let kind = cross_def_kind(&m_inst);
-                    mcc_dbg!("refdef::chain", "[member_of] Component \"{}\" member=\"{}\" → {} kind={:?} span={:?} uri={}", c.name, member, m_inst.type_name(), kind, span, base.uri.as_str());
+                    // A scoped enum value's def lives in the enum class's own
+                    // file, which may differ from the component's file
+                    // (cross-file / P5 enums) — prefer the carried def_uri so
+                    // goto-def lands in the right file.
+                    let def_uri = match &m_inst {
+                        McInstance::EnumVal {
+                            def_uri: Some(u), ..
+                        } => McURI::from(u.clone()),
+                        _ => base.uri.clone(),
+                    };
+                    mcc_dbg!("refdef::chain", "[member_of] Component \"{}\" member=\"{}\" → {} kind={:?} span={:?} uri={}", c.name, member, m_inst.type_name(), kind, span, def_uri.as_str());
                     Some(Hop::CrossInst {
                         key: format!("{}.{}", c.name, member),
                         inst: m_inst,
                         def_kind: kind,
                         span,
-                        uri: base.uri.clone(),
+                        uri: def_uri,
                     })
                 }
                 None => {

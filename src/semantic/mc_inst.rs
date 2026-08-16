@@ -139,6 +139,13 @@ pub enum McInstance {
         value_name: String,
         /// Source span of the value definition, for LSP goto-def.
         span: Option<Range<usize>>,
+        /// RefDefMap class id of the enum class in its defining file, used to
+        /// locate the value definition precisely (packed value id =
+        /// class_id + value index). None when the class is not registered in
+        /// the referencing file's RefDefMap.
+        class_id: Option<u32>,
+        /// URI of the file that defines the enum class (e.g. "CAP").
+        def_uri: Option<String>,
     },
 }
 

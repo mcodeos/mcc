@@ -5067,18 +5067,22 @@ impl McCode {
     /// Search cross-file global tables for an enum class by name.
     /// Returns `(def_uri, def_span)` from the defining file's table.
     /// Priority: P3 (current file) → P4 (other workspace files) → P5 (system libs).
+    /// `ref_span` is the byte span of the referencing `base.member` text, used
+    /// to place the §5.4.6 D2 ambiguity diagnostic when multiple use-reachable
+    /// files define the same enum class.
     fn find_enum_class_cross_file(
         uri: &McURI,
         sem: &McSemSymbols,
         base_name: &str,
+        ref_span: Option<(u32, u32)>,
     ) -> Option<(McURI, crate::ast::ast_semantic::Span)> {
-        // P3: current file's global table
+        // P3: current file's own definition — exact key only. A name-only walk
+        // of `enum_class_name_to_id` could hit a same-named class registered
+        // from another file (§5.4.6 D1).
         if let Ok(gt) = sem.global_table.lock() {
-            for ((def_uri, name), class_id) in gt.enum_class_name_to_id.iter() {
-                if name == &McIds::from(base_name) {
-                    if let Some((_u, span)) = gt.enum_class_id_to_span.get(class_id) {
-                        return Some((def_uri.clone(), span.clone()));
-                    }
+            if let Some(class_id) = gt.lookup_enum_class(uri, &McIds::from(base_name)) {
+                if let Some((_u, span)) = gt.enum_class_id_to_span.get(&class_id) {
+                    return Some((uri.clone(), span.clone()));
                 }
             }
         }
@@ -5090,6 +5094,9 @@ impl McCode {
         // locks A). McEnumDef carries uri + span, so no per-file lock is needed.
         // §5.4: a workspace enum is visible only when its defining file is
         // reachable through this file's `use` chain — never by bare name.
+        // Multiple reachable definitions of the same name are ambiguous and
+        // must be reported (§5.4.6 D2), not silently resolved to the first.
+        let mut reachable: Vec<(McURI, crate::ast::ast_semantic::Span)> = Vec::new();
         for entry in workspace::WORKSPACE.enums.iter() {
             if entry.key().uri.as_str() == uri.as_str() {
                 continue;
@@ -5097,14 +5104,33 @@ impl McCode {
             if entry.key().ident.to_string() == base_name
                 && crate::db::resolve::use_chain_reaches(uri, entry.key().uri.as_str())
             {
-                return Some((
+                reachable.push((
                     entry.key().uri.clone(),
                     (entry.value().span[0] as usize)..(entry.value().span[1] as usize),
                 ));
             }
         }
+        if reachable.len() > 1 {
+            if let Some((start, end)) = ref_span {
+                dlog_error_at(
+                    crate::errcodes::USE_SYMBOL_CONFLICT,
+                    start,
+                    end.saturating_sub(start),
+                    &format!(
+                        "enum class '{base_name}' resolves through multiple use-reachable files; use 'as' alias to disambiguate"
+                    ),
+                );
+            }
+            // Best-effort: still resolve to the first reachable definition.
+            return reachable.into_iter().next();
+        }
+        if let Some(hit) = reachable.into_iter().next() {
+            return Some(hit);
+        }
 
-        // P5: system libraries
+        // P5: system libraries. Name-unique by construction (§5.4.6 "P5
+        // uniqueness guarantee"): same-file duplicates error at load
+        // (DUP_ENUM), cross-file duplicates are a library-side build rule.
         for entry in crate::db::infra::global::mcc_enums.iter() {
             if entry.key().uri.as_str() == uri.as_str() {
                 continue;
@@ -5171,55 +5197,53 @@ impl McCode {
                     parsed;
 
                 let (class_id, value_idx, _cross_file_uri) = {
-                    // Look up enum class_id: local table first, then cross-file.
-                    // ★ Both branches capture the defining uri so the value
-                    // span can always be registered below. Previously the
-                    // name-fallback hit (a class registered earlier in this
-                    // file's pass) returned xuri=None and skipped
-                    // add_enum_value, so later refs to the same cross-file
-                    // class (e.g. a second `PKG.SOMETHING` attribute) got a
-                    // packed value_id with no RefDefMap entry — goto-def
-                    // returned empty. This was order-dependent: lapper_enum_refs
-                    // visits attributes in reverse AST order.
+                    // Look up enum class_id: local table (exact key) first,
+                    // then the §5.4.3 cross-file chain (P3 → P4 → P5) via
+                    // find_enum_class_cross_file. Both branches capture the
+                    // defining uri so the value span can always be registered
+                    // below. A class that resolves nowhere visible is an error
+                    // (§5.4.6 C2), never a default-id def. The local table
+                    // guard is dropped before the cross-file search — the
+                    // cross-file path re-locks the same Mutex, and re-locking
+                    // std::sync::Mutex on the same thread would deadlock.
                     let local_id = match sem.global_table.lock() {
-                        Ok(gt) => gt
-                            .lookup_enum_class(&uri, &McIds::from(&base_name))
-                            .map(|cid| (uri.clone(), cid))
-                            .or_else(|| {
-                                gt.enum_class_name_to_id.iter().find_map(
-                                    |((cls_uri, name), cid)| {
-                                        (name == &McIds::from(&base_name))
-                                            .then_some((cls_uri.clone(), *cid))
-                                    },
-                                )
-                            }),
+                        Ok(gt) => gt.lookup_enum_class(&uri, &McIds::from(&base_name)),
                         Err(_) => continue 'outer,
                     };
-                    let (cls, xuri) = if let Some((cls_uri, cid)) = local_id {
-                        (cid, Some(cls_uri))
-                    } else {
-                        // Cross-file search: register enum class in local table
-                        // to get a locally-unique DeclareId (mirrors how
-                        // lapper_global_classes handles cross-file ClassRef).
-                        // The defining file is remembered so its value spans
-                        // can be registered below under the local class_id.
-                        match (
-                            Self::find_enum_class_cross_file(uri, sem, &base_name),
+                    let (cls, xuri) = match local_id {
+                        Some(cid) => (cid, Some(uri.clone())),
+                        None => match (
+                            Self::find_enum_class_cross_file(
+                                uri,
+                                sem,
+                                &base_name,
+                                Some((base_start, base_end)),
+                            ),
                             sem.global_table.lock(),
                         ) {
                             (Some((def_uri, def_span)), Ok(mut gt)) => (
                                 gt.add_enum_class(&def_uri, &McIds::from(&base_name), def_span),
                                 Some(def_uri),
                             ),
-                            _ => (DeclareId::default(), None),
-                        }
+                            _ => {
+                                dlog_error(
+                                    crate::errcodes::INST_CLASS_UNRESOLVED,
+                                    &opd_node,
+                                    &crate::errcodes::format_msg(
+                                        crate::errcodes::INST_CLASS_UNRESOLVED,
+                                        &[],
+                                    ),
+                                );
+                                continue;
+                            }
+                        },
                     };
 
                     // Locate the value by exact key (def_uri + name), never by
                     // a name-only walk — the class's defining file is already
                     // known (`xuri`), and a bare-name scan could hit a same-named
                     // enum in an unrelated file (§5.4.5).
-                    let mut find_value = |def_uri: &McURI| {
+                    let find_value = |def_uri: &McURI| {
                         let space =
                             McSpaceName::new(&McIds::from(base_name.as_str()), def_uri.clone());
                         let enum_def = workspace::WORKSPACE
@@ -5244,10 +5268,17 @@ impl McCode {
                         }
                     }
                     if idx.is_none() {
-                        if let Some((i, s)) = find_value(uri) {
-                            idx = Some(i);
-                            value_span = Some(s);
-                        }
+                        // §5.4.6 C3: no fallback to the current file — the
+                        // class's defining file (xuri) is the only place its
+                        // values can live. A member missing there is a real
+                        // reference error, not a reason to guess at a
+                        // same-named class in the current file.
+                        dlog_error(
+                            crate::errcodes::SYMBOL_NOT_FOUND,
+                            &opd_node,
+                            &crate::errcodes::format_msg(crate::errcodes::SYMBOL_NOT_FOUND, &[]),
+                        );
+                        continue;
                     }
 
                     match idx {
@@ -5403,13 +5434,6 @@ impl McCode {
                                 Err(_) => continue,
                             };
                             gt.lookup_enum_class(uri, &McIds::from(&family_name))
-                                .or_else(|| {
-                                    gt.enum_class_name_to_id.iter().find_map(
-                                        |((_uri, name), cid)| {
-                                            (name == &McIds::from(&family_name)).then_some(*cid)
-                                        },
-                                    )
-                                })
                         };
                         // presence of the mapping — not a nonzero
                         // value — decides whether the class is registered;
@@ -5419,7 +5443,12 @@ impl McCode {
                             None => {
                                 // Cross-file search + local registration
                                 match (
-                                    Self::find_enum_class_cross_file(uri, sem, &family_name),
+                                    Self::find_enum_class_cross_file(
+                                        uri,
+                                        sem,
+                                        &family_name,
+                                        Some((pos as u32, (pos + node.get_len() as usize) as u32)),
+                                    ),
                                     sem.global_table.lock(),
                                 ) {
                                     (Some((xuri, def_span)), Ok(mut gt)) => {
