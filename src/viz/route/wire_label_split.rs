@@ -72,10 +72,7 @@ pub fn apply_wire_label_split(graph: &mut McVecGraph) -> bool {
             passive_boxes.insert(b.id);
         }
         for ep in &b.entry_points {
-            pin_pos.insert(
-                (b.id, ep.pin_id),
-                (pin_xy(b, ep), ep.side),
-            );
+            pin_pos.insert((b.id, ep.pin_id), (pin_xy(b, ep), ep.side));
         }
     }
 
@@ -393,12 +390,7 @@ mod tests {
         b
     }
 
-    fn mk_net(
-        nid: i64,
-        name: &str,
-        kind: NetKind,
-        endpoints: Vec<EndpointRef>,
-    ) -> VizNet {
+    fn mk_net(nid: i64, name: &str, kind: NetKind, endpoints: Vec<EndpointRef>) -> VizNet {
         VizNet::new(nid, name.into(), kind, NetRole::Signal, endpoints)
     }
 
@@ -543,15 +535,7 @@ mod tests {
         // Short span but boundary net → still label
         graph.boxes = vec![
             mk_box(1, "A", BoxKind::MultiPin, 100.0, 100.0, 100.0, 100.0),
-            mk_box(
-                2,
-                "PT",
-                BoxKind::PortTerminal,
-                300.0,
-                100.0,
-                100.0,
-                100.0,
-            ),
+            mk_box(2, "PT", BoxKind::PortTerminal, 300.0, 100.0, 100.0, 100.0),
         ];
         graph.nets = vec![mk_net(
             1,

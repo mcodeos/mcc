@@ -20,7 +20,10 @@ use crate::instant::insttab::{InstEntry, InstKind, InstTable};
 
 use super::super::model::netshape::{GroupRole, NetShape};
 use super::super::model::{ConnectionType, McVecBlock, McVecNet};
-use super::boxdef::{BoxPin, CustomSymbol, EntryPoint, EntrySide, IoSummary, McVecBox, PinConstraint, PinLayout, PortDir, VisualRole};
+use super::boxdef::{
+    BoxPin, CustomSymbol, EntryPoint, EntrySide, IoSummary, McVecBox, PinConstraint, PinLayout,
+    PortDir, VisualRole,
+};
 use super::detect::{
     compute_io, compute_scope_chain, detect_kind, detect_symbol, extract_designator,
     extract_last_segment, parse_pin_number, translate_io_type, warn_if_pin_mismatch, DetectedKind,
@@ -456,10 +459,7 @@ fn build_mc_vec_graph_inner(
             DetectedKind::Label => {
                 // ★ P7-6: Label entries are literal views of port declarations, not
                 // drawable boxes. Skip them — same as the backfill path.
-                crate::velog!(
-                    "[graph] Phase 1 skip Label: '{}' (id={})",
-                    name, id
-                );
+                crate::velog!("[graph] Phase 1 skip Label: '{}' (id={})", name, id);
             }
             DetectedKind::Skip => {
                 if entry.kind == InstKind::Bus {

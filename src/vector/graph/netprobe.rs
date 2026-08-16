@@ -212,19 +212,21 @@ pub fn probe_block_to_graph_per_layer(block: &McVecBlock, graph: &McVecGraph) {
         if dropped.is_empty() {
             crate::vlog!(
                 "[netprobe] layer '{}': projected_nets={}  vizneted={}  dropped=0",
-                layer, proj_names.len(), viz_names.len(),
+                layer,
+                proj_names.len(),
+                viz_names.len(),
             );
         } else {
             let mut names: Vec<&str> = dropped.clone();
             names.sort_unstable();
             crate::vlog!(
                 "[netprobe] layer '{}': projected_nets={}  vizneted={}  dropped={}",
-                layer, proj_names.len(), viz_names.len(), dropped.len(),
+                layer,
+                proj_names.len(),
+                viz_names.len(),
+                dropped.len(),
             );
-            crate::vlog!(
-                "[netprobe]   dropped: {}",
-                names.join(", "),
-            );
+            crate::vlog!("[netprobe]   dropped: {}", names.join(", "),);
         }
     }
     crate::vlog!(

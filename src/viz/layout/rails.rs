@@ -44,8 +44,8 @@ use crate::vector::graph::graphdef::RailDecoration;
 use crate::vector::graph::naming;
 use crate::vector::graph::netdef::{IoDirection, NetRole};
 use crate::vector::graph::{
-    AnchorHint, BoxKind, EndpointRef, EntryPoint, EntrySide, IoSummary, McVecBox, McVecGraph, NetKind, Symbol,
-    VizNet,
+    AnchorHint, BoxKind, EndpointRef, EntryPoint, EntrySide, IoSummary, McVecBox, McVecGraph,
+    NetKind, Symbol, VizNet,
 };
 use crate::vector::model::RailClass;
 
@@ -240,7 +240,11 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
         let host_box = hosts
             .iter()
             .filter_map(|&bid| {
-                graph.boxes.iter().find(|b| b.id == bid).map(|b| (bid, b.pin_count))
+                graph
+                    .boxes
+                    .iter()
+                    .find(|b| b.id == bid)
+                    .map(|b| (bid, b.pin_count))
             })
             .max_by_key(|(_, pc)| *pc)
             .map(|(bid, _)| bid);
@@ -251,7 +255,7 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
             .map(|(_, e)| e.pin_id)
             .unwrap_or(0);
         let side = EntrySide::Bottom; // both Ground and Power rails: place passive below host
-        // Anchor boxes that will become degree=0
+                                      // Anchor boxes that will become degree=0
         for (box_id, _) in &per_box {
             if *box_id == host_box {
                 continue;

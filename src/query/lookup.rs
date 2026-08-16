@@ -422,6 +422,12 @@ impl ContainerRef {
 ///
 /// `kind_hint` narrows which DashMaps to search. Pass [`CmieKind::Any`] to
 /// search all four container types.
+///
+/// This is a **URI-scoped exact-key accessor, not a name-resolution entry**
+/// (resolve-unification.md §4.3): `uri` is the *definition* URI, and the class
+/// name must already be resolved to that URI through `Resolver` /
+/// `mcb_get_cmie` (which apply the V(F) visibility set). `is_visible` is
+/// trivially true here because `def.uri == from_uri` (P3) by construction.
 pub fn find_container(name: &McIds, uri: &McURI, kind_hint: CmieKind) -> Option<ContainerRef> {
     let uri_str = uri.as_str();
     let cn = name.to_string();
@@ -758,16 +764,15 @@ pub(crate) fn find_in_project_tables(space_name: &McSpaceName) -> Option<McCMIE>
 }
 
 // === fn find_by_name_in_project_tables(class_name: &McIds) -> Option<McCMIE> { ===
-/// Look up directly in the global table by name (ignoring URI)
+/// Debug-only lookup: search the global (mcode) tables by name, ignoring URI.
+///
+/// NOT part of the resolution policy — the policy lives in
+/// `db/resolve/policy.rs` (§5.4.3: workspace-wide name-only scans are
+/// forbidden). Kept only for diagnostic dumps (`mcc show` / debug traces).
 pub(crate) fn find_by_name_in_project_tables(class_name: &McIds) -> Option<McCMIE> {
     let name_str = class_name.to_string();
+
     // Check components (exact match)
-    for entry in workspace::WORKSPACE.components.iter() {
-        let ident_str = entry.key().ident.to_string();
-        if ident_str == name_str {
-            return Some(McCMIE::Component(entry.value().clone()));
-        }
-    }
     for entry in global::mcc_components.iter() {
         let ident_str = entry.key().ident.to_string();
         if name_str == "DIO.ESD" {
@@ -782,12 +787,6 @@ pub(crate) fn find_by_name_in_project_tables(class_name: &McIds) -> Option<McCMI
     }
 
     // Check modules (exact match)
-    for entry in workspace::WORKSPACE.modules.iter() {
-        let ident_str = entry.key().ident.to_string();
-        if ident_str == name_str {
-            return Some(McCMIE::Module(entry.value().clone()));
-        }
-    }
     for entry in global::mcc_modules.iter() {
         let ident_str = entry.key().ident.to_string();
         if ident_str == name_str {
@@ -796,12 +795,6 @@ pub(crate) fn find_by_name_in_project_tables(class_name: &McIds) -> Option<McCMI
     }
 
     // Check interfaces
-    for entry in workspace::WORKSPACE.interfaces.iter() {
-        let ident_str = entry.key().ident.to_string();
-        if ident_str == name_str {
-            return Some(McCMIE::Interface(entry.value().clone()));
-        }
-    }
     for entry in global::mcc_interfaces.iter() {
         let ident_str = entry.key().ident.to_string();
         if ident_str == name_str {
@@ -811,12 +804,6 @@ pub(crate) fn find_by_name_in_project_tables(class_name: &McIds) -> Option<McCMI
 
     // Check enums
     for entry in global::mcc_enums.iter() {
-        let ident_str = entry.key().ident.to_string();
-        if ident_str == name_str {
-            return Some(McCMIE::Enum(entry.value().clone()));
-        }
-    }
-    for entry in workspace::WORKSPACE.enums.iter() {
         let ident_str = entry.key().ident.to_string();
         if ident_str == name_str {
             return Some(McCMIE::Enum(entry.value().clone()));

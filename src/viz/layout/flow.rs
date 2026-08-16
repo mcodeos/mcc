@@ -771,7 +771,12 @@ fn choose_root(
 ) -> i64 {
     // ★ P7-8: PortTerminal boxes never participate in hub election
     let is_core = |b: &&McVecBox| b.kind != BoxKind::PortTerminal;
-    if let Some(b) = graph.boxes.iter().filter(|b| is_core(b) && naming::is_main_chip(&b.name)).next() {
+    if let Some(b) = graph
+        .boxes
+        .iter()
+        .filter(|b| is_core(b) && naming::is_main_chip(&b.name))
+        .next()
+    {
         return b.id;
     }
     // Sub-layer anchoring: prefer IC with most pins (top-level module is Module, won't match → behavior unchanged)
