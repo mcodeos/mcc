@@ -127,6 +127,11 @@ fn get_config_value(config: &MccConfig, name: &str) -> Result<String> {
             .map(|v| v.to_string())
             .unwrap_or_else(|| "null".to_string())),
         ["libs", "load"] => Ok(format!("{:?}", config.libs.load)),
+        ["libs", "disable_mcode"] => Ok(config
+            .libs
+            .disable_mcode
+            .map(|v| v.to_string())
+            .unwrap_or_else(|| "null".to_string())),
         _ => anyhow::bail!("unknown config key: {}", name),
     }
 }
@@ -163,6 +168,13 @@ fn set_config_value(config: &mut MccConfig, name: &str, value: &str) -> Result<(
                 .collect();
             config.libs.load = libs;
         }
+        ["libs", "disable_mcode"] => {
+            // "null"/"none" resets to unset (default: mcode auto-loads).
+            config.libs.disable_mcode = match value.to_lowercase().as_str() {
+                "null" | "none" => None,
+                _ => Some(parse_bool(value)?),
+            };
+        }
         _ => anyhow::bail!("unknown config key: {}", name),
     }
     Ok(())
@@ -187,6 +199,7 @@ fn list_config(config: &MccConfig) {
     println!("  output.format = {:?}", config.output.format);
     println!("  output.color = {:?}", config.output.color);
     println!("  libs.load = {:?}", config.libs.load);
+    println!("  libs.disable_mcode = {:?}", config.libs.disable_mcode);
 }
 
 fn parse_bool(value: &str) -> Result<bool> {

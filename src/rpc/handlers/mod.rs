@@ -1266,8 +1266,9 @@ pub(crate) fn read_manifest_entry(name: &str) -> Option<String> {
 
 pub(crate) fn read_project_entry_from_workspace() -> Option<String> {
     let (_, _, root_str) = crate::workspace_info();
-    let project_toml = PathBuf::from(&root_str).join("project.toml");
-    let content = fs::read_to_string(&project_toml).ok()?;
+    let root = PathBuf::from(&root_str);
+    let manifest = crate::cli::datadir::find_manifest_in(&root)?;
+    let content = fs::read_to_string(&manifest).ok()?;
     parse_manifest_field(&content, "entry")
 }
 
@@ -1278,8 +1279,9 @@ pub(crate) fn read_manifest_top(name: &str) -> Option<String> {
 
 pub(crate) fn read_project_top_from_workspace() -> Option<String> {
     let (_, _, root_str) = crate::workspace_info();
-    let project_toml = PathBuf::from(&root_str).join("project.toml");
-    let content = fs::read_to_string(&project_toml).ok()?;
+    let root = PathBuf::from(&root_str);
+    let manifest = crate::cli::datadir::find_manifest_in(&root)?;
+    let content = fs::read_to_string(&manifest).ok()?;
     parse_manifest_field(&content, "top_module")
 }
 
@@ -2007,12 +2009,13 @@ pub(crate) fn auto_load_from_file_path(file_path: &Path) {
 }
 
 /// Walk up from a file path to find the project root
-/// A project root is a directory containing project.toml or .mc files at top level
+/// A project root is a directory containing a project manifest
+/// (manifest.toml / project.toml / mcc.toml) or .mc files at top level
 pub(crate) fn find_project_root(file_path: &Path) -> PathBuf {
     // Priority 1: the configured project root (the folder opened in the editor,
     // set via mcext set_project_root). In non-project mode every .mc file under
     // the opened folder is a peer, so the workspace root is always the folder
-    // itself. No upward search for a nested project.toml: sub-projects are
+    // itself. No upward search for a nested manifest: sub-projects are
     // handled as plain files (see design doc mcext-folder-parse-design.md §2.6).
     let configured = crate::db::infra::init::mcb_get_project_root();
     if configured.is_absolute() && !configured.as_os_str().is_empty() {
@@ -2028,11 +2031,12 @@ pub(crate) fn find_project_root(file_path: &Path) -> PathBuf {
             .unwrap_or_else(|| PathBuf::from("."))
     };
 
-    // First pass: walk up looking for project.toml (highest priority)
+    // First pass: walk up looking for a project manifest (3 names, same
+    // priority as CLI project-root discovery).
     let mut probe = current.clone();
     let mut toml_dir: Option<PathBuf> = None;
     loop {
-        if probe.join("project.toml").exists() {
+        if crate::cli::datadir::find_manifest_in(&probe).is_some() {
             toml_dir = Some(probe.clone());
             break;
         }
@@ -2042,7 +2046,7 @@ pub(crate) fn find_project_root(file_path: &Path) -> PathBuf {
             break;
         }
     }
-    // If project.toml found, use that directory
+    // If a manifest is found, use that directory
     if let Some(dir) = toml_dir {
         return dir;
     }
@@ -2087,10 +2091,10 @@ pub(crate) fn ensure_library_loaded(file_uri: &McURI) {
     let path = Path::new(file_uri.as_str());
     let project_root = find_project_root(path);
 
-    // Try to load project.toml dependencies
-    let project_toml = project_root.join("project.toml");
-    if project_toml.exists() {
-        if let Ok(contents) = std::fs::read_to_string(&project_toml) {
+    // Try to load project manifest dependencies (3 names, same as CLI)
+    let project_manifest = crate::cli::datadir::find_manifest_in(&project_root);
+    if let Some(manifest_path) = project_manifest {
+        if let Ok(contents) = std::fs::read_to_string(&manifest_path) {
             if let Some(deps) = extract_lib_dependencies(&contents) {
                 tracing::debug!(target: "mcc::lib", deps = ?deps, "loading dependencies");
                 for lib_name in deps {
@@ -2659,6 +2663,35 @@ mod tests {
         // the first directory containing .mc files (here: the file's parent).
         crate::db::infra::init::mcb_set_project_root(std::path::Path::new(""));
         assert_eq!(find_project_root(&file), sub);
+
+        fs::remove_dir_all(&tmp).unwrap();
+        crate::db::infra::init::mcb_set_project_root(&saved);
+    }
+
+    #[test]
+    fn find_project_root_detects_any_manifest_name() {
+        let saved = crate::db::infra::init::mcb_get_project_root();
+        crate::db::infra::init::mcb_set_project_root(std::path::Path::new(""));
+
+        let tmp = std::env::temp_dir().join(format!("mcc-root-mf-{}", std::process::id()));
+        let sub = tmp.join("src");
+        fs::create_dir_all(&sub).unwrap();
+        let file = sub.join("x.mc");
+        fs::write(&file, "").unwrap();
+
+        // manifest.toml project
+        fs::write(tmp.join("manifest.toml"), "[project]\nname = \"m\"\n").unwrap();
+        assert_eq!(find_project_root(&file), tmp);
+
+        // mcc.toml project (no manifest.toml / project.toml present)
+        fs::remove_file(tmp.join("manifest.toml")).unwrap();
+        fs::write(tmp.join("mcc.toml"), "[project]\nname = \"m\"\n").unwrap();
+        assert_eq!(find_project_root(&file), tmp);
+
+        // project.toml project (the original single-name behavior)
+        fs::remove_file(tmp.join("mcc.toml")).unwrap();
+        fs::write(tmp.join("project.toml"), "[project]\nname = \"m\"\n").unwrap();
+        assert_eq!(find_project_root(&file), tmp);
 
         fs::remove_dir_all(&tmp).unwrap();
         crate::db::infra::init::mcb_set_project_root(&saved);

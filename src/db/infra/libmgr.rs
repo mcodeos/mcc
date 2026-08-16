@@ -48,6 +48,100 @@ pub struct LibInfo {
     pub enums: Vec<String>,
 }
 
+/// RAII guard for the process-wide side effects of `mcb_load_lib`.
+///
+/// `mcb_load_lib` can be re-entered: a library's dependency chain (or a
+/// non-project `use` lazy load, use-design §19.5 rule 2) may trigger a nested
+/// `mcb_load_lib` while an outer load is still running. Each entry sets the
+/// system-lib-loading flag and resets the AST visit dedup flag; without a
+/// guard the inner load's exit would clobber the outer load's state. The
+/// guard saves both flags on entry and restores them on drop, so a nested load
+/// returns the process to the exact state the outer load expects.
+struct LibLoadGuard {
+    visit_done: bool,
+    system_loading: bool,
+}
+
+impl LibLoadGuard {
+    fn new() -> Self {
+        let guard = Self {
+            visit_done: super::mc_code::AST_VISIT_DONE.load(std::sync::atomic::Ordering::SeqCst),
+            system_loading: crate::cli::config::is_system_lib_loading(),
+        };
+        // Same side effects as the previous inline code: suppress trace output
+        // while the library is loaded, and force a fresh AST visit pass.
+        crate::cli::config::set_system_lib_loading(true);
+        super::mc_code::mcb_reset_ast_visit_flag();
+        guard
+    }
+}
+
+impl Drop for LibLoadGuard {
+    fn drop(&mut self) {
+        super::mc_code::AST_VISIT_DONE.store(self.visit_done, std::sync::atomic::Ordering::SeqCst);
+        crate::cli::config::set_system_lib_loading(self.system_loading);
+    }
+}
+
+/// Find the on-disk root directory of a library, for non-project `use` lazy
+/// loading (use-design §19.5 rule 2).
+///
+/// Mirrors the RPC-side `resolve_lib_root` semantics so CLI and server agree
+/// on where third-party libraries live: the runtime system root is searched
+/// first (MCC_SYSTEM_ROOT env, a local `mc/`/`mcode/` project root, or the
+/// `~/.mcode` default — see `mcc_set_system_root`), with `data_root()` as the
+/// fallback. mcode resolves under each root (with a sibling fallback); other
+/// libraries match versioned directories (`<name>@<version>`), then a bare
+/// `<name>` directory.
+pub fn resolve_lib_root(name: &str) -> Option<std::path::PathBuf> {
+    let mut roots: Vec<std::path::PathBuf> = Vec::new();
+    let sys = crate::builder::mcb_get_system_root();
+    if !sys.as_os_str().is_empty() {
+        roots.push(sys);
+    }
+    let data = crate::cli::datadir::data_root();
+    if !roots.iter().any(|r| *r == data) {
+        roots.push(data);
+    }
+    for root in roots {
+        if let Some(found) = find_lib_dir(&root, name) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// Search a single root directory for a library by name.
+fn find_lib_dir(root: &Path, name: &str) -> Option<std::path::PathBuf> {
+    if name == "mcode" {
+        let p = root.join("mcode");
+        if p.exists() {
+            return Some(p);
+        }
+        let sibling = root.join("..").join("mcode");
+        if sibling.exists() {
+            return Some(sibling);
+        }
+        return None;
+    }
+    if root.exists() {
+        let prefix = format!("{name}@");
+        if let Ok(entries) = std::fs::read_dir(root) {
+            for e in entries.flatten() {
+                let fname = e.file_name().to_string_lossy().to_string();
+                if fname.starts_with(&prefix) && e.path().is_dir() {
+                    return Some(e.path());
+                }
+            }
+        }
+        let bare = root.join(name);
+        if bare.exists() {
+            return Some(bare);
+        }
+    }
+    None
+}
+
 /// Load a system library into memory.
 ///
 /// `name`: library name (e.g., "mcode", "infineon")
@@ -95,19 +189,14 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
     // Pre-insert empty blib entry (to avoid circular lookup issues)
     mcc_blibs.insert(name.to_string(), McCode::new_empty());
 
-    // Set system lib loading flag
-    crate::cli::config::set_system_lib_loading(true);
-
-    // Reset AST visit flag, to avoid visit conflict with user files
-    super::mc_code::mcb_reset_ast_visit_flag();
+    // Save/restore the loading side effects so nested `mcb_load_lib` calls
+    // (diamond deps, use lazy loading) do not clobber the outer load's state.
+    let _guard = LibLoadGuard::new();
 
     // Recursively load all dependencies (is_system=true)
     let uri = entry_file.to_string_lossy().to_string();
     let mut loaded = HashSet::new();
     crate::build::loader::mcb_add_recursive(&uri, &mut loaded, true);
-
-    // Clear system lib loading flag
-    crate::cli::config::set_system_lib_loading(false);
 
     debug!(
         target: "mcc::lib",
@@ -289,23 +378,33 @@ pub fn mcb_lib_info(name: &str) -> Option<LibInfo> {
 /// non-project builds honor the global mcc.yaml [libs].load list.
 pub fn mcb_load_lib_by_name(lib_name: &str) {
     let system_root = crate::mcb_get_system_root();
+    let default_root = dirs::home_dir()
+        .map(|h| h.join(".mcode"))
+        .unwrap_or_else(|| std::path::PathBuf::from(".mcode"));
 
-    // Determine the actual root to use (flat layout).
-    let lib_path = if system_root.as_os_str().is_empty() {
-        let default_root = dirs::home_dir()
-            .map(|h| h.join(".mcode"))
-            .unwrap_or_else(|| std::path::PathBuf::from(".mcode"));
-        default_root.join(lib_name)
-    } else {
-        let joined = system_root.join(lib_name);
-        if !joined.exists() {
-            let default_root = dirs::home_dir()
-                .map(|h| h.join(".mcode"))
-                .unwrap_or_else(|| std::path::PathBuf::from(".mcode"));
+    // Determine the actual root to use. Path-like names (absolute paths,
+    // `a/b` forms, `.mc` files) resolve against the system root directly.
+    // Bare library names go through the version-aware `resolve_lib_root`
+    // (system root first, then data root; `<name>@<version>` directories are
+    // matched before the bare `<name>` directory) so third-party libraries
+    // installed as versioned directories load correctly.
+    let is_path_like = lib_name.contains('/')
+        || lib_name.contains('\\')
+        || lib_name.ends_with(".mc")
+        || std::path::Path::new(lib_name).is_absolute();
+    let lib_path = if is_path_like {
+        if system_root.as_os_str().is_empty() {
             default_root.join(lib_name)
         } else {
-            joined
+            let joined = system_root.join(lib_name);
+            if !joined.exists() {
+                default_root.join(lib_name)
+            } else {
+                joined
+            }
         }
+    } else {
+        resolve_lib_root(lib_name).unwrap_or_else(|| default_root.join(lib_name))
     };
 
     // Normalize: if lib_name is a .mc file path, extract the library name
@@ -383,5 +482,63 @@ fn remove_by_uris<T>(table: &DashMap<McSpaceName, Arc<T>>, uris: &HashSet<String
         .collect();
     for key in to_remove {
         table.remove(&key);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::find_lib_dir;
+    use std::path::PathBuf;
+
+    /// Build a temp root populated with a bare `acme` lib and a versioned one.
+    fn temp_root(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("mcc-findlib-{}-{}", name, std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("acme")).unwrap();
+        std::fs::create_dir_all(dir.join("acme@2.0")).unwrap();
+        std::fs::create_dir_all(dir.join("mcode")).unwrap();
+        dir
+    }
+
+    #[test]
+    fn find_lib_dir_prefers_versioned_dir() {
+        let root = temp_root("versioned");
+        let found = find_lib_dir(&root, "acme");
+        assert_eq!(found, Some(root.join("acme@2.0")), "versioned dir wins");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn find_lib_dir_bare_dir_fallback() {
+        let root = temp_root("bare");
+        std::fs::remove_dir_all(root.join("acme@2.0")).unwrap();
+        let found = find_lib_dir(&root, "acme");
+        assert_eq!(found, Some(root.join("acme")), "bare dir fallback");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn find_lib_dir_mcode_subdir_and_sibling() {
+        let root = temp_root("mcode");
+        let found = find_lib_dir(&root, "mcode");
+        assert_eq!(found, Some(root.join("mcode")));
+        let _ = std::fs::remove_dir_all(&root);
+
+        // Sibling fallback: the root itself is a data root whose mcode lives
+        // one level up.
+        let root2 = std::env::temp_dir().join(format!("mcc-findlib-sib-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root2);
+        std::fs::create_dir_all(&root2).unwrap();
+        std::fs::create_dir_all(root2.join("..").join("mcode")).unwrap();
+        let found = find_lib_dir(&root2, "mcode");
+        assert_eq!(found, Some(root2.join("..").join("mcode")));
+        let _ = std::fs::remove_dir_all(&root2);
+    }
+
+    #[test]
+    fn find_lib_dir_absent_returns_none() {
+        let root = temp_root("absent");
+        assert_eq!(find_lib_dir(&root, "nosuchlib"), None);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -29,8 +29,9 @@ fn run_mcc_parse(source: &str) -> Value {
     envelope["result"].clone()
 }
 
-/// §11: E800 — `use` of undeclared third-party library must emit a warning
-/// that flows into the pass0 diagnostics snapshot.
+/// §19.5 rule 2: in non-project context, `use` of a library that does not
+/// exist on disk emits E2051 with a "not found" message (no longer the
+/// project-mode "undeclared dependency" wording).
 #[test]
 fn undeclared_dependency_emits_e800() {
     let source = r#"
@@ -55,9 +56,161 @@ module main {
         .expect("USE_DEP_NOT_DECLARED entry");
     let msg = e800["message"].as_str().unwrap_or_default();
     assert!(
-        msg.contains("nonexistent") && msg.contains("undeclared"),
-        "USE_DEP_NOT_DECLARED message should mention 'nonexistent' and 'undeclared', got: {msg}"
+        msg.contains("nonexistent") && msg.contains("not found"),
+        "non-project USE_DEP_NOT_DECLARED message should mention 'nonexistent' and 'not found', got: {msg}"
     );
+}
+
+/// §19.5 rule 2: in project context (project.toml present), `use` of a
+/// library that is not declared in [dependencies] keeps the strict
+/// "undeclared dependency" E2051 message and does NOT lazy-load.
+#[test]
+fn undeclared_dependency_project_mode_keeps_undeclared_message() {
+    use std::process::Command as StdCommand;
+    // Build a throwaway project so the parse runs in project context.
+    let dir = std::env::temp_dir().join(format!("mcc-e2051-project-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("create temp project dir");
+    std::fs::write(
+        dir.join("project.toml"),
+        "[project]\nname = \"e2051p\"\nversion = \"1.0.0\"\nentry = \"main.mc\"\ntop_module = \"main\"\n",
+    )
+    .expect("write project.toml");
+    std::fs::write(
+        dir.join("main.mc"),
+        "use $::nonexistent.lib@1.0\n\nmodule main {\n    U1::init()\n}\n",
+    )
+    .expect("write main.mc");
+
+    let output = StdCommand::new(env!("CARGO_BIN_EXE_mcc"))
+        .args([
+            "parse",
+            dir.to_str().expect("temp dir path"),
+            "--pass1",
+            "--pass2",
+            "--top",
+            "main",
+            "-f",
+            "json",
+        ])
+        .output()
+        .expect("run JSON parse on project dir");
+    assert!(
+        output.status.success(),
+        "mcc parse failed: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let envelope: Value =
+        serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("invalid JSON: {e}\n{stdout}"));
+    let diags = envelope["result"]["pass0"]["diagnostics"]
+        .as_array()
+        .expect("pass0 diagnostics");
+    let codes: Vec<u64> = diags.iter().filter_map(|d| d["code"].as_u64()).collect();
+    assert!(
+        codes.contains(&2051),
+        "expected USE_DEP_NOT_DECLARED in pass0 diagnostics, got codes: {codes:?}"
+    );
+    let e800 = diags
+        .iter()
+        .find(|d| d["code"] == 2051)
+        .expect("USE_DEP_NOT_DECLARED entry");
+    let msg = e800["message"].as_str().unwrap_or_default();
+    assert!(
+        msg.contains("nonexistent") && msg.contains("undeclared"),
+        "project-mode USE_DEP_NOT_DECLARED message should mention 'nonexistent' and 'undeclared', got: {msg}"
+    );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// §19.5 rule 2: in non-project context, `use` of a library that exists on
+/// disk lazily loads it — no E2051, and the library's symbols resolve.
+#[test]
+fn non_project_use_lazily_loads_library() {
+    use std::process::Command as StdCommand;
+
+    // Build a throwaway system root with a tiny third-party library "acme"
+    // exposing the acme-only component ACMERES.
+    let root = std::env::temp_dir().join(format!("mcc-lazyroot-{}", std::process::id()));
+    let acme = root.join("acme");
+    std::fs::create_dir_all(acme.join("res")).expect("create acme dirs");
+    std::fs::write(
+        acme.join("acme.mc"),
+        "// acme library entry: aggregates submodules.\npub use ./res/res.mc\n",
+    )
+    .expect("write acme.mc");
+    std::fs::write(
+        acme.join("res/res.mc"),
+        "component ACMERES(rs::UV.OHM)\n{\n    name = \"Acme Resistor\"\n    pins = [\n        1 = 1, \"Term 1\"\n        2 = 2, \"Term 2\"\n    ]\n    spec = [\n        resistance = rs\n    ]\n}\n",
+    )
+    .expect("write res.mc");
+
+    // Standalone file (no project.toml anywhere above it) using the library.
+    let standalone =
+        std::env::temp_dir().join(format!("mcc-lazy-standalone-{}.mc", std::process::id()));
+    std::fs::write(
+        &standalone,
+        "use $::acme.res\n\nmodule main {\n    VIN -> ACMERES(10kOhm) -> GND\n}\n",
+    )
+    .expect("write standalone.mc");
+
+    let output = StdCommand::new(env!("CARGO_BIN_EXE_mcc"))
+        .args([
+            "parse",
+            standalone.to_str().expect("standalone path"),
+            "--pass1",
+            "--pass2",
+            "--top",
+            "main",
+            "-f",
+            "json",
+        ])
+        .env("MCC_SYSTEM_ROOT", &root)
+        .output()
+        .expect("run JSON parse on standalone file");
+    assert!(
+        output.status.success(),
+        "mcc parse failed: stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let envelope: Value =
+        serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("invalid JSON: {e}\n{stdout}"));
+    let result = &envelope["result"];
+
+    // No E2051: the library was lazily loaded instead of reported missing.
+    let diags = result["pass0"]["diagnostics"]
+        .as_array()
+        .expect("pass0 diagnostics");
+    let codes: Vec<u64> = diags.iter().filter_map(|d| d["code"].as_u64()).collect();
+    assert!(
+        !codes.contains(&2051),
+        "no USE_DEP_NOT_DECLARED expected after lazy load, got codes: {codes:?}\nfull: {diags:#?}"
+    );
+
+    // §15: third-party symbols are removed from the global definitions tables
+    // and are only reachable through the explicit `use` path. ACMERES must
+    // therefore resolve (no unresolved-class diagnostic) even though it does
+    // not appear in pass1.definitions.components. We verify lazy loading
+    // succeeded by asserting the whole parse produced zero errors and zero
+    // unresolved-class / not-loaded diagnostics.
+    let mut all_codes: Vec<u64> = Vec::new();
+    for phase in ["pass0", "pass2"] {
+        if let Some(arr) = result[phase]["diagnostics"].as_array() {
+            all_codes.extend(arr.iter().filter_map(|d| d["code"].as_u64()));
+        }
+    }
+    assert!(
+        !all_codes.contains(&3157) && !all_codes.contains(&3154) && !all_codes.contains(&5256),
+        "ACMERES should resolve after lazy load, got unresolved-class codes: {all_codes:?}"
+    );
+    assert_eq!(
+        result["summary"]["errors"], 0,
+        "no errors expected after lazy load, summary: {:?}",
+        result["summary"]
+    );
+
+    let _ = std::fs::remove_dir_all(&root);
+    let _ = std::fs::remove_file(&standalone);
 }
 
 /// §15: third-party library symbols should be hidden until explicitly `use`d.

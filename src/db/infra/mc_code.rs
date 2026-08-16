@@ -32,6 +32,7 @@ impl DedupLapper {
         self.inner
     }
 }
+
 use crate::ast::ast_semantic::{
     DeclareId, McSemSymbols, SourceLocation, Span, SymbolKind, SymbolRangeLapper, SymbolType,
 };
@@ -90,6 +91,76 @@ pub struct McCode {
         std::ops::Range<usize>,
         u8,
     )>,
+}
+
+/// §11/§19: validate an unprefixed (system/third-party) `use` target against
+/// the loaded-library set.
+///
+/// Non-project context (no project.toml reachable from the current file):
+/// lazily load the library from disk; E2051 fires only when it does not
+/// exist. Project context: strict check — the library must be declared in
+/// project.toml [dependencies] (or loaded via --lib / global config);
+/// otherwise E2051 "undeclared dependency" (use-design §19.5 rule 2).
+fn check_system_use_lib(mcuse: &McUse, current_path: &Path) {
+    // `orig_uri` is the module path (e.g. "acme/res/res"); the library name is
+    // its first segment. Strip any defensive `@version` suffix.
+    let lib_name = mcuse
+        .orig_uri
+        .split('/')
+        .next()
+        .unwrap_or("")
+        .split('@')
+        .next()
+        .unwrap_or("");
+    if lib_name.is_empty() {
+        return;
+    }
+    if mcb_loaded_libs().contains(&lib_name.to_string()) {
+        return;
+    }
+    if !manifest_reachable_from(current_path) {
+        // Non-project context: lazy load when the library exists on disk.
+        if let Some(root) = crate::db::infra::libmgr::resolve_lib_root(lib_name) {
+            if crate::db::infra::libmgr::mcb_load_lib(lib_name, &root) {
+                return; // loaded — no diagnostic
+            }
+        }
+        // The library is truly absent: report "not found" instead of the
+        // project-mode "undeclared dependency" message.
+        dlog_warning_at(
+            crate::errcodes::USE_DEP_NOT_DECLARED,
+            mcuse.pos,
+            mcuse.len,
+            &format!(
+                "library '{lib_name}' not found in the system root; install it with `mcc lib install` or load it with --lib"
+            ),
+        );
+        return;
+    }
+    // Project context: strict declaration check.
+    dlog_warning_at(
+        crate::errcodes::USE_DEP_NOT_DECLARED,
+        mcuse.pos,
+        mcuse.len,
+        &crate::errcodes::format_msg(crate::errcodes::USE_DEP_NOT_DECLARED, &[&lib_name]),
+    );
+}
+
+/// Walk up from `start` looking for a project manifest. Accepts the same
+/// three candidate names as the unified project-root discovery
+/// (`manifest.toml` / `project.toml` / `mcc.toml`), so use validation and
+/// project-root resolution agree on what counts as a project.
+fn manifest_reachable_from(start: &Path) -> bool {
+    let mut current = Some(start);
+    while let Some(dir) = current {
+        for name in ["manifest.toml", "project.toml", "mcc.toml"] {
+            if dir.join(name).exists() {
+                return true;
+            }
+        }
+        current = dir.parent();
+    }
+    false
 }
 
 ////////////////////////////////
@@ -801,21 +872,10 @@ impl McCode {
                 continue;
             }
 
-            // §11: check that unprefixed (system/third-party) use targets
-            // are declared in project.toml [dependencies] or loaded via global config.
+            // §11/§19: check that unprefixed (system/third-party) use targets
+            // are declared (project context) or lazily loaded (non-project).
             if mcuse.prefix == McUsePrefix::PathSystem {
-                let lib_name = mcuse.orig_uri.split('/').next().unwrap_or("");
-                if !lib_name.is_empty() && !mcb_loaded_libs().contains(&lib_name.to_string()) {
-                    dlog_warning_at(
-                        crate::errcodes::USE_DEP_NOT_DECLARED,
-                        mcuse.pos,
-                        mcuse.len,
-                        &crate::errcodes::format_msg(
-                            crate::errcodes::USE_DEP_NOT_DECLARED,
-                            &[&lib_name],
-                        ),
-                    );
-                }
+                check_system_use_lib(&mcuse, current_path);
             }
 
             // (1). load ast
@@ -1074,21 +1134,10 @@ impl McCode {
                 continue;
             }
 
-            // §11: check that unprefixed (system/third-party) use targets
-            // are declared in project.toml [dependencies] or loaded via global config.
+            // §11/§19: check that unprefixed (system/third-party) use targets
+            // are declared (project context) or lazily loaded (non-project).
             if mcuse.prefix == McUsePrefix::PathSystem {
-                let lib_name = mcuse.orig_uri.split('/').next().unwrap_or("");
-                if !lib_name.is_empty() && !mcb_loaded_libs().contains(&lib_name.to_string()) {
-                    dlog_warning_at(
-                        crate::errcodes::USE_DEP_NOT_DECLARED,
-                        mcuse.pos,
-                        mcuse.len,
-                        &crate::errcodes::format_msg(
-                            crate::errcodes::USE_DEP_NOT_DECLARED,
-                            &[&lib_name],
-                        ),
-                    );
-                }
+                check_system_use_lib(&mcuse, current_path);
             }
 
             // Look up dependency's spacenames from workspace.

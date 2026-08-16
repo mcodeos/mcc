@@ -9,6 +9,7 @@
 //! `rpc/handlers.rs` can share the exact same code without reaching into
 //! the binary's private `cmds` module.
 
+use crate::cmds::manifest;
 use crate::output::envelope::ExportData;
 use crate::output::{self, builder::ResultBuilder, envelope::Envelope};
 use anyhow::Result;
@@ -68,6 +69,8 @@ fn rpc_mapping(args: &ExportArgs) -> Option<(&'static str, Value)> {
 }
 
 fn run_local(args: &ExportArgs) -> Result<()> {
+    // Shared local initialization: engine + libs (global config, --lib, mcode default).
+    manifest::init_local(Some(args.file.as_str()), &args.lib);
     let format = if args.json {
         OutputFormat::Json
     } else {

@@ -148,20 +148,22 @@ fn main() -> ExitCode {
     }
 
     // ── 4. Dispatch to subcommands ────────────────────────────────────────────
+    // Commands that self-initialize via `init_local` (mcc_init_no_lib + system
+    // root + libs) or a manual `mcc_init_no_lib` must NOT be eagerly
+    // initialized here: `mcc_init()` would load mcode from the *unset* system
+    // root (~/.mcode) and the later set_system_root would then be skipped by
+    // the already-set guard, leaving stale libs from the wrong root.
     let need_mcc_init = match &cli.command {
-        Some(Command::Start(_)) => false,
-        Some(Command::Stop(_)) => false,
-        Some(Command::Status(_)) => false,
-        Some(Command::Config(_)) => false,
-        Some(Command::Proj(_)) => false,
-        Some(Command::Show(_)) => false,
-        Some(Command::Search(_)) => false,
-        Some(Command::Query(_)) => false,
+        Some(Command::Start(_)) | Some(Command::Stop(_)) | Some(Command::Status(_)) => false,
+        Some(Command::Config(_)) | Some(Command::Proj(_)) => false,
+        Some(Command::Show(_)) | Some(Command::Search(_)) | Some(Command::Query(_)) => false,
         Some(Command::Export(_)) => false,
-        Some(Command::Parse(_)) => false,
-        Some(Command::Check(_)) => false,
-        Some(Command::Extract(_)) => false,
+        Some(Command::Parse(_)) | Some(Command::Check(_)) | Some(Command::Extract(_)) => false,
+        Some(Command::Build(_)) | Some(Command::Def(_)) | Some(Command::Erc(_)) => false,
+        Some(Command::Refs(_)) | Some(Command::Convert(_)) | Some(Command::Report(_)) => false,
         None => false,
+        // Lib / Explain / Caps and any future command keep the conservative
+        // full initialization.
         _ => true,
     };
 

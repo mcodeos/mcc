@@ -69,20 +69,27 @@ fn rpc_mapping(args: &SearchArgs) -> Option<(&'static str, Value)> {
 }
 
 fn run_local(args: &SearchArgs) -> Result<()> {
-    mcc::mcc_init_no_lib();
-    if !args.lib.is_empty() {
-        manifest::load_libs(&manifest::collect_libs(None, &args.lib));
-    }
+    manifest::init_local(args.target.as_deref(), &args.lib);
     // Optional target load — required for `--kind instance --top <NAME>` so the
     // named module is in scope for this CLI invocation (workspace is per-process).
     if let Some(target) = &args.target {
         let path = std::path::Path::new(target);
         if path.is_dir() {
-            // Walk for *.mc files and load the first module-containing one.
-            // For deeper support, `parse <dir>` is the right tool; here we
-            // accept a directory and feed it to mcc_load_project which
-            // walks internally.
-            let _ = mcc::mcc_load_project(&mcc::McURI::from(target.as_str()));
+            // Project mode: manifest-driven; browse fallback (§19.5 rule 3 of
+            // use-design.md) when the directory has no manifest. Passing a
+            // directory straight to mcc_load_project would treat it as an
+            // entry *file*, which is wrong.
+            match manifest::build_from_manifest(path, None, args.entry.as_deref()) {
+                Ok((_, _)) => {}
+                Err(manifest_err) => {
+                    let entry = manifest::select_browse_entry(path, args.entry.as_deref())
+                        .map_err(|browse_err| {
+                            anyhow::anyhow!("{} (manifest: {:#})", browse_err, manifest_err)
+                        })?;
+                    let entry_uri = entry.to_string_lossy().to_string();
+                    mcc::mcc_load_project(&mcc::McURI::from(entry_uri.as_str()));
+                }
+            }
         } else {
             mcc::mcc_load_project(&mcc::McURI::from(target.as_str()));
         }

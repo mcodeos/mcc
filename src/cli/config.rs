@@ -201,21 +201,22 @@ impl OutputConfig {
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct LibsConfig {
-    /// List of system libraries to load. Empty means don't load mcode by default.
+    /// List of additional system libraries to load on top of mcode.
     /// Example: ["mcode"] or ["mcode", "/path/to/custom_lib"]
     #[serde(default)]
     pub load: Vec<String>,
+    /// Set true to disable the default auto-loading of the mcode standard library.
+    /// mcode is loaded by default in every mode; this flag is the only opt-out.
+    /// None means unset (project config falls back to global config).
+    #[serde(default)]
+    pub disable_mcode: Option<bool>,
 }
 
 impl LibsConfig {
-    /// Check if "mcode" library should be loaded.
-    /// Returns true if mcode is explicitly listed in the load list.
-    /// If load list is empty, returns false (don't load by default).
+    /// Check if the mcode standard library should be loaded.
+    /// Returns false only when `disable_mcode` is explicitly true (default is true).
     pub fn should_load_mcode(&self) -> bool {
-        self.load.iter().any(|lib| {
-            let lib_lower = lib.to_lowercase();
-            lib_lower == "mcode" || lib_lower == "mcode/"
-        })
+        !self.disable_mcode.unwrap_or(false)
     }
 
     /// Get the list of libraries to load.
@@ -322,6 +323,7 @@ pub fn merge_configs(global: &MccConfig, local: Option<&MccConfig>) -> MccConfig
                 } else {
                     local.libs.load.clone()
                 },
+                disable_mcode: local.libs.disable_mcode.or(global.libs.disable_mcode),
             };
 
             MccConfig {
@@ -531,9 +533,8 @@ pub fn get_log_pass2() -> Option<bool> {
     get_log_streams().read().ok().map(|s| s.pass2)
 }
 
-/// Check if mcode library should be loaded based on config.
-/// Returns true if "mcode" is explicitly listed in libs.load config.
-/// If libs.load is empty, returns false (don't load by default).
+/// Check if the mcode standard library should be loaded based on config.
+/// Returns true by default; only `libs.disable_mcode: true` disables it.
 pub fn should_load_mcode(project_root: Option<&Path>) -> bool {
     let global = load_global_config().unwrap_or_default();
     let local = project_root.and_then(|p| load_project_config(p).ok().flatten());

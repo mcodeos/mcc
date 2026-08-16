@@ -137,6 +137,11 @@ pub struct ParseArgs {
     /// Target file to parse
     pub target: Option<String>,
 
+    /// Entry file for a directory target without a manifest (browse mode).
+    /// Relative paths resolve against the target directory.
+    #[arg(long, value_name = "FILE")]
+    pub entry: Option<String>,
+
     /// Parse code snippet directly (mutually exclusive with position argument <target>)
     #[arg(long, value_name = "CODE", conflicts_with = "target")]
     pub code: Option<String>,
@@ -216,6 +221,11 @@ pub struct ParseArgs {
 pub struct CheckArgs {
     /// Target file to check
     pub target: Option<String>,
+
+    /// Entry file for a directory target without a manifest (browse mode).
+    /// Relative paths resolve against the target directory.
+    #[arg(long, value_name = "FILE")]
+    pub entry: Option<String>,
 
     /// Load system library (can be specified multiple times), applicable to both local / server
     #[arg(long = "lib", value_name = "NAME")]
@@ -432,6 +442,11 @@ pub struct SearchArgs {
     /// scope for this invocation).
     pub target: Option<String>,
 
+    /// Entry file for a directory target without a manifest (browse mode).
+    /// Relative paths resolve against the target directory.
+    #[arg(long, value_name = "FILE")]
+    pub entry: Option<String>,
+
     /// Restrict to one kind: component|module|interface|enum|instance
     #[arg(long, value_enum)]
     pub kind: Option<SearchKind>,
@@ -494,6 +509,11 @@ pub struct QueryArgs {
 
     /// Optional file or directory to load before querying
     pub target: Option<String>,
+
+    /// Entry file for a directory target without a manifest (browse mode).
+    /// Relative paths resolve against the target directory.
+    #[arg(long, value_name = "FILE")]
+    pub entry: Option<String>,
 
     /// Load system library (can be specified multiple times)
     #[arg(long = "lib", value_name = "NAME")]
@@ -897,6 +917,11 @@ pub struct ConvertArgs {
 pub struct ErcArgs {
     /// Target file or project directory
     pub target: Option<String>,
+
+    /// Entry file for a directory target without a manifest (browse mode).
+    /// Relative paths resolve against the target directory.
+    #[arg(long, value_name = "FILE")]
+    pub entry: Option<String>,
 
     /// Load system library (can be specified multiple times)
     #[arg(long = "lib", value_name = "NAME")]

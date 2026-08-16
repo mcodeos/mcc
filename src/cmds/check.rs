@@ -50,43 +50,73 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
         });
     }
 
-    mcc::mcc_init_no_lib();
-    manifest::load_libs(&manifest::collect_libs(None, &args.lib));
+    manifest::init_local(args.target.as_deref(), &args.lib);
 
+    // Resolve the target into an entry URI.
+    //   - Directory: manifest-driven project mode; falls back to browse mode
+    //     (§19.5 rule 3 of use-design.md) when the directory has no manifest,
+    //     using the unique `module main` file or --entry.
+    //   - File: nearest project root (manifest.toml / project.toml / mcc.toml)
+    //     is resolved by walking up, then the manifest (if any) drives the load.
     let _uri: McURI = if let Some(t) = &args.target {
         let p = Path::new(t);
         if p.is_dir() {
-            match manifest::build_from_manifest(p, None, None) {
-                Ok((entry_uri, _)) => McURI::from(entry_uri.as_str()),
-                Err(e) => {
-                    if args.format.is_structured() {
-                        let env = Envelope::err(RpcError::invalid_params(format!("{:#}", e)));
-                        output::emit_envelope(&env, args.format, None, false)?;
-                        return Ok(CheckOutcome { exit_code: 2 });
-                    }
+            let fail = |e: anyhow::Error| -> Result<CheckOutcome> {
+                if args.format.is_structured() {
+                    let env = Envelope::err(RpcError::invalid_params(format!("{:#}", e)));
+                    output::emit_envelope(&env, args.format, None, false)?;
+                    Ok(CheckOutcome { exit_code: 2 })
+                } else {
                     anyhow::bail!("check: {}", e);
+                }
+            };
+            match manifest::build_from_manifest(p, None, args.entry.as_deref()) {
+                Ok((entry_uri, _)) => McURI::from(entry_uri.as_str()),
+                Err(manifest_err) => {
+                    // No manifest (or manifest load failed) → browse mode.
+                    let entry = match manifest::select_browse_entry(p, args.entry.as_deref()) {
+                        Ok(e) => e,
+                        Err(browse_err) => {
+                            return fail(anyhow::anyhow!(
+                                "{} (manifest: {:#})",
+                                browse_err,
+                                manifest_err
+                            ));
+                        }
+                    };
+                    let entry_uri = entry.to_string_lossy().to_string();
+                    mcc::mcc_load_project(&entry_uri);
+                    McURI::from(entry_uri.as_str())
                 }
             }
         } else {
-            let entry_path = Path::new(t);
             let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-            let mut search_dir: PathBuf = cwd.join(entry_path.parent().unwrap_or(entry_path));
-            let project_root = loop {
-                if search_dir.join("manifest.toml").exists() {
-                    break search_dir;
-                }
-                match search_dir.parent() {
-                    Some(parent) => {
-                        if parent == search_dir {
-                            break cwd.clone();
-                        }
-                        search_dir = parent.to_path_buf();
+            let abs_t = if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                cwd.join(p)
+            };
+            let abs_t_str = abs_t.to_string_lossy().to_string();
+            let project_root = match manifest::find_project_root(Some(abs_t_str.as_str())) {
+                Some(root) => root,
+                None => {
+                    if args.format.is_structured() {
+                        let env = Envelope::err(RpcError::invalid_params(format!(
+                            "check: cannot resolve project root for {}",
+                            t
+                        )));
+                        output::emit_envelope(&env, args.format, None, false)?;
+                        return Ok(CheckOutcome { exit_code: 2 });
                     }
-                    None => break cwd,
+                    anyhow::bail!("check: cannot resolve project root for {}", t);
                 }
             };
 
-            let (entry_uri, _) = match manifest::build_from_manifest(&project_root, None, Some(t)) {
+            let (entry_uri, _) = match manifest::build_from_manifest(
+                &project_root,
+                None,
+                Some(abs_t_str.as_str()),
+            ) {
                 Ok(r) => r,
                 Err(e) => {
                     if args.format.is_structured() {
