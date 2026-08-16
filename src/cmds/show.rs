@@ -438,7 +438,7 @@ fn show_lapper(args: &ShowArgs) -> Result<()> {
 
     // Not loaded yet — load project and try again.
     // Unified with the shared init: the nearest project manifest
-    // (manifest.toml / project.toml / mcc.toml) drives the dependency set,
+    // (project.toml / manifest.toml / mcc.toml) drives the dependency set,
     // and the project root is set so project-relative `use` paths resolve
     // correctly.
     let project_root = super::manifest::find_project_root(Some(file_path))

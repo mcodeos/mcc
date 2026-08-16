@@ -89,6 +89,13 @@ impl RpcServer {
         }
     }
 
+    /// Access the method registry for direct (non-HTTP) dispatch.
+    /// Used by tests to exercise the same serialized handler path as the
+    /// live server without binding a socket.
+    pub fn registry(&self) -> Arc<RpcMethodRegistry> {
+        self.registry.clone()
+    }
+
     pub async fn start(self) -> Result<()> {
         let registry = self.registry.clone();
         let host = self.host.clone();

@@ -96,8 +96,8 @@ pub struct McCode {
 /// §11/§19: validate an unprefixed (system/third-party) `use` target against
 /// the loaded-library set.
 ///
-/// Non-project context (no project.toml reachable from the current file):
-/// lazily load the library from disk; E2051 fires only when it does not
+/// Non-project context (no project manifest reachable from the current file):
+/// lazily load the library from disk; E2052 fires only when it does not
 /// exist. Project context: strict check — the library must be declared in
 /// project.toml [dependencies] (or loaded via --lib / global config);
 /// otherwise E2051 "undeclared dependency" (use-design §19.5 rule 2).
@@ -125,15 +125,13 @@ fn check_system_use_lib(mcuse: &McUse, current_path: &Path) {
                 return; // loaded — no diagnostic
             }
         }
-        // The library is truly absent: report "not found" instead of the
-        // project-mode "undeclared dependency" message.
+        // The library is truly absent: report "not found" (E2052) instead of the
+        // project-mode "undeclared dependency" (E2051) message.
         dlog_warning_at(
-            crate::errcodes::USE_DEP_NOT_DECLARED,
+            crate::errcodes::USE_LIB_NOT_FOUND,
             mcuse.pos,
             mcuse.len,
-            &format!(
-                "library '{lib_name}' not found in the system root; install it with `mcc lib install` or load it with --lib"
-            ),
+            &crate::errcodes::format_msg(crate::errcodes::USE_LIB_NOT_FOUND, &[&lib_name]),
         );
         return;
     }
@@ -148,12 +146,14 @@ fn check_system_use_lib(mcuse: &McUse, current_path: &Path) {
 
 /// Walk up from `start` looking for a project manifest. Accepts the same
 /// three candidate names as the unified project-root discovery
-/// (`manifest.toml` / `project.toml` / `mcc.toml`), so use validation and
-/// project-root resolution agree on what counts as a project.
+/// (`project.toml` / `manifest.toml` / `mcc.toml`, see
+/// [`PROJECT_MANIFEST_NAMES`](crate::cli::datadir::PROJECT_MANIFEST_NAMES)),
+/// so use validation and project-root resolution agree on what counts as a
+/// project.
 fn manifest_reachable_from(start: &Path) -> bool {
     let mut current = Some(start);
     while let Some(dir) = current {
-        for name in ["manifest.toml", "project.toml", "mcc.toml"] {
+        for name in crate::cli::datadir::PROJECT_MANIFEST_NAMES {
             if dir.join(name).exists() {
                 return true;
             }

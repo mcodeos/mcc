@@ -14,7 +14,7 @@
       "severity": "warning"
     },
     {
-      "code": 2051,
+      "code": 2052,
       "location": {
         "column": 8,
         "file": "/Users/dan/work/mo/mcc/tests/corpus/use_undeclared_dep.mc",
@@ -22,7 +22,7 @@
         "line": 5,
         "pos": 167
       },
-      "message": "use of undeclared dependency 'nonexistent': add it to project.toml [dependencies] or load via --lib",
+      "message": "library 'nonexistent' not found in the system root; install it with `mcc lib install` or load it with --lib",
       "phase": "pass0",
       "severity": "warning"
     },

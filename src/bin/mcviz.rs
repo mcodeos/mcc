@@ -19,7 +19,7 @@
 //! - `--json` changed to output `VizDocument` JSON (including all layers)
 
 use std::env;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process;
 
 use mcc::vector::builder::{build_mc_vec, np_warn_count, reset_np_warn_count};
@@ -118,21 +118,6 @@ fn main() {
     mcc_set_system_root(project_path);
     mcc_set_project_root(project_path);
     mcc_init();
-
-    // Load mcode system library so that CAP/RES/IND components are available
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    let mcode_root = cwd.join("mcode");
-    if mcode_root.exists() {
-        mcc::mcb_load_lib("mcode", &mcode_root);
-    } else {
-        // Fallback: try parent of parent
-        let alt_root = cwd.parent().map(|p| p.join("mcode"));
-        if let Some(ref root) = alt_root {
-            if root.exists() {
-                mcc::mcb_load_lib("mcode", root);
-            }
-        }
-    }
 
     let entry_name = entry_file.as_deref().unwrap_or(module_name);
     let entry_uri = match find_entry_uri(project_path, entry_name) {

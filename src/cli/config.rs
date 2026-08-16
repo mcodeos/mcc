@@ -265,11 +265,9 @@ pub fn save_global_config(config: &MccConfig) -> Result<()> {
 }
 
 pub fn load_project_config(project_root: &Path) -> Result<Option<MccConfig>> {
-    let path = project_root.join("project.toml");
-
-    if !path.exists() {
+    let Some(path) = crate::cli::datadir::find_manifest_in(project_root) else {
         return Ok(None);
-    }
+    };
 
     let content = fs::read_to_string(&path)
         .with_context(|| format!("Failed to read project config: {}", path.display()))?;

@@ -4,8 +4,9 @@
 
 //! Integration tests for `use` statement diagnostics (§11, §14 of use-design.md).
 //!
-//! These tests verify that USE_DEP_NOT_DECLARED (2051, formerly E800) and
-//! USE_ALIAS_COLLISION (2005, formerly E2002) diagnostics are properly
+//! These tests verify the use-stage diagnostics USE_LIB_NOT_FOUND (2052,
+//! formerly E800 "library not found"), USE_DEP_NOT_DECLARED (2051 "undeclared
+//! dependency"), and USE_ALIAS_COLLISION (2005, formerly E2002) are properly
 //! emitted when parsing files with `use` statements.
 
 use serde_json::Value;
@@ -30,10 +31,10 @@ fn run_mcc_parse(source: &str) -> Value {
 }
 
 /// §19.5 rule 2: in non-project context, `use` of a library that does not
-/// exist on disk emits E2051 with a "not found" message (no longer the
-/// project-mode "undeclared dependency" wording).
+/// exist on disk emits E2052 with a "not found" message (split from the
+/// project-mode "undeclared dependency" E2051).
 #[test]
-fn undeclared_dependency_emits_e800() {
+fn use_lib_not_found_emits_e2052() {
     let source = r#"
 use $::nonexistent.lib@1.0
 
@@ -47,17 +48,17 @@ module main {
         .expect("pass0 diagnostics");
     let codes: Vec<u64> = diags.iter().filter_map(|d| d["code"].as_u64()).collect();
     assert!(
-        codes.contains(&2051),
-        "expected USE_DEP_NOT_DECLARED in pass0 diagnostics, got codes: {codes:?}\nfull: {diags:#?}"
+        codes.contains(&2052),
+        "expected USE_LIB_NOT_FOUND in pass0 diagnostics, got codes: {codes:?}\nfull: {diags:#?}"
     );
     let e800 = diags
         .iter()
-        .find(|d| d["code"] == 2051)
-        .expect("USE_DEP_NOT_DECLARED entry");
+        .find(|d| d["code"] == 2052)
+        .expect("USE_LIB_NOT_FOUND entry");
     let msg = e800["message"].as_str().unwrap_or_default();
     assert!(
         msg.contains("nonexistent") && msg.contains("not found"),
-        "non-project USE_DEP_NOT_DECLARED message should mention 'nonexistent' and 'not found', got: {msg}"
+        "non-project USE_LIB_NOT_FOUND message should mention 'nonexistent' and 'not found', got: {msg}"
     );
 }
 
@@ -177,14 +178,14 @@ fn non_project_use_lazily_loads_library() {
         serde_json::from_str(&stdout).unwrap_or_else(|e| panic!("invalid JSON: {e}\n{stdout}"));
     let result = &envelope["result"];
 
-    // No E2051: the library was lazily loaded instead of reported missing.
+    // No E2052/E2051: the library was lazily loaded instead of reported missing.
     let diags = result["pass0"]["diagnostics"]
         .as_array()
         .expect("pass0 diagnostics");
     let codes: Vec<u64> = diags.iter().filter_map(|d| d["code"].as_u64()).collect();
     assert!(
-        !codes.contains(&2051),
-        "no USE_DEP_NOT_DECLARED expected after lazy load, got codes: {codes:?}\nfull: {diags:#?}"
+        !codes.contains(&2052) && !codes.contains(&2051),
+        "no USE_LIB_NOT_FOUND/USE_DEP_NOT_DECLARED expected after lazy load, got codes: {codes:?}\nfull: {diags:#?}"
     );
 
     // §15: third-party symbols are removed from the global definitions tables
@@ -215,8 +216,8 @@ fn non_project_use_lazily_loads_library() {
 
 /// §15: third-party library symbols should be hidden until explicitly `use`d.
 /// Referencing such a symbol without `use` should produce unresolved-class
-/// diagnostics (3154 / 3157 / 5256) and NOT USE_DEP_NOT_DECLARED (2051), since
-/// no `use` statement was written.
+/// diagnostics (3154 / 3157 / 5256) and NOT USE_LIB_NOT_FOUND (2052) or
+/// USE_DEP_NOT_DECLARED (2051), since no `use` statement was written.
 #[test]
 fn third_party_visibility_no_e800_when_not_used() {
     let source = r#"
@@ -230,8 +231,8 @@ module main {
         .expect("pass0 diagnostics");
     let codes: Vec<u64> = diags.iter().filter_map(|d| d["code"].as_u64()).collect();
     assert!(
-        !codes.contains(&2051),
-        "USE_DEP_NOT_DECLARED should not appear when no `use` statement references a third-party library, got codes: {codes:?}"
+        !codes.contains(&2052) && !codes.contains(&2051),
+        "USE_LIB_NOT_FOUND/USE_DEP_NOT_DECLARED should not appear when no `use` statement references a third-party library, got codes: {codes:?}"
     );
     // We expect unresolved-class diagnostics (INST_CLASS_UNRESOLVED /
     // INST_NODE_MISSING / INST_CLASS_NOT_LOADED)

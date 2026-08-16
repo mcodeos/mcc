@@ -26,14 +26,14 @@
 //! 3rd-party libs always carry one).
 
 use std::path::{Path, PathBuf};
-use tracing::debug;
+use tracing::{debug, warn};
 
 pub const MCC_SYSTEM_ENV: &str = "MCC_SYSTEM_ROOT";
 
 /// Candidate project-manifest file names, in priority order. CLI, RPC and MCP
 /// all use this same set, so a project root is detected uniformly regardless
 /// of entry point (use-design §19.5).
-pub const PROJECT_MANIFEST_NAMES: [&str; 3] = ["manifest.toml", "project.toml", "mcc.toml"];
+pub const PROJECT_MANIFEST_NAMES: [&str; 3] = ["project.toml", "manifest.toml", "mcc.toml"];
 
 /// Return the first existing project manifest in `root` (see
 /// [`PROJECT_MANIFEST_NAMES`]), or `None` when none of the candidates exist.
@@ -41,6 +41,14 @@ pub fn find_manifest_in(root: &Path) -> Option<PathBuf> {
     for name in PROJECT_MANIFEST_NAMES {
         let p = root.join(name);
         if p.exists() {
+            if name != "project.toml" {
+                warn!(
+                    target: "mcc::dirs",
+                    path = ?p,
+                    "deprecated project manifest name '{}'; rename it to project.toml",
+                    name
+                );
+            }
             return Some(p);
         }
     }
