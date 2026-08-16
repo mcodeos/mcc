@@ -901,7 +901,7 @@ impl McCode {
                 // Need to build spacenames and uselist
                 mcfile.uri = canonical_use_uri.clone();
                 for (_, space_name) in mcfile.spacenames.iter_mut() {
-                    space_name.uri = canonical_use_uri.clone();
+                    space_name.uri = crate::semantic::common::uri_intern(&canonical_use_uri);
                 }
                 // Do NOT call parse_pass1_types/parse_pass1_modules here.
                 // mcb_add_recursive handles CMIE registration in dependency order.
@@ -1304,7 +1304,7 @@ impl McCode {
                                     let result = components_guard
                                         .entry(McSpaceName {
                                             ident: comp.name.clone(),
-                                            uri: self.uri.clone(),
+                                            uri: crate::semantic::common::uri_intern(&self.uri),
                                         })
                                         .and_modify(|_| {
                                             dlog_error(
@@ -1328,7 +1328,7 @@ impl McCode {
                                     let result = modules_guard
                                         .entry(McSpaceName {
                                             ident: mdl.name.clone(),
-                                            uri: self.uri.clone(),
+                                            uri: crate::semantic::common::uri_intern(&self.uri),
                                         })
                                         .and_modify(|_| {
                                             dlog_error(
@@ -1350,7 +1350,7 @@ impl McCode {
                                     let result = ifs_guard
                                         .entry(McSpaceName {
                                             ident: ifs.name.clone(),
-                                            uri: self.uri.clone(),
+                                            uri: crate::semantic::common::uri_intern(&self.uri),
                                         })
                                         .and_modify(|_| {
                                             dlog_error(
@@ -1398,7 +1398,7 @@ impl McCode {
 
                                     let space_name = McSpaceName {
                                         ident: enum_def.name.clone(),
-                                        uri: self.uri.clone(),
+                                        uri: crate::semantic::common::uri_intern(&self.uri),
                                     };
                                     let arc_enum = Arc::new(enum_def);
                                     if self.mcbase {
@@ -1486,7 +1486,7 @@ impl McCode {
                         let self_uri = self.uri.clone();
                         let space_name = McSpaceName {
                             ident: ifs.name.clone(),
-                            uri: self.uri.clone(),
+                            uri: crate::semantic::common::uri_intern(&self.uri),
                         };
                         if self.mcbase {
                             global::mcc_interfaces
@@ -1557,7 +1557,7 @@ impl McCode {
 
                         let space_name = McSpaceName {
                             ident: comp.name.clone(),
-                            uri: self.uri.clone(),
+                            uri: crate::semantic::common::uri_intern(&self.uri),
                         };
                         {
                             if self.mcbase {
@@ -1625,7 +1625,7 @@ impl McCode {
 
                         let space_name = McSpaceName {
                             ident: enum_def.name.clone(),
-                            uri: self.uri.clone(),
+                            uri: crate::semantic::common::uri_intern(&self.uri),
                         };
                         if self.mcbase {
                             global::mcc_enums
@@ -1665,7 +1665,7 @@ impl McCode {
                     {
                         let space_name = McSpaceName {
                             ident: def.name.clone(),
-                            uri: self.uri.clone(),
+                            uri: crate::semantic::common::uri_intern(&self.uri),
                         };
                         if self.mcbase {
                             global::mcc_defines
@@ -1916,6 +1916,17 @@ impl McCode {
         }
         self.modules_parsed = true;
 
+        // ★ Module parsing resolves instance classes through the P4 use chain
+        //   (`db/resolve/visibility.rs::use_chain_reaches`), which starts from
+        //   this file's own `uselist`. Callers remove the file from `mcodes`
+        //   while parsing takes `&mut self` (see `mcb_parse_all_modules`), so
+        //   the walk cannot read the uselist from `mcodes` — stash it on the
+        //   thread-local stack for the duration of the parse.
+        let _parsing_uses_guard = crate::db::infra::context::ParsingUsesGuard::new(
+            self.uri.clone(),
+            self.uselist.clone(),
+        );
+
         for (_i, node) in self.ast.iter().enumerate() {
             let node_type = node.get_type();
             if node_type == MCAST_MODULE {
@@ -1926,7 +1937,7 @@ impl McCode {
                     let self_uri = self.uri.clone();
                     let key = McSpaceName {
                         ident: module_name.clone(),
-                        uri: self.uri.clone(),
+                        uri: crate::semantic::common::uri_intern(&self.uri),
                     };
                     // ★ Register module in class_name_to_id so
                     // lapper_global_classes can create ClassDef intervals for goto-def.
@@ -2389,7 +2400,7 @@ impl McCode {
         };
         let space = crate::semantic::common::McSpaceName {
             ident,
-            uri: def_uri.to_string(),
+            uri: crate::semantic::common::uri_intern(&def_uri),
         };
         if let Some(e) = crate::db::cmie::tables::WORKSPACE.enums.get(&space) {
             if let Some(v) = e.values.get(idx) {
@@ -2781,8 +2792,9 @@ impl McCode {
                     if let Ok(target_sym) = target_file.symbols.lock() {
                         if let Some(ref target_map) = target_sym.ref_def_map {
                             for ((_target_uri, name), src_entry) in &target_map.name_index {
-                                let src_file_uri =
-                                    target_map.files.get(src_entry.def_loc.file_id as usize);
+                                let src_uri = crate::semantic::common::uri_of_file_id(
+                                    src_entry.def_loc.file_id,
+                                );
                                 let src_container = if src_entry.def_loc.container_id != u32::MAX {
                                     target_map
                                         .containers
@@ -2792,10 +2804,10 @@ impl McCode {
                                 } else {
                                     ""
                                 };
-                                let new_fid = if let Some(furi) = src_file_uri {
-                                    map.intern_file(&McURI::from(furi.as_str()))
-                                } else {
+                                let new_fid = if src_uri.is_empty() {
                                     map.intern_file(&self.uri)
+                                } else {
+                                    map.intern_file(&McURI::from(src_uri.as_ref()))
                                 };
                                 let new_cid = map.intern_container(src_container);
                                 let entry = RefDefEntry {
@@ -2883,8 +2895,8 @@ impl McCode {
 
         tracing::info!(
             target: "mcc::lsp",
-            "consolidate_ref_def_map: uri={} entries={} files={} containers={} names={}",
-            self.uri, map.entries.len(), map.files.len(), map.containers.len(),
+            "consolidate_ref_def_map: uri={} entries={} containers={} names={}",
+            self.uri, map.entries.len(), map.containers.len(),
             map.name_index.len()
         );
 
@@ -3131,13 +3143,13 @@ impl McCode {
 
         // Modules
         for entry in crate::db::cmie::tables::WORKSPACE.modules.iter() {
-            if entry.key().uri.as_str() == uri.as_str() {
+            if entry.key().uri == uri.as_str() {
                 collect(&entry.value().params, &mut param_defs);
             }
         }
         // Components
         for entry in crate::db::cmie::tables::WORKSPACE.components.iter() {
-            if entry.key().uri.as_str() == uri.as_str() {
+            if entry.key().uri == uri.as_str() {
                 collect(&entry.value().params, &mut param_defs);
                 for func in entry.value().funcs.iter() {
                     collect(&func.params, &mut param_defs);
@@ -3146,13 +3158,13 @@ impl McCode {
         }
         // Interfaces
         for entry in crate::db::cmie::tables::WORKSPACE.interfaces.iter() {
-            if entry.key().uri.as_str() == uri.as_str() {
+            if entry.key().uri == uri.as_str() {
                 collect(&entry.value().params, &mut param_defs);
             }
         }
         // Func params (nested inside modules)
         for entry in crate::db::cmie::tables::WORKSPACE.modules.iter() {
-            if entry.key().uri.as_str() == uri.as_str() {
+            if entry.key().uri == uri.as_str() {
                 for func in entry.value().funcs.iter() {
                     collect(&func.params, &mut param_defs);
                 }
@@ -3593,7 +3605,7 @@ impl McCode {
                                 .map(|((u, n), _c)| (u.clone(), n.clone()))?;
                             let space = crate::semantic::common::McSpaceName {
                                 ident: n,
-                                uri: class_uri,
+                                uri: crate::semantic::common::uri_intern(&class_uri),
                             };
                             let e = crate::db::cmie::tables::WORKSPACE.enums.get(&space)?;
                             e.values.get(idx).map(|v| v.name.to_string())
@@ -3622,7 +3634,7 @@ impl McCode {
         // Modules: `comp.sub uC` inside `mod.sub { ... }`.
         let modules = &crate::db::cmie::tables::WORKSPACE.modules;
         for entry in modules.iter() {
-            if entry.key().uri.as_str() != uri.as_str() {
+            if entry.key().uri != uri.as_str() {
                 continue;
             }
             let m = entry.value();
@@ -3671,7 +3683,7 @@ impl McCode {
         // (e.g. `U_MCU` in a `component` block) never got an InstDef because
         let comps = &crate::db::cmie::tables::WORKSPACE.components;
         for entry in comps.iter() {
-            if entry.key().uri.as_str() != uri.as_str() {
+            if entry.key().uri != uri.as_str() {
                 continue;
             }
             let comp = entry.value();
@@ -3935,7 +3947,7 @@ impl McCode {
         let modules = &crate::db::cmie::tables::WORKSPACE.modules;
         for entry in modules.iter() {
             let m = entry.value();
-            if entry.key().uri.as_str() != uri.as_str() {
+            if entry.key().uri != uri.as_str() {
                 continue;
             }
 
@@ -4354,7 +4366,7 @@ impl McCode {
         let modules = &crate::db::cmie::tables::WORKSPACE.modules;
         for entry in modules.iter() {
             let m = entry.value();
-            if entry.key().uri.as_str() != uri.as_str() {
+            if entry.key().uri != uri.as_str() {
                 continue;
             }
             let mod_ident = entry.key().ident.to_string();
@@ -4948,8 +4960,8 @@ impl McCode {
         {
             let uri_str = uri.as_str();
             for entry in workspace::WORKSPACE.components.iter() {
-                let key_uri = entry.key().uri.as_str();
-                if Self::uris_same_file(key_uri, uri_str) {
+                let key_uri = entry.key().uri.as_uri();
+                if Self::uris_same_file(key_uri.as_ref(), uri_str) {
                     let names = Self::extract_pin_name_spans(entry.value())
                         .into_iter()
                         .map(|(n, _)| n)
@@ -4958,8 +4970,8 @@ impl McCode {
                 }
             }
             for entry in global::mcc_components.iter() {
-                let key_uri = entry.key().uri.as_str();
-                if Self::uris_same_file(key_uri, uri_str) {
+                let key_uri = entry.key().uri.as_uri();
+                if Self::uris_same_file(key_uri.as_ref(), uri_str) {
                     let names = Self::extract_pin_name_spans(entry.value())
                         .into_iter()
                         .map(|(n, _)| n)
@@ -5098,14 +5110,14 @@ impl McCode {
         // must be reported (§5.4.6 D2), not silently resolved to the first.
         let mut reachable: Vec<(McURI, crate::ast::ast_semantic::Span)> = Vec::new();
         for entry in workspace::WORKSPACE.enums.iter() {
-            if entry.key().uri.as_str() == uri.as_str() {
+            if entry.key().uri == uri.as_str() {
                 continue;
             }
             if entry.key().ident.to_string() == base_name
-                && crate::db::resolve::use_chain_reaches(uri, entry.key().uri.as_str())
+                && crate::db::resolve::use_chain_reaches(uri, entry.key().uri.as_uri().as_ref())
             {
                 reachable.push((
-                    entry.key().uri.clone(),
+                    entry.key().uri.to_string(),
                     (entry.value().span[0] as usize)..(entry.value().span[1] as usize),
                 ));
             }
@@ -5132,12 +5144,12 @@ impl McCode {
         // uniqueness guarantee"): same-file duplicates error at load
         // (DUP_ENUM), cross-file duplicates are a library-side build rule.
         for entry in crate::db::infra::global::mcc_enums.iter() {
-            if entry.key().uri.as_str() == uri.as_str() {
+            if entry.key().uri == uri.as_str() {
                 continue;
             }
             if entry.key().ident.to_string() == base_name {
                 return Some((
-                    entry.key().uri.clone(),
+                    entry.key().uri.to_string(),
                     (entry.value().span[0] as usize)..(entry.value().span[1] as usize),
                 ));
             }
@@ -5527,27 +5539,27 @@ impl McCode {
             let uri_str = uri.as_str();
             let modules = &workspace::WORKSPACE.modules;
             for entry in modules.iter() {
-                let key_uri = entry.key().uri.as_str();
-                if Self::uris_same_file(key_uri, uri_str) {
+                let key_uri = entry.key().uri.as_uri();
+                if Self::uris_same_file(key_uri.as_ref(), uri_str) {
                     container_names.push(entry.key().ident.to_string());
                 }
             }
             let comps = &workspace::WORKSPACE.components;
             for entry in comps.iter() {
-                let key_uri = entry.key().uri.as_str();
-                if Self::uris_same_file(key_uri, uri_str) {
+                let key_uri = entry.key().uri.as_uri();
+                if Self::uris_same_file(key_uri.as_ref(), uri_str) {
                     container_names.push(entry.key().ident.to_string());
                 }
             }
             for entry in global::mcc_modules.iter() {
-                let key_uri = entry.key().uri.as_str();
-                if Self::uris_same_file(key_uri, uri_str) {
+                let key_uri = entry.key().uri.as_uri();
+                if Self::uris_same_file(key_uri.as_ref(), uri_str) {
                     container_names.push(entry.key().ident.to_string());
                 }
             }
             for entry in global::mcc_components.iter() {
-                let key_uri = entry.key().uri.as_str();
-                if Self::uris_same_file(key_uri, uri_str) {
+                let key_uri = entry.key().uri.as_uri();
+                if Self::uris_same_file(key_uri.as_ref(), uri_str) {
                     container_names.push(entry.key().ident.to_string());
                 }
             }
@@ -6026,8 +6038,8 @@ impl McCode {
         let uri_str = uri.as_str();
         for table in [&workspace::WORKSPACE.modules, &global::mcc_modules] {
             for entry in table.iter() {
-                let key_uri = entry.key().uri.as_str();
-                if !Self::uris_same_file(key_uri, uri_str) {
+                let key_uri = entry.key().uri.as_uri();
+                if !Self::uris_same_file(key_uri.as_ref(), uri_str) {
                     continue;
                 }
                 let m = entry.value();

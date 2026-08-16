@@ -328,7 +328,6 @@ pub struct RefDefEntry {
 pub struct RefDefMap {
     /// (ref_kind, ref_id) → entry. Single-layer O(1) ID-based lookup.
     pub entries: HashMap<(SymbolKind, u32), RefDefEntry>,
-    pub files: Vec<String>,
     pub containers: Vec<String>,
     /// ★ Use table: (file_uri, class_name) → entry for name-based P3/P4/P5 lookup.
     pub name_index: HashMap<(String, String), RefDefEntry>,
@@ -416,16 +415,11 @@ impl RefDefMap {
             .unwrap_or(&[])
     }
 
-    /// Intern a file URI into the file table, returning its u32 id.
+    /// Intern a file URI into the global UriTable, returning its stable u32
+    /// id (design: name-space-global.md §5.5 — single uri-id source shared
+    /// with McSpaceName keys; ids are append-only and never recycled).
     pub fn intern_file(&mut self, uri: &McURI) -> u32 {
-        let s = uri.as_str().to_string();
-        if let Some(pos) = self.files.iter().position(|x| x == &s) {
-            pos as u32
-        } else {
-            let id = self.files.len() as u32;
-            self.files.push(s);
-            id
-        }
+        crate::semantic::common::uri_intern(uri.as_str()).0
     }
 
     /// Intern a container name into the container table, returning its u32 id.

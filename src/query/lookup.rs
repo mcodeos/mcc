@@ -96,7 +96,7 @@ pub(crate) fn collect_from_file(
         .map_or(true, |k| k == crate::ContainerKind::Module)
     {
         for entry in workspace::WORKSPACE.modules.iter() {
-            if entry.key().uri.as_str() != uri_str {
+            if entry.key().uri != uri_str {
                 continue;
             }
             let m = entry.value();
@@ -126,7 +126,7 @@ pub(crate) fn collect_from_file(
         .map_or(true, |k| k == crate::ContainerKind::Component)
     {
         for entry in workspace::WORKSPACE.components.iter() {
-            if entry.key().uri.as_str() != uri_str {
+            if entry.key().uri != uri_str {
                 continue;
             }
             let c = entry.value();
@@ -266,7 +266,7 @@ pub(crate) fn collect_from_project(
     // `enum CAP` beside `component CAP`) is NOT swallowed by a name-only check.
     for entry in workspace::WORKSPACE.components.iter() {
         let name = entry.key().ident.to_string();
-        let uri = entry.key().uri.clone();
+        let uri = entry.key().uri.to_string();
         let kind = crate::LookupSymbolKind::Component;
         if !results
             .iter()
@@ -289,7 +289,7 @@ pub(crate) fn collect_from_project(
     // Module classes
     for entry in workspace::WORKSPACE.modules.iter() {
         let name = entry.key().ident.to_string();
-        let uri = entry.key().uri.clone();
+        let uri = entry.key().uri.to_string();
         let kind = crate::LookupSymbolKind::Module;
         if !results
             .iter()
@@ -316,7 +316,7 @@ pub(crate) fn collect_from_project(
             results,
             max,
             crate::LookupResult {
-                uri: entry.key().uri.clone(),
+                uri: entry.key().uri.to_string(),
                 span: entry.value().span.start..entry.value().span.end,
                 kind: crate::LookupSymbolKind::Interface,
                 container: None,
@@ -332,7 +332,7 @@ pub(crate) fn collect_from_project(
             results,
             max,
             crate::LookupResult {
-                uri: entry.key().uri.clone(),
+                uri: entry.key().uri.to_string(),
                 span: entry.value().span[0] as usize..entry.value().span[1] as usize,
                 kind: crate::LookupSymbolKind::Enum,
                 container: None,
@@ -436,7 +436,7 @@ pub fn find_container(name: &McIds, uri: &McURI, kind_hint: CmieKind) -> Option<
     if matches!(kind_hint, CmieKind::Component | CmieKind::Any) {
         for entry in workspace::WORKSPACE.components.iter() {
             let key = entry.key();
-            if key.uri.as_str() == uri_str && key.ident.to_string() == cn {
+            if key.uri == uri_str && key.ident.to_string() == cn {
                 return Some(ContainerRef::Component(entry.value().clone()));
             }
         }
@@ -444,7 +444,7 @@ pub fn find_container(name: &McIds, uri: &McURI, kind_hint: CmieKind) -> Option<
     if matches!(kind_hint, CmieKind::Module | CmieKind::Any) {
         for entry in workspace::WORKSPACE.modules.iter() {
             let key = entry.key();
-            if key.uri.as_str() == uri_str && key.ident.to_string() == cn {
+            if key.uri == uri_str && key.ident.to_string() == cn {
                 return Some(ContainerRef::Module(entry.value().clone()));
             }
         }
@@ -452,7 +452,7 @@ pub fn find_container(name: &McIds, uri: &McURI, kind_hint: CmieKind) -> Option<
     if matches!(kind_hint, CmieKind::Interface | CmieKind::Any) {
         for entry in workspace::WORKSPACE.interfaces.iter() {
             let key = entry.key();
-            if key.uri.as_str() == uri_str && key.ident.to_string() == cn {
+            if key.uri == uri_str && key.ident.to_string() == cn {
                 return Some(ContainerRef::Interface(entry.value().clone()));
             }
         }
@@ -460,7 +460,7 @@ pub fn find_container(name: &McIds, uri: &McURI, kind_hint: CmieKind) -> Option<
     if matches!(kind_hint, CmieKind::Enum | CmieKind::Any) {
         for entry in workspace::WORKSPACE.enums.iter() {
             let key = entry.key();
-            if key.uri.as_str() == uri_str && key.ident.to_string() == cn {
+            if key.uri == uri_str && key.ident.to_string() == cn {
                 return Some(ContainerRef::Enum(entry.value().clone()));
             }
         }
@@ -470,7 +470,7 @@ pub fn find_container(name: &McIds, uri: &McURI, kind_hint: CmieKind) -> Option<
     if matches!(kind_hint, CmieKind::Component | CmieKind::Any) {
         for entry in global::mcc_components.iter() {
             let key = entry.key();
-            if key.uri.as_str() == uri_str && key.ident.to_string() == cn {
+            if key.uri == uri_str && key.ident.to_string() == cn {
                 return Some(ContainerRef::Component(entry.value().clone()));
             }
         }
@@ -478,7 +478,7 @@ pub fn find_container(name: &McIds, uri: &McURI, kind_hint: CmieKind) -> Option<
     if matches!(kind_hint, CmieKind::Module | CmieKind::Any) {
         for entry in global::mcc_modules.iter() {
             let key = entry.key();
-            if key.uri.as_str() == uri_str && key.ident.to_string() == cn {
+            if key.uri == uri_str && key.ident.to_string() == cn {
                 return Some(ContainerRef::Module(entry.value().clone()));
             }
         }
@@ -486,7 +486,7 @@ pub fn find_container(name: &McIds, uri: &McURI, kind_hint: CmieKind) -> Option<
     if matches!(kind_hint, CmieKind::Interface | CmieKind::Any) {
         for entry in global::mcc_interfaces.iter() {
             let key = entry.key();
-            if key.uri.as_str() == uri_str && key.ident.to_string() == cn {
+            if key.uri == uri_str && key.ident.to_string() == cn {
                 return Some(ContainerRef::Interface(entry.value().clone()));
             }
         }
@@ -494,7 +494,7 @@ pub fn find_container(name: &McIds, uri: &McURI, kind_hint: CmieKind) -> Option<
     if matches!(kind_hint, CmieKind::Enum | CmieKind::Any) {
         for entry in global::mcc_enums.iter() {
             let key = entry.key();
-            if key.uri.as_str() == uri_str && key.ident.to_string() == cn {
+            if key.uri == uri_str && key.ident.to_string() == cn {
                 return Some(ContainerRef::Enum(entry.value().clone()));
             }
         }
@@ -603,14 +603,14 @@ pub fn lookup_sub_def(
 
     if matches!(cmie_kind, CmieKind::Component | CmieKind::Any) {
         for entry in workspace::WORKSPACE.components.iter() {
-            if entry.key().uri.as_str() == uri_str {
+            if entry.key().uri == uri_str {
                 if let Some(span) = try_container(&ContainerRef::Component(entry.value().clone())) {
                     return Some(span);
                 }
             }
         }
         for entry in global::mcc_components.iter() {
-            if entry.key().uri.as_str() == uri_str {
+            if entry.key().uri == uri_str {
                 if let Some(span) = try_container(&ContainerRef::Component(entry.value().clone())) {
                     return Some(span);
                 }
@@ -619,14 +619,14 @@ pub fn lookup_sub_def(
     }
     if matches!(cmie_kind, CmieKind::Module | CmieKind::Any) {
         for entry in workspace::WORKSPACE.modules.iter() {
-            if entry.key().uri.as_str() == uri_str {
+            if entry.key().uri == uri_str {
                 if let Some(span) = try_container(&ContainerRef::Module(entry.value().clone())) {
                     return Some(span);
                 }
             }
         }
         for entry in global::mcc_modules.iter() {
-            if entry.key().uri.as_str() == uri_str {
+            if entry.key().uri == uri_str {
                 if let Some(span) = try_container(&ContainerRef::Module(entry.value().clone())) {
                     return Some(span);
                 }
@@ -635,14 +635,14 @@ pub fn lookup_sub_def(
     }
     if matches!(cmie_kind, CmieKind::Interface | CmieKind::Any) {
         for entry in workspace::WORKSPACE.interfaces.iter() {
-            if entry.key().uri.as_str() == uri_str {
+            if entry.key().uri == uri_str {
                 if let Some(span) = try_container(&ContainerRef::Interface(entry.value().clone())) {
                     return Some(span);
                 }
             }
         }
         for entry in global::mcc_interfaces.iter() {
-            if entry.key().uri.as_str() == uri_str {
+            if entry.key().uri == uri_str {
                 if let Some(span) = try_container(&ContainerRef::Interface(entry.value().clone())) {
                     return Some(span);
                 }
@@ -651,14 +651,14 @@ pub fn lookup_sub_def(
     }
     if matches!(cmie_kind, CmieKind::Enum | CmieKind::Any) {
         for entry in workspace::WORKSPACE.enums.iter() {
-            if entry.key().uri.as_str() == uri_str {
+            if entry.key().uri == uri_str {
                 if let Some(span) = try_container(&ContainerRef::Enum(entry.value().clone())) {
                     return Some(span);
                 }
             }
         }
         for entry in global::mcc_enums.iter() {
-            if entry.key().uri.as_str() == uri_str {
+            if entry.key().uri == uri_str {
                 if let Some(span) = try_container(&ContainerRef::Enum(entry.value().clone())) {
                     return Some(span);
                 }
@@ -712,10 +712,10 @@ fn kind_matches_instance(kind: SubElementKind, inst: &crate::McInstance) -> bool
 // === fn find_in_project_tables(space_name: &McSpaceName) -> Option<McCMIE> { ===
 /// Look up CMIE in project global table (via McSpaceName)
 pub(crate) fn find_in_project_tables(space_name: &McSpaceName) -> Option<McCMIE> {
-    let canonical_uri = canonicalize_project_uri(&space_name.uri);
+    let canonical_uri = canonicalize_project_uri(&McURI::from(space_name.uri.to_string()));
     let canonical_space_name = McSpaceName {
         ident: space_name.ident.clone(),
-        uri: canonical_uri,
+        uri: crate::semantic::common::uri_intern(&canonical_uri),
     };
     // eprintln!(
     //     "[DIAG find_in_project_tables] searching ident='{}', uri='{}' -> canonical='{}'",
@@ -842,8 +842,8 @@ pub fn mcb_get_module_with_diagnostics(
             e.key().ident == *class_name
                 && (e.key().uri == canonical_uri
                     || e.key().uri == uri.as_str()
-                    || e.key().uri.ends_with(&canonical_uri)
-                    || canonical_uri.ends_with(&e.key().uri))
+                    || e.key().uri.ends_with(canonical_uri.as_str())
+                    || canonical_uri.ends_with(e.key().uri.as_uri().as_ref()))
         })
         .map(|e| e.value().clone());
     if let Some(module) = fallback {

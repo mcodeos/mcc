@@ -21,11 +21,9 @@ fn find_def_in_refdefmap(name: &str) -> Option<(String, String)> {
         if let Ok(sym) = mcfile.symbols.lock() {
             if let Some(ref map) = sym.ref_def_map {
                 if let Some(def_entry) = map.get_by_name(&mcfile.uri, name) {
-                    let def_uri = map
-                        .files
-                        .get(def_entry.def_loc.file_id as usize)
-                        .cloned()
-                        .unwrap_or_default();
+                    let def_uri =
+                        crate::semantic::common::uri_of_file_id(def_entry.def_loc.file_id)
+                            .to_string();
                     let def_kind = def_entry.def_kind.kind_name().to_string();
                     return Some((def_uri, def_kind));
                 }
@@ -86,11 +84,8 @@ pub fn find_def_by_name_in_file(name: &str, from_uri: &str) -> Option<(McCMIE, S
             if let Ok(sym) = mcfile.symbols.lock() {
                 if let Some(ref map) = sym.ref_def_map {
                     if let Some(entry) = map.get_by_name(&from_uri_obj, name) {
-                        def_uri = map
-                            .files
-                            .get(entry.def_loc.file_id as usize)
-                            .cloned()
-                            .unwrap_or_default();
+                        def_uri = crate::semantic::common::uri_of_file_id(entry.def_loc.file_id)
+                            .to_string();
                     }
                 }
             }

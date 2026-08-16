@@ -48,7 +48,7 @@ fn build_flat(source: &str) -> mcc::InstTable {
     mcc::mcc_load_from_string(&uri, source);
     let entry = mcc::McSpaceName {
         ident: McIds::from("main"),
-        uri: uri.clone(),
+        uri: mcc::uri_intern(&uri),
     };
     let (_, table) = mcc::mcb_pass2_flat(&entry, 1).expect("pass2_flat failed");
 

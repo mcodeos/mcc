@@ -28,7 +28,10 @@ pub fn mcb_get_module_name_by_uri(uri: &McURI) -> Option<String> {
     workspace::WORKSPACE
         .modules
         .iter()
-        .find(|entry| entry.key().uri.ends_with(uri) || uri.ends_with(&entry.key().uri))
+        .find(|entry| {
+            entry.key().uri.ends_with(uri.as_str())
+                || uri.ends_with(entry.key().uri.as_uri().as_ref())
+        })
         .map(|entry| entry.key().ident.to_string())
 }
 
@@ -60,7 +63,7 @@ pub fn mcb_iter_modules() -> Vec<(String, String)> {
     workspace::WORKSPACE
         .modules
         .iter()
-        .map(|entry| (entry.key().ident.to_string(), entry.key().uri.clone()))
+        .map(|entry| (entry.key().ident.to_string(), entry.key().uri.to_string()))
         .collect()
 }
 
@@ -74,7 +77,7 @@ pub fn mcb_iter_modules_with_span() -> Vec<(String, String, [usize; 2])> {
             let span = &entry.value().span;
             (
                 entry.key().ident.to_string(),
-                entry.key().uri.clone(),
+                entry.key().uri.to_string(),
                 [span.start, span.end],
             )
         })
@@ -88,7 +91,7 @@ pub fn mcb_iter_components() -> Vec<(String, String)> {
         .components
         .iter()
         .chain(global::mcc_components.iter())
-        .map(|entry| (entry.key().ident.to_string(), entry.key().uri.clone()))
+        .map(|entry| (entry.key().ident.to_string(), entry.key().uri.to_string()))
         .collect();
     items.sort_by(|a, b| a.0.cmp(&b.0));
     items
@@ -105,7 +108,7 @@ pub fn mcb_iter_components_with_span() -> Vec<(String, String, [usize; 2])> {
             let span = &entry.value().span;
             (
                 entry.key().ident.to_string(),
-                entry.key().uri.clone(),
+                entry.key().uri.to_string(),
                 [span.start, span.end],
             )
         })
@@ -121,7 +124,7 @@ pub fn mcb_iter_interfaces() -> Vec<(String, String)> {
         .interfaces
         .iter()
         .chain(global::mcc_interfaces.iter())
-        .map(|entry| (entry.key().ident.to_string(), entry.key().uri.clone()))
+        .map(|entry| (entry.key().ident.to_string(), entry.key().uri.to_string()))
         .collect();
     items.sort_by(|a, b| a.0.cmp(&b.0));
     items
@@ -138,7 +141,7 @@ pub fn mcb_iter_interfaces_with_span() -> Vec<(String, String, [usize; 2])> {
             let span = &entry.value().span;
             (
                 entry.key().ident.to_string(),
-                entry.key().uri.clone(),
+                entry.key().uri.to_string(),
                 [span.start, span.end],
             )
         })
@@ -154,12 +157,12 @@ pub fn mcb_iter_enums() -> Vec<(String, String)> {
 
     // Workspace enums (project files)
     for entry in workspace::WORKSPACE.enums.iter() {
-        items.push((entry.key().ident.to_string(), entry.key().uri.clone()));
+        items.push((entry.key().ident.to_string(), entry.key().uri.to_string()));
     }
 
     // System library enums (e.g. enum PKG in mcode/package.mc)
     for entry in global::mcc_enums.iter() {
-        items.push((entry.key().ident.to_string(), entry.key().uri.clone()));
+        items.push((entry.key().ident.to_string(), entry.key().uri.to_string()));
     }
 
     items.sort_by(|a, b| a.0.cmp(&b.0));
@@ -180,7 +183,7 @@ pub fn mcb_iter_enums_with_span() -> Vec<(String, String, [usize; 2])> {
         let s = entry.value().span;
         items.push((
             entry.key().ident.to_string(),
-            entry.key().uri.clone(),
+            entry.key().uri.to_string(),
             [s[0] as usize, s[1] as usize],
         ));
     }
@@ -191,7 +194,7 @@ pub fn mcb_iter_enums_with_span() -> Vec<(String, String, [usize; 2])> {
         let s = entry.value().span;
         items.push((
             entry.key().ident.to_string(),
-            entry.key().uri.clone(),
+            entry.key().uri.to_string(),
             [s[0] as usize, s[1] as usize],
         ));
     }
@@ -210,7 +213,7 @@ pub fn mcb_iter_enum_values() -> Vec<(String, String, String, [u32; 2])> {
     let enums_guard = &workspace::WORKSPACE.enums;
     for entry in enums_guard.iter() {
         let class = entry.key().ident.to_string();
-        let uri = entry.key().uri.clone();
+        let uri = entry.key().uri.to_string();
         let enum_def = entry.value();
         for v in enum_def.values.iter() {
             let value_name = v.name.to_string();
@@ -222,7 +225,7 @@ pub fn mcb_iter_enum_values() -> Vec<(String, String, String, [u32; 2])> {
     let sys_enums_guard = &global::mcc_enums;
     for entry in sys_enums_guard.iter() {
         let class = entry.key().ident.to_string();
-        let uri = entry.key().uri.clone();
+        let uri = entry.key().uri.to_string();
         let enum_def = entry.value();
         for v in enum_def.values.iter() {
             let value_name = v.name.to_string();
@@ -244,7 +247,7 @@ pub fn mcb_iter_ports() -> Vec<(String, String, String, String)> {
 
     for entry in workspace::WORKSPACE.modules.iter() {
         let module_name = entry.key().ident.to_string();
-        let uri = entry.key().uri.clone();
+        let uri = entry.key().uri.to_string();
         let module = entry.value();
 
         for (name, iotype) in module.insts.iter_ports() {

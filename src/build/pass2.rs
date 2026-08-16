@@ -69,7 +69,7 @@ pub(crate) fn mcb_pass2(entry: &McSpaceName) -> Result<MccProjectTree, Box<dyn E
         // 1. Exact match
         let exact = binding
             .get(entry)
-            .map(|r| (entry.uri.clone(), r.value().clone()));
+            .map(|r| (entry.uri.to_string(), r.value().clone()));
 
         if let Some((uri, def)) = exact {
             matched_uri = uri;
@@ -80,9 +80,10 @@ pub(crate) fn mcb_pass2(entry: &McSpaceName) -> Result<MccProjectTree, Box<dyn E
                 .iter()
                 .find(|e| {
                     e.key().ident == entry.ident
-                        && (e.key().uri.ends_with(&entry.uri) || entry.uri.ends_with(&e.key().uri))
+                        && (e.key().uri.ends_with(entry.uri.as_uri().as_ref())
+                            || entry.uri.ends_with(e.key().uri.as_uri().as_ref()))
                 })
-                .map(|e| (e.key().uri.clone(), e.value().clone()));
+                .map(|e| (e.key().uri.to_string(), e.value().clone()));
 
             if let Some((uri, def)) = suffix {
                 matched_uri = uri;

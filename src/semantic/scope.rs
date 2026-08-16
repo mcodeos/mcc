@@ -578,25 +578,25 @@ impl ResolveScope<ContainerRef> for FileScope<'_> {
         let uri = self.uri.as_str();
         for entry in workspace::WORKSPACE.components.iter() {
             let key = entry.key();
-            if key.uri.as_str() == uri && key.ident.to_string() == name {
+            if key.uri == uri && key.ident.to_string() == name {
                 return Some(ContainerRef::Component(entry.value().clone()));
             }
         }
         for entry in workspace::WORKSPACE.modules.iter() {
             let key = entry.key();
-            if key.uri.as_str() == uri && key.ident.to_string() == name {
+            if key.uri == uri && key.ident.to_string() == name {
                 return Some(ContainerRef::Module(entry.value().clone()));
             }
         }
         for entry in workspace::WORKSPACE.interfaces.iter() {
             let key = entry.key();
-            if key.uri.as_str() == uri && key.ident.to_string() == name {
+            if key.uri == uri && key.ident.to_string() == name {
                 return Some(ContainerRef::Interface(entry.value().clone()));
             }
         }
         for entry in workspace::WORKSPACE.enums.iter() {
             let key = entry.key();
-            if key.uri.as_str() == uri && key.ident.to_string() == name {
+            if key.uri == uri && key.ident.to_string() == name {
                 return Some(ContainerRef::Enum(entry.value().clone()));
             }
         }
@@ -624,8 +624,8 @@ impl ResolveScope<ContainerRef> for UseChainScope<'_> {
         let entry = map
             .name_index
             .get(&(self.uri.as_str().to_string(), name.to_string()))?;
-        let def_uri = map.files.get(entry.def_loc.file_id as usize)?.clone();
-        let space_name = McSpaceName::new(&McIds::from(name), McURI::from(def_uri.as_str()));
+        let def_uri = crate::semantic::common::uri_of_file_id(entry.def_loc.file_id);
+        let space_name = McSpaceName::new(&McIds::from(name), McURI::from(def_uri.as_ref()));
         cmie_by_kind(entry.cmie_kind, &space_name).and_then(cmie_to_container_ref)
     }
 }

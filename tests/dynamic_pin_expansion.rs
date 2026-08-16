@@ -240,7 +240,7 @@ fn build_and_check_pins(source: &str) -> Vec<mcc::check::pins::PinCheckResult> {
         .unwrap_or_else(|| "main".to_string());
     let entry = mcc::McSpaceName {
         ident: McIds::from(mod_name.as_str()),
-        uri: uri.clone(),
+        uri: mcc::uri_intern(&uri),
     };
     let (_tree, table) = mcc::mcb_pass2_flat(&entry, 1).expect("pass2_flat failed");
 

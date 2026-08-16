@@ -518,7 +518,7 @@ fn container_kind_cmie(kind: &crate::ContainerKind) -> u8 {
 pub(crate) fn cmie_kind_for(def_uri: &str, name: &str) -> u8 {
     let space = McSpaceName {
         ident: McIds::from(name),
-        uri: def_uri.to_string(),
+        uri: crate::semantic::common::uri_intern(def_uri),
     };
     if workspace::WORKSPACE.components.contains_key(&space)
         || global::mcc_components.contains_key(&space)
