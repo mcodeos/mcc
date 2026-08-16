@@ -150,26 +150,35 @@ impl ResolveScope<Resolved> for ParamPortsScope<'_> {
 }
 
 /// Scoped enum value (component P2): `find_scoped_enum_value` match.
+///
+/// Carries the referencing file URI so the enum class resolves through the
+/// unified P1-P5 policy (§5.4) and the value lands on a precise definition
+/// (class id + value index) instead of a name-only workspace scan.
 pub struct ScopedEnumScope<'a> {
     family_name: &'a McIds,
+    uri: &'a McURI,
 }
 
 impl<'a> ScopedEnumScope<'a> {
-    pub fn new(family_name: &'a McIds) -> Self {
-        Self { family_name }
+    pub fn new(family_name: &'a McIds, uri: &'a McURI) -> Self {
+        Self { family_name, uri }
     }
 }
 
 impl ResolveScope<Resolved> for ScopedEnumScope<'_> {
     fn resolve(&self, name: &str) -> Option<Resolved> {
-        find_scoped_enum_value(self.family_name, name).map(|(enum_name, span)| Resolved {
-            inst: McInstance::EnumVal {
-                enum_name,
-                value_name: name.to_string(),
-                span: Some(span.clone()),
+        find_scoped_enum_value(self.uri, self.family_name, name).map(
+            |(enum_name, def_uri, class_id, span)| Resolved {
+                inst: McInstance::EnumVal {
+                    enum_name,
+                    value_name: name.to_string(),
+                    span: Some(span.clone()),
+                    class_id,
+                    def_uri: Some(def_uri.to_string()),
+                },
+                span: Some(span),
             },
-            span: Some(span),
-        })
+        )
     }
 }
 
@@ -386,11 +395,12 @@ impl ResolveScope<Resolved> for FuncsScope<'_> {
 pub struct EnumValuesScope<'a> {
     name: &'a McIds,
     values: &'a [McEnumValue],
+    uri: &'a McURI,
 }
 
 impl<'a> EnumValuesScope<'a> {
-    pub fn new(name: &'a McIds, values: &'a [McEnumValue]) -> Self {
-        Self { name, values }
+    pub fn new(name: &'a McIds, values: &'a [McEnumValue], uri: &'a McURI) -> Self {
+        Self { name, values, uri }
     }
 }
 
@@ -407,6 +417,12 @@ impl ResolveScope<Resolved> for EnumValuesScope<'_> {
                         enum_name,
                         value_name: name.to_string(),
                         span: Some(span.clone()),
+                        // The enum container itself is the class here; its class id
+                        // lives in whichever file built this chain, which is not
+                        // available at scope construction time — leave it for the
+                        // consumer to resolve via def_uri + enum name.
+                        class_id: None,
+                        def_uri: Some(self.uri.to_string()),
                     },
                     span: Some(span),
                 }
@@ -468,7 +484,7 @@ impl ResolveScope<Resolved> for FuncParamsScope<'_> {
 pub fn component_scope<'a>(c: &'a McComponent) -> ScopeChain<'a, Resolved> {
     ScopeChain::new(vec![
         Box::new(ParamsScope::new(&c.params)),
-        Box::new(ScopedEnumScope::new(&c.name)),
+        Box::new(ScopedEnumScope::new(&c.name, &c.uri)),
         Box::new(AttrsScope::new(&c.attrs)),
         Box::new(PinNamesScope::new(&c.pins)),
         Box::new(PinNamesExpandedScope::new(&c.pins)),
@@ -502,7 +518,9 @@ pub fn interface_scope<'a>(i: &'a McInterface) -> ScopeChain<'a, Resolved> {
 
 /// P2 enum category chain (① enum values).
 pub fn enum_scope<'a>(e: &'a McEnumDef) -> ScopeChain<'a, Resolved> {
-    ScopeChain::new(vec![Box::new(EnumValuesScope::new(&e.name, &e.values))])
+    ScopeChain::new(vec![Box::new(EnumValuesScope::new(
+        &e.name, &e.values, &e.uri,
+    ))])
 }
 
 /// Unified container chain — dispatch on the container reference.

@@ -20,6 +20,13 @@ use tracing::trace;
 /// Single-table lookup keyed by the exact `McSpaceName` (ident + uri).
 /// URI-scoped — never a name-only workspace scan.
 fn lookup_cmie_by_kind(cmie_kind: u8, space_name: &McSpaceName) -> Option<McCMIE> {
+    if cmie_kind == crate::ast::ast_semantic::CmieKind::UNKNOWN {
+        // §5.4.6 A3: RefDefMap entries for class refs are matched with an
+        // UNKNOWN kind (see matching.rs) — this is the normal state, not a
+        // stale-map inconsistency. Resolve by exact key against every table;
+        // still URI-scoped, never a name-only scan.
+        return crate::query::lookup::find_in_project_tables(space_name);
+    }
     match cmie_kind {
         0 => workspace::WORKSPACE
             .components
@@ -131,11 +138,21 @@ impl Resolver {
                     .cloned()
                     .unwrap_or_default();
                 trace!(target: "mcc::mcb_get_cmie", name = %name_str, def_uri = %def_uri, cmie_kind = entry.cmie_kind, "RefDefMap hit");
-                let space_name = McSpaceName::new(name, def_uri.clone());
+                // §5.4.6 A3: the RefDefMap entry must match a live table entry
+                // by exact key — a stale map is an inconsistency to report, not
+                // a reason to fall through to a name-only scan. The map's
+                // interned file URIs can carry the raw path form (e.g. /tmp vs
+                // /private/tmp on macOS) while workspace keys are canonical, so
+                // canonicalize the def URI before the exact-key lookup.
+                let space_name = if def_uri.is_empty() {
+                    McSpaceName::new(name, def_uri.clone())
+                } else {
+                    McSpaceName::new(
+                        name,
+                        crate::build::pass1::canonicalize_project_uri(&def_uri),
+                    )
+                };
                 if let Some(cmie) = lookup_cmie_by_kind(entry.cmie_kind, &space_name) {
-                    return Some(cmie);
-                }
-                if let Some(cmie) = crate::query::lookup::find_in_project_tables(&space_name) {
                     return Some(cmie);
                 }
             }
