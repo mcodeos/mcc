@@ -44,6 +44,17 @@ fn lookup_cmie_by_kind(cmie_kind: u8, space_name: &McSpaceName) -> Option<McCMIE
     }
 }
 
+/// Extract the defining URI from a resolved CMIE. The definition itself is
+/// the single source of truth — never re-resolve its URI by name.
+pub(crate) fn cmie_uri(cmie: &McCMIE) -> Option<String> {
+    match cmie {
+        McCMIE::Component(c) => Some(c.uri.to_string()),
+        McCMIE::Module(m) => Some(m.uri.to_string()),
+        McCMIE::Interface(i) => Some(i.uri.to_string()),
+        McCMIE::Enum(e) => Some(e.uri.to_string()),
+    }
+}
+
 /// The single class-name resolution entry point (§5.4.3).
 ///
 /// `from_uri` is the file containing the reference; resolution is relative to

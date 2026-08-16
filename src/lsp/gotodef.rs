@@ -107,18 +107,8 @@ pub fn find_def_by_name_in_file(name: &str, from_uri: &str) -> Option<(McCMIE, S
     // ② P5: mcode system library.
     let ident = McIds::from(name);
     let cmie = crate::db::resolve::Resolver::resolve_system(&ident)?;
-    let uri = cmie_uri(&cmie)?;
+    let uri = crate::db::resolve::cmie_uri(&cmie)?;
     Some((cmie, uri))
-}
-
-/// Extract the defining URI from a resolved CMIE.
-fn cmie_uri(cmie: &McCMIE) -> Option<String> {
-    match cmie {
-        McCMIE::Component(c) => Some(c.uri.to_string()),
-        McCMIE::Module(m) => Some(m.uri.to_string()),
-        McCMIE::Interface(i) => Some(i.uri.to_string()),
-        McCMIE::Enum(e) => Some(e.uri.to_string()),
-    }
 }
 
 /// Resolve a symbol name to its definition, returning structured JSON.

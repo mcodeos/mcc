@@ -5088,11 +5088,15 @@ impl McCode {
         // while the caller already holds this file's symbols lock can deadlock
         // when two files create their lapper concurrently (A locks B while B
         // locks A). McEnumDef carries uri + span, so no per-file lock is needed.
+        // §5.4: a workspace enum is visible only when its defining file is
+        // reachable through this file's `use` chain — never by bare name.
         for entry in workspace::WORKSPACE.enums.iter() {
             if entry.key().uri.as_str() == uri.as_str() {
                 continue;
             }
-            if entry.key().ident.to_string() == base_name {
+            if entry.key().ident.to_string() == base_name
+                && crate::db::resolve::use_chain_reaches(uri, entry.key().uri.as_str())
+            {
                 return Some((
                     entry.key().uri.clone(),
                     (entry.value().span[0] as usize)..(entry.value().span[1] as usize),
@@ -5211,38 +5215,38 @@ impl McCode {
                         }
                     };
 
-                    let mut idx = None;
-                    let mut value_span: Option<[u32; 2]> = None;
-                    {
-                        let enums_guard = &crate::db::cmie::tables::WORKSPACE.enums;
-                        for entry in enums_guard.iter() {
-                            if entry.key().ident.to_string() != base_name {
-                                continue;
-                            }
+                    // Locate the value by exact key (def_uri + name), never by
+                    // a name-only walk — the class's defining file is already
+                    // known (`xuri`), and a bare-name scan could hit a same-named
+                    // enum in an unrelated file (§5.4.5).
+                    let mut find_value = |def_uri: &McURI| {
+                        let space =
+                            McSpaceName::new(&McIds::from(base_name.as_str()), def_uri.clone());
+                        let enum_def = workspace::WORKSPACE
+                            .enums
+                            .get(&space)
+                            .or_else(|| crate::db::infra::global::mcc_enums.get(&space));
+                        if let Some(entry) = enum_def {
                             for (i, v) in entry.value().values.iter().enumerate() {
                                 if v.name.to_string() == member_name {
-                                    idx = Some(i as u32);
-                                    value_span = Some(v.span);
-                                    break;
+                                    return Some((i as u32, v.span));
                                 }
                             }
-                            break;
+                        }
+                        None
+                    };
+                    let mut idx = None;
+                    let mut value_span: Option<[u32; 2]> = None;
+                    if let Some(xuri) = &xuri {
+                        if let Some((i, s)) = find_value(xuri) {
+                            idx = Some(i);
+                            value_span = Some(s);
                         }
                     }
                     if idx.is_none() {
-                        let sys_enums_guard = &crate::db::infra::global::mcc_enums;
-                        for entry in sys_enums_guard.iter() {
-                            if entry.key().ident.to_string() != base_name {
-                                continue;
-                            }
-                            for (i, v) in entry.value().values.iter().enumerate() {
-                                if v.name.to_string() == member_name {
-                                    idx = Some(i as u32);
-                                    value_span = Some(v.span);
-                                    break;
-                                }
-                            }
-                            break;
+                        if let Some((i, s)) = find_value(uri) {
+                            idx = Some(i);
+                            value_span = Some(s);
                         }
                     }
 

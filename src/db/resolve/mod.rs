@@ -23,6 +23,7 @@ pub(crate) mod member;
 pub(crate) mod policy;
 pub(crate) mod visibility;
 
+pub(crate) use policy::cmie_uri;
 pub use policy::Resolver;
 pub use visibility::is_visible;
 pub(crate) use visibility::use_chain_reaches;

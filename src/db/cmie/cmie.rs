@@ -4,8 +4,7 @@
 
 use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
-use crate::db::resolve::Resolver;
-use crate::query::lookup::{find_component_uri, mcb_find_module_uri};
+use crate::db::resolve::{cmie_uri, Resolver};
 use crate::{McCMIE, McIds, McSpaceName, McURI};
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -49,12 +48,10 @@ pub(crate) fn mcb_get_cmie(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
 
 pub(crate) fn mcb_get_cmie_with_uri(class_name: &McIds, uri: &McURI) -> Option<(McCMIE, McURI)> {
     let cmie = mcb_get_cmie(class_name, uri)?;
-    let source_uri = match &cmie {
-        McCMIE::Module(_) => mcb_find_module_uri(class_name).unwrap_or_else(|| uri.clone()),
-        McCMIE::Component(_) => find_component_uri(class_name).unwrap_or_else(|| uri.clone()),
-        McCMIE::Interface(_) => uri.clone(),
-        McCMIE::Enum(_) => uri.clone(),
-    };
+    // The definition itself carries its source URI — never re-resolve by
+    // name (a workspace-wide name-only scan would violate §5.4.5 and could
+    // return a same-named def from an unrelated file).
+    let source_uri = cmie_uri(&cmie).unwrap_or_else(|| uri.clone());
     Some((cmie, source_uri))
 }
 
@@ -88,9 +85,13 @@ pub(crate) fn find_scoped_enum_for_component(
         return Some(entry.value().clone());
     }
 
-    // Fallback: name-only search (for cross-file enums)
+    // Fallback: cross-file enums. §5.4 — a workspace enum is visible only
+    // when its defining file is reachable through `uri`'s use chain, never
+    // by bare name (a name-only scan could hit an unrelated same-named enum).
     for entry in workspace::WORKSPACE.enums.iter() {
-        if entry.key().ident.to_string() == family_name {
+        if entry.key().ident.to_string() == family_name
+            && crate::db::resolve::use_chain_reaches(uri, entry.key().uri.as_str())
+        {
             return Some(entry.value().clone());
         }
     }
