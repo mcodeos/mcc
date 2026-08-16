@@ -2108,21 +2108,18 @@ impl McPinNames {
                                         );
                                         continue;
                                     } else {
-                                        // W1304: same as DECLARE_UV branch
+                                        // Same as DECLARE_UV branch: lookup failed, treat
+                                        // the name as a plain pin alias but warn the user.
                                         let class_str = class_id.to_string();
                                         let inst_str = inst_id.to_string();
-                                        let is_likely_alias =
-                                            class_str.starts_with('_') || class_str == inst_str;
-                                        if !is_likely_alias {
-                                            dlog_warning(
+                                        dlog_warning(
+                                            crate::errcodes::PARAM_INST_LOOKUP_FAILED,
+                                            err_node,
+                                            &crate::errcodes::format_msg(
                                                 crate::errcodes::PARAM_INST_LOOKUP_FAILED,
-                                                err_node,
-                                                &crate::errcodes::format_msg(
-                                                    crate::errcodes::PARAM_INST_LOOKUP_FAILED,
-                                                    &[&inst_str, &class_str],
-                                                ),
-                                            );
-                                        }
+                                                &[&inst_str, &class_str],
+                                            ),
+                                        );
                                         myself.push_option(McPinPort::Single(inst_str), err_node);
                                     }
                                 } else {
@@ -2439,26 +2436,23 @@ impl McPinNames {
                                 );
                                 continue;
                             } else {
-                                // 1304: mcb_get_cmie did not find the interface corresponding to class_name.
-                                //      Still fall back to alias, but emit a dlog_warning to inform the user.
+                                // Interface lookup failed: still fall back to alias, but
+                                // emit a dlog_warning to inform the user (same treatment
+                                // as the MCAST_IDS `::` branch).
                                 // - Square bracket form [SCL,SDA]::I2C(): push Multi for 1:1 zip with pin IDs
                                 // - Curly brace form I2C2{SCL,SDA}::I2C(): push Multi for 1:1 zip with pin IDs
                                 // - Instance name form I2C1::I2C(): push Single, assign to all pins
                                 let class_str = class_name.to_string();
                                 let inst_str = inst_name.to_string();
-                                let is_likely_alias =
-                                    class_str.starts_with('_') || class_str == inst_str;
-                                if !is_likely_alias {
-                                    // Use inst_node if available (tighter span), otherwise fall back to err_node
-                                    dlog_warning(
+                                // Use inst_node if available (tighter span), otherwise fall back to err_node
+                                dlog_warning(
+                                    crate::errcodes::PARAM_INST_LOOKUP_FAILED,
+                                    inst_node.as_ref().unwrap_or(err_node),
+                                    &crate::errcodes::format_msg(
                                         crate::errcodes::PARAM_INST_LOOKUP_FAILED,
-                                        inst_node.as_ref().unwrap_or(err_node),
-                                        &crate::errcodes::format_msg(
-                                            crate::errcodes::PARAM_INST_LOOKUP_FAILED,
-                                            &[&inst_str, &class_str],
-                                        ),
-                                    );
-                                }
+                                        &[&inst_str, &class_str],
+                                    ),
+                                );
                                 if inst_name.is_list() {
                                     if let Some(members) = inst_name.list_members() {
                                         myself.push_option(McPinPort::Multi(members), err_node);

@@ -1442,10 +1442,17 @@ impl McInstances {
             //   - `[VDD_3V3, GND]::DC()` → is_square_only=true → not expand
             //   - `vin{POWER_SYS, GND}::DC()` → base="vin" but with curly brace → not expand
             //   - `MIC{P, N}::ADC.DIFF()` → same as above
+            //   - interface bindings → never expand: `PWR_[VDD2, GND2]::DC(5V)` is a
+            //     single named interface instance (`PWR_` with members VDD2/GND2), and
+            //     the interface branch keys every expanded name by `base_name`, which
+            //     would register the same span once per member (duplicate-instance
+            //     diagnostics / duplicate LSP symbols).
             let expanded_names = inst_ids.expand();
             let inst_str = inst_ids.to_string();
             let has_square_range = inst_str.contains('[') && !inst_str.contains('{');
-            let should_expand = !inst_ids.is_square_only()
+            let is_interface = matches!(cmie, Some(McCMIE::Interface(_)));
+            let should_expand = !is_interface
+                && !inst_ids.is_square_only()
                 && !inst_ids.base_name().is_empty()
                 && has_square_range
                 && expanded_names.len() >= 2;

@@ -8,7 +8,7 @@
 //!
 //! NOTE: These tests share global mcc state, so a mutex serializes them.
 
-use mcc::McURI;
+use mcc::{McIds, McURI};
 use std::sync::{Mutex, OnceLock};
 
 /// Global mutex to serialize tests that share mcc's global workspace state.
@@ -90,4 +90,46 @@ fn extract_span(line: &str) -> Option<(usize, usize)> {
     let a: usize = rest[..comma].trim().parse().ok()?;
     let b: usize = rest[comma + 1..close].trim().parse().ok()?;
     Some((a, b))
+}
+
+#[test]
+fn named_square_iface_port_is_single_instance() {
+    let _lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+
+    // A named square-vec instance binding (`PWR_[VDD2, GND2]::DC(5V)`) is ONE
+    // interface port named `PWR_`; it must not be treated as an array to
+    // expand per member (which previously registered the same key twice and
+    // reported INST_DECLARED_MULTIPLE / duplicate LSP symbols).
+    let uri: McURI = "/mcc/named-square-iface-port.mc".to_string();
+    let source = r#"
+interface DC(volt)
+{
+    pins = [
+        1 = VOUT, "DC power positive"
+        2 = GND, "DC power ground"
+    ]
+}
+
+module main
+{
+    in PWR_[VDD2, GND2]::DC(5V)
+}
+"#;
+    mcc::mcc_load_from_string(&uri, source);
+    mcc::mcc_build(&McIds::from("main"), &uri).expect("build failed");
+
+    let diags = mcc::mcc_diagnose_all();
+    let pwr_5151: Vec<_> = diags
+        .iter()
+        .filter(|d| d.code == 5151 && d.msg.contains("PWR_"))
+        .collect();
+    assert!(
+        pwr_5151.is_empty(),
+        "PWR_ must be a single instance, got: {:?}",
+        pwr_5151
+    );
 }
