@@ -107,7 +107,9 @@ pub fn render_designator_and_value(b: &McVecBox) -> String {
                 d = escape_xml(designator)
             )
         }
-        Symbol::PowerRail { .. } | Symbol::Dot | Symbol::Unknown | Symbol::PortTerminal { .. } => String::new(),
+        Symbol::PowerRail { .. } | Symbol::Dot | Symbol::Unknown | Symbol::PortTerminal { .. } => {
+            String::new()
+        }
     }
 }
 

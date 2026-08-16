@@ -42,8 +42,8 @@
 use std::collections::HashMap;
 
 use crate::instant::insttab::{InstKind, InstTable, MemberRole};
-use crate::vector::graph::netdef::IoDirection;
 use crate::vector::graph::naming;
+use crate::vector::graph::netdef::IoDirection;
 use crate::vector::model::{BoundaryInfo, McVec, McVecBlock, McVecNet};
 
 /// One projection action record (rule a=merge / b=endpoint dedup / c=pseudo endpoint removal)
@@ -137,7 +137,10 @@ fn pseudo_entry_with_ancestor(
     id: i64,
     bid: i64,
     table: &InstTable,
-) -> Option<(&crate::instant::insttab::InstEntry, &crate::instant::insttab::InstEntry)> {
+) -> Option<(
+    &crate::instant::insttab::InstEntry,
+    &crate::instant::insttab::InstEntry,
+)> {
     if id < 0 {
         return None;
     }
@@ -377,14 +380,12 @@ fn project_nets(
         let real: Vec<i64> = all_ids
             .iter()
             .copied()
-.filter(|&pid| {
+            .filter(|&pid| {
                 if dropped_b.contains(&pid) {
                     return false;
                 }
                 match pseudo_entry_with_ancestor(pid, bid, table) {
-                    Some((_, _)) => {
-                        !group_is_rail
-                    }
+                    Some((_, _)) => !group_is_rail,
                     None => true,
                 }
             })

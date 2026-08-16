@@ -20,7 +20,7 @@ use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 use mcc::vector::model::McVecBlock;
-use mcc::{InstKind, InstTable, MemberRole, McIds};
+use mcc::{InstKind, InstTable, McIds, MemberRole};
 
 fn hbl_project_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("projects/hbl")
@@ -91,11 +91,7 @@ fn assert_no_rail_pseudo(block: &McVecBlock, table: &InstTable) {
                     && matches!(e.kind, InstKind::Port | InstKind::Label)
                 {
                     let is_rail = e.member_info.as_ref().map_or(false, |m| {
-                        matches!(
-                            m.role,
-                            MemberRole::Ground
-                                | MemberRole::Power
-                        )
+                        matches!(m.role, MemberRole::Ground | MemberRole::Power)
                     });
                     assert!(
                         !is_rail,

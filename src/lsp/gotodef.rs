@@ -9,7 +9,7 @@
 use crate::query::iterators::{
     mcb_iter_components, mcb_iter_enums, mcb_iter_interfaces, mcb_iter_modules,
 };
-use crate::{McCMIE, McIds, McURI};
+use crate::{McCMIE, McIds, McSpaceName, McURI};
 use serde_json::{json, Value};
 
 /// Fast path: search RefDefMap name_index across all loaded files (§7.4).
@@ -69,10 +69,80 @@ pub fn find_def_by_name_raw(name: &str) -> Option<(McCMIE, String)> {
     None
 }
 
+/// Find a definition by name, restricted to the visibility set V(F) of the
+/// cursor file `from_uri` (§5.4): P3 (own file) + P4 (use chain) + P5 (mcode).
+/// Never returns a definition from a file that F has not `use`d.
+pub fn find_def_by_name_in_file(name: &str, from_uri: &str) -> Option<(McCMIE, String)> {
+    let from_uri_obj = McURI::from(from_uri);
+
+    // ① P3 + P4: the file's own symbols / use chain (RefDefMap name_index).
+    // The file's symbols lock is released before `get_def`: class resolution
+    // (Resolver) re-locks the same file's symbols, and std Mutex is not
+    // reentrant — holding it across the call would self-deadlock.
+    let def_uri = {
+        let mcfile = crate::db::cmie::tables::WORKSPACE.mcodes.get(&from_uri_obj);
+        let mut def_uri = String::new();
+        if let Some(mcfile) = mcfile {
+            if let Ok(sym) = mcfile.symbols.lock() {
+                if let Some(ref map) = sym.ref_def_map {
+                    if let Some(entry) = map.get_by_name(&from_uri_obj, name) {
+                        def_uri = map
+                            .files
+                            .get(entry.def_loc.file_id as usize)
+                            .cloned()
+                            .unwrap_or_default();
+                    }
+                }
+            }
+        }
+        def_uri
+    };
+    if !def_uri.is_empty() {
+        let ident = McIds::from(name);
+        if let Some(cmie) = crate::get_def(&ident, &McURI::from(def_uri.as_str())) {
+            return Some((cmie, def_uri));
+        }
+    }
+
+    // ② P5: mcode system library.
+    let ident = McIds::from(name);
+    let cmie = crate::db::resolve::Resolver::resolve_system(&ident)?;
+    let uri = cmie_uri(&cmie)?;
+    Some((cmie, uri))
+}
+
+/// Extract the defining URI from a resolved CMIE.
+fn cmie_uri(cmie: &McCMIE) -> Option<String> {
+    match cmie {
+        McCMIE::Component(c) => Some(c.uri.to_string()),
+        McCMIE::Module(m) => Some(m.uri.to_string()),
+        McCMIE::Interface(i) => Some(i.uri.to_string()),
+        McCMIE::Enum(e) => Some(e.uri.to_string()),
+    }
+}
+
 /// Resolve a symbol name to its definition, returning structured JSON.
 /// Looks across components, modules, interfaces, and enums.
 pub fn resolve(name: &str) -> Option<Value> {
     let (cmie, uri) = find_def_by_name_raw(name)?;
+    cmie_to_value(name, cmie, uri)
+}
+
+/// Resolve a symbol name to its definition within the cursor file's visibility
+/// set V(F) (§5.4). A miss returns `None` — never a cross-file guess.
+pub fn resolve_in_file(name: &str, from_uri: &str) -> Option<Value> {
+    let (cmie, uri) = find_def_by_name_in_file(name, from_uri)?;
+    // Final guard: the resolved definition must lie in V(F) (§5.4). Both the
+    // name_index hit (P3/P4) and the mcode lookup (P5) satisfy this by
+    // construction; the check guards against any future name-based fallback.
+    let def = McSpaceName::new(&McIds::from(name), McURI::from(uri.as_str()));
+    if !crate::db::resolve::is_visible(&McURI::from(from_uri), &def) {
+        return None;
+    }
+    cmie_to_value(name, cmie, uri)
+}
+
+fn cmie_to_value(name: &str, cmie: McCMIE, uri: String) -> Option<Value> {
     match cmie {
         McCMIE::Component(c) => Some(json!({
             "kind": "component", "name": name, "uri": uri,

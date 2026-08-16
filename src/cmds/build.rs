@@ -372,7 +372,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             let align_report = mcc::viz::metrics::align::AlignMetricsReport::compute(&table.1);
             align_report.print();
 
-if !nc_report.is_clean() {
+            if !nc_report.is_clean() {
                 mcc_dbg!("build", "[gate] NETCHECK Tier 0 not clean -> build failed.");
                 return Ok(BuildOutcome { exit_code: 1 });
             }

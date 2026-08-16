@@ -141,8 +141,14 @@ pub fn handle_def(params: Option<Value>) -> RpcResult {
             )),
         };
     }
-    // Legacy name-based path (callers without a cursor position).
-    match crate::lsp::gotodef::resolve(&p.name) {
+    // Legacy name-based path (callers without a cursor position). When the
+    // request carries the cursor file (`uri`), resolution is restricted to
+    // that file's visibility set V(F) (§5.4) — never a workspace-wide scan.
+    let result = match &p.uri {
+        Some(uri) => crate::lsp::gotodef::resolve_in_file(&p.name, uri),
+        None => crate::lsp::gotodef::resolve(&p.name),
+    };
+    match result {
         Some(result) => Ok(result),
         None => Err(JsonRpcError::custom(
             32112,

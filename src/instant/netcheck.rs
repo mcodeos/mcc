@@ -602,10 +602,7 @@ fn check_r01_literal_point(table: &InstTable, idx: &Index, rep: &mut Report) {
         // Report R01-e waived count (Info level, separate line)
         if waived > 0 {
             waived_paths.sort();
-            let waived_items: Vec<String> = waived_paths
-                .iter()
-                .map(|p| format!("`{p}`"))
-                .collect();
+            let waived_items: Vec<String> = waived_paths.iter().map(|p| format!("`{p}`")).collect();
             note(
                 rep,
                 "R01-e",

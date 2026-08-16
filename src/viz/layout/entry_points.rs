@@ -1031,7 +1031,11 @@ fn compute_entry_points(
                 vec![EntryPoint {
                     pin_id,
                     pin_name: pin_name.clone(),
-                    side: b.entry_points.first().map(|ep| ep.side.clone()).unwrap_or(EntrySide::Right),
+                    side: b
+                        .entry_points
+                        .first()
+                        .map(|ep| ep.side.clone())
+                        .unwrap_or(EntrySide::Right),
                     offset: 0.5,
                 }]
             } else {

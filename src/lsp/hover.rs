@@ -28,9 +28,14 @@ pub fn hover(name: &str, uri: &str, position: Option<usize>) -> Option<Value> {
 }
 
 /// Name-based resolution for legacy callers without a cursor position.
+///
+/// Resolution is restricted to the cursor file's visibility set V(F) (§5.4):
+/// P3 (own file) + P4 (use chain) + P5 (mcode). Never scans the whole
+/// workspace by name — that would return defs from files F has not `use`d
+/// (§5.4.5).
 fn hover_by_name(name: &str, uri: &str) -> Option<Value> {
-    // First try: resolve as a definition (module, component, interface, enum)
-    if let Some(def) = super::gotodef::resolve(name) {
+    // First try: resolve as a definition within V(F)
+    if let Some(def) = super::gotodef::resolve_in_file(name, uri) {
         return Some(def);
     }
 

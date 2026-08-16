@@ -3248,20 +3248,20 @@ impl McCode {
         ref_uri: &McURI,
         class_name: &McIds,
         gt: &mut crate::ast::ast_semantic::GlobalSymbolTable,
-        _sem: &McSemSymbols,
+        sem: &McSemSymbols,
     ) -> Option<(DeclareId, McURI, std::ops::Range<usize>, u8)> {
         if class_name.segments.is_empty() {
             return None;
         }
 
-        // ★ Use mcb_get_cmie with five-layer priority (P1–P5) instead of
-        // manual table-by-table searches. mcb_get_cmie already implements:
-        //   P1: RefDefMap ID-based lookup (all scopes)
-        //   P2: Name-based Use table lookup (P3→P4→P5 priority)
-        //   P3: Single DashMap.get via cmie_kind
-        //   P4: Re-entry guard → name-only fallback
-        //   P5: find_by_name_in_project_tables (final fallback)
-        if let Some(cmie) = crate::db::cmie::cmie::mcb_get_cmie(class_name, ref_uri) {
+        // ★ Use the unified resolution policy (P3→P4→P5) instead of manual
+        // table-by-table searches. Runs through resolve_class_locked: the
+        // caller (create_lapper) already holds this file's symbols lock, and
+        // re-locking it through mcb_get_cmie would self-deadlock (std Mutex is
+        // not reentrant).
+        if let Some(cmie) =
+            crate::db::resolve::Resolver::resolve_class_locked(ref_uri, class_name, sem)
+        {
             let (def_uri, def_span, cmie_kind) = match &cmie {
                 crate::semantic::common::McCMIE::Component(c) => (
                     c.uri.clone(),
@@ -5786,10 +5786,11 @@ impl McCode {
                                 func_name.as_ref().map(|s| s.as_str().to_string()),
                             ) {
                                 if let Some((def_uri, def_span, ref_kind)) =
-                                    crate::db::cmie::cmie::resolve_cmie_member(
+                                    crate::db::resolve::member::resolve_cmie_member_locked(
                                         &class_name,
                                         &method_name,
                                         uri,
+                                        sem,
                                     )
                                 {
                                     // ★ Cross-file member defs (e.g. `CAP(...).Cap(_)`

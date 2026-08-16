@@ -144,6 +144,28 @@ fn register_lib_class_in_global_table(
 ///
 /// Called when a class name is used in a declare statement (e.g., `comp.sub uC`).
 /// Registers the class reference so LSP can jump from the reference to the class definition.
+///
+/// §5.4 visibility gate: cross-file candidates are only accepted when the
+/// referencing file can actually see them — P3 (same file), P4 (use chain),
+/// or P5 (mcode). This stops goto-def from jumping into files the
+/// referencing file never `use`d (the `net1.basic.mc` → `c3.defs.mc` `DC`
+/// regression). Unresolved refs fall back to the sentinel path, which
+/// re-resolves later through the visibility-aware `Resolver`.
+fn cross_file_class_visible(uri: &McURI, target_uri: &str, name_str: &str) -> bool {
+    if target_uri == uri.as_str() {
+        return true; // P3: same file
+    }
+    if crate::db::resolve::use_chain_reaches(uri, target_uri) {
+        return true; // P4: reachable through the use chain
+    }
+    // P5: mcode system library.
+    let space = McSpaceName::new(&McIds::from(name_str), McURI::from(target_uri));
+    global::mcc_components.contains_key(&space)
+        || global::mcc_modules.contains_key(&space)
+        || global::mcc_interfaces.contains_key(&space)
+        || global::mcc_enums.contains_key(&space)
+}
+
 pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Span) {
     // ★ Fix: mc_value_link (C-side) extends MCAST_IDS node `len` to include
     // linked MCAST_PARAMS, so raw_span may cover "RES(10kΩ)" instead of "RES".
@@ -153,84 +175,95 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
     let span = raw_span.start..(raw_span.start + name_str.len());
 
     // Step 1: Find (class_id, target_uri, target_span) — try lsp.class_table first
-    // Priority: same URI as reference > other URIs (for duplicate class definitions)
+    // Priority: same URI as reference > other URIs (for duplicate class definitions).
+    //
+    // Candidates are collected inside the class_table lock, but the §5.4
+    // visibility gate for cross-URI candidates runs AFTER the lock is
+    // released: the gate walks WORKSPACE.mcodes (DashMap), and running it
+    // while holding class_table would invert the mcodes -> class_table lock
+    // order used by other paths, deadlocking under parallel parsing.
     let uri_str = uri.to_string();
     let found = {
-        let class_table = workspace::WORKSPACE.lsp.class_table.lock().unwrap();
-        tracing::debug!(target: "crate::lsp", "  register_declare_class: lsp.class_table size={}", class_table.len());
-
-        // First try: exact URI match (same file as reference)
-        let same_uri_result = class_table.iter().find_map(
-            |((target_uri, kind, name), &(class_id, ref target_span))| {
-                if name == &name_str && target_uri == &uri_str {
-                    Some((
-                        class_id,
-                        target_uri.clone(),
-                        target_span.clone(),
-                        container_kind_cmie(kind),
-                    ))
-                } else {
-                    None
+        let mut same_uri_result: Option<(DeclareId, String, Span, u8)> = None;
+        let mut other_candidates: Vec<(DeclareId, String, Span, u8)> = Vec::new();
+        {
+            let class_table = workspace::WORKSPACE.lsp.class_table.lock().unwrap();
+            tracing::debug!(target: "crate::lsp", "  register_declare_class: lsp.class_table size={}", class_table.len());
+            for ((target_uri, kind, name), &(class_id, ref target_span)) in class_table.iter() {
+                if name != &name_str {
+                    continue;
                 }
-            },
-        );
-
-        // Second try: different URI (fallback for cross-file references)
-        let other_uri_result = if same_uri_result.is_none() {
-            class_table.iter().find_map(
-                |((target_uri, kind, name), &(class_id, ref target_span))| {
-                    if name == &name_str && target_uri != &uri_str {
-                        Some((
-                            class_id,
-                            target_uri.clone(),
-                            target_span.clone(),
-                            container_kind_cmie(kind),
-                        ))
-                    } else {
-                        None
+                let info = (
+                    class_id,
+                    target_uri.clone(),
+                    target_span.clone(),
+                    container_kind_cmie(kind),
+                );
+                if target_uri == &uri_str {
+                    // First try: exact URI match (same file as reference).
+                    if same_uri_result.is_none() {
+                        same_uri_result = Some(info);
                     }
-                },
-            )
-        } else {
-            None
-        };
-
-        let result = same_uri_result.or(other_uri_result);
-        if result.is_none() {
-            tracing::debug!(target: "crate::lsp", "  register_declare_class: lsp.class_table miss for '{}'", class_name);
-        } else {
-            tracing::info!(target: "crate::lsp", "  register_declare_class: lsp.class_table hit for '{}'", class_name);
+                } else {
+                    // Second try: different URI (fallback for cross-file references).
+                    other_candidates.push(info);
+                }
+            }
         }
-        result
-    };
 
-    // Step 2: Try workspace files' global tables if not found above
+        same_uri_result.or_else(|| {
+            other_candidates.into_iter().find(|(_, target_uri, _, _)| {
+                // §5.4 gate: only accept a candidate whose file is visible from
+                // the referencing file (P3 same file / P4 use chain / P5 mcode).
+                cross_file_class_visible(uri, target_uri, &name_str)
+            })
+        })
+    };
+    if found.is_none() {
+        tracing::debug!(target: "crate::lsp", "  register_declare_class: lsp.class_table miss for '{}'", class_name);
+    } else {
+        tracing::info!(target: "crate::lsp", "  register_declare_class: lsp.class_table hit for '{}'", class_name);
+    }
+
+    // Step 2: Try workspace files' global tables if not found above.
+    //
+    // Same lock discipline as Step 1: candidates are collected while holding
+    // the file's symbols/global_table locks, but the §5.4 gate runs AFTER all
+    // locks are released. The gate walks WORKSPACE.mcodes (DashMap), and
+    // running it while holding an mcodes entry's symbols lock would invert the
+    // mcodes -> symbols lock order used by create_lapper, deadlocking under
+    // parallel parsing.
     let from_mcodes: Option<(DeclareId, String, Span, u8)> = if found.is_none() {
         let binding = &workspace::WORKSPACE.mcodes;
-        let mut result = None;
+        let mut candidates: Vec<(DeclareId, String, Span)> = Vec::new();
         for entry in binding.iter() {
             if let Ok(sem) = entry.value().symbols.lock() {
                 if let Ok(gt) = sem.global_table.lock() {
                     for ((file_uri, name), &cid) in gt.class_name_to_id.iter() {
                         if name == &McIds::from(name_str.as_str()) {
                             if let Some((_, tspan)) = gt.class_id_to_span.get(&cid) {
-                                result = Some((
-                                    cid,
-                                    file_uri.clone(),
-                                    tspan.clone(),
-                                    cmie_kind_for(&file_uri, &name_str),
-                                ));
-                                break;
+                                candidates.push((cid, file_uri.clone(), tspan.clone()));
                             }
                         }
                     }
                 }
             }
-            if result.is_some() {
-                break;
-            }
         }
-        result
+        candidates
+            .into_iter()
+            .find(|(_, file_uri, _)| {
+                // §5.4 gate: only accept a candidate whose file is visible from
+                // the referencing file (P3 same file / P4 use chain / P5 mcode).
+                cross_file_class_visible(uri, file_uri, &name_str)
+            })
+            .map(|(cid, file_uri, tspan)| {
+                (
+                    cid,
+                    file_uri.clone(),
+                    tspan,
+                    cmie_kind_for(&file_uri, &name_str),
+                )
+            })
     } else {
         None
     };
@@ -247,119 +280,118 @@ pub fn mcb_register_declare_class(uri: &McURI, class_name: &McIds, raw_span: Spa
     // ★ Fix: Register found classes in the global table to get a real DeclareId
     // instead of using DeclareId::default(). Without this, all library class
     // refs map to class_id=0 with invalid def spans in Layer 1.
+    //
+    // Candidates are collected first — the §5.4 gate (which walks
+    // WORKSPACE.mcodes) is never invoked while iterating a workspace/global
+    // DashMap or while holding any file lock, preserving the same lock
+    // discipline as Steps 1/2.
     let from_syslibs: Option<(DeclareId, String, Span, u8)> = if class_info.is_none() {
         let mut result = None;
 
-        // Helper macro to reduce repetition. The kind is known from the table
-        // being searched (Component/Module/Interface/Enum), so it is captured
-        // here instead of re-guessed from the name later.
-        macro_rules! try_register {
-            ($def_uri:expr, $def_span:expr, $kind:expr) => {
-                let def_uri_str = ($def_uri).to_string();
-                let def_span_range = ($def_span);
-                let class_id =
-                    register_lib_class_in_global_table(&def_uri_str, &name_str, &def_span_range);
-                result = Some((class_id, def_uri_str, def_span_range, $kind as u8));
-            };
-        }
-
-        // 2.5a: Search workspace tables first (project-level definitions from `use` directives)
+        // 2.5a: workspace tables first (project-level definitions from `use` directives),
+        // gated by §5.4 visibility (P3/P4/P5) — a workspace file's symbols are
+        // importable only via `use`, never by bare name.
+        let mut ws_candidates: Vec<(String, std::ops::Range<usize>, CmieKind)> = Vec::new();
         for entry in workspace::WORKSPACE.components.iter() {
             if entry.key().ident.to_string() == name_str {
-                try_register!(
-                    entry.key().uri,
+                ws_candidates.push((
+                    entry.key().uri.to_string(),
                     entry.value().span.clone(),
-                    CmieKind::Component
-                );
+                    CmieKind::Component,
+                ));
+            }
+        }
+        for entry in workspace::WORKSPACE.modules.iter() {
+            if entry.key().ident.to_string() == name_str {
+                ws_candidates.push((
+                    entry.key().uri.to_string(),
+                    entry.value().span.clone(),
+                    CmieKind::Module,
+                ));
+            }
+        }
+        for entry in workspace::WORKSPACE.interfaces.iter() {
+            if entry.key().ident.to_string() == name_str {
+                ws_candidates.push((
+                    entry.key().uri.to_string(),
+                    entry.value().span.clone(),
+                    CmieKind::Interface,
+                ));
+            }
+        }
+        for entry in workspace::WORKSPACE.enums.iter() {
+            if entry.key().ident.to_string() == name_str {
+                let s = entry.value().span;
+                ws_candidates.push((
+                    entry.key().uri.to_string(),
+                    s[0] as usize..s[1] as usize,
+                    CmieKind::Enum,
+                ));
+            }
+        }
+        for (def_uri, def_span, kind) in ws_candidates {
+            if cross_file_class_visible(uri, &def_uri, &name_str) {
+                let class_id = register_lib_class_in_global_table(&def_uri, &name_str, &def_span);
+                result = Some((class_id, def_uri, def_span, kind as u8));
                 break;
             }
         }
-        if result.is_none() {
-            for entry in workspace::WORKSPACE.modules.iter() {
-                if entry.key().ident.to_string() == name_str {
-                    try_register!(
-                        entry.key().uri,
-                        entry.value().span.clone(),
-                        CmieKind::Module
-                    );
-                    break;
-                }
-            }
-        }
-        if result.is_none() {
-            for entry in workspace::WORKSPACE.interfaces.iter() {
-                if entry.key().ident.to_string() == name_str {
-                    try_register!(
-                        entry.key().uri,
-                        entry.value().span.clone(),
-                        CmieKind::Interface
-                    );
-                    break;
-                }
-            }
-        }
-        if result.is_none() {
-            for entry in workspace::WORKSPACE.enums.iter() {
-                if entry.key().ident.to_string() == name_str {
-                    let s = entry.value().span;
-                    try_register!(
-                        entry.key().uri,
-                        s[0] as usize..s[1] as usize,
-                        CmieKind::Enum
-                    );
-                    break;
-                }
-            }
-        }
 
-        // 2.5b: Search system library tables (global::mcc_*) — classes from loaded libraries
+        // 2.5b: system library tables (global::mcc_*) — classes from loaded
+        // libraries are always visible (P5), so no gate is applied.
         if result.is_none() {
+            let mut sys_candidates: Vec<(String, std::ops::Range<usize>, CmieKind)> = Vec::new();
             for entry in global::mcc_components.iter() {
                 if entry.key().ident.to_string() == name_str {
-                    try_register!(
-                        entry.key().uri,
+                    sys_candidates.push((
+                        entry.key().uri.to_string(),
                         entry.value().span.clone(),
-                        CmieKind::Component
-                    );
+                        CmieKind::Component,
+                    ));
                     break;
                 }
             }
-        }
-        if result.is_none() {
-            for entry in global::mcc_modules.iter() {
-                if entry.key().ident.to_string() == name_str {
-                    try_register!(
-                        entry.key().uri,
-                        entry.value().span.clone(),
-                        CmieKind::Module
-                    );
-                    break;
+            if sys_candidates.is_empty() {
+                for entry in global::mcc_modules.iter() {
+                    if entry.key().ident.to_string() == name_str {
+                        sys_candidates.push((
+                            entry.key().uri.to_string(),
+                            entry.value().span.clone(),
+                            CmieKind::Module,
+                        ));
+                        break;
+                    }
                 }
             }
-        }
-        if result.is_none() {
-            for entry in global::mcc_interfaces.iter() {
-                if entry.key().ident.to_string() == name_str {
-                    try_register!(
-                        entry.key().uri,
-                        entry.value().span.clone(),
-                        CmieKind::Interface
-                    );
-                    break;
+            if sys_candidates.is_empty() {
+                for entry in global::mcc_interfaces.iter() {
+                    if entry.key().ident.to_string() == name_str {
+                        sys_candidates.push((
+                            entry.key().uri.to_string(),
+                            entry.value().span.clone(),
+                            CmieKind::Interface,
+                        ));
+                        break;
+                    }
                 }
             }
-        }
-        if result.is_none() {
-            for entry in global::mcc_enums.iter() {
-                if entry.key().ident.to_string() == name_str {
-                    let s = entry.value().span;
-                    try_register!(
-                        entry.key().uri,
-                        s[0] as usize..s[1] as usize,
-                        CmieKind::Enum
-                    );
-                    break;
+            if sys_candidates.is_empty() {
+                for entry in global::mcc_enums.iter() {
+                    if entry.key().ident.to_string() == name_str {
+                        let s = entry.value().span;
+                        sys_candidates.push((
+                            entry.key().uri.to_string(),
+                            s[0] as usize..s[1] as usize,
+                            CmieKind::Enum,
+                        ));
+                        break;
+                    }
                 }
+            }
+            for (def_uri, def_span, kind) in sys_candidates {
+                let class_id = register_lib_class_in_global_table(&def_uri, &name_str, &def_span);
+                result = Some((class_id, def_uri, def_span, kind as u8));
+                break;
             }
         }
         result

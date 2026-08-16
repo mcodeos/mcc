@@ -298,11 +298,7 @@ fn render_layer_recursive(
                 .unwrap_or(graph.boxes.first().map(|b| b.id).unwrap_or(0));
 
             let isolated = crate::viz::layout::flow::compute_isolated_ids(&graph, hub_id);
-            let single_endpoint_nets = graph
-                .nets
-                .iter()
-                .filter(|n| n.box_ids().len() <= 1)
-                .count();
+            let single_endpoint_nets = graph.nets.iter().filter(|n| n.box_ids().len() <= 1).count();
 
             crate::vlog!(
                 "[inventory] layer '{}' boxes={} (Component={}, SubModule={}, PowerLabel={}) \
@@ -322,7 +318,10 @@ fn render_layer_recursive(
 
             // ── isolated box details: id:name:kind:degree ──
             if !isolated.is_empty() {
-                let box_lookup: std::collections::HashMap<i64, (&crate::vector::graph::McVecBox, usize)> = graph
+                let box_lookup: std::collections::HashMap<
+                    i64,
+                    (&crate::vector::graph::McVecBox, usize),
+                > = graph
                     .boxes
                     .iter()
                     .map(|b| (b.id, (b, box_conn.get(&b.id).copied().unwrap_or(0))))
@@ -333,7 +332,11 @@ fn render_layer_recursive(
                     if let Some(&(b, deg)) = box_lookup.get(&id) {
                         crate::vlog!(
                             "[inventory]   isolated: id={} name='{}' kind={} degree={} pins={}",
-                            b.id, b.name, b.kind, deg, b.pin_count,
+                            b.id,
+                            b.name,
+                            b.kind,
+                            deg,
+                            b.pin_count,
                         );
                     }
                 }
@@ -342,16 +345,17 @@ fn render_layer_recursive(
             // ── hub candidates: top-3 boxes by degree ──
             let mut degs: Vec<(i64, usize)> = box_conn.iter().map(|(&id, &d)| (id, d)).collect();
             degs.sort_by_key(|&(_, d)| std::cmp::Reverse(d));
-            let box_lookup2: std::collections::HashMap<i64, &crate::vector::graph::McVecBox> = graph
-                .boxes
-                .iter()
-                .map(|b| (b.id, b))
-                .collect();
+            let box_lookup2: std::collections::HashMap<i64, &crate::vector::graph::McVecBox> =
+                graph.boxes.iter().map(|b| (b.id, b)).collect();
             for (id, deg) in degs.iter().take(3) {
                 if let Some(b) = box_lookup2.get(id) {
                     crate::vlog!(
                         "[inventory]   hub-candidate: id={} name='{}' kind={} degree={} pins={}",
-                        b.id, b.name, b.kind, deg, b.pin_count,
+                        b.id,
+                        b.name,
+                        b.kind,
+                        deg,
+                        b.pin_count,
                     );
                 }
             }
@@ -361,7 +365,10 @@ fn render_layer_recursive(
                 let deg = box_conn.get(&1010).copied().unwrap_or(0);
                 crate::vlog!(
                     "[inventory]   box-1010: id=1010 name='{}' kind={} degree={} pins={}",
-                    b.name, b.kind, deg, b.pin_count,
+                    b.name,
+                    b.kind,
+                    deg,
+                    b.pin_count,
                 );
             }
         }
