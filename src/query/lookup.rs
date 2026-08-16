@@ -709,19 +709,6 @@ fn kind_matches_instance(kind: SubElementKind, inst: &crate::McInstance) -> bool
     }
 }
 
-// === fn find_component_uri(class_name: &McIds) -> Option<McURI> { ===
-/// Find source URI of component definition
-pub(crate) fn find_component_uri(class_name: &McIds) -> Option<McURI> {
-    let name_str = class_name.to_string();
-    for entry in workspace::WORKSPACE.components.iter() {
-        let ident_str = entry.key().ident.to_string();
-        if ident_str == name_str {
-            return Some(entry.key().uri.clone());
-        }
-    }
-    None
-}
-
 // === fn find_in_project_tables(space_name: &McSpaceName) -> Option<McCMIE> { ===
 /// Look up CMIE in project global table (via McSpaceName)
 pub(crate) fn find_in_project_tables(space_name: &McSpaceName) -> Option<McCMIE> {
@@ -813,42 +800,6 @@ pub(crate) fn find_by_name_in_project_tables(class_name: &McIds) -> Option<McCMI
     None
 }
 
-// === pub(crate) fn mcb_find_module_uri(class_name: &McIds) -> Option<McURI> { ===
-/// Find the source URI of a module definition (for setting current_uri context in Pass2)
-///
-/// Look up by name in prj_modules, return the URI of the file containing the module definition.
-/// This is critical for cross-file module instantiation: symbol resolution inside submodules
-/// must occur in the context of their defining file.
-pub(crate) fn mcb_find_module_uri(class_name: &McIds) -> Option<McURI> {
-    let name_str = class_name.to_string();
-    for entry in workspace::WORKSPACE.modules.iter() {
-        let ident_str = entry.key().ident.to_string();
-        if ident_str == name_str {
-            return Some(entry.key().uri.clone());
-        }
-    }
-    None
-}
-
-// === pub fn mcb_get_module_def_by_name(class_name: &McIds) -> Option<Arc<McModule>> { ===
-/// 🆕 New API: directly look up module by name from prj_modules (bypasses mcb_get_cmie's URI matching issue)
-///
-/// This is the most reliable way to get a module definition, accessing the global table directly.
-/// When mcb_get_cmie fails due to URI mismatch, use this function as a fallback.
-pub fn mcb_get_module_def_by_name(class_name: &McIds) -> Option<Arc<McModule>> {
-    let name_str = class_name.to_string();
-
-    // Exact match
-    for entry in workspace::WORKSPACE.modules.iter() {
-        let ident_str = entry.key().ident.to_string();
-        if ident_str == name_str {
-            return Some(entry.value().clone());
-        }
-    }
-
-    None
-}
-
 // === pub fn mcb_get_module_with_diagnostics( ===
 /// 🆕 New API: get module definition with diagnostic information
 ///
@@ -881,10 +832,23 @@ pub fn mcb_get_module_with_diagnostics(
         diags.push("❌ mcb_get_cmie returned None".to_string());
     }
 
-    // 2. Fallback: look up directly by name
-    if let Some(module) = mcb_get_module_def_by_name(class_name) {
+    // 2. Fallback: controlled lookup by ident + URI (exact or suffix match),
+    //    never a workspace-wide name-only scan (§5.4.5).
+    let canonical_uri = canonicalize_project_uri(uri);
+    let fallback = workspace::WORKSPACE
+        .modules
+        .iter()
+        .find(|e| {
+            e.key().ident == *class_name
+                && (e.key().uri == canonical_uri
+                    || e.key().uri == uri.as_str()
+                    || e.key().uri.ends_with(&canonical_uri)
+                    || canonical_uri.ends_with(&e.key().uri))
+        })
+        .map(|e| e.value().clone());
+    if let Some(module) = fallback {
         diags.push(format!(
-            "✅ fallback mcb_get_module_def_by_name success: lines={}, symbols={}",
+            "✅ fallback controlled module lookup success: lines={}, symbols={}",
             module.lines.len(),
             module.insts.iter().count()
         ));

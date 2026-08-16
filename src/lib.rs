@@ -73,14 +73,14 @@ pub use builder::diagnostic::{
 pub use builder::libmgr::LibInfo;
 pub use builder::{
     lookup_sub_def, lookup_with_sub, mcb_add_recursive, mcb_component_count, mcb_debug_get_cmie,
-    mcb_get_first_module_name, mcb_get_module_def_by_name, mcb_get_module_name_by_uri,
-    mcb_get_module_with_diagnostics, mcb_get_refs, mcb_get_system_root, mcb_interface_count,
-    mcb_iter_components, mcb_iter_components_with_span, mcb_iter_enums, mcb_iter_enums_with_span,
-    mcb_iter_interfaces, mcb_iter_interfaces_with_span, mcb_iter_modules,
-    mcb_iter_modules_with_span, mcb_iter_ports, mcb_lib_info, mcb_load_lib, mcb_load_lib_by_name,
-    mcb_loaded_file_count, mcb_loaded_libs, mcb_module_count, mcb_parse_all_modules,
-    mcb_pass2_flat, mcb_print, mcb_print_lines, mcb_print_loaded_files, mcb_unload_lib,
-    unified_lookup, unified_lookup_all, MccProjectTree, SubElementKind,
+    mcb_get_first_module_name, mcb_get_module_name_by_uri, mcb_get_module_with_diagnostics,
+    mcb_get_refs, mcb_get_system_root, mcb_interface_count, mcb_iter_components,
+    mcb_iter_components_with_span, mcb_iter_enums, mcb_iter_enums_with_span, mcb_iter_interfaces,
+    mcb_iter_interfaces_with_span, mcb_iter_modules, mcb_iter_modules_with_span, mcb_iter_ports,
+    mcb_lib_info, mcb_load_lib, mcb_load_lib_by_name, mcb_loaded_file_count, mcb_loaded_libs,
+    mcb_module_count, mcb_parse_all_modules, mcb_pass2_flat, mcb_print, mcb_print_lines,
+    mcb_print_loaded_files, mcb_unload_lib, unified_lookup, unified_lookup_all, MccProjectTree,
+    SubElementKind,
 };
 
 // ── Instant / Net ──
@@ -346,11 +346,6 @@ pub fn get_component_def(class_name: &McIds, uri: &McURI) -> Option<McCMIE> {
     None
 }
 
-pub fn get_module_def(class_name: &McIds) -> Option<Arc<McModule>> {
-    builder::mcb_get_module_def_by_name(class_name)
-}
-
-/// Get all module names in a specific file
 pub fn mcc_get_modules_in_file(uri: &McURI) -> Vec<String> {
     builder::mcb_get_modules_in_file(uri)
 }

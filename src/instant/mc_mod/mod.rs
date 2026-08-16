@@ -36,7 +36,6 @@ use super::mc_comp::McComponentInst;
 use super::mc_net::{
     ConnectionInst, InstDiagLevel, InstDiagnostic, InstError, NetPoint, NetTable, PortInst,
 };
-use crate::query::lookup::mcb_find_module_uri;
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
 use crate::semantic::common::IOType;
 use crate::semantic::module::McModule;
@@ -139,13 +138,14 @@ impl McModuleInst {
     /// Resolve the URI of the file containing the module definition
     ///
     /// Priority:
-    /// 1. Look up the registered URI of the module definition by name from the global table
+    /// 1. The module definition itself carries its source URI (`def.uri`)
     /// 2. Use the current current_uri (caller context)
     /// 3. Empty string (should not be reached in theory)
     fn resolve_def_uri(def: &McModule) -> McURI {
-        mcb_find_module_uri(&def.name)
-            .or_else(current_uri::try_get)
-            .unwrap_or_default()
+        if !def.uri.as_str().is_empty() {
+            return def.uri.clone();
+        }
+        current_uri::try_get().unwrap_or_default()
     }
 
     /// Create a new module instance
