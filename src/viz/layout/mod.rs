@@ -23,6 +23,7 @@ pub mod coalesce;
 pub mod components;
 pub mod edge_decide;
 pub mod entry_points;
+pub mod equipotential_tree;
 pub mod facade;
 pub mod flow;
 pub mod islands;

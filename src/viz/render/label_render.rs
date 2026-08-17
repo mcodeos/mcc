@@ -107,9 +107,11 @@ pub fn render_designator_and_value(b: &McVecBox) -> String {
                 d = escape_xml(designator)
             )
         }
-        Symbol::PowerRail { .. } | Symbol::Dot | Symbol::Unknown | Symbol::PortTerminal { .. } => {
-            String::new()
-        }
+        Symbol::PowerRail { .. }
+        | Symbol::Dot
+        | Symbol::TestPoint
+        | Symbol::Unknown
+        | Symbol::PortTerminal { .. } => String::new(),
     }
 }
 
@@ -174,7 +176,11 @@ pub(crate) fn designator_value_label_bounds(b: &McVecBox) -> Vec<LabelBounds> {
                 ));
             }
         }
-        Symbol::PowerRail { .. } | Symbol::Dot | Symbol::Unknown | Symbol::PortTerminal { .. } => {}
+        Symbol::PowerRail { .. }
+        | Symbol::Dot
+        | Symbol::TestPoint
+        | Symbol::Unknown
+        | Symbol::PortTerminal { .. } => {}
     }
     out
 }

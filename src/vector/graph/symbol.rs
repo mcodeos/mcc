@@ -72,6 +72,9 @@ pub enum Symbol {
     /// ★ P7-8: boundary port terminal (BoxKind::PortTerminal)
     PortTerminal { io: IoDirection },
 
+    /// ★ C1b: test point (TP) — single pad with probe label
+    TestPoint,
+
     // ── Fallback ──
     /// Unrecognized (degrades to BoxKind's default rendering)
     #[default]
@@ -93,7 +96,7 @@ impl Symbol {
             | Symbol::Diode
             | Symbol::Led
             | Symbol::Zener => Some(2),
-            Symbol::PowerRail { .. } | Symbol::PortTerminal { .. } => Some(1),
+            Symbol::PowerRail { .. } | Symbol::PortTerminal { .. } | Symbol::TestPoint => Some(1),
             Symbol::Ic | Symbol::Module | Symbol::Dot | Symbol::Unknown => None,
         }
     }
@@ -147,6 +150,7 @@ impl Symbol {
             "D" | "DIODE" => return Some(Symbol::Diode),
             "LED" | "DS" => return Some(Symbol::Led),
             "ZENER" | "TVS" | "ZD" => return Some(Symbol::Zener),
+            "TEST_POINT" | "TESTPOINT" | "TP" => return Some(Symbol::TestPoint),
             _ => {}
         }
 
@@ -183,6 +187,7 @@ impl fmt::Display for Symbol {
             Symbol::PowerRail { is_ground: false } => write!(f, "power"),
             Symbol::Dot => write!(f, "dot"),
             Symbol::PortTerminal { io } => write!(f, "port_terminal({io:?})"),
+            Symbol::TestPoint => write!(f, "test_point"),
             Symbol::Unknown => write!(f, "unknown"),
         }
     }
@@ -263,6 +268,21 @@ mod tests {
         // Should not be false-matched by prefix
         assert_eq!(Symbol::from_class_name("RESET"), None); // not RES_
         assert_eq!(Symbol::from_class_name("DSP"), None); // not D, not DIODE
+    }
+
+    #[test]
+    fn from_class_name_testpoint() {
+        assert_eq!(
+            Symbol::from_class_name("TEST_POINT"),
+            Some(Symbol::TestPoint)
+        );
+        assert_eq!(
+            Symbol::from_class_name("TESTPOINT"),
+            Some(Symbol::TestPoint)
+        );
+        assert_eq!(Symbol::from_class_name("TP"), Some(Symbol::TestPoint));
+        assert_eq!(Symbol::TestPoint.expected_pins(), Some(1));
+        assert!(!Symbol::TestPoint.is_two_pin_passive());
     }
 
     #[test]

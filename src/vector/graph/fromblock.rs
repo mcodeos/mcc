@@ -130,6 +130,20 @@ fn apply_reserved_overrides(b: &mut McVecBox) {
     }
 }
 
+/// ★ C1b: extract component value from class name and symbol.
+///
+/// When the component declaration doesn't provide a value parameter,
+/// derive a sensible default from the component type:
+///   - Resistor → "0R" (default 0 ohms)
+///   - Others → None (value unavailable)
+fn extract_component_value(_class_name: &str, symbol: &Symbol) -> Option<String> {
+    if symbol == &Symbol::Resistor {
+        Some("0R".to_string())
+    } else {
+        None
+    }
+}
+
 /// ★ Reserved interface ①: query a component class's custom pin layout.
 ///
 /// Looks up the component by class_name in workspace + global tables, reads `comp.layout`
@@ -371,7 +385,7 @@ fn build_mc_vec_graph_inner(
                 // ★ P01: compute symbol / designator in one pass
                 let symbol = detect_symbol(table, id, &kind);
                 let designator = extract_designator(&name);
-                let value: Option<String> = None; // pass2 model has no value field yet, P01 leaves None
+                let value: Option<String> = extract_component_value(&class_name, &symbol);
                 crate::velog!(
                     "[graph] ✓ Component: {name} (class={class_name}, symbol={symbol}, pins={pin_count})"
                 );
