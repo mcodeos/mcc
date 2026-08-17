@@ -266,6 +266,14 @@ mcc show dump RES --lib mcode
 mcc show dump CAP --lib mcode
 mcc show dump DC --lib mcode --kind interface   # specify entity kind
 
+# Dump every parsed entity defined in a file (file-scoped, excludes libraries)
+mcc show dump -F path/to/file.mc
+mcc show dump path/to/file.mc            # file path as positional name
+mcc show dump path/to/file.mc -f json    # JSON: {"type":"dump_all","file":...,"entities":[...]}
+
+# dump text hides source spans by default; add --span to show @start:end
+mcc show dump path/to/file.mc --span
+
 # AST tree (debug parser output)
 mcc show ast -F path/to/file.mc
 

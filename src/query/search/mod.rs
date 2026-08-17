@@ -264,10 +264,10 @@ fn cmie_kind_name(cmie: &McCMIE) -> &'static str {
 
 fn inst_kind_class(inst: &McInstance) -> (String, String) {
     match inst {
-        McInstance::Component(c) => ("component".into(), c.name.to_string()),
-        McInstance::Module(m) => ("module".into(), m.name.to_string()),
+        McInstance::Component(c) => ("component".into(), c.base.name.to_string()),
+        McInstance::Module(m) => ("module".into(), m.base.name.to_string()),
         McInstance::Label(l) => ("label".into(), l.clone()),
-        McInstance::Interface(i) => ("interface".into(), i.name.to_string()),
+        McInstance::Interface(i) => ("interface".into(), i.base_name()),
         McInstance::Bus(b) => ("bus".into(), b.name().to_string()),
         McInstance::BusRef { component, bus } => {
             ("busref".into(), format!("{}.{}", component, bus))

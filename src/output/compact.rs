@@ -27,34 +27,33 @@ use serde_json::Value;
 // ============================================================================
 
 /// Render a dump_all envelope (`{"type":"dump_all","entities":[...]}`).
-pub fn render_all(data: &Value) -> String {
+/// An optional `file` field is shown in the header for file-scoped dumps.
+/// `show_span` controls whether source position spans are rendered.
+pub fn render_all(data: &Value, show_span: bool) -> String {
     let total = data["total"].as_u64().unwrap_or(0);
-    let mut out = format!("=== {} entities ===\n", total);
+    let file = data["file"].as_str().unwrap_or("");
+    let mut out = if file.is_empty() {
+        format!("=== {} entities ===\n", total)
+    } else {
+        format!("=== {} entities in {} ===\n", total, file)
+    };
     if let Some(entities) = data["entities"].as_array() {
         for (i, e) in entities.iter().enumerate() {
             if i > 0 {
                 out.push('\n');
             }
-            out.push_str(&render_entity(e));
+            out.push_str(&render_entity(e, show_span));
         }
     }
     out
 }
 
 /// Render a single entity JSON (has `kind` and `name` fields).
-pub fn render_entity(e: &Value) -> String {
+/// `show_span` controls whether source position spans are rendered.
+pub fn render_entity(e: &Value, show_span: bool) -> String {
     let kind = e["kind"].as_str().unwrap_or("unknown");
     let name = e["name"].as_str().unwrap_or("?");
-    let span = e
-        .get("span")
-        .map(|s| {
-            format!(
-                "@{}:{}",
-                s["start"].as_u64().unwrap_or(0),
-                s["end"].as_u64().unwrap_or(0)
-            )
-        })
-        .unwrap_or_default();
+    let span = span_suffix(e, show_span, false);
     let mut out = format!("{} {}{}\n", kind, name, span);
 
     match kind {
@@ -63,7 +62,7 @@ pub fn render_entity(e: &Value) -> String {
             pins(&mut out, e);
             attrs(&mut out, e);
             funcs(&mut out, e);
-            instances(&mut out, e);
+            instances(&mut out, e, show_span);
             layout(&mut out, e);
             let cpc = e["cond_pins_count"].as_u64().unwrap_or(0);
             let cac = e["cond_attrs_count"].as_u64().unwrap_or(0);
@@ -73,9 +72,9 @@ pub fn render_entity(e: &Value) -> String {
         }
         "module" => {
             params(&mut out, e);
-            instances(&mut out, e);
-            defs(&mut out, e);
-            refs(&mut out, e);
+            instances(&mut out, e, show_span);
+            defs(&mut out, e, show_span);
+            refs(&mut out, e, show_span);
             lines(&mut out, e);
             funcs(&mut out, e);
         }
@@ -107,7 +106,8 @@ pub fn params(out: &mut String, e: &Value) {
     }
 }
 
-/// Render `pins` array with `pin_count`.
+/// Render `pins` array with `pin_count`, including non-string pin values
+/// (KVS, ranges, etc.) stored under the per-pin `values` field.
 pub fn pins(out: &mut String, e: &Value) {
     if let Some(arr) = e["pins"].as_array() {
         out.push_str(&format!("  pins ({}):\n", arr.len()));
@@ -119,10 +119,19 @@ pub fn pins(out: &mut String, e: &Value) {
                 .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
                 .unwrap_or_default();
             let desc = p["description"].as_str().unwrap_or("");
-            let extra = if desc.is_empty() {
-                format!("[{}] {}", names.join(", "), iotype)
+            let vals: Vec<&str> = p["values"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+                .unwrap_or_default();
+            let vals_str = if vals.is_empty() {
+                String::new()
             } else {
-                format!("[{}] {} \"{}\"", names.join(", "), iotype, desc)
+                format!(" {}", vals.join(" "))
+            };
+            let extra = if desc.is_empty() {
+                format!("[{}] {}{}", names.join(", "), iotype, vals_str)
+            } else {
+                format!("[{}] {} \"{}\"{}", names.join(", "), iotype, desc, vals_str)
             };
             out.push_str(&format!("    {}: {}\n", id, extra));
         }
@@ -169,8 +178,9 @@ pub fn funcs(out: &mut String, e: &Value) {
     }
 }
 
-/// Render `instances` array.
-pub fn instances(out: &mut String, e: &Value) {
+/// Render `instances` array with class name and construction params.
+/// `show_span` controls the per-instance span.
+pub fn instances(out: &mut String, e: &Value, show_span: bool) {
     if let Some(arr) = e["instances"].as_array() {
         if !arr.is_empty() {
             out.push_str(&format!("  instances ({}):\n", arr.len()));
@@ -178,22 +188,31 @@ pub fn instances(out: &mut String, e: &Value) {
                 let iname = inst["name"].as_str().unwrap_or("?");
                 let kind = inst["kind"].as_str().unwrap_or("?");
                 let class = inst["class"].as_str().unwrap_or("");
-                let span = inst
-                    .get("span")
-                    .map(|s| {
-                        format!(
-                            "@{}:{}",
-                            s["start"].as_u64().unwrap_or(0),
-                            s["end"].as_u64().unwrap_or(0)
-                        )
-                    })
-                    .unwrap_or_default();
+                let span = span_suffix(inst, show_span, false);
+                // Omit the class when it repeats the instance name (e.g. a
+                // label or plain bus); component/module/interface instances
+                // always carry a distinct class name after resolution.
                 let class_str = if class.is_empty() || class == iname {
                     String::new()
                 } else {
-                    format!(" ({})", class)
+                    format!(" {}", class)
                 };
-                out.push_str(&format!("    {}{}: {}{}\n", iname, span, kind, class_str));
+                let params_str = inst["params"]
+                    .as_array()
+                    .filter(|a| !a.is_empty())
+                    .map(|a| {
+                        let inner = a
+                            .iter()
+                            .filter_map(|p| p.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        format!("({})", inner)
+                    })
+                    .unwrap_or_default();
+                out.push_str(&format!(
+                    "    {}{}: {}{}{}\n",
+                    iname, span, kind, class_str, params_str
+                ));
             }
         }
     }
@@ -238,13 +257,14 @@ pub fn roles(out: &mut String, e: &Value) {
 }
 
 /// Render `defs` array (LSP definition spans for goto-definition).
-pub fn defs(out: &mut String, e: &Value) {
+/// `show_span` controls the per-def span.
+pub fn defs(out: &mut String, e: &Value, show_span: bool) {
     if let Some(arr) = e["defs"].as_array() {
         if !arr.is_empty() {
             out.push_str(&format!("  defs ({}):\n", arr.len()));
             for d in arr {
                 let name = d["name"].as_str().unwrap_or("?");
-                let span = span_str(d);
+                let span = span_suffix(d, show_span, true);
                 out.push_str(&format!("    {}{}\n", name, span));
             }
         }
@@ -252,14 +272,15 @@ pub fn defs(out: &mut String, e: &Value) {
 }
 
 /// Render `refs` array (LSP reference spans in net lines).
-pub fn refs(out: &mut String, e: &Value) {
+/// `show_span` controls the per-ref span.
+pub fn refs(out: &mut String, e: &Value, show_span: bool) {
     if let Some(arr) = e["refs"].as_array() {
         if !arr.is_empty() {
             out.push_str(&format!("  refs ({}):\n", arr.len()));
             for r in arr {
                 let name = r["name"].as_str().unwrap_or("?");
                 let scope = r["scope"].as_str().unwrap_or("");
-                let span = span_str(r);
+                let span = span_suffix(r, show_span, true);
                 let scope_str = if scope.is_empty() {
                     String::new()
                 } else {
@@ -271,17 +292,23 @@ pub fn refs(out: &mut String, e: &Value) {
     }
 }
 
-/// Format span from a JSON object with `span` field.
-fn span_str(v: &Value) -> String {
-    v.get("span")
-        .map(|s| {
-            format!(
-                " @{}:{}",
-                s["start"].as_u64().unwrap_or(0),
-                s["end"].as_u64().unwrap_or(0)
-            )
-        })
-        .unwrap_or_default()
+/// Format a span as `@start:end`, prefixed with a leading space when
+/// `leading_space` is set. Returns an empty string when `show_span` is false
+/// or the value carries no span, so hidden spans leave no output residue.
+fn span_suffix(v: &Value, show_span: bool, leading_space: bool) -> String {
+    if !show_span {
+        return String::new();
+    }
+    let Some(s) = v.get("span") else {
+        return String::new();
+    };
+    let mut out = if leading_space { String::from(" ") } else { String::new() };
+    out.push_str(&format!(
+        "@{}:{}",
+        s["start"].as_u64().unwrap_or(0),
+        s["end"].as_u64().unwrap_or(0)
+    ));
+    out
 }
 
 /// Render `values` array (enum variants).
