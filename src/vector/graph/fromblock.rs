@@ -535,7 +535,10 @@ fn build_mc_vec_graph_inner(
                 InstKind::Component => {
                     // ★ P8-6: skip func-created instances — they belong to component inner layers,
                     // not the parent layer. Their boxes are rendered in the sub-graph.
-                    if matches!(child.origin, crate::instant::insttab::InstOrigin::FuncCall { .. }) {
+                    if matches!(
+                        child.origin,
+                        crate::instant::insttab::InstOrigin::FuncCall { .. }
+                    ) {
                         crate::velog!(
                             "[graph] Phase 1.3 skip func-created: '{}' (id={}, depth={})",
                             extract_last_segment(&child.path),

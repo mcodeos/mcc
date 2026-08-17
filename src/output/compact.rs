@@ -302,7 +302,11 @@ fn span_suffix(v: &Value, show_span: bool, leading_space: bool) -> String {
     let Some(s) = v.get("span") else {
         return String::new();
     };
-    let mut out = if leading_space { String::from(" ") } else { String::new() };
+    let mut out = if leading_space {
+        String::from(" ")
+    } else {
+        String::new()
+    };
     out.push_str(&format!(
         "@{}:{}",
         s["start"].as_u64().unwrap_or(0),

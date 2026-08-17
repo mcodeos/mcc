@@ -1006,8 +1006,7 @@ fn show_dump_file(file: &str, args: &ShowArgs) -> Result<()> {
         }
     }
     for (name, cmie_uri) in mcc::mcb_iter_modules() {
-        if !seen_mod.insert((name.clone(), cmie_uri.clone())) || !uri_matches(&cmie_uri, file_uri)
-        {
+        if !seen_mod.insert((name.clone(), cmie_uri.clone())) || !uri_matches(&cmie_uri, file_uri) {
             continue;
         }
         let ident = McIds::from(name.as_str());
@@ -1018,8 +1017,7 @@ fn show_dump_file(file: &str, args: &ShowArgs) -> Result<()> {
         }
     }
     for (name, cmie_uri) in mcc::mcb_iter_interfaces() {
-        if !seen_iface.insert((name.clone(), cmie_uri.clone()))
-            || !uri_matches(&cmie_uri, file_uri)
+        if !seen_iface.insert((name.clone(), cmie_uri.clone())) || !uri_matches(&cmie_uri, file_uri)
         {
             continue;
         }
@@ -1031,14 +1029,12 @@ fn show_dump_file(file: &str, args: &ShowArgs) -> Result<()> {
         }
     }
     for (name, cmie_uri) in mcc::mcb_iter_enums() {
-        if !seen_enum.insert((name.clone(), cmie_uri.clone()))
-            || !uri_matches(&cmie_uri, file_uri)
+        if !seen_enum.insert((name.clone(), cmie_uri.clone())) || !uri_matches(&cmie_uri, file_uri)
         {
             continue;
         }
         let ident = McIds::from(name.as_str());
-        if let Some(mcc::McCMIE::Enum(en)) = mcc::get_def(&ident, &McURI::from(cmie_uri.as_str()))
-        {
+        if let Some(mcc::McCMIE::Enum(en)) = mcc::get_def(&ident, &McURI::from(cmie_uri.as_str())) {
             all.push(dump_enum(&name, &en));
         }
     }
