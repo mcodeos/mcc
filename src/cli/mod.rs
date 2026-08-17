@@ -373,6 +373,10 @@ pub struct ShowArgs {
     /// Output to file
     #[arg(long, short = 'o', value_name = "FILE")]
     pub output: Option<String>,
+
+    /// Show source position spans in `dump` text output (hidden by default)
+    #[arg(long)]
+    pub span: bool,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
@@ -424,7 +428,8 @@ pub enum ShowTarget {
     Values,
 
     // Dump ALL parsed fields of an entity (component/module/interface/enum)
-    // for debugging input parsing issues.
+    // for debugging input parsing issues. A `.mc` file path may be given
+    // instead of an entity name to dump every entity defined in that file.
     Dump,
 }
 

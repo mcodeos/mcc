@@ -1583,6 +1583,16 @@ pub fn pins_json(pins: &crate::McPins) -> Value {
                     desc.push_str(&s.value);
                 }
             }
+            // Non-string pin values (KVS like `volt:[...]`, ranges, ...),
+            // rendered in full so dumps show everything the parser produced.
+            let extra_vals: Vec<String> = pin
+                .values
+                .iter()
+                .filter(|val| {
+                    !matches!(val, crate::McAttrVal::AttrLiteral(crate::McLiteral::String(_)))
+                })
+                .map(|val| val.to_string())
+                .collect();
             // An interface/group belongs to this pin when it registers the
             // pin (e.g. I2C0 → [1,2]) or when the pin's name matches the
             // group's naming scheme: dot-qualified for interfaces and buses
@@ -1635,6 +1645,9 @@ pub fn pins_json(pins: &crate::McPins) -> Value {
             if !desc.is_empty() {
                 j["description"] = json!(desc);
             }
+            if !extra_vals.is_empty() {
+                j["values"] = json!(extra_vals);
+            }
             j
         })
         .collect();
@@ -1680,10 +1693,10 @@ pub(crate) fn pinport_json(v: &crate::McPinPort) -> Value {
 
 pub(crate) fn inst_kind_class(inst: &crate::McInstance) -> (&'static str, String) {
     match inst {
-        crate::McInstance::Component(c) => ("component", c.name.to_string()),
-        crate::McInstance::Module(m) => ("module", m.name.to_string()),
+        crate::McInstance::Component(c) => ("component", c.base.name.to_string()),
+        crate::McInstance::Module(m) => ("module", m.base.name.to_string()),
         crate::McInstance::Label(l) => ("label", l.clone()),
-        crate::McInstance::Interface(i) => ("interface", i.name.to_string()),
+        crate::McInstance::Interface(i) => ("interface", i.base_name()),
         crate::McInstance::Bus(b) => ("bus", b.to_string()),
         crate::McInstance::BusRef { component, bus } => ("busref", format!("{component}.{bus}")),
         crate::McInstance::List(l) => {

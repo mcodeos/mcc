@@ -16,7 +16,7 @@ use crate::cmds::filter;
 use crate::output::compact;
 use anyhow::{Context, Result};
 use mcc::cli::{rpcclient::RpcClient, OutputFormat, ShowArgs, ShowTarget};
-use mcc::McURI;
+use mcc::{McIds, McURI};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -175,10 +175,19 @@ fn run_local(args: &ShowArgs) -> Result<()> {
         ShowTarget::Params => drill_params(require_name(args), args),
         ShowTarget::Roles => drill_roles(require_name(args), args),
         ShowTarget::Values => drill_values(require_name(args), args),
-        ShowTarget::Dump => match name {
-            None => show_dump_all(args),
-            Some(n) => show_dump(n, args),
-        },
+        ShowTarget::Dump => {
+            if let Some(n) = name {
+                if looks_like_file(n) {
+                    show_dump_file(n, args)
+                } else {
+                    show_dump(n, args)
+                }
+            } else if let Some(f) = args.file.as_deref() {
+                show_dump_file(f, args)
+            } else {
+                show_dump_all(args)
+            }
+        }
     }
 }
 
@@ -192,6 +201,11 @@ fn prepare(args: &ShowArgs) {
     // File target keeps the path in <name>; all others use `-F/--file`.
     let file_opt = match args.target {
         ShowTarget::File => args.name.as_deref(),
+        // `show dump <file>.mc` accepts the file path as the positional name.
+        ShowTarget::Dump => args
+            .file
+            .as_deref()
+            .or_else(|| args.name.as_deref().filter(|n| looks_like_file(n))),
         _ => args.file.as_deref(),
     };
     crate::cmds::manifest::init_local(file_opt, &args.lib);
@@ -956,6 +970,104 @@ fn show_dump(name: &str, args: &ShowArgs) -> Result<()> {
     output(&data, args)
 }
 
+/// Dump every entity defined in a single `.mc` file (file-scoped dump).
+///
+/// Unlike [`show_dump_all`] (which dumps everything currently in scope,
+/// including loaded libraries), this filters to entities whose URI is the
+/// target file, so `mcc show dump <file>.mc` shows exactly what the parser
+/// produced for that file.
+fn show_dump_file(file: &str, args: &ShowArgs) -> Result<()> {
+    let resolved = resolve_file(file);
+    let file_uri = resolved.as_str();
+    let mut all: Vec<Value> = Vec::new();
+
+    // mcb_iter_* chains workspace + global tables, so dedup within each
+    // category (a component and an enum can share a name+URI, e.g. mcode's
+    // `component CAP` + `enum CAP` in cap.mc, so the set must not be shared).
+    let mut seen_comp: std::collections::HashSet<(String, String)> =
+        std::collections::HashSet::new();
+    let mut seen_mod: std::collections::HashSet<(String, String)> =
+        std::collections::HashSet::new();
+    let mut seen_iface: std::collections::HashSet<(String, String)> =
+        std::collections::HashSet::new();
+    let mut seen_enum: std::collections::HashSet<(String, String)> =
+        std::collections::HashSet::new();
+
+    for (name, cmie_uri) in mcc::mcb_iter_components() {
+        if !seen_comp.insert((name.clone(), cmie_uri.clone())) || !uri_matches(&cmie_uri, file_uri)
+        {
+            continue;
+        }
+        let ident = McIds::from(name.as_str());
+        let cmie = mcc::get_component_def(&ident, &McURI::from(cmie_uri.as_str()))
+            .or_else(|| mcc::get_def(&ident, &McURI::from(cmie_uri.as_str())));
+        if let Some(mcc::McCMIE::Component(comp)) = cmie {
+            all.push(dump_component(&name, &comp));
+        }
+    }
+    for (name, cmie_uri) in mcc::mcb_iter_modules() {
+        if !seen_mod.insert((name.clone(), cmie_uri.clone())) || !uri_matches(&cmie_uri, file_uri)
+        {
+            continue;
+        }
+        let ident = McIds::from(name.as_str());
+        if let Some(mcc::McCMIE::Module(module)) =
+            mcc::get_def(&ident, &McURI::from(cmie_uri.as_str()))
+        {
+            all.push(dump_module(&name, &module));
+        }
+    }
+    for (name, cmie_uri) in mcc::mcb_iter_interfaces() {
+        if !seen_iface.insert((name.clone(), cmie_uri.clone()))
+            || !uri_matches(&cmie_uri, file_uri)
+        {
+            continue;
+        }
+        let ident = McIds::from(name.as_str());
+        if let Some(mcc::McCMIE::Interface(iface)) =
+            mcc::get_def(&ident, &McURI::from(cmie_uri.as_str()))
+        {
+            all.push(dump_interface(&name, &iface));
+        }
+    }
+    for (name, cmie_uri) in mcc::mcb_iter_enums() {
+        if !seen_enum.insert((name.clone(), cmie_uri.clone()))
+            || !uri_matches(&cmie_uri, file_uri)
+        {
+            continue;
+        }
+        let ident = McIds::from(name.as_str());
+        if let Some(mcc::McCMIE::Enum(en)) = mcc::get_def(&ident, &McURI::from(cmie_uri.as_str()))
+        {
+            all.push(dump_enum(&name, &en));
+        }
+    }
+
+    // Sort by source position so the output follows the file layout.
+    all.sort_by_key(|e| e["span"]["start"].as_u64().unwrap_or(u64::MAX));
+
+    let data = json!({
+        "type": "dump_all",
+        "file": resolved,
+        "total": all.len(),
+        "entities": all,
+    });
+    output(&data, args)
+}
+
+/// True when a `show dump` positional argument is a file path rather than an
+/// entity name (a `.mc` suffix or an existing path on disk).
+fn looks_like_file(name: &str) -> bool {
+    name.ends_with(".mc") || Path::new(name).exists()
+}
+
+/// True when `cmie_uri` and `file_uri` refer to the same file. The workspace
+/// may register a URI in a canonical form different from the caller-provided
+/// path, so either string may be a prefix/suffix of the other.
+fn uri_matches(cmie_uri: &str, file_uri: &str) -> bool {
+    cmie_uri == file_uri || cmie_uri.ends_with(file_uri) || file_uri.ends_with(cmie_uri)
+}
+
 fn dump_component(name: &str, comp: &mcc::McComponent) -> Value {
     // Params
     let params: Vec<Value> = comp.params.names_full().iter().map(|n| json!(n)).collect();
@@ -1175,10 +1287,10 @@ fn pins_json(pins: &mcc::McPins) -> Value {
 
 fn inst_kind_class(inst: &mcc::McInstance) -> (&'static str, String) {
     match inst {
-        mcc::McInstance::Component(c) => ("component", c.name.to_string()),
-        mcc::McInstance::Module(m) => ("module", m.name.to_string()),
+        mcc::McInstance::Component(c) => ("component", c.base.name.to_string()),
+        mcc::McInstance::Module(m) => ("module", m.base.name.to_string()),
         mcc::McInstance::Label(l) => ("label", l.clone()),
-        mcc::McInstance::Interface(i) => ("interface", i.name.to_string()),
+        mcc::McInstance::Interface(i) => ("interface", i.base_name()),
         mcc::McInstance::Bus(b) => ("bus", b.to_string()),
         mcc::McInstance::BusRef { component, bus } => ("busref", format!("{}.{}", component, bus)),
         mcc::McInstance::List(l) => {
@@ -1227,13 +1339,29 @@ fn instances_json(insts: &mcc::McInstances, type_filter: Option<&str>) -> Vec<Va
                 .get(n)
                 .and_then(|v| v.first())
                 .map(|r| json!({"start": r.start, "end": r.end}));
-            let mut entry = json!({ "name": n.to_string(), "kind": kind, "class": class });
+            let mut entry = json!({
+                "name": n.to_string(),
+                "kind": kind,
+                "class": class,
+                "params": inst_params(inst),
+            });
             if let Some(s) = span {
                 entry["span"] = s;
             }
             Some(entry)
         })
         .collect()
+}
+
+/// Render the construction parameters of an instance as strings
+/// (component `params`, module `args`, interface `params`).
+fn inst_params(inst: &mcc::McInstance) -> Vec<String> {
+    match inst {
+        mcc::McInstance::Component(c) => c.params.iter().map(|p| p.to_string()).collect(),
+        mcc::McInstance::Module(m) => m.args.iter().map(|p| p.to_string()).collect(),
+        mcc::McInstance::Interface(i) => i.params.iter().map(|p| p.to_string()).collect(),
+        _ => Vec::new(),
+    }
 }
 
 fn attrval_json(v: &mcc::McAttrVal) -> Value {
@@ -1507,6 +1635,16 @@ fn render_drill_text(data: &Value) -> Option<String> {
         let rows: Vec<Vec<String>> = arr
             .iter()
             .map(|i| {
+                let params = i
+                    .get("params")
+                    .and_then(|v| v.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|p| p.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    })
+                    .unwrap_or_default();
                 vec![
                     i.get("name")
                         .and_then(|v| v.as_str())
@@ -1520,10 +1658,11 @@ fn render_drill_text(data: &Value) -> Option<String> {
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_string(),
+                    params,
                 ]
             })
             .collect();
-        render_table(&["name", "kind", "class"], &rows)
+        render_table(&["name", "kind", "class", "params"], &rows)
     } else if let Some(arr) = data.get("funcs").and_then(|v| v.as_array()) {
         let rows: Vec<Vec<String>> = arr
             .iter()
@@ -1709,9 +1848,9 @@ fn output(data: &Value, args: &ShowArgs) -> Result<()> {
                 .and_then(|v| v.as_str())
                 .is_some_and(|k| k != "func")
             {
-                compact::render_entity(data)
+                compact::render_entity(data, args.span)
             } else if data.get("type").and_then(|v| v.as_str()) == Some("dump_all") {
-                compact::render_all(data)
+                compact::render_all(data, args.span)
             } else if let Some(t) = render_pins_text(data) {
                 // component / pins drill-down: aligned pin table
                 t
