@@ -23,6 +23,38 @@ use crate::db::infra::init::*;
 /// Without this, DashMap iteration is unordered, so main.mc modules could be parsed
 /// before power.mc modules are registered, causing "definition not found" errors.
 pub fn mcb_parse_all_modules() {
+    // ★ Clear stale diagnostics before this round re-emits them.
+    //
+    // Every call rebuilds the symbol lapper for ALL workspace files (the
+    // parse_pass1_modules_full() loop below) and re-runs every PostParse
+    // validator (including ImportsCheck, which re-emits USE_* 2xxx) over ALL
+    // files. Neither step clears what a previous round emitted, so diagnostics
+    // accumulate across load_project/sem calls — observed as E5508 per file
+    // doubling 5 -> 10 -> 15 — and stale resolution errors (E3157/E3071)
+    // emitted during a round where the mcode library was not yet loaded
+    // survive forever.
+    //
+    // Invariant: a workspace file has `modules_parsed == false` iff it was
+    // freshly parsed in THIS round (parse_ast/parse_ast_from_string clear the
+    // file's diagnostics, and file-level parsing never runs the module parse).
+    // Such files carry fresh parser and use-stage (parse_nsp) diagnostics that
+    // are NOT re-emitted by the topo loop — keep them. Files from earlier
+    // rounds (modules_parsed == true) are fully re-derived below, so their old
+    // entries are pure accumulation and must go.
+    let stale_uris: Vec<McURI> = workspace::WORKSPACE
+        .mcodes
+        .iter()
+        .filter(|e| e.value().modules_parsed)
+        .map(|e| McURI::from(e.key().as_str()))
+        .collect();
+    for uri in stale_uris {
+        workspace::WORKSPACE
+            .diagnostics
+            .lock()
+            .unwrap()
+            .clear_file(&uri);
+    }
+
     // 1. Collect all URIs and their dependencies
     let mut uri_deps: std::collections::BTreeMap<String, Vec<String>> =
         std::collections::BTreeMap::new();
@@ -105,15 +137,13 @@ pub fn mcb_parse_all_modules() {
                     idx.clone(),
                 )
             });
-            // parse_pass1_modules returns false only when the lapper was
-            // already built (modules_parsed set, table not dirty) — e.g. on
-            // repeated mcb_parse_all_modules calls. Rebuild only then, so a
-            // freshly parsed file does not run create_lapper twice back to
-            // back (which re-registered every symbol under fresh ids and
-            // doubled def_map before the per-file cleanup).
-            if !mcfile.parse_pass1_modules() {
-                mcfile.create_lapper();
-            }
+            // Always fully re-derive: module parse (re-emits module
+            // diagnostics such as E5642 that the stale sweep above may have
+            // wiped) plus lapper rebuild. parse_pass1_modules_full is
+            // idempotent across rounds — module registration replaces this
+            // file's prior entry instead of firing a spurious DUP_MODULE — so
+            // every round yields the same single set of diagnostics per file.
+            mcfile.parse_pass1_modules_full();
             // _guard drops here, automatically pops line_index
             workspace::WORKSPACE.mcodes.insert(uri, mcfile);
         } else {
