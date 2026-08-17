@@ -28,7 +28,8 @@ fn server_data_root() -> PathBuf {
 }
 
 fn hbl_project_dir() -> PathBuf {
-    PathBuf::from("/Users/dan/work/mo/mcd/projects/hbl")
+    let home = std::env::var("HOME").expect("HOME set");
+    PathBuf::from(home).join("work/mo/mcd/projects/hbl")
 }
 
 fn diag_codes() -> Vec<(u32, String)> {

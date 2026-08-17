@@ -4,7 +4,7 @@
       "code": 2115,
       "location": {
         "column": 1,
-        "file": "/Users/dan/work/mo/mcc/tests/corpus/alias_target.mc",
+        "file": "~/work/mo/mcc/tests/corpus/alias_target.mc",
         "len": 1,
         "line": 1,
         "pos": 109
@@ -17,7 +17,7 @@
       "code": 5252,
       "location": {
         "column": 10,
-        "file": "/Users/dan/work/mo/mcc/tests/corpus/alias_target.mc",
+        "file": "~/work/mo/mcc/tests/corpus/alias_target.mc",
         "len": 4,
         "line": 3,
         "pos": 96
@@ -28,11 +28,11 @@
     }
   ],
   "summary": {
-    "component_count": 0,
+    "component_count": 177,
     "elapsed_ms": 0,
     "errors": 0,
     "instance_count": 1,
-    "interface_count": 0,
+    "interface_count": 57,
     "module_count": 1,
     "net_count": 0,
     "warnings": 2

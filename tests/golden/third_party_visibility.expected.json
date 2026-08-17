@@ -4,7 +4,7 @@
       "code": 3157,
       "location": {
         "column": 13,
-        "file": "/Users/dan/work/mo/mcc/tests/corpus/third_party_visibility.mc",
+        "file": "~/work/mo/mcc/tests/corpus/third_party_visibility.mc",
         "len": 4,
         "line": 8,
         "pos": 334
@@ -17,7 +17,7 @@
       "code": 5256,
       "location": {
         "column": 8,
-        "file": "/Users/dan/work/mo/mcc/tests/corpus/third_party_visibility.mc",
+        "file": "~/work/mo/mcc/tests/corpus/third_party_visibility.mc",
         "len": 4,
         "line": 5,
         "pos": 169
@@ -28,11 +28,11 @@
     }
   ],
   "summary": {
-    "component_count": 0,
+    "component_count": 177,
     "elapsed_ms": 0,
     "errors": 0,
     "instance_count": 1,
-    "interface_count": 0,
+    "interface_count": 57,
     "module_count": 1,
     "net_count": 0,
     "warnings": 2

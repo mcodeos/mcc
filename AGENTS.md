@@ -25,3 +25,12 @@ Applies to:
 
 If a non-English term must appear in a diagnostic for users, provide it in a
 translation layer or docs — never in source strings.
+
+## Rule: no hardcoded user-specific absolute paths
+
+Never hardcode absolute paths that embed a developer's username (for example
+`/Users/<user>/work/mo/mcc`) in source code, tests, golden data, docs, or skill
+files. Use portable forms instead: `~` in docs and shell examples, `$HOME`-
+derived paths (`PathBuf::from(home)` in Rust tests), or paths relative to the
+project root (`env!("CARGO_MANIFEST_DIR")`). This applies to the whole project
+including test code and test data.

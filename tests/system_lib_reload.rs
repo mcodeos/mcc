@@ -34,7 +34,10 @@ fn system_lib_reload_keeps_global_tables() {
         .without_time()
         .try_init();
 
-    let project_root = PathBuf::from("/Users/dan/work/mo/mcd/projects/hbl");
+    let project_root = {
+        let home = std::env::var("HOME").expect("HOME set");
+        PathBuf::from(home).join("work/mo/mcd/projects/hbl")
+    };
     let sys_root = server_data_root();
     std::env::set_current_dir(&project_root).expect("chdir project root");
     mcc::mcc_set_system_root(sys_root.as_path());
