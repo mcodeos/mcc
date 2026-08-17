@@ -454,9 +454,9 @@ impl<'a> McVecBuilder<'a> {
             // Copy nets that involve func-created children
             for net in &block.nets {
                 let points = net.all_point_ids();
-                let has_func_child = points.iter().any(|pid| {
-                    *pid >= 0 && child_id_set.contains(pid)
-                });
+                let has_func_child = points
+                    .iter()
+                    .any(|pid| *pid >= 0 && child_id_set.contains(pid));
                 if has_func_child {
                     // Clone the net but clear BoundaryInfo — the component's ports
                     // are the boundary for the inner layer, not the parent module's.

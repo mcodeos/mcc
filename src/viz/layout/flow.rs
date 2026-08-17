@@ -526,7 +526,12 @@ impl Layouter for FlowLayouter {
             place_main_compass(graph);
             graph.claim_geom_changes(&g_snap, "3.placement");
             // For main, use mcu513 as root, no isolated boxes.
-            let root = graph.boxes.iter().find(|b| b.name == "mcu513").map(|b| b.id).unwrap_or(graph.boxes[0].id);
+            let root = graph
+                .boxes
+                .iter()
+                .find(|b| b.name == "mcu513")
+                .map(|b| b.id)
+                .unwrap_or(graph.boxes[0].id);
             (root, HashSet::new())
         } else {
             let (root_id, isolated_ids) = self.phase_placement(graph);
@@ -556,7 +561,8 @@ impl Layouter for FlowLayouter {
                     .collect();
                 let model = crate::viz::idiom::place::analyze_idiom_placement(graph, &protected);
                 let g_snap = graph.geom_snapshot();
-                let report = crate::viz::idiom::place::apply_idiom_placement_pre_pins(graph, &model);
+                let report =
+                    crate::viz::idiom::place::apply_idiom_placement_pre_pins(graph, &model);
                 graph.claim_geom_changes(&g_snap, "6.idiom");
                 if report.idioms_detected > 0 {
                     mcc_dbg!("viz", "{}", report.report_line());
@@ -623,7 +629,9 @@ fn filter_ground_nets_for_main(graph: &mut McVecGraph) {
     let before_deco = graph.rail_decorations.len();
 
     // Remove Ground nets
-    graph.nets.retain(|n| !matches!(n.kind, crate::vector::graph::NetKind::Ground));
+    graph
+        .nets
+        .retain(|n| !matches!(n.kind, crate::vector::graph::NetKind::Ground));
     // Remove Ground decorations
     graph.rail_decorations.retain(|d| !d.is_ground);
 
@@ -660,7 +668,11 @@ fn place_main_compass(graph: &mut McVecGraph) {
     }
 
     // Place each box by name
-    let place = |graph: &mut McVecGraph, by_name: &std::collections::HashMap<String, usize>, name: &str, x: f64, y: f64| {
+    let place = |graph: &mut McVecGraph,
+                 by_name: &std::collections::HashMap<String, usize>,
+                 name: &str,
+                 x: f64,
+                 y: f64| {
         if let Some(&idx) = by_name.get(name) {
             graph.boxes[idx].x = x;
             graph.boxes[idx].y = y;
@@ -689,7 +701,8 @@ fn place_main_compass(graph: &mut McVecGraph) {
 
     crate::vlog!(
         "[P8-4] main compass layout: 7 boxes placed, hub=mcu513({},{})",
-        hub_x as i32, hub_y as i32
+        hub_x as i32,
+        hub_y as i32
     );
 }
 

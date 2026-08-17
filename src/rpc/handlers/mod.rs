@@ -1589,7 +1589,10 @@ pub fn pins_json(pins: &crate::McPins) -> Value {
                 .values
                 .iter()
                 .filter(|val| {
-                    !matches!(val, crate::McAttrVal::AttrLiteral(crate::McLiteral::String(_)))
+                    !matches!(
+                        val,
+                        crate::McAttrVal::AttrLiteral(crate::McLiteral::String(_))
+                    )
                 })
                 .map(|val| val.to_string())
                 .collect();

@@ -189,3 +189,106 @@ fn scoped_enum_value_ref_lands_on_enum_value_def() {
 
     drop(lock);
 }
+
+/// A DOT attr value whose base class resolves but whose member does not exist
+/// (`package = PKG.DSO` when `enum PKG` has no `DSO`) must report the missing
+/// member against the found class — "cannot find 'DSO' in enum class 'PKG'".
+/// It must NOT render the empty-arg template literally (`Cannot find '{0}'`),
+/// and the base-class-missing case (3157) stays separate from the
+/// member-missing case (2172). The base class itself must still be located:
+/// `PKG` gets an EnumRef even when `DSO` is missing, and `DSO` gets no
+/// EnumValRef. A valid member (`PKG.DIP8`) keeps both refs.
+#[test]
+fn dot_attr_missing_member_names_class() {
+    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+
+    let uri: McURI = "/mcc/dot-attr-missing-member.mc".to_string();
+    let source = r#"
+enum PKG { DIP8 }
+
+component cd1_if_else(partno)
+{
+    if (partno == 'TLE7368E')
+    {
+        package = PKG.DSO
+    }
+}
+
+component cd2_ok(partno)
+{
+    if (partno == 'TLE7368E')
+    {
+        package = PKG.DIP8
+    }
+}
+
+module main
+{
+    cd1_if_else('TLE7368E') u1
+    cd2_ok('TLE7368E') u2
+}
+"#;
+    mcc::mcc_load_from_string(&uri, source);
+    // Runs create_lapper (the LSP path) via mcb_parse_all_modules; the
+    // member-miss diagnostic and the base-class ref are produced there.
+    let dump = mcc::dump_symbols_f12_text(&uri).expect("f12 dump");
+
+    let member_miss: Vec<String> = mcc::mcc_diagnose_all()
+        .iter()
+        .filter(|d| d.code == 2172)
+        .map(|d| d.msg.clone())
+        .collect();
+    assert!(
+        member_miss.iter().any(|m| m.contains("'DSO'") && m.contains("'PKG'")),
+        "member-missing diagnostic must name the member against its found class, got: {member_miss:?}"
+    );
+    assert!(
+        member_miss.iter().all(|m| !m.contains("Cannot find '{0}'")),
+        "empty-arg template must not render literally: {member_miss:?}"
+    );
+
+    // The base class ref must be registered regardless of the member: PKG has
+    // an EnumRef at its own span, so goto-def on PKG works.
+    let pkg_span = {
+        let p = source.find("PKG.DSO").expect("PKG.DSO in source");
+        (p, p + "PKG".len())
+    };
+    assert!(
+        ref_interval(&dump, "EnumRef", pkg_span).is_some(),
+        "base class ref (PKG) must be registered even when the member is missing"
+    );
+
+    // The missing member must not get an EnumValRef.
+    let dso_span = {
+        let p = source.find("PKG.DSO").expect("PKG.DSO in source");
+        (p + "PKG.".len(), p + "PKG.DSO".len())
+    };
+    assert!(
+        ref_interval(&dump, "EnumValRef", dso_span).is_none(),
+        "no EnumValRef may be registered for a missing member"
+    );
+
+    // A valid member keeps both refs: EnumRef on the base plus EnumValRef on
+    // the member.
+    let ok_ref = {
+        let p = source.find("PKG.DIP8").expect("PKG.DIP8 in source");
+        (
+            (p, p + "PKG".len()),
+            (p + "PKG.".len(), p + "PKG.DIP8".len()),
+        )
+    };
+    assert!(
+        ref_interval(&dump, "EnumRef", ok_ref.0).is_some(),
+        "valid member ref must still register the base class ref"
+    );
+    assert!(
+        ref_interval(&dump, "EnumValRef", ok_ref.1).is_some(),
+        "valid member ref must register the EnumValRef"
+    );
+
+    drop(lock);
+}

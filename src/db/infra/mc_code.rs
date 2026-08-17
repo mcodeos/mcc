@@ -5278,138 +5278,139 @@ impl McCode {
                 let (base_name, member_name, base_start, base_end, member_start, member_end) =
                     parsed;
 
-                let (class_id, value_idx, _cross_file_uri) = {
-                    // Look up enum class_id: local table (exact key) first,
-                    // then the §5.4.3 cross-file chain (P3 → P4 → P5) via
-                    // find_enum_class_cross_file. Both branches capture the
-                    // defining uri so the value span can always be registered
-                    // below. A class that resolves nowhere visible is an error
-                    // (§5.4.6 C2), never a default-id def. The local table
-                    // guard is dropped before the cross-file search — the
-                    // cross-file path re-locks the same Mutex, and re-locking
-                    // std::sync::Mutex on the same thread would deadlock.
-                    let local_id = match sem.global_table.lock() {
-                        Ok(gt) => gt.lookup_enum_class(&uri, &McIds::from(&base_name)),
-                        Err(_) => continue 'outer,
-                    };
-                    let (cls, xuri) = match local_id {
-                        Some(cid) => (cid, Some(uri.clone())),
-                        None => match (
-                            Self::find_enum_class_cross_file(
-                                uri,
-                                sem,
-                                &base_name,
-                                Some((base_start, base_end)),
-                            ),
-                            sem.global_table.lock(),
-                        ) {
-                            (Some((def_uri, def_span)), Ok(mut gt)) => (
-                                gt.add_enum_class(&def_uri, &McIds::from(&base_name), def_span),
-                                Some(def_uri),
-                            ),
-                            _ => {
-                                dlog_error(
-                                    crate::errcodes::INST_CLASS_UNRESOLVED,
-                                    &opd_node,
-                                    &crate::errcodes::format_msg(
-                                        crate::errcodes::INST_CLASS_UNRESOLVED,
-                                        &[&base_name],
-                                    ),
-                                );
-                                continue;
-                            }
-                        },
-                    };
-
-                    // Locate the value by exact key (def_uri + name), never by
-                    // a name-only walk — the class's defining file is already
-                    // known (`xuri`), and a bare-name scan could hit a same-named
-                    // enum in an unrelated file (§5.4.5).
-                    let find_value = |def_uri: &McURI| {
-                        let space =
-                            McSpaceName::new(&McIds::from(base_name.as_str()), def_uri.clone());
-                        let enum_def = workspace::WORKSPACE
-                            .enums
-                            .get(&space)
-                            .or_else(|| crate::db::infra::global::mcc_enums.get(&space));
-                        if let Some(entry) = enum_def {
-                            for (i, v) in entry.value().values.iter().enumerate() {
-                                if v.name.to_string() == member_name {
-                                    return Some((i as u32, v.span));
-                                }
-                            }
-                        }
-                        None
-                    };
-                    let mut idx = None;
-                    let mut value_span: Option<[u32; 2]> = None;
-                    if let Some(xuri) = &xuri {
-                        if let Some((i, s)) = find_value(xuri) {
-                            idx = Some(i);
-                            value_span = Some(s);
-                        }
-                    }
-                    if idx.is_none() {
-                        // §5.4.6 C3: no fallback to the current file — the
-                        // class's defining file (xuri) is the only place its
-                        // values can live. A member missing there is a real
-                        // reference error, not a reason to guess at a
-                        // same-named class in the current file.
-                        dlog_error(
-                            crate::errcodes::SYMBOL_NOT_FOUND,
-                            &opd_node,
-                            &crate::errcodes::format_msg(crate::errcodes::SYMBOL_NOT_FOUND, &[]),
-                        );
-                        continue;
-                    }
-
-                    match idx {
-                        Some(i) => {
-                            tracing::info!(target: "mcc::lsp::audit",
-                                "[AUDIT-EnumVal] base={base_name} member={member_name} cls={:?} xuri={:?} idx={} value_span={:?}",
-                                cls, xuri, i, value_span);
-                            // ★ Cross-file enum classes: register the value
-                            // spans under the locally-assigned class_id so the
-                            // RefDefMap 1e layer can map the packed EnumValRef
-                            // id (class_id<<16|idx) to the value def in the
-                            // defining file (e.g. `PKG.SOP8` → package.mc).
-                            if let (Some(def_uri), Some(span)) = (&xuri, value_span) {
-                                if let Ok(mut gt) = sem.global_table.lock() {
-                                    let span: Span = (span[0] as usize)..(span[1] as usize);
-                                    gt.add_enum_value(def_uri, cls, i, span);
-                                }
-                            }
-                            (cls, i, xuri)
-                        }
-                        None => continue,
-                    }
+                // Resolve the enum class: local table (exact key) first, then
+                // the §5.4.3 cross-file chain (P3 → P4 → P5) via
+                // find_enum_class_cross_file. Both branches capture the
+                // defining uri so the value span can always be registered
+                // below. A class that resolves nowhere visible is an error
+                // (§5.4.6 C2), never a default-id def. The local table
+                // guard is dropped before the cross-file search — the
+                // cross-file path re-locks the same Mutex, and re-locking
+                // std::sync::Mutex on the same thread would deadlock.
+                let local_id = match sem.global_table.lock() {
+                    Ok(gt) => gt.lookup_enum_class(&uri, &McIds::from(&base_name)),
+                    Err(_) => continue 'outer,
                 };
-                let value_id = GlobalSymbolTable::pack_enum_value_id(class_id, value_idx);
+                let (cls, xuri) = match local_id {
+                    Some(cid) => (cid, Some(uri.clone())),
+                    None => match (
+                        Self::find_enum_class_cross_file(
+                            uri,
+                            sem,
+                            &base_name,
+                            Some((base_start, base_end)),
+                        ),
+                        sem.global_table.lock(),
+                    ) {
+                        (Some((def_uri, def_span)), Ok(mut gt)) => (
+                            gt.add_enum_class(&def_uri, &McIds::from(&base_name), def_span),
+                            Some(def_uri),
+                        ),
+                        _ => {
+                            dlog_error(
+                                crate::errcodes::INST_CLASS_UNRESOLVED,
+                                &opd_node,
+                                &crate::errcodes::format_msg(
+                                    crate::errcodes::INST_CLASS_UNRESOLVED,
+                                    &[&base_name],
+                                ),
+                            );
+                            continue;
+                        }
+                    },
+                };
 
+                // Locate the value by exact key (def_uri + name), never by
+                // a name-only walk — the class's defining file is already
+                // known (`xuri`), and a bare-name scan could hit a same-named
+                // enum in an unrelated file (§5.4.5).
+                let find_value = |def_uri: &McURI| {
+                    let space = McSpaceName::new(&McIds::from(base_name.as_str()), def_uri.clone());
+                    let enum_def = workspace::WORKSPACE
+                        .enums
+                        .get(&space)
+                        .or_else(|| crate::db::infra::global::mcc_enums.get(&space));
+                    if let Some(entry) = enum_def {
+                        for (i, v) in entry.value().values.iter().enumerate() {
+                            if v.name.to_string() == member_name {
+                                return Some((i as u32, v.span));
+                            }
+                        }
+                    }
+                    None
+                };
+                let mut idx = None;
+                let mut value_span: Option<[u32; 2]> = None;
+                if let Some(xuri) = &xuri {
+                    if let Some((i, s)) = find_value(xuri) {
+                        idx = Some(i);
+                        value_span = Some(s);
+                    }
+                }
+
+                // §5.4.6 C3: no fallback to the current file — the class's
+                // defining file (xuri) is the only place its values can live.
+                // A member missing there is a real reference error, not a
+                // reason to guess at a same-named class in the current file.
+                // The base class already resolved (xuri is Some), so name the
+                // missing member against its found class instead of reporting
+                // the whole `BASE.MEMBER` as unresolved (empty format args
+                // rendered a literal `{0}`). This is separate from the base
+                // class: the class ref below is still registered, so `PKG`
+                // stays resolvable even when `PKG.DSO` is a bad member.
+                if idx.is_none() {
+                    dlog_error(
+                        crate::errcodes::SYMBOL_NOT_FOUND,
+                        &opd_node,
+                        &format!("cannot find '{member_name}' in enum class '{base_name}'"),
+                    );
+                }
+
+                // Register the class ref on the base span — always, once the
+                // class resolved. The member ref is registered only when the
+                // member resolved.
                 symbol_lapper.insert(Interval {
                     start: base_start as usize,
                     stop: base_end as usize,
-                    val: SymbolType::new(SymbolKind::EnumRef, u32::from(class_id)),
+                    val: SymbolType::new(SymbolKind::EnumRef, u32::from(cls)),
                 });
                 sem.ref_entries.push((
                     SymbolKind::EnumRef,
-                    u32::from(class_id),
+                    u32::from(cls),
                     base_start as usize,
                     base_end as usize,
                 ));
-                symbol_lapper.insert(Interval {
-                    start: member_start as usize,
-                    stop: member_end as usize,
-                    val: SymbolType::new(SymbolKind::EnumValRef, u32::from(value_id)),
-                });
-                sem.ref_entries.push((
-                    SymbolKind::EnumValRef,
-                    u32::from(value_id),
-                    member_start as usize,
-                    member_end as usize,
-                ));
-                tracing::debug!(target: "mcc::enum_ref",
-                    "pushed enum_class_ref+enum_value_ref for {base_name}.{member_name} (class_id={class_id:?}, value_id={value_id:?})");
+
+                if let (Some(i), Some(span)) = (idx, value_span) {
+                    tracing::info!(target: "mcc::lsp::audit",
+                        "[AUDIT-EnumVal] base={base_name} member={member_name} cls={:?} xuri={:?} idx={} value_span={:?}",
+                        cls, xuri, i, span);
+                    // ★ Cross-file enum classes: register the value
+                    // spans under the locally-assigned class_id so the
+                    // RefDefMap 1e layer can map the packed EnumValRef
+                    // id (class_id<<16|idx) to the value def in the
+                    // defining file (e.g. `PKG.SOP8` → package.mc).
+                    if let Some(def_uri) = &xuri {
+                        if let Ok(mut gt) = sem.global_table.lock() {
+                            let span: Span = (span[0] as usize)..(span[1] as usize);
+                            gt.add_enum_value(def_uri, cls, i, span);
+                        }
+                    }
+                    let value_id = GlobalSymbolTable::pack_enum_value_id(cls, i);
+                    symbol_lapper.insert(Interval {
+                        start: member_start as usize,
+                        stop: member_end as usize,
+                        val: SymbolType::new(SymbolKind::EnumValRef, u32::from(value_id)),
+                    });
+                    sem.ref_entries.push((
+                        SymbolKind::EnumValRef,
+                        u32::from(value_id),
+                        member_start as usize,
+                        member_end as usize,
+                    ));
+                    tracing::debug!(target: "mcc::enum_ref",
+                        "pushed enum_class_ref+enum_value_ref for {base_name}.{member_name} (class_id={cls:?}, value_id={value_id:?})");
+                }
             }
         }
     }
