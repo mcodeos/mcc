@@ -308,6 +308,73 @@ fn is_synthetic_pin_name(name: &str) -> bool {
     name.starts_with('(') && name.ends_with(')')
 }
 
+/// ★ R-C2: render an NC (not-connected) pin marker.
+///
+/// Draws the pin number (outside, right), pin name (inside, left), and an
+/// NC cross mark at the pin position. No stub line is drawn.
+pub fn render_nc_pin(
+    b: &McVecBox,
+    pin: &crate::vector::graph::boxdef::BoxPin,
+    offset: f64,
+) -> String {
+    // Place NC pins on the right side of the box
+    let cx = b.x + b.w;
+    let cy = b.y + offset * b.h;
+
+    // NC cross mark at the pin position
+    let cross_size = 4.0;
+    let nc_mark = format!(
+        r##"<line x1="{x1:.1}" y1="{y1:.1}" x2="{x2:.1}" y2="{y2:.1}" stroke="#C0392B" stroke-width="1.5"/>
+    <line x1="{x2:.1}" y1="{y1:.1}" x2="{x1:.1}" y2="{y2:.1}" stroke="#C0392B" stroke-width="1.5"/>"##,
+        x1 = cx - cross_size,
+        y1 = cy - cross_size,
+        x2 = cx + cross_size,
+        y2 = cy + cross_size,
+    );
+
+    // Pin number (outside, right)
+    let number_svg = if !pin.pin_id.is_empty() {
+        format!(
+            r##"<text x="{:.1}" y="{:.1}" font-size="8" fill="#C0392B"
+                    font-family="JetBrains Mono, Menlo, monospace"
+                    text-anchor="start" dominant-baseline="central">{}</text>"##,
+            cx + 6.0,
+            cy - 6.0,
+            escape_xml(&pin.pin_id)
+        )
+    } else {
+        String::new()
+    };
+
+    // Pin name (inside, left)
+    let name_svg = if !pin.description.is_empty() {
+        format!(
+            r##"<text x="{:.1}" y="{:.1}" font-size="10" fill="#C0392B"
+                    text-anchor="end" dominant-baseline="central">{}</text>"##,
+            cx - 6.0,
+            cy,
+            escape_xml(&pin.description)
+        )
+    } else if !pin.pin_id.is_empty() {
+        format!(
+            r##"<text x="{:.1}" y="{:.1}" font-size="10" fill="#C0392B"
+                    text-anchor="end" dominant-baseline="central">{}</text>"##,
+            cx - 6.0,
+            cy,
+            escape_xml(&pin.pin_id)
+        )
+    } else {
+        String::new()
+    };
+
+    format!(
+        r##"    <g class="pin nc" data-pin-id="{}">{}{}{}
+    </g>
+"##,
+        pin.id, nc_mark, number_svg, name_svg
+    )
+}
+
 fn escape_xml(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")

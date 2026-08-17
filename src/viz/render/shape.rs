@@ -65,6 +65,9 @@ pub fn render_box(b: &McVecBox, is_root: bool) -> String {
     if is_root {
         return render_sub_module_root(b);
     }
+    // ★ R-S (discipline 26): package / partno do not participate in symbol selection.
+    // Symbol is determined by device category, not by custom SVG from manifest.
+    // custom_symbol is kept in the data model for reference only (attribute table).
     match b.symbol {
         Symbol::Resistor => ResistorShape.render(b),
         Symbol::Capacitor | Symbol::PolarCapacitor => CapacitorShape.render(b),
@@ -80,6 +83,7 @@ pub fn render_box(b: &McVecBox, is_root: bool) -> String {
         }
         Symbol::PowerRail { .. } => PowerRailShape.render(b),
         Symbol::Dot => render_dot_symbol(b),
+        Symbol::TestPoint => render_test_point(b),
         Symbol::PortTerminal { .. } => {
             // PortTerminal: small terminal at canvas edge, similar to PowerLabel but with port name
             let cx = b.x + b.w / 2.0;
@@ -116,42 +120,6 @@ pub fn render_box(b: &McVecBox, is_root: bool) -> String {
     }
 }
 
-/// ★ Reserved interface ② consumer: scale the validated custom symbol into the box, then
-/// overlay the pins.
-///
-/// The source `viewBox` is mapped into the component body using SVG's `xMidYMid meet` behavior.
-/// The pin marker (stub + number + function name + IO arrow) is still drawn by `pin_render`
-/// based on entry_points, consistent with system symbols. The custom symbol only changes the
-/// component body, not electrical anchors.
-fn render_custom_symbol(b: &McVecBox, cs: &crate::vector::graph::boxdef::CustomSymbol) -> String {
-    use super::pin_render::{render_pin, PinRenderOpts};
-    let pins: String = b
-        .entry_points
-        .iter()
-        .map(|ep| render_pin(b, ep, PinRenderOpts::for_ic()))
-        .collect();
-    format!(
-        r##"  <g class="comp custom" data-id="{id}" data-symbol-source="{src}">
-    <svg x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}"
-         viewBox="{vx:.3} {vy:.3} {vw:.3} {vh:.3}"
-         preserveAspectRatio="xMidYMid meet" overflow="hidden">{body}</svg>
-{pins}  </g>
-"##,
-        id = b.id,
-        src = escape_xml_attr(&cs.source),
-        x = b.x,
-        y = b.y,
-        w = b.w,
-        h = b.h,
-        vx = cs.view_box.min_x,
-        vy = cs.view_box.min_y,
-        vw = cs.view_box.width,
-        vh = cs.view_box.height,
-        body = cs.svg_body,
-        pins = pins,
-    )
-}
-
 fn escape_xml_attr(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")
@@ -160,6 +128,33 @@ fn escape_xml_attr(s: &str) -> String {
 }
 
 /// Render a Dot label box — a small filled circle with the label text
+/// ★ C1b: Test point symbol — small circle pad with designator label
+fn render_test_point(b: &McVecBox) -> String {
+    let cx = b.x + b.w / 2.0;
+    let cy = b.y + b.h / 2.0;
+    let r = b.w.min(b.h) / 2.0 * 0.7;
+    let label_x = cx + r + 8.0;
+    format!(
+        r##"  <g class="comp testpoint" data-id="{id}">
+    <circle cx="{cx:.1}" cy="{cy:.1}" r="{r:.1}" fill="none" stroke="#222" stroke-width="1.5"/>
+    <line x1="{x1:.1}" y1="{y1:.1}" x2="{x2:.1}" y2="{y2:.1}" stroke="#222" stroke-width="1.0"/>
+    <text x="{lx:.1}" y="{cy:.1}" font-size="10" fill="#222"
+          dominant-baseline="central">{name}</text>
+  </g>
+"##,
+        id = b.id,
+        cx = cx,
+        cy = cy,
+        r = r,
+        x1 = cx - r * 0.6,
+        y1 = cy - r * 0.6,
+        x2 = cx + r * 0.6,
+        y2 = cy + r * 0.6,
+        lx = label_x,
+        name = escape_xml_attr(&b.name),
+    )
+}
+
 fn render_dot_symbol(b: &McVecBox) -> String {
     let cx = b.x + b.w / 2.0;
     let cy = b.y + b.h / 2.0;
@@ -248,8 +243,10 @@ mod tests {
         b
     }
 
+    /// ★ R-S (discipline 26): custom_symbol does NOT override system symbol.
+    /// A resistor with a custom SVG still renders as a resistor zigzag.
     #[test]
-    fn custom_symbol_overrides_system() {
+    fn custom_symbol_does_not_override_system_symbol() {
         let mut b = mk(Symbol::Resistor, BoxKind::TwoPin);
         b.set_custom_symbol(CustomSymbol {
             source: "MyR".into(),
@@ -262,12 +259,10 @@ mod tests {
             },
         });
         let svg = render_box(&b, false);
-        // Goes through the custom symbol, no longer the system resistor zigzag
-        assert!(svg.contains(r#"class="comp custom""#));
-        assert!(svg.contains(r#"data-symbol-source="MyR""#));
-        assert!(svg.contains(r#"class="my-sym""#));
-        assert!(svg.contains(r#"x="10.0" y="20.0" width="40.0" height="16.0""#));
-        assert!(svg.contains(r#"viewBox="0.000 0.000 40.000 16.000""#));
+        // R-S: system symbol (resistor zigzag) is used, not custom SVG
+        assert!(!svg.contains(r#"class="comp custom""#));
+        assert!(!svg.contains(r#"data-symbol-source="MyR""#));
+        assert!(!svg.contains(r#"class="my-sym""#));
     }
 
     #[test]
@@ -275,22 +270,5 @@ mod tests {
         let b = mk(Symbol::Resistor, BoxKind::TwoPin);
         let svg = render_box(&b, false);
         assert!(!svg.contains(r#"class="comp custom""#));
-    }
-
-    #[test]
-    fn custom_symbol_source_is_escaped() {
-        let mut b = mk(Symbol::Ic, BoxKind::MultiPin);
-        b.set_custom_symbol(CustomSymbol {
-            source: r#"a"<&>"#.into(),
-            svg_body: "<g/>".into(),
-            view_box: crate::vector::graph::boxdef::SvgViewBox {
-                min_x: 0.0,
-                min_y: 0.0,
-                width: 1.0,
-                height: 1.0,
-            },
-        });
-        let svg = render_box(&b, false);
-        assert!(svg.contains("a&quot;&lt;&amp;&gt;"));
     }
 }

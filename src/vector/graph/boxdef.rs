@@ -554,6 +554,17 @@ impl McVecBox {
         self.pins.iter().find(|p| p.id == pin_id)
     }
 
+    /// ★ R-C2: return physical pins that are not connected to any net (NC pins).
+    /// These pins should be drawn with an NC mark (discipline 27).
+    pub fn nc_pins(&self) -> Vec<&BoxPin> {
+        let connected: std::collections::HashSet<i64> =
+            self.entry_points.iter().map(|ep| ep.pin_id).collect();
+        self.pins
+            .iter()
+            .filter(|p| !connected.contains(&p.id))
+            .collect()
+    }
+
     /// ★ Reserved interface ①: set component custom pin layout (empty layout considered not set, still goes through heuristic).
     pub fn set_layout_hint(&mut self, layout: PinLayout) {
         if !layout.is_empty() {
