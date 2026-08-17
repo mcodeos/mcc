@@ -5292,7 +5292,7 @@ impl McCode {
                                     &opd_node,
                                     &crate::errcodes::format_msg(
                                         crate::errcodes::INST_CLASS_UNRESOLVED,
-                                        &[],
+                                        &[&base_name],
                                     ),
                                 );
                                 continue;
