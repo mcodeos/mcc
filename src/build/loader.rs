@@ -75,7 +75,13 @@ pub fn mcb_add_from_string(uri: &McURI, content: &str) {
         mcfile.parse_ast_from_string(content);
         mcfile.parse_nsp();
         mcfile.parse_pass1_types();
-        mcfile.parse_pass1_modules(); // ★ Fix: Also parse modules to register instance symbols and build lapper
+        // Module parsing is owned by mcb_parse_all_modules() (which every
+        // caller of mcb_add_from_string invokes right after). Keeping the
+        // module parse out of this file-level pass preserves the invariant
+        // `modules_parsed == false` for files freshly parsed in this round,
+        // so mcb_parse_all_modules' stale-diagnostic sweep does not wipe this
+        // file's fresh parser/use-stage diagnostics before the topo loop
+        // re-derives its modules and lapper.
 
         let binding = &workspace::WORKSPACE.mcodes;
         if already_exists {

@@ -209,7 +209,8 @@ impl McCode {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| uri.clone());
         Some(McCode {
-            mcbase: base,
+            mcbase: base
+                || crate::db::infra::libmgr::file_is_system_library(Path::new(&canonical_uri)),
             uri: uri.clone(),
             canonical_uri,
             ast: AstNode::new(null_mut()),
@@ -249,7 +250,7 @@ impl McCode {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_else(|_| uri.clone());
         Some(McCode {
-            mcbase: false,
+            mcbase: crate::db::infra::libmgr::file_is_system_library(Path::new(&canonical_uri)),
             uri: uri.clone(),
             canonical_uri,
             ast: AstNode::new(null_mut()),
@@ -1963,7 +1964,23 @@ impl McCode {
             self.use_table_dirty = false;
             return true;
         }
+        self.parse_pass1_modules_full();
+        true
+    }
+
+    /// Re-parse this file's modules and rebuild the symbol lapper.
+    ///
+    /// Runs unconditionally (ignores `modules_parsed` / `use_table_dirty`) so
+    /// `mcb_parse_all_modules` can fully re-derive every workspace file each
+    /// round: the module parse re-emits module diagnostics (e.g. E5642) that
+    /// the round's stale-diagnostic sweep just wiped, and `create_lapper`
+    /// rebuilds the ref index. Module registration is idempotent across
+    /// rounds: a module declared earlier by THIS file is replaced silently,
+    /// and `DUP_MODULE` is reported only when the same file declares two
+    /// modules with the same name within one parse round.
+    pub fn parse_pass1_modules_full(&mut self) {
         self.modules_parsed = true;
+        self.use_table_dirty = false;
 
         // ★ Module parsing resolves instance classes through the P4 use chain
         //   (`db/resolve/visibility.rs::use_chain_reaches`), which starts from
@@ -1976,6 +1993,7 @@ impl McCode {
             self.uselist.clone(),
         );
 
+        let mut seen_modules: std::collections::HashSet<McIds> = std::collections::HashSet::new();
         for (_i, node) in self.ast.iter().enumerate() {
             let node_type = node.get_type();
             if node_type == MCAST_MODULE {
@@ -1998,25 +2016,29 @@ impl McCode {
                         module_span,
                         crate::ContainerKind::Module,
                     );
-                    // Replace any previously registered shallow copy with fully-parsed module
-                    workspace::WORKSPACE
-                        .modules
-                        .entry(key)
-                        .and_modify(|_| {
-                            dlog_error(
-                                crate::errcodes::DUP_MODULE,
-                                &node,
-                                &crate::errcodes::format_msg(crate::errcodes::DUP_MODULE, &[]),
-                            );
-                        })
-                        .or_insert(Arc::new(module));
+                    if seen_modules.contains(&module_name_ids) {
+                        // Same-name module declared twice in THIS file within
+                        // this parse round — genuine duplicate.
+                        dlog_error(
+                            crate::errcodes::DUP_MODULE,
+                            &node,
+                            &crate::errcodes::format_msg(crate::errcodes::DUP_MODULE, &[]),
+                        );
+                    } else {
+                        seen_modules.insert(module_name_ids);
+                        // Replace any module registered by a previous round of
+                        // this same file (or insert a fresh one) — a workspace
+                        // re-parse is a re-derive, not a duplicate. The key
+                        // (ident, uri) can only collide with this file's own
+                        // prior registration.
+                        workspace::WORKSPACE.modules.insert(key, Arc::new(module));
+                    }
                 }
             }
         }
         // Build the lapper after processing all modules so that
         // module-level symbols are registered before ref resolution.
         self.create_lapper(); // includes inline Layer 2 + consolidate_ref_def_map (Layer 1 + name_index)
-        self.use_table_dirty = false;
 
         // ★ §7.6: Mark dependent files dirty — their Use table P4 entries
         // may need refreshing because this file's CMIE defs changed.
@@ -2028,7 +2050,6 @@ impl McCode {
                 }
             }
         }
-        true
     }
 
     /// Backward-compatible interface: parse all definitions sequentially (single-file scenario or system library)

@@ -90,6 +90,12 @@ fn main() -> ExitCode {
     // ── 3. Initialize logging (before mcc_init) ──────────────────
     // Further: Some commands communicate via RPC with server, so we need logging.
     let need_logging = match &cli.command {
+        // `start` initializes logging itself (foreground mode installs a
+        // `--log-file` writer via `init_with_log_file_and_stderr`; background
+        // mode lets the `_server_internal` child initialize its own). Eagerly
+        // calling `logging::init` here would set `ALREADY_INIT`, causing the
+        // file writer to be skipped and leaving `--log-file` empty.
+        Some(Command::Start(_)) => false,
         Some(Command::Stop(_)) => false,
         Some(Command::Status(_)) => false,
         Some(Command::Config(_)) => false,

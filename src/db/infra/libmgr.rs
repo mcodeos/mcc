@@ -142,6 +142,27 @@ fn find_lib_dir(root: &Path, name: &str) -> Option<std::path::PathBuf> {
     None
 }
 
+/// True when `path` belongs to an already-loaded system library (e.g. mcode).
+///
+/// A library file that is re-entered through a project entry point (did_open /
+/// load_project / sem on a file inside `~/.mcode/mcode`) must keep its
+/// definitions in the global system tables. Otherwise `remove_defines` strips
+/// its entries from the global tables while the re-parse registers them into
+/// the active workspace, so the P5 system lookup loses the class and member
+/// resolution breaks (E3071 for `CAP(...).Cap(_)`).
+pub(crate) fn file_is_system_library(path: &Path) -> bool {
+    let canon = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+    for name in mcb_loaded_libs() {
+        if let Some(root) = resolve_lib_root(&name) {
+            let root_canon = std::fs::canonicalize(&root).unwrap_or(root);
+            if canon.starts_with(&root_canon) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
 /// Load a system library into memory.
 ///
 /// `name`: library name (e.g., "mcode", "infineon")

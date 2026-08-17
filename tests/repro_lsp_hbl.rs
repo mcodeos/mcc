@@ -231,23 +231,25 @@ fn repro_init_load_project_race() {
 }
 
 /// Mirror the mcext didOpen path: after init + lib.load + load_project, the
-/// LSP sends `sem` with editor content for periph.mc, then reads diagnostics.
-/// This exercises `handle_sem`'s content branch (mcb_add_from_string ->
-/// mcb_parse_all_modules -> create_lapper), which is the path that emits
+/// LSP sends `sem` with editor content for each opened .mc file, then reads
+/// diagnostics. This exercises `handle_sem`'s content branch (mcb_add_from_string
+/// -> mcb_parse_all_modules -> create_lapper), which is the path that emits
 /// E3071/E3157 in the extension but is NOT covered by mcc_build.
 #[test]
 fn repro_sem_content_path() {
     let _lock = REPRO_LOCK.lock().unwrap();
     let project_root = hbl_project_dir();
-    let periph_path = project_root.join("src/periph.mc");
-    let periph_uri: String = periph_path.to_string_lossy().into_owned();
     let hbl_uri: String = project_root
         .join("src/hbl.mc")
         .to_string_lossy()
         .into_owned();
     let sys_root = server_data_root();
 
-    // mcext init order.
+    // mcext init order. The mcc server process runs with cwd = the project
+    // root (mccsrv spawns it from there), which can change relative-path
+    // resolution in the loader — mirror that.
+    let _cwd = std::env::current_dir().expect("cwd");
+    std::env::set_current_dir(&project_root).expect("chdir project root");
     mcc::mcc_set_system_root(sys_root.as_path());
     mcc::mcc_init();
     mcc::mcc_set_project_root(&project_root);
@@ -260,17 +262,233 @@ fn repro_sem_content_path() {
         Some(serde_json::json!({ "entry": hbl_uri })),
     );
 
-    // didOpen: parse periph.mc from editor content, then collect diagnostics.
-    let content = std::fs::read_to_string(&periph_path).expect("read periph.mc");
+    // didOpen: parse every project file from editor content (any open order),
+    // then collect diagnostics per file. E3071/E3157 must stay clean.
+    for name in ["hbl.mc", "periph.mc", "power.mc", "us513.mc"] {
+        let path = project_root.join("src").join(name);
+        let uri: String = path.to_string_lossy().into_owned();
+        let content = std::fs::read_to_string(&path).expect("read .mc file");
+        // Mirror mcext did_open: load_project(uri) runs for the opened file
+        // before/around the sem call (mcext server/mod.rs did_open).
+        let _ = registry.call("load_project", Some(serde_json::json!({ "entry": uri })));
+        let _ = registry.call(
+            "sem",
+            Some(serde_json::json!({ "uri": uri, "content": content })),
+        );
+        let codes: Vec<(u32, String)> = mcc::mcc_diagnose_all()
+            .iter()
+            .filter(|d| d.loc.uri.as_str().contains(name))
+            .filter(|d| d.code == 3071 || d.code == 3110 || d.code == 3157)
+            .map(|d| (d.code, d.msg.clone()))
+            .collect();
+        eprintln!("SEM-CONTENT {name}: E3071/E3110/E3157={codes:?}");
+        assert!(
+            codes.is_empty(),
+            "sem content path reproduced E3071/E3110/E3157 in {name}: {codes:?}"
+        );
+    }
+    // bom.mc is all `define` BOM entries; non-enum DOT attribute values such as
+    // `RES.0R_NC` reference local defines, not enum classes. Report separately.
+    for name in ["bom.mc"] {
+        let path = project_root.join("src").join(name);
+        let uri: String = path.to_string_lossy().into_owned();
+        let content = std::fs::read_to_string(&path).expect("read .mc file");
+        let _ = registry.call(
+            "sem",
+            Some(serde_json::json!({ "uri": uri, "content": content })),
+        );
+        let codes: Vec<(u32, String)> = mcc::mcc_diagnose_all()
+            .iter()
+            .filter(|d| d.loc.uri.as_str().contains(name))
+            .filter(|d| d.code == 3071 || d.code == 3110 || d.code == 3157)
+            .map(|d| (d.code, d.msg.clone()))
+            .collect();
+        eprintln!("SEM-CONTENT {name}: E3071/E3110/E3157={codes:?}");
+    }
+}
+
+/// Full mcext flow with diagnostics trace: init via RPC, lib.load, load_project
+/// (entry hbl.mc), project_symbols, then did_open for us513.mc (initial
+/// no-content sem -> auto_load, then load_project(uri) + sem(content)).
+/// Prints the FULL diagnostic store at each stage so fresh vs stale E3071/E3110/
+/// E3157 can be attributed to a specific step.
+#[test]
+fn repro_mcext_full_trace() {
+    let _lock = REPRO_LOCK.lock().unwrap();
+    let project_root = hbl_project_dir();
+    let hbl_uri: String = project_root
+        .join("src/hbl.mc")
+        .to_string_lossy()
+        .into_owned();
+    let us513_uri: String = project_root
+        .join("src/us513.mc")
+        .to_string_lossy()
+        .into_owned();
+    let sys_root = server_data_root();
+
+    let _cwd = std::env::current_dir().expect("cwd");
+    std::env::set_current_dir(&project_root).expect("chdir project root");
+    mcc::mcc_set_system_root(sys_root.as_path());
+    mcc::mcc_set_project_root(&project_root);
+
+    let server = mcc::rpc::handlers::register_all(mcc::rpc::RpcServerBuilder::new()).build();
+    let registry = server.registry();
+
+    let dump = |tag: &str| {
+        let mut by_file: std::collections::BTreeMap<String, Vec<u32>> =
+            std::collections::BTreeMap::new();
+        for d in mcc::mcc_diagnose_all() {
+            by_file.entry(d.loc.uri.clone()).or_default().push(d.code);
+        }
+        eprintln!("TRACE[{tag}]:");
+        for (uri, codes) in by_file {
+            let mut sorted = codes.clone();
+            sorted.sort();
+            eprintln!("  {uri}: {:?}", sorted);
+        }
+    };
+
+    let _ = registry.call("init", None);
+    dump("after init");
+    let _ = registry.call("lib.load", Some(serde_json::json!({ "name": "mcode" })));
+    dump("after lib.load mcode");
+    let _ = registry.call(
+        "load_project",
+        Some(serde_json::json!({ "entry": hbl_uri })),
+    );
+    dump("after load_project hbl.mc");
+    let _ = registry.call("project_symbols", None);
+    dump("after project_symbols");
+
+    // did_open us513.mc: initial parse_and_publish sem (no content).
+    let _ = registry.call("sem", Some(serde_json::json!({ "uri": us513_uri })));
+    dump("after sem(us513, no-content)");
+    // did_open's explicit load_project(uri).
+    let _ = registry.call(
+        "load_project",
+        Some(serde_json::json!({ "entry": us513_uri })),
+    );
+    dump("after load_project us513.mc");
+    // reparse sem with content.
+    let content = std::fs::read_to_string(project_root.join("src/us513.mc")).expect("read");
     let _ = registry.call(
         "sem",
-        Some(serde_json::json!({ "uri": periph_uri, "content": content })),
+        Some(serde_json::json!({ "uri": us513_uri, "content": content })),
+    );
+    dump("after sem(us513, content)");
+}
+
+/// Regression: a round that parses a project file while the mcode library is
+/// NOT loaded emits E3157/E3071 (unresolved class / method). A later clean
+/// round (mcode loaded, project reloaded) must leave none of that residue in
+/// the diagnostic store — every round re-derives the full diagnostic set, so
+/// a broken earlier round must never survive.
+#[test]
+fn repro_stale_resolution_cleared() {
+    let _lock = REPRO_LOCK.lock().unwrap();
+    let project_root = hbl_project_dir();
+    let us513_uri: mcc::McURI = project_root
+        .join("src/us513.mc")
+        .to_string_lossy()
+        .into_owned();
+    let sys_root = server_data_root();
+
+    let _cwd = std::env::current_dir().expect("cwd");
+    std::env::set_current_dir(&project_root).expect("chdir project root");
+    mcc::mcc_set_system_root(sys_root.as_path());
+    mcc::mcc_set_project_root(&project_root);
+
+    // Broken round: mcode NOT loaded -> PKG/CAP/RES unresolvable.
+    mcc::mcc_init_no_lib();
+    let content = std::fs::read_to_string(project_root.join("src/us513.mc")).expect("read");
+    mcc::mcc_load_from_string(&us513_uri, &content);
+    let broken = diag_codes();
+    eprintln!("BROKEN round E3071/E3110/E3157: {broken:?}");
+    assert!(
+        !broken.is_empty(),
+        "precondition failed: a no-lib round must emit E3071/E3110/E3157"
     );
 
-    let codes = diag_codes();
-    eprintln!("SEM-CONTENT E3071/E3110/E3157: {:?}", codes);
+    // Clean round: load mcode and reload the project closure.
+    mcc::mcc_init();
+    mcc::mcc_load_project(&us513_uri);
+    let clean = diag_codes();
+    eprintln!("CLEAN round E3071/E3110/E3157: {clean:?}");
     assert!(
-        codes.is_empty(),
-        "sem content path reproduced E3071/E3110/E3157: {codes:?}"
+        clean.is_empty(),
+        "stale resolution diagnostics survived a clean round: {clean:?}"
     );
+}
+
+/// Regression: repeated load_project / sem(content) rounds must NOT double a
+/// file's diagnostics. Every round rebuilds the lapper and re-runs PostParse
+/// validators for every workspace file, so per-file counts must stay stable
+/// (previously they grew 5 -> 10 -> 15 for files outside the re-parsed use
+/// closure).
+#[test]
+fn repro_no_diagnostic_accumulation() {
+    let _lock = REPRO_LOCK.lock().unwrap();
+    let project_root = hbl_project_dir();
+    let hbl_uri: String = project_root
+        .join("src/hbl.mc")
+        .to_string_lossy()
+        .into_owned();
+    let us513_uri: String = project_root
+        .join("src/us513.mc")
+        .to_string_lossy()
+        .into_owned();
+    let sys_root = server_data_root();
+
+    let _cwd = std::env::current_dir().expect("cwd");
+    std::env::set_current_dir(&project_root).expect("chdir project root");
+    mcc::mcc_set_system_root(sys_root.as_path());
+    mcc::mcc_set_project_root(&project_root);
+
+    let server = mcc::rpc::handlers::register_all(mcc::rpc::RpcServerBuilder::new()).build();
+    let registry = server.registry();
+    let _ = registry.call("init", None);
+    let _ = registry.call("lib.load", Some(serde_json::json!({ "name": "mcode" })));
+    let _ = registry.call(
+        "load_project",
+        Some(serde_json::json!({ "entry": hbl_uri })),
+    );
+
+    let count_by_basename = |names: &[&str]| -> Vec<(String, usize)> {
+        names
+            .iter()
+            .map(|n| {
+                let c = mcc::mcc_diagnose_all()
+                    .iter()
+                    .filter(|d| d.loc.uri.as_str().ends_with(&format!("/{n}")))
+                    .count();
+                ((*n).to_string(), c)
+            })
+            .collect()
+    };
+
+    let names = ["periph.mc", "power.mc", "us513.mc"];
+    let base = count_by_basename(&names);
+
+    // Round 2: load_project(us513) — periph.mc is outside its use closure.
+    let _ = registry.call(
+        "load_project",
+        Some(serde_json::json!({ "entry": us513_uri })),
+    );
+    // Round 3: sem(us513, content) — reparse the edited file from memory.
+    let content = std::fs::read_to_string(project_root.join("src/us513.mc")).expect("read");
+    let _ = registry.call(
+        "sem",
+        Some(serde_json::json!({ "uri": us513_uri, "content": content })),
+    );
+
+    let after = count_by_basename(&names);
+    eprintln!("BASE counts: {base:?}");
+    eprintln!("AFTER counts: {after:?}");
+    for (b, a) in base.iter().zip(after.iter()) {
+        assert_eq!(
+            b.1, a.1,
+            "diagnostic count for {} grew across rounds ({} -> {})",
+            b.0, b.1, a.1
+        );
+    }
 }

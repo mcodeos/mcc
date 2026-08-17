@@ -1767,6 +1767,7 @@ mod m11_diagnostic_tests {
             kind: NetKind::Signal,
             route: None,
             src_pos: None,
+            source_span: None,
         }
     }
 
