@@ -238,6 +238,14 @@ pub struct ConnectionInst {
     /// (e.g. the R1 instance name in VCC→R1→GPIO). None for non-chain topologies.
     /// Resolved to i64 ID in visit.rs and stored in ConnPair.
     pub via: Option<String>,
+
+    /// ★ P9-A2: source span for bidirectional traceability.
+    /// `(file, line)` — which source file and line created this connection.
+    pub source_span: Option<(String, u32)>,
+
+    /// ★ P9-A2: port group that produced this connection.
+    /// For bus lanes, all lanes of the same bus share the same port_group.
+    pub port_group: Option<String>,
 }
 
 impl ConnectionInst {
@@ -297,6 +305,8 @@ impl ConnectionInst {
             dir: ConnDir::Undirected,
             lane: None,
             via: None,
+            source_span: None,
+            port_group: None,
         }
     }
 
@@ -315,6 +325,18 @@ impl ConnectionInst {
     /// Set pass-through device instance name
     pub fn with_via(mut self, via: String) -> Self {
         self.via = Some(via);
+        self
+    }
+
+    /// ★ P9-A2: Set source span for traceability
+    pub fn with_source_span(mut self, file: String, line: u32) -> Self {
+        self.source_span = Some((file, line));
+        self
+    }
+
+    /// ★ P9-A2: Set port group for edge merging
+    pub fn with_port_group(mut self, port_group: String) -> Self {
+        self.port_group = Some(port_group);
         self
     }
 

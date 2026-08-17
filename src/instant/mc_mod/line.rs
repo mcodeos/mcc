@@ -11,7 +11,7 @@
 
 use super::funccall::FuncCallInst;
 use super::McModuleInst;
-use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
+use crate::instant::mc_net::{InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::basic::mc_opd::McOpd;
@@ -588,8 +588,12 @@ impl McModuleInst {
                         all_pts.extend(all_bridges);
                         if all_pts.len() >= 2 {
                             let id = self.next_conn_id();
-                            self.connections
-                                .push(ConnectionInst::new(id, all_pts).with_lane(lane as u16));
+                            self.connections.push(self.make_conn_with_provenance(
+                                id,
+                                all_pts,
+                                dir,
+                                Some(lane as u16),
+                            ));
                         }
                     }
                 }
@@ -611,8 +615,12 @@ impl McModuleInst {
                         all_pts.extend(leading.iter().cloned());
                         if all_pts.len() >= 2 {
                             let id = self.next_conn_id();
-                            self.connections
-                                .push(ConnectionInst::new(id, all_pts).with_lane(lane as u16));
+                            self.connections.push(self.make_conn_with_provenance(
+                                id,
+                                all_pts,
+                                dir,
+                                Some(lane as u16),
+                            ));
                         }
                     }
                 }
@@ -646,8 +654,12 @@ impl McModuleInst {
                     let mut all_pts = vec![lp.clone(), rp.clone()];
                     all_pts.extend(bridge_pins.iter().cloned());
                     let id = self.next_conn_id();
-                    self.connections
-                        .push(ConnectionInst::new(id, all_pts).with_lane(lane as u16));
+                    self.connections.push(self.make_conn_with_provenance(
+                        id,
+                        all_pts,
+                        dir,
+                        Some(lane as u16),
+                    ));
                 } else {
                     self.create_connection(vec![lp], vec![rp], dir, Some(lane as u16))?;
                 }
@@ -1427,6 +1439,75 @@ impl McModuleInst {
         }
     }
 
+    /// ★ P9-A2: Extract the port group name from a McPhrase.
+    ///
+    /// For `flash.SPI` or `mic.MIC`, the port group is the Interface/Bus name
+    /// (e.g., "SPI", "MIC"). Returns `None` for non-port-group phrases.
+    fn extract_port_group(phrase: &McPhrase) -> Option<String> {
+        match phrase {
+            McPhrase::Endpoint(McEndpoint::Single(ref ir)) => {
+                // For Endpoint, only use Interface/Bus base name or member name.
+                // Do NOT use Label fallback — Label just means the instance name
+                // (e.g. "speaker"), not a port group.
+                Self::extract_pg_from_iref(ir, false)
+            }
+            // ★ P9-A2: McPhrase::Member(base, member) — e.g. mcu513.DAC_OUT
+            // The member endpoint carries the port group name. Use Label fallback
+            // because the member is stored as Label("DAC_OUT").
+            McPhrase::Member(_base, McEndpoint::Single(ref ir)) => {
+                Self::extract_pg_from_iref(ir, true)
+            }
+            _ => None,
+        }
+    }
+
+    /// Extract port group name from an McInstanceRef.
+    /// `use_label_fallback`: if true, fall back to Label name when no Interface/Bus/member.
+    fn extract_pg_from_iref(ir: &crate::semantic::basic::mc_endpoint::McInstanceRef, use_label_fallback: bool) -> Option<String> {
+        // First check if the base is an Interface or Bus
+        let base_name = match &ir.base {
+            McInstance::Interface(i) => i.name.segments.first().and_then(|seg| match seg {
+                crate::semantic::basic::mc_ids::IdsSegment::Ida(ida) => {
+                    Some(ida.to_string())
+                }
+                crate::semantic::basic::mc_ids::IdsSegment::DotIda(ida) => {
+                    Some(ida.to_string())
+                }
+                _ => None,
+            }),
+            McInstance::Bus(b) => {
+                    if !b.member.is_empty() {
+                        // Use member name as port_group (e.g., Bus(mcu513[MIC]) → "MIC")
+                        Some(b.member.join("_"))
+                    } else {
+                        // Bus without members: use bus name as-is (e.g., Bus(flash.SPI) → "flash.SPI")
+                        Some(b.name().to_string())
+                    }
+                },
+            _ => None,
+        };
+        if base_name.is_some() {
+            return base_name;
+        }
+        // For Module/Component endpoints like `mcu513.MIC`,
+        // use the first member name as the port group.
+        if let Some(ml) = ir.members.first() {
+            if let Some(m) = ml.items.first() {
+                if let crate::semantic::basic::mc_endpoint::McMember::Single(s) = m {
+                    return Some(s.clone());
+                }
+            }
+        }
+        // Fallback: if members is empty, use the base label name
+        // (e.g. McPhrase::Member(_, Label("DAC_OUT")) → "DAC_OUT")
+        if use_label_fallback {
+            if let McInstance::Label(s) = &ir.base {
+                return Some(s.clone());
+            }
+        }
+        None
+    }
+
     /// Try to connect adjacent members
     ///
     /// Helper method extracted from `process_line`, handling Group / normal
@@ -1438,6 +1519,10 @@ impl McModuleInst {
         right_member: &McPhrase,
         dir: ConnDir,
     ) -> Result<(), InstError> {
+        // ★ P9-A2: extract port_group from source code context.
+        // Prefer the left member (driver side), fall back to the right member.
+        self.current_port_group = Self::extract_port_group(left_member)
+            .or_else(|| Self::extract_port_group(right_member));
         // ── P1-diag: detailed adjacent wiring diagnostic ─────────────────────────────────
         let _l_kind = match left_member {
             McPhrase::FuncCall(f) => format!(
@@ -1855,15 +1940,24 @@ impl McModuleInst {
                         .collect();
                     if lane.len() >= 2 {
                         let id = self.next_conn_id();
-                        self.connections.push(ConnectionInst::new(id, lane));
+                        self.connections.push(self.make_conn_with_provenance(
+                            id,
+                            lane,
+                            ConnDir::Undirected,
+                            None,
+                        ));
                     }
                 }
             } else {
                 // Anchor is 1 wide / indivisible (e.g. dimension mismatch degenerate path):
                 // all endpoints in the same net
                 let id = self.next_conn_id();
-                self.connections
-                    .push(ConnectionInst::new(id, left_net.clone()));
+                self.connections.push(self.make_conn_with_provenance(
+                    id,
+                    left_net.clone(),
+                    ConnDir::Undirected,
+                    None,
+                ));
             }
         }
 
@@ -1883,12 +1977,22 @@ impl McModuleInst {
                         .collect();
                     if lane.len() >= 2 {
                         let id = self.next_conn_id();
-                        self.connections.push(ConnectionInst::new(id, lane));
+                        self.connections.push(self.make_conn_with_provenance(
+                            id,
+                            lane,
+                            ConnDir::Undirected,
+                            None,
+                        ));
                     }
                 }
             } else {
                 let id = self.next_conn_id();
-                self.connections.push(ConnectionInst::new(id, right_net));
+                self.connections.push(self.make_conn_with_provenance(
+                    id,
+                    right_net,
+                    ConnDir::Undirected,
+                    None,
+                ));
             }
         }
 

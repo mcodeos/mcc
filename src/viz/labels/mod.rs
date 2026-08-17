@@ -973,6 +973,7 @@ mod tests {
                 to: Point { x: 180.0, y: 85.0 },
             }],
             junctions: vec![],
+            escalated: false,
         });
         graph.nets.push(net);
 

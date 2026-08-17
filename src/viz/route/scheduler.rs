@@ -303,6 +303,10 @@ pub fn route_layer_with_channels(graph: &mut McVecGraph) {
                             tmp.nid
                         );
                         tmp.route = Some(r2);
+                        // ★ P9-C W4: mark escalation when A* reroute is used
+                        if let Some(ref mut route) = tmp.route {
+                            route.escalated = true;
+                        }
                     }
                 }
             }
@@ -346,6 +350,42 @@ pub fn route_all_with_channels(graph: &mut McVecGraph) {
     for sub in &mut graph.sub_graphs {
         route_all_with_channels(sub);
     }
+}
+
+/// ★ P9-C W2: regression guard — route phase must not change box geometry.
+///
+/// Snapshot geometry before routing, verify after routing that no box position
+/// or size changed. This guards against the deleted P7-4e feedback nudge regression.
+/// Returns the escalation count (A*/channel dispatcher hits).
+pub fn route_with_guard(graph: &mut McVecGraph) -> usize {
+    let g_snap = graph.geom_snapshot();
+    route_layer_with_channels(graph);
+    let changes = graph.claim_geom_changes(&g_snap, "route");
+
+    if changes > 0 {
+        eprintln!(
+            "[W2] REGRESSION: route phase changed {} geometry values in layer '{}'! \
+             (P7-4e feedback nudge must not return)",
+            changes, graph.name
+        );
+    }
+
+    // Count escalation: nets that required A* reroute or channel dispatcher
+    let escalation = graph
+        .nets
+        .iter()
+        .filter(|n| n.route.as_ref().map(|r| r.escalated).unwrap_or(false))
+        .count();
+
+    if escalation > 0 {
+        crate::vlog!(
+            "[route] {}: route_escalation={} (A*/channel hits)",
+            graph.name,
+            escalation
+        );
+    }
+
+    escalation
 }
 
 // ============================================================================

@@ -39,6 +39,10 @@ pub(crate) struct ConnPair {
     pub dir: PairDir,
     /// Which two-terminal device this segment passes through
     pub via: Option<i64>,
+    /// ★ P9-A2: source span for traceability
+    pub source_span: Option<(String, u32)>,
+    /// ★ P9-A2: port group for edge merging
+    pub port_group: Option<String>,
 }
 
 impl ConnPair {
@@ -50,6 +54,8 @@ impl ConnPair {
             lane: None,
             dir: PairDir::Undirected,
             via: None,
+            source_span: None,
+            port_group: None,
         }
     }
 
@@ -61,6 +67,8 @@ impl ConnPair {
             lane: None,
             dir,
             via: None,
+            source_span: None,
+            port_group: None,
         }
     }
 
@@ -72,6 +80,8 @@ impl ConnPair {
             lane: Some(lane),
             dir,
             via: None,
+            source_span: None,
+            port_group: None,
         }
     }
 
@@ -89,7 +99,20 @@ impl ConnPair {
             lane: Some(lane),
             dir,
             via,
+            source_span: None,
+            port_group: None,
         }
+    }
+
+    /// ★ P9-A2: Set provenance metadata (source_span + port_group)
+    pub(crate) fn with_meta(
+        mut self,
+        source_span: Option<(String, u32)>,
+        port_group: Option<String>,
+    ) -> Self {
+        self.source_span = source_span;
+        self.port_group = port_group;
+        self
     }
 }
 
@@ -107,9 +130,15 @@ pub(crate) type NetGroupMap = BTreeMap<String, Vec<ConnPair>>;
 /// - **Chain**: All points appear exactly once → linear connection
 /// - **Degenerate**: Single pair → direct 1:1
 pub(crate) fn merge_pairs_to_vecnet(nid: i64, net_name: String, pairs: &[ConnPair]) -> McVecNet {
+    // ── Extract provenance from first pair ──
+    let source_span = pairs.first().and_then(|p| p.source_span.clone());
+    let port_group = pairs.first().and_then(|p| p.port_group.clone());
+
     // ── With lane info, build groups directly from the source shape instead of guessing by frequency ──
     if pairs.iter().any(|p| p.lane.is_some()) {
-        if let Some(net) = build_from_lanes(nid, &net_name, pairs) {
+        if let Some(mut net) = build_from_lanes(nid, &net_name, pairs) {
+            net.source_span = source_span;
+            net.port_group = port_group;
             return net;
         }
         // Couldn't build (lane incomplete) → fall back to the legacy logic below, no panic
@@ -125,6 +154,8 @@ pub(crate) fn merge_pairs_to_vecnet(nid: i64, net_name: String, pairs: &[ConnPai
             vec![McVec::single(pairs[0].left), McVec::single(pairs[0].right)],
         );
         net.shape = Some(build_net_shape(dir, pairs, &net.nets));
+        net.source_span = source_span;
+        net.port_group = port_group;
         return net;
     }
 
@@ -147,6 +178,9 @@ pub(crate) fn merge_pairs_to_vecnet(nid: i64, net_name: String, pairs: &[ConnPai
     if net.shape.is_none() {
         net.shape = Some(build_net_shape(dir, pairs, &net.nets));
     }
+
+    net.source_span = source_span;
+    net.port_group = port_group;
 
     net
 }

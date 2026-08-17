@@ -521,15 +521,33 @@ impl Layouter for FlowLayouter {
         let ep_snap = probe_ep_snapshot(graph);
         let g_snap = graph.geom_snapshot();
 
-        // ★ P8-4: main layer compass layout — fixed positions, no generic layout.
-        let (root_id, isolated_ids) = if graph.name == "main" {
-            place_main_compass(graph);
-            graph.claim_geom_changes(&g_snap, "3.placement");
-            // For main, use mcu513 as root, no isolated boxes.
+        // ★ B2: root layer radial layout — fixed positions by structural role.
+        // Sub-layers continue to use the generic flow layout pipeline.
+        let (root_id, isolated_ids) = if graph.is_root {
+            super::radial::place_radial(graph);
+            graph.claim_geom_changes(&g_snap, "3.radial");
+            // Root is the hub box; no isolated boxes in radial layout.
             let root = graph
                 .boxes
                 .iter()
-                .find(|b| b.name == "mcu513")
+                .max_by(|a, b| {
+                    let wa = a.w * a.h;
+                    let wb = b.w * b.h;
+                    // Prefer MultiPin/SubModule as root
+                    let score_a = if matches!(a.kind, BoxKind::MultiPin | BoxKind::SubModule) {
+                        wa + 10000.0
+                    } else {
+                        wa
+                    };
+                    let score_b = if matches!(b.kind, BoxKind::MultiPin | BoxKind::SubModule) {
+                        wb + 10000.0
+                    } else {
+                        wb
+                    };
+                    score_a
+                        .partial_cmp(&score_b)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
                 .map(|b| b.id)
                 .unwrap_or(graph.boxes[0].id);
             (root, HashSet::new())
@@ -541,7 +559,8 @@ impl Layouter for FlowLayouter {
         probe_no_ep_writes("phase_placement", graph, &ep_snap);
 
         // ── Phase D · SchematicLayoutModel: low-risk layout intent ──
-        if graph.name != "main" {
+        // ★ B2: skip for root — radial layout already placed all boxes.
+        if !graph.is_root {
             let g_snap = graph.geom_snapshot();
             self.apply_schematic_model(graph);
             graph.claim_geom_changes(&g_snap, "4.schematic_model");
@@ -579,32 +598,34 @@ impl Layouter for FlowLayouter {
         }
 
         // ── Phase 4 · PinPlacement: sole writer of EntryPoint + sole finalizer of hub geometry ──
-        let g_snap = graph.geom_snapshot();
-        super::pin_place::pin_place_pipeline(graph, Some(root_id), true, self.hub_keep_semantic);
-        graph.claim_geom_changes(&g_snap, "7.pin_place");
-        probe_degenerate_boxes(graph, "after pin_place");
+        // ★ B2: skip for root — radial layout already placed all boxes with geom_locked.
+        if !graph.is_root {
+            let g_snap = graph.geom_snapshot();
+            super::pin_place::pin_place_pipeline(
+                graph,
+                Some(root_id),
+                true,
+                self.hub_keep_semantic,
+            );
+            graph.claim_geom_changes(&g_snap, "7.pin_place");
+            probe_degenerate_boxes(graph, "after pin_place");
+        }
 
-        // ★ Island dispatcher (absorbed in P7-4e): islands decomposition → each island
-        // classified by topology (SP / ladder / direct / stub) and dispatched to a handler
-        // inside apply_islands; geometry lands only when **every island is claimed**;
-        // unclaimed islands are left to the L4 generic fallback (the three passive
-        // passes in select.rs).
-        //
-        // ★ P7-4e removed: the L2 whole-graph SP / L3 whole-graph ladder bypasses
-        // (originally try_build_sp_model / try_build_ladder_model grabbing locks when
-        // `!claimed`). P7-4c field testing showed zero hits across all 7 example layers
-        // (neither bypass ever wrote geometry), and islands already has Sp/Ladder
-        // island handlers —— the four mutually-fallback branches converge into the
-        // single dispatcher of "each island claims one model".
-        let decomp = super::islands::decompose(graph);
-        let g_snap = graph.geom_snapshot();
-        super::islands::apply_islands(graph, &decomp);
-        graph.claim_geom_changes(&g_snap, "8.islands");
+        // ★ Island dispatcher: skip for root — radial layout already placed all boxes.
+        if !graph.is_root {
+            let decomp = super::islands::decompose(graph);
+            let g_snap = graph.geom_snapshot();
+            super::islands::apply_islands(graph, &decomp);
+            graph.claim_geom_changes(&g_snap, "8.islands");
+        }
 
         // ── Phase 5 · Post: geometry-preserving moves, safe after pin_place ──
-        let g_snap = graph.geom_snapshot();
-        self.phase_post(graph, &isolated_ids);
-        graph.claim_geom_changes(&g_snap, "9.post");
+        // ★ B2: skip for root — all boxes are geom_locked.
+        if !graph.is_root {
+            let g_snap = graph.geom_snapshot();
+            self.phase_post(graph, &isolated_ids);
+            graph.claim_geom_changes(&g_snap, "9.post");
+        }
 
         compute_canvas(graph)
     }
@@ -621,7 +642,7 @@ impl Layouter for FlowLayouter {
 /// GND exists in the netlist for ERC but is invisible in the main diagram
 /// because hbl.mc never explicitly mentions GND.
 fn filter_ground_nets_for_main(graph: &mut McVecGraph) {
-    if graph.name != "main" {
+    if !graph.is_root {
         return;
     }
 
@@ -649,63 +670,7 @@ fn filter_ground_nets_for_main(graph: &mut McVecGraph) {
 }
 
 // ============================================================================
-// ★ P8-4: main compass layout
-// ============================================================================
-
-/// Place the 7 main-layer boxes in compass positions.
-/// Layout:
-///               [mic]
-///                 ↓ MIC
-/// [flash] --SPI--> [mcu513]
-/// [usbsocket]→[modldo]→[moddcdc]
-///                 ↓ DAC_OUT / SPK_MUTE
-///             [speaker]
-fn place_main_compass(graph: &mut McVecGraph) {
-    // Build a name→box lookup
-    let mut by_name: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    for (i, b) in graph.boxes.iter().enumerate() {
-        by_name.insert(b.name.clone(), i);
-    }
-
-    // Place each box by name
-    let place = |graph: &mut McVecGraph,
-                 by_name: &std::collections::HashMap<String, usize>,
-                 name: &str,
-                 x: f64,
-                 y: f64| {
-        if let Some(&idx) = by_name.get(name) {
-            graph.boxes[idx].x = x;
-            graph.boxes[idx].y = y;
-        }
-    };
-
-    // mcu513: center
-    let hub_x = 900.0;
-    let hub_y = 500.0;
-    place(graph, &by_name, "mcu513", hub_x, hub_y);
-
-    // mic: above mcu513
-    place(graph, &by_name, "mic", hub_x, hub_y - 350.0);
-
-    // speaker: below mcu513
-    place(graph, &by_name, "speaker", hub_x, hub_y + 350.0);
-
-    // flash: upper left of mcu513
-    place(graph, &by_name, "flash", hub_x - 550.0, hub_y - 200.0);
-
-    // Power chain on the left side (vertical)
-    let chain_x = hub_x - 550.0;
-    place(graph, &by_name, "usbsocket", chain_x, hub_y - 50.0);
-    place(graph, &by_name, "modldo", chain_x, hub_y + 180.0);
-    place(graph, &by_name, "moddcdc", chain_x, hub_y + 410.0);
-
-    crate::vlog!(
-        "[P8-4] main compass layout: 7 boxes placed, hub=mcu513({},{})",
-        hub_x as i32,
-        hub_y as i32
-    );
-}
-
+// ★ P8-4: main compass layout (obsolete — replaced by radial layout in B2)
 // ============================================================================
 // Size: height ∝ signal net count (vertical stretch, let parallel wire bundles spread apart)
 // ============================================================================

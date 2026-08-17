@@ -94,6 +94,12 @@ pub struct McVecNet {
     /// module's own port declaration (not a rail), project.rs creates a BoundaryInfo
     /// instead of removing the endpoint. fromblock.rs reads it to create a PortTerminal box.
     pub boundary: Option<BoundaryInfo>,
+    /// ★ P9-A2: source span for bidirectional traceability.
+    /// `(file, line)` — which source file and line created this net.
+    pub source_span: Option<(String, u32)>,
+    /// ★ P9-A2: port group that produced this net.
+    /// `None` is a legal value; do not fill with heuristics.
+    pub port_group: Option<String>,
 }
 
 /// ★ P7-8: boundary terminal info for port-level (not member-level) terminals.
@@ -121,6 +127,8 @@ impl McVecNet {
             shape: None,
             rail: None,
             boundary: None,
+            source_span: None,
+            port_group: None,
         }
     }
 
@@ -144,6 +152,8 @@ impl McVecNet {
             shape,
             rail: None,
             boundary: None,
+            source_span: None,
+            port_group: None,
         }
     }
 

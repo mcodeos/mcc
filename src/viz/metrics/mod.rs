@@ -960,6 +960,7 @@ impl MetricsAccumulator {
             box_box: self.box_box,
             wire_box: self.wire_box,
             wire_wire: self.wire_wire,
+            diagonal_segments: 0,
             details: Vec::new(),
         };
 
@@ -1283,7 +1284,7 @@ mod tests {
     use crate::vector::builder::report::{
         BuilderReport, DroppedNet, PartialNet, ResolutionOutcome, ResolutionRecord,
     };
-    use crate::vector::graph::boxdef::{BoxPin, IoSummary, PortDir};
+    use crate::vector::graph::boxdef::{BoxPin, IoSummary};
     use crate::vector::graph::netdef::{Point, Route, Segment};
     use crate::vector::graph::{BoxKind, EndpointRef, McVecBox, NetRole, Symbol, VizNet};
 
@@ -1462,6 +1463,7 @@ mod tests {
             box_box: 1,
             wire_box: 2,
             wire_wire: 3,
+            diagonal_segments: 0,
             details: vec!["detail is intentionally not accumulated".into()],
         };
 
@@ -1717,6 +1719,7 @@ mod tests {
                 to: Point::new(45.0, 10.0),
             }],
             junctions: Vec::new(),
+            escalated: false,
         });
 
         let mut acc = MetricsAccumulator::default();

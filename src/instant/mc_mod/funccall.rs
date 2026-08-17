@@ -710,8 +710,12 @@ impl McModuleInst {
                 });
             let gnd = self.node_to_netpoint(&McBus::new("GND"));
             let id = self.next_conn_id();
-            self.connections
-                .push(ConnectionInst::new(id, vec![pin2, gnd]));
+            self.connections.push(self.make_conn_with_provenance(
+                id,
+                vec![pin2, gnd],
+                ConnDir::Undirected,
+                None,
+            ));
             return Ok(());
         }
 
@@ -750,11 +754,19 @@ impl McModuleInst {
             let rail = Self::pick_power_point(&param_groups[1]);
             if let (Some(s), Some(r)) = (sig, rail) {
                 let id1 = self.next_conn_id();
-                self.connections
-                    .push(ConnectionInst::new(id1, vec![pin1, s]));
+                self.connections.push(self.make_conn_with_provenance(
+                    id1,
+                    vec![pin1, s],
+                    ConnDir::Undirected,
+                    None,
+                ));
                 let id2 = self.next_conn_id();
-                self.connections
-                    .push(ConnectionInst::new(id2, vec![pin2, r]));
+                self.connections.push(self.make_conn_with_provenance(
+                    id2,
+                    vec![pin2, r],
+                    ConnDir::Undirected,
+                    None,
+                ));
                 return Ok(());
             }
         }
@@ -762,14 +774,22 @@ impl McModuleInst {
         if is_pull {
             if let Some(t) = targets.first().cloned() {
                 let id2 = self.next_conn_id();
-                self.connections
-                    .push(ConnectionInst::new(id2, vec![pin2, t]));
+                self.connections.push(self.make_conn_with_provenance(
+                    id2,
+                    vec![pin2, t],
+                    ConnDir::Undirected,
+                    None,
+                ));
             } else {
                 // No targets: pin2 → GND (mirror the .Cap(_) fallback)
                 let gnd = self.node_to_netpoint(&McBus::new("GND"));
                 let id2 = self.next_conn_id();
-                self.connections
-                    .push(ConnectionInst::new(id2, vec![pin2, gnd]));
+                self.connections.push(self.make_conn_with_provenance(
+                    id2,
+                    vec![pin2, gnd],
+                    ConnDir::Undirected,
+                    None,
+                ));
             }
             return Ok(());
         }
@@ -784,26 +804,46 @@ impl McModuleInst {
                     // Pullup/Pulldown: pin1=signal (wired by outer chain), pin2=rail
                     // e.g. Pullup(_, VDD) → pin2 → VDD, pin1 left for I2C0.SCL
                     let id2 = self.next_conn_id();
-                    self.connections
-                        .push(ConnectionInst::new(id2, vec![pin2, t1]));
+                    self.connections.push(self.make_conn_with_provenance(
+                        id2,
+                        vec![pin2, t1],
+                        ConnDir::Undirected,
+                        None,
+                    ));
                 } else {
                     // .Cap(x) → pin1 → x, pin2 → GND
                     let gnd = self.node_to_netpoint(&McBus::new("GND"));
                     let id1 = self.next_conn_id();
-                    self.connections
-                        .push(ConnectionInst::new(id1, vec![pin1, t1]));
+                    self.connections.push(self.make_conn_with_provenance(
+                        id1,
+                        vec![pin1, t1],
+                        ConnDir::Undirected,
+                        None,
+                    ));
                     let id2 = self.next_conn_id();
-                    self.connections
-                        .push(ConnectionInst::new(id2, vec![pin2, gnd]));
+                    self.connections.push(self.make_conn_with_provenance(
+                        id2,
+                        vec![pin2, gnd],
+                        ConnDir::Undirected,
+                        None,
+                    ));
                 }
             }
             Some(t2) => {
                 let id1 = self.next_conn_id();
-                self.connections
-                    .push(ConnectionInst::new(id1, vec![pin1, t1]));
+                self.connections.push(self.make_conn_with_provenance(
+                    id1,
+                    vec![pin1, t1],
+                    ConnDir::Undirected,
+                    None,
+                ));
                 let id2 = self.next_conn_id();
-                self.connections
-                    .push(ConnectionInst::new(id2, vec![pin2, t2]));
+                self.connections.push(self.make_conn_with_provenance(
+                    id2,
+                    vec![pin2, t2],
+                    ConnDir::Undirected,
+                    None,
+                ));
             }
         }
         Ok(())

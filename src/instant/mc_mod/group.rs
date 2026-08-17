@@ -159,11 +159,51 @@ impl McModuleInst {
             }
         );
 
-        // Helper to create ConnectionInst with consistent lane+dir
+        // ★ P9-A2: compute source_span and port_group once for this connection
+        let source_span: Option<(String, u32)> = self.current_line_span.as_ref().and_then(|s| {
+            // Convert byte offset to line number using the thread-local LineIndex.
+            let line = crate::db::infra::context::lookup_line_col(&self.def_uri, s.start as u32)
+                .map(|(line, _col)| line)
+                .unwrap_or(1);
+            Some((self.def_uri.clone(), line))
+        });
+        // ★ P9-A2: prefer current_port_group (set from source code context),
+        // fall back to port_group_from_points.
+        let port_group: Option<String> = self.current_port_group.clone().or_else(|| {
+            let mut all_pts: Vec<&NetPoint> = Vec::new();
+            all_pts.extend(left_points.iter());
+            all_pts.extend(right_points.iter());
+            port_group_from_points(&all_pts)
+        });
+        // ★ P9-A2: log provenance (debug only, uncomment to trace)
+        // if port_group.is_some() || source_span.is_some() {
+        //     eprintln!(
+        //         "[P9-A2] create_connection in '{}': source_span={:?}, port_group={:?}, pts={:?}",
+        //         self.name,
+        //         source_span,
+        //         port_group,
+        //         left_points.iter().map(|p| &p.path).collect::<Vec<_>>()
+        //     );
+        // } else {
+        //     eprintln!(
+        //         "[P9-A2] create_connection in '{}': NO provenance (current_line_span={:?}), pts={:?}",
+        //         self.name,
+        //         self.current_line_span.as_ref().map(|s| (s.start, s.end)),
+        //         left_points.iter().map(|p| (&p.path, &p.member_name)).collect::<Vec<_>>()
+        //     );
+        // }
+
+        // Helper to create ConnectionInst with consistent lane+dir + provenance
         let mk_conn = |id, pts: Vec<NetPoint>, dir: ConnDir, lane: Option<u16>| -> ConnectionInst {
             let mut conn = ConnectionInst::new(id, pts).with_dir(dir);
             if let Some(l) = lane {
                 conn = conn.with_lane(l);
+            }
+            if let Some((ref file, line)) = source_span {
+                conn = conn.with_source_span(file.clone(), line);
+            }
+            if let Some(ref pg) = port_group {
+                conn = conn.with_port_group(pg.clone());
             }
             conn
         };
@@ -437,6 +477,48 @@ impl McModuleInst {
         Ok(())
     }
 
+    /// ★ P9-A2: Create a ConnectionInst with provenance (source_span + port_group)
+    /// from the current context.
+    ///
+    /// `source_span` is derived from `current_line_span` (set by phases.rs before
+    /// processing each source line). `port_group` is extracted from the common
+    /// parent segment of the dot-separated point paths.
+    ///
+    /// This is the canonical factory for ConnectionInst — call sites that directly
+    /// use `ConnectionInst::new` will miss provenance and cause R-M edge merge to
+    /// degrade.
+    pub(super) fn make_conn_with_provenance(
+        &self,
+        id: u32,
+        points: Vec<NetPoint>,
+        dir: ConnDir,
+        lane: Option<u16>,
+    ) -> ConnectionInst {
+        let source_span: Option<(String, u32)> = self.current_line_span.as_ref().and_then(|s| {
+            let line = crate::db::infra::context::lookup_line_col(&self.def_uri, s.start as u32)
+                .map(|(line, _col)| line)
+                .unwrap_or(1);
+            Some((self.def_uri.clone(), line))
+        });
+        // ★ P9-A2: prefer current_port_group (set from source code context),
+        // fall back to port_group_from_points (extracted from point paths).
+        let port_group: Option<String> = self.current_port_group.clone().or_else(|| {
+            let pts: Vec<&NetPoint> = points.iter().collect();
+            port_group_from_points(&pts)
+        });
+        let mut conn = ConnectionInst::new(id, points).with_dir(dir);
+        if let Some(l) = lane {
+            conn = conn.with_lane(l);
+        }
+        if let Some((ref file, line)) = source_span {
+            conn = conn.with_source_span(file.clone(), line);
+        }
+        if let Some(ref pg) = port_group {
+            conn = conn.with_port_group(pg.clone());
+        }
+        conn
+    }
+
     /// ── P2: connect a scalar net to a DC bus with role alignment ──
     /// Power-rail members ← scalar (representing that power net); ground members ← global GND.
     /// Covers `usbsocket.vin -> V5V`: V5V~vin.POWER_SYS, vin.GND~GND (no short).
@@ -453,11 +535,19 @@ impl McModuleInst {
             let id = self.next_conn_id();
             if is_ground_name(last) {
                 let gnd = self.node_to_netpoint(&McBus::new("GND"));
-                self.connections
-                    .push(ConnectionInst::new(id, vec![p.clone(), gnd]));
+                self.connections.push(self.make_conn_with_provenance(
+                    id,
+                    vec![p.clone(), gnd],
+                    ConnDir::Undirected,
+                    None,
+                ));
             } else {
-                self.connections
-                    .push(ConnectionInst::new(id, vec![scalar.clone(), p.clone()]));
+                self.connections.push(self.make_conn_with_provenance(
+                    id,
+                    vec![scalar.clone(), p.clone()],
+                    ConnDir::Undirected,
+                    None,
+                ));
             }
         }
     }
@@ -679,6 +769,51 @@ fn is_ground_name(s: &str) -> bool {
     matches!(u.as_str(), "GND" | "VSS" | "AGND" | "DGND" | "PGND")
         || u.starts_with("GND")
         || u.starts_with("VSS")
+}
+
+/// Extract the common port group from a set of NetPoint paths.
+///
+/// For paths like `mcu513.SPI.SCLK` and `flash.SPI.SCLK`, the common
+/// parent segment is `SPI`. Returns `None` when paths have fewer than
+/// 3 segments or the common parent cannot be determined.
+///
+/// This is NOT a heuristic guess — the path segments come directly from
+/// the source code's dot-separated identifiers.
+pub(super) fn port_group_from_points(points: &[&NetPoint]) -> Option<String> {
+    if points.len() < 2 {
+        return None;
+    }
+
+    let candidates: Vec<Option<&str>> = points
+        .iter()
+        .map(|p| {
+            let segs: Vec<&str> = p.path.split('.').collect();
+            match segs.len() {
+                0 | 1 => None,
+                2 => {
+                    // Two-segment path like "mcu513.DAC_OUT": use the last segment.
+                    // But skip if the last segment looks like a pin number (all digits).
+                    let last = segs[1];
+                    if last.chars().all(|c| c.is_ascii_digit()) {
+                        None
+                    } else {
+                        Some(last)
+                    }
+                }
+                _ => {
+                    // Three+ segment path like "mic.MIC.N": use second-to-last segment.
+                    Some(segs[segs.len() - 2])
+                }
+            }
+        })
+        .collect();
+
+    let first = candidates.first()?;
+    if candidates.iter().all(|c| *c == *first) {
+        first.map(|s| s.to_string())
+    } else {
+        None
+    }
 }
 
 fn is_power_rail_name(s: &str) -> bool {

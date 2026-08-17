@@ -111,6 +111,12 @@ pub struct McModuleInst {
     /// Used as fallback when NetPoint.src_pos is unavailable.
     pub(super) current_line_span: Option<crate::ast::ast_semantic::Span>,
 
+    /// ★ P9-A2: Current port group name for provenance tracking.
+    /// Set when processing a connection that involves a port group (e.g., flash.SPI, mic.MIC).
+    /// Used by `make_conn_with_provenance` to tag connections with their port group.
+    /// Cleared when the connection line is fully processed.
+    pub(super) current_port_group: Option<String>,
+
     /// Component class names whose instantiation failed (any instance of this class).
     /// Used to skip lines that reference failed components.
     pub(super) failed_classes: HashSet<String>,
@@ -170,6 +176,7 @@ impl McModuleInst {
             diagnostics: Vec::new(),
             bridge_passive_names: HashSet::new(),
             current_line_span: None,
+            current_port_group: None,
             failed_classes: HashSet::new(),
             failed_records: Vec::new(),
             auto_invoked_funcs: HashSet::new(),
@@ -205,6 +212,7 @@ impl McModuleInst {
             diagnostics: Vec::new(),
             bridge_passive_names: HashSet::new(),
             current_line_span: None,
+            current_port_group: None,
             failed_classes: HashSet::new(),
             failed_records: Vec::new(),
             auto_invoked_funcs: HashSet::new(),
