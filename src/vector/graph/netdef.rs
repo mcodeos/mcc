@@ -141,6 +141,9 @@ pub struct VizNet {
     /// McVecNet.rail, resolved by viz/project.rs from port declarations
     /// (class + driver_pin + volt).
     pub rail: Option<super::super::model::RailSpec>,
+    /// ★ P8-2 (G16): source span for bidirectional traceability.
+    /// `(file, line)` — which source file and line created this net.
+    pub source_span: Option<(String, u32)>,
 }
 
 impl VizNet {
@@ -161,6 +164,7 @@ impl VizNet {
             route: None,
             src_pos: None,
             rail: None,
+            source_span: None,
         }
     }
 

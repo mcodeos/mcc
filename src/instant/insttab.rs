@@ -766,8 +766,23 @@ impl InstTable {
             }
         }
 
-        // 3. Register components + pins
+        // ── ★ P8-1: build func-to-owner map for correcting parent_id of
+        // func-created instances. When a component defines a func (e.g. FLASH.GD25Q32E
+        // defines func GD25Q32E), instances created by that func belong to the
+        // component instance, not the calling module.
+        let mut func_to_owner: HashMap<String, String> = HashMap::new();
         for comp in &inst.components {
+            for func in comp.def.funcs.iter() {
+                func_to_owner.insert(func.name.to_string(), comp.name.clone());
+            }
+        }
+
+        // 3. Register components + pins (two-pass: non-func-created first,
+        //    then func-created with corrected parent_id)
+        for comp in &inst.components {
+            if matches!(comp.origin, InstOrigin::FuncCall { .. }) {
+                continue; // handled in second pass
+            }
             let comp_path = format!("{}.{}", my_path, comp.name);
             let comp_id = self.register(
                 comp_path.clone(),
@@ -802,15 +817,6 @@ impl InstTable {
             for pin_name in pin_names {
                 if let Some(net_point) = comp.pins.get(pin_name) {
                     let pin_path = format!("{comp_path}.{pin_name}");
-                    // ★ Pin function name (right side of mc `=`: Base/TX/RXD/1...)
-                    //   is carried to the drawing side via the class_name field
-                    //   (fromblock::build_box_pins → BoxPin.description → render_pin
-                    //   drawn inside the box). The Pin entry's class_name is only
-                    //   read as a "description" by build_box_pins, not used for class
-                    //   recognition, so reuse is safe.
-                    //   The function name of a pure numeric pin like `1=1` is also
-                    //   "1" — carry it together — both outer pin number and inner
-                    //   function name are drawn.
                     let pin_func_name = comp
                         .cond_pin_names
                         .get(pin_name)
@@ -835,6 +841,98 @@ impl InstTable {
                     );
 
                     // Set member_info for Ground/Power pins so merge_ground_nets can find them
+                    let (role, _inferred) = infer_member_role(
+                        &pin_func_name,
+                        &net_point.iotype,
+                        is_ground_name,
+                        is_supply_name,
+                    );
+                    if !matches!(role, MemberRole::Signal) {
+                        self.set_member_info(pin_id, MemberInfo::new(role, None));
+                    }
+                }
+            }
+        }
+
+        // ★ P8-1 pass 2: func-created components — re-parent to the component
+        // that defines the func, not the calling module.
+        for comp in &inst.components {
+            if !matches!(comp.origin, InstOrigin::FuncCall { .. }) {
+                continue;
+            }
+            let fn_name = match &comp.origin {
+                InstOrigin::FuncCall { fn_name } => fn_name.clone(),
+                _ => continue,
+            };
+
+            let (comp_path, comp_parent_id) = match func_to_owner.get(&fn_name) {
+                Some(owner_name) => {
+                    let owner_path = format!("{my_path}.{owner_name}");
+                    if let Some(owner_id) = self.get_id_by_path(&owner_path) {
+                        let path = format!("{owner_path}.{}", comp.name);
+                        (path, Some(owner_id))
+                    } else {
+                        // Owner not found (should not happen), fall back to module parent
+                        (format!("{my_path}.{}", comp.name), Some(my_id))
+                    }
+                }
+                None => {
+                    // Func owner not in this module (e.g., builtin func), fall back
+                    (format!("{my_path}.{}", comp.name), Some(my_id))
+                }
+            };
+
+            let comp_id = self.register(
+                comp_path.clone(),
+                InstKind::Component,
+                comp_parent_id,
+                comp.def.name.to_string(),
+                IOType::None,
+                None,
+                inst.def_uri.to_string(),
+            );
+
+            if comp.nc {
+                if let Some(entry) = self.entries.get_mut(&comp_id) {
+                    entry.not_fitted = true;
+                }
+            }
+            if let Some(entry) = self.entries.get_mut(&comp_id) {
+                entry.origin = comp.origin.clone();
+            }
+
+            if inst.bridge_passive_names.contains(&comp.name) {
+                self.bridge_passive_paths.insert(comp_path.clone());
+            }
+
+            let mut pin_names: Vec<&String> = comp.pins.keys().collect();
+            pin_names.sort();
+            for pin_name in pin_names {
+                if let Some(net_point) = comp.pins.get(pin_name) {
+                    let pin_path = format!("{comp_path}.{pin_name}");
+                    let pin_func_name = comp
+                        .cond_pin_names
+                        .get(pin_name)
+                        .and_then(|names| names.first())
+                        .or_else(|| {
+                            comp.def
+                                .pins
+                                .pin_id_to_names
+                                .get(pin_name)
+                                .and_then(|names| names.first())
+                        })
+                        .cloned()
+                        .unwrap_or_default();
+                    let pin_id = self.register(
+                        pin_path,
+                        InstKind::Pin,
+                        Some(comp_id),
+                        pin_func_name.clone(),
+                        net_point.iotype.clone(),
+                        net_point.src_pos,
+                        inst.def_uri.to_string(),
+                    );
+
                     let (role, _inferred) = infer_member_role(
                         &pin_func_name,
                         &net_point.iotype,

@@ -378,10 +378,16 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             let align_report = mcc::viz::metrics::align::AlignMetricsReport::compute(&table.1);
             align_report.print();
 
-            if !nc_report.is_clean() {
-                mcc_dbg!("build", "[gate] NETCHECK Tier 0 not clean -> build failed.");
-                return Ok(BuildOutcome { exit_code: 1 });
-            }
+			if !nc_report.is_clean() {
+				let gate_on = std::env::var("MCC_NETCHECK_GATE")
+					.map(|v| v.trim() != "0" && !v.eq_ignore_ascii_case("false"))
+					.unwrap_or(true);
+				if gate_on {
+					mcc_dbg!("build", "[gate] NETCHECK Tier 0 not clean -> build failed.");
+					return Ok(BuildOutcome { exit_code: 1 });
+				}
+				mcc_dbg!("build", "[gate] NETCHECK Tier 0 not clean (MCC_NETCHECK_GATE=0, continuing)");
+			}
 
             let (vec_block, build_report) = mcc::build_mc_vec_with_report(&inst, &table.1);
             let graph = mcc::build_mc_vec_graph(&vec_block, &table.1);

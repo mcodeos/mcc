@@ -27,9 +27,9 @@
 //!   4. Iterate sub_modules → recursively generate child McVecBlock
 //! ```
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
-use crate::instant::insttab::{InstKind, InstTable};
+use crate::instant::insttab::{InstKind, InstOrigin, InstTable};
 use crate::instant::mc_mod::McModuleInst;
 use crate::vector::graph::extract_last_segment;
 
@@ -374,11 +374,111 @@ impl<'a> McVecBuilder<'a> {
             }
         }
 
+        // ★ P8-6: Extract component inner layers.
+        // For each component instance with func-created children,
+        // create a sub-block so they render as separate layers.
+        Self::extract_component_inner_layers(&mut block, &self.inst_table);
+
         // ── Debug: output snapshot + consistency check (printed when MC_VEC_DUMP=1) ──
         debug::dump_output(&block);
         debug::dump_diff(inst, &block);
 
         block
+    }
+
+    // ========================================================================
+    // ★ P8-6: Extract component inner layers
+    // ========================================================================
+
+    /// For each component instance with func-created children (InstOrigin::FuncCall),
+    /// create a sub-block containing those children. The parent block's insts
+    /// are updated to remove the func-created children, and the sub-block's nets
+    /// are copied from the parent block's nets that involve those children.
+    fn extract_component_inner_layers(block: &mut McVecBlock, inst_table: &InstTable) {
+        // Find component instances that have func-created children
+        let mut comp_children: HashMap<u32, (String, Vec<u32>)> = HashMap::new();
+
+        for &iid in &block.insts {
+            if iid < 0 {
+                continue;
+            }
+            let id = iid as u32;
+            let entry = match inst_table.get_entry(id) {
+                Some(e) => e,
+                None => continue,
+            };
+            if entry.kind != InstKind::Component {
+                continue;
+            }
+
+            let children = inst_table.children_of(id);
+            let func_created: Vec<u32> = children
+                .iter()
+                .filter(|c| matches!(c.origin, InstOrigin::FuncCall { .. }))
+                .map(|c| c.id)
+                .collect();
+
+            if !func_created.is_empty() {
+                let name = extract_last_segment(&entry.path);
+                comp_children.insert(id, (name, func_created));
+            }
+        }
+
+        if comp_children.is_empty() {
+            return;
+        }
+
+        // For each component with func-created children, create a sub-block
+        for (comp_id, (comp_name, child_ids)) in &comp_children {
+            let child_id_set: HashSet<i64> = child_ids.iter().map(|&id| id as i64).collect();
+
+            let mut sub_block = McVecBlock::new(*comp_id as i64, comp_name.clone());
+
+            // Add the component itself so the inner layer has its box with pins
+            sub_block.insts.push(*comp_id as i64);
+
+            // Add func-created children to sub-block
+            for &cid in child_ids {
+                sub_block.insts.push(cid as i64);
+            }
+
+            // Also add the component's port entries so the inner layer nets
+            // have valid endpoints for the component's pins.
+            let comp_children = inst_table.children_of(*comp_id);
+            for cc in &comp_children {
+                if cc.kind == InstKind::Port {
+                    sub_block.insts.push(cc.id as i64);
+                }
+            }
+
+            // Copy nets that involve func-created children
+            for net in &block.nets {
+                let points = net.all_point_ids();
+                let has_func_child = points.iter().any(|pid| {
+                    *pid >= 0 && child_id_set.contains(pid)
+                });
+                if has_func_child {
+                    // Clone the net but clear BoundaryInfo — the component's ports
+                    // are the boundary for the inner layer, not the parent module's.
+                    let mut net_clone = net.clone();
+                    net_clone.boundary = None;
+                    sub_block.nets.push(net_clone);
+                }
+            }
+
+            // Remove func-created children from parent block's insts
+            // (keep the component itself in the parent block)
+            block.insts.retain(|iid| !child_id_set.contains(iid));
+
+            block.blocks.push(sub_block);
+
+            crate::velog!(
+                "[visit] P8-6: extracted component inner layer '{}' (bid={}) with {} children",
+                comp_name,
+                comp_id,
+                child_ids.len()
+            );
+        }
     }
 
     // ========================================================================

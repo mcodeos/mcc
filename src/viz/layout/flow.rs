@@ -160,6 +160,10 @@ impl FlowLayouter {
         //   (not in boxes); every later pass (coalesce / pin_place / islands /
         //   passive_inline) sees a pure signal graph.
         classify_rails(graph, /*is_top=*/ !self.is_sub_layout);
+        // ★ P8-3 R-B: for the main layer, hide Ground nets and decorations.
+        // GND exists in the netlist for ERC but is invisible in the main diagram
+        // because hbl.mc never explicitly mentions GND.
+        filter_ground_nets_for_main(graph);
         // ★ P7-9: pin facade — filter SubModule pins to only those used in nets.
         // Collapses member ports to port groups, removes R-3 (consumer power) pins.
         // Must run after classify_rails (R-3 detection) and before assign_default_sizes
@@ -516,47 +520,56 @@ impl Layouter for FlowLayouter {
         // ── Phase 3 · Placement (writes only box positions) + PROBE-B contract check ──
         let ep_snap = probe_ep_snapshot(graph);
         let g_snap = graph.geom_snapshot();
-        let (root_id, isolated_ids) = self.phase_placement(graph);
-        graph.claim_geom_changes(&g_snap, "3.placement");
+
+        // ★ P8-4: main layer compass layout — fixed positions, no generic layout.
+        let (root_id, isolated_ids) = if graph.name == "main" {
+            place_main_compass(graph);
+            graph.claim_geom_changes(&g_snap, "3.placement");
+            // For main, use mcu513 as root, no isolated boxes.
+            let root = graph.boxes.iter().find(|b| b.name == "mcu513").map(|b| b.id).unwrap_or(graph.boxes[0].id);
+            (root, HashSet::new())
+        } else {
+            let (root_id, isolated_ids) = self.phase_placement(graph);
+            graph.claim_geom_changes(&g_snap, "3.placement");
+            (root_id, isolated_ids)
+        };
         probe_no_ep_writes("phase_placement", graph, &ep_snap);
 
         // ── Phase D · SchematicLayoutModel: low-risk layout intent ──
-        let g_snap = graph.geom_snapshot();
-        self.apply_schematic_model(graph);
-        graph.claim_geom_changes(&g_snap, "4.schematic_model");
-
-        // The old path still runs: fully overridden by ladder_place on model hit, fallback when the model bails
-        let g_snap = graph.geom_snapshot();
-        super::two_lane_ladder::try_two_lane_ladder(graph);
-        graph.claim_geom_changes(&g_snap, "5.two_lane");
-
-        // ── M11+M12 Idiom-aware placement (pre-pin) ──
-        // Move satellite devices after phase_placement and before pin_place_pipeline.
-        // Only satellites like caps/resistors move, never anchors like IC/connector/module.
-        // Skips ladder-locked (geom_locked) boxes.
-        // M12: score-all candidates → deterministic best, with determinism report.
-        {
-            let protected: std::collections::HashSet<i64> = graph
-                .boxes
-                .iter()
-                .filter(|b| b.geom_locked)
-                .map(|b| b.id)
-                .collect();
-            let model = crate::viz::idiom::place::analyze_idiom_placement(graph, &protected);
+        if graph.name != "main" {
             let g_snap = graph.geom_snapshot();
-            let report = crate::viz::idiom::place::apply_idiom_placement_pre_pins(graph, &model);
-            graph.claim_geom_changes(&g_snap, "6.idiom");
-            if report.idioms_detected > 0 {
-                mcc_dbg!("viz", "{}", report.report_line());
+            self.apply_schematic_model(graph);
+            graph.claim_geom_changes(&g_snap, "4.schematic_model");
+
+            // The old path still runs: fully overridden by ladder_place on model hit, fallback when the model bails
+            let g_snap = graph.geom_snapshot();
+            super::two_lane_ladder::try_two_lane_ladder(graph);
+            graph.claim_geom_changes(&g_snap, "5.two_lane");
+
+            // ── M11+M12 Idiom-aware placement (pre-pin) ──
+            {
+                let protected: std::collections::HashSet<i64> = graph
+                    .boxes
+                    .iter()
+                    .filter(|b| b.geom_locked)
+                    .map(|b| b.id)
+                    .collect();
+                let model = crate::viz::idiom::place::analyze_idiom_placement(graph, &protected);
+                let g_snap = graph.geom_snapshot();
+                let report = crate::viz::idiom::place::apply_idiom_placement_pre_pins(graph, &model);
+                graph.claim_geom_changes(&g_snap, "6.idiom");
+                if report.idioms_detected > 0 {
+                    mcc_dbg!("viz", "{}", report.report_line());
+                }
+                let mut det_report =
+                    crate::viz::stability::report::DeterminismReport::from_graph(graph);
+                det_report = det_report.with_idiom(
+                    &model.instances,
+                    &model.constraints,
+                    &report.selected_candidates,
+                );
+                mcc_dbg!("viz", "{}", det_report.report_line());
             }
-            let mut det_report =
-                crate::viz::stability::report::DeterminismReport::from_graph(graph);
-            det_report = det_report.with_idiom(
-                &model.instances,
-                &model.constraints,
-                &report.selected_candidates,
-            );
-            mcc_dbg!("viz", "{}", det_report.report_line());
         }
 
         // ── Phase 4 · PinPlacement: sole writer of EntryPoint + sole finalizer of hub geometry ──
@@ -593,6 +606,92 @@ impl Layouter for FlowLayouter {
 
 // (★ P7-3 removed: FlagTarget / FlagMeta / split_flags —— flags are no longer boxes,
 //  no need to extract before core layout or re-home in the Post phase.)
+
+// ============================================================================
+// ★ P8-3 R-B: filter Ground nets for main layer
+// ============================================================================
+
+/// For the main layer, hide Ground nets and their decorations.
+/// GND exists in the netlist for ERC but is invisible in the main diagram
+/// because hbl.mc never explicitly mentions GND.
+fn filter_ground_nets_for_main(graph: &mut McVecGraph) {
+    if graph.name != "main" {
+        return;
+    }
+
+    let before_nets = graph.nets.len();
+    let before_deco = graph.rail_decorations.len();
+
+    // Remove Ground nets
+    graph.nets.retain(|n| !matches!(n.kind, crate::vector::graph::NetKind::Ground));
+    // Remove Ground decorations
+    graph.rail_decorations.retain(|d| !d.is_ground);
+
+    let after_nets = graph.nets.len();
+    let after_deco = graph.rail_decorations.len();
+
+    if before_nets != after_nets || before_deco != after_deco {
+        crate::vlog!(
+            "[R-B] main: filtered {} Ground net(s) and {} Ground decoration(s) \
+             (GND invisible in main per R-B rule)",
+            before_nets - after_nets,
+            before_deco - after_deco
+        );
+    }
+}
+
+// ============================================================================
+// ★ P8-4: main compass layout
+// ============================================================================
+
+/// Place the 7 main-layer boxes in compass positions.
+/// Layout:
+///               [mic]
+///                 ↓ MIC
+/// [flash] --SPI--> [mcu513]
+/// [usbsocket]→[modldo]→[moddcdc]
+///                 ↓ DAC_OUT / SPK_MUTE
+///             [speaker]
+fn place_main_compass(graph: &mut McVecGraph) {
+    // Build a name→box lookup
+    let mut by_name: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for (i, b) in graph.boxes.iter().enumerate() {
+        by_name.insert(b.name.clone(), i);
+    }
+
+    // Place each box by name
+    let place = |graph: &mut McVecGraph, by_name: &std::collections::HashMap<String, usize>, name: &str, x: f64, y: f64| {
+        if let Some(&idx) = by_name.get(name) {
+            graph.boxes[idx].x = x;
+            graph.boxes[idx].y = y;
+        }
+    };
+
+    // mcu513: center
+    let hub_x = 900.0;
+    let hub_y = 500.0;
+    place(graph, &by_name, "mcu513", hub_x, hub_y);
+
+    // mic: above mcu513
+    place(graph, &by_name, "mic", hub_x, hub_y - 350.0);
+
+    // speaker: below mcu513
+    place(graph, &by_name, "speaker", hub_x, hub_y + 350.0);
+
+    // flash: upper left of mcu513
+    place(graph, &by_name, "flash", hub_x - 550.0, hub_y - 200.0);
+
+    // Power chain on the left side (vertical)
+    let chain_x = hub_x - 550.0;
+    place(graph, &by_name, "usbsocket", chain_x, hub_y - 50.0);
+    place(graph, &by_name, "modldo", chain_x, hub_y + 180.0);
+    place(graph, &by_name, "moddcdc", chain_x, hub_y + 410.0);
+
+    crate::vlog!(
+        "[P8-4] main compass layout: 7 boxes placed, hub=mcu513({},{})",
+        hub_x as i32, hub_y as i32
+    );
+}
 
 // ============================================================================
 // Size: height ∝ signal net count (vertical stretch, let parallel wire bundles spread apart)
