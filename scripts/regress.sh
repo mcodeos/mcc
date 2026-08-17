@@ -32,7 +32,7 @@ run_one() {
     # Extract diagnostics + summary (strip volatile fields like workspace)
     local filtered
     filtered=$(echo "$output" | python3 -c "
-import json, sys
+import json, sys, os
 data = json.load(sys.stdin)
 # JSON-RPC envelope: diagnostics live in result.pass0, summary in result.summary.
 result = data.get('result', {}) or {}
@@ -40,7 +40,12 @@ out = {
     'diagnostics': result.get('pass0', {}).get('diagnostics', []),
     'summary': result.get('summary', {}),
 }
-print(json.dumps(out, indent=2, sort_keys=True))
+text = json.dumps(out, indent=2, sort_keys=True)
+# Normalize the user's home directory to '~' so golden files carry no
+# developer-specific absolute paths (see AGENTS.md 'no hardcoded user-specific
+# absolute paths').
+text = text.replace(os.path.expanduser('~'), '~')
+print(text)
 " 2>/dev/null) || {
         echo "  FAIL (json parse): $rel"
         FAIL=$((FAIL + 1))

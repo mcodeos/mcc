@@ -10,11 +10,13 @@ use std::sync::{Arc, Mutex};
 static S4_LOCK: Mutex<()> = Mutex::new(());
 
 fn hbl_project_dir() -> PathBuf {
-    PathBuf::from("/Users/dan/work/mo/mcd/projects/hbl")
+    let home = std::env::var("HOME").expect("HOME set");
+    PathBuf::from(home).join("work/mo/mcd/projects/hbl")
 }
 
 fn sys_root() -> PathBuf {
-    PathBuf::from("/Users/dan/work/mo")
+    let home = std::env::var("HOME").expect("HOME set");
+    PathBuf::from(home).join("work/mo")
 }
 
 fn setup() -> (Arc<RpcMethodRegistry>, std::path::PathBuf) {

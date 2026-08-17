@@ -4,12 +4,23 @@
 
 ---
 
+## 0. Authoring Rules
+
+- Never hardcode absolute paths that embed a developer's username (for example
+  `/Users/<user>/work/mo/mcc`) in source code, tests, golden data, or docs.
+- Use portable forms instead: `~` in docs and shell examples, `$HOME`-derived
+  paths (`PathBuf::from(home)` in Rust tests), or paths relative to the project
+  root (`env!("CARGO_MANIFEST_DIR")`).
+- Applies to the whole project including test code and test data.
+
+---
+
 ## 1. Quick Reference
 
 ### Build & Run
 
 ```bash
-cd /Users/dan/work/mo/mcc
+cd ~/work/mo/mcc
 cargo build
 ```
 
@@ -17,10 +28,10 @@ cargo build
 
 | Path | Purpose |
 |---|---|
-| `/Users/dan/work/mo/mcc` | Compiler source |
-| `/Users/dan/work/mo/mcode` | Standard library (components, interfaces, packages) |
-| `/Users/dan/work/mo/mcd` | Workspace: test projects, libraries, docs |
-| `/Users/dan/work/mo/mcext` | VS Code extension + LSP server (`mcodels`) |
+| `~/work/mo/mcc` | Compiler source |
+| `~/work/mo/mcode` | Standard library (components, interfaces, packages) |
+| `~/work/mo/mcd` | Workspace: test projects, libraries, docs |
+| `~/work/mo/mcext` | VS Code extension + LSP server (`mcodels`) |
 | `~/.mcode/` | Runtime data: config, logs, PID file |
 | `~/.mcode/config/mcc.yaml` | Global compiler config |
 | `~/.mcode/config/server.yaml` | RPC server config |
@@ -738,7 +749,7 @@ curl -X POST http://127.0.0.1:8080/rpc \
 
 ### 5.1 VS Code Debug Configurations
 
-In `/Users/dan/work/mo/mcc/.vscode/launch.json`:
+In `~/work/mo/mcc/.vscode/launch.json`:
 
 **"mcc"** — Debug a one-shot CLI run:
 - Program: `target/debug/mcc`
@@ -748,7 +759,7 @@ In `/Users/dan/work/mo/mcc/.vscode/launch.json`:
 
 ```bash
 # Equivalent command line
-cd /Users/dan/work/mo/mcc
+cd ~/work/mo/mcc
 MCC_SYSTEM_ROOT=./mc RUST_BACKTRACE=1 cargo run -- mc/projects/hbl/hbl.mc
 ```
 
@@ -824,7 +835,7 @@ curl -X POST http://127.0.0.1:8080/rpc \
 
 ```bash
 # Run all tests
-cd /Users/dan/work/mo/mcc
+cd ~/work/mo/mcc
 cargo test
 
 # Run specific test
@@ -973,14 +984,14 @@ mcc check ./path/to/changed.mc
 mcc parse ./path/to/changed.mc --lib mcode
 
 # 3. Build a test project that uses the changed component
-cd /Users/dan/work/mo/mcd/projects/hbl
+cd ~/work/mo/mcd/projects/hbl
 mcc build
 
 # 4. Full rebuild with visualization
 mcc build --viz
 
 # 5. Run mcc's internal test suite
-cd /Users/dan/work/mo/mcc
+cd ~/work/mo/mcc
 cargo test
 ```
 
@@ -1077,13 +1088,13 @@ mcc show lapper us513.mc --lib mcode -f json | python3 -m json.tool
 
 ```bash
 # 1. Start server with mcode preloaded
-cd /Users/dan/work/mo/mcc
+cd ~/work/mo/mcc
 ./target/debug/mcc start --lib mcode -d -l /tmp/mcc.log
 
 # 2. Inspect lapper symbols via sem RPC (all ClassRef/ClassDef)
 curl -s -X POST http://127.0.0.1:8080/rpc \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"sem","params":{"uri":"/Users/dan/work/mo/mcd/projects/hbl/src/us513.mc"}}' | python3 -m json.tool
+  -d '{"jsonrpc":"2.0","id":1,"method":"sem","params":{"uri":"~/work/mo/mcd/projects/hbl/src/us513.mc"}}' | python3 -m json.tool
 
 # 3. Test go-to-definition
 curl -s -X POST http://127.0.0.1:8080/rpc \
@@ -1102,7 +1113,7 @@ curl -s -X POST http://127.0.0.1:8080/rpc \
 # 5. Get diagnostics for the file
 curl -s -X POST http://127.0.0.1:8080/rpc \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"diagnostics","params":{"uri":"/Users/dan/work/mo/mcd/projects/hbl/src/us513.mc"}}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"diagnostics","params":{"uri":"~/work/mo/mcd/projects/hbl/src/us513.mc"}}'
 
 # 6. Show full definitions
 curl -s -X POST http://127.0.0.1:8080/rpc \
@@ -1121,7 +1132,7 @@ curl -s -X POST http://127.0.0.1:8080/rpc \
 
 ```bash
 # Terminal 1: Start server
-cd /Users/dan/work/mo/mcc
+cd ~/work/mo/mcc
 MCC_SYSTEM_ROOT=./mc cargo run -- start --port 8080 --log-level debug --lib mcode
 
 # Terminal 2: Interact via curl
@@ -1158,7 +1169,7 @@ VS Code  ←LSP→  mcodels (Rust)  ←HTTP JSON-RPC→  mcc server
 
 ### Debug Configurations
 
-In `/Users/dan/work/mo/mcext/.vscode/launch.json`:
+In `~/work/mo/mcext/.vscode/launch.json`:
 
 | Config | Purpose |
 |---|---|
@@ -1169,7 +1180,7 @@ In `/Users/dan/work/mo/mcext/.vscode/launch.json`:
 
 ```bash
 # Build extension
-cd /Users/dan/work/mo/mcext
+cd ~/work/mo/mcext
 cargo build
 
 # Run LSP server standalone (stdin/stdout)
@@ -1177,7 +1188,7 @@ RUST_LOG=trace cargo run --bin mcodels
 
 # Start extension development host
 # Use "Debug Extension + LSP Server" launch config, or:
-code --extensionDevelopmentPath=/Users/dan/work/mo/mcext /Users/dan/work/mo/mcd/projects/hbl
+code --extensionDevelopmentPath=~/work/mo/mcext ~/work/mo/mcd/projects/hbl
 ```
 
 ### Key LSP Features
@@ -1301,9 +1312,9 @@ Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json
 {
   "mcpServers": {
     "mcc": {
-      "command": "/Users/dan/work/mo/mcc/target/debug/mcc-mcp",
+      "command": "~/work/mo/mcc/target/debug/mcc-mcp",
       "env": {
-        "MCC_PROJECT_ROOT": "/Users/dan/work/mo/mcd/projects/hbl"
+        "MCC_PROJECT_ROOT": "~/work/mo/mcd/projects/hbl"
       }
     }
   }
@@ -1313,10 +1324,10 @@ Claude Desktop (`~/Library/Application Support/Claude/claude_desktop_config.json
 Claude Code:
 
 ```bash
-claude mcp add mcc -- /Users/dan/work/mo/mcc/target/debug/mcc-mcp
+claude mcp add mcc -- ~/work/mo/mcc/target/debug/mcc-mcp
 # with a project binding:
-claude mcp add mcc --env MCC_PROJECT_ROOT=/Users/dan/work/mo/mcd/projects/hbl \
-  -- /Users/dan/work/mo/mcc/target/debug/mcc-mcp
+claude mcp add mcc --env MCC_PROJECT_ROOT=~/work/mo/mcd/projects/hbl \
+  -- ~/work/mo/mcc/target/debug/mcc-mcp
 ```
 
 Cursor / Trae: Settings → MCP → Add server with `command` + `env` (same shape).
