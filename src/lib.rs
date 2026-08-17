@@ -38,7 +38,7 @@ pub use crate::semantic::basic::mc_opd::McOpd;
 pub use crate::semantic::common::{
     classify_lead, classify_phrase_leads, uri_intern, uri_of_file_id, uri_resolve, ContainerInfo,
     ContainerKind, IOType, LeadKind, LookupResult, LookupSymbolKind, McCMIE, McSpaceName, McURI,
-    ScopeFilter, ScopePath, UriId,
+    ScopeFilter, ScopePath, SpaceLayer, UriId,
 };
 pub use crate::semantic::{
     basic::{
@@ -80,7 +80,7 @@ pub use builder::{
     mcb_lib_info, mcb_load_lib, mcb_load_lib_by_name, mcb_loaded_file_count, mcb_loaded_libs,
     mcb_module_count, mcb_parse_all_modules, mcb_pass2_flat, mcb_print, mcb_print_lines,
     mcb_print_loaded_files, mcb_unload_lib, resolve_lib_root, unified_lookup, unified_lookup_all,
-    MccProjectTree, SubElementKind,
+    unified_lookup_all_layered, MccProjectTree, SubElementKind,
 };
 
 // ── Instant / Net ──

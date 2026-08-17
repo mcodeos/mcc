@@ -380,6 +380,50 @@ impl Default for ScopePath {
 // Unified Lookup types (shared by pass1/pass2, F12, Hover, Completion)
 // ============================================================================
 
+/// Layered completion space a lookup result belongs to (§5 of the completion
+/// design). Mirrors the P1-P5 name-space layering plus the special spaces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum SpaceLayer {
+    /// Func space — params and labels of the current function (innermost).
+    P1,
+    /// Container space — ports, instances, params, pins, funcs of the
+    /// current module/component.
+    P2,
+    /// Current file top-level classes (module/component/interface/enum).
+    P3,
+    /// Use-chain visibility — cross-file classes reachable from the file.
+    P4,
+    /// mcode system library classes (outermost).
+    P5,
+    /// Member access space (`uC.PA1`, `UART.TTL`).
+    Member,
+    /// Net expression space.
+    Net,
+    /// Instance declaration space.
+    Instance,
+    /// Attribute assignment space.
+    Attr,
+    /// Use-path space.
+    UsePath,
+}
+
+impl SpaceLayer {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::P1 => "P1",
+            Self::P2 => "P2",
+            Self::P3 => "P3",
+            Self::P4 => "P4",
+            Self::P5 => "P5",
+            Self::Member => "Member",
+            Self::Net => "Net",
+            Self::Instance => "Instance",
+            Self::Attr => "Attr",
+            Self::UsePath => "UsePath",
+        }
+    }
+}
+
 /// Result of a single symbol lookup.
 #[derive(Debug, Clone)]
 pub struct LookupResult {
@@ -395,6 +439,8 @@ pub struct LookupResult {
     pub scope: String,
     /// The definition name.
     pub name: String,
+    /// Layered completion space this result belongs to.
+    pub layer: SpaceLayer,
 }
 
 /// Symbol kind for unified lookup results.
