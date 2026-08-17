@@ -419,6 +419,11 @@ pub struct McVecBox {
 
     /// ★ P7-1: box provenance marker (default Declared). renderdiff G10 uses it to count synthesized boxes.
     pub provenance: BoxProvenance,
+
+    /// ★ P8-2 (G16): source span for bidirectional traceability.
+    /// `(file, line)` — which source file and line declared this box.
+    /// Populated by fromblock.rs from InstEntry source info.
+    pub source_span: Option<(String, u32)>,
 }
 
 /// ★ P2: Visual role hint for layout placement
@@ -523,6 +528,7 @@ impl McVecBox {
             anchor_hint: None,
             geom_writer: None,
             provenance: BoxProvenance::Declared,
+            source_span: None,
         }
     }
 
