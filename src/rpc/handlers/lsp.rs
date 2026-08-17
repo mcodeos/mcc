@@ -212,11 +212,36 @@ pub fn handle_completion(params: Option<Value>) -> RpcResult {
         prefix: Option<String>,
         #[serde(default)]
         scope: Option<String>,
+        /// Optional cursor byte offset. When present, mcc derives the
+        /// authoritative scope from the symbol lapper + SourceLocation tables
+        /// and returns the layered completion response (design §8.1).
+        #[serde(default)]
+        position: Option<usize>,
+        /// Member-access root (e.g. `uC`, `this`) when the context is
+        /// `member_access`; returns the `Member` layer (§5.6).
+        #[serde(default)]
+        member_root: Option<String>,
     }
 
     let p: CompletionParams = parse_strict(params)?;
-    let items = crate::lsp::completion::complete(&p.uri, p.prefix.as_deref(), p.scope.as_deref());
-    Ok(serde_json::json!({ "items": items }))
+    if let Some(pos) = p.position {
+        if let Some(member_root) = p.member_root {
+            let result = crate::lsp::completion::complete_member_at_pos(
+                &p.uri,
+                pos,
+                &member_root,
+                p.prefix.as_deref(),
+            );
+            Ok(result)
+        } else {
+            let result = crate::lsp::completion::complete_at_pos(&p.uri, pos, p.prefix.as_deref());
+            Ok(result)
+        }
+    } else {
+        let items =
+            crate::lsp::completion::complete(&p.uri, p.prefix.as_deref(), p.scope.as_deref());
+        Ok(serde_json::json!({ "items": items }))
+    }
 }
 
 // === handle_hover ===

@@ -59,24 +59,139 @@ pub fn lookup_with_sub(
 ///   5. System library (mcode)
 ///   6. Third-party libs
 ///
-/// Returns up to `filter.limit` results, optionally filtered by kind and prefix.
+/// Returns up to `filter.limit` results (flat cap for legacy callers),
+/// optionally filtered by kind and prefix.
 pub fn unified_lookup_all(
     scope_path: &crate::ScopePath,
     filter: &crate::ScopeFilter,
 ) -> Vec<crate::LookupResult> {
     let max = filter.limit.unwrap_or(100);
-    let mut results: Vec<crate::LookupResult> = Vec::new();
-
-    // P1-P3: collect from workspace containers at this file
-    collect_from_file(scope_path, filter, &mut results, max);
-
-    // P4: project index (via mcb_get_cmie with all class names)
-    collect_from_project(filter, &mut results, max);
-
-    // P5-P6: system library + third-party (deferred to future enhancement)
-
+    let (mut results, _) = unified_lookup_all_layered(scope_path, filter);
     results.truncate(max);
     results
+}
+
+// === pub fn unified_lookup_all_layered( ===
+/// Layered variant of [`unified_lookup_all`] for the completion RPC (§8.1).
+///
+/// Each layer is capped independently (`MAX_PER_LAYER`) so a large P4/P5
+/// never starves inner layers; the returned truncated-layers list lets the
+/// caller mark those layers incomplete (§8.5).
+pub fn unified_lookup_all_layered(
+    scope_path: &crate::ScopePath,
+    filter: &crate::ScopeFilter,
+) -> (Vec<crate::LookupResult>, Vec<crate::SpaceLayer>) {
+    let mut limiter = LayerLimiter::new(MAX_PER_LAYER);
+    let mut results: Vec<crate::LookupResult> = Vec::new();
+
+    // P1: current function (params + labels) — innermost layer
+    collect_func_symbols(scope_path, &mut results, &mut limiter);
+
+    // P1-P3: collect from workspace containers at this file
+    collect_from_file(scope_path, filter, &mut results, &mut limiter);
+
+    // P4: project index (via mcb_get_cmie with all class names)
+    collect_from_project(filter, &mut results, &mut limiter);
+
+    // P5: system library (mcode)
+    collect_from_system_lib(filter, &mut results, &mut limiter);
+
+    let truncated = limiter.truncated_layers();
+    (results, truncated)
+}
+
+/// Per-layer result cap (§8.5: 200/layer default) so a large P4/P5 candidate
+/// set never starves the inner layers.
+pub(crate) const MAX_PER_LAYER: usize = 200;
+
+/// Per-layer cap enforcement + truncation tracking.
+pub(crate) struct LayerLimiter {
+    max_per_layer: usize,
+    counts: std::collections::HashMap<crate::SpaceLayer, usize>,
+    truncated: std::collections::HashSet<crate::SpaceLayer>,
+}
+
+impl LayerLimiter {
+    pub(crate) fn new(max_per_layer: usize) -> Self {
+        Self {
+            max_per_layer,
+            counts: std::collections::HashMap::new(),
+            truncated: std::collections::HashSet::new(),
+        }
+    }
+
+    /// Reserve a slot for `layer`; returns false when the layer is capped.
+    pub(crate) fn can_add(&mut self, layer: crate::SpaceLayer) -> bool {
+        let c = self.counts.entry(layer).or_insert(0);
+        if *c < self.max_per_layer {
+            *c += 1;
+            true
+        } else {
+            self.truncated.insert(layer);
+            false
+        }
+    }
+
+    pub(crate) fn truncated_layers(&self) -> Vec<crate::SpaceLayer> {
+        let mut layers: Vec<crate::SpaceLayer> = self.truncated.iter().copied().collect();
+        layers.sort_by_key(crate::SpaceLayer::as_str);
+        layers
+    }
+}
+
+// === fn collect_func_symbols( ===
+/// Collect the current function's params and labels (P1, §5.1).
+///
+/// Resolves the enclosing container class (`scope_path.container`) at
+/// `scope_path.uri`, then the func named `scope_path.func` inside it, and
+/// enumerates the func's params.
+pub(crate) fn collect_func_symbols(
+    scope_path: &crate::ScopePath,
+    results: &mut Vec<crate::LookupResult>,
+    limiter: &mut LayerLimiter,
+) {
+    let Some(func_name) = &scope_path.func else {
+        return;
+    };
+    let ids = McIds::from(scope_path.container.name.as_str());
+    let container = match find_container(&ids, &scope_path.uri, CmieKind::Any) {
+        Some(c) => c,
+        None => return,
+    };
+
+    let scope_key = scope_path.scope_key();
+    let func_info = crate::ContainerInfo::new(crate::ContainerKind::Function, func_name);
+    let mut collect = |params: &crate::McParamDeclares, results: &mut Vec<crate::LookupResult>| {
+        for (name, span) in params.iter_defs_with_span() {
+            add_result(
+                results,
+                limiter,
+                crate::LookupResult {
+                    uri: scope_path.uri.clone(),
+                    span,
+                    kind: crate::LookupSymbolKind::Param,
+                    container: Some(func_info.clone()),
+                    scope: scope_key.clone(),
+                    name: name.to_string(),
+                    layer: crate::SpaceLayer::P1,
+                },
+            );
+        }
+    };
+
+    match &container {
+        ContainerRef::Module(m) => {
+            if let Some(f) = m.funcs.find(func_name) {
+                collect(&f.params, results);
+            }
+        }
+        ContainerRef::Component(c) => {
+            if let Some(f) = c.funcs.find(func_name) {
+                collect(&f.params, results);
+            }
+        }
+        _ => {}
+    }
 }
 
 // === fn collect_from_file( ===
@@ -85,7 +200,7 @@ pub(crate) fn collect_from_file(
     scope_path: &crate::ScopePath,
     filter: &crate::ScopeFilter,
     results: &mut Vec<crate::LookupResult>,
-    max: usize,
+    limiter: &mut LayerLimiter,
 ) {
     let uri = &scope_path.uri;
     let uri_str = uri.as_str();
@@ -102,7 +217,7 @@ pub(crate) fn collect_from_file(
             let m = entry.value();
             add_result(
                 results,
-                max,
+                limiter,
                 crate::LookupResult {
                     uri: uri.clone(),
                     span: m.span.start..m.span.end,
@@ -113,10 +228,11 @@ pub(crate) fn collect_from_file(
                     )),
                     scope: m.name.to_string(),
                     name: m.name.to_string(),
+                    layer: crate::SpaceLayer::P3,
                 },
             );
             // Collect module ports and labels
-            collect_module_symbols(m, scope_path, filter, results, max);
+            collect_module_symbols(m, scope_path, filter, results, limiter);
         }
     }
 
@@ -132,7 +248,7 @@ pub(crate) fn collect_from_file(
             let c = entry.value();
             add_result(
                 results,
-                max,
+                limiter,
                 crate::LookupResult {
                     uri: uri.clone(),
                     span: c.span.start..c.span.end,
@@ -143,10 +259,11 @@ pub(crate) fn collect_from_file(
                     )),
                     scope: c.name.to_string(),
                     name: c.name.to_string(),
+                    layer: crate::SpaceLayer::P3,
                 },
             );
             // Collect component params, pins, funcs
-            collect_component_symbols(c, scope_path, filter, results, max);
+            collect_component_symbols(c, scope_path, filter, results, limiter);
         }
     }
 }
@@ -158,7 +275,7 @@ pub(crate) fn collect_module_symbols(
     scope_path: &crate::ScopePath,
     _filter: &crate::ScopeFilter,
     results: &mut Vec<crate::LookupResult>,
-    max: usize,
+    limiter: &mut LayerLimiter,
 ) {
     for (name, span) in m.insts.port_spans().iter() {
         if let Some(spans) = span.first() {
@@ -169,7 +286,7 @@ pub(crate) fn collect_module_symbols(
             };
             add_result(
                 results,
-                max,
+                limiter,
                 crate::LookupResult {
                     uri: scope_path.uri.clone(),
                     span: spans.clone(),
@@ -177,6 +294,7 @@ pub(crate) fn collect_module_symbols(
                     container: Some(scope_path.container.clone()),
                     scope: scope_path.scope_key(),
                     name: name.clone(),
+                    layer: crate::SpaceLayer::P2,
                 },
             );
         }
@@ -185,7 +303,7 @@ pub(crate) fn collect_module_symbols(
     for func in m.funcs.iter() {
         add_result(
             results,
-            max,
+            limiter,
             crate::LookupResult {
                 uri: scope_path.uri.clone(),
                 span: 0..0, // funcs don't have individual spans
@@ -193,6 +311,7 @@ pub(crate) fn collect_module_symbols(
                 container: Some(scope_path.container.clone()),
                 scope: format!("{}.{}", scope_path.container.name, func.name),
                 name: func.name.to_string(),
+                layer: crate::SpaceLayer::P2,
             },
         );
     }
@@ -205,14 +324,14 @@ pub(crate) fn collect_component_symbols(
     scope_path: &crate::ScopePath,
     _filter: &crate::ScopeFilter,
     results: &mut Vec<crate::LookupResult>,
-    max: usize,
+    limiter: &mut LayerLimiter,
 ) {
     let scope = scope_path.scope_key();
     // Component params
     for (name, span) in c.params.iter_defs_with_span() {
         add_result(
             results,
-            max,
+            limiter,
             crate::LookupResult {
                 uri: scope_path.uri.clone(),
                 span,
@@ -220,6 +339,7 @@ pub(crate) fn collect_component_symbols(
                 container: Some(scope_path.container.clone()),
                 scope: scope.clone(),
                 name: name.to_string(),
+                layer: crate::SpaceLayer::P2,
             },
         );
     }
@@ -227,7 +347,7 @@ pub(crate) fn collect_component_symbols(
     for (name, span) in &c.pins.pin_name_spans {
         add_result(
             results,
-            max,
+            limiter,
             crate::LookupResult {
                 uri: scope_path.uri.clone(),
                 span: span.clone(),
@@ -235,6 +355,7 @@ pub(crate) fn collect_component_symbols(
                 container: Some(scope_path.container.clone()),
                 scope: scope.clone(),
                 name: name.clone(),
+                layer: crate::SpaceLayer::P2,
             },
         );
     }
@@ -242,7 +363,7 @@ pub(crate) fn collect_component_symbols(
     for func in c.funcs.iter() {
         add_result(
             results,
-            max,
+            limiter,
             crate::LookupResult {
                 uri: scope_path.uri.clone(),
                 span: 0..0,
@@ -250,6 +371,7 @@ pub(crate) fn collect_component_symbols(
                 container: Some(scope_path.container.clone()),
                 scope: format!("{}.{}", scope, func.name),
                 name: func.name.to_string(),
+                layer: crate::SpaceLayer::P2,
             },
         );
     }
@@ -260,7 +382,7 @@ pub(crate) fn collect_component_symbols(
 pub(crate) fn collect_from_project(
     _filter: &crate::ScopeFilter,
     results: &mut Vec<crate::LookupResult>,
-    max: usize,
+    limiter: &mut LayerLimiter,
 ) {
     // Component classes. Dedup by (name, kind) so a same-name enum (e.g.
     // `enum CAP` beside `component CAP`) is NOT swallowed by a name-only check.
@@ -274,7 +396,7 @@ pub(crate) fn collect_from_project(
         {
             add_result(
                 results,
-                max,
+                limiter,
                 crate::LookupResult {
                     uri,
                     span: entry.value().span.start..entry.value().span.end,
@@ -282,6 +404,7 @@ pub(crate) fn collect_from_project(
                     container: None,
                     scope: String::new(),
                     name,
+                    layer: crate::SpaceLayer::P4,
                 },
             );
         }
@@ -297,7 +420,7 @@ pub(crate) fn collect_from_project(
         {
             add_result(
                 results,
-                max,
+                limiter,
                 crate::LookupResult {
                     uri,
                     span: entry.value().span.start..entry.value().span.end,
@@ -305,6 +428,7 @@ pub(crate) fn collect_from_project(
                     container: None,
                     scope: String::new(),
                     name,
+                    layer: crate::SpaceLayer::P4,
                 },
             );
         }
@@ -314,7 +438,7 @@ pub(crate) fn collect_from_project(
         let name = entry.key().ident.to_string();
         add_result(
             results,
-            max,
+            limiter,
             crate::LookupResult {
                 uri: entry.key().uri.to_string(),
                 span: entry.value().span.start..entry.value().span.end,
@@ -322,6 +446,7 @@ pub(crate) fn collect_from_project(
                 container: None,
                 scope: String::new(),
                 name,
+                layer: crate::SpaceLayer::P4,
             },
         );
     }
@@ -330,7 +455,7 @@ pub(crate) fn collect_from_project(
         let name = entry.key().ident.to_string();
         add_result(
             results,
-            max,
+            limiter,
             crate::LookupResult {
                 uri: entry.key().uri.to_string(),
                 span: entry.value().span[0] as usize..entry.value().span[1] as usize,
@@ -338,22 +463,126 @@ pub(crate) fn collect_from_project(
                 container: None,
                 scope: String::new(),
                 name,
+                layer: crate::SpaceLayer::P4,
             },
         );
     }
 }
 
-// === fn add_result(results: &mut Vec<crate::LookupResult>, max: usize, result: crate: ===
-/// Add result if prefix matches and limit not reached.
+// === fn collect_from_system_lib( ===
+/// Collect classes from the mcode system library (P5, §5.5 / §8.1.1).
+///
+/// Enumerates the four `global::mcc_*` tables. A class already delivered by an
+/// inner layer (P3/P4) is not repeated — inner layers shadow outer ones (§6.1).
+pub(crate) fn collect_from_system_lib(
+    _filter: &crate::ScopeFilter,
+    results: &mut Vec<crate::LookupResult>,
+    limiter: &mut LayerLimiter,
+) {
+    for entry in global::mcc_components.iter() {
+        let name = entry.key().ident.to_string();
+        let uri = entry.key().uri.to_string();
+        let kind = crate::LookupSymbolKind::Component;
+        if !results
+            .iter()
+            .any(|r: &crate::LookupResult| r.name == name && r.kind == kind)
+        {
+            add_result(
+                results,
+                limiter,
+                crate::LookupResult {
+                    uri,
+                    span: entry.value().span.start..entry.value().span.end,
+                    kind,
+                    container: None,
+                    scope: String::new(),
+                    name,
+                    layer: crate::SpaceLayer::P5,
+                },
+            );
+        }
+    }
+    for entry in global::mcc_modules.iter() {
+        let name = entry.key().ident.to_string();
+        let uri = entry.key().uri.to_string();
+        let kind = crate::LookupSymbolKind::Module;
+        if !results
+            .iter()
+            .any(|r: &crate::LookupResult| r.name == name && r.kind == kind)
+        {
+            add_result(
+                results,
+                limiter,
+                crate::LookupResult {
+                    uri,
+                    span: entry.value().span.start..entry.value().span.end,
+                    kind,
+                    container: None,
+                    scope: String::new(),
+                    name,
+                    layer: crate::SpaceLayer::P5,
+                },
+            );
+        }
+    }
+    for entry in global::mcc_interfaces.iter() {
+        let name = entry.key().ident.to_string();
+        let uri = entry.key().uri.to_string();
+        let kind = crate::LookupSymbolKind::Interface;
+        if !results
+            .iter()
+            .any(|r: &crate::LookupResult| r.name == name && r.kind == kind)
+        {
+            add_result(
+                results,
+                limiter,
+                crate::LookupResult {
+                    uri,
+                    span: entry.value().span.start..entry.value().span.end,
+                    kind,
+                    container: None,
+                    scope: String::new(),
+                    name,
+                    layer: crate::SpaceLayer::P5,
+                },
+            );
+        }
+    }
+    for entry in global::mcc_enums.iter() {
+        let name = entry.key().ident.to_string();
+        let uri = entry.key().uri.to_string();
+        let kind = crate::LookupSymbolKind::Enum;
+        if !results
+            .iter()
+            .any(|r: &crate::LookupResult| r.name == name && r.kind == kind)
+        {
+            add_result(
+                results,
+                limiter,
+                crate::LookupResult {
+                    uri,
+                    span: entry.value().span[0] as usize..entry.value().span[1] as usize,
+                    kind,
+                    container: None,
+                    scope: String::new(),
+                    name,
+                    layer: crate::SpaceLayer::P5,
+                },
+            );
+        }
+    }
+}
+
+// === fn add_result(results: &mut Vec<crate::LookupResult>, limiter: &mut LayerLimiter ===
+/// Add result if its layer is not yet capped (§8.5 per-layer limit).
 pub(crate) fn add_result(
     results: &mut Vec<crate::LookupResult>,
-    max: usize,
+    limiter: &mut LayerLimiter,
     result: crate::LookupResult,
 ) {
-    if results.len() >= max {
-        return;
+    if limiter.can_add(result.layer) {
+        results.push(result);
     }
-    results.push(result);
 }
 
 // ============================================================================
