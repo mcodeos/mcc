@@ -706,6 +706,7 @@ mod tests {
                 to: Point { x: len, y: 0.0 },
             }],
             junctions: vec![],
+            escalated: false,
         });
         net
     }

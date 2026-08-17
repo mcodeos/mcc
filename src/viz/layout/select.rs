@@ -64,7 +64,7 @@ pub fn layout_best(
 fn run_single(
     mut graph: McVecGraph,
     candidate: &dyn Layouter,
-    _is_root: bool,
+    is_root: bool,
     schematic_model: Option<SchematicLayoutModel>,
 ) -> McVecGraph {
     let layer = graph.name.clone();
@@ -97,46 +97,58 @@ fn run_single(
     // ── Stage A / A3: non-destructive inline placement of series & chained passives ──
     //   Passives stay real boxes with real nets, so they are always drawn and never
     //   collapse into a wire or get clipped off-canvas.
-    probe_rail_passive_candidates(&graph);
-    let g_snap = graph.geom_snapshot();
-    place_series_passives(&mut graph);
-    place_passive_chains(&mut graph);
-    place_bridge_passives(&mut graph); // ★ P2: bridge passives (transposed CAP in two-lane series)
-                                       // ★ P7-5 S3/S4a/S5: grounded passives stand vertically (GND end down);
-                                       // transposed rungs that bridge placement couldn't reach get the rung shape.
-    let stood = super::passive_inline::stand_grounded_passives(&mut graph);
-    if stood > 0 {
-        crate::vlog!("[layout::passive_inline] stood up {stood} grounded passive(s)");
+    // ★ B2: skip for root — radial layout already placed all boxes.
+    if !is_root {
+        probe_rail_passive_candidates(&graph);
+        let g_snap = graph.geom_snapshot();
+        place_series_passives(&mut graph);
+        place_passive_chains(&mut graph);
+        place_bridge_passives(&mut graph); // ★ P2: bridge passives (transposed CAP in two-lane series)
+                                           // ★ P7-5 S3/S4a/S5: grounded passives stand vertically (GND end down);
+                                           // transposed rungs that bridge placement couldn't reach get the rung shape.
+        let stood = super::passive_inline::stand_grounded_passives(&mut graph);
+        if stood > 0 {
+            crate::vlog!("[layout::passive_inline] stood up {stood} grounded passive(s)");
+        }
+        graph.claim_geom_changes(&g_snap, "10.passive_inline");
+        // Pull any passive nudged to a negative coordinate back onto the canvas.
+        let g_snap = graph.geom_snapshot();
+        t!("renormalize", renormalize(&mut graph));
+        graph.claim_geom_changes(&g_snap, "11.renormalize");
     }
-    graph.claim_geom_changes(&g_snap, "10.passive_inline");
-    // Pull any passive nudged to a negative coordinate back onto the canvas.
-    let g_snap = graph.geom_snapshot();
-    t!("renormalize", renormalize(&mut graph));
-    graph.claim_geom_changes(&g_snap, "11.renormalize");
 
     // ── Phase 1.8: net labels ──
+    // ★ B2: skip for root layer — root only has declared boxes, no net labels.
     let g_snap = graph.geom_snapshot();
-    t!("apply_net_labels", apply_net_labels(&mut graph));
+    if !is_root {
+        t!("apply_net_labels", apply_net_labels(&mut graph));
+    }
     graph.claim_geom_changes(&g_snap, "12.net_labels");
     probe_box_collisions(&graph);
 
     // ── Wire/Label split pass ──
+    // ★ B2: skip for root — root uses block edges, not nets.
     let g_snap = graph.geom_snapshot();
-    let split_changed = t!("wire_label_split", {
-        crate::viz::route::wire_label_split::apply_wire_label_split(&mut graph)
-    });
-    if split_changed {
-        graph.claim_geom_changes(&g_snap, "12b.wire_label_split");
-        // Re-normalize if new label boxes were added
-        let g_snap2 = graph.geom_snapshot();
-        t!("renormalize_wls", renormalize(&mut graph));
-        graph.claim_geom_changes(&g_snap2, "12c.renormalize_wls");
+    if !is_root {
+        let split_changed = t!("wire_label_split", {
+            crate::viz::route::wire_label_split::apply_wire_label_split(&mut graph)
+        });
+        if split_changed {
+            graph.claim_geom_changes(&g_snap, "12b.wire_label_split");
+            // Re-normalize if new label boxes were added
+            let g_snap2 = graph.geom_snapshot();
+            t!("renormalize_wls", renormalize(&mut graph));
+            graph.claim_geom_changes(&g_snap2, "12c.renormalize_wls");
+        }
     }
 
     // ── Phase 2: route ──
-    let g_snap = graph.geom_snapshot();
-    t!("route_all", route_all_with_channels(&mut graph));
-    graph.claim_geom_changes(&g_snap, "13.route");
+    // ★ B2: skip for root — root uses block edges rendered directly from edge_decide.
+    if !is_root {
+        let g_snap = graph.geom_snapshot();
+        t!("route_all", route_all_with_channels(&mut graph));
+        graph.claim_geom_changes(&g_snap, "13.route");
+    }
 
     // ★ P7-4e: Phase E (route feedback loop, nudge→reroute→accept) removed.
     // It moved box x/y inside the Route stage (19 net shifts measured in

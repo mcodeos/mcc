@@ -18,7 +18,7 @@ use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
 use crate::semantic::basic::mc_param_type::{McIoTy, McParamTypeKind};
 use crate::semantic::basic::mc_paramd::McParamDeclareKind;
 use crate::semantic::basic::mc_phrase::McPhrase;
-use crate::semantic::common::IOType;
+use crate::semantic::common::{ConnDir, IOType};
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_inst::McInstance;
 use std::collections::HashSet;
@@ -415,7 +415,12 @@ impl McModuleInst {
                 let dotted = self.labels.get(&format!("{prefix}.{m}")).cloned();
                 if let (Some(b), Some(d)) = (bare, dotted) {
                     let id = self.next_conn_id();
-                    self.connections.push(ConnectionInst::new(id, vec![b, d]));
+                    self.connections.push(self.make_conn_with_provenance(
+                        id,
+                        vec![b, d],
+                        ConnDir::Undirected,
+                        None,
+                    ));
                 }
             }
         }
@@ -621,6 +626,7 @@ impl McModuleInst {
         }
         // Clear after loop to avoid stale span leaking into post-line checks
         self.current_line_span = None;
+        self.current_port_group = None;
 
         // ── P2-C2: After all body lines processed, project accumulated bus members to bare ports ──
         // NOTE: These post-processing steps are now invoked from instantiate() after
@@ -873,7 +879,12 @@ impl McModuleInst {
                     let mut pts = make_ports(m.as_str(), pio.clone());
                     pts.push((*a).clone());
                     let id = self.next_conn_id();
-                    self.connections.push(ConnectionInst::new(id, pts));
+                    self.connections.push(self.make_conn_with_provenance(
+                        id,
+                        pts,
+                        ConnDir::Undirected,
+                        None,
+                    ));
                 }
                 continue;
             }
@@ -890,7 +901,12 @@ impl McModuleInst {
                     } else {
                         pts.push(arg_pt.clone());
                     }
-                    self.connections.push(ConnectionInst::new(id, pts));
+                    self.connections.push(self.make_conn_with_provenance(
+                        id,
+                        pts,
+                        ConnDir::Undirected,
+                        None,
+                    ));
                 }
                 continue;
             }
@@ -902,8 +918,12 @@ impl McModuleInst {
                     port.iotype.clone(),
                 );
                 let id = self.next_conn_id();
-                self.connections
-                    .push(ConnectionInst::new(id, vec![a, port_pt]));
+                self.connections.push(self.make_conn_with_provenance(
+                    id,
+                    vec![a, port_pt],
+                    ConnDir::Undirected,
+                    None,
+                ));
             }
         }
     }
@@ -1075,7 +1095,7 @@ impl McModuleInst {
                     let mut pts = make_ports(m.as_str(), pio.clone());
                     pts.push((*a).clone());
                     let id = self.next_conn_id();
-                    out.push(ConnectionInst::new(id, pts));
+                    out.push(self.make_conn_with_provenance(id, pts, ConnDir::Undirected, None));
                 }
                 continue;
             }
@@ -1093,7 +1113,7 @@ impl McModuleInst {
                     } else {
                         pts.push(arg_pt.clone());
                     }
-                    out.push(ConnectionInst::new(id, pts));
+                    out.push(self.make_conn_with_provenance(id, pts, ConnDir::Undirected, None));
                 }
                 continue;
             }
@@ -1109,7 +1129,12 @@ impl McModuleInst {
                 let port_pt =
                     NetPoint::with_owner(&format!("{inst_name}.{dst_base}"), inst_name, pio);
                 let id = self.next_conn_id();
-                out.push(ConnectionInst::new(id, vec![a, port_pt]));
+                out.push(self.make_conn_with_provenance(
+                    id,
+                    vec![a, port_pt],
+                    ConnDir::Undirected,
+                    None,
+                ));
             }
         }
 

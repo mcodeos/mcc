@@ -497,6 +497,10 @@ pub fn run_route_feedback(
             if let Some(r2) = new_route {
                 let old_route = tmp.route.clone();
                 tmp.route = Some(r2);
+                // ★ P9-C W4: mark escalation when A* reroute is used in feedback
+                if let Some(ref mut route) = tmp.route {
+                    route.escalated = true;
+                }
                 graph.nets[net_idx] = std::mem::replace(
                     &mut tmp,
                     VizNet::new(
@@ -755,6 +759,7 @@ mod tests {
                 })
                 .collect(),
             junctions: vec![],
+            escalated: false,
         });
         net
     }

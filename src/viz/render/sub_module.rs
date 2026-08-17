@@ -8,6 +8,11 @@
 //! - hover tooltip
 //! - top-right `＋` circle corner marker
 //! - cursor:pointer
+//!
+//! ## Root layer (P9-B Step 6)
+//! For the root layer block diagram, uses solid lines (no dasharray),
+//! thicker stroke, instance name centered inside the box, no + corner
+//! marker but keeps onclick drill-down.
 
 use crate::vector::graph::McVecBox;
 
@@ -27,45 +32,102 @@ fn submodule_pin_opts() -> PinRenderOpts {
     PinRenderOpts {
         style: PinStyle::Stub,
         show_number: false,
-        show_name: true,
+        show_name: false, // ★ P-3: one name per edge, on the line only
     }
 }
 
+/// Render a sub-module box (sub-layer, dashed style with + expand marker).
 pub fn render_sub_module(b: &McVecBox) -> String {
+    render_sub_module_impl(b, false)
+}
+
+/// Render a sub-module box for the root layer block diagram.
+///
+/// Root layer style: solid lines, thicker stroke, name centered inside,
+/// no + corner marker, but keeps onclick drill-down.
+pub fn render_sub_module_root(b: &McVecBox) -> String {
+    render_sub_module_impl(b, true)
+}
+
+fn render_sub_module_impl(b: &McVecBox, is_root: bool) -> String {
     // ── All port pins (stub + function name) ──
-    // When entry_points is empty (layout did not populate), fall back to old behavior: only the frame, no pins.
     let pins: String = b
         .entry_points
         .iter()
         .map(|ep| render_pin(b, ep, submodule_pin_opts()))
         .collect();
 
-    // ── Instance name + class name (top-left, outside the box) ──
-    let label_x = b.x;
-    let name_y = b.y - 14.0;
-    let name_svg = format!(
-        r##"    <text x="{:.1}" y="{:.1}" text-anchor="start"
-          font-size="14" font-weight="700" fill="#212121">{}</text>
+    if is_root {
+        // Root layer: solid border, thick stroke, name centered inside, no + corner.
+        let name_x = b.x + b.w / 2.0;
+        let name_y = b.y + b.h / 2.0;
+        let name_svg = format!(
+            r##"    <text x="{:.1}" y="{:.1}" text-anchor="middle"
+          font-size="14" font-weight="700" fill="#212121"
+          dominant-baseline="central">{}</text>
 "##,
-        label_x,
-        name_y,
-        escape_xml(&b.name)
-    );
-    let class_svg = if !b.class_name.is_empty() {
+            name_x,
+            name_y,
+            escape_xml(&b.name)
+        );
+        let class_svg = if !b.class_name.is_empty() {
+            format!(
+                r##"    <text x="{:.1}" y="{:.1}" text-anchor="middle"
+          font-size="10" fill="#5C6BC0" dominant-baseline="central">{}</text>
+"##,
+                name_x,
+                name_y + 16.0,
+                escape_xml(&b.class_name)
+            )
+        } else {
+            String::new()
+        };
+
         format!(
-            r##"    <text x="{:.1}" y="{:.1}" text-anchor="start"
-          font-size="10" fill="#5C6BC0">{}</text>
+            r##"  <g class="comp root-block" data-id="{id}" style="cursor:pointer"
+       onclick="expandSubModule({id})">
+    <title>Click to expand: {name}</title>
+    <rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}" rx="6"
+          fill="#F5F5F5" stroke="#424242" stroke-width="2"/>
+{name_svg}{class_svg}{pins}  </g>
 "##,
-            label_x,
-            b.y - 2.0,
-            escape_xml(&b.class_name)
+            id = b.id,
+            name = escape_xml(&b.name),
+            name_svg = name_svg,
+            class_svg = class_svg,
+            x = b.x,
+            y = b.y,
+            w = b.w,
+            h = b.h,
+            pins = pins,
         )
     } else {
-        String::new()
-    };
+        // Sub-layer: dashed border, name outside, + corner marker.
+        let label_x = b.x;
+        let name_y = b.y - 14.0;
+        let name_svg = format!(
+            r##"    <text x="{:.1}" y="{:.1}" text-anchor="start"
+          font-size="14" font-weight="700" fill="#212121">{}</text>
+"##,
+            label_x,
+            name_y,
+            escape_xml(&b.name)
+        );
+        let class_svg = if !b.class_name.is_empty() {
+            format!(
+                r##"    <text x="{:.1}" y="{:.1}" text-anchor="start"
+          font-size="10" fill="#5C6BC0">{}</text>
+"##,
+                label_x,
+                b.y - 2.0,
+                escape_xml(&b.class_name)
+            )
+        } else {
+            String::new()
+        };
 
-    format!(
-        r##"  <g class="comp sub-module" data-id="{id}" style="cursor:pointer"
+        format!(
+            r##"  <g class="comp sub-module" data-id="{id}" style="cursor:pointer"
        onclick="expandSubModule({id})">
     <title>Click to expand: {name}</title>
 {name_svg}{class_svg}    <rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}" rx="6"
@@ -78,18 +140,19 @@ pub fn render_sub_module(b: &McVecBox) -> String {
     </g>
 {pins}  </g>
 "##,
-        id = b.id,
-        name = escape_xml(&b.name),
-        name_svg = name_svg,
-        class_svg = class_svg,
-        x = b.x,
-        y = b.y,
-        w = b.w,
-        h = b.h,
-        corner_x = b.x + b.w - 10.0,
-        corner_y = b.y + 10.0,
-        pins = pins,
-    )
+            id = b.id,
+            name = escape_xml(&b.name),
+            name_svg = name_svg,
+            class_svg = class_svg,
+            x = b.x,
+            y = b.y,
+            w = b.w,
+            h = b.h,
+            corner_x = b.x + b.w - 10.0,
+            corner_y = b.y + 10.0,
+            pins = pins,
+        )
+    }
 }
 
 fn escape_xml(s: &str) -> String {

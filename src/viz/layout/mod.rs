@@ -21,6 +21,7 @@
 pub mod chain;
 pub mod coalesce;
 pub mod components;
+pub mod edge_decide;
 pub mod entry_points;
 pub mod facade;
 pub mod flow;
@@ -32,6 +33,7 @@ pub mod optimize;
 pub mod overlap;
 pub mod passive_inline;
 pub mod pin_place;
+pub mod radial;
 pub mod rails;
 pub mod select;
 pub mod size;

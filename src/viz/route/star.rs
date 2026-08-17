@@ -51,6 +51,11 @@ impl Router for StarRouter {
         }
 
         // Degenerate: 2 endpoints → direct Manhattan, no star
+        // ★ B1: orthogonality invariant — orthogonal_path must produce only
+        // orthogonal segments. The collinearity check here is a precondition
+        // assertion: if the two exit points are not collinear, orthogonal_path
+        // will produce an L-shaped path (still orthogonal), which is fine.
+        // The important thing is that no diagonal segment is emitted.
         if net.endpoints.len() == 2 {
             let a = &net.endpoints[0];
             let b = &net.endpoints[1];
@@ -60,7 +65,18 @@ impl Router for StarRouter {
                 let (sp, ss) = compute_exit_for_pin(ba, a.pin_id, Some(bb));
                 let (dp, ds) = compute_exit_for_pin(bb, b.pin_id, Some(ba));
                 let pts = orthogonal_path(sp, dp, ss, ds);
+                // ★ B1: verify each segment is orthogonal
                 for w in pts.windows(2) {
+                    let dx = (w[0].0 - w[1].0).abs();
+                    let dy = (w[0].1 - w[1].1).abs();
+                    #[cfg(debug_assertions)]
+                    if dx > 1.0 && dy > 1.0 {
+                        panic!(
+                            "StarRouter 2-endpoint produced non-orthogonal segment for net '{}': \
+                             ({:.1},{:.1}) -> ({:.1},{:.1})",
+                            net.name, w[0].0, w[0].1, w[1].0, w[1].1
+                        );
+                    }
                     route.segments.push(Segment {
                         from: Point::new(w[0].0, w[0].1),
                         to: Point::new(w[1].0, w[1].1),

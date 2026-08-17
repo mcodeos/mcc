@@ -167,11 +167,18 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
                     if *cbox == drv_box {
                         continue;
                     }
-                    let qualifies = power_domain_boxes.contains(cbox) || Some(*cbox) == hub;
+                    // ★ P9-B: root layer drops R-2 filtering (v9 §2.4).
+                    // All driver→consumer pairs are kept; sub-layers still
+                    // filter to power-domain boxes and hub only.
+                    let qualifies = if is_top {
+                        true
+                    } else {
+                        power_domain_boxes.contains(cbox) || Some(*cbox) == hub
+                    };
                     if qualifies {
                         driver_consumed = true;
                         let eps = vec![drv_ep.clone(), cep.clone()];
-                        driver_edges.push(VizNet::new(
+                        let mut de = VizNet::new(
                             next_nid,
                             net.name.clone(),
                             NetKind::Power,
@@ -179,7 +186,10 @@ pub fn classify_rails(graph: &mut McVecGraph, is_top: bool) {
                                 volt: spec.volt.clone(),
                             },
                             eps,
-                        ));
+                        );
+                        de.rail = Some(spec.clone());
+                        de.source_span = net.source_span.clone();
+                        driver_edges.push(de);
                         next_nid += 1;
                     } else if !is_top {
                         // R-3 sub-layer: in-place rail terminal

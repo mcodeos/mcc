@@ -30,7 +30,7 @@ use super::multi_pin::MultiPinShape;
 use super::power_label::PowerLabelShape;
 use super::power_rail::PowerRailShape;
 use super::resistor::ResistorShape;
-use super::sub_module::render_sub_module;
+use super::sub_module::{render_sub_module, render_sub_module_root};
 use super::two_pin::TwoPinShape;
 
 // ============================================================================
@@ -50,8 +50,14 @@ pub trait BoxShape {
 /// Pick the corresponding Shape implementation by `b.symbol`
 ///
 /// `Symbol::Unknown` falls back to old shapes by `b.kind` (compatible with historical fixtures).
-pub fn render_box(b: &McVecBox) -> String {
-    // Project-local symbols override the system body when the manifest provides a validated SVG.
+///
+/// When `is_root` is true, sub-module boxes use root layer block-diagram styling
+/// (solid lines, centered name, no + corner).
+pub fn render_box(b: &McVecBox, is_root: bool) -> String {
+    // ★ P9-B / B4: root layer renders all boxes as block-diagram sub-modules
+    if is_root {
+        return render_sub_module_root(b);
+    }
     // Missing or rejected assets retain the existing system-symbol behavior.
     if let Some(cs) = &b.custom_symbol {
         return render_custom_symbol(b, cs);
@@ -62,7 +68,13 @@ pub fn render_box(b: &McVecBox) -> String {
         Symbol::Inductor => InductorShape.render(b),
         Symbol::Diode | Symbol::Led | Symbol::Zener => DiodeShape.render(b),
         Symbol::Ic => IcShape.render(b),
-        Symbol::Module => render_sub_module(b),
+        Symbol::Module => {
+            if is_root {
+                render_sub_module_root(b)
+            } else {
+                render_sub_module(b)
+            }
+        }
         Symbol::PowerRail { .. } => PowerRailShape.render(b),
         Symbol::Dot => render_dot_symbol(b),
         Symbol::PortTerminal { .. } => {
@@ -95,7 +107,7 @@ pub fn render_box(b: &McVecBox) -> String {
             if has_pins && pin_kind {
                 IcShape.render(b)
             } else {
-                render_box_legacy(b)
+                render_box_legacy(b, is_root)
             }
         }
     }
@@ -167,11 +179,17 @@ fn render_dot_symbol(b: &McVecBox) -> String {
 }
 
 /// Pre-P05 dispatch logic (by BoxKind), now used as the `Symbol::Unknown` fallback
-fn render_box_legacy(b: &McVecBox) -> String {
+fn render_box_legacy(b: &McVecBox, is_root: bool) -> String {
     match b.kind {
         BoxKind::TwoPin => TwoPinShape.render(b),
         BoxKind::MultiPin => MultiPinShape.render(b),
-        BoxKind::SubModule => render_sub_module(b),
+        BoxKind::SubModule => {
+            if is_root {
+                render_sub_module_root(b)
+            } else {
+                render_sub_module(b)
+            }
+        }
         BoxKind::PowerLabel => PowerLabelShape.render(b),
         BoxKind::Dot => render_dot_symbol(b),
         BoxKind::PortTerminal => {
@@ -240,7 +258,7 @@ mod tests {
                 height: 16.0,
             },
         });
-        let svg = render_box(&b);
+        let svg = render_box(&b, false);
         // Goes through the custom symbol, no longer the system resistor zigzag
         assert!(svg.contains(r#"class="comp custom""#));
         assert!(svg.contains(r#"data-symbol-source="MyR""#));
@@ -252,7 +270,7 @@ mod tests {
     #[test]
     fn no_custom_symbol_uses_system() {
         let b = mk(Symbol::Resistor, BoxKind::TwoPin);
-        let svg = render_box(&b);
+        let svg = render_box(&b, false);
         assert!(!svg.contains(r#"class="comp custom""#));
     }
 
@@ -269,7 +287,7 @@ mod tests {
                 height: 1.0,
             },
         });
-        let svg = render_box(&b);
+        let svg = render_box(&b, false);
         assert!(svg.contains("a&quot;&lt;&amp;&gt;"));
     }
 }

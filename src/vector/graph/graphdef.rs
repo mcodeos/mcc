@@ -86,6 +86,10 @@ pub struct McVecGraph {
     /// ★ Wire/Label split: column pitch from the layouter (default 480.0 for top, 360.0 for sub).
     /// Set by FlowLayouter::layout. Used by wire_label_split pass for adaptive threshold.
     pub col_pitch: f64,
+    /// ★ P9-B: whether this is the root (top-level) graph. Used instead of
+    /// hardcoding `graph.name == "main"` so the pipeline works with any
+    /// top-level module name.
+    pub is_root: bool,
 }
 
 /// ★ P7-4e: geometry stages (the roadmap's three stages, refined for implementation)
@@ -168,6 +172,7 @@ impl McVecGraph {
             geom_double_writes: vec![],
             pin_parent: HashMap::new(),
             col_pitch: 480.0,
+            is_root: false,
         }
     }
 

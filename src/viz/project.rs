@@ -443,6 +443,9 @@ fn project_nets(
         let mut net = McVecNet::new(nets[sorted[0]].nid, name_src, vec![McVec::new(real)]);
         net.rail = rail;
         net.boundary = boundary;
+        // ★ P9-A2.5: propagate source_span and port_group from the first net in the group
+        net.source_span = nets[sorted[0]].source_span.clone();
+        net.port_group = nets[sorted[0]].port_group.clone();
         out.push(net);
     }
 

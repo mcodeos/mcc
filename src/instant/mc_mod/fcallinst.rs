@@ -16,7 +16,7 @@ use super::FailedRecord;
 use super::McModuleInst;
 use crate::instant::insttab::InstOrigin;
 use crate::instant::mc_comp::McComponentInst;
-use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
+use crate::instant::mc_net::{InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_closure::McClosure;
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
@@ -109,7 +109,10 @@ impl McModuleInst {
                         self.failed_classes.insert(type_name.clone());
                         self.failed_records.push(FailedRecord {
                             module: self.name.clone(),
-                            src_line: self.current_line_span.as_ref().map(|s| s.start / 1000),
+                            src_line: self.current_line_span.as_ref().and_then(|s| {
+                                crate::db::infra::context::lookup_line_col(&self.def_uri, s.start as u32)
+                                    .map(|(line, _col)| line as usize)
+                            }),
                             component_name: inst_name.clone(),
                             class_name: type_name.clone(),
                             reason: reason.clone(),
@@ -125,6 +128,10 @@ impl McModuleInst {
         inst.origin = InstOrigin::FuncCall {
             fn_name: type_name.clone(),
         };
+        eprintln!(
+            "[probe::fcall] {}::{}() origin set to FuncCall",
+            type_name, inst_name
+        );
 
         // ── Iter-3.E3 + P4 ───────────────────────────────────────────────
         // Filter out synthetic interface placeholders that mc_fcall.rs injects when
@@ -233,9 +240,12 @@ impl McModuleInst {
                 let connect_count = left_count.min(pin_count);
                 for i in 0..connect_count {
                     let lp = self.node_to_netpoint(&left[i]);
-                    new_connections.push(ConnectionInst::new(
-                        self.next_conn_id(),
+                    let cid = self.next_conn_id();
+                    new_connections.push(self.make_conn_with_provenance(
+                        cid,
                         vec![lp, input_pins[i].clone()],
+                        ConnDir::Undirected,
+                        None,
                     ));
                 }
             }
@@ -254,9 +264,12 @@ impl McModuleInst {
                 let connect_count = right_count.min(pin_count);
                 for i in 0..connect_count {
                     let rp = self.node_to_netpoint(&right[i]);
-                    new_connections.push(ConnectionInst::new(
-                        self.next_conn_id(),
+                    let cid = self.next_conn_id();
+                    new_connections.push(self.make_conn_with_provenance(
+                        cid,
                         vec![output_pins[i].clone(), rp],
+                        ConnDir::Undirected,
+                        None,
                     ));
                 }
             }
@@ -270,9 +283,12 @@ impl McModuleInst {
                     let left_points: Vec<NetPoint> =
                         left.iter().map(|e| self.node_to_netpoint(e)).collect();
                     for lp in &left_points {
-                        new_connections.push(ConnectionInst::new(
-                            self.next_conn_id(),
+                        let cid = self.next_conn_id();
+                        new_connections.push(self.make_conn_with_provenance(
+                            cid,
                             vec![lp.clone(), left_pin.clone()],
+                            ConnDir::Undirected,
+                            None,
                         ));
                     }
                 }
@@ -283,9 +299,12 @@ impl McModuleInst {
                     let right_points: Vec<NetPoint> =
                         right.iter().map(|e| self.node_to_netpoint(e)).collect();
                     for rp in &right_points {
-                        new_connections.push(ConnectionInst::new(
-                            self.next_conn_id(),
+                        let cid = self.next_conn_id();
+                        new_connections.push(self.make_conn_with_provenance(
+                            cid,
                             vec![right_pin.clone(), rp.clone()],
+                            ConnDir::Undirected,
+                            None,
                         ));
                     }
                 }
@@ -398,9 +417,12 @@ impl McModuleInst {
                             &inst_name,
                             IOType::In,
                         );
-                        new_connections.push(ConnectionInst::new(
-                            self.next_conn_id(),
+                        let cid = self.next_conn_id();
+                        new_connections.push(self.make_conn_with_provenance(
+                            cid,
                             vec![left_point, input_point],
+                            ConnDir::Undirected,
+                            None,
                         ));
                     }
                 } else {
@@ -410,9 +432,12 @@ impl McModuleInst {
                         &inst_name,
                         IOType::In,
                     );
-                    new_connections.push(ConnectionInst::new(
-                        self.next_conn_id(),
+                    let cid = self.next_conn_id();
+                    new_connections.push(self.make_conn_with_provenance(
+                        cid,
                         vec![left_point, input_point],
+                        ConnDir::Undirected,
+                        None,
                     ));
                 }
             }
@@ -438,9 +463,12 @@ impl McModuleInst {
                     &inst_name,
                     IOType::Out,
                 );
-                new_connections.push(ConnectionInst::new(
-                    self.next_conn_id(),
+                let cid = self.next_conn_id();
+                new_connections.push(self.make_conn_with_provenance(
+                    cid,
                     vec![output_point, right_point],
+                    ConnDir::Undirected,
+                    None,
                 ));
             }
         }
@@ -599,9 +627,12 @@ impl McModuleInst {
         for i in 0..pair_count {
             let ext_pt = this.node_to_netpoint(&right[i]);
             let ep_pt = this.node_to_netpoint(&endpoint_buses[i]);
-            new_connections.push(ConnectionInst::new(
-                this.next_conn_id(),
+            let cid = this.next_conn_id();
+            new_connections.push(this.make_conn_with_provenance(
+                cid,
                 vec![ext_pt, ep_pt],
+                ConnDir::Undirected,
+                None,
             ));
         }
 
@@ -900,6 +931,8 @@ impl McModuleInst {
             } else {
                 self.expand_node_element(&McBus::new(&boundary_name))
             };
+            // ★ P9-A2: set port_group from declared port name (e.g. "SPI", "MIC")
+            self.current_port_group = Some(declared_port_name.clone());
             self.create_connection(left, right, ConnDir::Undirected, None)?;
 
             // ── P2-2: register boundary pin IDs as port members on the submodule ──
@@ -922,6 +955,7 @@ impl McModuleInst {
                 }
             }
         }
+        self.current_port_group = None;
         Ok(())
     }
 

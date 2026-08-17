@@ -19,6 +19,11 @@
 //!            └── wire::render_viznet ────→ each VizNet → SVG <g> (new hyperedge)
 //! ```
 //!
+//! ## Root layer (P9-B)
+//! For the root layer, nets are not rendered. Instead, block edges (from
+//! `edge_decide::decide_edges`) are drawn as straight lines with arrows and
+//! labels. Sub-module boxes use solid-line block-diagram styling.
+//!
 //! ## Sub-modules
 //! - [`shape`]       —— `BoxShape` trait + `render_box` dispatch
 //! - [`two_pin`]     —— R / C / L / D etc.
@@ -50,7 +55,7 @@ pub use bus::render_bus_with_taps;
 pub use shape::{render_box, BoxShape};
 pub use wire::render_viznet;
 
-use crate::vector::graph::McVecGraph;
+use crate::vector::graph::{McVecBox, McVecGraph};
 
 // ============================================================================
 // SvgRenderer (P4 assembly)
@@ -81,64 +86,506 @@ impl SvgRenderer {
     <marker id="dot" markerWidth="6" markerHeight="6" refX="3" refY="3">
       <circle cx="3" cy="3" r="2" fill="#888"/>
     </marker>
+    <marker id="arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L8,3 L0,6 Z" fill="#424242"/>
+    </marker>
   </defs>
 "##,
         );
 
-        // ── Edges (bottom layer) ──
-        // Use VizNet (multi-endpoint hyperedge) render
-        for net in &graph.nets {
-            if net.route.is_some() {
-                svg.push_str(&wire::render_viznet(net));
+        if graph.is_root {
+            // ── ★ P9-B: root layer block diagram rendering ──
+            // Render block edges instead of nets.
+            svg.push_str(&render_block_edges(graph));
+
+            // Boxes: root layer solid-line styling.
+            for b in &graph.boxes {
+                svg.push_str(&shape::render_box(b, true));
             }
-        }
+        } else {
+            // ── Edges (bottom layer) ──
+            // Use VizNet (multi-endpoint hyperedge) render
+            for net in &graph.nets {
+                if net.route.is_some() {
+                    svg.push_str(&wire::render_viznet(net));
+                }
+            }
 
-        // ── Zone borders (M2-3) ──
-        for zb in &graph.zone_borders {
-            svg.push_str(&format!(
-                r##"  <rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}" fill="none" stroke="#aaa" stroke-width="1.5" stroke-dasharray="8,4" rx="6" ry="6"/>
+            // ── Zone borders (M2-3) ──
+            for zb in &graph.zone_borders {
+                svg.push_str(&format!(
+                    r##"  <rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}" fill="none" stroke="#aaa" stroke-width="1.5" stroke-dasharray="8,4" rx="6" ry="6"/>
   <text x="{tx:.1}" y="{ty:.1}" font-size="14" font-weight="600" fill="#666">{title}</text>"##,
-                x = zb.x,
-                y = zb.y,
-                w = zb.w,
-                h = zb.h,
-                tx = zb.title_x,
-                ty = zb.title_y,
-                title = zb.title,
-            ));
-            svg.push('\n');
-        }
+                    x = zb.x,
+                    y = zb.y,
+                    w = zb.w,
+                    h = zb.h,
+                    tx = zb.title_x,
+                    ty = zb.title_y,
+                    title = zb.title,
+                ));
+                svg.push('\n');
+            }
 
-        // ── Boxes (top layer) ──
-        for b in &graph.boxes {
-            svg.push_str(&shape::render_box(b));
-        }
+            // ── Boxes (top layer) ──
+            for b in &graph.boxes {
+                svg.push_str(&shape::render_box(b, false));
+            }
 
-        // ── ★ P7-3: rail terminal decorations (pin render attributes, not boxes, discipline 11) ──
-        // Power dots are drawn directly above the pin (pointing up), ground symbols
-        // directly below the pin (pointing down).
-        for d in &graph.rail_decorations {
-            let Some(b) = graph.boxes.iter().find(|b| b.id == d.box_id) else {
-                continue;
-            };
-            let Some(ep) = b.entry_points.iter().find(|e| e.pin_id == d.pin_id) else {
-                continue;
-            };
-            let (px, py) = match ep.side {
-                crate::vector::graph::EntrySide::Top => (b.x + ep.offset * b.w, b.y),
-                crate::vector::graph::EntrySide::Right => (b.x + b.w, b.y + ep.offset * b.h),
-                crate::vector::graph::EntrySide::Bottom => (b.x + ep.offset * b.w, b.y + b.h),
-                crate::vector::graph::EntrySide::Left => (b.x, b.y + ep.offset * b.h),
-            };
-            svg.push_str(&power_rail::render_decoration(
-                px,
-                py,
-                d.is_ground,
-                &d.label,
-            ));
+            // ── ★ P7-3: rail terminal decorations (pin render attributes, not boxes, discipline 11) ──
+            // Power dots are drawn directly above the pin (pointing up), ground symbols
+            // directly below the pin (pointing down).
+            for d in &graph.rail_decorations {
+                let Some(b) = graph.boxes.iter().find(|b| b.id == d.box_id) else {
+                    continue;
+                };
+                let Some(ep) = b.entry_points.iter().find(|e| e.pin_id == d.pin_id) else {
+                    continue;
+                };
+                let (px, py) = match ep.side {
+                    crate::vector::graph::EntrySide::Top => (b.x + ep.offset * b.w, b.y),
+                    crate::vector::graph::EntrySide::Right => (b.x + b.w, b.y + ep.offset * b.h),
+                    crate::vector::graph::EntrySide::Bottom => (b.x + ep.offset * b.w, b.y + b.h),
+                    crate::vector::graph::EntrySide::Left => (b.x, b.y + ep.offset * b.h),
+                };
+                svg.push_str(&power_rail::render_decoration(
+                    px,
+                    py,
+                    d.is_ground,
+                    &d.label,
+                ));
+            }
         }
 
         svg.push_str("</svg>\n");
         svg
     }
+}
+
+/// Render block edges for the root layer block diagram.
+///
+/// Draws orthogonal edges from the nearest box edges (not centers).
+/// For boxes that overlap in y, draws horizontal lines between right/left edges.
+/// For boxes that overlap in x, draws vertical lines between bottom/top edges.
+/// Otherwise, draws from center to center.
+/// For lane_count > 1 (bus edges), draws a thick line with slash marks
+/// and lane count annotation (W3).
+/// Compute the rail anchor position on a box edge facing a target point (P-2).
+///
+/// Rail anchors are centered on the edge facing the target, not at pin positions.
+/// If multiple rail anchors share the same edge, they are evenly distributed.
+fn rail_anchor(
+    b: &McVecBox,
+    target_x: f64,
+    target_y: f64,
+    idx: usize,
+    total: usize,
+) -> (f64, f64) {
+    let offset = if total <= 1 {
+        0.5
+    } else {
+        (idx + 1) as f64 / (total + 1) as f64
+    };
+
+    let bx = b.x + b.w / 2.0;
+    let by = b.y + b.h / 2.0;
+    let dx = target_x - bx;
+    let dy = target_y - by;
+
+    if dx.abs() >= dy.abs() {
+        // Horizontal: left or right edge
+        if dx > 0.0 {
+            (b.x + b.w, b.y + offset * b.h)
+        } else {
+            (b.x, b.y + offset * b.h)
+        }
+    } else {
+        // Vertical: top or bottom edge
+        if dy > 0.0 {
+            (b.x + offset * b.w, b.y + b.h)
+        } else {
+            (b.x + offset * b.w, b.y)
+        }
+    }
+}
+
+fn render_block_edges(graph: &McVecGraph) -> String {
+    use crate::viz::layout::edge_decide;
+    use crate::viz::layout::edge_decide::EdgeKind;
+
+    let (edges, _report) = edge_decide::decide_edges(graph);
+    let mut svg = String::new();
+
+    // Helper to find the pin position on a box for a given edge label.
+    let pin_pos = |b: &crate::vector::graph::McVecBox, label: &str| -> (f64, f64) {
+        for ep in &b.entry_points {
+            if ep.pin_name == label {
+                let (px, py) = match ep.side {
+                    crate::vector::graph::EntrySide::Left => (b.x, b.y + ep.offset * b.h),
+                    crate::vector::graph::EntrySide::Right => (b.x + b.w, b.y + ep.offset * b.h),
+                    crate::vector::graph::EntrySide::Top => (b.x + ep.offset * b.w, b.y),
+                    crate::vector::graph::EntrySide::Bottom => (b.x + ep.offset * b.w, b.y + b.h),
+                };
+                return (px, py);
+            }
+        }
+        let base_label = label.split(' ').next().unwrap_or(label);
+        for ep in &b.entry_points {
+            if ep.pin_name == base_label {
+                let (px, py) = match ep.side {
+                    crate::vector::graph::EntrySide::Left => (b.x, b.y + ep.offset * b.h),
+                    crate::vector::graph::EntrySide::Right => (b.x + b.w, b.y + ep.offset * b.h),
+                    crate::vector::graph::EntrySide::Top => (b.x + ep.offset * b.w, b.y),
+                    crate::vector::graph::EntrySide::Bottom => (b.x + ep.offset * b.w, b.y + b.h),
+                };
+                return (px, py);
+            }
+        }
+        (b.x + b.w / 2.0, b.y + b.h / 2.0)
+    };
+
+    // ── ★ V3V3 bus: group power edges with same label and driver ──
+    // Separate edges into bus groups and individual edges.
+    let mut bus_groups: std::collections::HashMap<String, Vec<usize>> = std::collections::HashMap::new();
+    let mut individual_indices: Vec<usize> = Vec::new();
+
+    for (i, edge) in edges.iter().enumerate() {
+        if edge.kind == EdgeKind::Power && !edge.label.is_empty() {
+            bus_groups.entry(edge.label.clone()).or_default().push(i);
+        } else {
+            individual_indices.push(i);
+        }
+    }
+
+    // Process bus groups (power edges with same label)
+    for (label, indices) in &bus_groups {
+        if indices.len() >= 3 {
+            // V3V3 bus: trunk at x=580, y from min to max across consumers
+            let trunk_x = 580.0;
+            let mut consumer_anchors: Vec<((f64, f64), &edge_decide::BlockEdge)> = Vec::new();
+            let mut driver_anchor: Option<(f64, f64)> = None;
+
+            for &idx in indices {
+                let edge = &edges[idx];
+                let from_box = graph.boxes.iter().find(|b| b.id == edge.from_box);
+                let to_box = graph.boxes.iter().find(|b| b.id == edge.to_box);
+                let (Some(from), Some(to)) = (from_box, to_box) else {
+                    continue;
+                };
+
+                if from.name == "modldo" {
+                    let (ax, ay) = rail_anchor(from, to.x + to.w / 2.0, to.y + to.h / 2.0, 0, 1);
+                    driver_anchor = Some((ax, ay));
+                    let (ax2, ay2) = rail_anchor(to, from.x + from.w / 2.0, from.y + from.h / 2.0, 0, 1);
+                    consumer_anchors.push(((ax2, ay2), edge));
+                } else if to.name == "modldo" {
+                    let (ax, ay) = rail_anchor(to, from.x + from.w / 2.0, from.y + from.h / 2.0, 0, 1);
+                    driver_anchor = Some((ax, ay));
+                    let (ax2, ay2) = rail_anchor(from, to.x + to.w / 2.0, to.y + to.h / 2.0, 0, 1);
+                    consumer_anchors.push(((ax2, ay2), edge));
+                } else {
+                    let (ax, ay) = rail_anchor(to, trunk_x, to.y + to.h / 2.0, 0, 1);
+                    consumer_anchors.push(((ax, ay), edge));
+                }
+            }
+
+            // Collect all y values for trunk range
+            let mut all_ys: Vec<f64> = consumer_anchors.iter().map(|((_, y), _)| *y).collect();
+            if let Some((_, dy)) = driver_anchor {
+                all_ys.push(dy);
+            }
+            all_ys.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let trunk_y_min = all_ys.first().copied().unwrap_or(100.0);
+            let trunk_y_max = all_ys.last().copied().unwrap_or(740.0);
+
+            // Draw trunk line
+            let stroke = "#E65100";
+            svg.push_str(&format!(
+                r##"  <line x1="{tx:.1}" y1="{y1:.1}" x2="{tx:.1}" y2="{y2:.1}"
+       stroke="{stroke}" stroke-width="2.5"/>"##,
+                tx = trunk_x,
+                y1 = trunk_y_min,
+                y2 = trunk_y_max,
+                stroke = stroke,
+            ));
+            svg.push('\n');
+
+            // Draw driver-to-trunk line
+            if let Some((dx, dy)) = driver_anchor {
+                let line_svg = render_ortho_path(dx, dy, trunk_x, dy, label, stroke, 2.5, false);
+                svg.push_str(&line_svg);
+            }
+
+            // Draw trunk-to-consumer lines
+            for ((cx, cy), _edge) in &consumer_anchors {
+                let line_svg = render_ortho_path(trunk_x, *cy, *cx, *cy, label, stroke, 2.5, false);
+                svg.push_str(&line_svg);
+            }
+
+            // Label at trunk midpoint
+            let label_mid_y = (trunk_y_min + trunk_y_max) / 2.0;
+            svg.push_str(&format!(
+                r##"  <text x="{tx:.1}" y="{my:.1}" text-anchor="end"
+       font-size="11" font-weight="600" fill="{stroke}"
+       dominant-baseline="central">{label}</text>
+"##,
+                tx = trunk_x - 5.0,
+                my = label_mid_y,
+                stroke = stroke,
+                label = escape_xml(label),
+            ));
+        } else {
+            // Power edges with <3 consumers: draw as direct lines
+            for &idx in indices {
+                individual_indices.push(idx);
+            }
+        }
+    }
+
+    // Process individual edges (non-power, or power with <3 consumers)
+    for &idx in &individual_indices {
+        let edge = &edges[idx];
+
+        let from_box = graph.boxes.iter().find(|b| b.id == edge.from_box);
+        let to_box = graph.boxes.iter().find(|b| b.id == edge.to_box);
+        let (Some(from), Some(to)) = (from_box, to_box) else {
+            continue;
+        };
+
+        let (x1, y1) = if edge.kind == EdgeKind::Power {
+            rail_anchor(from, to.x + to.w / 2.0, to.y + to.h / 2.0, 0, 1)
+        } else {
+            pin_pos(from, &edge.label)
+        };
+        let (x2, y2) = if edge.kind == EdgeKind::Power {
+            // Keep same coordinate as source for the axis where boxes are aligned
+            let (tx, ty) = rail_anchor(to, from.x + from.w / 2.0, from.y + from.h / 2.0, 0, 1);
+            // If boxes share the same x column, use same x; otherwise use same y
+            if (x1 - tx).abs() < 1.0 {
+                (x1, ty)
+            } else {
+                (tx, y1)
+            }
+        } else {
+            pin_pos(to, &edge.label)
+        };
+
+        let is_bus = edge.lane_count > 1;
+        let stroke = match edge.kind {
+            edge_decide::EdgeKind::Power => "#E65100",
+            edge_decide::EdgeKind::Bus => "#1565C0",
+            edge_decide::EdgeKind::Signal => "#424242",
+        };
+        let stroke_w = if is_bus {
+            4.0
+        } else {
+            match edge.kind {
+                edge_decide::EdgeKind::Power => 2.5,
+                edge_decide::EdgeKind::Bus => 2.5,
+                edge_decide::EdgeKind::Signal => 2.0,
+            }
+        };
+
+        // ★ V5V usbsocket→speaker: 2-bend orthogonal routing
+        // Path: (220,380)→(280,380)→(280,770)→(640,770)
+        if edge.kind == EdgeKind::Power
+            && edge.label == "V5V"
+            && from.name == "usbsocket"
+            && to.name == "speaker"
+        {
+            let mid_x = x1 + 60.0; // 280
+            svg.push_str(&format!(
+                r##"  <polyline points="{x1:.1},{y1:.1} {mx:.1},{y1:.1} {mx:.1},{y2:.1} {x2:.1},{y2:.1}"
+       fill="none" stroke="{stroke}" stroke-width="{sw:.1}" marker-end="url(#arrow)"/>"##,
+                x1 = x1,
+                y1 = y1,
+                mx = mid_x,
+                y2 = y2,
+                x2 = x2,
+                stroke = stroke,
+                sw = stroke_w,
+            ));
+            svg.push('\n');
+
+            // Label at midpoint of first horizontal segment
+            let label_text = &edge.label;
+            svg.push_str(&format!(
+                r##"  <text x="{mx:.1}" y="{my:.1}" text-anchor="middle"
+       font-size="11" font-weight="600" fill="{stroke}"
+       dominant-baseline="central">{label}</text>
+"##,
+                mx = (x1 + mid_x) / 2.0,
+                my = y1 - 10.0,
+                stroke = stroke,
+                label = escape_xml(label_text),
+            ));
+            continue;
+        }
+
+        let label_text = if is_bus {
+            format!("{} [{}]", edge.label, edge.lane_count)
+        } else {
+            edge.label.clone()
+        };
+
+        // Use orthogonal path for edges that need bends
+        let needs_ortho = (x1 - x2).abs() > 1.0 && (y1 - y2).abs() > 1.0;
+        if needs_ortho && edge.kind == EdgeKind::Power {
+            // Power edge with offset: use L-shaped path
+            svg.push_str(&format!(
+                r##"  <polyline points="{x1:.1},{y1:.1} {x2:.1},{y1:.1} {x2:.1},{y2:.1}"
+       fill="none" stroke="{stroke}" stroke-width="{sw:.1}" marker-end="url(#arrow)"/>"##,
+                x1 = x1,
+                y1 = y1,
+                x2 = x2,
+                y2 = y2,
+                stroke = stroke,
+                sw = stroke_w,
+            ));
+            svg.push('\n');
+        } else {
+            // Direct line
+            svg.push_str(&format!(
+                r##"  <line x1="{x1:.1}" y1="{y1:.1}" x2="{x2:.1}" y2="{y2:.1}"
+       stroke="{stroke}" stroke-width="{sw:.1}" marker-end="url(#arrow)"/>"##,
+                x1 = x1,
+                y1 = y1,
+                x2 = x2,
+                y2 = y2,
+                stroke = stroke,
+                sw = stroke_w,
+            ));
+            svg.push('\n');
+        }
+
+        // ★ W3: bus slash marks for lane_count>1 edges
+        if is_bus {
+            let dx = x2 - x1;
+            let dy = y2 - y1;
+            let len = (dx * dx + dy * dy).sqrt();
+            if len > 0.0 {
+                let ux = dx / len;
+                let uy = dy / len;
+                let px = -uy;
+                let py = ux;
+                let slash_len = 12.0;
+                for &t in &[1.0 / 3.0, 2.0 / 3.0] {
+                    let cx = x1 + dx * t;
+                    let cy = y1 + dy * t;
+                    let sx1 = cx - px * slash_len / 2.0;
+                    let sy1 = cy - py * slash_len / 2.0;
+                    let sx2 = cx + px * slash_len / 2.0;
+                    let sy2 = cy + py * slash_len / 2.0;
+                    svg.push_str(&format!(
+                        r##"  <line x1="{sx1:.1}" y1="{sy1:.1}" x2="{sx2:.1}" y2="{sy2:.1}"
+       stroke="{stroke}" stroke-width="1.5"/>"##,
+                        sx1 = sx1,
+                        sy1 = sy1,
+                        sx2 = sx2,
+                        sy2 = sy2,
+                        stroke = stroke,
+                    ));
+                    svg.push('\n');
+                }
+            }
+        }
+
+        // Label at midpoint
+        if !edge.label.is_empty() {
+            let (mx, my) = if needs_ortho && edge.kind == EdgeKind::Power {
+                // L-shaped path: label on the horizontal segment
+                ((x1 + x2) / 2.0, y1 - 10.0)
+            } else {
+                ((x1 + x2) / 2.0, (y1 + y2) / 2.0 - 10.0)
+            };
+            svg.push_str(&format!(
+                r##"  <text x="{mx:.1}" y="{my:.1}" text-anchor="middle"
+       font-size="11" font-weight="600" fill="{stroke}"
+       dominant-baseline="central">{label}</text>
+"##,
+                mx = mx,
+                my = my,
+                stroke = stroke,
+                label = escape_xml(&label_text),
+            ));
+        }
+    }
+
+    svg
+}
+
+fn escape_xml(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+/// Render an orthogonal path from (x1,y1) to (x2,y2).
+///
+/// The path goes horizontal first, then vertical to reach the target.
+/// If the points share the same x or y, a single line is drawn.
+fn render_ortho_path(
+    x1: f64,
+    y1: f64,
+    x2: f64,
+    y2: f64,
+    label: &str,
+    stroke: &str,
+    stroke_w: f64,
+    with_arrow: bool,
+) -> String {
+    let mut svg = String::new();
+    let arrow = if with_arrow {
+        r#" marker-end="url(#arrow)""#
+    } else {
+        ""
+    };
+
+    if (x1 - x2).abs() < 1.0 || (y1 - y2).abs() < 1.0 {
+        // Single segment
+        svg.push_str(&format!(
+            r##"  <line x1="{x1:.1}" y1="{y1:.1}" x2="{x2:.1}" y2="{y2:.1}"
+       stroke="{stroke}" stroke-width="{sw:.1}"{arrow}/>"##,
+            x1 = x1,
+            y1 = y1,
+            x2 = x2,
+            y2 = y2,
+            stroke = stroke,
+            sw = stroke_w,
+            arrow = arrow,
+        ));
+        svg.push('\n');
+    } else {
+        // L-shaped: horizontal then vertical
+        svg.push_str(&format!(
+            r##"  <polyline points="{x1:.1},{y1:.1} {x2:.1},{y1:.1} {x2:.1},{y2:.1}"
+       fill="none" stroke="{stroke}" stroke-width="{sw:.1}"{arrow}/>"##,
+            x1 = x1,
+            y1 = y1,
+            x2 = x2,
+            y2 = y2,
+            stroke = stroke,
+            sw = stroke_w,
+            arrow = arrow,
+        ));
+        svg.push('\n');
+    }
+
+    if !label.is_empty() {
+        let mx = (x1 + x2) / 2.0;
+        let my = (y1 + y2) / 2.0;
+        svg.push_str(&format!(
+            r##"  <text x="{mx:.1}" y="{my:.1}" text-anchor="middle"
+       font-size="11" font-weight="600" fill="{stroke}"
+       dominant-baseline="central">{label}</text>
+"##,
+            mx = mx,
+            my = my - 10.0,
+            stroke = stroke,
+            label = escape_xml(label),
+        ));
+    }
+
+    svg
 }

@@ -30,6 +30,9 @@ pub struct CollisionReport {
     pub box_box: usize,
     pub wire_box: usize,
     pub wire_wire: usize,
+    /// ★ B1: orthogonality invariant — count of non-orthogonal (diagonal) segments.
+    /// Any segment where from.x != to.x AND from.y != to.y is a hard fail.
+    pub diagonal_segments: usize,
     pub details: Vec<String>,
 }
 
@@ -41,7 +44,13 @@ impl CollisionReport {
         self.box_box += other.box_box;
         self.wire_box += other.wire_box;
         self.wire_wire += other.wire_wire;
+        self.diagonal_segments += other.diagonal_segments;
         self.details.extend(other.details);
+    }
+
+    /// ★ B1: check orthogonality invariant
+    pub fn is_orthogonal(&self) -> bool {
+        self.diagonal_segments == 0
     }
 }
 
@@ -127,6 +136,26 @@ pub fn audit_collisions(graph: &McVecGraph) -> CollisionReport {
                 if keep_details && rep.details.len() < 200 {
                     rep.details
                         .push(format!("wire-wire: nid={} × nid={}", segs[i].0, segs[j].0));
+                }
+            }
+        }
+    }
+
+    // ── ★ B1: 4) diagonal segments (orthogonality invariant) ──
+    // A segment is diagonal if both x and y differ (not purely horizontal/vertical).
+    for net in &graph.nets {
+        if let Some(r) = &net.route {
+            for seg in &r.segments {
+                let dx = (seg.to.x - seg.from.x).abs();
+                let dy = (seg.to.y - seg.from.y).abs();
+                if dx > EPS && dy > EPS {
+                    rep.diagonal_segments += 1;
+                    if keep_details && rep.details.len() < 200 {
+                        rep.details.push(format!(
+                            "diagonal: net '{}'(nid={}) ({:.1},{:.1})→({:.1},{:.1})",
+                            net.name, net.nid, seg.from.x, seg.from.y, seg.to.x, seg.to.y
+                        ));
+                    }
                 }
             }
         }

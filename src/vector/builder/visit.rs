@@ -774,12 +774,15 @@ impl<'a> McVecBuilder<'a> {
 
                     let group = net_groups.entry(sub_net_name).or_default();
                     for pair in chain_ids.windows(2) {
-                        group.push(ConnPair::laned(
-                            pair[0],
-                            pair[1],
-                            LaneRef::new(k as u16, member_name_for_lane.clone()),
-                            conn_dir_to_pair_dir(conn.dir),
-                        ));
+                        group.push(
+                            ConnPair::laned(
+                                pair[0],
+                                pair[1],
+                                LaneRef::new(k as u16, member_name_for_lane.clone()),
+                                conn_dir_to_pair_dir(conn.dir),
+                            )
+                            .with_meta(conn.source_span.clone(), conn.port_group.clone()),
+                        );
                     }
                 }
             } else {
@@ -850,19 +853,29 @@ impl<'a> McVecBuilder<'a> {
                         let pair_dir = conn_dir_to_pair_dir(conn.dir);
                         for pair in seg.windows(2) {
                             if let Some(lane) = conn.lane {
-                                group.push(ConnPair::laned_with_via(
-                                    pair[0],
-                                    pair[1],
-                                    LaneRef::new(lane, None),
-                                    pair_dir,
-                                    seg_via,
-                                ));
+                                group.push(
+                                    ConnPair::laned_with_via(
+                                        pair[0],
+                                        pair[1],
+                                        LaneRef::new(lane, None),
+                                        pair_dir,
+                                        seg_via,
+                                    )
+                                    .with_meta(conn.source_span.clone(), conn.port_group.clone()),
+                                );
                             } else if let Some(via) = seg_via {
                                 let mut p = ConnPair::plain_with_dir(pair[0], pair[1], pair_dir);
                                 p.via = Some(via);
-                                group.push(p);
+                                group.push(
+                                    p.with_meta(conn.source_span.clone(), conn.port_group.clone()),
+                                );
                             } else {
-                                group.push(ConnPair::plain_with_dir(pair[0], pair[1], pair_dir));
+                                group.push(
+                                    ConnPair::plain_with_dir(pair[0], pair[1], pair_dir).with_meta(
+                                        conn.source_span.clone(),
+                                        conn.port_group.clone(),
+                                    ),
+                                );
                             }
                         }
                     }
@@ -876,15 +889,21 @@ impl<'a> McVecBuilder<'a> {
                     let pair_dir = conn_dir_to_pair_dir(conn.dir);
                     for pair in all_ids.windows(2) {
                         if let Some(lane) = conn.lane {
-                            group.push(ConnPair::laned_with_via(
-                                pair[0],
-                                pair[1],
-                                LaneRef::new(lane, None),
-                                pair_dir,
-                                None,
-                            ));
+                            group.push(
+                                ConnPair::laned_with_via(
+                                    pair[0],
+                                    pair[1],
+                                    LaneRef::new(lane, None),
+                                    pair_dir,
+                                    None,
+                                )
+                                .with_meta(conn.source_span.clone(), conn.port_group.clone()),
+                            );
                         } else {
-                            group.push(ConnPair::plain_with_dir(pair[0], pair[1], pair_dir));
+                            group.push(
+                                ConnPair::plain_with_dir(pair[0], pair[1], pair_dir)
+                                    .with_meta(conn.source_span.clone(), conn.port_group.clone()),
+                            );
                         }
                     }
                 }

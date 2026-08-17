@@ -98,6 +98,7 @@ fn run_rpc(c: &RpcClient, args: &BuildArgs) -> Result<BuildOutcome> {
 }
 
 fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
+    eprintln!("[DEBUG run_local] args.viz={} args.entry={:?}", args.viz, args.entry);
     // Reset R05 counter before each build run
     mcc::instant::reset_r05_counter();
 
@@ -183,6 +184,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
     // Check if we should render all modules (no explicit --top specified and multiple modules exist)
     let modules_in_file = mcc::mcc_get_modules_in_file(&entry_uri);
+    eprintln!("[DEBUG build] modules_in_file={:?} should_render_all={}", modules_in_file, modules_in_file.len() > 1 && args.top.is_none());
     let should_render_all = modules_in_file.len() > 1 && args.top.is_none();
 
     let inst = if should_render_all {
@@ -354,8 +356,10 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             );
         } else {
             // Single module render (explicit --top or only one module)
+            eprintln!("[DEBUG build] entering single module viz path");
             let table = mcc::mcc_build_flat(&ident, &entry_uri, 1000)
                 .map_err(|e| anyhow::anyhow!("mcc_build_flat failed: {}", e))?;
+            eprintln!("[DEBUG build] mcc_build_flat succeeded");
 
             // Pipeline diagnostics gated behind MC_VIZ_DUMP (silent by default).
             if mcc::viz::log::enabled() {
@@ -371,8 +375,10 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             }
 
             // ★ netcheck Tier 0: netlist health check (hard gate; fails the build)
+            eprintln!("[DEBUG build] before netcheck");
             let nc_report = mcc::instant::netcheck::run(&table.1);
             nc_report.print();
+            eprintln!("[DEBUG build] netcheck is_clean={}", nc_report.is_clean());
 
             // ★ M1-4: alignment metrics (self-test variant)
             let align_report = mcc::viz::metrics::align::AlignMetricsReport::compute(&table.1);
@@ -394,6 +400,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
             let (vec_block, build_report) = mcc::build_mc_vec_with_report(&inst, &table.1);
             let graph = mcc::build_mc_vec_graph(&vec_block, &table.1);
+            eprintln!("[DEBUG build] graph.is_root={} graph.boxes.len()={} graph.nets.len()={}", graph.is_root, graph.boxes.len(), graph.nets.len());
 
             let opts = build_viz_opts(args.layouter.as_deref());
             let (doc, metrics) = mcc::viz::api::render_with_metrics(graph, opts);

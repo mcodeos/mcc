@@ -144,6 +144,9 @@ pub struct VizNet {
     /// ★ P8-2 (G16): source span for bidirectional traceability.
     /// `(file, line)` — which source file and line created this net.
     pub source_span: Option<(String, u32)>,
+    /// ★ P9-A2: port group that produced this net.
+    /// Used by R-M edge merge to group bus lanes.
+    pub port_group: Option<String>,
 }
 
 impl VizNet {
@@ -165,6 +168,7 @@ impl VizNet {
             src_pos: None,
             rail: None,
             source_span: None,
+            port_group: None,
         }
     }
 
@@ -328,6 +332,8 @@ pub struct Route {
     pub segments: Vec<Segment>,
     /// T-shaped junctions (where 3+ wires meet, render will draw a small dot)
     pub junctions: Vec<Point>,
+    /// ★ P9-C W4: whether this route required A* or channel dispatcher escalation
+    pub escalated: bool,
 }
 
 impl Route {
@@ -335,6 +341,7 @@ impl Route {
         Self {
             segments: Vec::new(),
             junctions: Vec::new(),
+            escalated: false,
         }
     }
 }
