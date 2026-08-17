@@ -34,7 +34,7 @@ fn hbl_project_dir() -> PathBuf {
 fn diag_codes() -> Vec<(u32, String)> {
     mcc::mcc_diagnose_all()
         .iter()
-        .filter(|d| d.code == 3071 || d.code == 3110)
+        .filter(|d| d.code == 3071 || d.code == 3110 || d.code == 3157)
         .map(|d| (d.code, d.msg.clone()))
         .collect()
 }
@@ -227,5 +227,50 @@ fn repro_init_load_project_race() {
     assert!(
         bad_rounds == 0,
         "init/load_project race reproduced: {bad_rounds}/{rounds} rounds hit E3071/E3110"
+    );
+}
+
+/// Mirror the mcext didOpen path: after init + lib.load + load_project, the
+/// LSP sends `sem` with editor content for periph.mc, then reads diagnostics.
+/// This exercises `handle_sem`'s content branch (mcb_add_from_string ->
+/// mcb_parse_all_modules -> create_lapper), which is the path that emits
+/// E3071/E3157 in the extension but is NOT covered by mcc_build.
+#[test]
+fn repro_sem_content_path() {
+    let _lock = REPRO_LOCK.lock().unwrap();
+    let project_root = hbl_project_dir();
+    let periph_path = project_root.join("src/periph.mc");
+    let periph_uri: String = periph_path.to_string_lossy().into_owned();
+    let hbl_uri: String = project_root
+        .join("src/hbl.mc")
+        .to_string_lossy()
+        .into_owned();
+    let sys_root = server_data_root();
+
+    // mcext init order.
+    mcc::mcc_set_system_root(sys_root.as_path());
+    mcc::mcc_init();
+    mcc::mcc_set_project_root(&project_root);
+
+    let server = mcc::rpc::handlers::register_all(mcc::rpc::RpcServerBuilder::new()).build();
+    let registry = server.registry();
+    let _ = registry.call("lib.load", Some(serde_json::json!({ "name": "mcode" })));
+    let _ = registry.call(
+        "load_project",
+        Some(serde_json::json!({ "entry": hbl_uri })),
+    );
+
+    // didOpen: parse periph.mc from editor content, then collect diagnostics.
+    let content = std::fs::read_to_string(&periph_path).expect("read periph.mc");
+    let _ = registry.call(
+        "sem",
+        Some(serde_json::json!({ "uri": periph_uri, "content": content })),
+    );
+
+    let codes = diag_codes();
+    eprintln!("SEM-CONTENT E3071/E3110/E3157: {:?}", codes);
+    assert!(
+        codes.is_empty(),
+        "sem content path reproduced E3071/E3110/E3157: {codes:?}"
     );
 }

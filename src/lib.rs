@@ -359,7 +359,10 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
         let kind: SymbolKind = unsafe { std::mem::transmute(kind_u8) };
         let kind_name = kind.kind_name();
         let tag = if kind.is_ref() { "REF" } else { "DEF" };
-        let name = if interval.start < content.len() && interval.stop <= content.len() {
+        // Guard against malformed intervals (start > stop) produced by some
+        // func-call expansion paths; slicing would otherwise panic on
+        // `begin <= end`.
+        let name = if interval.start <= interval.stop && interval.stop <= content.len() {
             &content[interval.start..interval.stop]
         } else {
             "?"
@@ -419,7 +422,7 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
             .inst_id_to_declare_inst
             .get(ref_id)
             .map(|d| d.raw());
-        let name = if span.start < content.len() && span.end <= content.len() {
+        let name = if span.start <= span.end && span.end <= content.len() {
             &content[span.start..span.end]
         } else {
             "?"
@@ -470,7 +473,7 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
         out.push_str("  (none)\n");
     }
     for (ref_kind, decl_id, start, end) in &sym.ref_entries {
-        let name = if *start < content.len() && *end <= content.len() {
+        let name = if *start <= *end && *end <= content.len() {
             &content[*start..*end]
         } else {
             "?"
@@ -528,7 +531,7 @@ pub fn dump_symbols_f12_text(uri: &McURI) -> Option<String> {
                     .iter()
                     .find(|(k, id, _, _)| *k as u8 == *ref_kind as u8 && *id == *ref_id)
                     .and_then(|(_, _, s, e)| {
-                        if *s < content.len() && *e <= content.len() {
+                        if *s <= *e && *e <= content.len() {
                             Some(content[*s..*e].to_string())
                         } else {
                             None
