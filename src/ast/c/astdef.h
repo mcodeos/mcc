@@ -105,6 +105,7 @@
 #define MCAST_OPD_TILDE                 75
 #define MCAST_OPD_COLON                 76
 #define MCAST_OPD_DBCOLON               77
+#define MCAST_OPDS                      78
 
 //3.4 
 #define MCAST_COND_IF                   81

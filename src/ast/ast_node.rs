@@ -406,6 +406,18 @@ impl AstNode {
                 }
             }
 
+            // OPD_OPDS — comma-separated list of opds; the CURLY_MN grammar
+            // wraps each side of `comp{left|right}` in this node so the `|`
+            // boundary survives mc_value_link3's next-chain flattening.
+            MCAST_OPDS => {
+                if let Some(sub) = self.get_sub_node() {
+                    let parts: Vec<String> = sub.iter().filter_map(|n| n.to_string()).collect();
+                    Some(parts.join(","))
+                } else {
+                    None
+                }
+            }
+
             // ★ Fix 2: RANGE — range expression like 1:5
             MCAST_OPD_COLON => {
                 if let Some(left) = self.get_sub_node() {
