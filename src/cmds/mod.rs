@@ -13,6 +13,7 @@ pub mod export;
 pub mod extract;
 pub mod filter;
 pub mod lib;
+pub mod list;
 pub mod manifest;
 pub mod parse;
 pub mod print;

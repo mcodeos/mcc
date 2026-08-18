@@ -240,80 +240,158 @@ mcode = "*"
 
 ---
 
-### 2.4 `show` — Inspect Definitions
+### 2.4 `list` / `show` — Inspect Definitions
+
+The old `show` command was split into two:
+
+- `mcc list <KIND>` — top-level definition **name lists**
+- `mcc show <TARGET> [NAME]` — **detailed content** of one entity / an overview
+
+```
+mcc list <KIND> [OPTIONS]          # KIND: all | component | module | interface | enum | nets | ports | files
+mcc show <TARGET> [NAME] [OPTIONS] # NAME required except for `all`
+```
+
+#### `mcc list` — top-level lists (names only)
+
+Text is the human-readable default; `-f json` prints the full structured
+object shown in the table (kind-tagged rows, uris, etc.).
+
+| command | output (text) | output (`-f json`) |
+|---|---|---|
+| `mcc list all` | `count: N` + one `kind: name` line per definition | flat aggregate, kind-tagged: `{type:"all", count, list:[{name, kind}]}`; same `--scope` default policy as `show all` (`-F` anchors the `file` layer) |
+| `mcc list component` / `module` / `interface` / `enum` | `count: N` + one name per line | flat name list `{type, count, list}` — scripting-friendly |
+| `mcc list nets` | `count: N` + `name: point, point` per net | all Pass2 nets of the top module (`--top` overrides; each entry includes its points) |
+| `mcc list ports` | `count: N` + `name: iotype (module)` per port | all module ports |
+| `mcc list files` | one `uri: counts` line per file | every loaded file with per-file def counts |
+
+Options: `--filter EXPR` (component/module/interface/enum), `-F/--file`,
+`-l/--lib`, `-t/--top` (nets), `-f/-o`, `-L`, `-c`.
+
+#### `mcc show` — detailed content
+
+**Overview:**
+
+| command | output |
+|---|---|
+| `mcc show all [-F FILE] [--scope S]` | layered overview (file/use/system); `-F` anchors the `file` layer (default) and renders each entity in that file as a compact `.mc`-style detail block (pins/attrs/funcs/instances/...) — the former `show file` / whole-file dump |
+
+**Entity details:**
+
+| command | output |
+|---|---|
+| `mcc show component NAME` | pins table (id/io/names/interfaces) |
+| `mcc show module NAME` | module summary + sub-instances |
+| `mcc show interface NAME` | pin_count, roles, params |
+| `mcc show enum NAME` | values |
+
+**Drill-downs** (NAME = owning entity):
+
+| command | output |
+|---|---|
+| `mcc show pins NAME` | pins of a component / interface |
+| `mcc show ports NAME` | ports (in/out/io) of a module |
+| `mcc show labels NAME` | labels of a module |
+| `mcc show instances NAME` | sub-instances of a component / module; `--type KIND` filters kind |
+| `mcc show nets NAME` | Pass2 netlist of module `NAME` (or `OWNER.FUNC` → func-body line nets, no Pass2) |
+| `mcc show net NAME` | points of one Pass2 net |
+| `mcc show attrs NAME` | attributes of a component / interface |
+| `mcc show funcs NAME` | functions of a component / module |
+| `mcc show params NAME` | parameter declarations of a component / module / interface / func |
+| `mcc show roles NAME` | roles of an interface |
+| `mcc show values NAME` | values of an enum |
+
+**Debug output** (raw parser / semantic data):
+
+| command | output |
+|---|---|
+| `mcc show lapper -F FILE` | LSP symbol intervals + RefDefMap (goto-def debug, local) |
+| `mcc show ast -F FILE` | AST tree (parser debug) |
+
+> `show nets` / `show params` accept `OWNER.FUNC` (dot-qualified func inside a
+> module/component; dotted class names work too, e.g. `MCU.US513_20_F.i2c`).
+> `show nets <func>` reports func-body connection-line nets named `line_N`
+> (no Pass2 — funcs depend on parameters and a calling context).
+> `show lapper` — see §6.6 for the full debug workflow.
+> `show sem` — RPC-based equivalent of lapper:
+> `curl -s -X POST http://localhost:8080/rpc -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"sem","params":{"uri":"<path>"},"id":1}'`
+
+#### Parameter matrix
+
+| parameter | `mcc list` | `mcc show` | effect |
+|---|---|---|---|
+| `--scope S` | `all` | `all` | definition layers: `file` (default) / `use` / `system` / `all`; `show all` text renders one `------ <layer> ------` section per layer |
+| `--filter EXPR` | all/component/module/interface/enum | — | name filter on the list (`name=RES*`, `*` / `?` wildcards) |
+| `-F, --file FILE` | all | all | parse directly from a file instead of the loaded library/project; anchors the `show all` / `list all` file layer |
+| `-t, --top NAME` | nets | nets | Pass2 top module for instantiation (auto-guesses the first module in the file if omitted) |
+| `--type KIND` | — | instances | filter sub-instances by kind (component\|module\|label\|interface\|bus\|busref\|list) |
+| `--span` | — | show all text | append `@start:end` source spans to `show all` file-layer details (hidden by default) |
+| `-l, --lib NAME` (repeatable) | all | all | load a library into scope (mcode, installed, or project) |
+| `-f, --format FMT` | all | all | `text` (default) / `json` / `json-pretty` / `yaml` / `csv` |
+| `-o, --output FILE` | all | all | write rendered output to a file instead of stdout |
+| `-L, --local` | all | all | run locally, skip delegation to a running `mcc start` server |
+| `-c, --cwd DIR` | all | all | change working directory before running |
+| `-e, --entry FILE` | all | all | entry file for browse mode without a manifest |
+
+> All parameters are accepted by both commands; the matrix shows where each one
+> takes effect. Target-specific parameters (`--scope`, `--filter`, `--top`,
+> `--type`, `--span`) are silently ignored when used on a target they do not
+> apply to (e.g. `mcc show pins RES --scope system` ignores `--scope`).
+> Truly orthogonal parameters (`-F`, `-l`, `-f`, `-o`, `-L`, `-c`, `-e`) take
+> effect on every `list` / `show` target.
+
+#### Common queries
 
 ```bash
-# List all components / modules / interfaces / enums (detail list)
-mcc show component               # List all components (with summary)
-mcc show module                  # List all modules
-mcc show interface               # List all interfaces
-mcc show enum                    # List all enums
+# Lists
+mcc list all -l mcode                       # every def, kind-tagged, flat
+mcc list all -F example.mc                  # defs in the file (file layer, same default as show all)
+mcc list all -F example.mc --scope system   # defs in system libraries only
+mcc list component -l mcode
+mcc list component -l mcode --filter "name=RES*"
+mcc list interface -l mcode
+mcc list files
+mcc list nets -F example.mc --top net1_simple_port
 
-# Flat list (names only, suitable for scripting)
-mcc show component.list --lib mcode
-mcc show interface.list --lib mcode
+# Overview / file scope (by origin layer, not kind)
+mcc show all -F example.mc                  # entities in the file (file layer)
+mcc show all -F example.mc --scope all      # system/use/file sections
+mcc show all -F example.mc --scope system   # one layer only
 
-# Show entity details (positional NAME, not --name)
-mcc show component RES --lib mcode
-mcc show component CAP --lib mcode
+# Entity details
+mcc show component RES -l mcode
+mcc show enum CAP -l mcode
 mcc show module LP322DCDC -F example.mc
-mcc show enum CAP --lib mcode
 
-# Show sub-element details
-mcc show pins RES --lib mcode
+# Drill-down
+mcc show pins RES -l mcode
 mcc show ports LP322DCDC -F example.mc
 mcc show labels LP322DCDC -F example.mc
 mcc show instances LP322DCDC -F example.mc
-mcc show instances LP322DCDC --type component -F example.mc   # Filter by kind
+mcc show instances LP322DCDC --type component -F example.mc
 mcc show nets LP322DCDC --top LP322DCDC -F example.mc
-mcc show attrs RES --lib mcode
-mcc show funcs CAP --lib mcode
-mcc show params CAP --lib mcode
-mcc show roles SPI --lib mcode
-mcc show values CAP --lib mcode
+mcc show net left -F example.mc             # points of one net
+mcc show attrs RES -l mcode
+mcc show funcs CAP -l mcode
+mcc show params CAP -l mcode
+mcc show roles SPI -l mcode
+mcc show values CAP -l mcode
 
-# Func sub-elements: funcs are NESTED (not top-level defs), so reference
-# them as OWNER.FUNC (dot-qualified; dotted class names work too, e.g.
-# MCU.US513_20_F.i2c → owner "MCU.US513_20_F", func "i2c").
-mcc show params US513.loadFlash -F example.mc        # func parameters (["spi"])
-mcc show nets US513.loadFlash -F example.mc          # func body line-level nets (no Pass2; each connection line → line_N)
-mcc show funcs US513 -F example.mc                   # list funcs of a module/component
+# Nested funcs (OWNER.FUNC)
+mcc show params US513.loadFlash -F example.mc        # func parameters
+mcc show nets US513.loadFlash -F example.mc          # func body line nets
+mcc show funcs US513 -F example.mc                   # list funcs of an entity
 
-# Show all entities in a file / list loaded files
-mcc show file -F example.mc
-mcc show files
-
-# Filter results
-mcc show component --filter "name=RES*"
-
-# Dump ALL parsed fields of an entity (debug input parsing issues)
-mcc show dump RES --lib mcode
-mcc show dump CAP --lib mcode
-mcc show dump DC --lib mcode --kind interface   # specify entity kind
-
-# Dump every parsed entity defined in a file (file-scoped, excludes libraries)
-mcc show dump -F path/to/file.mc
-mcc show dump path/to/file.mc            # file path as positional name
-mcc show dump path/to/file.mc -f json    # JSON: {"type":"dump_all","file":...,"entities":[...]}
-
-# dump text hides source spans by default; add --span to show @start:end
-mcc show dump path/to/file.mc --span
-
-# AST tree (debug parser output)
-mcc show ast -F path/to/file.mc
-
-# F12 goto-def debug: dump lapper symbols + RefDefMap (local, no server needed)
-mcc show lapper -F path/to/file.mc                # F12_DIAG text (default)
-mcc show lapper -F path/to/file.mc --lib mcode    # with library
-mcc show lapper -F path/to/file.mc -f json-pretty # JSON output
+# Debug
+mcc show all -F example.mc --span                     # file layer with @start:end spans
+mcc show ast -F example.mc
+mcc show lapper -F example.mc -f json-pretty
 ```
 
-Show targets: `all`, `file`, `files`, `lapper`, `ast`, `component`, `module`, `interface`, `enum`, `net`, `pins`, `ports`, `labels`, `instances`, `nets`, `attrs`, `funcs`, `params`, `roles`, `values`, `dump`
-
-> `nets` / `params` also accept `OWNER.FUNC` (dot-qualified func inside a module/component). `show nets <func>` reports func-body connection-line nets named `line_N` (no Pass2 — funcs depend on parameters and a calling context).
-
-> `show lapper` — see §6.6 for full debug workflow. Runs locally, outputs all symbol interval DEF/REF classifications and RefDefMap goto-def mappings.
-> `show sem` — RPC-based equivalent: `curl -s -X POST http://localhost:8080/rpc -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","method":"sem","params":{"uri":"<path>"},"id":1}'`. Returns same lapper + RefDefMap data structure.
+Choosing a query: name list → `mcc list <kind>`; one entity → `mcc show <kind>
+NAME`; internals → drill-down (`pins`, `instances`, ...); file contents →
+`mcc show all -F FILE`; module netlist → `mcc show nets MODULE -F file.mc
+--top MODULE`; parser/semantic debug → `lapper` / `ast`.
 
 ---
 
@@ -896,7 +974,7 @@ mcc build --viz
 # Opens circuit.html in browser
 
 # Show what's defined in a file
-mcc show file -F src/main.mc
+mcc show all -F src/main.mc
 
 # Find a component definition
 mcc show component RES --lib mcode

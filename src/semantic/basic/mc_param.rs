@@ -73,8 +73,8 @@ impl McParamValue {
             MCAST_HEX => McHex::new(node).map(McParamValue::Hex),
             MCAST_FLOAT => McFloat::new(node).map(McParamValue::Float),
             MCAST_STRING => McString::new(node).map(McParamValue::String),
-            MCAST_UVALUE | MCAST_UVALUE_AT | MCAST_RANGE_PLUSMINUS => {
-                McUnitValue::new(node).map(McParamValue::UValue)
+            MCAST_UVALUE | MCAST_UVALUE_AT | MCAST_RANGE_PLUSMINUS | MCAST_OPD_TILDE => {
+                Self::uvalue_or_range(node)
             }
 
             // Identifier
@@ -152,6 +152,35 @@ impl McParamValue {
         }
     }
 
+    /// Parse a single unit value or a range / plus-minus form
+    /// (`2.5V~5.5V`, `±20%`). The RANGE_PLUSMINUS / TILDE AST nodes carry
+    /// the marker in the node type, not in the child data, so the author's
+    /// notation is rebuilt from the children: one child → `±X`, two linked
+    /// children → `X~Y` (TILDE) or `X±Y` (RANGE_PLUSMINUS).
+    pub(crate) fn uvalue_or_range(node: &AstNode) -> Option<Self> {
+        let t = node.get_type();
+        if t == MCAST_RANGE_PLUSMINUS || t == MCAST_OPD_TILDE {
+            if let Some(left) = node.get_sub_node() {
+                let l = left.to_string().unwrap_or_default();
+                let text = if let Some(right) = left.get_next() {
+                    let r = right.to_string().unwrap_or_default();
+                    let op = if t == MCAST_OPD_TILDE { "~" } else { "±" };
+                    format!("{l}{op}{r}")
+                } else {
+                    format!("±{l}")
+                };
+                // The range/plus-minus node's first child is the low bound
+                // (e.g. `2.5V` in `2.5V~5.5V`, `20%` in `±20%`); parse that
+                // child as the value so the value/unit pair is meaningful,
+                // then echo the full author notation via the raw text.
+                if let Some(uv) = McUnitValue::new(&left) {
+                    return Some(McParamValue::UValue(uv.with_raw_text(text)));
+                }
+            }
+        }
+        McUnitValue::new(node).map(McParamValue::UValue)
+    }
+
     /// Try to convert to constant
     pub fn as_const(&self) -> Option<&McConst> {
         match self {
@@ -187,8 +216,8 @@ impl McParamValue {
             MCAST_HEX => McHex::new(node).map(McParamValue::Hex),
             MCAST_FLOAT => McFloat::new(node).map(McParamValue::Float),
             MCAST_STRING => McString::new(node).map(McParamValue::String),
-            MCAST_UVALUE | MCAST_UVALUE_AT | MCAST_RANGE_PLUSMINUS => {
-                McUnitValue::new(node).map(McParamValue::UValue)
+            MCAST_UVALUE | MCAST_UVALUE_AT | MCAST_RANGE_PLUSMINUS | MCAST_OPD_TILDE => {
+                Self::uvalue_or_range(node)
             }
             // Bare (non-OPD) square vector `[VDD, GND]` as a direct value
             // child — McIds::new accepts it since the grammar's non-`&`

@@ -32,7 +32,7 @@ impl std::fmt::Debug for McBus {
         if self.full_members.is_empty() {
             write!(f, "{}", self.name)
         } else {
-            write!(f, "{}[{}]", self.name, self.full_members.join(", "))
+            write!(f, "{}{{{}}}", self.name, self.full_members.join(", "))
         }
     }
 }
@@ -312,7 +312,7 @@ impl std::fmt::Display for McBus {
             write!(f, "{}", self.name)
         } else {
             let members = self.member.to_vec().join(",");
-            write!(f, "{}[{}]", self.name, members)
+            write!(f, "{}{{{}}}", self.name, members)
         }
     }
 }

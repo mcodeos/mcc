@@ -2351,20 +2351,37 @@ impl McPinNames {
                                                         };
                                                         match value_node.get_type() {
                                                             MCAST_INT => {
-                                                                if let Some(i) = McInt::new(&value_node) {
-                                                                    params.push(McParamValue::Int(i));
+                                                                if let Some(i) =
+                                                                    McInt::new(&value_node)
+                                                                {
+                                                                    params
+                                                                        .push(McParamValue::Int(i));
                                                                 }
                                                             }
-                                                            MCAST_UVALUE | MCAST_UVALUE_AT => {
-                                                                if let Some(uv) = crate::semantic::basic::mc_uval::McUnitValue::new(&value_node) {
-                                                                    params.push(McParamValue::UValue(uv));
+                                                            MCAST_UVALUE
+                                                            | MCAST_UVALUE_AT
+                                                            | MCAST_RANGE_PLUSMINUS
+                                                            | MCAST_OPD_TILDE => {
+                                                                // Range / plus-minus interface params
+                                                                // (`2.5V~5.5V`, `±20%`) keep the author's
+                                                                // notation via `uvalue_or_range`.
+                                                                if let Some(pv) =
+                                                                    McParamValue::uvalue_or_range(
+                                                                        &value_node,
+                                                                    )
+                                                                {
+                                                                    params.push(pv);
                                                                 }
                                                             }
                                                             _ => {
                                                                 // Fallback: McIds (for identifiers like "Controller")
-                                                                if let Some(ids) = McIds::new(&param_node) {
+                                                                if let Some(ids) =
+                                                                    McIds::new(&param_node)
+                                                                {
                                                                     if !ids.is_empty() {
-                                                                        params.push(McParamValue::Ids(ids));
+                                                                        params.push(
+                                                                            McParamValue::Ids(ids),
+                                                                        );
                                                                     }
                                                                 }
                                                             }

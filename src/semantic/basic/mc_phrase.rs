@@ -898,6 +898,7 @@ impl McPhrase {
                                         right: right.clone(),
                                         dot_member: None,
                                         resolved_return_shape: None,
+                                        pre_closure: false,
                                     }));
                                 }
                                 return Some(if fcs.len() <= 1 {
@@ -913,6 +914,7 @@ impl McPhrase {
                                             right: right.clone(),
                                             dot_member: None,
                                             resolved_return_shape: None,
+                                            pre_closure: false,
                                         })
                                     })
                                 } else {
@@ -3104,7 +3106,8 @@ fn needs_paren_for_series(phrase: &McPhrase) -> bool {
     match phrase {
         McPhrase::Parallel(_) => true,
         McPhrase::Transposed(_) => true,
-        McPhrase::Multiple(_) => true,
+        // `Multiple` renders with self-delimiting brackets (`[a, b]`),
+        // so extra parentheses are redundant (`([a, b])` -> `[a, b]`).
         _ => false,
     }
 }
@@ -3136,9 +3139,26 @@ impl std::fmt::Display for McPhrase {
                 ..
             })) => write!(f, "{}", m.name),
             McPhrase::Endpoint(McEndpoint::Single(ref_)) => write!(f, "{ref_}"),
-            McPhrase::Series(phrases, _) => {
-                let items: Vec<String> = phrases.iter().map(format_series_item).collect();
-                write!(f, "{}", items.join(" -> "))
+            McPhrase::Series(phrases, dir) => {
+                let sep = match dir {
+                    ConnDir::LtoR => " -> ",
+                    ConnDir::RtoL => " <- ",
+                    ConnDir::Undirected => " - ",
+                };
+                // A pre-closure expansion target (`vin => CAP(10uF).Cap(_)`)
+                // is joined with `=>` regardless of the series direction.
+                let mut parts: Vec<String> = Vec::with_capacity(phrases.len() * 2 - 1);
+                for (i, p) in phrases.iter().enumerate() {
+                    if i > 0 {
+                        let gap = match p {
+                            McPhrase::FuncCall(fc) if fc.pre_closure => " => ",
+                            _ => sep,
+                        };
+                        parts.push(gap.to_string());
+                    }
+                    parts.push(format_series_item(p));
+                }
+                write!(f, "{}", parts.concat())
             }
             McPhrase::Parallel(phrases) => {
                 let items: Vec<String> = phrases.iter().map(|p| format!("{p}")).collect();
@@ -3179,7 +3199,9 @@ impl std::fmt::Display for McPhrase {
                     false
                 };
 
-                // Print caller or pre-closure parameter
+                // Print caller or pre-closure parameter.
+                // Function calls always bind with `.` (source: `CAP(x).Cap(_)`,
+                // `R442::RES(...)` → `R442.RES(...)`), never ` -> `.
                 if let Some(c) = &fc.caller {
                     if caller_is_pre_closure {
                         if let McPhrase::FuncCall(inner_fc) = c.as_ref() {
@@ -3190,7 +3212,7 @@ impl std::fmt::Display for McPhrase {
                         } else {
                             write!(f, "{c}")?;
                         }
-                        write!(f, " -> ")?;
+                        write!(f, ".")?;
                     } else {
                         write!(f, "{c}")?;
                         write!(f, ".")?;
@@ -3198,14 +3220,7 @@ impl std::fmt::Display for McPhrase {
                 }
                 write!(f, "{}", fc.func_name)?;
                 let param_strs: Vec<String> = fc.params.iter().map(|p| format!("{p}")).collect();
-                // If in pre-closure mode, skip the leading "_" placeholder (it is shown via Series)
-                let display_params =
-                    if caller_is_pre_closure && param_strs.first() == Some(&"_".to_string()) {
-                        &param_strs[1..]
-                    } else {
-                        &param_strs
-                    };
-                write!(f, "({})", display_params.join(", "))?;
+                write!(f, "({})", param_strs.join(", "))?;
                 Ok(())
             }
             McPhrase::Member(phrase, ep) => {

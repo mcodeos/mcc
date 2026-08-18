@@ -64,6 +64,31 @@ pub enum McCondOperand {
     Literal(String),
 }
 
+impl std::fmt::Display for McCondOperand {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            McCondOperand::Ident(id) => write!(f, "{}", id),
+            McCondOperand::Literal(s) => write!(f, "{}", s),
+        }
+    }
+}
+
+impl std::fmt::Display for McCondition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            McCondition::Eq { left, right } => write!(f, "{} == {}", left, right),
+            McCondition::NotEq { left, right } => write!(f, "{} != {}", left, right),
+            McCondition::Lt { left, right } => write!(f, "{} < {}", left, right),
+            McCondition::Gt { left, right } => write!(f, "{} > {}", left, right),
+            McCondition::LtEq { left, right } => write!(f, "{} <= {}", left, right),
+            McCondition::GtEq { left, right } => write!(f, "{} >= {}", left, right),
+            McCondition::BitAnd { left, right } => write!(f, "{} & {}", left, right),
+            McCondition::BitOr { left, right } => write!(f, "{} | {}", left, right),
+            McCondition::In { left, values } => write!(f, "{} in [{}]", left, values.join(", ")),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct McConds {
     pub if_blocks: Vec<McCond>,
