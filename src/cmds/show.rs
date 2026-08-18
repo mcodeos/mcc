@@ -2,20 +2,22 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! `mcc show` — Show detailed information for parsed definitions.
+//! `mcc show` — Show detailed content of parsed definitions.
 //!
-//! Two families of queries (structured `verb <what> [<name>]` syntax):
-//!   * containers  : `all` / `file` / `component` / `module` / `interface` / `enum` / `net`
-//!                   (omit <name> → list; give <name> → detail)
-//!   * drill-down  : `pins` / `ports` / `labels` / `instances` / `nets` / `attrs`
-//!                   / `funcs` / `params` / `roles` / `values` (<name> = owning entity;
-//!                   funcs are referenced dot-qualified as `OWNER.FUNC` for
-//!                   `params` and `nets`)
+//! Targets:
+//!   * overview : `all` (layered by origin, `--scope`; -F anchors the file layer)
+//!   * entity   : `component` / `module` / `interface` / `enum` (<name> required)
+//!   * drill    : `pins` / `ports` / `labels` / `instances` / `nets` / `attrs`
+//!                / `funcs` / `params` / `roles` / `values` / `net` (<name> = owning
+//!                entity; funcs are referenced dot-qualified as `OWNER.FUNC` for
+//!                `params` and `nets`)
+//!   * debug    : `dump` / `lapper` / `ast`
+//!
+//! Top-level name lists live in `mcc list` (see cmds/list.rs).
 
-use crate::cmds::filter;
 use crate::output::compact;
 use anyhow::{Context, Result};
-use mcc::cli::{rpcclient::RpcClient, OutputFormat, ShowArgs, ShowTarget};
+use mcc::cli::{rpcclient::RpcClient, OutputFormat, ShowArgs, ShowScope, ShowTarget};
 use mcc::{McIds, McURI};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
@@ -55,42 +57,35 @@ fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
     }
     match args.target {
         // ── overview ───────────────────────────────────────────────────────
-        ShowTarget::All => Some(("show.all", json!({}))),
-        ShowTarget::File => Some(("show.file", json!({ "file": args.name }))),
-        ShowTarget::Files => Some(("show.files", json!({}))),
+        // show.all is local-only: the RPC handler has no --scope / -F concept
+        // and would bypass the layered (file/use/system) filtering.
+        ShowTarget::All => None,
         ShowTarget::Lapper | ShowTarget::Ast => {
             // local-only: read file, call internal sem, dump lapper / AST tree
             return None;
         }
 
-        // ── container list/detail ──────────────────────────────────────────
+        // ── entity detail (name required) ──────────────────────────────────
         ShowTarget::Component | ShowTarget::Module | ShowTarget::Interface | ShowTarget::Enum => {
             if args.name.is_none() {
-                let m = match args.target {
-                    ShowTarget::Component => "show.component.list",
-                    ShowTarget::Module => "show.module.list",
-                    ShowTarget::Interface => "show.interface.list",
-                    ShowTarget::Enum => "show.enum.list",
-                    _ => unreachable!(),
-                };
-                Some((m, json!({ "file": args.file })))
-            } else {
-                let m = match args.target {
-                    ShowTarget::Component => "show.component",
-                    ShowTarget::Module => "show.module",
-                    ShowTarget::Interface => "show.interface",
-                    ShowTarget::Enum => "show.enum",
-                    _ => unreachable!(),
-                };
-                Some((m, json!({ "name": args.name, "file": args.file })))
+                // name lists moved to `mcc list <kind>`; run_local prints the hint
+                return None;
             }
+            let m = match args.target {
+                ShowTarget::Component => "show.component",
+                ShowTarget::Module => "show.module",
+                ShowTarget::Interface => "show.interface",
+                ShowTarget::Enum => "show.enum",
+                _ => unreachable!(),
+            };
+            Some((m, json!({ "name": args.name, "file": args.file })))
         }
         ShowTarget::Net => {
             if args.name.is_none() {
-                Some(("show.net.list", json!({})))
-            } else {
-                Some(("show.net", json!({ "name": args.name })))
+                // net list moved to `mcc list nets`; run_local prints the hint
+                return None;
             }
+            Some(("show.net", json!({ "name": args.name })))
         }
 
         // ── drill-down ─────────────────────────────────────────────────────
@@ -99,7 +94,8 @@ fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
             if args.name.is_some() {
                 drill_rpc("show.ports", args)
             } else {
-                Some(("show.ports.list", json!({})))
+                // port list moved to `mcc list ports`; run_local prints the hint
+                None
             }
         }
         ShowTarget::Labels => drill_rpc("show.labels", args),
@@ -110,7 +106,6 @@ fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
         ShowTarget::Params => drill_rpc("show.params", args),
         ShowTarget::Roles => drill_rpc("show.roles", args),
         ShowTarget::Values => drill_rpc("show.values", args),
-        ShowTarget::Dump => None, // local-only: compact text rendering
     }
 }
 
@@ -129,42 +124,41 @@ fn drill_rpc(method: &'static str, args: &ShowArgs) -> Option<(&'static str, Val
 }
 
 fn run_local(args: &ShowArgs) -> Result<()> {
-    // Suppress C-layer AST tree printing for dump targets (local-only, compact output)
-    if matches!(args.target, ShowTarget::Dump) {
-        mcc::set_trace_stdout_suppressed(true);
-    }
     prepare(args);
 
     let name = args.name.as_deref();
     match args.target {
-        // ── containers ─────────────────────────────────────────────────────
+        // ── overview / debug ───────────────────────────────────────────────
         ShowTarget::All => show_all(args),
-        ShowTarget::File => show_file(args),
-        ShowTarget::Files => show_files(args),
         ShowTarget::Lapper => show_lapper(args),
         ShowTarget::Ast => show_ast(args),
+
+        // ── entity detail (name required; lists moved to `mcc list`) ───────
         ShowTarget::Component => match name {
-            None => list_kind(Kind::Component, args),
+            None => need_list_hint(args, "component"),
             Some(n) => show_component(n, args),
         },
         ShowTarget::Module => match name {
-            None => list_kind(Kind::Module, args),
+            None => need_list_hint(args, "module"),
             Some(n) => show_module(n, args),
         },
         ShowTarget::Interface => match name {
-            None => list_kind(Kind::Interface, args),
+            None => need_list_hint(args, "interface"),
             Some(n) => show_interface(n, args),
         },
         ShowTarget::Enum => match name {
-            None => list_kind(Kind::Enum, args),
+            None => need_list_hint(args, "enum"),
             Some(n) => show_enum(n, args),
         },
-        ShowTarget::Net => show_net(name.unwrap_or(""), args),
+        ShowTarget::Net => match name {
+            None => need_list_hint(args, "nets"),
+            Some(n) => show_net(n, args),
+        },
 
         // ── drill-down ─────────────────────────────────────────────────────
         ShowTarget::Pins => drill_pins(require_name(args), args),
         ShowTarget::Ports => match name {
-            None => list_ports(args),
+            None => need_list_hint(args, "ports"),
             Some(n) => drill_ports(n, args),
         },
         ShowTarget::Labels => drill_labels(require_name(args), args),
@@ -175,19 +169,6 @@ fn run_local(args: &ShowArgs) -> Result<()> {
         ShowTarget::Params => drill_params(require_name(args), args),
         ShowTarget::Roles => drill_roles(require_name(args), args),
         ShowTarget::Values => drill_values(require_name(args), args),
-        ShowTarget::Dump => {
-            if let Some(n) = name {
-                if looks_like_file(n) {
-                    show_dump_file(n, args)
-                } else {
-                    show_dump(n, args)
-                }
-            } else if let Some(f) = args.file.as_deref() {
-                show_dump_file(f, args)
-            } else {
-                show_dump_all(args)
-            }
-        }
     }
 }
 
@@ -198,16 +179,7 @@ fn run_local(args: &ShowArgs) -> Result<()> {
 /// One-shot environment setup: init engine, load `--lib` libraries, load the
 /// target file. All handlers assume this ran, so none of them re-init.
 fn prepare(args: &ShowArgs) {
-    // File target keeps the path in <name>; all others use `-F/--file`.
-    let file_opt = match args.target {
-        ShowTarget::File => args.name.as_deref(),
-        // `show dump <file>.mc` accepts the file path as the positional name.
-        ShowTarget::Dump => args
-            .file
-            .as_deref()
-            .or_else(|| args.name.as_deref().filter(|n| looks_like_file(n))),
-        _ => args.file.as_deref(),
-    };
+    let file_opt = args.file.as_deref();
     crate::cmds::manifest::init_local(file_opt, &mcc::cli::globals().lib);
 
     if let Some(f) = file_opt {
@@ -227,8 +199,19 @@ fn require_name<'a>(args: &'a ShowArgs) -> &'a str {
     }
 }
 
+/// Name lists moved to `mcc list`; a bare `show <target>` without a name
+/// prints a hint instead of silently listing.
+fn need_list_hint(args: &ShowArgs, list_kind: &str) -> Result<()> {
+    error!(
+        target: "mcc::show",
+        "'show {:?}' requires an entity name\nto list {} names, use `mcc list {}`",
+        args.target, list_kind, list_kind
+    );
+    std::process::exit(2);
+}
+
 /// Resolve a file path; if it doesn't exist, search by base name in the tree.
-fn resolve_file(file: &str) -> String {
+pub(crate) fn resolve_file(file: &str) -> String {
     if Path::new(file).exists() {
         return file.to_string();
     }
@@ -298,14 +281,6 @@ fn find_files_with_name(name: &str) -> Vec<String> {
 // Definition lookup
 // ============================================================================
 
-#[derive(Copy, Clone)]
-enum Kind {
-    Component,
-    Module,
-    Interface,
-    Enum,
-}
-
 /// Find a definition by name across all kinds; returns its CMIE.
 fn find_def(name: &str) -> Option<mcc::McCMIE> {
     let lists = [
@@ -373,27 +348,110 @@ fn not_applicable(what: &str, name: &str) -> ! {
 // ============================================================================
 
 fn show_all(args: &ShowArgs) -> Result<()> {
-    let components: Vec<String> = mcc::mcb_iter_components()
-        .into_iter()
-        .map(|(n, _)| n)
-        .collect();
-    let modules: Vec<String> = mcc::mcb_iter_modules()
-        .into_iter()
-        .map(|(n, _)| n)
-        .collect();
-    let interfaces: Vec<String> = mcc::mcb_iter_interfaces()
-        .into_iter()
-        .map(|(n, _)| n)
-        .collect();
-    let enums: Vec<String> = mcc::mcb_iter_enums().into_iter().map(|(n, _)| n).collect();
+    let target = args.file.as_deref().map(resolve_file);
+    let scopes = resolve_scopes(args.scope, args.file.is_some());
 
-    let data = json!({
+    let mut data = serde_json::Map::new();
+    for s in &scopes {
+        data.insert(
+            scope_name(*s).to_string(),
+            collect_scope(*s, target.as_deref()),
+        );
+    }
+    // The target file path is kept under its own key so it does not collide
+    // with the "file" layer collection above.
+    if let Some(t) = &target {
+        data.insert("target_file".to_string(), json!(t));
+    }
+    data.insert("type".to_string(), json!("layered_all"));
+    output(&json!(data), args.span)
+}
+
+/// Resolve the `--scope` default policy shared by `show all` and `list all`:
+///   * default is the `file` layer when a target file is present
+///   * without a target file the `file` layer has nothing to match against,
+///     so fall back to every loaded layer (keeps the overview role)
+pub(crate) fn resolve_scopes(scope: Option<ShowScope>, has_target: bool) -> Vec<ShowScope> {
+    let scope = scope.unwrap_or(ShowScope::File);
+    match (scope, has_target) {
+        (ShowScope::All, _) | (ShowScope::File, false) => {
+            vec![ShowScope::File, ShowScope::Use, ShowScope::System]
+        }
+        (s, _) => vec![s],
+    }
+}
+
+/// JSON tag used by [`render_layered_text`] to detect `show all` output.
+const LAYERED_ALL_TYPE: &str = "layered_all";
+
+fn scope_name(scope: ShowScope) -> &'static str {
+    match scope {
+        ShowScope::File => "file",
+        ShowScope::Use => "use",
+        ShowScope::System => "system",
+        ShowScope::All => "all",
+    }
+}
+
+/// Collect the definitions of one layer (file / use / system) from the loaded
+/// tables, grouped into the same module/component/interface/enum lists that
+/// the flat `show all` used to print.
+fn collect_scope(scope: ShowScope, target: Option<&str>) -> Value {
+    let mut components = Vec::new();
+    let mut modules = Vec::new();
+    let mut interfaces = Vec::new();
+    let mut enums = Vec::new();
+    for (n, u) in mcc::mcb_iter_components() {
+        if classify_def_scope(&u, target) == scope {
+            components.push(n);
+        }
+    }
+    for (n, u) in mcc::mcb_iter_modules() {
+        if classify_def_scope(&u, target) == scope {
+            modules.push(n);
+        }
+    }
+    for (n, u) in mcc::mcb_iter_interfaces() {
+        if classify_def_scope(&u, target) == scope {
+            interfaces.push(n);
+        }
+    }
+    for (n, u) in mcc::mcb_iter_enums() {
+        if classify_def_scope(&u, target) == scope {
+            enums.push(n);
+        }
+    }
+    json!({
         format!("module_list({})", modules.len()): modules,
         format!("component_list({})", components.len()): components,
         format!("interface_list({})", interfaces.len()): interfaces,
         format!("enum_list({})", enums.len()): enums,
-    });
-    output(&data, args)
+    })
+}
+
+/// Classify a definition URI into a layer:
+///   * `File`   — the definition lives in the -F target file
+///   * `System` — the definition lives inside a loaded system library
+///   * `Use`    — everything else (use-imported / project libraries)
+pub(crate) fn classify_def_scope(uri: &str, target: Option<&str>) -> ShowScope {
+    if let Some(t) = target {
+        if uri_matches(uri, t) {
+            return ShowScope::File;
+        }
+    }
+    if is_system_uri(uri) {
+        return ShowScope::System;
+    }
+    ShowScope::Use
+}
+
+/// True when `uri` belongs to a loaded system library (mcode or an installed
+/// library resolved under the data root).
+fn is_system_uri(uri: &str) -> bool {
+    let path = std::path::Path::new(uri);
+    mcc::mcb_loaded_libs()
+        .iter()
+        .any(|name| mcc::resolve_lib_root(name).is_some_and(|root| path.starts_with(&root)))
 }
 
 fn show_ast(args: &ShowArgs) -> Result<()> {
@@ -495,47 +553,6 @@ fn show_lapper(args: &ShowArgs) -> Result<()> {
     Ok(())
 }
 
-fn show_file(args: &ShowArgs) -> Result<()> {
-    // File was resolved+loaded in prepare(); report what the load produced.
-    let file = args.name.as_deref().unwrap_or("");
-    let components: Vec<String> = mcc::mcb_iter_components()
-        .into_iter()
-        .map(|(n, _)| n)
-        .collect();
-    let modules: Vec<String> = mcc::mcb_iter_modules()
-        .into_iter()
-        .map(|(n, _)| n)
-        .collect();
-    let interfaces: Vec<String> = mcc::mcb_iter_interfaces()
-        .into_iter()
-        .map(|(n, _)| n)
-        .collect();
-    let enums: Vec<String> = mcc::mcb_iter_enums().into_iter().map(|(n, _)| n).collect();
-
-    let data = json!({
-        "file": file,
-        format!("module_list({})", modules.len()): modules,
-        format!("component_list({})", components.len()): components,
-        format!("interface_list({})", interfaces.len()): interfaces,
-        format!("enum_list({})", enums.len()): enums,
-    });
-    output(&data, args)
-}
-
-fn list_kind(kind: Kind, args: &ShowArgs) -> Result<()> {
-    let (ty, items) = match kind {
-        Kind::Component => ("component", mcc::mcb_iter_components()),
-        Kind::Module => ("module", mcc::mcb_iter_modules()),
-        Kind::Interface => ("interface", mcc::mcb_iter_interfaces()),
-        Kind::Enum => ("enum", mcc::mcb_iter_enums()),
-    };
-    let names: Vec<String> = items.into_iter().map(|(n, _)| n).collect();
-    // `--filter` only accepts `name=` for `--list` targets (single string per row).
-    let names = filter::apply_to_names(args.filter.as_deref(), names)?;
-    let data = json!({ "type": ty, "count": names.len(), "list": names });
-    output(&data, args)
-}
-
 fn show_component(name: &str, args: &ShowArgs) -> Result<()> {
     let cmie = component_def_or_exit(name);
     let mcc::McCMIE::Component(comp) = cmie else {
@@ -545,7 +562,7 @@ fn show_component(name: &str, args: &ShowArgs) -> Result<()> {
     let mut data = pins_json(&comp.pins);
     data["name"] = json!(name);
     data["uri"] = json!(comp.uri.to_string());
-    output(&data, args)
+    output(&data, args.span)
 }
 
 fn show_module(name: &str, args: &ShowArgs) -> Result<()> {
@@ -559,7 +576,7 @@ fn show_module(name: &str, args: &ShowArgs) -> Result<()> {
         "uri": module.uri.to_string(),
         "instances": instances_json(&module.insts, None),
     });
-    output(&data, args)
+    output(&data, args.span)
 }
 
 fn show_interface(name: &str, args: &ShowArgs) -> Result<()> {
@@ -577,7 +594,7 @@ fn show_interface(name: &str, args: &ShowArgs) -> Result<()> {
         "roles": roles,
         "params": iface.params.names_full(),
     });
-    output(&data, args)
+    output(&data, args.span)
 }
 
 fn show_enum(name: &str, args: &ShowArgs) -> Result<()> {
@@ -593,9 +610,10 @@ fn show_enum(name: &str, args: &ShowArgs) -> Result<()> {
         "value_count": values.len(),
         "values": values,
     });
-    output(&data, args)
+    output(&data, args.span)
 }
 
+/// Points of one Pass2 net (net list moved to `mcc list nets`).
 fn show_net(name: &str, args: &ShowArgs) -> Result<()> {
     let top = mcc::cli::globals()
         .top
@@ -607,84 +625,11 @@ fn show_net(name: &str, args: &ShowArgs) -> Result<()> {
         });
     let nets = nets_map(&top);
 
-    let data = if name.is_empty() {
-        let items: Vec<Value> = nets
-            .iter()
-            .map(|(n, points)| json!({ "name": n, "points": points }))
-            .collect();
-        json!({ "type": "net", "count": items.len(), "nets": items })
-    } else {
-        match nets.get(name) {
-            Some(points) => json!({ "name": name, "points": points }),
-            None => {
-                json!({ "name": name, "points": Vec::<String>::new(), "error": "net not found" })
-            }
-        }
+    let data = match nets.get(name) {
+        Some(points) => json!({ "name": name, "points": points }),
+        None => json!({ "name": name, "points": Vec::<String>::new(), "error": "net not found" }),
     };
-    output(&data, args)
-}
-
-// ============================================================================
-// Files overview
-// ============================================================================
-
-fn show_files(args: &ShowArgs) -> Result<()> {
-    use std::collections::BTreeMap;
-
-    // Aggregate counts per URI across all definition kinds.
-    #[derive(Default)]
-    struct FileInfo {
-        component_count: usize,
-        module_count: usize,
-        interface_count: usize,
-        enum_count: usize,
-    }
-
-    let mut files: BTreeMap<String, FileInfo> = BTreeMap::new();
-
-    for (_, uri) in mcc::mcb_iter_components() {
-        files.entry(uri).or_default().component_count += 1;
-    }
-    for (_, uri) in mcc::mcb_iter_modules() {
-        files.entry(uri).or_default().module_count += 1;
-    }
-    for (_, uri) in mcc::mcb_iter_interfaces() {
-        files.entry(uri).or_default().interface_count += 1;
-    }
-    for (_, uri) in mcc::mcb_iter_enums() {
-        files.entry(uri).or_default().enum_count += 1;
-    }
-
-    let items: Vec<Value> = files
-        .into_iter()
-        .map(|(uri, info)| {
-            json!({
-                "uri": uri,
-                "component_count": info.component_count,
-                "module_count": info.module_count,
-                "interface_count": info.interface_count,
-                "enum_count": info.enum_count,
-            })
-        })
-        .collect();
-
-    let data = json!({ "type": "files", "count": items.len(), "files": items });
-    output(&data, args)
-}
-
-// ============================================================================
-// Ports list (global)
-// ============================================================================
-
-fn list_ports(args: &ShowArgs) -> Result<()> {
-    let ports: Vec<Value> = mcc::mcb_iter_ports()
-        .into_iter()
-        .map(|(name, iotype, module, uri)| {
-            json!({ "name": name, "iotype": iotype, "module": module, "uri": uri })
-        })
-        .collect();
-    let data = json!({ "type": "port", "count": ports.len(), "ports": ports });
-    output(&data, args)
+    output(&data, args.span)
 }
 
 // ============================================================================
@@ -700,7 +645,7 @@ fn drill_pins(name: &str, args: &ShowArgs) -> Result<()> {
     };
     let mut data = pins_json(pins);
     data["name"] = json!(name);
-    output(&data, args)
+    output(&data, args.span)
 }
 
 fn drill_ports(name: &str, args: &ShowArgs) -> Result<()> {
@@ -729,7 +674,7 @@ fn drill_ports(name: &str, args: &ShowArgs) -> Result<()> {
         })
         .collect();
     let data = json!({ "name": name, "port_count": ports.len(), "ports": ports });
-    output(&data, args)
+    output(&data, args.span)
 }
 
 /// Extract a port's type and sub-members from its instance:
@@ -776,7 +721,7 @@ fn drill_labels(name: &str, args: &ShowArgs) -> Result<()> {
         .map(|(n, _)| n.to_string())
         .collect();
     let data = json!({ "name": name, "label_count": labels.len(), "labels": labels });
-    output(&data, args)
+    output(&data, args.span)
 }
 
 fn drill_instances(name: &str, args: &ShowArgs) -> Result<()> {
@@ -788,7 +733,7 @@ fn drill_instances(name: &str, args: &ShowArgs) -> Result<()> {
     };
     let items = instances_json(insts, args.r#type.as_deref());
     let data = json!({ "name": name, "count": items.len(), "instances": items });
-    output(&data, args)
+    output(&data, args.span)
 }
 
 fn drill_nets(name: &str, args: &ShowArgs) -> Result<()> {
@@ -801,7 +746,7 @@ fn drill_nets(name: &str, args: &ShowArgs) -> Result<()> {
             .map(|(n, points)| json!({ "name": n, "points": points }))
             .collect();
         let data = json!({ "name": name, "kind": "func", "count": items.len(), "nets": items });
-        return output(&data, args);
+        return output(&data, args.span);
     }
 
     // `nets <module>` uses the entity as the top module.
@@ -815,7 +760,7 @@ fn drill_nets(name: &str, args: &ShowArgs) -> Result<()> {
         .map(|(n, points)| json!({ "name": n, "points": points }))
         .collect();
     let data = json!({ "name": name, "count": items.len(), "nets": items });
-    output(&data, args)
+    output(&data, args.span)
 }
 
 fn drill_attrs(name: &str, args: &ShowArgs) -> Result<()> {
@@ -833,7 +778,7 @@ fn drill_attrs(name: &str, args: &ShowArgs) -> Result<()> {
         })
         .collect();
     let data = json!({ "name": name, "count": items.len(), "attrs": items });
-    output(&data, args)
+    output(&data, args.span)
 }
 
 fn drill_funcs(name: &str, args: &ShowArgs) -> Result<()> {
@@ -845,10 +790,10 @@ fn drill_funcs(name: &str, args: &ShowArgs) -> Result<()> {
     };
     let items: Vec<Value> = funcs
         .iter()
-        .map(|f| json!({ "name": f.name.to_string(), "params": f.params.names_full() }))
+        .map(|f| json!({ "name": f.name.to_string(), "params": f.params.names_full_annotated() }))
         .collect();
     let data = json!({ "name": name, "count": items.len(), "funcs": items });
-    output(&data, args)
+    output(&data, args.span)
 }
 
 fn drill_params(name: &str, args: &ShowArgs) -> Result<()> {
@@ -856,7 +801,7 @@ fn drill_params(name: &str, args: &ShowArgs) -> Result<()> {
     if let Some(func) = mcc::rpc::handlers::find_func_by_path(name) {
         let items: Vec<Value> = func.params.iter().map(|d| param_json(d)).collect();
         let data = json!({ "name": name, "kind": "func", "count": items.len(), "params": items });
-        return output(&data, args);
+        return output(&data, args.span);
     }
     let cmie = def_or_exit(name);
     let params = match &cmie {
@@ -874,7 +819,7 @@ fn drill_params(name: &str, args: &ShowArgs) -> Result<()> {
         "optional": arity.optional,
         "params": items
     });
-    output(&data, args)
+    output(&data, args.span)
 }
 
 /// One parameter declaration as JSON, mirroring the RPC `show.params` shape.
@@ -901,7 +846,7 @@ fn drill_roles(name: &str, args: &ShowArgs) -> Result<()> {
         })
         .collect();
     let data = json!({ "name": name, "count": items.len(), "roles": items });
-    output(&data, args)
+    output(&data, args.span)
 }
 
 fn drill_values(name: &str, args: &ShowArgs) -> Result<()> {
@@ -911,75 +856,16 @@ fn drill_values(name: &str, args: &ShowArgs) -> Result<()> {
     };
     let values: Vec<String> = en.values.iter().map(|v| v.name.to_string()).collect();
     let data = json!({ "name": name, "count": values.len(), "values": values });
-    output(&data, args)
+    output(&data, args.span)
 }
 
 // ============================================================================
-// Dump — full-field dump of any entity for parse debugging
+// Entity detail collection (used by `show all` file-layer text details)
 // ============================================================================
 
-/// Dump all entities in scope (when no name given).
-fn show_dump_all(args: &ShowArgs) -> Result<()> {
-    let mut all = Vec::new();
-
-    for (name, _uri) in mcc::mcb_iter_components() {
-        if let Some(cmie) = find_def(&name) {
-            if let mcc::McCMIE::Component(comp) = &cmie {
-                all.push(dump_component(&name, comp));
-            }
-        }
-    }
-    for (name, _uri) in mcc::mcb_iter_modules() {
-        if let Some(cmie) = find_def(&name) {
-            if let mcc::McCMIE::Module(module) = &cmie {
-                all.push(dump_module(&name, module));
-            }
-        }
-    }
-    for (name, _uri) in mcc::mcb_iter_interfaces() {
-        if let Some(cmie) = find_def(&name) {
-            if let mcc::McCMIE::Interface(iface) = &cmie {
-                all.push(dump_interface(&name, iface));
-            }
-        }
-    }
-    for (name, _uri) in mcc::mcb_iter_enums() {
-        if let Some(cmie) = find_def(&name) {
-            if let mcc::McCMIE::Enum(en) = &cmie {
-                all.push(dump_enum(&name, en));
-            }
-        }
-    }
-
-    // Sort by source position
-    all.sort_by_key(|e| e["span"]["start"].as_u64().unwrap_or(u64::MAX));
-
-    let data = json!({
-        "type": "dump_all",
-        "total": all.len(),
-        "entities": all,
-    });
-    output(&data, args)
-}
-
-fn show_dump(name: &str, args: &ShowArgs) -> Result<()> {
-    let cmie = def_or_exit(name);
-    let data = match &cmie {
-        mcc::McCMIE::Component(comp) => dump_component(name, comp),
-        mcc::McCMIE::Module(module) => dump_module(name, module),
-        mcc::McCMIE::Interface(iface) => dump_interface(name, iface),
-        mcc::McCMIE::Enum(en) => dump_enum(name, en),
-    };
-    output(&data, args)
-}
-
-/// Dump every entity defined in a single `.mc` file (file-scoped dump).
-///
-/// Unlike [`show_dump_all`] (which dumps everything currently in scope,
-/// including loaded libraries), this filters to entities whose URI is the
-/// target file, so `mcc show dump <file>.mc` shows exactly what the parser
-/// produced for that file.
-fn show_dump_file(file: &str, args: &ShowArgs) -> Result<()> {
+/// Collect every entity defined in a single `.mc` file as full-field detail
+/// values, sorted by source position so the output follows the file layout.
+fn collect_dump_file(file: &str) -> Vec<Value> {
     let resolved = resolve_file(file);
     let file_uri = resolved.as_str();
     let mut all: Vec<Value> = Vec::new();
@@ -1042,22 +928,8 @@ fn show_dump_file(file: &str, args: &ShowArgs) -> Result<()> {
         }
     }
 
-    // Sort by source position so the output follows the file layout.
     all.sort_by_key(|e| e["span"]["start"].as_u64().unwrap_or(u64::MAX));
-
-    let data = json!({
-        "type": "dump_all",
-        "file": resolved,
-        "total": all.len(),
-        "entities": all,
-    });
-    output(&data, args)
-}
-
-/// True when a `show dump` positional argument is a file path rather than an
-/// entity name (a `.mc` suffix or an existing path on disk).
-fn looks_like_file(name: &str) -> bool {
-    name.ends_with(".mc") || Path::new(name).exists()
+    all
 }
 
 /// True when `cmie_uri` and `file_uri` refer to the same file. The workspace
@@ -1092,10 +964,10 @@ fn dump_component(name: &str, comp: &mcc::McComponent) -> Value {
         .funcs
         .iter()
         .map(|f| {
-            let body_lines: Vec<String> = f.lines.iter().map(|l| l.to_string()).collect();
+            let body_lines: Vec<String> = f.body_lines_display();
             json!({
                 "name": f.name.to_string(),
-                "params": f.params.names_full(),
+                "params": f.params.names_full_annotated(),
                 "returns": f.returns.kind_str(),
                 "called_time": f.called_time,
                 "body_lines": body_lines,
@@ -1145,12 +1017,22 @@ fn dump_component(name: &str, comp: &mcc::McComponent) -> Value {
 }
 
 fn dump_module(name: &str, module: &mcc::McModule) -> Value {
-    // Params
+    // Params. Interface-bound params keep their binding: `[VDD,GND]::DC(3.3V)`
+    // → `{"name":"[VDD, GND]","iface":"DC","iface_params":["3.3V"]}`.
     let params: Vec<Value> = module
         .params
-        .names_full()
         .iter()
-        .map(|n| json!(n))
+        .map(|d| {
+            let display = json!(d.display_name());
+            match d.interface_annotation() {
+                Some((class, p)) => json!({
+                    "name": d.display_name(),
+                    "iface": class,
+                    "iface_params": p,
+                }),
+                None => display,
+            }
+        })
         .collect();
     let params_with_defaults: Vec<Value> = module
         .params
@@ -1170,10 +1052,10 @@ fn dump_module(name: &str, module: &mcc::McModule) -> Value {
         .funcs
         .iter()
         .map(|f| {
-            let body_lines: Vec<String> = f.lines.iter().map(|l| l.to_string()).collect();
+            let body_lines: Vec<String> = f.body_lines_display();
             json!({
                 "name": f.name.to_string(),
-                "params": f.params.names_full(),
+                "params": f.params.names_full_annotated(),
                 "returns": f.returns.kind_str(),
                 "called_time": f.called_time,
                 "body_lines": body_lines,
@@ -1338,8 +1220,17 @@ fn instances_json(insts: &mcc::McInstances, type_filter: Option<&str>) -> Vec<Va
                 .get(n)
                 .and_then(|v| v.first())
                 .map(|r| json!({"start": r.start, "end": r.end}));
+            // Module port direction (`io`/`out`/`in`), empty for non-port
+            // instances (components, modules, inline net labels).
+            let io = match insts.insts().get(n) {
+                Some((mcc::IOType::InOut, _)) => "io",
+                Some((mcc::IOType::Out, _)) => "out",
+                Some((mcc::IOType::In, _)) => "in",
+                _ => "",
+            };
             let mut entry = json!({
                 "name": n.to_string(),
+                "io": io,
                 "kind": kind,
                 "class": class,
                 "params": inst_params(inst),
@@ -1365,13 +1256,16 @@ fn inst_params(inst: &mcc::McInstance) -> Vec<String> {
 
 fn attrval_json(v: &mcc::McAttrVal) -> Value {
     match v {
-        mcc::McAttrVal::AttrLiteral(mcc::McLiteral::String(s)) => json!(s.value),
+        // Keep string literals quoted so the dump shows the source form.
+        mcc::McAttrVal::AttrLiteral(mcc::McLiteral::String(s)) => {
+            json!(format!("\"{}\"", s.value))
+        }
         other => json!(other.to_string()),
     }
 }
 
-/// Build the top module and aggregate its connections into a net → points map.
-fn nets_map(top: &str) -> BTreeMap<String, Vec<String>> {
+/// Build the Pass2 netlist for a module: net name -> ordered point labels.
+pub(crate) fn nets_map(top: &str) -> BTreeMap<String, Vec<String>> {
     let uri = mcc::mcb_iter_modules()
         .iter()
         .find(|(n, _)| n == top)
@@ -1425,6 +1319,146 @@ fn nets_map(top: &str) -> BTreeMap<String, Vec<String>> {
 // ============================================================================
 // Output
 // ============================================================================
+
+/// Render `show all` layered output (tagged `type: "layered_all"`) in text
+/// mode: one section per layer, separated by `------`. Sections follow a fixed
+/// order (system -> use -> file) instead of the JSON map's alphabetical order.
+/// The `file` layer renders per-entity details (full-field compact text);
+/// the `use`/`system` layers keep the name-list overview. Returns `None` for
+/// every other data shape.
+fn render_layered_text(data: &Value, span: bool) -> Option<String> {
+    if data.get("type")?.as_str()? != LAYERED_ALL_TYPE {
+        return None;
+    }
+    let obj = data.as_object()?;
+    let file = obj.get("target_file").and_then(|v| v.as_str());
+    let mut lines = Vec::new();
+    for layer in ["system", "use", "file"] {
+        let Some(section) = obj.get(layer) else {
+            continue;
+        };
+        if !lines.is_empty() {
+            lines.push(String::new());
+        }
+        lines.push(format!("------ {layer} ------"));
+        if layer == "file" && file.is_some() {
+            for entity in collect_dump_file(file.unwrap()) {
+                lines.push(compact::render_entity(&entity, span));
+            }
+        } else if let Some(sec) = section.as_object() {
+            for (k, v) in sec {
+                lines.push(format!("{k}: {v}"));
+            }
+        }
+    }
+    Some(lines.join("\n"))
+}
+
+/// `list all` text renderer: `{type:"all", count, list:[{name, kind, uri}]}`
+/// → a `count:` header followed by one `kind: name` line per definition.
+fn render_all_list_text(data: &Value) -> Option<String> {
+    if data.get("type").and_then(|v| v.as_str()) != Some("all") {
+        return None;
+    }
+    let count = data.get("count")?.as_u64()?;
+    let items = data.get("list")?.as_array()?;
+    let mut out = format!("count: {count}\n");
+    for item in items {
+        let name = item.get("name")?.as_str()?;
+        let kind = item.get("kind")?.as_str()?;
+        out.push_str(&format!("{kind}: {name}\n"));
+    }
+    Some(out.trim_end().to_string())
+}
+
+/// `list <kind>` text renderer: `{type, count, list:[names]}` → a `count:`
+/// header followed by one name per line.
+fn render_kind_list_text(data: &Value) -> Option<String> {
+    let t = data.get("type")?.as_str()?;
+    if !matches!(t, "component" | "module" | "interface" | "enum") {
+        return None;
+    }
+    let names: Vec<&str> = data
+        .get("list")?
+        .as_array()?
+        .iter()
+        .filter_map(|v| v.as_str())
+        .collect();
+    let mut out = format!("count: {}\n", names.len());
+    for n in names {
+        out.push_str(n);
+        out.push('\n');
+    }
+    Some(out.trim_end().to_string())
+}
+
+/// `list nets` text renderer: `{type:"net", count, nets:[{name, points}]}`
+/// → a `count:` header followed by one `name: point, point` line per net.
+fn render_nets_list_text(data: &Value) -> Option<String> {
+    if data.get("type").and_then(|v| v.as_str()) != Some("net") {
+        return None;
+    }
+    let count = data.get("count")?.as_u64()?;
+    let nets = data.get("nets")?.as_array()?;
+    let mut out = format!("count: {count}\n");
+    for net in nets {
+        let name = net.get("name")?.as_str()?;
+        let points: Vec<&str> = net
+            .get("points")?
+            .as_array()?
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        out.push_str(&format!("{name}: {}\n", points.join(", ")));
+    }
+    Some(out.trim_end().to_string())
+}
+
+/// `list ports` text renderer: `{type:"port", count, ports:[{name, iotype, module}]}`
+/// → a `count:` header followed by one `name: iotype (module)` line per port.
+fn render_ports_list_text(data: &Value) -> Option<String> {
+    if data.get("type").and_then(|v| v.as_str()) != Some("port") {
+        return None;
+    }
+    let count = data.get("count")?.as_u64()?;
+    let ports = data.get("ports")?.as_array()?;
+    let mut out = format!("count: {count}\n");
+    for port in ports {
+        let name = port.get("name")?.as_str()?;
+        let iotype = port.get("iotype")?.as_str()?;
+        let module = port.get("module")?.as_str()?;
+        out.push_str(&format!("{name}: {iotype} ({module})\n"));
+    }
+    Some(out.trim_end().to_string())
+}
+
+/// `list files` text renderer: `{type:"files", count, files:[{uri, *_count}]}`
+/// → a `count:` header followed by one `uri: comp=N mod=N iface=N enum=N` line.
+fn render_files_list_text(data: &Value) -> Option<String> {
+    if data.get("type").and_then(|v| v.as_str()) != Some("files") {
+        return None;
+    }
+    let count = data.get("count")?.as_u64()?;
+    let files = data.get("files")?.as_array()?;
+    let mut out = format!("count: {count}\n");
+    for f in files {
+        let uri = f.get("uri")?.as_str()?;
+        let comp = f
+            .get("component_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let mod_ = f.get("module_count").and_then(|v| v.as_u64()).unwrap_or(0);
+        let iface = f
+            .get("interface_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let en = f.get("enum_count").and_then(|v| v.as_u64()).unwrap_or(0);
+        out.push_str(&format!(
+            "{uri}: comp={comp} mod={mod_} iface={iface} enum={en}\n"
+        ));
+    }
+    Some(out.trim_end().to_string())
+}
 
 /// Render a component/pins data object (`name`, `uri`, `pin_count`, `pins`)
 /// as an aligned text table. Returns `None` when the data has no `pins` array.
@@ -1831,25 +1865,34 @@ fn iface_display(v: &Value) -> Option<String> {
     }
 }
 
-fn output(data: &Value, args: &ShowArgs) -> Result<()> {
+pub(crate) fn output(data: &Value, span: bool) -> Result<()> {
     let rendered = match mcc::cli::globals().format {
         OutputFormat::Json => data.to_string(),
         OutputFormat::JsonPretty => serde_json::to_string_pretty(data)?,
         OutputFormat::Yaml => serde_yaml::to_string(data).unwrap_or_default(),
         OutputFormat::Csv => data.to_string(),
         OutputFormat::Text => {
-            // Detect dump output and render in compact .mc-like format.
-            // `kind == "func"` drill-downs (show params/nets OWNER.FUNC) are
-            // excluded here so they render like the other drill-downs below
-            // (list / table) instead of compact's single-line entity form.
-            if data
-                .get("kind")
-                .and_then(|v| v.as_str())
-                .is_some_and(|k| k != "func")
-            {
-                compact::render_entity(data, args.span)
-            } else if data.get("type").and_then(|v| v.as_str()) == Some("dump_all") {
-                compact::render_all(data, args.span)
+            // Entity dump values (kind == "func") render like the other
+            // drill-downs below (list / table); everything else falls through
+            // the layered / list renderers.
+            if let Some(t) = render_layered_text(data, span) {
+                // show all: per-layer sections; the file layer renders details
+                t
+            } else if let Some(t) = render_all_list_text(data) {
+                // list all: `kind: name` per line, count header
+                t
+            } else if let Some(t) = render_kind_list_text(data) {
+                // list component/module/interface/enum: one name per line
+                t
+            } else if let Some(t) = render_nets_list_text(data) {
+                // list nets: `name: point, point` per line
+                t
+            } else if let Some(t) = render_ports_list_text(data) {
+                // list ports: `name: iotype (module)` per line
+                t
+            } else if let Some(t) = render_files_list_text(data) {
+                // list files: `uri: comp=N mod=N iface=N enum=N` per line
+                t
             } else if let Some(t) = render_pins_text(data) {
                 // component / pins drill-down: aligned pin table
                 t

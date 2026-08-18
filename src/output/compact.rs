@@ -18,35 +18,12 @@
 //! # Reusable entry points
 //!
 //! - [`render_entity`] — render a single entity JSON (has a `kind` field)
-//! - [`render_all`] — render a `{"type":"dump_all","entities":[...]}` envelope
 
 use serde_json::Value;
 
 // ============================================================================
 // Public API
 // ============================================================================
-
-/// Render a dump_all envelope (`{"type":"dump_all","entities":[...]}`).
-/// An optional `file` field is shown in the header for file-scoped dumps.
-/// `show_span` controls whether source position spans are rendered.
-pub fn render_all(data: &Value, show_span: bool) -> String {
-    let total = data["total"].as_u64().unwrap_or(0);
-    let file = data["file"].as_str().unwrap_or("");
-    let mut out = if file.is_empty() {
-        format!("=== {} entities ===\n", total)
-    } else {
-        format!("=== {} entities in {} ===\n", total, file)
-    };
-    if let Some(entities) = data["entities"].as_array() {
-        for (i, e) in entities.iter().enumerate() {
-            if i > 0 {
-                out.push('\n');
-            }
-            out.push_str(&render_entity(e, show_span));
-        }
-    }
-    out
-}
 
 /// Render a single entity JSON (has `kind` and `name` fields).
 /// `show_span` controls whether source position spans are rendered.
@@ -96,46 +73,135 @@ pub fn render_entity(e: &Value, show_span: bool) -> String {
 // Section renderers (pub so other modules can compose custom views)
 // ============================================================================
 
-/// Render `params` array.
+/// Render `params` array. Entries are plain name strings, or objects
+/// `{"name", "iface", "iface_params"}` for interface-bound params —
+/// rendered as `name::IFACE(p1, p2)` (e.g. `[VDD, GND]::DC(3.3V)`).
 pub fn params(out: &mut String, e: &Value) {
     if let Some(arr) = e["params"].as_array() {
         if !arr.is_empty() {
-            let names: Vec<&str> = arr.iter().filter_map(|v| v.as_str()).collect();
+            let names: Vec<String> = arr
+                .iter()
+                .map(|v| {
+                    let Some(obj) = v.as_object() else {
+                        return v.as_str().unwrap_or("?").to_string();
+                    };
+                    let name = obj.get("name").and_then(|x| x.as_str()).unwrap_or("?");
+                    let Some(iface) = obj.get("iface").and_then(|x| x.as_str()) else {
+                        return name.to_string();
+                    };
+                    let args: Vec<&str> = obj
+                        .get("iface_params")
+                        .and_then(|x| x.as_array())
+                        .map(|a| a.iter().filter_map(|p| p.as_str()).collect())
+                        .unwrap_or_default();
+                    if args.is_empty() {
+                        format!("{name}::{iface}")
+                    } else {
+                        format!("{name}::{iface}({})", args.join(", "))
+                    }
+                })
+                .collect();
             out.push_str(&format!("  params: {}\n", names.join(", ")));
         }
     }
 }
 
 /// Render `pins` array with `pin_count`, including non-string pin values
-/// (KVS, ranges, etc.) stored under the per-pin `values` field.
+/// (KVS, ranges, etc.) stored under the per-pin `values` field, plus the
+/// interface/group bindings occupying each pin (e.g. `I2C0::I2C(Master)`).
+/// The io type comes first; pin-id and io-type columns are padded to the
+/// widest entry so all rows align.
 pub fn pins(out: &mut String, e: &Value) {
     if let Some(arr) = e["pins"].as_array() {
         out.push_str(&format!("  pins ({}):\n", arr.len()));
-        for p in arr {
-            let id = p["id"].as_str().unwrap_or("?");
-            let iotype = p["iotype"].as_str().unwrap_or("");
-            let names: Vec<&str> = p["names"]
-                .as_array()
-                .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
-                .unwrap_or_default();
-            let desc = p["description"].as_str().unwrap_or("");
-            let vals: Vec<&str> = p["values"]
-                .as_array()
-                .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
-                .unwrap_or_default();
-            let vals_str = if vals.is_empty() {
-                String::new()
-            } else {
-                format!(" {}", vals.join(" "))
-            };
-            let extra = if desc.is_empty() {
-                format!("[{}] {}{}", names.join(", "), iotype, vals_str)
-            } else {
-                format!("[{}] {} \"{}\"{}", names.join(", "), iotype, desc, vals_str)
-            };
-            out.push_str(&format!("    {}: {}\n", id, extra));
+        // Pre-render each row to compute column widths for alignment.
+        let rows: Vec<(String, String, String)> = arr
+            .iter()
+            .map(|p| {
+                let id = p["id"].as_str().unwrap_or("?").to_string();
+                // `IOType::None` (no direction) is serialized as the Debug
+                // string "None"; render it as an empty first column instead.
+                let iotype = p["iotype"].as_str().unwrap_or("").to_string();
+                let iotype = if iotype == "None" { String::new() } else { iotype };
+                let names: Vec<&str> = p["names"]
+                    .as_array()
+                    .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+                    .unwrap_or_default();
+                let desc = p["description"].as_str().unwrap_or("");
+                let vals: Vec<&str> = p["values"]
+                    .as_array()
+                    .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+                    .unwrap_or_default();
+                let vals_str = if vals.is_empty() {
+                    String::new()
+                } else {
+                    format!(" {}", vals.join(" "))
+                };
+                let mut rest = format!("[{}]", names.join(", "));
+                let ifaces = render_pin_interfaces(p);
+                rest.push_str(&ifaces);
+                if !desc.is_empty() {
+                    rest.push_str(&format!(" \"{}\"", desc));
+                }
+                rest.push_str(&vals_str);
+                (id, iotype, rest)
+            })
+            .collect();
+        let io_w = rows.iter().map(|r| r.1.len()).max().unwrap_or(0);
+        let id_w = rows.iter().map(|r| r.0.len()).max().unwrap_or(1);
+        for (id, iotype, rest) in &rows {
+            // iotype occupies the first column (padded so all rows align),
+            // then the pin id, then the pin content.
+            let io_pad = format!("{:<w$} ", iotype, w = io_w);
+            out.push_str(&format!("    {}{:>w$}: {}\n", io_pad, id, rest, w = id_w));
         }
     }
+}
+
+/// Render a pin's interface/group bindings as `.mc`-style text joined by
+/// ` | `, e.g. `I2C0::I2C(Master) | GPIO(2, Controller)`, `PBus{CLK, DATA}`,
+/// `PDM[CLK, DATA]`, `[VDD, GND]::DC(3.3V)`. Empty string when the pin has
+/// no bindings.
+fn render_pin_interfaces(p: &Value) -> String {
+    let Some(arr) = p["interfaces"].as_array() else {
+        return String::new();
+    };
+    if arr.is_empty() {
+        return String::new();
+    }
+    let parts: Vec<String> = arr
+        .iter()
+        .map(|i| {
+            let kind = i["kind"].as_str().unwrap_or("Interface");
+            let name = i["name"].as_str().unwrap_or("");
+            let base = i["base"].as_str().unwrap_or("");
+            let members: Vec<&str> = i["members"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+                .unwrap_or_default();
+            let params: Vec<&str> = i["params"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|v| v.as_str()).collect())
+                .unwrap_or_default();
+            match kind {
+                "Bus" => format!("{}{{{}}}", name, members.join(", ")),
+                "List" => format!("{}[{}]", name, members.join(", ")),
+                _ => {
+                    let params_str = if params.is_empty() {
+                        String::new()
+                    } else {
+                        format!("({})", params.join(", "))
+                    };
+                    if name == base {
+                        format!("{}{}", base, params_str)
+                    } else {
+                        format!("{}::{}{}", name, base, params_str)
+                    }
+                }
+            }
+        })
+        .collect();
+    format!(" {}", parts.join(" | "))
 }
 
 /// Render `attrs` array.
@@ -179,39 +245,59 @@ pub fn funcs(out: &mut String, e: &Value) {
 }
 
 /// Render `instances` array with class name and construction params.
-/// `show_span` controls the per-instance span.
+/// `show_span` controls the per-instance span. Instance-name, io-direction
+/// and kind columns are padded to the widest entry so all rows align.
 pub fn instances(out: &mut String, e: &Value, show_span: bool) {
     if let Some(arr) = e["instances"].as_array() {
         if !arr.is_empty() {
             out.push_str(&format!("  instances ({}):\n", arr.len()));
-            for inst in arr {
-                let iname = inst["name"].as_str().unwrap_or("?");
-                let kind = inst["kind"].as_str().unwrap_or("?");
-                let class = inst["class"].as_str().unwrap_or("");
-                let span = span_suffix(inst, show_span, false);
-                // Omit the class when it repeats the instance name (e.g. a
-                // label or plain bus); component/module/interface instances
-                // always carry a distinct class name after resolution.
-                let class_str = if class.is_empty() || class == iname {
-                    String::new()
-                } else {
-                    format!(" {}", class)
-                };
-                let params_str = inst["params"]
-                    .as_array()
-                    .filter(|a| !a.is_empty())
-                    .map(|a| {
-                        let inner = a
-                            .iter()
-                            .filter_map(|p| p.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        format!("({})", inner)
-                    })
-                    .unwrap_or_default();
+            // Pre-render each row to compute column widths for alignment.
+            let rows: Vec<(String, String, String, String, String)> = arr
+                .iter()
+                .map(|inst| {
+                    let iname = inst["name"].as_str().unwrap_or("?").to_string();
+                    let io = inst["io"].as_str().unwrap_or("").to_string();
+                    let kind = inst["kind"].as_str().unwrap_or("?").to_string();
+                    let class = inst["class"].as_str().unwrap_or("");
+                    let span = span_suffix(inst, show_span, false);
+                    // Omit the class when it repeats the instance name (e.g. a
+                    // label or plain bus); component/module/interface instances
+                    // always carry a distinct class name after resolution.
+                    let class_str = if class.is_empty() || class == iname {
+                        String::new()
+                    } else {
+                        format!(" {}", class)
+                    };
+                    let params_str = inst["params"]
+                        .as_array()
+                        .filter(|a| !a.is_empty())
+                        .map(|a| {
+                            let inner = a
+                                .iter()
+                                .filter_map(|p| p.as_str())
+                                .collect::<Vec<_>>()
+                                .join(", ");
+                            format!("({})", inner)
+                        })
+                        .unwrap_or_default();
+                    (
+                        format!("{}{}", iname, span),
+                        io,
+                        kind,
+                        class_str,
+                        params_str,
+                    )
+                })
+                .collect();
+            // io-direction comes first (matching the pin table style), then
+            // the instance name; all columns pad to the widest entry.
+            let io_w = rows.iter().map(|r| r.1.len()).max().unwrap_or(0);
+            let name_w = rows.iter().map(|r| r.0.len()).max().unwrap_or(1);
+            let kind_w = rows.iter().map(|r| r.2.len()).max().unwrap_or(1);
+            for (name, io, kind, class_str, params_str) in &rows {
                 out.push_str(&format!(
-                    "    {}{}: {}{}{}\n",
-                    iname, span, kind, class_str, params_str
+                    "    {:<io_w$} {:<name_w$}: {:<kind_w$}{}{}\n",
+                    io, name, kind, class_str, params_str
                 ));
             }
         }

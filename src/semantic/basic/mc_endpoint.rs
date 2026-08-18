@@ -95,7 +95,7 @@ impl McInstanceRef {
     pub fn full_name(&self) -> String {
         if let McInstance::Bus(bus) = &self.base {
             if !bus.member.is_empty() {
-                let members = bus.member.to_vec().join(",");
+                let members = bus.member.to_vec().join(", ");
                 return format!("{}{{{}}}", bus.name, members);
             }
         }
@@ -108,7 +108,7 @@ impl McInstanceRef {
         } else {
             let all_members: Vec<String> = self.expand_members();
             if let McInstance::Bus(bus) = &self.base {
-                format!("{}{{{}}}", bus.name, all_members.join(","))
+                format!("{}{{{}}}", bus.name, all_members.join(", "))
             } else {
                 let members_str: Vec<String> =
                     self.members.iter().map(|ml| format!("{{{ml}}}")).collect();

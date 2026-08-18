@@ -615,6 +615,29 @@ impl McFunction {
     // return-statement helpers
     // ========================================================================
 
+    /// Render the function body for display: plain connection lines followed
+    /// by conditional blocks (`if cond` / `else`, branch lines indented).
+    /// The model stores lines and conds separately, so source interleaving is
+    /// not preserved; conds are appended after the plain lines.
+    pub fn body_lines_display(&self) -> Vec<String> {
+        let mut lines: Vec<String> = self.lines.iter().map(|l| l.to_string()).collect();
+        for c in &self.conds {
+            for blk in &c.if_blocks {
+                lines.push(format!("if {}", blk.condition));
+                for l in &blk.lines {
+                    lines.push(format!("    {}", l));
+                }
+            }
+            if !c.else_lines.is_empty() {
+                lines.push("else".to_string());
+                for l in &c.else_lines {
+                    lines.push(format!("    {}", l));
+                }
+            }
+        }
+        lines
+    }
+
     /// Locate a `MCAST_IOTYPE_RETURN` marker inside a NET subnode (or a body
     /// node that already is the marker).
     ///

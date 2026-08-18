@@ -1726,7 +1726,10 @@ pub(crate) fn inst_kind_class(inst: &crate::McInstance) -> (&'static str, String
 
 pub(crate) fn attrval_json(v: &crate::McAttrVal) -> Value {
     match v {
-        crate::McAttrVal::AttrLiteral(crate::McLiteral::String(s)) => json!(s.value),
+        // Keep string literals quoted so the dump shows the source form.
+        crate::McAttrVal::AttrLiteral(crate::McLiteral::String(s)) => {
+            json!(format!("\"{}\"", s.value))
+        }
         other => json!(other.to_string()),
     }
 }
@@ -1779,10 +1782,10 @@ pub(crate) fn dump_component_json(name: &str, comp: &crate::McComponent, uri: &s
         .funcs
         .iter()
         .map(|f| {
-            let body_lines: Vec<String> = f.lines.iter().map(|l| l.to_string()).collect();
+            let body_lines: Vec<String> = f.body_lines_display();
             json!({
                 "name": f.name.to_string(),
-                "params": f.params.names(),
+                "params": f.params.names_full_annotated(),
                 "returns": f.returns.kind_str(),
                 "called_time": f.called_time,
                 "body_lines": body_lines,
@@ -1826,11 +1829,22 @@ pub(crate) fn dump_component_json(name: &str, comp: &crate::McComponent, uri: &s
 }
 
 pub(crate) fn dump_module_json(name: &str, module: &crate::McModule, uri: &str) -> Value {
+    // Params. Interface-bound params keep their binding: `[VDD,GND]::DC(3.3V)`
+    // → `{"name":"[VDD, GND]","iface":"DC","iface_params":["3.3V"]}`.
     let params: Vec<Value> = module
         .params
-        .names_full()
         .iter()
-        .map(|n| json!(n))
+        .map(|d| {
+            let display = json!(d.display_name());
+            match d.interface_annotation() {
+                Some((class, p)) => json!({
+                    "name": d.display_name(),
+                    "iface": class,
+                    "iface_params": p,
+                }),
+                None => display,
+            }
+        })
         .collect();
     let params_with_defaults: Vec<Value> = module
         .params
@@ -1844,10 +1858,10 @@ pub(crate) fn dump_module_json(name: &str, module: &crate::McModule, uri: &str) 
         .funcs
         .iter()
         .map(|f| {
-            let body_lines: Vec<String> = f.lines.iter().map(|l| l.to_string()).collect();
+            let body_lines: Vec<String> = f.body_lines_display();
             json!({
                 "name": f.name.to_string(),
-                "params": f.params.names(),
+                "params": f.params.names_full_annotated(),
                 "returns": f.returns.kind_str(),
                 "called_time": f.called_time,
                 "body_lines": body_lines,
@@ -1942,7 +1956,15 @@ pub(crate) fn instances_json(insts: &crate::McInstances, type_filter: Option<&st
                 .get(n)
                 .and_then(|v| v.first())
                 .map(|r| json!({"start": r.start, "end": r.end}));
-            let mut entry = json!({"name": n.to_string(), "kind": kind, "class": class});
+            // Module port direction (`io`/`out`/`in`), empty for non-port
+            // instances (components, modules, inline net labels).
+            let io = match insts.insts().get(n) {
+                Some((crate::IOType::InOut, _)) => "io",
+                Some((crate::IOType::Out, _)) => "out",
+                Some((crate::IOType::In, _)) => "in",
+                _ => "",
+            };
+            let mut entry = json!({"name": n.to_string(), "io": io, "kind": kind, "class": class});
             if let Some(s) = span {
                 entry["span"] = s;
             }

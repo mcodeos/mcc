@@ -141,6 +141,9 @@ pub enum Command {
     /// Show detailed information for a definition (component/module/interface/enum) or its internals (pins/ports/nets/funcs/params/...)
     Show(ShowArgs),
 
+    /// List top-level definition names (component/module/interface/enum/nets/ports/files)
+    List(ListArgs),
+
     /// Search across loaded definitions (text/regex/fuzzy)
     Search(SearchArgs),
 
@@ -357,7 +360,8 @@ pub struct ShowArgs {
     #[arg(value_enum)]
     pub target: ShowTarget,
 
-    /// Name to show (list all if omitted)
+    /// Name of the entity to show (required for detail and drill targets;
+    /// name lists moved to `mcc list`)
     pub name: Option<String>,
 
     /// Parse directly from file (doesn't depend on loaded library/project)
@@ -369,34 +373,50 @@ pub struct ShowArgs {
     #[arg(long = "type", value_name = "TYPE")]
     pub r#type: Option<String>,
 
-    /// Structured filter (used with `--list` targets).
-    /// Comma-separated key=value (key in name|kind|class). RHS supports `*`/`?` wildcards.
+    /// Structured filter (accepted but ignored here; name lists moved to
+    /// `mcc list`, where --filter takes effect). Comma-separated key=value
+    /// (key in name|kind|class). RHS supports `*`/`?` wildcards.
     #[arg(long, value_name = "EXPR")]
     pub filter: Option<String>,
 
-    /// Show source position spans in `dump` text output (hidden by default)
+    /// Show source position spans in `show all` text details (hidden by default)
     #[arg(long)]
     pub span: bool,
+
+    /// Definition layers to show: file (default) | use | system | all.
+    /// `file` anchors on the -F target; without a file every loaded layer is shown.
+    #[arg(long, value_enum)]
+    pub scope: Option<ShowScope>,
+}
+
+/// Definition layers for `show all` (`--scope`).
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+pub enum ShowScope {
+    // Definitions declared in the target file (-F)
+    File,
+    // Definitions from use-imported / project libraries
+    Use,
+    // Definitions from system libraries (mcode and installed libs)
+    System,
+    // All layers: file + use + system
+    All,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 pub enum ShowTarget {
-    // ── Overview / containers ──────────────────────────────────────────────
-    // Overview of all definitions in scope (counts + name lists)
+    // ── Overview ────────────────────────────────────────────────────────────
+    // Overview of all definitions in scope, layered by origin
+    // (file/use/system, select with --scope; -F anchors the file layer)
     All,
-    // Show all elements in a file (<name> is the file path)
-    File,
-    // List all loaded files with their module/component counts
-    Files,
-    // List all components, or show one component's details
+    // One component's details (pins table)
     Component,
-    // List all modules, or show one module's details
+    // One module's details (summary + sub-instances)
     Module,
-    // List all interfaces, or show one interface's details
+    // One interface's details (pins, roles, params)
     Interface,
-    // List all enums, or show one enum's details
+    // One enum's details (values)
     Enum,
-    // List/show net details (Pass2, uses --top)
+    // One net's points (Pass2, uses --top)
     Net,
     // Dump LSP lapper intervals for a file (semantic tokens + symbols)
     Lapper,
@@ -426,11 +446,62 @@ pub enum ShowTarget {
     Roles,
     // Values of an enum
     Values,
+}
 
-    // Dump ALL parsed fields of an entity (component/module/interface/enum)
-    // for debugging input parsing issues. A `.mc` file path may be given
-    // instead of an entity name to dump every entity defined in that file.
-    Dump,
+// ============================================================================
+// list
+// ============================================================================
+
+#[derive(Parser, Debug)]
+pub struct ListArgs {
+    /// What to list
+    #[arg(value_enum)]
+    pub target: ListTarget,
+
+    /// Parse directly from file (doesn't depend on loaded library/project)
+    #[arg(long, short = 'F')]
+    pub file: Option<String>,
+
+    /// Structured filter on the name lists (all/component/module/interface/enum).
+    /// Comma-separated key=value (key in name|kind|class). RHS supports `*`/`?` wildcards.
+    #[arg(long, value_name = "EXPR")]
+    pub filter: Option<String>,
+
+    /// Definition layers for `list all` (same policy as `show all`):
+    /// file (default) | use | system | all. Accepted for the other targets
+    /// but ignored.
+    #[arg(long, value_enum)]
+    pub scope: Option<ShowScope>,
+
+    /// Filter by instance kind (accepted but ignored here; used by `show instances`)
+    #[arg(long = "type", value_name = "TYPE")]
+    pub r#type: Option<String>,
+
+    /// Show source position spans (accepted but ignored here; used by `show all`)
+    #[arg(long)]
+    pub span: bool,
+}
+
+/// What to list
+#[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
+pub enum ListTarget {
+    // Flat aggregate of every definition in scope, kind-tagged
+    // ({type:"all", count, list:[{name, kind}]})
+    All,
+    // All component names
+    Component,
+    // All module names
+    Module,
+    // All interface names
+    Interface,
+    // All enum names
+    Enum,
+    // All Pass2 nets of the top module (--top overrides; each entry has points)
+    Nets,
+    // All module ports
+    Ports,
+    // All loaded files with per-file definition counts
+    Files,
 }
 
 // ============================================================================

@@ -194,13 +194,7 @@ pub(crate) fn print_phrase_internal(
             }
             print!("{}", f.func_name);
             let param_strs: Vec<String> = f.params.iter().map(|p| format!("{p}")).collect();
-            // If in pre-closure mode, skip the leading "_" placeholder
-            let display_params = if is_pre_closure && param_strs.first() == Some(&"_".to_string()) {
-                &param_strs[1..]
-            } else {
-                &param_strs
-            };
-            print!("({})", display_params.join(", "));
+            print!("({})", param_strs.join(", "));
             println!(")");
         }
         McPhrase::Member(inner, endpoint) => {

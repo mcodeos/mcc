@@ -45,6 +45,10 @@ pub struct McFuncCall {
     /// - `ReturnShape::This` → caller's left/right preserved (for `return this` / implicit)
     /// - `ReturnShape::Label` → left empty, right = return value (for `return <expr>`)
     pub resolved_return_shape: Option<ReturnShape>,
+    /// Set when this call is the expansion target of a `=>` pre-closure
+    /// (`vin => CAP(10uF).Cap(_)`): the series element before this call is
+    /// the pre-closure input and the display joins them with `=>`.
+    pub pre_closure: bool,
 }
 
 /// ★ P4.1: Fcall return shape resolved from McFunction.returns.
@@ -500,6 +504,7 @@ impl McFuncCall {
                 right: vec![],
                 dot_member: None,
                 resolved_return_shape: None,
+                pre_closure: false,
             };
 
             // Create outer FuncCall: ClassName(params).MethodName(all_method_params)
@@ -512,6 +517,7 @@ impl McFuncCall {
                 right: vec![],
                 dot_member: None,
                 resolved_return_shape: None,
+                pre_closure: true,
             };
 
             // Create Series: pre_param -> funcall
@@ -599,6 +605,7 @@ impl McFuncCall {
                                             right: vec![],
                                             dot_member: None,
                                             resolved_return_shape: None,
+                                            pre_closure: false,
                                         })));
                                     }
                                 }
@@ -1041,6 +1048,7 @@ impl McFuncCall {
                                                                 right,
                                                                 dot_member: None,
                                                                 resolved_return_shape: None,
+                                                                pre_closure: false,
                                                             },
                                                         ));
                                                     }
@@ -1382,6 +1390,7 @@ impl McFuncCall {
             right,
             dot_member: None,
             resolved_return_shape: None,
+            pre_closure: false,
         }))
     }
 
@@ -1637,6 +1646,7 @@ impl McFuncCall {
                 right: vec![],
                 dot_member: None,
                 resolved_return_shape: None,
+                pre_closure: false,
             })))
         } else {
             None

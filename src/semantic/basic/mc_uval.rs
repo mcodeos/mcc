@@ -179,7 +179,13 @@ pub struct McUnitValue {
 
 impl McUnitValue {
     pub fn new(child_node: &AstNode) -> Option<Self> {
-        let Some(child_node) = child_node.get_sub_node() else {
+        // Most unit-value nodes wrap the data in a sub-node, but some
+        // (e.g. percent `20%`) carry the data on the node itself; fall
+        // back to the node in that case.
+        let Some(child_node) = child_node
+            .get_sub_node()
+            .or_else(|| Some(child_node.clone()))
+        else {
             dlog_error(
                 crate::errcodes::UVAL_MISSING_DATA_NODE,
                 child_node,
@@ -258,6 +264,15 @@ impl McUnitValue {
         // The original text no longer matches the negated value.
         neg.raw = None;
         neg
+    }
+
+    /// Override the round-trip source text. Used for range / plus-minus
+    /// forms the single-value parser cannot produce on its own, e.g.
+    /// `2.5V~5.5V` (value keeps the low bound, raw echoes the full text)
+    /// or `±20%` (raw carries the `±` prefix that the lexer consumed).
+    pub fn with_raw_text(mut self, text: String) -> Self {
+        self.raw = Some(text);
+        self
     }
 
     /// Parse a unit value from a data string + type node (when data is embedded directly)

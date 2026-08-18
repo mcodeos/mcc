@@ -432,6 +432,22 @@ impl McParamDeclares {
         self.declares.iter().map(|d| d.display_name()).collect()
     }
 
+    /// Get all parameter names including compound forms, with interface
+    /// annotations preserved — `V3V3::DC(3.3V)`, `[VDD, GND]::DC(3.3V)`.
+    pub fn names_full_annotated(&self) -> Vec<String> {
+        self.declares
+            .iter()
+            .map(|d| {
+                let name = d.display_name();
+                match d.interface_annotation() {
+                    Some((class, args)) if args.is_empty() => format!("{name}::{class}"),
+                    Some((class, args)) => format!("{name}::{class}({})", args.join(", ")),
+                    None => name,
+                }
+            })
+            .collect()
+    }
+
     pub fn get_params_with_defaults(&self) -> Vec<(McIds, String)> {
         self.declares
             .iter()
@@ -963,6 +979,23 @@ impl McParamDeclare {
                 format!("[{}]", names.join(", "))
             }
             _ => self.get_primary_name().unwrap_or_default(),
+        }
+    }
+
+    /// Interface class binding for interface-typed params —
+    /// `[VDD, GND]::DC(3.3V)` → `("DC", ["3.3V"])`. `None` when the parameter
+    /// is not bound to an interface.
+    pub fn interface_annotation(&self) -> Option<(String, Vec<String>)> {
+        match &self.param_type.kind {
+            crate::semantic::basic::mc_param_type::McParamTypeKind::Interface {
+                class_name,
+                params,
+            } => Some((class_name.clone(), params.clone())),
+            crate::semantic::basic::mc_param_type::McParamTypeKind::InterfaceWithRole {
+                class_name,
+                role_val,
+            } => Some((class_name.clone(), vec![role_val.clone()])),
+            _ => None,
         }
     }
 

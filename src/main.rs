@@ -160,7 +160,10 @@ fn main() -> ExitCode {
     let need_mcc_init = match &cli.command {
         Some(Command::Start(_)) | Some(Command::Stop(_)) | Some(Command::Status(_)) => false,
         Some(Command::Config(_)) | Some(Command::Proj(_)) => false,
-        Some(Command::Show(_)) | Some(Command::Search(_)) | Some(Command::Query(_)) => false,
+        Some(Command::Show(_))
+        | Some(Command::List(_))
+        | Some(Command::Search(_))
+        | Some(Command::Query(_)) => false,
         Some(Command::Export(_)) => false,
         Some(Command::Parse(_)) | Some(Command::Check(_)) | Some(Command::Extract(_)) => false,
         Some(Command::Build(_)) | Some(Command::Def(_)) | Some(Command::Erc(_)) => false,
@@ -193,6 +196,7 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
         | Some(Command::Check(_))
         | Some(Command::Extract(_))
         | Some(Command::Show(_))
+        | Some(Command::List(_))
         | Some(Command::Build(_)) => Some(mcc::cli::globals().format),
         Some(Command::Search(a)) => {
             if a.json {
@@ -240,6 +244,10 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
         }
         Some(Command::Show(args)) => {
             cmds::show::run(&args)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Some(Command::List(args)) => {
+            cmds::list::run(&args)?;
             Ok(ExitCode::SUCCESS)
         }
         Some(Command::Search(args)) => {
@@ -330,6 +338,7 @@ fn print_help_hint() {
     eprintln!("  check    Syntax check, output diagnostics");
     eprintln!("  build    Manifest-driven build");
     eprintln!("  show     Show component / module / interface / net / file details");
+    eprintln!("  list     List top-level definition names (component / module / interface / enum / nets / ports / files / all)");
     eprintln!("  extract  Extract instances/netlist/components/interfaces");
     eprintln!("  search   Search across loaded definitions (text/regex/fuzzy)");
     eprintln!("  query    Structured DSL query (operators, AND/OR/NOT, attr())");
