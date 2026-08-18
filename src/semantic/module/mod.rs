@@ -626,6 +626,14 @@ impl McModule {
                 "[AUDIT-ParamBusDef] bus={busname} span={whole_span:?} members={member_spans:?}");
             insts.register_bus_def(&busname, whole_span, member_spans);
         }
+        // Also register the actual bus instance with the FULL member set. Without
+        // it the first member ref in a net line (`dc.GND`) auto-creates a
+        // single-member bus via `McPhrase::add_bus`, so `show` lists only the
+        // referenced member instead of the declared `dc{VDD_3V3, GND}`.
+        insts.create_inst(
+            &busname,
+            McInstance::Bus(McBus::new_with_members(&busname, members)),
+        );
     }
 
     pub(crate) fn find_inst(&self, id: &str) -> Option<McInstance> {

@@ -35,7 +35,7 @@ use crate::semantic::basic::mc_ids::McIds;
 use crate::semantic::basic::mc_paramd::McParamDeclares;
 use crate::semantic::common::IOType;
 use crate::semantic::component::mc_attr::McAttributes;
-use crate::semantic::component::mc_pins::McPins;
+use crate::semantic::component::mc_pins::{McPinPort, McPins};
 use crate::semantic::component::{find_scoped_enum_value, port_to_instance, McComponent};
 use crate::semantic::mc_enum::{McEnumDef, McEnumValue};
 use crate::semantic::mc_func::{HasFindInst, McFunctions};
@@ -206,7 +206,7 @@ impl ResolveScope<Resolved> for AttrsScope<'_> {
 }
 
 /// Whole pin names (component P4, includes `pins` transparency):
-/// `names_to_id` match → instance via `port_to_instance`.
+/// `names_to_id` match → Label carrying the declared pin name.
 pub struct PinNamesScope<'a> {
     pins: &'a McPins,
 }
@@ -221,10 +221,17 @@ impl ResolveScope<Resolved> for PinNamesScope<'_> {
     fn resolve(&self, name: &str) -> Option<Resolved> {
         let port = self.pins.names_to_id.get(name)?;
         let span = self.pins.pin_name_spans.get(name).cloned();
-        Some(Resolved {
-            inst: port_to_instance(port),
-            span,
-        })
+        // True pins (Single/Multi/MultiGroup) keep the declared name so
+        // func-body references display the semantic name (VDD/GPIO[2]/GND)
+        // instead of the pin id. Bus/List/Interface pins keep their typed
+        // instance so symbol classification (BusDef/ListDef/...) is preserved.
+        let inst = match port {
+            McPinPort::Single(_) | McPinPort::Multi(_) | McPinPort::MultiGroup(_) => {
+                McInstance::Label(name.to_string())
+            }
+            other => port_to_instance(other),
+        };
+        Some(Resolved { inst, span })
     }
 }
 
@@ -922,7 +929,8 @@ mod tests {
         assert!(AttrsScope::new(&attrs).resolve("package").is_none());
     }
 
-    /// PinNamesScope: whole pin names → port instance + stored name span.
+    /// PinNamesScope: whole pin names → single/multi pins carry the declared
+    /// name; bus/list/interface pins keep their typed instance.
     #[test]
     fn pin_names_scope_resolves_pin() {
         let pins = pins_with(
@@ -932,7 +940,7 @@ mod tests {
             vec![],
         );
         let hit = PinNamesScope::new(&pins).resolve("VDD").unwrap();
-        assert!(matches!(hit.inst, McInstance::Label(ref n) if n == "1"));
+        assert!(matches!(hit.inst, McInstance::Label(ref n) if n == "VDD"));
         assert_eq!(hit.span, Some(10..13));
         assert!(PinNamesScope::new(&pins).resolve("GND").is_none());
     }

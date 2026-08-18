@@ -104,6 +104,32 @@ impl McInstanceRef {
             if let McInstance::Bus(bus) = &self.base {
                 return bus.name.clone();
             }
+            // An interface instance created by a `name::IFACE(params)` declareb
+            // (e.g. `V5V::DC(5V)`) keeps its interface annotation so connection
+            // lines render `V5V::DC(5V)` instead of the bare instance name.
+            if let McInstance::Interface(i) = &self.base {
+                let name_str = if i.name.is_list() {
+                    i.name
+                        .list_members()
+                        .map(|m| format!("{{{}}}", m.join(",")))
+                        .unwrap_or_else(|| format!("{}", i.name))
+                } else {
+                    format!("{}", i.name)
+                };
+                let params_str = if i.params.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        "({})",
+                        i.params
+                            .iter()
+                            .map(|p| format!("{p}"))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                };
+                return format!("{name_str}::{}{params_str}", i.base.name);
+            }
             self.base.get_name()
         } else {
             let all_members: Vec<String> = self.expand_members();

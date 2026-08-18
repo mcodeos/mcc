@@ -72,17 +72,17 @@ fn validate_inst_member_ref(
             | McInstance::Attr(_)
             | McInstance::Func(_)
             | McInstance::EnumVal { .. } => {
-                let phrases: Vec<McPhrase> = members
-                    .iter()
-                    .map(|m| {
-                        let member_ref = McBus::member_ref(base_name, m.clone());
-                        McPhrase::Endpoint(McEndpoint::Single(McInstanceRef::new(McInstance::Bus(
-                            member_ref,
-                        ))))
-                    })
-                    .collect();
-
-                return Some(McPhrase::series(phrases));
+                // A multi-member curly reference `name{P, N}` is a column
+                // vector: a single endpoint carrying all members, not a
+                // series of single-member endpoints. The component/module/
+                // interface member builders below produce the same
+                // single-endpoint form, so downstream netlist resolution
+                // (lane pairing) sees a consistent shape.
+                let inst_ref = McInstanceRef {
+                    base: McInstance::Bus(McBus::new_with_members(base_name, members.to_vec())),
+                    members: Vec::new(),
+                };
+                return Some(McPhrase::Endpoint(McEndpoint::Single(inst_ref)));
             }
             McInstance::Interface(iface) => {
                 return validate_interface_member_ref(base_name, members, iface, context, node);

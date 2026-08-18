@@ -765,11 +765,17 @@ impl McPhrase {
                     // Source span of the instance ID node (e.g. `res[1:2]` / `C4`),
                     // reused for LSP declaration registration below.
                     let mut names_span: Option<std::ops::Range<usize>> = None;
+                    // Source offset of the instance ID node, used to tell the
+                    // `name::TYPE(...)` form (instance first) from a space-form
+                    // `TYPE name` declaration (class first) — the two share the
+                    // same AST shape (MCAST_CLASS + MCAST_INSTANCE).
+                    let mut inst_pos: Option<u32> = None;
                     for c in sub.iter() {
                         let t = c.get_type();
                         if t == MCAST_CLASS && class_node.is_none() {
                             class_node = Some(c.clone());
                         } else if t == MCAST_INSTANCE {
+                            inst_pos = Some(c.get_pos());
                             let inst_id_node = c.get_sub_node().unwrap_or_else(|| c.clone());
                             let ids_node = if inst_id_node.get_type() == MCAST_OPD {
                                 inst_id_node
@@ -809,7 +815,26 @@ impl McPhrase {
                             // semantics. LSP classification of the declared names
                             // (C4/C5 → inst) is supplied separately via
                             // record_declareb_def below.
-                            let build = is_twopin;
+                            //
+                            // Also take this path for any resolved COMPONENT class
+                            // (`TP1::TEST_POINT()`): a named inline construction must
+                            // render with `::CLASS(...)` rather than degrading to a
+                            // bare instance name. Net types (DC/GND interfaces, which
+                            // are not components) keep the parse_declare path below.
+                            let is_component = matches!(
+                                resolve_cmie(&DB, &class_ids, context.uri()),
+                                Some(McCMIE::Component(_))
+                            );
+                            // Only the `name::TYPE(...)` form (instance name
+                            // before the class, e.g. `TP1::TEST_POINT()`) is a
+                            // named inline construction. A space-form `TYPE name`
+                            // declaration inside a net chain (`_M U1 + GND`) is a
+                            // plain instance and must keep the parse_declare path
+                            // below so 3-pin plus/minus checks and normal display
+                            // still apply. The grammar produces the same AST for
+                            // both forms, so source order disambiguates them.
+                            let inline_ctor = inst_pos.map(|i| i < cls.get_pos()).unwrap_or(false);
+                            let build = is_twopin || (is_component && inline_ctor);
                             if build {
                                 // ★ LSP: Register declareb instance declarations
                                 // (`res[1:2]::RES(0Ω)` → res1/res2, `C4::CAP()` → C4).
@@ -899,6 +924,7 @@ impl McPhrase {
                                         dot_member: None,
                                         resolved_return_shape: None,
                                         pre_closure: false,
+                                        named_ctor: true,
                                     }));
                                 }
                                 return Some(if fcs.len() <= 1 {
@@ -915,6 +941,7 @@ impl McPhrase {
                                             dot_member: None,
                                             resolved_return_shape: None,
                                             pre_closure: false,
+                                            named_ctor: true,
                                         })
                                     })
                                 } else {
@@ -1765,14 +1792,18 @@ impl McPhrase {
                     return None;
                 }
 
+                // Only flatten a chain whose direction matches the operator's
+                // `-` (Undirected). An embedded `->` chain keeps its own
+                // direction (`A -> B - C` stays `A -> B - C`), otherwise the
+                // inner direction would be lost when the outer Series flattens it.
                 let mut ret_line: Vec<McPhrase> = match opd1 {
-                    Series(line, _) => line,
-                    _ => vec![opd1],
+                    Series(line, ConnDir::Undirected) => line,
+                    other => vec![other],
                 };
 
                 match opd2 {
-                    Series(line2, _) => ret_line.extend(line2),
-                    _ => ret_line.push(opd2),
+                    Series(line2, ConnDir::Undirected) => ret_line.extend(line2),
+                    other => ret_line.push(other),
                 }
                 Some(Series(ret_line, ConnDir::Undirected))
             }
@@ -1824,10 +1855,14 @@ impl McPhrase {
                     return None;
                 }
 
-                // ret_line: Vec<McPhrase> representing the accumulated line
+                // ret_line: Vec<McPhrase> representing the accumulated line.
+                // Only flatten a chain whose direction matches `->` (LtoR); an
+                // embedded `-` chain keeps its own direction (`A - B -> C`
+                // stays `A - B -> C`), otherwise the inner direction would be
+                // lost when the outer Series flattens it.
                 let mut ret_line: Vec<McPhrase> = match opd1 {
-                    Series(phrases, _) => phrases,
-                    _ => vec![opd1],
+                    Series(phrases, ConnDir::LtoR) => phrases,
+                    other => vec![other],
                 };
                 // Set right side of ret_line as output
                 if let Some(last) = ret_line.last_mut() {
@@ -1836,8 +1871,8 @@ impl McPhrase {
 
                 // line2: the second operand
                 let mut line2 = match opd2 {
-                    Series(phrases, _) => phrases,
-                    _ => vec![opd2],
+                    Series(phrases, ConnDir::LtoR) => phrases,
+                    other => vec![other],
                 };
                 // Set left side of line2 as input
                 if let Some(first) = line2.first_mut() {
@@ -1900,10 +1935,12 @@ impl McPhrase {
                     return None;
                 }
 
-                // opd2 is source, its right is output
+                // opd2 is source, its right is output.
+                // Only flatten a chain whose direction matches `<-` (RtoL); an
+                // embedded `-`/`->` chain keeps its own direction.
                 let mut ret_line: Vec<McPhrase> = match opd2 {
-                    Series(phrases, _) => phrases,
-                    _ => vec![opd2],
+                    Series(phrases, ConnDir::RtoL) => phrases,
+                    other => vec![other],
                 };
                 if let Some(last) = ret_line.last_mut() {
                     last.set_right_out();
@@ -1911,8 +1948,8 @@ impl McPhrase {
 
                 // opd1 is the target, its left side is input
                 let mut line1: Vec<McPhrase> = match opd1 {
-                    Series(phrases, _) => phrases,
-                    _ => vec![opd1],
+                    Series(phrases, ConnDir::RtoL) => phrases,
+                    other => vec![other],
                 };
                 if let Some(first) = line1.first_mut() {
                     first.set_left_in();
@@ -3104,8 +3141,13 @@ fn needs_paren_for_priority(phrase: &McPhrase) -> bool {
 
 fn needs_paren_for_series(phrase: &McPhrase) -> bool {
     match phrase {
-        McPhrase::Parallel(_) => true,
-        McPhrase::Transposed(_) => true,
+        // `+` binds tighter than `->` / `-` / `<-`, so a Parallel item in a
+        // Series re-parses as one item without parentheses
+        // (`a + b -> c` is `(a + b) -> c`).
+        McPhrase::Parallel(_) => false,
+        // `Transposed` renders with self-delimiting parentheses (`({p})'`),
+        // so extra parentheses are redundant (`(({p})')` -> `({p})'`).
+        McPhrase::Transposed(_) => false,
         // `Multiple` renders with self-delimiting brackets (`[a, b]`),
         // so extra parentheses are redundant (`([a, b])` -> `[a, b]`).
         _ => false,
@@ -3164,10 +3206,35 @@ impl std::fmt::Display for McPhrase {
                 let items: Vec<String> = phrases.iter().map(|p| format!("{p}")).collect();
                 write!(f, "{}", items.join(" + "))
             }
-            McPhrase::Transposed(p) => write!(f, "({p})'"),
+            McPhrase::Transposed(p) => {
+                // A parenthesized operand (`(a -> b)'`) is a one-element Group
+                // whose own Display keeps the parentheses; render it inside the
+                // transpose's parentheses instead of doubling them.
+                if let McPhrase::Group(g) = p.as_ref() {
+                    if g.opds.len() == 1 {
+                        return write!(f, "({})'", g.opds[0]);
+                    }
+                }
+                write!(f, "({p})'")
+            }
             McPhrase::Multiple(phrases) => {
-                let items: Vec<String> = phrases.iter().map(|p| format!("{p}")).collect();
-                write!(f, "[{}]", items.join(", "))
+                // Flatten nested `Multiple` so a source `[dio[1:2]::DIO(...)]`
+                // (already expanded to a Multiple) is not rendered as `[[..]]`.
+                fn flatten<'a>(p: &'a McPhrase, out: &mut Vec<String>) {
+                    match p {
+                        McPhrase::Multiple(inner) => {
+                            for x in inner {
+                                flatten(x, out);
+                            }
+                        }
+                        other => out.push(format!("{other}")),
+                    }
+                }
+                let mut flat: Vec<String> = Vec::new();
+                for p in phrases {
+                    flatten(p, &mut flat);
+                }
+                write!(f, "[{}]", flat.join(", "))
             }
             McPhrase::Closure(c) => write!(f, "=>({})", c.body.len()),
             McPhrase::FuncCall(fc) => {
@@ -3200,8 +3267,10 @@ impl std::fmt::Display for McPhrase {
                 };
 
                 // Print caller or pre-closure parameter.
-                // Function calls always bind with `.` (source: `CAP(x).Cap(_)`,
-                // `R442::RES(...)` → `R442.RES(...)`), never ` -> `.
+                // Function calls bind with `.` (source: `CAP(x).Cap(_)`),
+                // except declareb constructions (`C4::CAP()`) which bind with
+                // `::` per `named_ctor`.
+                let joiner = if fc.named_ctor { "::" } else { "." };
                 if let Some(c) = &fc.caller {
                     if caller_is_pre_closure {
                         if let McPhrase::FuncCall(inner_fc) = c.as_ref() {
@@ -3212,10 +3281,10 @@ impl std::fmt::Display for McPhrase {
                         } else {
                             write!(f, "{c}")?;
                         }
-                        write!(f, ".")?;
+                        write!(f, "{joiner}")?;
                     } else {
                         write!(f, "{c}")?;
-                        write!(f, ".")?;
+                        write!(f, "{joiner}")?;
                     }
                 }
                 write!(f, "{}", fc.func_name)?;
@@ -3228,7 +3297,22 @@ impl std::fmt::Display for McPhrase {
             }
             McPhrase::Group(g) => {
                 if g.opds.len() == 1 {
-                    write!(f, "{}", g.opds[0])
+                    // One-element Groups come from explicit source parentheses.
+                    // Keep them for compound phrases so the output round-trips
+                    // to the same structure (`(a -> b) + c`, `[x, (a -> b)]`);
+                    // leaves (`a`, `a.b`, `CAP(10uF)`) render bare.
+                    let inner = &g.opds[0];
+                    if matches!(
+                        inner,
+                        McPhrase::Series(_, _)
+                            | McPhrase::Parallel(_)
+                            | McPhrase::Multiple(_)
+                            | McPhrase::Group(_)
+                    ) {
+                        write!(f, "({inner})")
+                    } else {
+                        write!(f, "{inner}")
+                    }
                 } else {
                     let items: Vec<String> = g
                         .opds
