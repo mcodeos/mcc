@@ -1768,6 +1768,7 @@ mod m11_diagnostic_tests {
             route: None,
             src_pos: None,
             source_span: None,
+            port_group: None,
         }
     }
 

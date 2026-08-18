@@ -41,7 +41,7 @@ pub struct Cli {
 
     /// Enable debug output for a target; aliases: pass1, pass2, fcall, lapper, vec, viz, lsp, all
     #[arg(
-        short = 'D',
+        short = 'd',
         long = "debug",
         global = true,
         value_name = "TARGET[=LEVEL]"
@@ -207,7 +207,7 @@ pub struct ParseArgs {
     pub code: Option<String>,
 
     /// Only output diagnostics (errors and warnings) as `file:line:col: level[code]: message`
-    #[arg(long, short = 'd')]
+    #[arg(long)]
     pub dlog: bool,
 
     /// Instance Tree pin sorting: `pinid` (default, sort by pinid number ascending) or
@@ -264,7 +264,7 @@ pub struct CheckArgs {
     pub target: Option<String>,
 
     /// Only output diagnostics (errors and warnings) as `file:line:col: level[code]: message`
-    #[arg(long, short = 'd')]
+    #[arg(long)]
     pub dlog: bool,
 
     /// Show errors only, ignore warnings
@@ -686,7 +686,7 @@ pub struct StartArgs {
     pub log_file: Option<String>,
 
     /// Run in background
-    #[arg(long, short = 'd')]
+    #[arg(long, short = 'b')]
     pub background: bool,
 
     /// PID file location
