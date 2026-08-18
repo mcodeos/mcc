@@ -118,7 +118,7 @@ pub fn run_start(args: &StartArgs) -> Result<()> {
     }
 
     // ── Foreground mode ────────────────────────────────────────────
-    // Without -d/--background, run server in the current process, logging to stderr and --log-file,
+    // Without -b/--background, run server in the current process, logging to stderr and --log-file,
     // Ctrl-C to exit.
     if !args.background {
         crate::logging::init_with_log_file_and_stderr(0, false, args.log_file.as_deref(), false);
@@ -139,7 +139,7 @@ pub fn run_start(args: &StartArgs) -> Result<()> {
         return run_server_internal(&host, port, &mcc::cli::globals().lib);
     }
 
-    // ── Background mode (-d/--background) ────────────────────────────────────
+    // ── Background mode (-b/--background) ────────────────────────────────────
     // Use setsid to launch background process, detach stdout/stderr
     let exe_path = std::env::current_exe()?;
     let mut cmd = process::Command::new(&exe_path);

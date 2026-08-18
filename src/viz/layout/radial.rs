@@ -683,6 +683,7 @@ mod tests {
                 kind: EdgeKind::Signal,
                 source_span: None,
                 port_group: None,
+                bidirectional: false,
             },
             BlockEdge {
                 from_box: 1,
@@ -692,6 +693,7 @@ mod tests {
                 kind: EdgeKind::Power,
                 source_span: None,
                 port_group: None,
+                bidirectional: false,
             },
         ];
         let graph = McVecGraph::new(0, "test".into());

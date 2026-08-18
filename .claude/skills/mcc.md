@@ -61,7 +61,7 @@ cargo build
   -q, --quiet                         Quiet mode, reduce output
   -g, --origin                        Log lines include timestamp, module and file:line
   -c, --cwd <DIR>                     Change working directory before running
-  -D, --debug <TARGET[=LEVEL]>        Enable debug output for a target (repeatable)
+  -d, --debug <TARGET[=LEVEL]>        Enable debug output for a target (repeatable)
   -L, --local                         Run in this process; skip RPC delegation to a running `mcc start` server
   -l, --lib <NAME>                    Load a library before running (repeatable)
   -f, --format <FORMAT>               Output format: text | json | json-pretty | yaml | csv
@@ -74,7 +74,7 @@ cargo build
 Global flags may appear before or after the subcommand:
 `mcc --lib mcode -f json parse example.mc --top main` ≡ `mcc parse example.mc --top main --lib mcode -f json`
 
-### Debug Targets (`-D` flag)
+### Debug Targets (`-d` flag)
 
 Runtime-controllable per-module debug output via `mcc_dbg!` macro (20 tracing targets):
 
@@ -91,18 +91,18 @@ Runtime-controllable per-module debug output via `mcc_dbg!` macro (20 tracing ta
 
 ```bash
 # Example: enable function-call resolution debug
-mcc parse example.mc -D fcall=debug -vv
+mcc parse example.mc -d fcall=debug -vv
 
 # Example: enable multiple targets at different levels
-mcc parse example.mc -D pass1=trace -D inst::dump=debug
+mcc parse example.mc -d pass1=trace -d inst::dump=debug
 ```
 
-**Default logging is quiet.** Plain CLI runs (no `-v` / `-D`) emit warnings only
+**Default logging is quiet.** Plain CLI runs (no `-v` / `-d`) emit warnings only
 (`warn` level). The file-configured `trace.level` / `trace.targets` in
 `~/.mcode/config/mcc.yaml` are loaded into runtime state for `trace.get` but are
 **not applied to CLI runs** — otherwise a file-configured `level: debug` would
 bury command results under INFO/DEBUG logs. File config takes effect only when
-you explicitly pass `-v` / `-D`, or via RPC `trace.set` on a server.
+you explicitly pass `-v` / `-d`, or via RPC `trace.set` on a server.
 
 ### RPC Debug Control
 
@@ -162,7 +162,7 @@ Key flags (see also Global Flags above; `--lib`/`--top`/`-f`/`-o` are global):
 | `--code CODE` | Parse inline code |
 | `-l, --lib NAME` | Load a library (global, repeatable) |
 | `-t, --top NAME` | Top-level module name (global) |
-| `-d, --dlog` | Only output diagnostics as `file:line:col: level[code]: message` |
+| `--dlog` | Only output diagnostics as `file:line:col: level[code]: message` |
 | `--sort {pinid\|interface}` | Pin sorting mode |
 | `--pass1` | Parse only (no instantiation) |
 | `--pass2` | Parse + instantiate |
@@ -198,12 +198,12 @@ mcc check example.mc --nets
 mcc check example.mc -f json-pretty
 
 # Only diagnostics as file:line:col lines
-mcc check example.mc -d
+mcc check example.mc --dlog
 ```
 
 ---
 
-### 2.3 `build` — Manifest-Driven Build
+### 2.3 `build` — Manifest-driven Build
 
 ```bash
 # Build from project.toml in current directory
@@ -418,10 +418,10 @@ mcc lib unload mylib
 mcc start --host 127.0.0.1 --port 8080 --lib mcode
 
 # Start background daemon
-mcc start -d --port 8080 --lib mcode
+mcc start -b --port 8080 --lib mcode
 
 # With logging
-mcc start --log-level debug -l /tmp/mcc-server.log
+mcc start --log-level debug --log-file /tmp/mcc-server.log
 
 # Check status
 mcc status
@@ -739,7 +739,7 @@ Pass 2 — Instantiate
 
 Pass 3 — Vector
   build_mc_vec → McVecBlock → build_mc_vec_graph → McVecGraph
-  D1-D8 detectors run here (codes 2001-2008)
+  D1-d8 detectors run here (codes 2001-2008)
 
 Pass 4 — Layout + Render
   Layout algorithms → wire routing → SVG render → HTML template
@@ -783,8 +783,8 @@ MCC_SYSTEM_ROOT=./mc RUST_BACKTRACE=1 cargo run -- parse mc/projects/hbl/hbl.mc
 # Default (no flags): warnings only. File-configured trace.level/targets are
 # NOT applied to CLI runs — debug output is explicit opt-in:
 mcc show pins RES --lib mcode            # clean result, no engine logs
-mcc -D sem:class show pins RES --lib mcode   # one module at debug level
-mcc -D pass1=trace parse example.mc      # alias + file config, explicit
+mcc -d sem:class show pins RES --lib mcode   # one module at debug level
+mcc -d pass1=trace parse example.mc      # alias + file config, explicit
 
 # Increasing verbosity (overrides the default warn level)
 mcc parse example.mc -v            # info
@@ -808,8 +808,8 @@ MC_VIZ_DUMP=1 mcc parse example.mc --viz --top main
 
 ```bash
 # Background daemon with library preload (most common)
-mcc start -d --port 8080 --lib mcode
-mcc start -d --log-file /tmp/mcc.log --lib mcode    # with log file
+mcc start -b --port 8080 --lib mcode
+mcc start -b --log-file /tmp/mcc.log --lib mcode    # with log file
 
 # Foreground server with full tracing (debug mode)
 mcc start --port 8080 -vv --lib mcode
@@ -974,7 +974,7 @@ curl -X POST http://127.0.0.1:8080/rpc \
 | 5641-5643 | Global diagnostics | Unused param/port, untyped param |
 | 6001-6004 | ERC | Single-point net, unconnected port, multi-drive, floating net |
 
-The D1-D7 detector codes referenced by build.rs tests map as follows:
+The D1-d7 detector codes referenced by build.rs tests map as follows:
 
 | Detector | Code | Constant |
 |---|---|---|
@@ -1103,7 +1103,7 @@ mcc show lapper us513.mc --lib mcode -f json | python3 -m json.tool
 ```bash
 # 1. Start server with mcode preloaded
 cd ~/work/mo/mcc
-./target/debug/mcc start --lib mcode -d -l /tmp/mcc.log
+./target/debug/mcc start --lib mcode -b --log-file /tmp/mcc.log
 
 # 2. Inspect lapper symbols via sem RPC (all ClassRef/ClassDef)
 curl -s -X POST http://127.0.0.1:8080/rpc \
@@ -1243,12 +1243,12 @@ tail -f ~/.mcode/logs/mcc-server.log
 ```yaml
 trace:
   # Base level: off | error | warn | info | debug | trace
-  # Applied only when CLI runs with -v / -D (or via RPC trace.set).
+  # Applied only when CLI runs with -v / -d (or via RPC trace.set).
   # Plain CLI commands (mcc show/parse/check ...) stay at the -v/-q-derived
   # default (warn) so results are not buried under INFO/DEBUG logs.
   level: warn
-  # Per-module overrides (mcc::sem::fcall: debug). Enabled per-run with -D:
-  #   mcc -D sem:class parse example.mc
+  # Per-module overrides (mcc::sem::fcall: debug). Enabled per-run with -d:
+  #   mcc -d sem:class parse example.mc
   # targets:
   #   mcc::sem::fcall: debug
   enabled: null
