@@ -44,19 +44,20 @@ use std::path::Path;
 // ============================================================================
 
 pub fn run(args: &ParseArgs) -> Result<()> {
-    // ── 0. RPC takes priority (server mode), but --dlog always runs locally ──
-    if !args.dlog {
-        if let Some(client) = RpcClient::probe() {
-            let params = json!({
-                "entry": args.target.clone(),
-                "top":   args.top.clone(),
-                "code":  args.code.clone(),
-                "libs":  args.lib.clone(),
-            });
-            let result = client.call("parse", params)?;
-            println!("{}", serde_json::to_string_pretty(&result)?);
-            return Ok(());
-        }
+    // ── 0. RPC delegation (server mode) ──
+    // --local (global flag) is honored centrally by RpcClient::probe();
+    // --dlog only affects output rendering below and no longer implies
+    // local execution. Use `mcc parse <file> --dlog --local` when both are wanted.
+    if let Some(client) = RpcClient::probe() {
+        let params = json!({
+            "entry": args.target.clone(),
+            "top":   mcc::cli::globals().top.clone(),
+            "code":  args.code.clone(),
+            "libs":  mcc::cli::globals().lib.clone(),
+        });
+        let result = client.call("parse", params)?;
+        println!("{}", serde_json::to_string_pretty(&result)?);
+        return Ok(());
     }
 
     // ── 0.5. Local mode initialization (shared helper) ──
@@ -64,7 +65,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
     // manifest + CLI --lib, plus the mcode default (unless disabled).
     // Without this, local-mode parse can't see mcode's interfaces and emits spurious
     // E1304 / E2702 warnings for every `X::Interface(...)` reference.
-    manifest::init_local(args.target.as_deref(), &args.lib);
+    manifest::init_local(args.target.as_deref(), &mcc::cli::globals().lib);
 
     // ── 0.6. Pass 0 snapshot: lib load + C parser error attribution ──
     // Must snapshot after mcc_load_project and before tracker.new(),
@@ -79,7 +80,11 @@ pub fn run(args: &ParseArgs) -> Result<()> {
     } else if let Some(t) = &args.target {
         let p = Path::new(t);
         if p.is_dir() {
-            match manifest::build_from_manifest(p, args.top.as_deref(), args.entry.as_deref()) {
+            match manifest::build_from_manifest(
+                p,
+                mcc::cli::globals().top.as_deref(),
+                mcc::cli::globals().entry.as_deref(),
+            ) {
                 Ok((entry_uri, top)) => {
                     forced_top = Some(top);
                     McURI::from(entry_uri.as_str())
@@ -88,20 +93,18 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                     // P2 (§19.5 rule 3): directory without a usable manifest —
                     // browse-mode entry selection. One entry file plus its `use`
                     // closure, not the whole directory (mirrors IDE auto_load).
-                    match manifest::select_browse_entry(p, args.entry.as_deref()) {
+                    match manifest::select_browse_entry(p, mcc::cli::globals().entry.as_deref()) {
                         Ok(entry_path) => {
                             mcc::mcc_set_project_root(p);
                             let entry_uri = entry_path.to_string_lossy().to_string();
                             mcc::mcc_load_project(&entry_uri);
-                            forced_top = args
+                            forced_top = mcc::cli::globals()
                                 .top
                                 .clone()
                                 .or_else(|| mcc::mcb_get_module_name_by_uri(&entry_uri));
                             McURI::from(entry_uri.as_str())
                         }
-                        Err(e) => {
-                            return emit_error(args, RpcError::invalid_params(format!("{:#}", e)))
-                        }
+                        Err(e) => return emit_error(RpcError::invalid_params(format!("{:#}", e))),
                     }
                 }
             }
@@ -111,18 +114,17 @@ pub fn run(args: &ParseArgs) -> Result<()> {
             uri
         }
     } else {
-        return emit_error(
-            args,
-            RpcError::invalid_params("parse: <target>/--code not specified"),
-        );
+        return emit_error(RpcError::invalid_params(
+            "parse: <target>/--code not specified",
+        ));
     };
 
     // ── 2. Stage selection ──
     let stages = Stages::from_args(args);
-    let renderer: Box<dyn renderer::OutputRenderer> = if args.dlog {
+    let renderer: Box<dyn renderer::OutputRenderer> = if mcc::cli::dlog_mode() {
         Box::new(renderer::SilentRenderer)
     } else {
-        renderer::for_format_with_sort(args.format, args.sort)
+        renderer::for_format_with_sort(mcc::cli::globals().format, args.sort)
     };
 
     // ── 3. ResultBuilder initialization ──
@@ -145,7 +147,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
     // ── 4. Select top definition (module, component, interface, or enum) ──
     let top_name = match forced_top
         .clone()
-        .or_else(|| args.top.clone())
+        .or_else(|| mcc::cli::globals().top.clone())
         .or_else(|| mcc::mcb_get_module_name_by_uri(&uri))
         .or_else(|| mcc::mcb_get_first_module_name())
     {
@@ -154,14 +156,14 @@ pub fn run(args: &ParseArgs) -> Result<()> {
             // No module found — if --tree/--ast is set, still proceed to show
             // components/interfaces/enums. Otherwise finish.
             if !stages.tree {
-                if args.dlog {
-                    print_dlog_diagnostics();
+                if mcc::cli::dlog_mode() {
+                    output::diagnostic::print_dlog_lines(false);
                 }
                 let env = Envelope::ok(builder.finish());
                 output::emit_envelope(
                     &env,
-                    args.format,
-                    args.output.as_deref().map(Path::new),
+                    mcc::cli::globals().format,
+                    mcc::cli::globals().output.as_deref().map(Path::new),
                     false,
                 )?;
                 return Ok(());
@@ -219,7 +221,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
 
     // ── 7. tree / ast: go through view field (replacement output) ──
     if stages.tree {
-        let has_explicit_top = forced_top.is_some() || args.top.is_some();
+        let has_explicit_top = forced_top.is_some() || mcc::cli::globals().top.is_some();
         let mut nodes: Vec<serde_json::Value> = Vec::new();
 
         if has_explicit_top {
@@ -361,7 +363,9 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                 builder.set_pass2(pass2);
 
                 // Print diagnostics before Net Summary
-                if args.format == mcc::cli::OutputFormat::Text && !args.dlog {
+                if mcc::cli::globals().format == mcc::cli::OutputFormat::Text
+                    && !mcc::cli::dlog_mode()
+                {
                     builder.print_diagnostics_summary();
                 }
                 renderer.net_summary(&inst);
@@ -369,21 +373,21 @@ pub fn run(args: &ParseArgs) -> Result<()> {
             Err(e) => {
                 renderer.pass2_failed(&format!("{}", e));
                 let err = RpcError::build_error(format!("{}", e));
-                emit_error(args, err)?;
+                emit_error(err)?;
             }
         }
     }
 
     // ── 9. Viz assembly ──
     if stages.viz_html || stages.viz_json {
-        let has_explicit_top = forced_top.is_some() || args.top.is_some();
+        let has_explicit_top = forced_top.is_some() || mcc::cli::globals().top.is_some();
         if has_explicit_top {
             match run_viz(&ident, &uri, args, stages.viz_json, &*renderer) {
                 Ok(viz) => {
                     builder.set_viz(viz);
                 }
                 Err(e) => {
-                    return emit_error(args, RpcError::internal_error(format!("viz: {}", e)));
+                    return emit_error(RpcError::internal_error(format!("viz: {}", e)));
                 }
             }
         } else {
@@ -403,7 +407,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                         builder.set_viz(viz);
                     }
                     Err(e) => {
-                        return emit_error(args, RpcError::internal_error(format!("viz: {}", e)));
+                        return emit_error(RpcError::internal_error(format!("viz: {}", e)));
                     }
                 }
             } else {
@@ -445,7 +449,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                 }
 
                 if svgs.is_empty() {
-                    return emit_error(args, RpcError::internal_error("viz: no modules rendered"));
+                    return emit_error(RpcError::internal_error("viz: no modules rendered"));
                 }
 
                 // Combine all SVGs into one big SVG, stacked vertically
@@ -463,7 +467,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                     mcc::viz::template::wrap_document(&doc)
                 };
 
-                let out_path = if let Some(ref p) = args.output {
+                let out_path = if let Some(ref p) = mcc::cli::globals().output {
                     Path::new(p).to_path_buf()
                 } else {
                     // `--code` mode has no target file; fall back to a stable name.
@@ -508,13 +512,13 @@ pub fn run(args: &ParseArgs) -> Result<()> {
 
     // ── 10. Final output ──
     // --dlog: only print dlog error/warning diagnostics, skip normal output
-    if args.dlog {
-        print_dlog_diagnostics();
+    if mcc::cli::dlog_mode() {
+        output::diagnostic::print_dlog_lines(false);
         return Ok(());
     }
 
     let env = Envelope::ok(builder.finish());
-    let target = args.output.as_deref().map(Path::new);
+    let target = mcc::cli::globals().output.as_deref().map(Path::new);
 
     let envelope_target = if (stages.viz_html || stages.viz_json) && target.is_some() {
         None
@@ -522,39 +526,8 @@ pub fn run(args: &ParseArgs) -> Result<()> {
         target
     };
 
-    output::emit_envelope(&env, args.format, envelope_target, true)?;
+    output::emit_envelope(&env, mcc::cli::globals().format, envelope_target, true)?;
     Ok(())
-}
-
-/// Print only dlog error and warning diagnostics to stdout.
-/// Format: `file:line:col: level[code]: message`
-fn print_dlog_diagnostics() {
-    let all = mcc::mcc_diagnose_all();
-    for d in &all {
-        match d.level {
-            mcc::DiagnosticLevel::Error | mcc::DiagnosticLevel::Warning => {
-                println!(
-                    "{}:{}:{}: {}[E{:04}]: {}",
-                    d.loc.uri.as_str(),
-                    d.loc.row,
-                    d.loc.col,
-                    level_str(d.level),
-                    d.code,
-                    d.msg
-                );
-            }
-            _ => {}
-        }
-    }
-}
-
-fn level_str(level: mcc::DiagnosticLevel) -> &'static str {
-    match level {
-        mcc::DiagnosticLevel::Error => "error",
-        mcc::DiagnosticLevel::Warning => "warning",
-        mcc::DiagnosticLevel::Info => "info",
-        mcc::DiagnosticLevel::Hint => "hint",
-    }
 }
 
 // ============================================================================
@@ -1049,7 +1022,7 @@ fn run_viz(
         (html, "html".to_string())
     };
 
-    let written_to = if let Some(p) = &args.output {
+    let written_to = if let Some(p) = &mcc::cli::globals().output {
         std::fs::write(p, &output_text).with_context(|| format!("Failed to write file: {}", p))?;
         renderer.viz_written(p, output_text.len());
         Some(p.clone())
@@ -1196,20 +1169,20 @@ fn endpoint_label(ep: &McEndpoint) -> String {
 // Error emit helper
 // ============================================================================
 
-fn emit_error(args: &ParseArgs, err: RpcError) -> Result<()> {
-    if args.dlog {
+fn emit_error(err: RpcError) -> Result<()> {
+    if mcc::cli::dlog_mode() {
         // dlog mode only suppresses the pretty envelope, not fatal errors.
         // Emit any accumulated diagnostics, then surface the error so the
         // process exits non-zero instead of silently succeeding.
-        print_dlog_diagnostics();
+        output::diagnostic::print_dlog_lines(false);
         return Err(anyhow::anyhow!(err.message));
     }
-    if args.format.is_structured() {
+    if mcc::cli::globals().format.is_structured() {
         let env = Envelope::err(err);
         output::emit_envelope(
             &env,
-            args.format,
-            args.output.as_deref().map(Path::new),
+            mcc::cli::globals().format,
+            mcc::cli::globals().output.as_deref().map(Path::new),
             false,
         )?;
         Ok(())

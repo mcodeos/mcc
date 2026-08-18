@@ -45,7 +45,7 @@ pub fn run(args: &SearchArgs) -> Result<()> {
 fn rpc_mapping(args: &SearchArgs) -> Option<(&'static str, Value)> {
     // CLI search falls through to local; RPC users (LSP/IDE/scripts) call
     // `defs.search` directly. If we later want CLI → RPC, flip this to Some.
-    if args.lib.is_empty() && std::env::var("MCC_RPC_SEARCH").is_ok() {
+    if mcc::cli::globals().lib.is_empty() && std::env::var("MCC_RPC_SEARCH").is_ok() {
         Some((
             "defs.search",
             json!({
@@ -59,7 +59,7 @@ fn rpc_mapping(args: &SearchArgs) -> Option<(&'static str, Value)> {
                 }),
                 "regex": args.regex,
                 "fuzzy": args.fuzzy,
-                "top": args.top,
+                "top": mcc::cli::globals().top,
                 "limit": args.limit,
             }),
         ))
@@ -69,7 +69,7 @@ fn rpc_mapping(args: &SearchArgs) -> Option<(&'static str, Value)> {
 }
 
 fn run_local(args: &SearchArgs) -> Result<()> {
-    manifest::init_local(args.target.as_deref(), &args.lib);
+    manifest::init_local(args.target.as_deref(), &mcc::cli::globals().lib);
     // Optional target load — required for `--kind instance --top <NAME>` so the
     // named module is in scope for this CLI invocation (workspace is per-process).
     if let Some(target) = &args.target {
@@ -79,11 +79,12 @@ fn run_local(args: &SearchArgs) -> Result<()> {
             // use-design.md) when the directory has no manifest. Passing a
             // directory straight to mcc_load_project would treat it as an
             // entry *file*, which is wrong.
-            match manifest::build_from_manifest(path, None, args.entry.as_deref()) {
+            match manifest::build_from_manifest(path, None, mcc::cli::globals().entry.as_deref()) {
                 Ok((_, _)) => {}
                 Err(manifest_err) => {
-                    let entry = manifest::select_browse_entry(path, args.entry.as_deref())
-                        .map_err(|browse_err| {
+                    let entry =
+                        manifest::select_browse_entry(path, mcc::cli::globals().entry.as_deref())
+                            .map_err(|browse_err| {
                             anyhow::anyhow!("{} (manifest: {:#})", browse_err, manifest_err)
                         })?;
                     let entry_uri = entry.to_string_lossy().to_string();
@@ -100,9 +101,9 @@ fn run_local(args: &SearchArgs) -> Result<()> {
         kind: args.kind.map(cli_to_api_kind),
         regex: args.regex,
         fuzzy: args.fuzzy,
-        top: args.top.clone(),
+        top: mcc::cli::globals().top.clone(),
         limit: args.limit,
-        libs: args.lib.clone(),
+        libs: mcc::cli::globals().lib.clone(),
     };
     let hits = mcc::search_api::walk_defs(&inputs, None)?;
 
@@ -134,7 +135,7 @@ fn run_local(args: &SearchArgs) -> Result<()> {
     let format = if args.json {
         mcc::cli::OutputFormat::Json
     } else {
-        args.format
+        mcc::cli::globals().format
     };
 
     let mut builder = ResultBuilder::start("mcc search");
@@ -143,7 +144,10 @@ fn run_local(args: &SearchArgs) -> Result<()> {
     output::emit_envelope(
         &env,
         format,
-        args.output.as_deref().map(std::path::Path::new),
+        mcc::cli::globals()
+            .output
+            .as_deref()
+            .map(std::path::Path::new),
         false,
     )?;
 

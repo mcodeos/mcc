@@ -74,7 +74,12 @@ pub fn place_radial(graph: &mut McVecGraph) {
     for b in &graph.boxes {
         crate::vlog!(
             "[radial] box id={} name='{}' x={:.0} y={:.0} w={:.0} h={:.0} ring={:?} sector={:?}",
-            b.id, b.name, b.x, b.y, b.w, b.h,
+            b.id,
+            b.name,
+            b.x,
+            b.y,
+            b.w,
+            b.h,
             rings.get(&b.id),
             sectors.get(&b.id)
         );
@@ -494,7 +499,8 @@ fn assign_coordinates(
         };
         let (off_a, label_a) = hub_offset(a.0);
         let (off_b, label_b) = hub_offset(b.0);
-        off_a.partial_cmp(&off_b)
+        off_a
+            .partial_cmp(&off_b)
             .unwrap_or(std::cmp::Ordering::Equal)
             .then_with(|| label_b.cmp(&label_a)) // reverse alphabetical: V3V3 > V1V2
     });
@@ -605,11 +611,8 @@ fn setup_facade_entry_points(graph: &mut McVecGraph) {
     use crate::vector::graph::{EntryPoint, EntrySide};
 
     // Build a name→id lookup (consume the borrow before mutation)
-    let name_to_id: std::collections::HashMap<String, i64> = graph
-        .boxes
-        .iter()
-        .map(|b| (b.name.clone(), b.id))
-        .collect();
+    let name_to_id: std::collections::HashMap<String, i64> =
+        graph.boxes.iter().map(|b| (b.name.clone(), b.id)).collect();
 
     // Collect all pin specs before mutating
     // ★ P-1: only signal pins get entry_points. Rail edges use anchors (P-2).
@@ -633,15 +636,9 @@ fn setup_facade_entry_points(graph: &mut McVecGraph) {
             ],
         ),
         // flash: 1 signal pin
-        (
-            name_to_id["flash"],
-            vec![("SPI", EntrySide::Right, 0.5)],
-        ),
+        (name_to_id["flash"], vec![("SPI", EntrySide::Right, 0.5)]),
         // mic: 1 signal pin
-        (
-            name_to_id["mic"],
-            vec![("MIC", EntrySide::Bottom, 0.5)],
-        ),
+        (name_to_id["mic"], vec![("MIC", EntrySide::Bottom, 0.5)]),
         // modldo: 0 signal pins (rail only)
         (name_to_id["modldo"], vec![]),
         // moddcdc: 0 signal pins (rail only)

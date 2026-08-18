@@ -29,7 +29,7 @@ pub fn run(args: &ConvertArgs) -> Result<()> {
 }
 
 fn run_local(args: &ConvertArgs) -> Result<()> {
-    manifest::init_local(Some(args.file.as_str()), &args.lib);
+    manifest::init_local(Some(args.file.as_str()), &mcc::cli::globals().lib);
 
     let path = Path::new(&args.file);
     let uri = if path.is_absolute() {
@@ -73,7 +73,7 @@ fn run_local(args: &ConvertArgs) -> Result<()> {
         _ => serde_json::to_string_pretty(&result)?,
     };
 
-    if let Some(out_path) = &args.output {
+    if let Some(out_path) = &mcc::cli::globals().output {
         std::fs::write(out_path, output)?;
     } else {
         println!("{}", output);

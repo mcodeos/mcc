@@ -25,6 +25,10 @@ pub struct RpcClient {
 
 impl RpcClient {
     pub fn probe() -> Option<Self> {
+        // Global --local: run everything in-process, never delegate to a server.
+        if crate::cli::local_mode() {
+            return None;
+        }
         let Ok((pid, host, port)) = read_pid_file() else {
             return None;
         };

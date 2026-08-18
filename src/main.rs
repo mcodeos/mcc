@@ -54,25 +54,30 @@ fn main() -> ExitCode {
         return run_internal_server(&raw);
     }
 
-    // ── 1. Parse CLI (legacy compatibility) ─────────────────────────────────
-    let cli: Cli = if should_legacy_rewrite(&raw) {
-        match Cli::try_parse_from(rewrite_legacy_args(&raw)) {
-            Ok(c) => c,
-            Err(e) => {
-                e.print().ok();
-                return ExitCode::from(2);
-            }
-        }
-    } else {
-        match Cli::try_parse() {
-            Ok(c) => c,
-            Err(e) => {
-                let code = if e.use_stderr() { 2 } else { 0 };
-                e.print().ok();
-                return ExitCode::from(code as u8);
-            }
+    // ── 1. Parse CLI ─────────────────────────────────────────────────────────
+    let cli: Cli = match Cli::try_parse() {
+        Ok(c) => c,
+        Err(e) => {
+            let code = if e.use_stderr() { 2 } else { 0 };
+            e.print().ok();
+            return ExitCode::from(code as u8);
         }
     };
+
+    // ── 1.2 Honor global --local / --dlog and store global options ─────────
+    // --local makes RpcClient::probe() return None (everything runs in-process);
+    // --dlog selects dlog-only output for the diagnostic commands (parse / check).
+    // The cross-command options (--lib / --format / --output / --top / --entry)
+    // are stored once here and read by every subcommand via mcc::cli::globals().
+    mcc::cli::set_local_mode(cli.local);
+    mcc::cli::set_dlog_mode(cli.dlog);
+    mcc::cli::set_globals(mcc::cli::GlobalOptions {
+        lib: cli.lib.clone(),
+        format: cli.format,
+        output: cli.output.clone(),
+        top: cli.top.clone(),
+        entry: cli.entry.clone(),
+    });
 
     // ── 1.5 Generate completion ───────────────────────────────────────────
     if let Some(shell) = &cli.completion {
@@ -191,30 +196,36 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
     // commands that emit a structured JSON result on stdout, so a globally-enabled
     // `trace.visit` can't corrupt the JSON contract.
     let result_format = match &cli.command {
-        Some(Command::Parse(a)) => Some(a.format),
-        Some(Command::Check(a)) => Some(a.format),
-        Some(Command::Extract(a)) => Some(a.format),
-        Some(Command::Show(a)) => Some(a.format),
+        Some(Command::Parse(_))
+        | Some(Command::Check(_))
+        | Some(Command::Extract(_))
+        | Some(Command::Show(_))
+        | Some(Command::Build(_)) => Some(mcc::cli::globals().format),
         Some(Command::Search(a)) => {
             if a.json {
                 Some(OutputFormat::Json)
             } else {
-                Some(a.format)
+                Some(mcc::cli::globals().format)
             }
         }
-        Some(Command::Query(a)) => Some(if a.json { OutputFormat::Json } else { a.format }),
-        Some(Command::Export(a)) => Some(if a.json { OutputFormat::Json } else { a.format }),
-        Some(Command::Build(a)) => Some(a.format),
+        Some(Command::Query(a)) => Some(if a.json {
+            OutputFormat::Json
+        } else {
+            mcc::cli::globals().format
+        }),
+        Some(Command::Export(a)) => Some(if a.json {
+            OutputFormat::Json
+        } else {
+            mcc::cli::globals().format
+        }),
         _ => None,
     };
     if matches!(result_format, Some(f) if f != OutputFormat::Text) {
         mcc::set_trace_stdout_suppressed(true);
     }
     // --dlog: suppress engine trace so only dlog diagnostics appear on stdout
-    if let Some(Command::Parse(ref args)) = &cli.command {
-        if args.dlog {
-            mcc::set_trace_stdout_suppressed(true);
-        }
+    if mcc::cli::dlog_mode() {
+        mcc::set_trace_stdout_suppressed(true);
     }
 
     match cli.command {
@@ -251,7 +262,7 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
             Ok(ExitCode::from(o.exit_code.clamp(0, 255) as u8))
         }
         Some(Command::Lib(args)) => {
-            cmds::lib::run(&args.action, args.format)?;
+            cmds::lib::run(&args.action, mcc::cli::globals().format)?;
             Ok(ExitCode::SUCCESS)
         }
         Some(Command::Proj(args)) => {
@@ -267,7 +278,7 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Some(Command::Status(args)) => {
-            cmds::server::run_status(&args, OutputFormat::Text)?;
+            cmds::server::run_status(&args, mcc::cli::globals().format)?;
             Ok(ExitCode::SUCCESS)
         }
         Some(Command::Config(args)) => {
@@ -362,9 +373,6 @@ fn print_help_hint() {
     eprintln!("  mcc --completion bash > /etc/bash_completion.d/mcc");
     eprintln!("  mcc --completion zsh > ~/.zsh/completions/_mcc");
     eprintln!("  mcc --completion fish > ~/.config/fish/completions/mcc.fish");
-    eprintln!();
-    eprintln!("Legacy form (auto-rewritten to `mcc parse`):");
-    eprintln!("  mcc example.mc main --viz");
     eprintln!();
     eprintln!("Run 'mcc <COMMAND> --help' for more information.");
 }
@@ -465,106 +473,4 @@ fn run_internal_server(args: &[String]) -> ExitCode {
             ExitCode::FAILURE
         }
     }
-}
-
-// ============================================================================
-// Legacy compatibility: `mcc <file>.mc <top> [--viz|--json|-o <path>]`
-//   → Automatically rewritten to `mcc parse <file>.mc --top <top> [--viz|--json -o <path>]`
-//
-// Trigger condition: The first non-flag position argument ends with ".mc",
-// and is not a known subcommand.
-// This allows old scripts / command line history to transition seamlessly,
-// while not interfering with clap's normal parsing.
-// ============================================================================
-
-const KNOWN_SUBCMDS: &[&str] = &[
-    "parse",
-    "check",
-    "build",
-    "show",
-    "search",
-    "query",
-    "export",
-    "extract",
-    "lib",
-    "proj",
-    "start",
-    "stop",
-    "status",
-    "config",
-    "help",
-    "-h",
-    "--help",
-    "-V",
-    "--version",
-];
-
-fn should_legacy_rewrite(args: &[String]) -> bool {
-    // args[0] = program name
-    // find the first non-flag position argument
-    for a in args.iter().skip(1) {
-        if a.starts_with('-') {
-            continue;
-        }
-        if KNOWN_SUBCMDS.contains(&a.as_str()) {
-            return false;
-        }
-        // first position argument looks like .mc → use legacy
-        return a.ends_with(".mc");
-    }
-    false
-}
-
-fn rewrite_legacy_args(args: &[String]) -> Vec<String> {
-    // legacy position arguments: <file> [top]
-    // legacy flag: --viz, --json, -o <path>
-    // new usage: parse <file> [--top <top>] [--viz] [--json] [-o <path>]
-    let mut out: Vec<String> = Vec::with_capacity(args.len() + 2);
-    out.push(args[0].clone()); // program name
-    out.push("parse".to_string());
-
-    let mut positional: Vec<String> = Vec::new();
-    let mut tail: Vec<String> = Vec::new();
-
-    let mut i = 1;
-    while i < args.len() {
-        let a = &args[i];
-        match a.as_str() {
-            "-o" => {
-                tail.push(a.clone());
-                if let Some(v) = args.get(i + 1) {
-                    tail.push(v.clone());
-                    i += 2;
-                } else {
-                    i += 1;
-                }
-            }
-            "--viz" | "--json" => {
-                tail.push(a.clone());
-                i += 1;
-            }
-            _ if a.starts_with('-') => {
-                // Pass-through other flags (--verbose / --quiet / --cwd ...)
-                tail.push(a.clone());
-                i += 1;
-            }
-            _ => {
-                positional.push(a.clone());
-                i += 1;
-            }
-        }
-    }
-
-    // positional[0] = file (required)
-    if let Some(file) = positional.first() {
-        out.push(file.clone());
-    }
-    // positional[1] = top module → --top
-    if let Some(top) = positional.get(1) {
-        out.push("--top".to_string());
-        out.push(top.clone());
-    }
-
-    out.extend(tail);
-    out
 }

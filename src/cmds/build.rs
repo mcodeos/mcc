@@ -36,6 +36,14 @@ pub struct BuildOutcome {
     pub exit_code: i32,
 }
 
+/// Resolve the entry file given on the CLI: the positional `FILE` wins over
+/// the global `--entry` flag; both override the manifest entry.
+fn cli_entry(args: &BuildArgs) -> Option<String> {
+    args.file
+        .clone()
+        .or_else(|| mcc::cli::globals().entry.clone())
+}
+
 pub fn run(args: &BuildArgs) -> Result<BuildOutcome> {
     match RpcClient::probe() {
         Some(c) => run_rpc(&c, args),
@@ -44,8 +52,8 @@ pub fn run(args: &BuildArgs) -> Result<BuildOutcome> {
 }
 
 fn resolve_project_root(args: &BuildArgs) -> PathBuf {
-    if let Some(ref entry) = args.entry {
-        let entry_path = Path::new(entry);
+    if let Some(entry) = cli_entry(args) {
+        let entry_path = Path::new(&entry);
         let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let mut search_dir = cwd.join(entry_path.parent().unwrap_or(entry_path));
         loop {
@@ -71,7 +79,7 @@ fn run_rpc(c: &RpcClient, args: &BuildArgs) -> Result<BuildOutcome> {
     let project_root = resolve_project_root(args);
     let manifest =
         manifest::Manifest::find_in(&project_root).and_then(|p| manifest::Manifest::load(&p).ok());
-    let entry_abs = if let Some(ref e) = args.entry {
+    let entry_abs = if let Some(e) = cli_entry(args) {
         project_root.join(e)
     } else if let Some(ref m) = manifest {
         m.entry_path(&project_root)
@@ -87,7 +95,7 @@ fn run_rpc(c: &RpcClient, args: &BuildArgs) -> Result<BuildOutcome> {
         "build.full",
         json!({
             "entry": entry_abs.to_string_lossy(),
-            "top": args.top,
+            "top": mcc::cli::globals().top,
             "libs": libs,
             "include_system": args.include_system,
         }),
@@ -98,11 +106,15 @@ fn run_rpc(c: &RpcClient, args: &BuildArgs) -> Result<BuildOutcome> {
 }
 
 fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
-    eprintln!("[DEBUG run_local] args.viz={} args.entry={:?}", args.viz, args.entry);
+    eprintln!(
+        "[DEBUG run_local] args.viz={} entry={:?}",
+        args.viz,
+        cli_entry(args)
+    );
     // Reset R05 counter before each build run
     mcc::instant::reset_r05_counter();
 
-    let renderer = renderer::for_format(args.format);
+    let renderer = renderer::for_format(mcc::cli::globals().format);
     let mut builder = ResultBuilder::start("mcc build").workspace(resolve_workspace_ref());
     let mut tracker = PhaseTracker::new();
     tracker.skip();
@@ -119,7 +131,10 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
     // Defect 9: set project root before loading libraries so that
     // path resolution (e.g. mcc_relative_path) works during lib load.
     mcc::mcc_set_project_root(&project_root);
-    manifest::load_libs(&manifest::collect_libs(Some(&project_root), &args.lib));
+    manifest::load_libs(&manifest::collect_libs(
+        Some(&project_root),
+        &mcc::cli::globals().lib,
+    ));
 
     // ── 0.5. Pass 0 snapshot: lib load + manifest + project load phase diagnostics ──
     builder.set_pass0(crate::cmds::parse::public_collect_pass0());
@@ -129,13 +144,13 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
     let (entry_uri, top_name) = match manifest::build_from_manifest(
         &project_root,
-        args.top.as_deref(),
-        args.entry.as_deref(),
+        mcc::cli::globals().top.as_deref(),
+        cli_entry(args).as_deref(),
     ) {
         Ok(r) => r,
         Err(e) => {
             let err = RpcError::invalid_params(format!("{:#}", e));
-            emit_err(&args.format, err)?;
+            emit_err(&mcc::cli::globals().format, err)?;
             return Ok(BuildOutcome { exit_code: 1 });
         }
     };
@@ -156,7 +171,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
     let ident = McIds::from(top_name.as_str());
     if mcc::get_def(&ident, &entry_uri).is_none() {
         let err = RpcError::invalid_params(format!("'{}' not found", top_name));
-        emit_err(&args.format, err)?;
+        emit_err(&mcc::cli::globals().format, err)?;
         return Ok(BuildOutcome { exit_code: 1 });
     }
 
@@ -184,8 +199,12 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
     // Check if we should render all modules (no explicit --top specified and multiple modules exist)
     let modules_in_file = mcc::mcc_get_modules_in_file(&entry_uri);
-    eprintln!("[DEBUG build] modules_in_file={:?} should_render_all={}", modules_in_file, modules_in_file.len() > 1 && args.top.is_none());
-    let should_render_all = modules_in_file.len() > 1 && args.top.is_none();
+    eprintln!(
+        "[DEBUG build] modules_in_file={:?} should_render_all={}",
+        modules_in_file,
+        modules_in_file.len() > 1 && mcc::cli::globals().top.is_none()
+    );
+    let should_render_all = modules_in_file.len() > 1 && mcc::cli::globals().top.is_none();
 
     let inst = if should_render_all {
         // For multi-module rendering, build each module separately for Pass 2 output
@@ -227,7 +246,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             Err(e) => {
                 renderer.pass2_failed(&format!("{}", e));
                 let err = RpcError::build_error(format!("{}", e));
-                emit_err(&args.format, err)?;
+                emit_err(&mcc::cli::globals().format, err)?;
                 return Ok(BuildOutcome { exit_code: 1 });
             }
         }
@@ -250,7 +269,7 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
             Err(e) => {
                 renderer.pass2_failed(&format!("{}", e));
                 let err = RpcError::build_error(format!("{}", e));
-                emit_err(&args.format, err)?;
+                emit_err(&mcc::cli::globals().format, err)?;
                 return Ok(BuildOutcome { exit_code: 1 });
             }
         }
@@ -342,7 +361,10 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
             let html = mcc::viz::template::wrap_document(&doc);
 
-            let output_path = args.output.as_deref().unwrap_or("circuit.html");
+            let output_path = mcc::cli::globals()
+                .output
+                .as_deref()
+                .unwrap_or("circuit.html");
             std::fs::write(output_path, &html)
                 .with_context(|| format!("failed to write file: {}", output_path))?;
             renderer.viz_written(output_path, html.len());
@@ -400,7 +422,12 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
             let (vec_block, build_report) = mcc::build_mc_vec_with_report(&inst, &table.1);
             let graph = mcc::build_mc_vec_graph(&vec_block, &table.1);
-            eprintln!("[DEBUG build] graph.is_root={} graph.boxes.len()={} graph.nets.len()={}", graph.is_root, graph.boxes.len(), graph.nets.len());
+            eprintln!(
+                "[DEBUG build] graph.is_root={} graph.boxes.len()={} graph.nets.len()={}",
+                graph.is_root,
+                graph.boxes.len(),
+                graph.nets.len()
+            );
 
             let opts = build_viz_opts(args.layouter.as_deref());
             let (doc, metrics) = mcc::viz::api::render_with_metrics(graph, opts);
@@ -430,7 +457,10 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
             let html = mcc::viz::template::wrap_document(&doc);
 
-            let output_path = args.output.as_deref().unwrap_or("circuit.html");
+            let output_path = mcc::cli::globals()
+                .output
+                .as_deref()
+                .unwrap_or("circuit.html");
             std::fs::write(output_path, &html)
                 .with_context(|| format!("failed to write file: {}", output_path))?;
             renderer.viz_written(output_path, html.len());
@@ -459,12 +489,12 @@ fn run_local(args: &BuildArgs) -> Result<BuildOutcome> {
 
     // ── 6. Emit envelope ──
     let env = Envelope::ok(builder.finish());
-    let envelope_target = if args.viz && args.output.is_some() {
+    let envelope_target = if args.viz && mcc::cli::globals().output.is_some() {
         None
     } else {
-        args.output.as_deref().map(Path::new)
+        mcc::cli::globals().output.as_deref().map(Path::new)
     };
-    output::emit_envelope(&env, args.format, envelope_target, false)?;
+    output::emit_envelope(&env, mcc::cli::globals().format, envelope_target, false)?;
     Ok(BuildOutcome {
         exit_code: if errors > 0 { 1 } else { 0 },
     })

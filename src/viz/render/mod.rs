@@ -174,13 +174,7 @@ impl SvgRenderer {
 ///
 /// Rail anchors are centered on the edge facing the target, not at pin positions.
 /// If multiple rail anchors share the same edge, they are evenly distributed.
-fn rail_anchor(
-    b: &McVecBox,
-    target_x: f64,
-    target_y: f64,
-    idx: usize,
-    total: usize,
-) -> (f64, f64) {
+fn rail_anchor(b: &McVecBox, target_x: f64, target_y: f64, idx: usize, total: usize) -> (f64, f64) {
     let offset = if total <= 1 {
         0.5
     } else {
@@ -246,7 +240,8 @@ fn render_block_edges(graph: &McVecGraph) -> String {
 
     // ── ★ V3V3 bus: group power edges with same label and driver ──
     // Separate edges into bus groups and individual edges.
-    let mut bus_groups: std::collections::HashMap<String, Vec<usize>> = std::collections::HashMap::new();
+    let mut bus_groups: std::collections::HashMap<String, Vec<usize>> =
+        std::collections::HashMap::new();
     let mut individual_indices: Vec<usize> = Vec::new();
 
     for (i, edge) in edges.iter().enumerate() {
@@ -276,10 +271,12 @@ fn render_block_edges(graph: &McVecGraph) -> String {
                 if from.name == "modldo" {
                     let (ax, ay) = rail_anchor(from, to.x + to.w / 2.0, to.y + to.h / 2.0, 0, 1);
                     driver_anchor = Some((ax, ay));
-                    let (ax2, ay2) = rail_anchor(to, from.x + from.w / 2.0, from.y + from.h / 2.0, 0, 1);
+                    let (ax2, ay2) =
+                        rail_anchor(to, from.x + from.w / 2.0, from.y + from.h / 2.0, 0, 1);
                     consumer_anchors.push(((ax2, ay2), edge));
                 } else if to.name == "modldo" {
-                    let (ax, ay) = rail_anchor(to, from.x + from.w / 2.0, from.y + from.h / 2.0, 0, 1);
+                    let (ax, ay) =
+                        rail_anchor(to, from.x + from.w / 2.0, from.y + from.h / 2.0, 0, 1);
                     driver_anchor = Some((ax, ay));
                     let (ax2, ay2) = rail_anchor(from, to.x + to.w / 2.0, to.y + to.h / 2.0, 0, 1);
                     consumer_anchors.push(((ax2, ay2), edge));

@@ -30,7 +30,7 @@ pub fn run(args: &DefArgs) -> Result<()> {
 }
 
 fn run_local(args: &DefArgs) -> Result<()> {
-    crate::cmds::manifest::init_local(args.file.as_deref(), &args.lib);
+    crate::cmds::manifest::init_local(args.file.as_deref(), &mcc::cli::globals().lib);
     if let Some(f) = &args.file {
         let uri = McURI::from(f.as_str());
         mcc::mcc_load_project(&uri);

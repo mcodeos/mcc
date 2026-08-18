@@ -57,14 +57,24 @@ cargo build
 ### Global Flags
 
 ```
--v, -vv, -vvv     Verbose (info / debug / trace)
--q                Quiet (errors only)
--t                Show module/file in log lines
--D TARGET[=LEVEL] Enable debug output for specific module (repeatable)
---cwd DIR          Working directory
+-v, -vv, -vvv      Verbose (info / debug / trace)
+-q                 Quiet (errors only)
+-t                 Show module/file in log lines
+-D TARGET[=LEVEL]  Enable debug output for specific module (repeatable)
+--cwd DIR           Working directory
 --completion SHELL Generate shell completions (bash/zsh/fish/powershell)
--V, --version     Print version
+-V, --version      Print version
+--local             Run in this process; skip RPC delegation to a running `mcc start` server
+--dlog              Print only diagnostics as `file:line:col: level[code]: message` lines
+--lib NAME          Load system library before running (repeatable)
+-f, --format FMT    Output format: text | json | json-pretty | yaml | csv
+-o, --output FILE   Write the command result to FILE instead of stdout
+--top NAME          Top-level module name (auto-guess first module if omitted)
+--entry FILE        Entry file for a directory target without a manifest
 ```
+
+Global flags may appear before or after the subcommand:
+`mcc --lib mcode -f json parse example.mc --top main` ≡ `mcc parse example.mc --top main --lib mcode -f json`
 
 ### Debug Targets (`-D` flag)
 
@@ -109,12 +119,14 @@ you explicitly pass `-v` / `-D`, or via RPC `trace.set` on a server.
 → {"legacy": {...}, "targets": {"mcc::sem::fcall": "debug", ...}}
 ```
 
-### Legacy Shorthand
+### Parse a file with an explicit top module
 
 ```bash
-mcc example.mc main --viz
-# Auto-rewritten to: mcc parse example.mc --top main --viz
+mcc parse example.mc --top main --viz
 ```
+
+Note: `mcc <file> <top>` legacy shorthand is not supported; always pass the
+`parse` subcommand.
 
 ---
 
@@ -146,12 +158,12 @@ mcc parse example.mc --ast
 mcc parse example.mc --top main --depth 3
 ```
 
-Key flags:
+Key flags (see also Global Flags above; `--lib`/`--top`/`-f`/`-o` are global):
 | Flag | Purpose |
 |---|---|
 | `--code CODE` | Parse inline code |
-| `--lib NAME` | Load system library (repeatable) |
-| `--top NAME` | Top-level module name |
+| `--lib NAME` | Load system library (global, repeatable) |
+| `--top NAME` | Top-level module name (global) |
 | `--sort {pinid\|interface}` | Pin sorting mode |
 | `--pass1` | Parse only (no instantiation) |
 | `--pass2` | Parse + instantiate |
@@ -160,8 +172,8 @@ Key flags:
 | `--ast` | Print AST |
 | `--tree` | Print tree representation |
 | `--depth N` | Tree depth limit (0=unlimited) |
-| `-f FORMAT` | text, json, json-pretty, yaml, csv |
-| `-o FILE` | Output file |
+| `-f FORMAT` | Output format (global) |
+| `-o FILE` | Output file (global) |
 
 ---
 
@@ -417,7 +429,7 @@ mcc status --json
 mcc stop
 
 # Force stop
-mcc stop -f
+mcc stop --force
 ```
 
 ---
@@ -456,9 +468,9 @@ mcc caps
 
 # Config management
 mcc config list
-mcc config get parser.sort_pins
+mcc config get trace.parser
 mcc config set trace.pass1 true
-mcc config reset trace.pass1
+mcc config reset
 ```
 
 ---
@@ -753,14 +765,14 @@ In `~/work/mo/mcc/.vscode/launch.json`:
 
 **"mcc"** — Debug a one-shot CLI run:
 - Program: `target/debug/mcc`
-- Args: `mc/projects/hbl/hbl.mc`
+- Args: `parse mc/projects/hbl/hbl.mc`
 - Env: `RUST_BACKTRACE=1`, `MCC_SYSTEM_ROOT=${workspaceFolder}/mc`
 - cwd: `${workspaceFolder}`
 
 ```bash
 # Equivalent command line
 cd ~/work/mo/mcc
-MCC_SYSTEM_ROOT=./mc RUST_BACKTRACE=1 cargo run -- mc/projects/hbl/hbl.mc
+MCC_SYSTEM_ROOT=./mc RUST_BACKTRACE=1 cargo run -- parse mc/projects/hbl/hbl.mc
 ```
 
 ### 5.2 Logging
@@ -814,7 +826,7 @@ cat ~/.mcode/logs/mcc.pid
 kill $(cat ~/.mcode/logs/mcc.pid)
 
 # Force stop if hung
-mcc stop -f
+mcc stop --force
 ```
 
 ### 5.4 Trace Configuration (runtime)
@@ -1244,7 +1256,8 @@ trace:
   visit: null
 
 parser:
-  sort_pins: "pinid"  # pinid | interface
+  strict: false       # treat warnings as errors in check
+  max_depth: null     # 0/unset = unlimited tree depth
 
 output:
   format: "text"       # text | json | yaml

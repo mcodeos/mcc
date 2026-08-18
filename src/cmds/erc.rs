@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 
 pub fn run(args: &ErcArgs) -> Result<()> {
     if let Some(c) = RpcClient::probe() {
-        let params = json!({ "top": args.top });
+        let params = json!({ "top": mcc::cli::globals().top });
         match c.call("erc", params) {
             Ok(result) => {
                 println!("{}", serde_json::to_string_pretty(&result)?);
@@ -30,21 +30,21 @@ pub fn run(args: &ErcArgs) -> Result<()> {
 }
 
 fn run_local(args: &ErcArgs) -> Result<()> {
-    manifest::init_local(args.target.as_deref(), &args.lib);
+    manifest::init_local(args.target.as_deref(), &mcc::cli::globals().lib);
 
     if let Some(t) = &args.target {
         let p = Path::new(t);
         if p.is_dir() {
             // Project mode: manifest-driven; browse fallback (§19.5 rule 3 of
             // use-design.md) when the directory has no manifest.
-            match manifest::build_from_manifest(p, None, args.entry.as_deref()) {
+            match manifest::build_from_manifest(p, None, mcc::cli::globals().entry.as_deref()) {
                 Ok(_) => {}
                 Err(manifest_err) => {
-                    let entry = manifest::select_browse_entry(p, args.entry.as_deref()).map_err(
-                        |browse_err| {
-                            anyhow::anyhow!("{} (manifest: {:#})", browse_err, manifest_err)
-                        },
-                    )?;
+                    let entry =
+                        manifest::select_browse_entry(p, mcc::cli::globals().entry.as_deref())
+                            .map_err(|browse_err| {
+                                anyhow::anyhow!("{} (manifest: {:#})", browse_err, manifest_err)
+                            })?;
                     let entry_uri = entry.to_string_lossy().to_string();
                     mcc::mcc_load_project(&entry_uri);
                 }
@@ -62,7 +62,7 @@ fn run_local(args: &ErcArgs) -> Result<()> {
         }
     }
 
-    let top = args
+    let top = mcc::cli::globals()
         .top
         .clone()
         .or_else(mcc::mcb_get_first_module_name)

@@ -1463,27 +1463,26 @@ impl McModuleInst {
 
     /// Extract port group name from an McInstanceRef.
     /// `use_label_fallback`: if true, fall back to Label name when no Interface/Bus/member.
-    fn extract_pg_from_iref(ir: &crate::semantic::basic::mc_endpoint::McInstanceRef, use_label_fallback: bool) -> Option<String> {
+    fn extract_pg_from_iref(
+        ir: &crate::semantic::basic::mc_endpoint::McInstanceRef,
+        use_label_fallback: bool,
+    ) -> Option<String> {
         // First check if the base is an Interface or Bus
         let base_name = match &ir.base {
             McInstance::Interface(i) => i.name.segments.first().and_then(|seg| match seg {
-                crate::semantic::basic::mc_ids::IdsSegment::Ida(ida) => {
-                    Some(ida.to_string())
-                }
-                crate::semantic::basic::mc_ids::IdsSegment::DotIda(ida) => {
-                    Some(ida.to_string())
-                }
+                crate::semantic::basic::mc_ids::IdsSegment::Ida(ida) => Some(ida.to_string()),
+                crate::semantic::basic::mc_ids::IdsSegment::DotIda(ida) => Some(ida.to_string()),
                 _ => None,
             }),
             McInstance::Bus(b) => {
-                    if !b.member.is_empty() {
-                        // Use member name as port_group (e.g., Bus(mcu513[MIC]) → "MIC")
-                        Some(b.member.join("_"))
-                    } else {
-                        // Bus without members: use bus name as-is (e.g., Bus(flash.SPI) → "flash.SPI")
-                        Some(b.name().to_string())
-                    }
-                },
+                if !b.member.is_empty() {
+                    // Use member name as port_group (e.g., Bus(mcu513[MIC]) → "MIC")
+                    Some(b.member.join("_"))
+                } else {
+                    // Bus without members: use bus name as-is (e.g., Bus(flash.SPI) → "flash.SPI")
+                    Some(b.name().to_string())
+                }
+            }
             _ => None,
         };
         if base_name.is_some() {

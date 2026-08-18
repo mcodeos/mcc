@@ -136,7 +136,7 @@ pub fn run_start(args: &StartArgs) -> Result<()> {
         } else {
             info!(target: "mcc::server", pid = process::id(), %host, port, log = log_info, "Foreground mode, server started");
         }
-        return run_server_internal(&host, port, &args.load_lib);
+        return run_server_internal(&host, port, &mcc::cli::globals().lib);
     }
 
     // ── Background mode (-d/--background) ────────────────────────────────────
@@ -150,7 +150,7 @@ pub fn run_start(args: &StartArgs) -> Result<()> {
         .arg(port.to_string());
 
     // Preload libraries (can be called multiple times)
-    for lib in &args.load_lib {
+    for lib in &mcc::cli::globals().lib {
         cmd.arg("--lib").arg(lib);
     }
 
@@ -317,6 +317,8 @@ fn stop_server(force: bool, timeout: u64) -> Result<()> {
 }
 
 fn status_server(json: bool, watch: bool, format: OutputFormat) -> Result<()> {
+    // `--json` (status's own flag) forces JSON regardless of the global format.
+    let fmt = if json { OutputFormat::Json } else { format };
     let render_once = || -> Result<ServerStatus> {
         if !is_server_running()? {
             return Ok(ServerStatus::not_running());
@@ -339,8 +341,8 @@ fn status_server(json: bool, watch: bool, format: OutputFormat) -> Result<()> {
     };
 
     let status = render_once()?;
-    if json || format.is_structured() {
-        output::emit(&status, format, None)?;
+    if fmt.is_structured() {
+        output::emit(&status, fmt, None)?;
     } else {
         println!("{}", status);
     }
@@ -349,7 +351,7 @@ fn status_server(json: bool, watch: bool, format: OutputFormat) -> Result<()> {
         loop {
             thread::sleep(Duration::from_secs(1));
             let status = render_once().unwrap_or(ServerStatus::not_running());
-            if json || format.is_structured() {
+            if fmt.is_structured() {
                 println!("{}", serde_json::to_string(&status)?);
             } else {
                 let s = if status.running {

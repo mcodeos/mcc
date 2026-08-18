@@ -8,37 +8,30 @@ use super::*;
 
 pub fn handle_export(params: Option<Value>) -> RpcResult {
     let p: ExportRpcParams = parse_or_default(params)?;
-    let args = crate::cli::ExportArgs {
-        kind: match p.kind.as_str() {
-            "bom" => crate::cli::ExportKind::Bom,
-            "spice" => crate::cli::ExportKind::Spice,
-            "kicad" | "kicad-netlist" => crate::cli::ExportKind::KiCad,
-            _ => crate::cli::ExportKind::Netlist,
-        },
-        file: p.entry,
-        top: p.top,
-        lib: p.libs,
-        format: match p.format.as_deref() {
-            Some("json") => crate::cli::OutputFormat::Json,
-            Some("json-pretty") => crate::cli::OutputFormat::JsonPretty,
-            Some("yaml") => crate::cli::OutputFormat::Yaml,
-            Some("csv") => crate::cli::OutputFormat::Csv,
-            _ => crate::cli::OutputFormat::Text,
-        },
-        json: p.format.as_deref() == Some("json"),
-        output: None,
+    let kind = match p.kind.as_str() {
+        "bom" => crate::cli::ExportKind::Bom,
+        "spice" => crate::cli::ExportKind::Spice,
+        "kicad" | "kicad-netlist" => crate::cli::ExportKind::KiCad,
+        _ => crate::cli::ExportKind::Netlist,
     };
-    let (tree, table) = crate::export::build_tree(&args.file, args.top.as_deref(), &args.lib)
+    let format = match p.format.as_deref() {
+        Some("json") => crate::cli::OutputFormat::Json,
+        Some("json-pretty") => crate::cli::OutputFormat::JsonPretty,
+        Some("yaml") => crate::cli::OutputFormat::Yaml,
+        Some("csv") => crate::cli::OutputFormat::Csv,
+        _ => crate::cli::OutputFormat::Text,
+    };
+    let (tree, table) = crate::export::build_tree(&p.entry, p.top.as_deref(), &p.libs)
         .map_err(|e| JsonRpcError::custom(-32603, &format!("export: {}", e)))?;
-    let top = args.top.clone().unwrap_or_else(|| "?".to_string());
+    let top = p.top.clone().unwrap_or_else(|| "?".to_string());
     // Convert local cli enums → u8 tags for export.
-    let kind_tag = match args.kind {
+    let kind_tag = match kind {
         crate::cli::ExportKind::Netlist => 0u8,
         crate::cli::ExportKind::Bom => 1u8,
         crate::cli::ExportKind::KiCad => 3u8,
         crate::cli::ExportKind::Spice => 2u8,
     };
-    let format_tag = match args.format {
+    let format_tag = match format {
         crate::cli::OutputFormat::Text => 0u8,
         crate::cli::OutputFormat::Json => 1u8,
         crate::cli::OutputFormat::JsonPretty => 2u8,

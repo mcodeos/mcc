@@ -55,10 +55,106 @@ pub struct Cli {
     #[arg(long = "completion", global = true, value_name = "SHELL")]
     pub completion: Option<String>,
 
-    /// Subcommand. If no subcommand specified, falls back to legacy compatible behavior
-    /// (historical usage `mcc <file> <module> [--viz]`)
+    /// Run locally in this process, skipping delegation to a running RPC server.
+    /// Applies to every subcommand that would otherwise hand work to `mcc start`.
+    #[arg(long, global = true)]
+    pub local: bool,
+
+    /// Only output dlog diagnostics (errors and warnings), skip all other output.
+    /// Each line: file:line:col: level[code]: message.
+    /// Global like --local: honored by the diagnostic commands (parse / check),
+    /// accepted but inert on the others.
+    #[arg(long, global = true)]
+    pub dlog: bool,
+
+    /// Load system library (can be specified multiple times)
+    #[arg(long = "lib", value_name = "NAME", global = true)]
+    pub lib: Vec<String>,
+
+    /// Output format
+    #[arg(long, short = 'f', value_enum, default_value_t = OutputFormat::Text, global = true)]
+    pub format: OutputFormat,
+
+    /// Output to file
+    #[arg(long, short = 'o', value_name = "FILE", global = true)]
+    pub output: Option<String>,
+
+    /// Top-level module name (auto-guess first module in file if omitted)
+    #[arg(long, value_name = "NAME", global = true)]
+    pub top: Option<String>,
+
+    /// Entry file for a directory target without a manifest (browse mode).
+    /// Relative paths resolve against the target directory.
+    #[arg(long, value_name = "FILE", global = true)]
+    pub entry: Option<String>,
+
+    /// Subcommand. If omitted, prints a usage hint.
     #[command(subcommand)]
     pub command: Option<Command>,
+}
+
+/// Process-wide "run locally" switch, set by `main` from the global `--local` flag.
+/// `RpcClient::probe()` honors it so every command skips RPC delegation at one
+/// choke point instead of each command carrying its own flag.
+pub static LOCAL_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Enable/disable forced local execution for the whole process.
+pub fn set_local_mode(enabled: bool) {
+    LOCAL_MODE.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// True when `--local` was requested (all commands run in-process, no RPC server).
+pub fn local_mode() -> bool {
+    LOCAL_MODE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Process-wide "--dlog only" switch, set by `main` from the global `--dlog`
+/// flag. Mirrors `LOCAL_MODE` so the diagnostic commands (parse / check) read
+/// one source of truth instead of each subcommand carrying its own field.
+pub static DLOG_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Enable/disable dlog-only output for the whole process.
+pub fn set_dlog_mode(enabled: bool) {
+    DLOG_MODE.store(enabled, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// True when `--dlog` was requested (only error/warning diagnostic lines on stdout).
+pub fn dlog_mode() -> bool {
+    DLOG_MODE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Cross-command option values promoted from per-subcommand fields
+/// (`--lib`, `-f/--format`, `-o/--output`, `--top`, `--entry`). `main` stores
+/// the parsed values once via [`set_globals`]; every subcommand reads them here
+/// (mirrors the `LOCAL_MODE` / `DLOG_MODE` pattern).
+#[derive(Debug, Clone)]
+pub struct GlobalOptions {
+    /// `--lib NAME` — system libraries to load (repeatable)
+    pub lib: Vec<String>,
+    /// `-f/--format` — output format (clap default: Text)
+    pub format: OutputFormat,
+    /// `-o/--output FILE` — output file path
+    pub output: Option<String>,
+    /// `--top NAME` — top-level module name
+    pub top: Option<String>,
+    /// `--entry FILE` — entry file for browse-mode directory targets
+    pub entry: Option<String>,
+}
+
+/// Storage for the global option values, filled once by `main` right after CLI parsing.
+pub static GLOBAL_OPTIONS: once_cell::sync::OnceCell<GlobalOptions> =
+    once_cell::sync::OnceCell::new();
+
+/// Store the parsed global option values (called once by `main`).
+pub fn set_globals(g: GlobalOptions) {
+    let _ = GLOBAL_OPTIONS.set(g);
+}
+
+/// Read the global option values. Only valid after `main` ran [`set_globals`].
+pub fn globals() -> &'static GlobalOptions {
+    GLOBAL_OPTIONS
+        .get()
+        .expect("mcc cli globals not initialized by main")
 }
 
 /// Subcommands supported by first phase (MVP)
@@ -137,31 +233,18 @@ pub struct ParseArgs {
     /// Target file to parse
     pub target: Option<String>,
 
-    /// Entry file for a directory target without a manifest (browse mode).
-    /// Relative paths resolve against the target directory.
-    #[arg(long, value_name = "FILE")]
-    pub entry: Option<String>,
-
     /// Parse code snippet directly (mutually exclusive with position argument <target>)
     #[arg(long, value_name = "CODE", conflicts_with = "target")]
     pub code: Option<String>,
-
-    /// Load system library (can be specified multiple times), applicable to both local / server
-    #[arg(long = "lib", value_name = "NAME")]
-    pub lib: Vec<String>,
-
-    /// Top-level module name (auto-guess first module in file if omitted)
-    #[arg(long, value_name = "NAME")]
-    pub top: Option<String>,
 
     /// Instance Tree pin sorting: `pinid` (default, sort by pinid number ascending) or
     /// `interface` (sort by interface name grouping)
     #[arg(long, value_enum, default_value_t = PinSortMode::PinId)]
     pub sort: PinSortMode,
 
-    // ── Old main.rs behavior switches ──────────────────────────────────────────
+    // ── Stage selection switches ─────────────────────────────────────────────
     // Design principles:
-    //   - When no stage flag is passed, default = pass1 + pass2 verbose output (matches old mcc <file> <top>)
+    //   - When no stage flag is passed, default = pass1 + pass2 verbose output
     //   - --viz / --viz-json is *additive*: enables drawing, but pass1/pass2 still printed by default
     //   - --pass1 / --pass2 / --tree / --ast are *selectors*: after explicit specification, only run checked stages
     //   - --all is shortcut, equivalent to --pass1 --pass2 --viz
@@ -196,21 +279,6 @@ pub struct ParseArgs {
     /// Output depth limit (only applies to --tree / --ast, 0 = unlimited)
     #[arg(long, default_value_t = 0)]
     pub depth: usize,
-
-    /// Output format
-    #[arg(long, short = 'f', value_enum, default_value_t = OutputFormat::Text)]
-    pub format: OutputFormat,
-
-    /// Output file:
-    /// * For --viz / --viz-json means drawing result output path (default circuit.html / stdout JSON)
-    /// * For --tree / --ast means report output path
-    #[arg(long, short = 'o', value_name = "FILE")]
-    pub output: Option<String>,
-
-    /// Only output dlog diagnostics (errors and warnings), skip all other output.
-    /// Each line: file:line:col: level[code]: message
-    #[arg(long)]
-    pub dlog: bool,
 }
 
 // ============================================================================
@@ -221,15 +289,6 @@ pub struct ParseArgs {
 pub struct CheckArgs {
     /// Target file to check
     pub target: Option<String>,
-
-    /// Entry file for a directory target without a manifest (browse mode).
-    /// Relative paths resolve against the target directory.
-    #[arg(long, value_name = "FILE")]
-    pub entry: Option<String>,
-
-    /// Load system library (can be specified multiple times), applicable to both local / server
-    #[arg(long = "lib", value_name = "NAME")]
-    pub lib: Vec<String>,
 
     /// Show errors only, ignore warnings
     #[arg(long)]
@@ -246,10 +305,6 @@ pub struct CheckArgs {
     /// Run pin usage checks (unused pins, conflicting pin options)
     #[arg(long)]
     pub pins: bool,
-
-    /// Output format
-    #[arg(long, short = 'f', value_enum, default_value_t = OutputFormat::Text)]
-    pub format: OutputFormat,
 }
 
 // ============================================================================
@@ -289,14 +344,6 @@ pub struct ExtractArgs {
     #[arg(value_name = "FILE")]
     pub file: Option<String>,
 
-    /// Load system library (can be specified multiple times), applicable to both local / server
-    #[arg(long = "lib", value_name = "NAME")]
-    pub lib: Vec<String>,
-
-    /// Top-level module name
-    #[arg(long, value_name = "NAME")]
-    pub top: Option<String>,
-
     /// Filter by name
     #[arg(long, value_name = "PATTERN")]
     pub name: Option<String>,
@@ -309,14 +356,6 @@ pub struct ExtractArgs {
     /// RHS supports `*`/`?` wildcards (converted to regex).
     #[arg(long, value_name = "EXPR")]
     pub filter: Option<String>,
-
-    /// Output format
-    #[arg(long, short = 'f', value_enum, default_value_t = OutputFormat::Text)]
-    pub format: OutputFormat,
-
-    /// Output to file
-    #[arg(long, short = 'o', value_name = "FILE")]
-    pub output: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
@@ -344,17 +383,9 @@ pub struct ShowArgs {
     /// Name to show (list all if omitted)
     pub name: Option<String>,
 
-    /// Load system library (can be specified multiple times), applicable to both local / server
-    #[arg(long = "lib", value_name = "NAME")]
-    pub lib: Vec<String>,
-
     /// Parse directly from file (doesn't depend on loaded library/project)
     #[arg(long, short = 'F')]
     pub file: Option<String>,
-
-    /// Top-level module name (used when show net builds netlist)
-    #[arg(long, short = 'T', value_name = "NAME")]
-    pub top: Option<String>,
 
     /// Filter by instance kind (component|module|label|interface|bus|busref|list),
     /// used with `show instances <entity>`
@@ -365,14 +396,6 @@ pub struct ShowArgs {
     /// Comma-separated key=value (key in name|kind|class). RHS supports `*`/`?` wildcards.
     #[arg(long, value_name = "EXPR")]
     pub filter: Option<String>,
-
-    /// Output format
-    #[arg(long, short = 'f', value_enum, default_value_t = OutputFormat::Text)]
-    pub format: OutputFormat,
-
-    /// Output to file
-    #[arg(long, short = 'o', value_name = "FILE")]
-    pub output: Option<String>,
 
     /// Show source position spans in `dump` text output (hidden by default)
     #[arg(long)]
@@ -447,11 +470,6 @@ pub struct SearchArgs {
     /// scope for this invocation).
     pub target: Option<String>,
 
-    /// Entry file for a directory target without a manifest (browse mode).
-    /// Relative paths resolve against the target directory.
-    #[arg(long, value_name = "FILE")]
-    pub entry: Option<String>,
-
     /// Restrict to one kind: component|module|interface|enum|instance
     #[arg(long, value_enum)]
     pub kind: Option<SearchKind>,
@@ -464,29 +482,13 @@ pub struct SearchArgs {
     #[arg(long)]
     pub fuzzy: bool,
 
-    /// Load system library (can be specified multiple times)
-    #[arg(long = "lib", value_name = "NAME")]
-    pub lib: Vec<String>,
-
-    /// When set, also drill into the instances of this top module (Pass2)
-    #[arg(long, value_name = "NAME")]
-    pub top: Option<String>,
-
     /// Cap on result count (0 = unlimited)
     #[arg(long, default_value_t = 0)]
     pub limit: usize,
 
-    /// Output format
-    #[arg(long, short = 'f', value_enum, default_value_t = OutputFormat::Text)]
-    pub format: OutputFormat,
-
     /// Shorthand for `--format json`
     #[arg(long, conflicts_with = "format")]
     pub json: bool,
-
-    /// Output to file
-    #[arg(long, short = 'o', value_name = "FILE")]
-    pub output: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
@@ -515,30 +517,13 @@ pub struct QueryArgs {
     /// Optional file or directory to load before querying
     pub target: Option<String>,
 
-    /// Entry file for a directory target without a manifest (browse mode).
-    /// Relative paths resolve against the target directory.
-    #[arg(long, value_name = "FILE")]
-    pub entry: Option<String>,
-
-    /// Load system library (can be specified multiple times)
-    #[arg(long = "lib", value_name = "NAME")]
-    pub lib: Vec<String>,
-
     /// Cap on result count (0 = unlimited)
     #[arg(long, default_value_t = 0)]
     pub limit: usize,
 
-    /// Output format
-    #[arg(long, short = 'f', value_enum, default_value_t = OutputFormat::Text)]
-    pub format: OutputFormat,
-
     /// Shorthand for `--format json`
     #[arg(long, conflicts_with = "format")]
     pub json: bool,
-
-    /// Output to file
-    #[arg(long, short = 'o', value_name = "FILE")]
-    pub output: Option<String>,
 }
 
 // ============================================================================
@@ -554,25 +539,9 @@ pub struct ExportArgs {
     /// Source .mc file (must define a top module)
     pub file: String,
 
-    /// Top module name (defaults to first module in file)
-    #[arg(long, value_name = "NAME")]
-    pub top: Option<String>,
-
-    /// Load system library (can be specified multiple times)
-    #[arg(long = "lib", value_name = "NAME")]
-    pub lib: Vec<String>,
-
-    /// Output format (text|json|csv — kind-specific defaults)
-    #[arg(long, short = 'f', value_enum, default_value_t = OutputFormat::Text)]
-    pub format: OutputFormat,
-
     /// Shorthand for `--format json`
     #[arg(long, conflicts_with = "format")]
     pub json: bool,
-
-    /// Output to file
-    #[arg(long, short = 'o', value_name = "FILE")]
-    pub output: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
@@ -594,28 +563,12 @@ pub enum ExportKind {
 
 #[derive(Parser, Debug)]
 pub struct BuildArgs {
-    /// Entry file (can be omitted, use entry in manifest)
-    pub entry: Option<String>,
-
-    /// Load system library (can be specified multiple times), applicable to both local / server
-    #[arg(long = "lib", value_name = "NAME")]
-    pub lib: Vec<String>,
-
-    /// Top-level module name (can be omitted, use top_module in manifest)
-    #[arg(long, value_name = "NAME")]
-    pub top: Option<String>,
-
-    /// Output format
-    #[arg(long, short = 'f', value_enum, default_value_t = OutputFormat::Text)]
-    pub format: OutputFormat,
+    /// Entry file (can be omitted, use entry in manifest or the global --entry)
+    pub file: Option<String>,
 
     /// Generate circuit visualization (HTML)
     #[arg(long)]
     pub viz: bool,
-
-    /// Output file path
-    #[arg(long, short = 'o', value_name = "FILE")]
-    pub output: Option<String>,
 
     /// Whether to include system library definitions, default false
     #[arg(long, default_value_t = false)]
@@ -634,9 +587,6 @@ pub struct BuildArgs {
 pub struct LibArgs {
     #[command(subcommand)]
     pub action: LibAction,
-
-    #[arg(long, short = 'f', value_enum, default_value_t = OutputFormat::Text, global = true)]
-    pub format: OutputFormat,
 }
 
 #[derive(Subcommand, Debug)]
@@ -688,7 +638,7 @@ pub enum LibAction {
         name: String,
 
         /// Force uninstall (even if loaded into memory)
-        #[arg(long, short = 'f')]
+        #[arg(long)]
         force: bool,
     },
 }
@@ -701,9 +651,6 @@ pub enum LibAction {
 pub struct ProjArgs {
     #[command(subcommand)]
     pub action: ProjAction,
-
-    #[arg(long, short = 'f', value_enum, default_value_t = OutputFormat::Text, global = true)]
-    pub format: OutputFormat,
 }
 
 #[derive(Subcommand, Debug)]
@@ -768,10 +715,6 @@ pub struct StartArgs {
     /// PID file location
     #[arg(long)]
     pub pid_file: Option<String>,
-
-    /// Pre-load system library on startup (can be specified multiple); if not specified, don't load any library
-    #[arg(long = "lib", value_name = "NAME")]
-    pub load_lib: Vec<String>,
 }
 
 // ============================================================================
@@ -781,7 +724,7 @@ pub struct StartArgs {
 #[derive(Parser, Debug)]
 pub struct StopArgs {
     /// Force stop
-    #[arg(long, short = 'f')]
+    #[arg(long)]
     pub force: bool,
 
     /// Wait timeout (seconds)
@@ -851,10 +794,6 @@ pub struct DefArgs {
     /// Symbol name to find
     pub name: String,
 
-    /// Load system library (can be specified multiple times)
-    #[arg(long = "lib", value_name = "NAME")]
-    pub lib: Vec<String>,
-
     /// Parse directly from file
     #[arg(long, short = 'F')]
     pub file: Option<String>,
@@ -869,10 +808,6 @@ pub struct RefsArgs {
     /// Symbol name to find references for
     pub name: String,
 
-    /// Load system library (can be specified multiple times)
-    #[arg(long = "lib", value_name = "NAME")]
-    pub lib: Vec<String>,
-
     /// Parse directly from file
     #[arg(long, short = 'F')]
     pub file: Option<String>,
@@ -886,10 +821,6 @@ pub struct RefsArgs {
 pub struct ReportArgs {
     /// Target file or project (optional — uses current workspace if omitted)
     pub target: Option<String>,
-
-    /// Load system library (can be specified multiple times)
-    #[arg(long = "lib", value_name = "NAME")]
-    pub lib: Vec<String>,
 }
 
 // ============================================================================
@@ -904,14 +835,6 @@ pub struct ConvertArgs {
     /// Target format: json, yaml
     #[arg(long, default_value = "json")]
     pub to: String,
-
-    /// Load system library (can be specified multiple times)
-    #[arg(long = "lib", value_name = "NAME")]
-    pub lib: Vec<String>,
-
-    /// Output to file
-    #[arg(long, short = 'o', value_name = "FILE")]
-    pub output: Option<String>,
 }
 
 // ============================================================================
@@ -922,19 +845,6 @@ pub struct ConvertArgs {
 pub struct ErcArgs {
     /// Target file or project directory
     pub target: Option<String>,
-
-    /// Entry file for a directory target without a manifest (browse mode).
-    /// Relative paths resolve against the target directory.
-    #[arg(long, value_name = "FILE")]
-    pub entry: Option<String>,
-
-    /// Load system library (can be specified multiple times)
-    #[arg(long = "lib", value_name = "NAME")]
-    pub lib: Vec<String>,
-
-    /// Top-level module name (for Pass2 build)
-    #[arg(long, value_name = "NAME")]
-    pub top: Option<String>,
 }
 
 // ============================================================================
