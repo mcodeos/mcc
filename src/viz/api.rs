@@ -215,6 +215,36 @@ fn render_layer_recursive(
             name
         );
         (200.0, 100.0)
+    } else if graph.layer_style == crate::vector::graph::LayerStyle::Device {
+        // ── ★ F2: Device pipeline — equipotential tree layout only ──
+        crate::viz::layout::equipotential_tree::layout_device_layer(&mut graph);
+        let mut cv = super::layout::normalize::compute_canvas(&graph);
+        // ★ Trees (segments / dots / symbols) can reach beyond the box
+        // bounding box (e.g. a bus label dropped off a single-pin junction);
+        // extend the canvas so they are not clipped.
+        let trees = crate::viz::layout::equipotential_tree::build_all_trees(&graph);
+        let mut tree_max_x = 0.0f64;
+        let mut tree_max_y = 0.0f64;
+        for t in &trees {
+            for s in &t.segments {
+                tree_max_x = tree_max_x.max(s.x1).max(s.x2);
+                tree_max_y = tree_max_y.max(s.y1).max(s.y2);
+            }
+            for &(jx, jy) in &t.junction_dots {
+                tree_max_x = tree_max_x.max(jx);
+                tree_max_y = tree_max_y.max(jy);
+            }
+            for sym in &t.symbols {
+                // rough text width estimate: ~7px per char at font-size 10
+                let label_w = sym.label.len() as f64 * 7.0;
+                tree_max_x = tree_max_x.max(sym.x + label_w);
+                tree_max_y = tree_max_y.max(sym.y + 24.0);
+            }
+        }
+        let margin = super::layout::normalize::CANVAS_MARGIN;
+        cv.0 = cv.0.max(tree_max_x + margin);
+        cv.1 = cv.1.max(tree_max_y + margin);
+        cv
     } else {
         let layouter_name = candidates.first().map(|c| c.name()).unwrap_or("none");
 
@@ -388,30 +418,33 @@ fn render_layer_recursive(
     // layers (label idempotence guard: nets already carrying a label are skipped);
     // its only role was a canvas fallback —— but canvas is already computed by
     // canvas_hint / compute_canvas above, so removing it is a pure equivalence.
-    crate::vector::graph::netprobe::probe_route(&graph); // ★ NEW
+    // ★ F2: Device layer skips route/audit/label_placement
+    if graph.layer_style != crate::vector::graph::LayerStyle::Device {
+        crate::vector::graph::netprobe::probe_route(&graph); // ★ NEW
 
-    let rep = super::route::audit::audit_all(&graph);
-    crate::vlog!(
-        "[viz::audit] box-box={} wire-box={} wire-wire={} (total={})",
-        rep.box_box,
-        rep.wire_box,
-        rep.wire_wire,
-        rep.total()
-    );
-    for d in &rep.details {
-        crate::vlog!("[viz::audit] detail: {d}");
+        let rep = super::route::audit::audit_all(&graph);
+        crate::vlog!(
+            "[viz::audit] box-box={} wire-box={} wire-wire={} (total={})",
+            rep.box_box,
+            rep.wire_box,
+            rep.wire_wire,
+            rep.total()
+        );
+        for d in &rep.details {
+            crate::vlog!("[viz::audit] detail: {d}");
+        }
+
+        // ── M8: Label placement optimization (after route, before metrics) ──
+        let label_report = label_placement_pipeline(&mut graph, canvas);
+        crate::vlog!(
+            "[viz::labels] placed={} total={} hidden={}",
+            label_report.labels_placed,
+            label_report.labels_total,
+            label_report.labels_hidden,
+        );
+
+        metrics.accumulate_layer(&graph, &rep, canvas);
     }
-
-    // ── M8: Label placement optimization (after route, before metrics) ──
-    let label_report = label_placement_pipeline(&mut graph, canvas);
-    crate::vlog!(
-        "[viz::labels] placed={} total={} hidden={}",
-        label_report.labels_placed,
-        label_report.labels_total,
-        label_report.labels_hidden,
-    );
-
-    metrics.accumulate_layer(&graph, &rep, canvas);
 
     // ── M12: Determinism report (after route, before render) ──
     // ★ P0.5-3c: fill in idiom_hash / placement_hash —— after layout_best,
@@ -507,7 +540,9 @@ fn render_layer_recursive(
     layer.clickable_subs = clickable_subs;
     doc.add_layer(layer);
 
-    for sub in sub_graphs {
+    for mut sub in sub_graphs {
+        // ★ F2: sub-layers use Device pipeline
+        sub.layer_style = crate::vector::graph::LayerStyle::Device;
         render_layer_recursive(
             doc,
             sub,

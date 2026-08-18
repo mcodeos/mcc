@@ -111,13 +111,6 @@ impl SvgRenderer {
                 svg.push_str(&equipotential_tree_render::render_equi_tree(tree));
             }
 
-            // ── ★ DEBUG: temporarily render viznet too, so we can compare
-            //     tree lines vs old route lines side-by-side.
-            //     TODO: remove this once tree output is verified correct.
-            for net in &graph.nets {
-                svg.push_str(&wire::render_viznet(net));
-            }
-
             // ── Zone borders (M2-3) ──
             for zb in &graph.zone_borders {
                 svg.push_str(&format!(
@@ -135,10 +128,14 @@ impl SvgRenderer {
             }
 
             // ── Boxes (top layer) ──
-            // ★ C1b: skip PowerLabel boxes — they are rendered as tree symbols
+            // ★ C1b: skip label-kind boxes — they are rendered as tree symbols
+            // (PowerLabel / Dot / PortTerminal), not as physical component boxes.
             use crate::vector::graph::BoxKind;
             for b in &graph.boxes {
-                if b.kind == BoxKind::PowerLabel {
+                if matches!(
+                    b.kind,
+                    BoxKind::PowerLabel | BoxKind::Dot | BoxKind::PortTerminal
+                ) {
                     continue;
                 }
                 svg.push_str(&shape::render_box(b, false));

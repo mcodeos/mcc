@@ -4,177 +4,33 @@
 
 //! SVG renderer for equipotential trees.
 //!
-//! Renders an `EquiTree` into SVG: trunk, taps, local trunks, junction dots,
-//! and terminal symbols (GND bars, net labels, port labels).
+//! Renders an `EquiTree` into SVG: segments, junction dots, and terminal symbols.
 
-use super::super::layout::equipotential_tree::{EquiTree, TreeSymbolKind};
+use super::super::layout::equipotential_tree::{EquiTree, TreeSymbol, TreeSymbolKind};
 use crate::vector::graph::NetKind;
 
 /// Render an equipotential tree into SVG.
 pub fn render_equi_tree(tree: &EquiTree) -> String {
     let (color, stroke_w) = style_for_kind(&tree.net_kind);
 
-    if tree.horizontal_trunk {
-        return render_horizontal_tree(tree, color, stroke_w);
-    }
-
     let mut svg = String::new();
 
-    // ── Main trunk ──
-    svg.push_str(&format!(
-        r##"  <line x1="{x:.1}" y1="{y1:.1}" x2="{x:.1}" y2="{y2:.1}"
-       stroke="{color}" stroke-width="{sw:.1}"/>"##,
-        x = tree.trunk_x,
-        y1 = tree.trunk_y_min,
-        y2 = tree.trunk_y_max,
-        color = color,
-        sw = stroke_w,
-    ));
-    svg.push('\n');
-
-    // ── Anchor local trunk ──
-    svg.push_str(&format!(
-        r##"  <line x1="{x:.1}" y1="{y1:.1}" x2="{x:.1}" y2="{y2:.1}"
-       stroke="{color}" stroke-width="{sw:.1}"/>"##,
-        x = tree.anchor_local_trunk_x,
-        y1 = tree.anchor_local_trunk_y_min,
-        y2 = tree.anchor_local_trunk_y_max,
-        color = color,
-        sw = stroke_w,
-    ));
-    svg.push('\n');
-
-    // Anchor-to-trunk horizontal line
-    let anchor_attach_y = (tree.anchor_local_trunk_y_min + tree.anchor_local_trunk_y_max) / 2.0;
-    svg.push_str(&format!(
-        r##"  <line x1="{x1:.1}" y1="{y:.1}" x2="{x2:.1}" y2="{y:.1}"
-       stroke="{color}" stroke-width="{sw:.1}"/>"##,
-        x1 = tree.anchor_local_trunk_x,
-        y = anchor_attach_y,
-        x2 = tree.trunk_x,
-        color = color,
-        sw = stroke_w,
-    ));
-    svg.push('\n');
-
-    // ── Tap branches ──
-    for tap in &tree.taps {
-        // Local trunk for this tap box
+    // ── Segments ──
+    for seg in &tree.segments {
         svg.push_str(&format!(
-            r##"  <line x1="{x:.1}" y1="{y1:.1}" x2="{x:.1}" y2="{y2:.1}"
+            r##"  <line x1="{x1:.1}" y1="{y1:.1}" x2="{x2:.1}" y2="{y2:.1}"
        stroke="{color}" stroke-width="{sw:.1}"/>"##,
-            x = tap.local_trunk_x,
-            y1 = tap.local_trunk_y_min,
-            y2 = tap.local_trunk_y_max,
-            color = color,
-            sw = stroke_w,
-        ));
-        svg.push('\n');
-
-        // Horizontal tap from local trunk to main trunk
-        svg.push_str(&format!(
-            r##"  <line x1="{x1:.1}" y1="{y:.1}" x2="{x2:.1}" y2="{y:.1}"
-       stroke="{color}" stroke-width="{sw:.1}"/>"##,
-            x1 = tap.local_trunk_x,
-            y = tap.trunk_attach_y,
-            x2 = tree.trunk_x,
+            x1 = seg.x1,
+            y1 = seg.y1,
+            x2 = seg.x2,
+            y2 = seg.y2,
             color = color,
             sw = stroke_w,
         ));
         svg.push('\n');
     }
 
-    // ── Junction dots (≥3 line intersections) ──
-    for &(jx, jy) in &tree.junction_dots {
-        svg.push_str(&format!(
-            r##"  <circle cx="{x:.1}" cy="{y:.1}" r="3.0" fill="{color}"/>"##,
-            x = jx,
-            y = jy,
-            color = color,
-        ));
-        svg.push('\n');
-    }
-
-    // ── Terminal symbols ──
-    for sym in &tree.symbols {
-        svg.push_str(&render_symbol(sym, &tree.net_kind));
-    }
-
-    svg
-}
-
-/// Render a horizontal-trunk equipotential tree.
-fn render_horizontal_tree(tree: &EquiTree, color: &str, stroke_w: f64) -> String {
-    let mut svg = String::new();
-
-    // ── Main trunk (horizontal) ──
-    svg.push_str(&format!(
-        r##"  <line x1="{x1:.1}" y1="{y1:.1}" x2="{x2:.1}" y2="{y2:.1}"
-       stroke="{color}" stroke-width="{sw:.1}"/>"##,
-        x1 = tree.trunk_x_min,
-        y1 = tree.trunk_y,
-        x2 = tree.trunk_x_max,
-        y2 = tree.trunk_y,
-        color = color,
-        sw = stroke_w,
-    ));
-    svg.push('\n');
-
-    // ── Anchor local trunk (vertical) ──
-    svg.push_str(&format!(
-        r##"  <line x1="{x:.1}" y1="{y1:.1}" x2="{x:.1}" y2="{y2:.1}"
-       stroke="{color}" stroke-width="{sw:.1}"/>"##,
-        x = tree.anchor_local_trunk_x,
-        y1 = tree.anchor_local_trunk_y_min,
-        y2 = tree.anchor_local_trunk_y_max,
-        color = color,
-        sw = stroke_w,
-    ));
-    svg.push('\n');
-
-    // Anchor-to-trunk: vertical line from anchor local trunk center to trunk_y
-    let anchor_attach_y = (tree.anchor_local_trunk_y_min + tree.anchor_local_trunk_y_max) / 2.0;
-    svg.push_str(&format!(
-        r##"  <line x1="{x:.1}" y1="{y1:.1}" x2="{x:.1}" y2="{y2:.1}"
-       stroke="{color}" stroke-width="{sw:.1}"/>"##,
-        x = tree.anchor_local_trunk_x,
-        y1 = anchor_attach_y,
-        y2 = tree.trunk_y,
-        color = color,
-        sw = stroke_w,
-    ));
-    svg.push('\n');
-
-    // ── Tap branches ──
-    for tap in &tree.taps {
-        // Local trunk for this tap box (vertical)
-        svg.push_str(&format!(
-            r##"  <line x1="{x:.1}" y1="{y1:.1}" x2="{x:.1}" y2="{y2:.1}"
-       stroke="{color}" stroke-width="{sw:.1}"/>"##,
-            x = tap.local_trunk_x,
-            y1 = tap.local_trunk_y_min,
-            y2 = tap.local_trunk_y_max,
-            color = color,
-            sw = stroke_w,
-        ));
-        svg.push('\n');
-
-        // Vertical tap from local trunk to main trunk (horizontal)
-        // The tap connects at trunk_attach_x on the trunk
-        let tap_attach_y = (tap.local_trunk_y_min + tap.local_trunk_y_max) / 2.0;
-        svg.push_str(&format!(
-            r##"  <line x1="{x:.1}" y1="{y1:.1}" x2="{x:.1}" y2="{y2:.1}"
-       stroke="{color}" stroke-width="{sw:.1}"/>"##,
-            x = tap.local_trunk_x,
-            y1 = tap_attach_y,
-            y2 = tree.trunk_y,
-            color = color,
-            sw = stroke_w,
-        ));
-        svg.push('\n');
-    }
-
-    // ── Junction dots (≥3 line intersections) ──
+    // ── Junction dots (>=3 degree) ──
     for &(jx, jy) in &tree.junction_dots {
         svg.push_str(&format!(
             r##"  <circle cx="{x:.1}" cy="{y:.1}" r="3.0" fill="{color}"/>"##,
@@ -194,15 +50,11 @@ fn render_horizontal_tree(tree: &EquiTree, color: &str, stroke_w: f64) -> String
 }
 
 /// Render a terminal symbol.
-fn render_symbol(
-    sym: &super::super::layout::equipotential_tree::TreeSymbol,
-    net_kind: &NetKind,
-) -> String {
+fn render_symbol(sym: &TreeSymbol, net_kind: &NetKind) -> String {
     let (color, _) = style_for_kind(net_kind);
 
     match sym.kind {
         TreeSymbolKind::Ground => {
-            // GND symbol: 3 horizontal bars decreasing in width
             let bar_w1 = 20.0;
             let bar_w2 = 14.0;
             let bar_w3 = 8.0;
@@ -229,19 +81,7 @@ fn render_symbol(
                 color = color,
             )
         }
-        TreeSymbolKind::Power => {
-            format!(
-                r##"  <text x="{x:.1}" y="{y:.1}" text-anchor="middle"
-       font-size="10" font-weight="600" fill="{color}"
-       dominant-baseline="central">{label}</text>
-"##,
-                x = sym.x,
-                y = sym.y,
-                color = color,
-                label = escape_xml(&sym.label),
-            )
-        }
-        TreeSymbolKind::NetLabel => {
+        TreeSymbolKind::NetLabel | TreeSymbolKind::Power => {
             format!(
                 r##"  <text x="{x:.1}" y="{y:.1}" text-anchor="middle"
        font-size="10" font-weight="600" fill="{color}"
@@ -261,6 +101,23 @@ fn render_symbol(
 "##,
                 x = sym.x,
                 y = sym.y,
+                label = escape_xml(&sym.label),
+            )
+        }
+        TreeSymbolKind::BusLabel => {
+            // Bus label: circle + text
+            let r = 6.0;
+            format!(
+                r##"  <circle cx="{x:.1}" cy="{y:.1}" r="{r:.1}" fill="none" stroke="{color}" stroke-width="1.5"/>
+  <text x="{tx:.1}" y="{y:.1}" text-anchor="start"
+       font-size="10" font-weight="600" fill="{color}"
+       dominant-baseline="central">{label}</text>
+"##,
+                x = sym.x,
+                y = sym.y,
+                r = r,
+                tx = sym.x + r + 4.0,
+                color = color,
                 label = escape_xml(&sym.label),
             )
         }

@@ -424,6 +424,25 @@ pub struct McVecBox {
     /// `(file, line)` — which source file and line declared this box.
     /// Populated by fromblock.rs from InstEntry source info.
     pub source_span: Option<(String, u32)>,
+    /// ★ C1b F1: Pin slots — single source of truth for pin positions.
+    /// Set by layout, read by renderer and geometry.
+    pub slots: Vec<PinSlot>,
+}
+
+/// ★ C1b F1: Pin slot — single source of truth for pin positions.
+/// Set by layout, read by renderer and geometry.
+#[derive(Debug, Clone)]
+pub struct PinSlot {
+    pub pin_id: i64,
+    /// Sort key for pin ordering (0, 1, 2, ...)
+    pub number: u32,
+    pub name: String,
+    /// Which edge of the box this pin is on
+    pub side: EntrySide,
+    /// Position along the edge (0.0 = start, 1.0 = end)
+    pub offset: f64,
+    /// Whether this pin is connected to a net
+    pub connected: bool,
 }
 
 /// ★ P2: Visual role hint for layout placement
@@ -529,6 +548,7 @@ impl McVecBox {
             geom_writer: None,
             provenance: BoxProvenance::Declared,
             source_span: None,
+            slots: Vec::new(),
         }
     }
 

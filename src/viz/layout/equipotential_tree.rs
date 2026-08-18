@@ -16,6 +16,7 @@
 use std::collections::BTreeMap;
 
 use crate::vector::graph::{BoxKind, EntrySide, McVecGraph, NetKind, PinSlot, VizNet};
+use crate::vector::model::RailClass;
 
 // ============================================================================
 // Constants
@@ -35,6 +36,10 @@ pub const JUNCTION_GAP: f64 = 220.0;
 
 /// Gap from trunk to member box
 pub const MEMBER_GAP: f64 = 60.0;
+
+/// ★ Vertical drop from a single-pin junction to the NetLabel / Ground symbol
+/// below it (see realize + build_symbols — both read this constant).
+pub const SYMBOL_DROP: f64 = 60.0;
 
 /// ★ E4: Fixed symbol size for two-pin passive components (R/C/L/D).
 /// R-D formula (pin_count × PIN_PITCH + 2 × MARGIN) applies only to MultiPin boxes.
@@ -77,6 +82,9 @@ pub enum Terminal {
 pub struct NetTopology {
     pub net_name: String,
     pub net_kind: NetKind,
+    /// ★ Power rail (DC-interface Power member, from the projection-layer
+    /// rail spec): renders as a bus label, even with a single real group.
+    pub is_power_rail: bool,
     /// Anchor box ID
     pub anchor: i64,
     /// Groups: anchor first, then non-anchor sorted by box_id (deterministic)
@@ -120,12 +128,26 @@ fn build_one_topology(net: &VizNet, graph: &McVecGraph) -> Option<NetTopology> {
     let mut real_groups: BTreeMap<i64, Vec<i64>> = BTreeMap::new();
     let mut terminals: Vec<Terminal> = Vec::new();
 
+    // ★ Power-rail net: a DC-interface Power member (e.g. `vin.POWER_SYS` from
+    // `io vin{POWER_SYS, GND}::DC(5V)`). The projection layer drops the
+    // port-side pseudo endpoint (rail rule (c)), so such a net may carry a
+    // single real group — it still renders, terminated by a bus label.
+    let is_power_rail_net = net
+        .rail
+        .as_ref()
+        .is_some_and(|r| r.class == RailClass::Power)
+        || net.kind == NetKind::Power;
+
     for ep in &net.endpoints {
         let Some(b) = graph.boxes.iter().find(|b| b.id == ep.box_id) else {
             continue;
         };
-        if b.kind == BoxKind::PowerLabel {
-            // PowerLabel endpoints become terminals (symbol dedup)
+        if b.kind == BoxKind::PowerLabel || b.kind == BoxKind::PortTerminal {
+            // ★ Label-kind endpoints (PowerLabel / PortTerminal) become terminal
+            // symbols, so they are NOT placed/laid out as physical boxes. A
+            // PortTerminal such as `USB_VBUS` (from `usbsock.VBUS -> USB_VBUS`)
+            // is an inline net label, not a component — it must render as a
+            // BusLabel/NetLabel circle+text, not a square box.
             match &net.kind {
                 NetKind::Ground => {
                     if !terminals.iter().any(|t| matches!(t, Terminal::Ground)) {
@@ -185,7 +207,9 @@ fn build_one_topology(net: &VizNet, graph: &McVecGraph) -> Option<NetTopology> {
 
     // ★ F5: skip nets with only the anchor (no non-anchor groups)
     // BUT only if there are no terminals — a power net with a label should still render.
-    if groups.len() < 2 && terminals.is_empty() {
+    // Power-rail nets (single real group after the port pseudo endpoint was
+    // dropped by projection) are kept: they render as anchor + bus label.
+    if groups.len() < 2 && terminals.is_empty() && !is_power_rail_net {
         return None;
     }
 
@@ -193,44 +217,52 @@ fn build_one_topology(net: &VizNet, graph: &McVecGraph) -> Option<NetTopology> {
     let trunk_axis = trunk_axis_from_anchor(anchor, &real_groups[&anchor], graph);
 
     // Add net-kind-based terminals (only if not already added from PowerLabel)
-    match &net.kind {
-        NetKind::Ground => {
-            if !terminals.iter().any(|t| matches!(t, Terminal::Ground)) {
-                terminals.push(Terminal::Ground);
-            }
+    if is_power_rail_net {
+        // ★ Power rail: bus label stripped of the port prefix
+        // ("vin.POWER_SYS" -> "POWER_SYS", "V3V3.VCC" -> "VCC")
+        if !terminals.iter().any(|t| matches!(t, Terminal::NetLabel(_))) {
+            let label = net
+                .name
+                .rsplit_once('.')
+                .map_or(net.name.clone(), |(_, leaf)| leaf.to_string());
+            terminals.push(Terminal::NetLabel(label));
         }
-        NetKind::Signal => {
-            if !net.name.is_empty()
-                && !net.name.starts_with("__net")
-                && !terminals.iter().any(|t| matches!(t, Terminal::NetLabel(_)))
-            {
-                terminals.push(Terminal::NetLabel(net.name.clone()));
+    } else {
+        match &net.kind {
+            NetKind::Ground => {
+                if !terminals.iter().any(|t| matches!(t, Terminal::Ground)) {
+                    terminals.push(Terminal::Ground);
+                }
             }
-        }
-        NetKind::Power => {
-            if !terminals.iter().any(|t| matches!(t, Terminal::NetLabel(_))) {
-                // ★ F5: strip "vin." prefix for power nets (e.g. vin.POWER_SYS -> POWER_SYS)
-                let label = net
-                    .name
-                    .strip_prefix("vin.")
-                    .unwrap_or(&net.name)
-                    .to_string();
-                terminals.push(Terminal::NetLabel(label));
+            NetKind::Signal => {
+                if !net.name.is_empty()
+                    && !net.name.starts_with("__net")
+                    && !terminals.iter().any(|t| matches!(t, Terminal::NetLabel(_)))
+                {
+                    terminals.push(Terminal::NetLabel(net.name.clone()));
+                }
             }
-        }
-        NetKind::SubModuleIO => {
-            if !terminals.iter().any(|t| matches!(t, Terminal::Port { .. })) {
-                terminals.push(Terminal::Port {
-                    name: net.name.clone(),
-                });
+            NetKind::SubModuleIO => {
+                // ★ The PortTerminal endpoint (e.g. USB_VBUS) was already
+                // extracted as a NetLabel above; do not emit a duplicate Port
+                // label that would overlap it.
+                if !terminals
+                    .iter()
+                    .any(|t| matches!(t, Terminal::Port { .. } | Terminal::NetLabel(_)))
+                {
+                    terminals.push(Terminal::Port {
+                        name: net.name.clone(),
+                    });
+                }
             }
+            _ => {}
         }
-        _ => {}
     }
 
     Some(NetTopology {
         net_name: net.name.clone(),
         net_kind: net.kind.clone(),
+        is_power_rail: is_power_rail_net,
         anchor,
         groups,
         terminals,
@@ -403,6 +435,43 @@ fn assign_pin_slots(b: &mut crate::vector::graph::McVecBox, side: EntrySide) {
     }
 }
 
+/// ★ E1: PinSlots for a Series two-pin member (R/C/L/D inline on a path).
+/// Pin 1 faces the junction (entry), pin 2 faces away (exit) — both at
+/// mid-height of their side, matching the horizontal resistor symbol.
+fn assign_series_slots(b: &mut crate::vector::graph::McVecBox) {
+    let connected: std::collections::HashSet<i64> =
+        b.entry_points.iter().map(|ep| ep.pin_id).collect();
+    b.slots.clear();
+    for (i, p) in b.pins.iter().enumerate() {
+        let side = if i == 0 {
+            EntrySide::Left
+        } else {
+            EntrySide::Right
+        };
+        let name = if p.description.is_empty() {
+            p.pin_id.clone()
+        } else {
+            p.description.clone()
+        };
+        b.slots.push(PinSlot {
+            pin_id: p.id,
+            number: i as u32,
+            name,
+            side,
+            offset: 0.5,
+            connected: connected.contains(&p.id),
+        });
+    }
+    // Keep entry_points connectivity in sync with the split sides
+    for (i, ep) in b.entry_points.iter_mut().enumerate() {
+        ep.side = if i == 0 {
+            EntrySide::Left
+        } else {
+            EntrySide::Right
+        };
+    }
+}
+
 /// Get the y position of the anchor pin for a single-pin topology.
 fn get_anchor_pin_y(graph: &McVecGraph, topo: &NetTopology) -> f64 {
     let anchor_group = topo.groups.first();
@@ -524,7 +593,14 @@ fn place_members_single_pin(
             ep.side = member_side;
         }
         // ★ E1: generate PinSlots
-        assign_pin_slots(member_box, member_side);
+        // ★ Series members are inline on the path: pin 1 faces the junction,
+        // pin 2 faces away — so the next net (e.g. POWER_SYS behind R0603)
+        // can start its trunk at the far pin without crossing the body.
+        if role == MemberRole::Series && member_box.pins.len() == 2 {
+            assign_series_slots(member_box);
+        } else {
+            assign_pin_slots(member_box, member_side);
+        }
     }
 }
 
@@ -700,8 +776,31 @@ pub fn realize(topo: &NetTopology, graph: &McVecGraph) -> EquiTree {
         // Member taps
         for group in topo.groups.iter().skip(1) {
             if let Some(member_box) = graph.boxes.iter().find(|b| b.id == group.box_id) {
-                let member_x = member_box.x;
-                let member_y = member_box.y + member_box.h / 2.0;
+                // ★ F2: read member pin position from PinSlot (single source of truth)
+                let (member_x, member_y) = if let Some(&pid) = group.pin_ids.first() {
+                    if let Some(slot) = slot_of(member_box, pid) {
+                        match slot.side {
+                            EntrySide::Top => {
+                                (member_box.x + member_box.w * slot.offset, member_box.y)
+                            }
+                            EntrySide::Bottom => (
+                                member_box.x + member_box.w * slot.offset,
+                                member_box.y + member_box.h,
+                            ),
+                            EntrySide::Left => {
+                                (member_box.x, member_box.y + member_box.h * slot.offset)
+                            }
+                            EntrySide::Right => (
+                                member_box.x + member_box.w,
+                                member_box.y + member_box.h * slot.offset,
+                            ),
+                        }
+                    } else {
+                        (member_box.x, member_box.y + member_box.h / 2.0)
+                    }
+                } else {
+                    (member_box.x, member_box.y + member_box.h / 2.0)
+                };
 
                 // Determine if member is above, right, or below
                 if (member_y - anchor_pin_y).abs() < 10.0 && member_x > junction_x {
@@ -714,16 +813,42 @@ pub fn realize(topo: &NetTopology, graph: &McVecGraph) -> EquiTree {
                     };
                     add_segment(&seg, &mut segments, &mut degree_map);
                 } else {
-                    // Above/below: vertical tap from junction
-                    let seg = Segment {
+                    // Above/below (or left): L-shaped tap — vertical drop to the
+                    // member's y, then horizontal run to the member pin. Without
+                    // the horizontal run the wire stops short of the member
+                    // (e.g. TP1 sitting above the USB_VBUS junction).
+                    let vseg = Segment {
                         x1: junction_x,
                         y1: anchor_pin_y,
                         x2: junction_x,
                         y2: member_y,
                     };
-                    add_segment(&seg, &mut segments, &mut degree_map);
+                    add_segment(&vseg, &mut segments, &mut degree_map);
+                    let hseg = Segment {
+                        x1: junction_x,
+                        y1: member_y,
+                        x2: member_x,
+                        y2: member_y,
+                    };
+                    add_segment(&hseg, &mut segments, &mut degree_map);
                 }
             }
+        }
+
+        // ★ Vertical drop from the junction to NetLabel / Ground symbols
+        // (they sit SYMBOL_DROP below the junction — see build_symbols).
+        let has_drop_symbol = topo
+            .terminals
+            .iter()
+            .any(|t| matches!(t, Terminal::NetLabel(_) | Terminal::Ground));
+        if has_drop_symbol {
+            let seg = Segment {
+                x1: junction_x,
+                y1: anchor_pin_y,
+                x2: junction_x,
+                y2: anchor_pin_y + SYMBOL_DROP,
+            };
+            add_segment(&seg, &mut segments, &mut degree_map);
         }
     } else {
         // Multiple pins: vertical trunk
@@ -757,12 +882,36 @@ pub fn realize(topo: &NetTopology, graph: &McVecGraph) -> EquiTree {
         // Member taps: horizontal from member pin to trunk
         for group in topo.groups.iter().skip(1) {
             if let Some(member_box) = graph.boxes.iter().find(|b| b.id == group.box_id) {
-                let attach_y = member_box.y + member_box.h / 2.0;
+                // ★ F2: read member pin position from PinSlot (single source of truth)
+                let (member_x, member_y) = if let Some(&pid) = group.pin_ids.first() {
+                    if let Some(slot) = slot_of(member_box, pid) {
+                        match slot.side {
+                            EntrySide::Top => {
+                                (member_box.x + member_box.w * slot.offset, member_box.y)
+                            }
+                            EntrySide::Bottom => (
+                                member_box.x + member_box.w * slot.offset,
+                                member_box.y + member_box.h,
+                            ),
+                            EntrySide::Left => {
+                                (member_box.x, member_box.y + member_box.h * slot.offset)
+                            }
+                            EntrySide::Right => (
+                                member_box.x + member_box.w,
+                                member_box.y + member_box.h * slot.offset,
+                            ),
+                        }
+                    } else {
+                        (member_box.x, member_box.y + member_box.h / 2.0)
+                    }
+                } else {
+                    (member_box.x, member_box.y + member_box.h / 2.0)
+                };
                 let seg = Segment {
-                    x1: member_box.x,
-                    y1: attach_y,
+                    x1: member_x,
+                    y1: member_y,
                     x2: trunk_x,
-                    y2: attach_y,
+                    y2: member_y,
                 };
                 add_segment(&seg, &mut segments, &mut degree_map);
             }
@@ -882,23 +1031,32 @@ fn build_symbols(
     trunk_y_min: f64,
     trunk_y_max: f64,
     _anchor_right: f64,
-    _graph: &McVecGraph,
+    graph: &McVecGraph,
 ) -> Vec<TreeSymbol> {
     let mut symbols = Vec::new();
 
     let is_single_pin = topo.trunk_axis == TrunkAxis::Horizontal;
 
+    // ★ F4: check if there is already a label box for this net (e.g. PowerLabel),
+    // to avoid drawing a duplicate label symbol. PortTerminal is excluded: it is
+    // now extracted as a Terminal::NetLabel (see build_one_topology), so it must
+    // not suppress the symbol it is meant to produce.
+    let has_label_box = graph
+        .boxes
+        .iter()
+        .any(|b| matches!(b.kind, BoxKind::PowerLabel | BoxKind::Dot) && b.name == topo.net_name);
+
     for term in &topo.terminals {
         match term {
             Terminal::Ground => {
                 if is_single_pin {
-                    // Single pin: GND at junction + 60 below
+                    // Single pin: GND at junction + SYMBOL_DROP below
                     let junction_x = _anchor_right + JUNCTION_GAP;
                     let junction_y = trunk_y_min; // same as anchor_pin_y
                     symbols.push(TreeSymbol {
                         kind: TreeSymbolKind::Ground,
                         x: junction_x,
-                        y: junction_y + 60.0,
+                        y: junction_y + SYMBOL_DROP,
                         label: String::new(),
                     });
                 } else {
@@ -911,8 +1069,14 @@ fn build_symbols(
                 }
             }
             Terminal::NetLabel(name) => {
-                // ★ F5: bus-style labels (USB_VBUS etc.) get a circle marker
-                let is_bus = name.contains("BUS") || name.contains("_VBUS");
+                // ★ F4: skip if there is already a label box for this net
+                if has_label_box {
+                    continue;
+                }
+                // ★ F5: power rails (incl. DC-interface Power members like
+                // vin.POWER_SYS) always use BusLabel (circle + text).
+                // Bus names (containing "BUS" or "_VBUS") also use BusLabel.
+                let is_bus = topo.is_power_rail || name.contains("BUS") || name.contains("_VBUS");
                 let kind = if is_bus {
                     TreeSymbolKind::BusLabel
                 } else {
@@ -924,7 +1088,7 @@ fn build_symbols(
                     symbols.push(TreeSymbol {
                         kind,
                         x: junction_x,
-                        y: junction_y + 60.0,
+                        y: junction_y + SYMBOL_DROP,
                         label: name.clone(),
                     });
                 } else {
@@ -1025,8 +1189,7 @@ pub fn layout_device_layer(graph: &mut McVecGraph) {
     }
     eprintln!(
         "[equi-tree] layout_device_layer done: {} placed, {} fallback",
-        placed_count,
-        unplaced_count,
+        placed_count, unplaced_count,
     );
 }
 
