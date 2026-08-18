@@ -81,6 +81,7 @@ pub const MCAST_OPD_GROUP: u16 = 74;
 pub const MCAST_OPD_TILDE: u16 = 75;
 pub const MCAST_OPD_COLON: u16 = 76;
 pub const MCAST_OPD_DBCOLON: u16 = 77;
+pub const MCAST_OPDS: u16 = 78;
 pub const MCAST_COND_IF: u16 = 81;
 pub const MCAST_COND_ELSE: u16 = 82;
 pub const MCAST_COND_BLOCK: u16 = 83;

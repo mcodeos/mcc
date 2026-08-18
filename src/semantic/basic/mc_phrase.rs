@@ -1315,8 +1315,8 @@ impl McPhrase {
 
                 let left_opd = Self::new(&subnode1, context)?;
 
-                // mca.y wraps each `mc_idans` inside curly braces in an
-                // OPD_IDAN node so the `|` boundary survives mc_value_link3's
+                // mca.y wraps each `mc_opds` inside curly braces in an
+                // MCAST_OPDS node so the `|` boundary survives mc_value_link3's
                 // next-chain flattening (otherwise the left option list absorbs
                 // the right side's ids). Extract all id/ida/int elements by
                 // walking each wrapper's own chain; complex expressions return

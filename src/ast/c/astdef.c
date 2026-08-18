@@ -285,6 +285,7 @@ char* mcvalue_to_string(mc_value* pval)
             break;
 
         case MCAST_OPD_IDAN:
+        case MCAST_OPDS:
             break;
         }
         value = value->next;
