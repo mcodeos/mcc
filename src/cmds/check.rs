@@ -207,7 +207,7 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
 
     // --dlog: raw one-line diagnostics only (no envelope / summary). Decoupled
     // from execution mode — pair with --local when an RPC server is running.
-    if mcc::cli::dlog_mode() {
+    if args.dlog {
         diagnostic::print_dlog_lines(args.errors_only);
         let errs = raw
             .iter()
