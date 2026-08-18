@@ -104,7 +104,12 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                                 .or_else(|| mcc::mcb_get_module_name_by_uri(&entry_uri));
                             McURI::from(entry_uri.as_str())
                         }
-                        Err(e) => return emit_error(RpcError::invalid_params(format!("{:#}", e))),
+                        Err(e) => {
+                            return emit_error(
+                                RpcError::invalid_params(format!("{:#}", e)),
+                                args.dlog,
+                            )
+                        }
                     }
                 }
             }
@@ -114,14 +119,15 @@ pub fn run(args: &ParseArgs) -> Result<()> {
             uri
         }
     } else {
-        return emit_error(RpcError::invalid_params(
-            "parse: <target>/--code not specified",
-        ));
+        return emit_error(
+            RpcError::invalid_params("parse: <target>/--code not specified"),
+            args.dlog,
+        );
     };
 
     // ── 2. Stage selection ──
     let stages = Stages::from_args(args);
-    let renderer: Box<dyn renderer::OutputRenderer> = if mcc::cli::dlog_mode() {
+    let renderer: Box<dyn renderer::OutputRenderer> = if args.dlog {
         Box::new(renderer::SilentRenderer)
     } else {
         renderer::for_format_with_sort(mcc::cli::globals().format, args.sort)
@@ -156,7 +162,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
             // No module found — if --tree/--ast is set, still proceed to show
             // components/interfaces/enums. Otherwise finish.
             if !stages.tree {
-                if mcc::cli::dlog_mode() {
+                if args.dlog {
                     output::diagnostic::print_dlog_lines(false);
                 }
                 let env = Envelope::ok(builder.finish());
@@ -363,9 +369,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                 builder.set_pass2(pass2);
 
                 // Print diagnostics before Net Summary
-                if mcc::cli::globals().format == mcc::cli::OutputFormat::Text
-                    && !mcc::cli::dlog_mode()
-                {
+                if mcc::cli::globals().format == mcc::cli::OutputFormat::Text && !args.dlog {
                     builder.print_diagnostics_summary();
                 }
                 renderer.net_summary(&inst);
@@ -373,7 +377,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
             Err(e) => {
                 renderer.pass2_failed(&format!("{}", e));
                 let err = RpcError::build_error(format!("{}", e));
-                emit_error(err)?;
+                emit_error(err, args.dlog)?;
             }
         }
     }
@@ -387,7 +391,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                     builder.set_viz(viz);
                 }
                 Err(e) => {
-                    return emit_error(RpcError::internal_error(format!("viz: {}", e)));
+                    return emit_error(RpcError::internal_error(format!("viz: {}", e)), args.dlog);
                 }
             }
         } else {
@@ -407,7 +411,10 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                         builder.set_viz(viz);
                     }
                     Err(e) => {
-                        return emit_error(RpcError::internal_error(format!("viz: {}", e)));
+                        return emit_error(
+                            RpcError::internal_error(format!("viz: {}", e)),
+                            args.dlog,
+                        );
                     }
                 }
             } else {
@@ -449,7 +456,10 @@ pub fn run(args: &ParseArgs) -> Result<()> {
                 }
 
                 if svgs.is_empty() {
-                    return emit_error(RpcError::internal_error("viz: no modules rendered"));
+                    return emit_error(
+                        RpcError::internal_error("viz: no modules rendered"),
+                        args.dlog,
+                    );
                 }
 
                 // Combine all SVGs into one big SVG, stacked vertically
@@ -512,7 +522,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
 
     // ── 10. Final output ──
     // --dlog: only print dlog error/warning diagnostics, skip normal output
-    if mcc::cli::dlog_mode() {
+    if args.dlog {
         output::diagnostic::print_dlog_lines(false);
         return Ok(());
     }
@@ -1169,8 +1179,8 @@ fn endpoint_label(ep: &McEndpoint) -> String {
 // Error emit helper
 // ============================================================================
 
-fn emit_error(err: RpcError) -> Result<()> {
-    if mcc::cli::dlog_mode() {
+fn emit_error(err: RpcError, dlog: bool) -> Result<()> {
+    if dlog {
         // dlog mode only suppresses the pretty envelope, not fatal errors.
         // Emit any accumulated diagnostics, then surface the error so the
         // process exits non-zero instead of silently succeeding.

@@ -31,44 +31,29 @@ pub struct Cli {
     #[arg(long, short = 'q', global = true)]
     pub quiet: bool,
 
-    /// Show log target (module name, e.g., mcc::builder)
-    #[arg(long, short = 't', global = true)]
-    pub show_target: bool,
+    /// Log lines include timestamp, module and file:line
+    #[arg(long = "origin", short = 'g', global = true)]
+    pub origin: bool,
 
-    /// Set working directory (corresponds to --cwd)
-    #[arg(long, global = true, value_name = "DIR")]
+    /// Change working directory before running
+    #[arg(long, short = 'c', global = true, value_name = "DIR")]
     pub cwd: Option<String>,
 
-    /// Enable debug output for specific targets (repeatable).
-    /// Syntax: `-D target=level`  (level defaults to debug if omitted).
-    /// Aliases: pass1, pass2, fcall, lapper, vec, viz, lsp, all.
-    /// Example: `-D mcc::sem::fcall -D pass2=info`
+    /// Enable debug output for a target; aliases: pass1, pass2, fcall, lapper, vec, viz, lsp, all
     #[arg(
         short = 'D',
-        long = "debug-target",
+        long = "debug",
         global = true,
         value_name = "TARGET[=LEVEL]"
     )]
     pub debug_targets: Vec<String>,
 
-    /// Generate shell auto-completion script
-    #[arg(long = "completion", global = true, value_name = "SHELL")]
-    pub completion: Option<String>,
-
-    /// Run locally in this process, skipping delegation to a running RPC server.
-    /// Applies to every subcommand that would otherwise hand work to `mcc start`.
-    #[arg(long, global = true)]
+    /// Run locally in this process; skip delegation to a running `mcc start` server
+    #[arg(long, short = 'L', global = true)]
     pub local: bool,
 
-    /// Only output dlog diagnostics (errors and warnings), skip all other output.
-    /// Each line: file:line:col: level[code]: message.
-    /// Global like --local: honored by the diagnostic commands (parse / check),
-    /// accepted but inert on the others.
-    #[arg(long, global = true)]
-    pub dlog: bool,
-
-    /// Load system library (can be specified multiple times)
-    #[arg(long = "lib", value_name = "NAME", global = true)]
+    /// Load a library before running (can be specified multiple times)
+    #[arg(long = "lib", short = 'l', value_name = "NAME", global = true)]
     pub lib: Vec<String>,
 
     /// Output format
@@ -80,12 +65,11 @@ pub struct Cli {
     pub output: Option<String>,
 
     /// Top-level module name (auto-guess first module in file if omitted)
-    #[arg(long, value_name = "NAME", global = true)]
+    #[arg(long, short = 't', value_name = "NAME", global = true)]
     pub top: Option<String>,
 
-    /// Entry file for a directory target without a manifest (browse mode).
-    /// Relative paths resolve against the target directory.
-    #[arg(long, value_name = "FILE", global = true)]
+    /// Entry file for a directory target without a manifest (browse mode)
+    #[arg(long, short = 'e', value_name = "FILE", global = true)]
     pub entry: Option<String>,
 
     /// Subcommand. If omitted, prints a usage hint.
@@ -108,28 +92,13 @@ pub fn local_mode() -> bool {
     LOCAL_MODE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
-/// Process-wide "--dlog only" switch, set by `main` from the global `--dlog`
-/// flag. Mirrors `LOCAL_MODE` so the diagnostic commands (parse / check) read
-/// one source of truth instead of each subcommand carrying its own field.
-pub static DLOG_MODE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-/// Enable/disable dlog-only output for the whole process.
-pub fn set_dlog_mode(enabled: bool) {
-    DLOG_MODE.store(enabled, std::sync::atomic::Ordering::Relaxed);
-}
-
-/// True when `--dlog` was requested (only error/warning diagnostic lines on stdout).
-pub fn dlog_mode() -> bool {
-    DLOG_MODE.load(std::sync::atomic::Ordering::Relaxed)
-}
-
 /// Cross-command option values promoted from per-subcommand fields
 /// (`--lib`, `-f/--format`, `-o/--output`, `--top`, `--entry`). `main` stores
 /// the parsed values once via [`set_globals`]; every subcommand reads them here
-/// (mirrors the `LOCAL_MODE` / `DLOG_MODE` pattern).
+/// (mirrors the `LOCAL_MODE` pattern).
 #[derive(Debug, Clone)]
 pub struct GlobalOptions {
-    /// `--lib NAME` — system libraries to load (repeatable)
+    /// `--lib NAME` — libraries to load (repeatable)
     pub lib: Vec<String>,
     /// `-f/--format` — output format (clap default: Text)
     pub format: OutputFormat,
@@ -237,6 +206,10 @@ pub struct ParseArgs {
     #[arg(long, value_name = "CODE", conflicts_with = "target")]
     pub code: Option<String>,
 
+    /// Only output diagnostics (errors and warnings) as `file:line:col: level[code]: message`
+    #[arg(long, short = 'd')]
+    pub dlog: bool,
+
     /// Instance Tree pin sorting: `pinid` (default, sort by pinid number ascending) or
     /// `interface` (sort by interface name grouping)
     #[arg(long, value_enum, default_value_t = PinSortMode::PinId)]
@@ -289,6 +262,10 @@ pub struct ParseArgs {
 pub struct CheckArgs {
     /// Target file to check
     pub target: Option<String>,
+
+    /// Only output diagnostics (errors and warnings) as `file:line:col: level[code]: message`
+    #[arg(long, short = 'd')]
+    pub dlog: bool,
 
     /// Show errors only, ignore warnings
     #[arg(long)]
@@ -705,7 +682,7 @@ pub struct StartArgs {
     pub log_level: String,
 
     /// Output logs to file (default outputs to stderr)
-    #[arg(long, short = 'l')]
+    #[arg(long)]
     pub log_file: Option<String>,
 
     /// Run in background

@@ -57,20 +57,18 @@ cargo build
 ### Global Flags
 
 ```
--v, -vv, -vvv      Verbose (info / debug / trace)
--q                 Quiet (errors only)
--t                 Show module/file in log lines
--D TARGET[=LEVEL]  Enable debug output for specific module (repeatable)
---cwd DIR           Working directory
---completion SHELL Generate shell completions (bash/zsh/fish/powershell)
--V, --version      Print version
---local             Run in this process; skip RPC delegation to a running `mcc start` server
---dlog              Print only diagnostics as `file:line:col: level[code]: message` lines
---lib NAME          Load system library before running (repeatable)
--f, --format FMT    Output format: text | json | json-pretty | yaml | csv
--o, --output FILE   Write the command result to FILE instead of stdout
---top NAME          Top-level module name (auto-guess first module if omitted)
---entry FILE        Entry file for a directory target without a manifest
+  -v, --verbose...                    Verbose: -v=info, -vv=debug, -vvv=trace
+  -q, --quiet                         Quiet mode, reduce output
+  -g, --origin                        Log lines include timestamp, module and file:line
+  -c, --cwd <DIR>                     Change working directory before running
+  -D, --debug <TARGET[=LEVEL]>        Enable debug output for a target (repeatable)
+  -L, --local                         Run in this process; skip RPC delegation to a running `mcc start` server
+  -l, --lib <NAME>                    Load a library before running (repeatable)
+  -f, --format <FORMAT>               Output format: text | json | json-pretty | yaml | csv
+  -o, --output <FILE>                 Write the command result to FILE instead of stdout
+  -t, --top <NAME>                    Top-level module name (auto-guess first module if omitted)
+  -e, --entry <FILE>                  Entry file for a directory target without a manifest
+  -V, --version                       Print version
 ```
 
 Global flags may appear before or after the subcommand:
@@ -162,8 +160,9 @@ Key flags (see also Global Flags above; `--lib`/`--top`/`-f`/`-o` are global):
 | Flag | Purpose |
 |---|---|
 | `--code CODE` | Parse inline code |
-| `--lib NAME` | Load system library (global, repeatable) |
-| `--top NAME` | Top-level module name (global) |
+| `-l, --lib NAME` | Load a library (global, repeatable) |
+| `-t, --top NAME` | Top-level module name (global) |
+| `-d, --dlog` | Only output diagnostics as `file:line:col: level[code]: message` |
 | `--sort {pinid\|interface}` | Pin sorting mode |
 | `--pass1` | Parse only (no instantiation) |
 | `--pass2` | Parse + instantiate |
@@ -197,6 +196,9 @@ mcc check example.mc --nets
 
 # JSON output
 mcc check example.mc -f json-pretty
+
+# Only diagnostics as file:line:col lines
+mcc check example.mc -d
 ```
 
 ---
@@ -792,8 +794,8 @@ mcc parse example.mc -vvv          # trace (very verbose)
 # Target-specific logging
 RUST_LOG="mcc::pass1=trace,mcc::pass2=debug" mcc parse example.mc
 
-# With target names shown
-mcc parse example.mc -vvv -t
+# With origin (timestamp, module, file:line) shown
+mcc parse example.mc -vvv -g
 
 # C parser trace
 MCC_LOG_FILE=/tmp/cparse.log mcc parse example.mc -vvv
@@ -807,7 +809,7 @@ MC_VIZ_DUMP=1 mcc parse example.mc --viz --top main
 ```bash
 # Background daemon with library preload (most common)
 mcc start -d --port 8080 --lib mcode
-mcc start -d -l /tmp/mcc.log --lib mcode    # with log file
+mcc start -d --log-file /tmp/mcc.log --lib mcode    # with log file
 
 # Foreground server with full tracing (debug mode)
 mcc start --port 8080 -vv --lib mcode

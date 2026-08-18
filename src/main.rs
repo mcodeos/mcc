@@ -64,13 +64,11 @@ fn main() -> ExitCode {
         }
     };
 
-    // ── 1.2 Honor global --local / --dlog and store global options ─────────
-    // --local makes RpcClient::probe() return None (everything runs in-process);
-    // --dlog selects dlog-only output for the diagnostic commands (parse / check).
+    // ── 1.2 Honor global --local and store global options ────────────────
+    // --local makes RpcClient::probe() return None (everything runs in-process).
     // The cross-command options (--lib / --format / --output / --top / --entry)
     // are stored once here and read by every subcommand via mcc::cli::globals().
     mcc::cli::set_local_mode(cli.local);
-    mcc::cli::set_dlog_mode(cli.dlog);
     mcc::cli::set_globals(mcc::cli::GlobalOptions {
         lib: cli.lib.clone(),
         format: cli.format,
@@ -78,11 +76,6 @@ fn main() -> ExitCode {
         top: cli.top.clone(),
         entry: cli.entry.clone(),
     });
-
-    // ── 1.5 Generate completion ───────────────────────────────────────────
-    if let Some(shell) = &cli.completion {
-        return generate_completion(shell);
-    }
 
     // ── 2. Change working directory to (--cwd) ────────────────────────────────────
     if let Some(cwd) = &cli.cwd {
@@ -115,7 +108,7 @@ fn main() -> ExitCode {
         _ => true,
     };
     if need_logging {
-        logging::init(cli.verbose, cli.quiet, cli.show_target);
+        logging::init(cli.verbose, cli.quiet, cli.origin);
 
         // Bridge: notify logging layer when RPC trace.set changes per-target overrides.
         mcc::cli::config::set_target_applier(Box::new(|base, targets| {
@@ -223,17 +216,21 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
     if matches!(result_format, Some(f) if f != OutputFormat::Text) {
         mcc::set_trace_stdout_suppressed(true);
     }
-    // --dlog: suppress engine trace so only dlog diagnostics appear on stdout
-    if mcc::cli::dlog_mode() {
-        mcc::set_trace_stdout_suppressed(true);
-    }
 
     match cli.command {
         Some(Command::Parse(args)) => {
+            if args.dlog {
+                // --dlog: suppress engine trace so only dlog diagnostics appear on stdout
+                mcc::set_trace_stdout_suppressed(true);
+            }
             cmds::parse::run(&args)?;
             Ok(ExitCode::SUCCESS)
         }
         Some(Command::Check(args)) => {
+            if args.dlog {
+                // --dlog: suppress engine trace so only dlog diagnostics appear on stdout
+                mcc::set_trace_stdout_suppressed(true);
+            }
             let outcome = cmds::check::run(&args)?;
             Ok(ExitCode::from(outcome.exit_code.clamp(0, 255) as u8))
         }
@@ -369,60 +366,7 @@ fn print_help_hint() {
     eprintln!("  mcc status");
     eprintln!("  mcc stop");
     eprintln!();
-    eprintln!("Auto-completion:");
-    eprintln!("  mcc --completion bash > /etc/bash_completion.d/mcc");
-    eprintln!("  mcc --completion zsh > ~/.zsh/completions/_mcc");
-    eprintln!("  mcc --completion fish > ~/.config/fish/completions/mcc.fish");
-    eprintln!();
     eprintln!("Run 'mcc <COMMAND> --help' for more information.");
-}
-
-fn generate_completion(shell: &str) -> ExitCode {
-    use clap::CommandFactory;
-    let mut cmd = Cli::command();
-
-    match shell.to_lowercase().as_str() {
-        "bash" => {
-            clap_complete::generate(
-                clap_complete::Shell::Bash,
-                &mut cmd,
-                "mcc",
-                &mut std::io::stdout(),
-            );
-        }
-        "zsh" => {
-            clap_complete::generate(
-                clap_complete::Shell::Zsh,
-                &mut cmd,
-                "mcc",
-                &mut std::io::stdout(),
-            );
-        }
-        "fish" => {
-            clap_complete::generate(
-                clap_complete::Shell::Fish,
-                &mut cmd,
-                "mcc",
-                &mut std::io::stdout(),
-            );
-        }
-        "powershell" => {
-            clap_complete::generate(
-                clap_complete::Shell::PowerShell,
-                &mut cmd,
-                "mcc",
-                &mut std::io::stdout(),
-            );
-        }
-        _ => {
-            eprintln!(
-                "error: Unsupported shell type: {}. Supported types: bash, zsh, fish, powershell",
-                shell
-            );
-            return ExitCode::FAILURE;
-        }
-    }
-    ExitCode::SUCCESS
 }
 
 fn run_internal_server(args: &[String]) -> ExitCode {
