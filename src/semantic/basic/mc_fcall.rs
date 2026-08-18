@@ -49,6 +49,11 @@ pub struct McFuncCall {
     /// (`vin => CAP(10uF).Cap(_)`): the series element before this call is
     /// the pre-closure input and the display joins them with `=>`.
     pub pre_closure: bool,
+    /// Set when this call came from a `name::CLASS(params)` declareb
+    /// declaration (e.g. `C4::CAP()`, `dio[1:2]::DIO.ESD(...)`). The caller
+    /// is the declared instance name and display joins them with `::`
+    /// (instead of the `.` used for `CLASS(x).Method(y)` calls).
+    pub named_ctor: bool,
 }
 
 /// ★ P4.1: Fcall return shape resolved from McFunction.returns.
@@ -505,6 +510,7 @@ impl McFuncCall {
                 dot_member: None,
                 resolved_return_shape: None,
                 pre_closure: false,
+                named_ctor: false,
             };
 
             // Create outer FuncCall: ClassName(params).MethodName(all_method_params)
@@ -518,6 +524,7 @@ impl McFuncCall {
                 dot_member: None,
                 resolved_return_shape: None,
                 pre_closure: true,
+                named_ctor: false,
             };
 
             // Create Series: pre_param -> funcall
@@ -606,6 +613,7 @@ impl McFuncCall {
                                             dot_member: None,
                                             resolved_return_shape: None,
                                             pre_closure: false,
+                                            named_ctor: false,
                                         })));
                                     }
                                 }
@@ -616,6 +624,44 @@ impl McFuncCall {
                         // For MCAST_OPD_FCALL inner two-pin classes, try direct FuncCall first
                         if inner_type == MCAST_OPD_FCALL {
                             caller = Self::try_parse_inner_fcall(&inner, context);
+                        }
+                        // ── P2-7: bare class name as caller ──
+                        // `DIO.ESD(...)` parses the caller operand `DIO` as a plain id.
+                        // It is a component class (dio.mc defines `component DIO`), not
+                        // an instance, so `parse_phrase`'s plain-id fallback would
+                        // register it via add_label, creating a bogus `DIO : ilabel`
+                        // instance-table entry. When the name resolves to a
+                        // component/module class and is not an existing instance, keep
+                        // it as a non-registered Label phrase; instantiation decides
+                        // via the dotted-name rule whether the label is part of the
+                        // class name (e.g. `DIO.ESD`) or a user-specified instance name.
+                        if caller.is_none() && inner_type == MCAST_OPD {
+                            // A nested FuncCall caller (MCAST_OPD wrapping
+                            // MCAST_OPD_FCALL, e.g. `CAP(x).Cap(_)`) must keep the
+                            // parse_phrase path below — do not treat it as a class name.
+                            let is_nested_fcall = inner
+                                .get_sub_node()
+                                .map(|sn| sn.get_type() == MCAST_OPD_FCALL)
+                                .unwrap_or(false);
+                            if !is_nested_fcall {
+                                let names = inner.to_id_or_ida();
+                                if names.len() == 1 {
+                                    let inst_name = &names[0];
+                                    if context.find_inst(inst_name).is_none() {
+                                        let ids = McIds::from(inst_name.as_str());
+                                        if let Some(cmie) = resolve_cmie(&DB, &ids, context.uri()) {
+                                            match cmie {
+                                                McCMIE::Component(_) | McCMIE::Module(_) => {
+                                                    caller = Some(Box::new(McPhrase::label(
+                                                        inst_name.clone(),
+                                                    )));
+                                                }
+                                                _ => {}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                         if caller.is_none() {
                             if let Some(phrase) = parse_phrase(&inner, context) {
@@ -1049,6 +1095,7 @@ impl McFuncCall {
                                                                 dot_member: None,
                                                                 resolved_return_shape: None,
                                                                 pre_closure: false,
+                                                                named_ctor: false,
                                                             },
                                                         ));
                                                     }
@@ -1391,6 +1438,7 @@ impl McFuncCall {
             dot_member: None,
             resolved_return_shape: None,
             pre_closure: false,
+            named_ctor: false,
         }))
     }
 
@@ -1647,6 +1695,7 @@ impl McFuncCall {
                 dot_member: None,
                 resolved_return_shape: None,
                 pre_closure: false,
+                named_ctor: false,
             })))
         } else {
             None

@@ -19,7 +19,7 @@ use crate::{
     semantic::basic::mc_expr::McExpression, semantic::basic::mc_param::McParamValue,
     semantic::common::IOType,
 };
-use crate::{McCMIE, McIds, McInt};
+use crate::{McCMIE, McIds, McInt, McString};
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
@@ -75,6 +75,12 @@ pub struct McPins {
     // pin -> multiple function name/alias mapping (supports multi-option like I2C0 | GPIO)
     // e.g.: "1" -> ["GPIO3", "I2C0.SCL"], "2" -> ["GPIO4", "I2C0.SDA"]
     pub pin_id_to_names: BTreeMap<String, Vec<String>>,
+
+    // pin -> interface/bus/list instance names in source declaration order
+    // (e.g. `io [1,2] = I2C0::I2C(Master) | GPIO[3,4]::GPIO(...)` records
+    // "1" -> ["I2C0", "GPIO[3, 4]"]). `names_to_id` is a BTreeMap (sorted),
+    // so `show` reorders `|` alternates with this table to match the source.
+    pub pin_iface_order: BTreeMap<String, Vec<String>>,
 
     // 1. label
     // case1.1: 1 = NC                              -> <NC, Single(1)>
@@ -132,6 +138,7 @@ impl McPins {
             has_base_pins: false,
             pin_ranges: Vec::new(),
             pin_id_to_names: BTreeMap::new(),
+            pin_iface_order: BTreeMap::new(),
             values_pool: Vec::new(),
             dynamic_pins: Vec::new(),
             list_groups: Vec::new(),
@@ -371,6 +378,37 @@ impl McPins {
                             for (iface_name, span) in &names.iface_spans {
                                 self.pin_iface_spans
                                     .push((iface_name.clone(), span.clone()));
+                            }
+                        }
+                        // ★ Record per-pin interface order (source declaration
+                        // order of `|` alternates). `names_to_id` is sorted, so
+                        // `show` uses this table to render alternates in source
+                        // order instead of alphabetical order.
+                        if let (Some(ref port), Some(ref names)) = (&pinids, &pinnames) {
+                            let pids: Vec<String> = match port {
+                                McPinPort::Single(pid) => vec![pid.clone()],
+                                McPinPort::Multi(pids) => pids.clone(),
+                                _ => Vec::new(),
+                            };
+                            if !pids.is_empty() {
+                                let order: Vec<String> = names
+                                    .options
+                                    .iter()
+                                    .filter_map(|opt| match opt {
+                                        McPinPort::Interface(iface) => Some(iface.name.to_string()),
+                                        McPinPort::Bus(bus) => Some(bus.name.clone()),
+                                        McPinPort::List(name, _) => Some(name.clone()),
+                                        _ => None,
+                                    })
+                                    .collect();
+                                if !order.is_empty() {
+                                    for pid in &pids {
+                                        self.pin_iface_order
+                                            .entry(pid.clone())
+                                            .or_default()
+                                            .extend(order.clone());
+                                    }
+                                }
                             }
                         }
                         // ★ G5: collect pin name spans for LSP
@@ -2371,6 +2409,17 @@ impl McPinNames {
                                                                     )
                                                                 {
                                                                     params.push(pv);
+                                                                }
+                                                            }
+                                                            MCAST_STRING => {
+                                                                // Role string params (`SPI::SPI("Slave")`,
+                                                                // `UART::UART.TTL("DCE")`) keep the literal text.
+                                                                if let Some(s) =
+                                                                    McString::new(&value_node)
+                                                                {
+                                                                    params.push(
+                                                                        McParamValue::String(s),
+                                                                    );
                                                                 }
                                                             }
                                                             _ => {

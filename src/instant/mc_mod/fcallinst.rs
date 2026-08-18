@@ -1354,6 +1354,7 @@ impl McModuleInst {
                 dot_member: f.dot_member.clone(),
                 resolved_return_shape: f.resolved_return_shape.clone(),
                 pre_closure: f.pre_closure,
+                named_ctor: f.named_ctor,
             }),
             // ── P3-1: expand Label or empty Bus to Bus with populated members ──
             // Handles both Label (e.g. "X6.XTAL") and Bus with empty members
@@ -1521,6 +1522,7 @@ impl McModuleInst {
                     dot_member: f.dot_member.clone(),
                     resolved_return_shape: f.resolved_return_shape.clone(),
                     pre_closure: f.pre_closure,
+                    named_ctor: f.named_ctor,
                 })
             }
             McPhrase::Transposed(inner) => McPhrase::Transposed(Box::new(

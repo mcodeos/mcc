@@ -1603,7 +1603,7 @@ pub fn pins_json(pins: &crate::McPins) -> Value {
             // groups (`PDMCLK` → PDM). The prefix fallback covers repeated
             // interface instance names where `registered_pins` only keeps
             // the last occurrence.
-            let pin_ifaces: Vec<Value> = ifaces
+            let mut pin_ifaces: Vec<Value> = ifaces
                 .iter()
                 .filter(|i| {
                     let kind = i
@@ -1639,6 +1639,16 @@ pub fn pins_json(pins: &crate::McPins) -> Value {
                     })
                 })
                 .collect();
+            // Reorder `|` alternates to match the source declaration order
+            // recorded in `pin_iface_order` (instead of the alphabetical
+            // `names_to_id` order); entries without a recorded position keep
+            // their relative order at the end.
+            if let Some(order) = pins.pin_iface_order.get(pin_id) {
+                pin_ifaces.sort_by_key(|i| {
+                    let name = i.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                    order.iter().position(|k| k == name).unwrap_or(usize::MAX)
+                });
+            }
             let mut j = json!({
                 "id": pin_id,
                 "iotype": format!("{:?}", pin.iotype),

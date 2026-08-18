@@ -122,7 +122,11 @@ pub fn pins(out: &mut String, e: &Value) {
                 // `IOType::None` (no direction) is serialized as the Debug
                 // string "None"; render it as an empty first column instead.
                 let iotype = p["iotype"].as_str().unwrap_or("").to_string();
-                let iotype = if iotype == "None" { String::new() } else { iotype };
+                let iotype = if iotype == "None" {
+                    String::new()
+                } else {
+                    iotype
+                };
                 let names: Vec<&str> = p["names"]
                     .as_array()
                     .map(|a| a.iter().filter_map(|v| v.as_str()).collect())

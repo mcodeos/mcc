@@ -2,7 +2,7 @@
 
 > CLI reference, RPC protocol, and debugging workflows for the mcc compiler and mcode projects.
 
----
+***
 
 ## 0. Authoring Rules
 
@@ -13,7 +13,7 @@
   root (`env!("CARGO_MANIFEST_DIR")`).
 - Applies to the whole project including test code and test data.
 
----
+***
 
 ## 1. Quick Reference
 
@@ -26,31 +26,31 @@ cargo build
 
 ### Key Paths
 
-| Path | Purpose |
-|---|---|
-| `~/work/mo/mcc` | Compiler source |
-| `~/work/mo/mcode` | Standard library (components, interfaces, packages) |
-| `~/work/mo/mcd` | Workspace: test projects, libraries, docs |
-| `~/work/mo/mcext` | VS Code extension + LSP server (`mcodels`) |
-| `~/.mcode/` | Runtime data: config, logs, PID file |
-| `~/.mcode/config/mcc.yaml` | Global compiler config |
-| `~/.mcode/config/server.yaml` | RPC server config |
-| `~/.mcode/logs/mcc.pid` | Server PID file |
+| Path                          | Purpose                                             |
+| ----------------------------- | --------------------------------------------------- |
+| `~/work/mo/mcc`               | Compiler source                                     |
+| `~/work/mo/mcode`             | Standard library (components, interfaces, packages) |
+| `~/work/mo/mcd`               | Workspace: test projects, libraries, docs           |
+| `~/work/mo/mcext`             | VS Code extension + LSP server (`mcodels`)          |
+| `~/.mcode/`                   | Runtime data: config, logs, PID file                |
+| `~/.mcode/config/mcc.yaml`    | Global compiler config                              |
+| `~/.mcode/config/server.yaml` | RPC server config                                   |
+| `~/.mcode/logs/mcc.pid`       | Server PID file                                     |
 
 ### Environment Variables
 
-| Variable | Purpose |
-|---|---|
-| `MCC_SYSTEM_ROOT` | Override data directory (default `~/.mcode`) |
-| `RUST_LOG` | Tracing filter (overrides `-v`/`-q`) |
-| `MCC_LOG_FILE` | Redirect C-parser trace to file |
-| `MCC_GOLDEN_PROJECT` | Golden-test project root |
-| `MCC_GOLDEN_ENTRY` | Golden-test entry file |
-| `MCC_GOLDEN_TOP` | Golden-test top module |
-| `UPDATE_GOLDEN` | Write golden baseline instead of comparing |
-| `MC_VIZ_DUMP` | Enable visualization debug dump |
+| Variable             | Purpose                                      |
+| -------------------- | -------------------------------------------- |
+| `MCC_SYSTEM_ROOT`    | Override data directory (default `~/.mcode`) |
+| `RUST_LOG`           | Tracing filter (overrides `-v`/`-q`)         |
+| `MCC_LOG_FILE`       | Redirect C-parser trace to file              |
+| `MCC_GOLDEN_PROJECT` | Golden-test project root                     |
+| `MCC_GOLDEN_ENTRY`   | Golden-test entry file                       |
+| `MCC_GOLDEN_TOP`     | Golden-test top module                       |
+| `UPDATE_GOLDEN`      | Write golden baseline instead of comparing   |
+| `MC_VIZ_DUMP`        | Enable visualization debug dump              |
 
----
+***
 
 ## 2. CLI Commands
 
@@ -78,16 +78,16 @@ Global flags may appear before or after the subcommand:
 
 Runtime-controllable per-module debug output via `mcc_dbg!` macro (20 tracing targets):
 
-| Alias    | Expands to                          |
-|----------|-------------------------------------|
-| `pass1`  | `mcc::parse::*`, `mcc::sem::*`      |
-| `pass2`  | `mcc::inst::*`                      |
-| `fcall`  | `mcc::sem::fcall`, `mcc::inst::fcall`|
-| `lapper` | `mcc::sem::class`, `mcc::lsp::lapper`|
-| `vec`    | `mcc::vec`                          |
-| `viz`    | `mcc::viz`                          |
-| `lsp`    | `mcc::lsp::*`                       |
-| `all`    | `*` (everything)                    |
+| Alias    | Expands to                            |
+| -------- | ------------------------------------- |
+| `pass1`  | `mcc::parse::*`, `mcc::sem::*`        |
+| `pass2`  | `mcc::inst::*`                        |
+| `fcall`  | `mcc::sem::fcall`, `mcc::inst::fcall` |
+| `lapper` | `mcc::sem::class`, `mcc::lsp::lapper` |
+| `vec`    | `mcc::vec`                            |
+| `viz`    | `mcc::viz`                            |
+| `lsp`    | `mcc::lsp::*`                         |
+| `all`    | `*` (everything)                      |
 
 ```bash
 # Example: enable function-call resolution debug
@@ -126,7 +126,7 @@ mcc parse example.mc --top main --viz
 Note: `mcc <file> <top>` legacy shorthand is not supported; always pass the
 `parse` subcommand.
 
----
+***
 
 ### 2.1 `parse` — Parse & Analyze
 
@@ -157,24 +157,25 @@ mcc parse example.mc --top main --depth 3
 ```
 
 Key flags (see also Global Flags above; `--lib`/`--top`/`-f`/`-o` are global):
-| Flag | Purpose |
-|---|---|
-| `--code CODE` | Parse inline code |
-| `-l, --lib NAME` | Load a library (global, repeatable) |
-| `-t, --top NAME` | Top-level module name (global) |
-| `--dlog` | Only output diagnostics as `file:line:col: level[code]: message` |
-| `--sort {pinid\|interface}` | Pin sorting mode |
-| `--pass1` | Parse only (no instantiation) |
-| `--pass2` | Parse + instantiate |
-| `--viz` | Generate HTML visualization |
-| `--viz-json` | Generate JSON visualization data |
-| `--ast` | Print AST |
-| `--tree` | Print tree representation |
-| `--depth N` | Tree depth limit (0=unlimited) |
-| `-f FORMAT` | Output format (global) |
-| `-o FILE` | Output file (global) |
 
----
+| Flag                        | Purpose                                                          |
+| --------------------------- | ---------------------------------------------------------------- |
+| `--code CODE`               | Parse inline code                                                |
+| `-l, --lib NAME`            | Load a library (global, repeatable)                              |
+| `-t, --top NAME`            | Top-level module name (global)                                   |
+| `--dlog`                    | Only output diagnostics as `file:line:col: level[code]: message` |
+| `--sort {pinid\|interface}` | Pin sorting mode                                                 |
+| `--pass1`                   | Parse only (no instantiation)                                    |
+| `--pass2`                   | Parse + instantiate                                              |
+| `--viz`                     | Generate HTML visualization                                      |
+| `--viz-json`                | Generate JSON visualization data                                 |
+| `--ast`                     | Print AST                                                        |
+| `--tree`                    | Print tree representation                                        |
+| `--depth N`                 | Tree depth limit (0=unlimited)                                   |
+| `-f FORMAT`                 | Output format (global)                                           |
+| `-o FILE`                   | Output file (global)                                             |
+
+***
 
 ### 2.2 `check` — Validate
 
@@ -201,7 +202,7 @@ mcc check example.mc -f json-pretty
 mcc check example.mc --dlog
 ```
 
----
+***
 
 ### 2.3 `build` — Manifest-driven Build
 
@@ -227,6 +228,7 @@ mcc build --include-system
 ```
 
 Uses `project.toml` / `manifest.toml` / `mcc.toml`:
+
 ```toml
 [project]
 name = "hbl"
@@ -238,7 +240,7 @@ top_module = "main"
 mcode = "*"
 ```
 
----
+***
 
 ### 2.4 `list` / `show` — Inspect Definitions
 
@@ -257,13 +259,13 @@ mcc show <TARGET> [NAME] [OPTIONS] # NAME required except for `all`
 Text is the human-readable default; `-f json` prints the full structured
 object shown in the table (kind-tagged rows, uris, etc.).
 
-| command | output (text) | output (`-f json`) |
-|---|---|---|
-| `mcc list all` | `count: N` + one `kind: name` line per definition | flat aggregate, kind-tagged: `{type:"all", count, list:[{name, kind}]}`; same `--scope` default policy as `show all` (`-F` anchors the `file` layer) |
-| `mcc list component` / `module` / `interface` / `enum` | `count: N` + one name per line | flat name list `{type, count, list}` — scripting-friendly |
-| `mcc list nets` | `count: N` + `name: point, point` per net | all Pass2 nets of the top module (`--top` overrides; each entry includes its points) |
-| `mcc list ports` | `count: N` + `name: iotype (module)` per port | all module ports |
-| `mcc list files` | one `uri: counts` line per file | every loaded file with per-file def counts |
+| command                                                | output (text)                                     | output (`-f json`)                                                                                                                                   |
+| ------------------------------------------------------ | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mcc list all`                                         | `count: N` + one `kind: name` line per definition | flat aggregate, kind-tagged: `{type:"all", count, list:[{name, kind}]}`; same `--scope` default policy as `show all` (`-F` anchors the `file` layer) |
+| `mcc list component` / `module` / `interface` / `enum` | `count: N` + one name per line                    | flat name list `{type, count, list}` — scripting-friendly                                                                                            |
+| `mcc list nets`                                        | `count: N` + `name: point, point` per net         | all Pass2 nets of the top module (`--top` overrides; each entry includes its points)                                                                 |
+| `mcc list ports`                                       | `count: N` + `name: iotype (module)` per port     | all module ports                                                                                                                                     |
+| `mcc list files`                                       | one `uri: counts` line per file                   | every loaded file with per-file def counts                                                                                                           |
 
 Options: `--filter EXPR` (component/module/interface/enum), `-F/--file`,
 `-l/--lib`, `-t/--top` (nets), `-f/-o`, `-L`, `-c`.
@@ -272,41 +274,41 @@ Options: `--filter EXPR` (component/module/interface/enum), `-F/--file`,
 
 **Overview:**
 
-| command | output |
-|---|---|
+| command                              | output                                                                                                                                                                                                                             |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `mcc show all [-F FILE] [--scope S]` | layered overview (file/use/system); `-F` anchors the `file` layer (default) and renders each entity in that file as a compact `.mc`-style detail block (pins/attrs/funcs/instances/...) — the former `show file` / whole-file dump |
 
 **Entity details:**
 
-| command | output |
-|---|---|
+| command                   | output                              |
+| ------------------------- | ----------------------------------- |
 | `mcc show component NAME` | pins table (id/io/names/interfaces) |
-| `mcc show module NAME` | module summary + sub-instances |
-| `mcc show interface NAME` | pin_count, roles, params |
-| `mcc show enum NAME` | values |
+| `mcc show module NAME`    | module summary + sub-instances      |
+| `mcc show interface NAME` | pin\_count, roles, params           |
+| `mcc show enum NAME`      | values                              |
 
 **Drill-downs** (NAME = owning entity):
 
-| command | output |
-|---|---|
-| `mcc show pins NAME` | pins of a component / interface |
-| `mcc show ports NAME` | ports (in/out/io) of a module |
-| `mcc show labels NAME` | labels of a module |
-| `mcc show instances NAME` | sub-instances of a component / module; `--type KIND` filters kind |
-| `mcc show nets NAME` | Pass2 netlist of module `NAME` (or `OWNER.FUNC` → func-body line nets, no Pass2) |
-| `mcc show net NAME` | points of one Pass2 net |
-| `mcc show attrs NAME` | attributes of a component / interface |
-| `mcc show funcs NAME` | functions of a component / module |
-| `mcc show params NAME` | parameter declarations of a component / module / interface / func |
-| `mcc show roles NAME` | roles of an interface |
-| `mcc show values NAME` | values of an enum |
+| command                   | output                                                                           |
+| ------------------------- | -------------------------------------------------------------------------------- |
+| `mcc show pins NAME`      | pins of a component / interface                                                  |
+| `mcc show ports NAME`     | ports (in/out/io) of a module                                                    |
+| `mcc show labels NAME`    | labels of a module                                                               |
+| `mcc show instances NAME` | sub-instances of a component / module; `--type KIND` filters kind                |
+| `mcc show nets NAME`      | Pass2 netlist of module `NAME` (or `OWNER.FUNC` → func-body line nets, no Pass2) |
+| `mcc show net NAME`       | points of one Pass2 net                                                          |
+| `mcc show attrs NAME`     | attributes of a component / interface                                            |
+| `mcc show funcs NAME`     | functions of a component / module                                                |
+| `mcc show params NAME`    | parameter declarations of a component / module / interface / func                |
+| `mcc show roles NAME`     | roles of an interface                                                            |
+| `mcc show values NAME`    | values of an enum                                                                |
 
 **Debug output** (raw parser / semantic data):
 
-| command | output |
-|---|---|
+| command                   | output                                                   |
+| ------------------------- | -------------------------------------------------------- |
 | `mcc show lapper -F FILE` | LSP symbol intervals + RefDefMap (goto-def debug, local) |
-| `mcc show ast -F FILE` | AST tree (parser debug) |
+| `mcc show ast -F FILE`    | AST tree (parser debug)                                  |
 
 > `show nets` / `show params` accept `OWNER.FUNC` (dot-qualified func inside a
 > module/component; dotted class names work too, e.g. `MCU.US513_20_F.i2c`).
@@ -318,20 +320,20 @@ Options: `--filter EXPR` (component/module/interface/enum), `-F/--file`,
 
 #### Parameter matrix
 
-| parameter | `mcc list` | `mcc show` | effect |
-|---|---|---|---|
-| `--scope S` | `all` | `all` | definition layers: `file` (default) / `use` / `system` / `all`; `show all` text renders one `------ <layer> ------` section per layer |
-| `--filter EXPR` | all/component/module/interface/enum | — | name filter on the list (`name=RES*`, `*` / `?` wildcards) |
-| `-F, --file FILE` | all | all | parse directly from a file instead of the loaded library/project; anchors the `show all` / `list all` file layer |
-| `-t, --top NAME` | nets | nets | Pass2 top module for instantiation (auto-guesses the first module in the file if omitted) |
-| `--type KIND` | — | instances | filter sub-instances by kind (component\|module\|label\|interface\|bus\|busref\|list) |
-| `--span` | — | show all text | append `@start:end` source spans to `show all` file-layer details (hidden by default) |
-| `-l, --lib NAME` (repeatable) | all | all | load a library into scope (mcode, installed, or project) |
-| `-f, --format FMT` | all | all | `text` (default) / `json` / `json-pretty` / `yaml` / `csv` |
-| `-o, --output FILE` | all | all | write rendered output to a file instead of stdout |
-| `-L, --local` | all | all | run locally, skip delegation to a running `mcc start` server |
-| `-c, --cwd DIR` | all | all | change working directory before running |
-| `-e, --entry FILE` | all | all | entry file for browse mode without a manifest |
+| parameter                     | `mcc list`                          | `mcc show`    | effect                                                                                                                                |
+| ----------------------------- | ----------------------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `--scope S`                   | `all`                               | `all`         | definition layers: `file` (default) / `use` / `system` / `all`; `show all` text renders one `------ <layer> ------` section per layer |
+| `--filter EXPR`               | all/component/module/interface/enum | —             | name filter on the list (`name=RES*`, `*` / `?` wildcards)                                                                            |
+| `-F, --file FILE`             | all                                 | all           | parse directly from a file instead of the loaded library/project; anchors the `show all` / `list all` file layer                      |
+| `-t, --top NAME`              | nets                                | nets          | Pass2 top module for instantiation (auto-guesses the first module in the file if omitted)                                             |
+| `--type KIND`                 | —                                   | instances     | filter sub-instances by kind (component\|module\|label\|interface\|bus\|busref\|list)                                                 |
+| `--span`                      | —                                   | show all text | append `@start:end` source spans to `show all` file-layer details (hidden by default)                                                 |
+| `-l, --lib NAME` (repeatable) | all                                 | all           | load a library into scope (mcode, installed, or project)                                                                              |
+| `-f, --format FMT`            | all                                 | all           | `text` (default) / `json` / `json-pretty` / `yaml` / `csv`                                                                            |
+| `-o, --output FILE`           | all                                 | all           | write rendered output to a file instead of stdout                                                                                     |
+| `-L, --local`                 | all                                 | all           | run locally, skip delegation to a running `mcc start` server                                                                          |
+| `-c, --cwd DIR`               | all                                 | all           | change working directory before running                                                                                               |
+| `-e, --entry FILE`            | all                                 | all           | entry file for browse mode without a manifest                                                                                         |
 
 > All parameters are accepted by both commands; the matrix shows where each one
 > takes effect. Target-specific parameters (`--scope`, `--filter`, `--top`,
@@ -390,10 +392,9 @@ mcc show lapper -F example.mc -f json-pretty
 
 Choosing a query: name list → `mcc list <kind>`; one entity → `mcc show <kind>
 NAME`; internals → drill-down (`pins`, `instances`, ...); file contents →
-`mcc show all -F FILE`; module netlist → `mcc show nets MODULE -F file.mc
---top MODULE`; parser/semantic debug → `lapper` / `ast`.
+`mcc show all -F FILE`; module netlist → `mcc show nets MODULE -F file.mc --top MODULE`; parser/semantic debug → `lapper` / `ast`.
 
----
+***
 
 ### 2.5 `search` & `query` — Find Definitions
 
@@ -425,7 +426,7 @@ mcc query "kind=component AND name=RES*"
 mcc query "kind=interface AND port_count>2" --json
 ```
 
----
+***
 
 ### 2.6 `export` — Generate Outputs
 
@@ -447,7 +448,7 @@ mcc export netlist example.mc --top main -f json
 mcc export bom example.mc --top main -f csv
 ```
 
----
+***
 
 ### 2.7 `extract` — Extract Entities
 
@@ -462,7 +463,7 @@ mcc extract interfaces example.mc --lib mcode
 mcc extract instances example.mc --name "C*" --lib mcode
 ```
 
----
+***
 
 ### 2.8 `lib` — Library Management
 
@@ -487,7 +488,7 @@ mcc lib load mylib
 mcc lib unload mylib
 ```
 
----
+***
 
 ### 2.9 `start` / `stop` / `status` — RPC Server
 
@@ -512,7 +513,7 @@ mcc stop
 mcc stop --force
 ```
 
----
+***
 
 ### 2.10 Other Commands
 
@@ -553,7 +554,7 @@ mcc config set trace.pass1 true
 mcc config reset
 ```
 
----
+***
 
 ## 3. RPC Protocol
 
@@ -561,22 +562,25 @@ mcc config reset
 
 JSON-RPC 2.0 over HTTP. Server listens on `127.0.0.1:{port}` (default 8080).
 
-| Endpoint | Method | Purpose |
-|---|---|---|
-| `/rpc` | POST | Main JSON-RPC handler |
-| `/health` | POST | Health check → `{"status": "ok"}` |
+| Endpoint  | Method | Purpose                           |
+| --------- | ------ | --------------------------------- |
+| `/rpc`    | POST   | Main JSON-RPC handler             |
+| `/health` | POST   | Health check → `{"status": "ok"}` |
 
 Request format:
+
 ```json
 {"jsonrpc": "2.0", "method": "server.info", "params": {}, "id": 1}
 ```
 
 Response format:
+
 ```json
 {"jsonrpc": "2.0", "result": {...}, "id": 1}
 ```
 
 Error format:
+
 ```json
 {"jsonrpc": "2.0", "error": {"code": -32601, "message": "Method not found"}, "id": 1}
 ```
@@ -688,118 +692,125 @@ curl -s -X POST http://127.0.0.1:8080/rpc \
 ### RPC Methods Reference
 
 #### Discovery
-| Method | Params | Returns |
-|---|---|---|
-| `server.info` | — | Server version, uptime, loaded libs |
-| `server.methods` | — | List of all registered methods |
-| `caps` | — | Self-describing capabilities |
+
+| Method           | Params | Returns                             |
+| ---------------- | ------ | ----------------------------------- |
+| `server.info`    | —      | Server version, uptime, loaded libs |
+| `server.methods` | —      | List of all registered methods      |
+| `caps`           | —      | Self-describing capabilities        |
 
 #### Workspace
-| Method | Params | Returns |
-|---|---|---|
-| `init` | — | Initialize workspace |
-| `load_project` | `uri` | Load project entry file |
-| `add_file` | `uri` | Add file to workspace |
-| `remove_file` | `uri` | Remove file from workspace |
+
+| Method             | Params | Returns                    |
+| ------------------ | ------ | -------------------------- |
+| `init`             | —      | Initialize workspace       |
+| `load_project`     | `uri`  | Load project entry file    |
+| `add_file`         | `uri`  | Add file to workspace      |
+| `remove_file`      | `uri`  | Remove file from workspace |
 | `set_project_root` | `path` | Set project root directory |
-| `set_system_root` | `path` | Set system library root |
+| `set_system_root`  | `path` | Set system library root    |
 
 #### Parse / Build
-| Method | Params | Returns |
-|---|---|---|
-| `parse` | `uri`, `code?`, `libs?` | Parse result |
-| `check` | `uri` | Diagnostics |
-| `build.full` | `uri`, `top?` | Full build result |
-| `extract` | `kind`, `uri`, `top?`, `name?` | Extracted entities |
+
+| Method       | Params                         | Returns            |
+| ------------ | ------------------------------ | ------------------ |
+| `parse`      | `uri`, `code?`, `libs?`        | Parse result       |
+| `check`      | `uri`                          | Diagnostics        |
+| `build.full` | `uri`, `top?`                  | Full build result  |
+| `extract`    | `kind`, `uri`, `top?`, `name?` | Extracted entities |
 
 #### Show / Inspect
-| Method | Params | Returns |
-|---|---|---|
-| `show.all` | `file?` | All entities (list only) |
-| `show.component` | `name?` | Component list or detail |
-| `show.component.list` | — | Flat list of all components |
-| `show.module` | `name?` | Module list or detail |
-| `show.module.list` | — | Flat list of all modules |
-| `show.interface` | `name?` | Interface list or detail |
-| `show.interface.list` | — | Flat list of all interfaces |
-| `show.enum` | `name?` | Enum list or detail |
-| `show.enum.list` | — | Flat list of all enums |
-| `show.net` | `name?` | Net list or detail |
-| `show.net.list` | — | Flat list of all nets |
-| `show.pins` | `name` | Pin definitions |
-| `show.ports` | `name` | Port definitions |
-| `show.ports.list` | — | Flat list of all ports |
-| `show.labels` | `name` | Labels of a module |
-| `show.instances` | `name`, `file?` | Instance list with kinds |
-| `show.nets` | `name`, `file?` | Net list |
-| `show.attrs` | `name` | Attribute list |
-| `show.funcs` | `name` | Function list |
-| `show.params` | `name` | Parameter list |
-| `show.roles` | `name` | Role definitions |
-| `show.values` | `name` | Enum values |
-| `show.dump` | `name` | Full entity dump |
-| `show.dump.all` | — | Dump all loaded entities |
-| `show.file` | `uri` | All definitions in file |
-| `show.files` | — | All loaded files |
+
+| Method                | Params          | Returns                     |
+| --------------------- | --------------- | --------------------------- |
+| `show.all`            | `file?`         | All entities (list only)    |
+| `show.component`      | `name?`         | Component list or detail    |
+| `show.component.list` | —               | Flat list of all components |
+| `show.module`         | `name?`         | Module list or detail       |
+| `show.module.list`    | —               | Flat list of all modules    |
+| `show.interface`      | `name?`         | Interface list or detail    |
+| `show.interface.list` | —               | Flat list of all interfaces |
+| `show.enum`           | `name?`         | Enum list or detail         |
+| `show.enum.list`      | —               | Flat list of all enums      |
+| `show.net`            | `name?`         | Net list or detail          |
+| `show.net.list`       | —               | Flat list of all nets       |
+| `show.pins`           | `name`          | Pin definitions             |
+| `show.ports`          | `name`          | Port definitions            |
+| `show.ports.list`     | —               | Flat list of all ports      |
+| `show.labels`         | `name`          | Labels of a module          |
+| `show.instances`      | `name`, `file?` | Instance list with kinds    |
+| `show.nets`           | `name`, `file?` | Net list                    |
+| `show.attrs`          | `name`          | Attribute list              |
+| `show.funcs`          | `name`          | Function list               |
+| `show.params`         | `name`          | Parameter list              |
+| `show.roles`          | `name`          | Role definitions            |
+| `show.values`         | `name`          | Enum values                 |
+| `show.dump`           | `name`          | Full entity dump            |
+| `show.dump.all`       | —               | Dump all loaded entities    |
+| `show.file`           | `uri`           | All definitions in file     |
+| `show.files`          | —               | All loaded files            |
 
 #### Semantics / LSP
-| Method | Params | Returns |
-|---|---|---|
-| `sem` | `uri`, `content?` | Semantic tokens + symbols |
-| `diagnostics` | `uri` | File diagnostics |
-| `project_symbols` | — | Project-wide symbol index |
-| `def` | `name` | Go-to-definition by name |
-| `refs` | `name` | Find all references by name |
-| `hover` | `name`, `uri` | Hover tooltip info |
-| `completion` | `uri`, `line`, `column` | Code completions at position |
-| `defs.search` | `pattern`, `kind?`, `regex?`, `fuzzy?`, `limit?` | Text/regex/fuzzy search across definitions |
-| `defs.query` | `expr`, `limit?` | Structured DSL query (e.g. `kind=component AND name=RES*`) |
-| `lookup` | `name` | Lookup by name |
-| `lookup_sub` | `parentUri`, `kind`, `name` | Scoped lookup |
-| `lookup_all` | — | All lookup entries |
-| `erc` | `uri?`, `top?` | Electrical rule check |
+
+| Method            | Params                                           | Returns                                                    |
+| ----------------- | ------------------------------------------------ | ---------------------------------------------------------- |
+| `sem`             | `uri`, `content?`                                | Semantic tokens + symbols                                  |
+| `diagnostics`     | `uri`                                            | File diagnostics                                           |
+| `project_symbols` | —                                                | Project-wide symbol index                                  |
+| `def`             | `name`                                           | Go-to-definition by name                                   |
+| `refs`            | `name`                                           | Find all references by name                                |
+| `hover`           | `name`, `uri`                                    | Hover tooltip info                                         |
+| `completion`      | `uri`, `line`, `column`                          | Code completions at position                               |
+| `defs.search`     | `pattern`, `kind?`, `regex?`, `fuzzy?`, `limit?` | Text/regex/fuzzy search across definitions                 |
+| `defs.query`      | `expr`, `limit?`                                 | Structured DSL query (e.g. `kind=component AND name=RES*`) |
+| `lookup`          | `name`                                           | Lookup by name                                             |
+| `lookup_sub`      | `parentUri`, `kind`, `name`                      | Scoped lookup                                              |
+| `lookup_all`      | —                                                | All lookup entries                                         |
+| `erc`             | `uri?`, `top?`                                   | Electrical rule check                                      |
 
 #### Library
-| Method | Params | Returns |
-|---|---|---|
-| `lib.list` | — | Loaded libraries |
-| `lib.info` | `name` | Library metadata |
-| `lib.load` | `name` | Load a library |
-| `lib.unload` | `name` | Unload a library |
-| `lib.install` | `path` | Install library |
-| `lib.uninstall` | `name` | Uninstall library |
-| `lib.search` | `query` | Search installed libs |
+
+| Method          | Params  | Returns               |
+| --------------- | ------- | --------------------- |
+| `lib.list`      | —       | Loaded libraries      |
+| `lib.info`      | `name`  | Library metadata      |
+| `lib.load`      | `name`  | Load a library        |
+| `lib.unload`    | `name`  | Unload a library      |
+| `lib.install`   | `path`  | Install library       |
+| `lib.uninstall` | `name`  | Uninstall library     |
+| `lib.search`    | `query` | Search installed libs |
 
 #### Export / Utility
-| Method | Params | Returns |
-|---|---|---|
-| `export` | `kind`, `uri`, `top` | Export result |
-| `convert` | `uri`, `format` | Convert file |
-| `report` | `uri?` | Design report |
-| `explain` | `code?` | Error code description |
-| `trace.set` | `config` | Update trace config |
-| `trace.get` | — | Current trace config |
+
+| Method      | Params               | Returns                |
+| ----------- | -------------------- | ---------------------- |
+| `export`    | `kind`, `uri`, `top` | Export result          |
+| `convert`   | `uri`, `format`      | Convert file           |
+| `report`    | `uri?`               | Design report          |
+| `explain`   | `code?`              | Error code description |
+| `trace.set` | `config`             | Update trace config    |
+| `trace.get` | —                    | Current trace config   |
 
 ### Error Codes
 
-| Code | Meaning |
-|---|---|
+| Code   | Meaning                    |
+| ------ | -------------------------- |
 | -32700 | Parse error (invalid JSON) |
-| -32600 | Invalid request |
-| -32601 | Method not found |
-| -32602 | Invalid params |
-| -32603 | Internal error |
-| 32100 | I/O or filesystem error |
-| 32101 | Workspace conflict |
-| 32102 | Workspace not found |
-| 32103 | Archive decode failed |
-| 32104 | Unsupported format |
-| 32105 | Entry file not found |
-| 32106 | Dependency not loaded |
-| 32107 | Pass1 or Pass2 failed |
-| 32108 | Build panic |
+| -32600 | Invalid request            |
+| -32601 | Method not found           |
+| -32602 | Invalid params             |
+| -32603 | Internal error             |
+| 32100  | I/O or filesystem error    |
+| 32101  | Workspace conflict         |
+| 32102  | Workspace not found        |
+| 32103  | Archive decode failed      |
+| 32104  | Unsupported format         |
+| 32105  | Entry file not found       |
+| 32106  | Dependency not loaded      |
+| 32107  | Pass1 or Pass2 failed      |
+| 32108  | Build panic                |
 
----
+***
 
 ## 4. Compiler Pipeline
 
@@ -835,7 +846,7 @@ curl -X POST http://127.0.0.1:8080/rpc \
   -d '{"jsonrpc":"2.0","method":"trace.set","params":{"pass1":true,"pass2":true},"id":1}'
 ```
 
----
+***
 
 ## 5. Debugging mcc Itself
 
@@ -844,6 +855,7 @@ curl -X POST http://127.0.0.1:8080/rpc \
 In `~/work/mo/mcc/.vscode/launch.json`:
 
 **"mcc"** — Debug a one-shot CLI run:
+
 - Program: `target/debug/mcc`
 - Args: `parse mc/projects/hbl/hbl.mc`
 - Env: `RUST_BACKTRACE=1`, `MCC_SYSTEM_ROOT=${workspaceFolder}/mc`
@@ -943,7 +955,7 @@ UPDATE_GOLDEN=1 MCC_GOLDEN_PROJECT=/path/to/project cargo test golden
 RUST_BACKTRACE=full cargo test
 ```
 
----
+***
 
 ## 6. Debugging mcode Projects
 
@@ -1014,55 +1026,55 @@ curl -X POST http://127.0.0.1:8080/rpc \
 
 ### 6.4 Common Error Codes
 
-| Code | Meaning | Typical Cause |
-|---|---|---|
-| 1001-1005 | Duplicate definition | Same name used twice in scope |
-| 1051-1060 | Definition structure / CMIE load | Missing subnodes, malformed IO type, define-as-CMIE |
-| 2001-2010 | `use` statement errors | Bad path, target not found, self import, alias collision |
-| 2051 / 2061 / 2071 | Use-stage dependency errors | Undeclared dep, symbol conflict, import not found |
-| 2080-2119 | Parser errors | Syntax error, invalid clause / pin / net / conds |
-| 2121-2127 | Name / declaration parse errors | Missing subnode, failed name extraction |
-| 2171-2172 | Unsupported / unresolved symbol | P1-P5 lookup failed, not supported yet |
-| 2901-2906 | Vector shape validation | Shape mismatch, transpose limit, expand mismatch |
-| 3001-3008 | Pin/port definition | Pin ID/name mismatch, count errors |
-| 3021-3023 | Attribute errors | Type mismatch, unsupported type, missing subnode |
-| 3041-3049 | Unit value (UVAL) errors | Invalid/unsupported unit, bad value format |
-| 3051-3054 | Module body errors | PINS unsupported, role unsupported, unexpected param |
-| 3071 / 3081 | Module method / clause | Method not found, unexpected clause type |
-| 3101-3111 | Params / functions | Invalid param, class/instance expected |
-| 3131-3135 | Function calls / lines | Missing name, parse failure, dropped line |
-| 3151-3180 | Instance / interface reference | Class unresolved, member / pin / port not found |
-| 4001-4026 | Connection / shape | Transpose mismatch, parallel/series invalid, dot misuse |
-| 4050-4058 | Netlist heuristics (D-series) | Ghost port, merged short, sort hazard, floating `_` |
-| 4081-4098 | Layout attribute errors | Missing subnode, type mismatch, malformed edge |
-| 4101-4118 | Netlist / interface binding | Multi-drive, no driver, unconnected, backfeed risk |
-| 4150-4175 | Instantiation checks | Chain link skipped, arg count mismatch, bind failed |
-| 5001-5003 | Cross-file duplicates | Same name defined in another file |
-| 5051-5057 | Naming / style | Lowercase component, single-char instance, shadows CMIE |
-| 5101-5104 | Reference integrity | Undeclared spec key, function without body |
-| 5151-5163 | Ports / pins | Duplicate port, unused pin/port, conflicting options |
-| 5201-5206 | Functions / roles / defaults | Bad param default, enum single value |
-| 5251-5267 | Definition structure (M-series) | Empty body, no pins, duplicate spec key |
-| 5301-5304 | `.int` class checks | Ambiguous name, class not loaded, unconventional suffix |
-| 5351-5357 | Instance / attribute checks | Reserved keyword, arg count, nesting too deep |
-| 5401-5412 | Enum / expression checks | Duplicate value, reversed range, `this` at top level |
-| 5451-5459 | Condition blocks | Empty body, if without else, NC at component level |
-| 5501-5511 | Hardware checks | Power pins excess, pin number gaps, NC contiguous |
-| 5551-5552 | Type / unit compatibility | Free closure variable, incompatible types |
-| 5641-5643 | Global diagnostics | Unused param/port, untyped param |
-| 6001-6004 | ERC | Single-point net, unconnected port, multi-drive, floating net |
+| Code               | Meaning                          | Typical Cause                                                 |
+| ------------------ | -------------------------------- | ------------------------------------------------------------- |
+| 1001-1005          | Duplicate definition             | Same name used twice in scope                                 |
+| 1051-1060          | Definition structure / CMIE load | Missing subnodes, malformed IO type, define-as-CMIE           |
+| 2001-2010          | `use` statement errors           | Bad path, target not found, self import, alias collision      |
+| 2051 / 2061 / 2071 | Use-stage dependency errors      | Undeclared dep, symbol conflict, import not found             |
+| 2080-2119          | Parser errors                    | Syntax error, invalid clause / pin / net / conds              |
+| 2121-2127          | Name / declaration parse errors  | Missing subnode, failed name extraction                       |
+| 2171-2172          | Unsupported / unresolved symbol  | P1-P5 lookup failed, not supported yet                        |
+| 2901-2906          | Vector shape validation          | Shape mismatch, transpose limit, expand mismatch              |
+| 3001-3008          | Pin/port definition              | Pin ID/name mismatch, count errors                            |
+| 3021-3023          | Attribute errors                 | Type mismatch, unsupported type, missing subnode              |
+| 3041-3049          | Unit value (UVAL) errors         | Invalid/unsupported unit, bad value format                    |
+| 3051-3054          | Module body errors               | PINS unsupported, role unsupported, unexpected param          |
+| 3071 / 3081        | Module method / clause           | Method not found, unexpected clause type                      |
+| 3101-3111          | Params / functions               | Invalid param, class/instance expected                        |
+| 3131-3135          | Function calls / lines           | Missing name, parse failure, dropped line                     |
+| 3151-3180          | Instance / interface reference   | Class unresolved, member / pin / port not found               |
+| 4001-4026          | Connection / shape               | Transpose mismatch, parallel/series invalid, dot misuse       |
+| 4050-4058          | Netlist heuristics (D-series)    | Ghost port, merged short, sort hazard, floating `_`           |
+| 4081-4098          | Layout attribute errors          | Missing subnode, type mismatch, malformed edge                |
+| 4101-4118          | Netlist / interface binding      | Multi-drive, no driver, unconnected, backfeed risk            |
+| 4150-4175          | Instantiation checks             | Chain link skipped, arg count mismatch, bind failed           |
+| 5001-5003          | Cross-file duplicates            | Same name defined in another file                             |
+| 5051-5057          | Naming / style                   | Lowercase component, single-char instance, shadows CMIE       |
+| 5101-5104          | Reference integrity              | Undeclared spec key, function without body                    |
+| 5151-5163          | Ports / pins                     | Duplicate port, unused pin/port, conflicting options          |
+| 5201-5206          | Functions / roles / defaults     | Bad param default, enum single value                          |
+| 5251-5267          | Definition structure (M-series)  | Empty body, no pins, duplicate spec key                       |
+| 5301-5304          | `.int` class checks              | Ambiguous name, class not loaded, unconventional suffix       |
+| 5351-5357          | Instance / attribute checks      | Reserved keyword, arg count, nesting too deep                 |
+| 5401-5412          | Enum / expression checks         | Duplicate value, reversed range, `this` at top level          |
+| 5451-5459          | Condition blocks                 | Empty body, if without else, NC at component level            |
+| 5501-5511          | Hardware checks                  | Power pins excess, pin number gaps, NC contiguous             |
+| 5551-5552          | Type / unit compatibility        | Free closure variable, incompatible types                     |
+| 5641-5643          | Global diagnostics               | Unused param/port, untyped param                              |
+| 6001-6004          | ERC                              | Single-point net, unconnected port, multi-drive, floating net |
 
 The D1-d7 detector codes referenced by build.rs tests map as follows:
 
-| Detector | Code | Constant |
-|---|---|---|
-| D1 | 4053 | SORT_HAZARD |
-| D2 | 4054 | FLOATING_PLACEHOLDER |
-| D3 | 4051 | NET_MERGED_SHORT |
-| D4 | 4050 | GHOST_PORT_BOX |
-| D5 | 4052 | NET_BUS_ORDER_MISMATCH |
-| D6 | 4057 | NET_DROPPED_STATEMENT |
-| D7 | 4056 | PULLUP_DEGENERATE |
+| Detector | Code | Constant                  |
+| -------- | ---- | ------------------------- |
+| D1       | 4053 | SORT\_HAZARD              |
+| D2       | 4054 | FLOATING\_PLACEHOLDER     |
+| D3       | 4051 | NET\_MERGED\_SHORT        |
+| D4       | 4050 | GHOST\_PORT\_BOX          |
+| D5       | 4052 | NET\_BUS\_ORDER\_MISMATCH |
+| D6       | 4057 | NET\_DROPPED\_STATEMENT   |
+| D7       | 4056 | PULLUP\_DEGENERATE        |
 
 ### 6.5 Validating Library Changes
 
@@ -1105,14 +1117,14 @@ mcc show lapper path/to/file.mc 2>/dev/null > dump.txt
 
 **Text output sections:**
 
-| Section | Content |
-|---------|---------|
-| `LAPPER ENTRIES` | All symbol intervals: kind, id, span, name, file |
-| `DECLARES` | name_to_declare_id entries: id, span, scope, name |
-| `REFERENCES` | inst_id_to_span entries: id, span, declare_id |
-| `DEF_MAP` | (def_kind, decl_id) → SourceLocation |
-| `REF_ENTRIES` | Pre-collected refs: (ref_kind, decl_id, span, name) |
-| `REF_DEF_MAP` | **Core**: Ref→Def resolution with kind_names legend |
+| Section          | Content                                               |
+| ---------------- | ----------------------------------------------------- |
+| `LAPPER ENTRIES` | All symbol intervals: kind, id, span, name, file      |
+| `DECLARES`       | name\_to\_declare\_id entries: id, span, scope, name  |
+| `REFERENCES`     | inst\_id\_to\_span entries: id, span, declare\_id     |
+| `DEF_MAP`        | (def\_kind, decl\_id) → SourceLocation                |
+| `REF_ENTRIES`    | Pre-collected refs: (ref\_kind, decl\_id, span, name) |
+| `REF_DEF_MAP`    | **Core**: Ref→Def resolution with kind\_names legend  |
 
 **Quick analysis:**
 
@@ -1248,7 +1260,7 @@ curl -s -X POST http://127.0.0.1:8080/rpc \
   -d '{"jsonrpc":"2.0","method":"build.full","params":{"uri":"file:///path/to/project/src/main.mc","top":"main"},"id":4}'
 ```
 
----
+***
 
 ## 7. LSP Extension (mcext)
 
@@ -1263,12 +1275,12 @@ VS Code  ←LSP→  mcodels (Rust)  ←HTTP JSON-RPC→  mcc server
 
 In `~/work/mo/mcext/.vscode/launch.json`:
 
-| Config | Purpose |
-|---|---|
-| **Debug LSP Server** | Launch `mcodels` with `RUST_LOG=trace` |
-| **Debug VS Code Extension** | Open new VS Code window with extension loaded |
-| **Attach to LSP Server** | Attach debugger to running mcodels process |
-| **Debug Extension + LSP Server** | Compound: launch both simultaneously |
+| Config                           | Purpose                                       |
+| -------------------------------- | --------------------------------------------- |
+| **Debug LSP Server**             | Launch `mcodels` with `RUST_LOG=trace`        |
+| **Debug VS Code Extension**      | Open new VS Code window with extension loaded |
+| **Attach to LSP Server**         | Attach debugger to running mcodels process    |
+| **Debug Extension + LSP Server** | Compound: launch both simultaneously          |
 
 ```bash
 # Build extension
@@ -1285,16 +1297,16 @@ code --extensionDevelopmentPath=~/work/mo/mcext ~/work/mo/mcd/projects/hbl
 
 ### Key LSP Features
 
-| Feature | RPC Method Used | Source Module |
-|---|---|---|
-| Semantic tokens | `sem` | `features/semtok.rs` |
-| Go-to-definition | `def` | `features/gotodef.rs` |
-| Find references | `refs` | `features/refs.rs` |
-| Completions | `project_symbols` + `show.*` | `features/comp.rs` |
-| Hover | `show.dump` | `features/hover.rs` |
-| Diagnostics | `diagnostics` | `features/diag.rs` |
-| Formatting | (internal) | `features/fmt.rs` |
-| Inlay hints | (internal) | `features/inhint.rs` |
+| Feature          | RPC Method Used              | Source Module         |
+| ---------------- | ---------------------------- | --------------------- |
+| Semantic tokens  | `sem`                        | `features/semtok.rs`  |
+| Go-to-definition | `def`                        | `features/gotodef.rs` |
+| Find references  | `refs`                       | `features/refs.rs`    |
+| Completions      | `project_symbols` + `show.*` | `features/comp.rs`    |
+| Hover            | `show.dump`                  | `features/hover.rs`   |
+| Diagnostics      | `diagnostics`                | `features/diag.rs`    |
+| Formatting       | (internal)                   | `features/fmt.rs`     |
+| Inlay hints      | (internal)                   | `features/inhint.rs`  |
 
 ### Health Checks
 
@@ -1312,7 +1324,7 @@ tail -f ~/.mcode/logs/mcc-server.log
 # View → Output → "MCode" channel
 ```
 
----
+***
 
 ## 8. Configuration Reference
 
@@ -1381,7 +1393,7 @@ logging:
   file: ""         # empty = stderr only
 ```
 
----
+***
 
 ## 9. MCP Server (mcc-mcp)
 
@@ -1427,12 +1439,13 @@ Cursor / Trae: Settings → MCP → Add server with `command` + `env` (same shap
 
 Environment variables:
 
-| Variable | Purpose |
-|---|---|
-| `MCC_PROJECT_ROOT` | Project root this instance is bound to (optional; `mcc_load_project` also binds per call) |
-| `MCC_SYSTEM_ROOT` | Override the system root that contains the `mcode` library (optional; auto-probed otherwise) |
+| Variable           | Purpose                                                                                      |
+| ------------------ | -------------------------------------------------------------------------------------------- |
+| `MCC_PROJECT_ROOT` | Project root this instance is bound to (optional; `mcc_load_project` also binds per call)    |
+| `MCC_SYSTEM_ROOT`  | Override the system root that contains the `mcode` library (optional; auto-probed otherwise) |
 
 Notes:
+
 - The `mcode` system library is force-loaded at startup, so `mcc_search_defs` /
   `mcc_show_def` resolve mcode symbols without extra `libs` arguments.
 - Tool failures come back as MCP errors (`INTERNAL_ERROR`) with the original
@@ -1440,21 +1453,21 @@ Notes:
 
 ### 9.2 Tools (13)
 
-| Tool | Params (required first) | Purpose |
-|---|---|---|
-| `mcc_validate_component` | `content`, `libs?`, `strict?`, `errors_only?` | Validate an inline MCode snippet; returns diagnostics (E2xxx/E3xxx). Primary AI loop: generate → validate → fix. |
-| `mcc_parse_file` | `file_path`, `include_system?` | Parse a `.mc` file; returns AST summary and diagnostics. |
-| `mcc_explain_error` | `code?` | Explain an error code (e.g. 2008); omit `code` for the full error table. |
-| `mcc_load_project` | `entry` | Load a project entry `.mc` file and its use-dependencies into the workspace; derives the project root by walking up to `project.toml`. |
-| `mcc_check_file` | `file_path`, `libs?`, `strict?`, `errors_only?` | Check a single `.mc` file; returns diagnostics. |
-| `mcc_check_project` | `entry?`, `strict?`, `errors_only?` | Check the whole active project (load it first via `mcc_load_project`); `entry` is required when no project is loaded. |
-| `mcc_build` | `entry?`, `top?`, `include_system?`, `libs?` | Run Pass2 instantiation; returns module tree, connections, and nets. |
-| `mcc_search_defs` | `pattern`, `kind?`, `regex?`, `fuzzy?`, `top?`, `limit?` | Search loaded definitions (component / module / interface / enum / instance). |
-| `mcc_show_def` | `name`, `type_filter?`, `file?`, `top?` | Show detailed definition info: pins, params, funcs, interfaces. |
-| `mcc_lookup` | `className`, `subName?`, `subKind?`, `fromUri?` | Resolve a symbol (supports `uC.PA1` compound references) to its definition location. |
-| `mcc_erc` | — | Electrical rule check on the active workspace: single-point nets, unconnected ports, multi-drive, floating nets. |
-| `mcc_generate_netlist` | `entry`, `top?`, `format?`, `libs?` | Generate a netlist (text / JSON) for a `.mc` file. |
-| `mcc_export` | `kind` (netlist / bom / spice / kicad), `entry`, `top?`, `format?`, `libs?` | Export netlist / BOM / SPICE / KiCad for a `.mc` file. |
+| Tool                     | Params (required first)                                                     | Purpose                                                                                                                                |
+| ------------------------ | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `mcc_validate_component` | `content`, `libs?`, `strict?`, `errors_only?`                               | Validate an inline MCode snippet; returns diagnostics (E2xxx/E3xxx). Primary AI loop: generate → validate → fix.                       |
+| `mcc_parse_file`         | `file_path`, `include_system?`                                              | Parse a `.mc` file; returns AST summary and diagnostics.                                                                               |
+| `mcc_explain_error`      | `code?`                                                                     | Explain an error code (e.g. 2008); omit `code` for the full error table.                                                               |
+| `mcc_load_project`       | `entry`                                                                     | Load a project entry `.mc` file and its use-dependencies into the workspace; derives the project root by walking up to `project.toml`. |
+| `mcc_check_file`         | `file_path`, `libs?`, `strict?`, `errors_only?`                             | Check a single `.mc` file; returns diagnostics.                                                                                        |
+| `mcc_check_project`      | `entry?`, `strict?`, `errors_only?`                                         | Check the whole active project (load it first via `mcc_load_project`); `entry` is required when no project is loaded.                  |
+| `mcc_build`              | `entry?`, `top?`, `include_system?`, `libs?`                                | Run Pass2 instantiation; returns module tree, connections, and nets.                                                                   |
+| `mcc_search_defs`        | `pattern`, `kind?`, `regex?`, `fuzzy?`, `top?`, `limit?`                    | Search loaded definitions (component / module / interface / enum / instance).                                                          |
+| `mcc_show_def`           | `name`, `type_filter?`, `file?`, `top?`                                     | Show detailed definition info: pins, params, funcs, interfaces.                                                                        |
+| `mcc_lookup`             | `className`, `subName?`, `subKind?`, `fromUri?`                             | Resolve a symbol (supports `uC.PA1` compound references) to its definition location.                                                   |
+| `mcc_erc`                | —                                                                           | Electrical rule check on the active workspace: single-point nets, unconnected ports, multi-drive, floating nets.                       |
+| `mcc_generate_netlist`   | `entry`, `top?`, `format?`, `libs?`                                         | Generate a netlist (text / JSON) for a `.mc` file.                                                                                     |
+| `mcc_export`             | `kind` (netlist / bom / spice / kicad), `entry`, `top?`, `format?`, `libs?` | Export netlist / BOM / SPICE / KiCad for a `.mc` file.                                                                                 |
 
 ### 9.3 Typical Workflow
 
@@ -1480,7 +1493,9 @@ snippet / file → re-check until diagnostics are clean → `mcc_build` →
 `mcc_erc` → `mcc_export`.
 
 Notes:
+
 - `mcc_check_project` and `mcc_erc` need an active workspace: call
   `mcc_load_project` (or `mcc_build`) first.
 - `mcc_search_defs` searches everything loaded so far; system mcode symbols
   are always available because mcode is loaded at startup.
+
