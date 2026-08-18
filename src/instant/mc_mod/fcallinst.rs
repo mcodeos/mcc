@@ -110,8 +110,11 @@ impl McModuleInst {
                         self.failed_records.push(FailedRecord {
                             module: self.name.clone(),
                             src_line: self.current_line_span.as_ref().and_then(|s| {
-                                crate::db::infra::context::lookup_line_col(&self.def_uri, s.start as u32)
-                                    .map(|(line, _col)| line as usize)
+                                crate::db::infra::context::lookup_line_col(
+                                    &self.def_uri,
+                                    s.start as u32,
+                                )
+                                .map(|(line, _col)| line as usize)
                             }),
                             component_name: inst_name.clone(),
                             class_name: type_name.clone(),

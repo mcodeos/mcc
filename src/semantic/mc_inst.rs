@@ -400,8 +400,7 @@ impl McInstances {
                 )
             })
             .filter_map(|(name, (_, inst))| match inst {
-                McInstance::Label(_)
-                | McInstance::BusRef { .. }
+                McInstance::BusRef { .. }
                 | McInstance::Component(_)
                 | McInstance::Module(_)
                 | McInstance::Unresolved { .. } => None,

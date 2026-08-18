@@ -52,15 +52,15 @@ fn rpc_mapping(args: &ExportArgs) -> Option<(&'static str, Value)> {
                     ExportKind::KiCad => "kicad-netlist",
                 },
                 "entry":  args.file,
-                "top":    args.top,
-                "format": match args.format {
+                "top":    mcc::cli::globals().top,
+                "format": match mcc::cli::globals().format {
                     OutputFormat::Text => "text",
                     OutputFormat::Json => "json",
                     OutputFormat::JsonPretty => "json-pretty",
                     OutputFormat::Yaml => "yaml",
                     OutputFormat::Csv => "csv",
                 },
-                "libs":   args.lib,
+                "libs":   mcc::cli::globals().lib,
             }),
         ))
     } else {
@@ -70,14 +70,18 @@ fn rpc_mapping(args: &ExportArgs) -> Option<(&'static str, Value)> {
 
 fn run_local(args: &ExportArgs) -> Result<()> {
     // Shared local initialization: engine + libs (global config, --lib, mcode default).
-    manifest::init_local(Some(args.file.as_str()), &args.lib);
+    manifest::init_local(Some(args.file.as_str()), &mcc::cli::globals().lib);
     let format = if args.json {
         OutputFormat::Json
     } else {
-        args.format
+        mcc::cli::globals().format
     };
 
-    let (tree, table) = match export::build_tree(&args.file, args.top.as_deref(), &args.lib) {
+    let (tree, table) = match export::build_tree(
+        &args.file,
+        mcc::cli::globals().top.as_deref(),
+        &mcc::cli::globals().lib,
+    ) {
         Ok(t) => t,
         Err(e) => {
             eprintln!("{}", e);
@@ -86,7 +90,7 @@ fn run_local(args: &ExportArgs) -> Result<()> {
     };
 
     // Resolve top name for header.
-    let top = args
+    let top = mcc::cli::globals()
         .top
         .clone()
         .unwrap_or_else(|| mcc::mcb_get_first_module_name().unwrap_or_else(|| "?".into()));
@@ -121,10 +125,15 @@ fn run_local(args: &ExportArgs) -> Result<()> {
         let mut builder = ResultBuilder::start(format!("mcc export {}", kind_str));
         builder.set_export(data);
         let env = Envelope::ok(builder.finish());
-        output::emit_envelope(&env, format, args.output.as_deref().map(Path::new), false)?;
+        output::emit_envelope(
+            &env,
+            format,
+            mcc::cli::globals().output.as_deref().map(Path::new),
+            false,
+        )?;
     } else {
         // Raw text/CSV → stdout or file.
-        match &args.output {
+        match &mcc::cli::globals().output {
             Some(p) => std::fs::write(p, raw_text.as_bytes().to_vec())?,
             None => {
                 print!("{}", raw_text);

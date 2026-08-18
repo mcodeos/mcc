@@ -39,7 +39,7 @@ mcc build
 mcc start
 
 # Show detailed information
-mcc show --module ModuleName
+mcc show module ModuleName
 ```
 
 ## Commands
@@ -50,6 +50,9 @@ mcc show --module ModuleName
 | `check` | Run syntax and semantic analysis |
 | `extract` | Extract various targets (components, modules, etc.) |
 | `show` | Display detailed information about components/modules |
+| `search` | Text / regex / fuzzy search across definitions |
+| `query` | Structured DSL query across definitions |
+| `export` | Generate netlist / BOM / SPICE / KiCad outputs |
 | `build` | Manifest-driven build (loads dependencies + all passes) |
 | `lib` | Manage system libraries (list/install/load/unload) |
 | `proj` | Create and manage project workspaces |
@@ -57,6 +60,13 @@ mcc show --module ModuleName
 | `stop` | Stop the MCC server |
 | `status` | View server status |
 | `config` | Manage configuration settings |
+| `def` | Go-to-definition lookup by name |
+| `refs` | Find references by name |
+| `erc` | Electrical rule check |
+| `convert` | Convert a .mc file to JSON/YAML |
+| `report` | Generate a design report |
+| `explain` | Explain an error code |
+| `caps` | Self-describing capabilities |
 
 ## Architecture
 

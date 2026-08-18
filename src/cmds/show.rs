@@ -50,7 +50,7 @@ pub fn run(args: &ShowArgs) -> Result<()> {
 ///     tables / .mc-like dumps are rendered locally. This also makes the
 ///     default `-f text` output stable whether or not a server is running.
 fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
-    if args.format == OutputFormat::Text || args.filter.is_some() {
+    if mcc::cli::globals().format == OutputFormat::Text || args.filter.is_some() {
         return None;
     }
     match args.target {
@@ -122,7 +122,7 @@ fn drill_rpc(method: &'static str, args: &ShowArgs) -> Option<(&'static str, Val
     if let Some(t) = &args.r#type {
         params["type"] = json!(t);
     }
-    if let Some(t) = &args.top {
+    if let Some(t) = &mcc::cli::globals().top {
         params["top"] = json!(t);
     }
     Some((method, params))
@@ -208,7 +208,7 @@ fn prepare(args: &ShowArgs) {
             .or_else(|| args.name.as_deref().filter(|n| looks_like_file(n))),
         _ => args.file.as_deref(),
     };
-    crate::cmds::manifest::init_local(file_opt, &args.lib);
+    crate::cmds::manifest::init_local(file_opt, &mcc::cli::globals().lib);
 
     if let Some(f) = file_opt {
         let actual = resolve_file(f);
@@ -437,7 +437,7 @@ fn show_lapper(args: &ShowArgs) -> Result<()> {
 
     // prepare() already called mcc_load_project. If the file is already loaded,
     // dump symbols directly. Otherwise, load and parse first.
-    let is_text = matches!(args.format, OutputFormat::Text);
+    let is_text = matches!(mcc::cli::globals().format, OutputFormat::Text);
     if is_text {
         if let Some(text) = mcc::dump_symbols_f12_text(&mc_uri) {
             print!("{text}");
@@ -597,7 +597,7 @@ fn show_enum(name: &str, args: &ShowArgs) -> Result<()> {
 }
 
 fn show_net(name: &str, args: &ShowArgs) -> Result<()> {
-    let top = args
+    let top = mcc::cli::globals()
         .top
         .clone()
         .or_else(mcc::mcb_get_first_module_name)
@@ -805,7 +805,10 @@ fn drill_nets(name: &str, args: &ShowArgs) -> Result<()> {
     }
 
     // `nets <module>` uses the entity as the top module.
-    let top = args.top.clone().unwrap_or_else(|| name.to_string());
+    let top = mcc::cli::globals()
+        .top
+        .clone()
+        .unwrap_or_else(|| name.to_string());
     let nets = nets_map(&top);
     let items: Vec<Value> = nets
         .iter()
@@ -1829,7 +1832,7 @@ fn iface_display(v: &Value) -> Option<String> {
 }
 
 fn output(data: &Value, args: &ShowArgs) -> Result<()> {
-    let rendered = match args.format {
+    let rendered = match mcc::cli::globals().format {
         OutputFormat::Json => data.to_string(),
         OutputFormat::JsonPretty => serde_json::to_string_pretty(data)?,
         OutputFormat::Yaml => serde_yaml::to_string(data).unwrap_or_default(),
@@ -1868,7 +1871,7 @@ fn output(data: &Value, args: &ShowArgs) -> Result<()> {
         }
     };
 
-    if let Some(path) = &args.output {
+    if let Some(path) = &mcc::cli::globals().output {
         std::fs::write(path, rendered)?;
     } else {
         println!("{}", rendered);

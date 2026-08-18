@@ -95,8 +95,13 @@ pub fn render_with_metrics(
     mut graph: McVecGraph,
     opts: RenderOpts,
 ) -> (VizDocument, crate::viz::metrics::MetricsAccumulator) {
-    eprintln!("[DEBUG api] render_with_metrics: graph.is_root={} name={} boxes={} nets={}",
-        graph.is_root, graph.name, graph.boxes.len(), graph.nets.len());
+    eprintln!(
+        "[DEBUG api] render_with_metrics: graph.is_root={} name={} boxes={} nets={}",
+        graph.is_root,
+        graph.name,
+        graph.boxes.len(),
+        graph.nets.len()
+    );
     // Reset R15 counter for this render
     crate::viz::SYNTHETIC_PIN_COUNT.store(0, std::sync::atomic::Ordering::Relaxed);
 

@@ -33,7 +33,7 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
             "check",
             json!({
                 "entry": args.target.clone(),
-                "libs":  args.lib.clone(),
+                "libs":  mcc::cli::globals().lib.clone(),
                 "strict": args.strict,
                 "errors_only": args.errors_only,
             }),
@@ -50,7 +50,7 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
         });
     }
 
-    manifest::init_local(args.target.as_deref(), &args.lib);
+    manifest::init_local(args.target.as_deref(), &mcc::cli::globals().lib);
 
     // Resolve the target into an entry URI.
     //   - Directory: manifest-driven project mode; falls back to browse mode
@@ -62,19 +62,22 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
         let p = Path::new(t);
         if p.is_dir() {
             let fail = |e: anyhow::Error| -> Result<CheckOutcome> {
-                if args.format.is_structured() {
+                if mcc::cli::globals().format.is_structured() {
                     let env = Envelope::err(RpcError::invalid_params(format!("{:#}", e)));
-                    output::emit_envelope(&env, args.format, None, false)?;
+                    output::emit_envelope(&env, mcc::cli::globals().format, None, false)?;
                     Ok(CheckOutcome { exit_code: 2 })
                 } else {
                     anyhow::bail!("check: {}", e);
                 }
             };
-            match manifest::build_from_manifest(p, None, args.entry.as_deref()) {
+            match manifest::build_from_manifest(p, None, mcc::cli::globals().entry.as_deref()) {
                 Ok((entry_uri, _)) => McURI::from(entry_uri.as_str()),
                 Err(manifest_err) => {
                     // No manifest (or manifest load failed) → browse mode.
-                    let entry = match manifest::select_browse_entry(p, args.entry.as_deref()) {
+                    let entry = match manifest::select_browse_entry(
+                        p,
+                        mcc::cli::globals().entry.as_deref(),
+                    ) {
                         Ok(e) => e,
                         Err(browse_err) => {
                             return fail(anyhow::anyhow!(
@@ -100,12 +103,12 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
             let project_root = match manifest::find_project_root(Some(abs_t_str.as_str())) {
                 Some(root) => root,
                 None => {
-                    if args.format.is_structured() {
+                    if mcc::cli::globals().format.is_structured() {
                         let env = Envelope::err(RpcError::invalid_params(format!(
                             "check: cannot resolve project root for {}",
                             t
                         )));
-                        output::emit_envelope(&env, args.format, None, false)?;
+                        output::emit_envelope(&env, mcc::cli::globals().format, None, false)?;
                         return Ok(CheckOutcome { exit_code: 2 });
                     }
                     anyhow::bail!("check: cannot resolve project root for {}", t);
@@ -119,9 +122,9 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
             ) {
                 Ok(r) => r,
                 Err(e) => {
-                    if args.format.is_structured() {
+                    if mcc::cli::globals().format.is_structured() {
                         let env = Envelope::err(RpcError::invalid_params(format!("{:#}", e)));
-                        output::emit_envelope(&env, args.format, None, false)?;
+                        output::emit_envelope(&env, mcc::cli::globals().format, None, false)?;
                         return Ok(CheckOutcome { exit_code: 2 });
                     }
                     anyhow::bail!("check: {}", e);
@@ -131,9 +134,9 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
             McURI::from(entry_uri.as_str())
         }
     } else {
-        if args.format.is_structured() {
+        if mcc::cli::globals().format.is_structured() {
             let env = Envelope::err(RpcError::invalid_params("check: <target> not specified"));
-            output::emit_envelope(&env, args.format, None, false)?;
+            output::emit_envelope(&env, mcc::cli::globals().format, None, false)?;
             return Ok(CheckOutcome { exit_code: 2 });
         }
         anyhow::bail!("check: <target> not specified");
@@ -201,6 +204,30 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
     // `check` is a diagnostic overview; there's no pass1/pass2 distinction,
     // so everything is attributed to Pass0.
     let raw = mcc::mcc_diagnose_all();
+
+    // --dlog: raw one-line diagnostics only (no envelope / summary). Decoupled
+    // from execution mode — pair with --local when an RPC server is running.
+    if mcc::cli::dlog_mode() {
+        diagnostic::print_dlog_lines(args.errors_only);
+        let errs = raw
+            .iter()
+            .filter(|d| matches!(d.level, mcc::DiagnosticLevel::Error))
+            .count();
+        let warns = if args.errors_only {
+            0
+        } else {
+            raw.iter()
+                .filter(|d| matches!(d.level, mcc::DiagnosticLevel::Warning))
+                .count()
+        };
+        let exit_code = if errs > 0 || (args.strict && warns > 0) {
+            1
+        } else {
+            0
+        };
+        return Ok(CheckOutcome { exit_code });
+    }
+
     let all_diags: Vec<_> = raw
         .iter()
         .map(|d| diagnostic::from_mcc(d, Phase::Pass0))
@@ -227,10 +254,10 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
     });
 
     let env = Envelope::ok(builder.finish());
-    output::emit_envelope(&env, args.format, None, false)?;
+    output::emit_envelope(&env, mcc::cli::globals().format, None, false)?;
 
     // ── Text mode: print extra summary ──
-    if !args.format.is_structured() {
+    if !mcc::cli::globals().format.is_structured() {
         if error_count == 0 && warning_count == 0 {
             eprintln!("✓ check: no diagnostics");
         } else {

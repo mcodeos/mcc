@@ -121,10 +121,19 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
             .filter(|ep| box_ids.contains(&ep.box_id))
             .collect();
 
-        let ep_paths: Vec<String> = net.endpoints.iter().map(|ep| {
-            let box_name = graph.boxes.iter().find(|b| b.id == ep.box_id).map(|b| b.name.as_str()).unwrap_or("?");
-            format!("{}(box={})", ep.pin_name, box_name)
-        }).collect();
+        let ep_paths: Vec<String> = net
+            .endpoints
+            .iter()
+            .map(|ep| {
+                let box_name = graph
+                    .boxes
+                    .iter()
+                    .find(|b| b.id == ep.box_id)
+                    .map(|b| b.name.as_str())
+                    .unwrap_or("?");
+                format!("{}(box={})", ep.pin_name, box_name)
+            })
+            .collect();
         crate::vlog!(
             "[edge] net '{}' (nid={}, kind={:?}, rail={:?}, pg={:?}): {} endpoints [{}], {} projected",
             net.name,

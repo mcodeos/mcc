@@ -87,6 +87,32 @@ pub fn count_severity(diags: &[Diagnostic]) -> (usize, usize) {
     (errs, warns)
 }
 
+/// Print raw one-line error/warning diagnostics (`file:line:col: level[code]: message`).
+///
+/// Shared `--dlog` output mode for `parse` / `check`. It reads the in-process
+/// diagnostic store, so it requires local execution — pair `--dlog` with
+/// `--local` when an RPC server is running (the two flags are decoupled).
+/// `only_errors` suppresses warning lines (check's `--errors-only`).
+pub fn print_dlog_lines(only_errors: bool) {
+    let all = mcc::mcc_diagnose_all();
+    for d in &all {
+        let is_error = matches!(d.level, mcc::DiagnosticLevel::Error);
+        let is_warning = matches!(d.level, mcc::DiagnosticLevel::Warning);
+        if is_error || (is_warning && !only_errors) {
+            let lvl = if is_error { "error" } else { "warning" };
+            println!(
+                "{}:{}:{}: {}[E{:04}]: {}",
+                d.loc.uri.as_str(),
+                d.loc.row,
+                d.loc.col,
+                lvl,
+                d.code,
+                d.msg
+            );
+        }
+    }
+}
+
 fn severity_from(l: DiagnosticLevel) -> Severity {
     match l {
         DiagnosticLevel::Error => Severity::Error,

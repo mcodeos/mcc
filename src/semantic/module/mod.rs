@@ -355,13 +355,24 @@ impl McModule {
             // ★ Smart Param (M5): Check both formal params and body ports.
             let mod_name = self.name.to_string();
             let diags = self.params.finalize(Some(body), &mod_name);
-            let warned: std::collections::HashSet<String> =
+            let mut warned: std::collections::HashSet<String> =
                 diags.iter().map(|d| d.param_name.clone()).collect();
+            // finalize names params by their declared form (e.g. "GPIO[1:2]",
+            // "DC1{VDD, GND}", "[VDD1, GND1]") while the instance table below
+            // uses normalized keys ("GPIO1", "DC1", "@3"); fold every warned
+            // declare's name forms into the set so the sweep below does not
+            // re-report the same port (E5641 + E5642 duplicates).
+            for declare in self.params.iter() {
+                if warned.contains(&declare.display_name()) {
+                    warned.extend(declare.all_name_forms());
+                }
+            }
             for d in diags {
                 crate::mcc_log_global_diag(&d);
             }
             for port_name in self.insts.iter_port_names() {
-                if warned.contains(port_name) {
+                let all_forms = self.insts.all_name_forms_for(port_name);
+                if all_forms.iter().any(|form| warned.contains(form)) {
                     continue;
                 }
                 let mut span = self
@@ -392,7 +403,6 @@ impl McModule {
                         }
                     }
                 }
-                let all_forms = self.insts.all_name_forms_for(port_name);
                 let has_recorded_ref = self
                     .insts
                     .iter_net_refs()

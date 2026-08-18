@@ -31,8 +31,8 @@ pub fn run(args: &ExtractArgs) -> Result<()> {
                 json!({
                     "entry":  args.file.clone(),
                     "target": format!("{:?}", args.target).to_lowercase(),
-                    "top":    args.top.clone(),
-                    "libs":   args.lib.clone(),
+                    "top":    mcc::cli::globals().top.clone(),
+                    "libs":   mcc::cli::globals().lib.clone(),
                 }),
             )?;
             println!("{}", serde_json::to_string_pretty(&result)?);
@@ -41,7 +41,7 @@ pub fn run(args: &ExtractArgs) -> Result<()> {
     }
 
     // Shared local initialization: engine + libs (global config, --lib, mcode default).
-    manifest::init_local(args.file.as_deref(), &args.lib);
+    manifest::init_local(args.file.as_deref(), &mcc::cli::globals().lib);
 
     // components / interfaces operate on already-loaded libraries; no file required
     match args.target {
@@ -59,13 +59,12 @@ pub fn run(args: &ExtractArgs) -> Result<()> {
         mcc::mcc_load_project(&uri);
         uri
     } else {
-        return emit_err(
-            args,
-            RpcError::invalid_params("extract instances/nets: target file must be specified"),
-        );
+        return emit_err(RpcError::invalid_params(
+            "extract instances/nets: target file must be specified",
+        ));
     };
 
-    let top_name = args
+    let top_name = mcc::cli::globals()
         .top
         .clone()
         .or_else(|| mcc::mcb_get_module_name_by_uri(&uri))
@@ -92,10 +91,10 @@ fn extract_instances(uri: &McURI, top_name: &str, ident: &McIds, args: &ExtractA
     let module_def = match cmie {
         McCMIE::Module(m) => m,
         _ => {
-            return emit_err(
-                args,
-                RpcError::invalid_params(format!("'{}' is not a Module", top_name)),
-            )
+            return emit_err(RpcError::invalid_params(format!(
+                "'{}' is not a Module",
+                top_name
+            )))
         }
     };
 
@@ -137,7 +136,7 @@ fn extract_instances(uri: &McURI, top_name: &str, ident: &McIds, args: &ExtractA
     .cloned()
     .unwrap_or_default();
 
-    emit_extract(args, "instances", Value::Array(items))
+    emit_extract("instances", Value::Array(items))
 }
 
 fn extract_nets(uri: &McURI, _top_name: &str, ident: &McIds, args: &ExtractArgs) -> Result<()> {
@@ -175,7 +174,7 @@ fn extract_nets(uri: &McURI, _top_name: &str, ident: &McIds, args: &ExtractArgs)
         .collect();
 
     let items = filter::apply_to_values(args.filter.as_deref(), Value::Array(items), &["name"])?;
-    emit_extract(args, "nets", items)
+    emit_extract("nets", items)
 }
 
 fn extract_components(args: &ExtractArgs) -> Result<()> {
@@ -190,7 +189,7 @@ fn extract_components(args: &ExtractArgs) -> Result<()> {
         Value::Array(items),
         &["name", "attr"],
     )?;
-    emit_extract(args, "components", items)
+    emit_extract("components", items)
 }
 
 fn extract_interfaces(args: &ExtractArgs) -> Result<()> {
@@ -203,12 +202,12 @@ fn extract_interfaces(args: &ExtractArgs) -> Result<()> {
         Value::Array(items),
         &["name", "attr"],
     )?;
-    emit_extract(args, "interfaces", items)
+    emit_extract("interfaces", items)
 }
 
 // ── helpers ──
 
-fn emit_extract(args: &ExtractArgs, target: &str, items: serde_json::Value) -> Result<()> {
+fn emit_extract(target: &str, items: serde_json::Value) -> Result<()> {
     let mut builder =
         ResultBuilder::start(format!("mcc extract {}", target)).workspace(resolve_workspace_ref());
     builder.set_extract(ExtractData {
@@ -218,13 +217,13 @@ fn emit_extract(args: &ExtractArgs, target: &str, items: serde_json::Value) -> R
     let env = Envelope::ok(builder.finish());
     output::emit_envelope(
         &env,
-        args.format,
-        args.output.as_deref().map(Path::new),
+        mcc::cli::globals().format,
+        mcc::cli::globals().output.as_deref().map(Path::new),
         false,
     )?;
 
     // Text mode: details → stdout, count → stderr (Fix 3)
-    if !args.format.is_structured() {
+    if !mcc::cli::globals().format.is_structured() {
         if let Some(arr) = items.as_array() {
             for it in arr {
                 match it.get("name").and_then(|v| v.as_str()) {
@@ -238,9 +237,9 @@ fn emit_extract(args: &ExtractArgs, target: &str, items: serde_json::Value) -> R
     Ok(())
 }
 
-fn emit_err(args: &ExtractArgs, err: RpcError) -> Result<()> {
-    if args.format.is_structured() {
-        output::emit_envelope(&Envelope::err(err), args.format, None, false)?;
+fn emit_err(err: RpcError) -> Result<()> {
+    if mcc::cli::globals().format.is_structured() {
+        output::emit_envelope(&Envelope::err(err), mcc::cli::globals().format, None, false)?;
         Ok(())
     } else {
         Err(anyhow::anyhow!(err.message))
