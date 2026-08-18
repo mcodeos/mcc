@@ -2,66 +2,631 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
-//! ★ R-N (discipline 29): Equipotential tree builder
+//! ★ R-N (discipline 29): Equipotential tree — four-layer architecture
+//!
+//! Layer 1: Topology   — pure logic, zero coordinates
+//! Layer 2: Layout     — places boxes by topology, writes x/y/w/h and entry_points
+//! Layer 3: Geometry   — compute segments + junction dots from topology + placed coords
+//! Layer 4: Render     — segments → SVG (in equipotential_tree_render.rs)
 //!
 //! Each net is rendered as ONE connected orthogonal tree, not n-1 independent edges.
 //!
-//! Algorithm:
-//! 1. GROUP: Same-box pins merge into a local trunk. PowerLabel boxes are NOT
-//!    treated as boxes — their endpoints become tree symbols instead.
-//! 2. ANCHOR: Box with most endpoints (tiebreak: degree → source line)
-//! 3. TRUNK: Straight line from anchor's local trunk
-//! 4. TAP: Each other member attaches perpendicular to trunk
-//! 5. JUNCTION DOT: ≥3 line intersections only
-//! 6. SYMBOL: Ground/net-label/port at trunk endpoints or as tap leaves
-//!
 //! Forms: 2-point → single line, 3-point → T-shape, 4-point → cross, n-point → comb
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
-use crate::vector::graph::netdef::EndpointRef;
-use crate::vector::graph::{BoxKind, EntrySide, McVecBox, McVecGraph, NetKind, VizNet};
+use crate::vector::graph::{BoxKind, EntrySide, McVecGraph, NetKind, PinSlot, VizNet};
 
 // ============================================================================
-// Data structures
+// Constants
 // ============================================================================
 
-/// A group of pins on the same box, forming a local trunk.
-struct PinGroup {
-    box_id: i64,
-    /// Pin positions on this box (absolute coordinates)
-    pin_positions: Vec<(f64, f64)>,
-    /// Local trunk: vertical line from (x, y_min) to (x, y_max)
-    local_trunk_x: f64,
-    local_trunk_y_min: f64,
-    local_trunk_y_max: f64,
+/// Minimum pin pitch for R-D box sizing
+pub const PIN_PITCH: f64 = 40.0;
+
+/// Margin on each end of pin row
+pub const PIN_MARGIN: f64 = 20.0;
+
+/// Gap from anchor right edge to trunk
+pub const TRUNK_GAP: f64 = 100.0;
+
+/// Gap from anchor right edge to single-pin junction
+pub const JUNCTION_GAP: f64 = 220.0;
+
+/// Gap from trunk to member box
+pub const MEMBER_GAP: f64 = 60.0;
+
+/// ★ E4: Fixed symbol size for two-pin passive components (R/C/L/D).
+/// R-D formula (pin_count × PIN_PITCH + 2 × MARGIN) applies only to MultiPin boxes.
+pub const TWO_PIN_SYMBOL_W: f64 = 60.0;
+pub const TWO_PIN_SYMBOL_H: f64 = 20.0;
+
+// ============================================================================
+// Layer 1: Topology (zero coordinates)
+// ============================================================================
+
+/// Trunk direction: derived from the anchor's pin edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrunkAxis {
+    /// Pins on left/right edge → trunk is vertical
+    Vertical,
+    /// Pins on top/bottom edge → trunk is horizontal
+    Horizontal,
 }
 
-/// A tap branch connecting a pin group to the main trunk.
-#[derive(Debug)]
-pub struct TapBranch {
+/// A group of pins on the same box.
+#[derive(Debug, Clone)]
+pub struct PinGroup {
     pub box_id: i64,
-    /// The attachment y on the main trunk (vertical trunk)
-    pub trunk_attach_y: f64,
-    /// The attachment x on the main trunk (horizontal trunk)
-    pub trunk_attach_x: f64,
-    /// The local trunk x position
-    pub local_trunk_x: f64,
-    /// Local trunk y range
-    pub local_trunk_y_min: f64,
-    pub local_trunk_y_max: f64,
+    /// Pin IDs sorted by pin number (deterministic)
+    pub pin_ids: Vec<i64>,
+    /// Number of pins in this group
+    pub pin_count: usize,
 }
 
-/// Terminal symbol type
+/// Terminal symbol type (topology level, no coordinates).
+#[derive(Debug, Clone)]
+pub enum Terminal {
+    Ground,
+    NetLabel(String),
+    Port { name: String },
+}
+
+/// Net topology: pure logic, zero coordinates.
+#[derive(Debug, Clone)]
+pub struct NetTopology {
+    pub net_name: String,
+    pub net_kind: NetKind,
+    /// Anchor box ID
+    pub anchor: i64,
+    /// Groups: anchor first, then non-anchor sorted by box_id (deterministic)
+    pub groups: Vec<PinGroup>,
+    /// Terminal symbols for this net
+    pub terminals: Vec<Terminal>,
+    /// Trunk axis derived from anchor's pin edge
+    pub trunk_axis: TrunkAxis,
+}
+
+/// Build topology for all nets. Zero coordinates — does not read b.x / b.y / b.w / b.h.
+pub fn build_topology(graph: &McVecGraph) -> Vec<NetTopology> {
+    let mut topos = Vec::new();
+
+    for net in &graph.nets {
+        // Skip nets with <1 real endpoint (need at least one box to anchor)
+        let real_count = net
+            .endpoints
+            .iter()
+            .filter(|ep| {
+                graph
+                    .boxes
+                    .iter()
+                    .any(|b| b.id == ep.box_id && b.kind != BoxKind::PowerLabel)
+            })
+            .count();
+        if real_count < 1 {
+            continue;
+        }
+
+        if let Some(topo) = build_one_topology(net, graph) {
+            topos.push(topo);
+        }
+    }
+
+    topos
+}
+
+fn build_one_topology(net: &VizNet, graph: &McVecGraph) -> Option<NetTopology> {
+    // Group real-box endpoints by box_id (BTreeMap for determinism)
+    let mut real_groups: BTreeMap<i64, Vec<i64>> = BTreeMap::new();
+    let mut terminals: Vec<Terminal> = Vec::new();
+
+    for ep in &net.endpoints {
+        let Some(b) = graph.boxes.iter().find(|b| b.id == ep.box_id) else {
+            continue;
+        };
+        if b.kind == BoxKind::PowerLabel {
+            // PowerLabel endpoints become terminals (symbol dedup)
+            match &net.kind {
+                NetKind::Ground => {
+                    if !terminals.iter().any(|t| matches!(t, Terminal::Ground)) {
+                        terminals.push(Terminal::Ground);
+                    }
+                }
+                _ => {
+                    if !terminals.iter().any(|t| matches!(t, Terminal::NetLabel(_))) {
+                        terminals.push(Terminal::NetLabel(net.name.clone()));
+                    }
+                }
+            }
+        } else {
+            real_groups.entry(ep.box_id).or_default().push(ep.pin_id);
+        }
+    }
+
+    if real_groups.is_empty() {
+        return None;
+    }
+
+    // Sort pin IDs within each group for determinism
+    for pins in real_groups.values_mut() {
+        pins.sort();
+    }
+
+    // Anchor: most pins, tiebreak: degree → source_line → box_id
+    let anchor = select_anchor_deterministic(&real_groups, net, graph);
+
+    // Build pin groups: anchor first, then non-anchor sorted by box_id
+    let mut groups: Vec<PinGroup> = Vec::new();
+
+    // Anchor group first
+    if let Some(pins) = real_groups.get(&anchor) {
+        groups.push(PinGroup {
+            box_id: anchor,
+            pin_ids: pins.clone(),
+            pin_count: pins.len(),
+        });
+    }
+
+    // Non-anchor groups sorted by box_id
+    let mut non_anchor: Vec<(i64, &Vec<i64>)> = real_groups
+        .iter()
+        .filter(|(&id, _)| id != anchor)
+        .map(|(&id, pins)| (id, pins))
+        .collect();
+    non_anchor.sort_by_key(|(id, _)| *id);
+
+    for (box_id, pins) in non_anchor {
+        groups.push(PinGroup {
+            box_id,
+            pin_ids: pins.clone(),
+            pin_count: pins.len(),
+        });
+    }
+
+    // ★ F5: skip nets with only the anchor (no non-anchor groups)
+    // BUT only if there are no terminals — a power net with a label should still render.
+    if groups.len() < 2 && terminals.is_empty() {
+        return None;
+    }
+
+    // Trunk axis: derived from anchor's entry_points
+    let trunk_axis = trunk_axis_from_anchor(anchor, &real_groups[&anchor], graph);
+
+    // Add net-kind-based terminals (only if not already added from PowerLabel)
+    match &net.kind {
+        NetKind::Ground => {
+            if !terminals.iter().any(|t| matches!(t, Terminal::Ground)) {
+                terminals.push(Terminal::Ground);
+            }
+        }
+        NetKind::Signal => {
+            if !net.name.is_empty()
+                && !net.name.starts_with("__net")
+                && !terminals.iter().any(|t| matches!(t, Terminal::NetLabel(_)))
+            {
+                terminals.push(Terminal::NetLabel(net.name.clone()));
+            }
+        }
+        NetKind::Power => {
+            if !terminals.iter().any(|t| matches!(t, Terminal::NetLabel(_))) {
+                // ★ F5: strip "vin." prefix for power nets (e.g. vin.POWER_SYS -> POWER_SYS)
+                let label = net
+                    .name
+                    .strip_prefix("vin.")
+                    .unwrap_or(&net.name)
+                    .to_string();
+                terminals.push(Terminal::NetLabel(label));
+            }
+        }
+        NetKind::SubModuleIO => {
+            if !terminals.iter().any(|t| matches!(t, Terminal::Port { .. })) {
+                terminals.push(Terminal::Port {
+                    name: net.name.clone(),
+                });
+            }
+        }
+        _ => {}
+    }
+
+    Some(NetTopology {
+        net_name: net.name.clone(),
+        net_kind: net.kind.clone(),
+        anchor,
+        groups,
+        terminals,
+        trunk_axis,
+    })
+}
+
+/// Select anchor deterministically: most pins, tiebreak: degree → source_line → box_id.
+fn select_anchor_deterministic(
+    groups: &BTreeMap<i64, Vec<i64>>,
+    net: &VizNet,
+    graph: &McVecGraph,
+) -> i64 {
+    // Compute degree for each box (number of nets it connects to)
+    let mut degree: BTreeMap<i64, usize> = BTreeMap::new();
+    for n in &graph.nets {
+        for ep in &n.endpoints {
+            if groups.contains_key(&ep.box_id) {
+                *degree.entry(ep.box_id).or_default() += 1;
+            }
+        }
+    }
+
+    // Find source line for each endpoint (lowest source_line wins)
+    // Use pin_number as a deterministic proxy for source ordering
+    let source_line: BTreeMap<i64, usize> = net
+        .endpoints
+        .iter()
+        .filter(|ep| groups.contains_key(&ep.box_id))
+        .map(|ep| (ep.box_id, ep.pin_number.unwrap_or(0) as usize))
+        .collect();
+
+    groups
+        .iter()
+        .max_by(|(id_a, pins_a), (id_b, pins_b)| {
+            pins_a
+                .len()
+                .cmp(&pins_b.len())
+                .then_with(|| {
+                    degree
+                        .get(id_a)
+                        .unwrap_or(&0)
+                        .cmp(degree.get(id_b).unwrap_or(&0))
+                })
+                .then_with(|| {
+                    // ★ F5: lower source_line wins — reverse order for max_by
+                    source_line
+                        .get(id_b)
+                        .unwrap_or(&0)
+                        .cmp(source_line.get(id_a).unwrap_or(&0))
+                })
+                .then_with(|| id_a.cmp(id_b))
+        })
+        .map(|(&id, _)| id)
+        .unwrap_or(0)
+}
+
+/// Determine trunk axis from anchor's pin count (topology), NOT from entry_points.
+/// Device layer: anchor pins are all on the right side → Vertical trunk for multi-pin,
+/// horizontal for single-pin (trunk is the line from pin to junction).
+fn trunk_axis_from_anchor(_anchor_id: i64, pin_ids: &[i64], _graph: &McVecGraph) -> TrunkAxis {
+    if pin_ids.len() > 1 {
+        TrunkAxis::Vertical
+    } else {
+        TrunkAxis::Horizontal
+    }
+}
+
+// ============================================================================
+// Layer 2: Layout (topology determines coordinates)
+// ============================================================================
+
+/// Place boxes by topology. Writes x/y/w/h and entry_points on boxes,
+/// sets geom_locked = true. Overrides FlowLayouter placement.
+pub fn place_by_topology(graph: &mut McVecGraph, topos: &[NetTopology]) {
+    if topos.is_empty() {
+        return;
+    }
+
+    // Find the layer anchor: the box referenced by the most topologies as anchor
+    let mut anchor_counts: BTreeMap<i64, usize> = BTreeMap::new();
+    for topo in topos {
+        *anchor_counts.entry(topo.anchor).or_default() += 1;
+    }
+    let layer_anchor = anchor_counts
+        .iter()
+        .max_by_key(|(_, count)| **count)
+        .map(|(id, _)| *id)
+        .unwrap_or(topos[0].anchor);
+
+    // Place the layer anchor box: left side, all pins on right edge
+    let anchor_right = place_layer_anchor(graph, layer_anchor);
+
+    // Place member boxes for each topology
+    for (topo_idx, topo) in topos.iter().enumerate() {
+        if topo.trunk_axis == TrunkAxis::Horizontal {
+            // Single pin: horizontal trunk from anchor pin, junction at JUNCTION_GAP
+            // ★ F5: stagger junction_x per topology to avoid overlapping members
+            let junction_x = anchor_right + JUNCTION_GAP + (topo_idx as f64) * MEMBER_GAP;
+            let anchor_pin_y = get_anchor_pin_y(graph, topo);
+
+            place_members_single_pin(graph, topo, junction_x, anchor_pin_y);
+        } else {
+            // Multiple pins: vertical trunk at TRUNK_GAP
+            let trunk_x = anchor_right + TRUNK_GAP;
+            // trunk_x_offset for this topology (multiple topologies on same anchor)
+            let trunk_x_offset = trunk_x + (topo_idx as f64) * TRUNK_GAP;
+
+            place_members_multi_pin(graph, topo, trunk_x_offset);
+        }
+    }
+}
+
+/// Place the layer anchor box. Returns anchor_right_edge x.
+fn place_layer_anchor(graph: &mut McVecGraph, anchor_id: i64) -> f64 {
+    let Some(anchor_box) = graph.boxes.iter_mut().find(|b| b.id == anchor_id) else {
+        return 300.0;
+    };
+
+    // ★ E1: R-D uses physical pin count, not entry_points.len()
+    let pin_count = anchor_box.pins.len().max(1);
+
+    // R-D: box height = pin_count × PIN_PITCH + 2 × PIN_MARGIN
+    let box_h = pin_count as f64 * PIN_PITCH + 2.0 * PIN_MARGIN;
+    let box_w = 220.0;
+
+    anchor_box.x = 80.0;
+    anchor_box.y = 100.0;
+    anchor_box.w = box_w;
+    anchor_box.h = box_h;
+    anchor_box.geom_locked = true;
+
+    // ★ E1: generate PinSlots for ALL physical pins (single source of truth)
+    assign_pin_slots(anchor_box, EntrySide::Right);
+
+    // ★ F1: entry_points in device layer are downgraded to connectivity-only
+    // (which pin is on which net). Geometry (offset) comes from slots only.
+    for ep in anchor_box.entry_points.iter_mut() {
+        ep.side = EntrySide::Right;
+    }
+
+    anchor_box.x + anchor_box.w
+}
+
+/// ★ E1: Generate PinSlots for every physical pin on a box.
+/// This is the single source of truth for pin geometry — renderers read only slots.
+fn assign_pin_slots(b: &mut crate::vector::graph::McVecBox, side: EntrySide) {
+    let n = b.pins.len();
+    if n == 0 {
+        return;
+    }
+    b.slots.clear();
+    // Build set of connected pin IDs
+    let connected: std::collections::HashSet<i64> =
+        b.entry_points.iter().map(|ep| ep.pin_id).collect();
+    for (i, p) in b.pins.iter().enumerate() {
+        let name = if p.description.is_empty() {
+            p.pin_id.clone()
+        } else {
+            p.description.clone()
+        };
+        b.slots.push(PinSlot {
+            pin_id: p.id,
+            number: i as u32,
+            name,
+            side,
+            offset: (i as f64 + 1.0) / (n as f64 + 1.0),
+            connected: connected.contains(&p.id),
+        });
+    }
+}
+
+/// Get the y position of the anchor pin for a single-pin topology.
+fn get_anchor_pin_y(graph: &McVecGraph, topo: &NetTopology) -> f64 {
+    let anchor_group = topo.groups.first();
+    let anchor_box = anchor_group.and_then(|g| graph.boxes.iter().find(|b| b.id == g.box_id));
+
+    if let (Some(b), Some(g)) = (anchor_box, anchor_group) {
+        if let Some(&pid) = g.pin_ids.first() {
+            // ★ F1: read from slots (single source of truth), not entry_points
+            if let Some(slot) = slot_of(b, pid) {
+                return b.y + b.h * slot.offset;
+            }
+        }
+        // Fallback: center of box
+        b.y + b.h / 2.0
+    } else {
+        140.0
+    }
+}
+
+/// ★ F1: find a PinSlot by pin_id. Single source of truth for pin geometry.
+fn slot_of(b: &crate::vector::graph::McVecBox, pin_id: i64) -> Option<&PinSlot> {
+    b.slots.iter().find(|s| s.pin_id == pin_id)
+}
+
+// ============================================================================
+// ★ E3: MemberRole — electrical role determines placement
+// ============================================================================
+
+/// Electrical role of a member box, determines how it connects to the trunk.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MemberRole {
+    /// Two-pin passive (R/C/L/D): one pin connects to trunk, the other extends
+    /// further — it is a **pathway**, not a dead-end.
+    Series,
+    /// Single-pin device (TestPoint, terminal): hangs as a short vertical stub
+    /// off the trunk.
+    Stub,
+    /// Multi-pin device: distributed along the trunk, connection pins face the trunk.
+    Sink,
+}
+
+fn role_of(b: &crate::vector::graph::McVecBox) -> MemberRole {
+    match b.pins.len() {
+        1 => MemberRole::Stub,
+        2 if b.is_two_pin_passive() => MemberRole::Series,
+        _ => MemberRole::Sink,
+    }
+}
+
+/// Place member boxes for a single-pin topology (horizontal trunk).
+fn place_members_single_pin(
+    graph: &mut McVecGraph,
+    topo: &NetTopology,
+    junction_x: f64,
+    junction_y: f64,
+) {
+    let non_anchor: Vec<&PinGroup> = topo.groups.iter().skip(1).collect();
+
+    let mut stub_above = true; // alternate Stub above/below
+
+    for group in &non_anchor {
+        let Some(member_box) = graph.boxes.iter_mut().find(|b| b.id == group.box_id) else {
+            continue;
+        };
+        if member_box.geom_locked {
+            continue;
+        }
+
+        let role = role_of(member_box);
+
+        // ★ F5: set TwoPin size BEFORE computing x/y (center depends on w/h)
+        if member_box.kind == BoxKind::TwoPin {
+            member_box.w = TWO_PIN_SYMBOL_W;
+            member_box.h = TWO_PIN_SYMBOL_H;
+        }
+        // ★ F5-fix: zero-size boxes (e.g. port labels) get a default size
+        if member_box.w <= 0.0 {
+            member_box.w = 80.0;
+        }
+        if member_box.h <= 0.0 {
+            member_box.h = 20.0;
+        }
+
+        match role {
+            MemberRole::Stub => {
+                // Hang as short vertical stub, alternate above/below junction
+                if stub_above {
+                    member_box.x = junction_x - member_box.w / 2.0;
+                    member_box.y = junction_y - MEMBER_GAP - member_box.h;
+                } else {
+                    member_box.x = junction_x - member_box.w / 2.0;
+                    member_box.y = junction_y + MEMBER_GAP;
+                }
+                stub_above = !stub_above;
+            }
+            MemberRole::Series => {
+                // Series: continue along the horizontal trunk (right of junction)
+                member_box.x = junction_x + MEMBER_GAP;
+                member_box.y = junction_y - member_box.h / 2.0;
+            }
+            MemberRole::Sink => {
+                // Sink: right of junction, center-aligned
+                member_box.x = junction_x + MEMBER_GAP;
+                member_box.y = junction_y - member_box.h / 2.0;
+            }
+        }
+
+        member_box.geom_locked = true;
+
+        // Orient pins toward junction
+        let member_side = if member_box.x < junction_x {
+            EntrySide::Right
+        } else {
+            EntrySide::Left
+        };
+
+        // ★ F1: entry_points downgraded to connectivity-only, no offset
+        for ep in &mut member_box.entry_points {
+            ep.side = member_side;
+        }
+        // ★ E1: generate PinSlots
+        assign_pin_slots(member_box, member_side);
+    }
+}
+
+/// Place member boxes for a multi-pin topology (vertical trunk).
+fn place_members_multi_pin(graph: &mut McVecGraph, topo: &NetTopology, trunk_x: f64) {
+    let anchor_group = topo.groups.first();
+    let anchor_box = anchor_group.and_then(|g| graph.boxes.iter().find(|b| b.id == g.box_id));
+
+    // ★ F1: read from slots (single source of truth)
+    let (anchor_y_min, anchor_y_max) = if let Some(b) = anchor_box {
+        let ys: Vec<f64> = anchor_group
+            .unwrap()
+            .pin_ids
+            .iter()
+            .filter_map(|&pid| slot_of(b, pid).map(|s| b.y + b.h * s.offset))
+            .collect();
+        if ys.is_empty() {
+            // ★ F5-fix: anchor box has no PinSlots (e.g. zero-size port box).
+            // Fall back to box center; avoid f64::MAX/f64::MIN overflow.
+            let cy = b.y + b.h / 2.0;
+            eprintln!(
+                "[equi-tree]   WARN: anchor '{}' id={} has no slots for net '{}' — using center y={:.0}",
+                b.name, b.id, topo.net_name, cy,
+            );
+            (cy, cy)
+        } else {
+            let y_min = ys.iter().cloned().fold(f64::MAX, f64::min);
+            let y_max = ys.iter().cloned().fold(f64::MIN, f64::max);
+            (y_min, y_max)
+        }
+    } else {
+        (300.0, 460.0)
+    };
+
+    let non_anchor: Vec<&PinGroup> = topo.groups.iter().skip(1).collect();
+    let member_count = non_anchor.len();
+
+    for (i, group) in non_anchor.iter().enumerate() {
+        if let Some(member_box) = graph.boxes.iter_mut().find(|b| b.id == group.box_id) {
+            if member_box.geom_locked {
+                continue;
+            }
+            // Distribute along trunk
+            let attach_y = if member_count > 1 {
+                anchor_y_min
+                    + (anchor_y_max - anchor_y_min) * (i as f64 + 1.0) / (member_count as f64 + 1.0)
+            } else {
+                (anchor_y_min + anchor_y_max) / 2.0
+            };
+
+            // ★ F5: set TwoPin size BEFORE computing x/y (center depends on w/h)
+            if member_box.kind == BoxKind::TwoPin {
+                member_box.w = TWO_PIN_SYMBOL_W;
+                member_box.h = TWO_PIN_SYMBOL_H;
+            }
+            // ★ F5-fix: zero-size boxes (e.g. port labels) get a default size
+            if member_box.w <= 0.0 {
+                member_box.w = 80.0;
+            }
+            if member_box.h <= 0.0 {
+                member_box.h = 20.0;
+            }
+
+            member_box.x = trunk_x + MEMBER_GAP;
+            member_box.y = attach_y - member_box.h / 2.0;
+            member_box.geom_locked = true;
+
+            // ★ F1: entry_points downgraded to connectivity-only, no offset
+            for ep in &mut member_box.entry_points {
+                ep.side = EntrySide::Left;
+            }
+            // ★ E1: generate PinSlots
+            assign_pin_slots(member_box, EntrySide::Left);
+        }
+    }
+}
+
+// ============================================================================
+// Layer 3: Geometry (topology + placed coords → segments + dots)
+// ============================================================================
+
+/// A line segment.
+#[derive(Debug, Clone)]
+pub struct Segment {
+    pub x1: f64,
+    pub y1: f64,
+    pub x2: f64,
+    pub y2: f64,
+}
+
+/// Terminal symbol type.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TreeSymbolKind {
     Ground,
     Power,
     NetLabel,
+    /// ★ F5: Bus label — circle with text at the end of the line
+    BusLabel,
     PortLabel,
 }
 
-/// A terminal symbol hanging off the tree
+/// A terminal symbol placed on the tree.
 #[derive(Debug, Clone)]
 pub struct TreeSymbol {
     pub kind: TreeSymbolKind,
@@ -75,558 +640,416 @@ pub struct TreeSymbol {
 pub struct EquiTree {
     pub net_name: String,
     pub net_kind: NetKind,
-    /// Anchor box ID
-    pub anchor_box_id: i64,
-    /// Whether the main trunk is horizontal (true) or vertical (false)
-    pub horizontal_trunk: bool,
-    /// Main trunk position (vertical trunk)
-    pub trunk_x: f64,
-    pub trunk_y_min: f64,
-    pub trunk_y_max: f64,
-    /// Main trunk position (horizontal trunk)
-    pub trunk_y: f64,
-    pub trunk_x_min: f64,
-    pub trunk_x_max: f64,
-    /// Anchor's local trunk
-    pub anchor_local_trunk_x: f64,
-    pub anchor_local_trunk_y_min: f64,
-    pub anchor_local_trunk_y_max: f64,
-    /// Tap branches
-    pub taps: Vec<TapBranch>,
-    /// Junction dot positions (≥3 line intersections)
+    /// All line segments
+    pub segments: Vec<Segment>,
+    /// Junction dots (degree >= 3)
     pub junction_dots: Vec<(f64, f64)>,
     /// Terminal symbols
     pub symbols: Vec<TreeSymbol>,
 }
 
-// ============================================================================
-// Build all trees from a graph
-// ============================================================================
+/// Compute geometry from topology + placed graph. Zero judgment.
+pub fn realize(topo: &NetTopology, graph: &McVecGraph) -> EquiTree {
+    let mut segments: Vec<Segment> = Vec::new();
+    let mut degree_map: BTreeMap<(i64, i64), u8> = BTreeMap::new();
 
-/// Build equipotential trees for all nets in the graph.
-/// Returns trees for nets with ≥2 connected real boxes (or 1 real box + symbols).
-pub fn build_all_trees(graph: &McVecGraph) -> Vec<EquiTree> {
-    let mut trees = Vec::new();
+    let anchor_group = topo.groups.first();
+    let anchor_box = anchor_group.and_then(|g| graph.boxes.iter().find(|b| b.id == g.box_id));
+    let anchor_right = anchor_box.map(|b| b.x + b.w).unwrap_or(0.0);
 
-    for net in &graph.nets {
-        if let Some(tree) = build_equi_tree(net, graph) {
-            trees.push(tree);
-        }
-    }
+    // ★ F1: read anchor pin y positions from slots (single source of truth)
+    let anchor_pin_ys: Vec<f64> = anchor_box
+        .map(|b| {
+            anchor_group
+                .unwrap()
+                .pin_ids
+                .iter()
+                .filter_map(|&pid| slot_of(b, pid).map(|s| b.y + b.h * s.offset))
+                .collect()
+        })
+        .unwrap_or_default();
 
-    trees
-}
-
-/// Build an equipotential tree for a single net.
-fn build_equi_tree(net: &VizNet, graph: &McVecGraph) -> Option<EquiTree> {
-    // Separate real-box endpoints from PowerLabel endpoints
-    let mut real_positions: HashMap<i64, Vec<(f64, f64)>> = HashMap::new();
-    let mut symbol_endpoints: Vec<&EndpointRef> = Vec::new();
-
-    for ep in &net.endpoints {
-        let Some(b) = graph.boxes.iter().find(|b| b.id == ep.box_id) else {
-            continue;
+    if anchor_pin_ys.is_empty() {
+        // Fallback: no anchor pins, return empty tree
+        return EquiTree {
+            net_name: topo.net_name.clone(),
+            net_kind: topo.net_kind.clone(),
+            segments,
+            junction_dots: vec![],
+            symbols: build_symbols(topo, 0.0, 0.0, 0.0, 0.0, graph),
         };
-        if b.kind == BoxKind::PowerLabel {
-            symbol_endpoints.push(ep);
-        } else {
-            let pos = pin_position(b, ep);
-            real_positions.entry(ep.box_id).or_default().push(pos);
-        }
     }
 
-    // Need at least 1 real box to anchor the tree
-    if real_positions.is_empty() {
-        return None;
-    }
+    let mut trunk_y_min = anchor_pin_ys.iter().cloned().fold(f64::MAX, f64::min);
+    let mut trunk_y_max = anchor_pin_ys.iter().cloned().fold(f64::MIN, f64::max);
 
-    // Anchor: box with most endpoints
-    let anchor_id = select_anchor(&real_positions);
+    if topo.trunk_axis == TrunkAxis::Horizontal {
+        // Single pin: horizontal trunk from anchor pin to junction
+        let anchor_pin_y = anchor_pin_ys[0];
+        let junction_x = anchor_right + JUNCTION_GAP;
 
-    // Build pin groups with local trunks
-    let mut pin_groups: Vec<PinGroup> = Vec::new();
-    for (&box_id, positions) in &real_positions {
-        let (lx, ly_min, ly_max) = local_trunk_from_pins(positions);
+        // Trunk: anchor pin → junction
+        let seg = Segment {
+            x1: anchor_right,
+            y1: anchor_pin_y,
+            x2: junction_x,
+            y2: anchor_pin_y,
+        };
+        add_segment(&seg, &mut segments, &mut degree_map);
 
-        pin_groups.push(PinGroup {
-            box_id,
-            pin_positions: positions.clone(),
-            local_trunk_x: lx,
-            local_trunk_y_min: ly_min,
-            local_trunk_y_max: ly_max,
-        });
-    }
+        // Member taps
+        for group in topo.groups.iter().skip(1) {
+            if let Some(member_box) = graph.boxes.iter().find(|b| b.id == group.box_id) {
+                let member_x = member_box.x;
+                let member_y = member_box.y + member_box.h / 2.0;
 
-    // Find anchor group
-    let anchor_group = pin_groups.iter().find(|g| g.box_id == anchor_id)?;
-    let anchor_local_trunk_x = anchor_group.local_trunk_x;
-    let anchor_local_trunk_y_min = anchor_group.local_trunk_y_min;
-    let anchor_local_trunk_y_max = anchor_group.local_trunk_y_max;
-
-    // Detect trunk direction: compute bounding box of all pin positions.
-    // If x-spread >= y-spread, use horizontal trunk; otherwise vertical.
-    let all_xs: Vec<f64> = pin_groups
-        .iter()
-        .flat_map(|g| g.pin_positions.iter().map(|p| p.0))
-        .collect();
-    let all_ys: Vec<f64> = pin_groups
-        .iter()
-        .flat_map(|g| g.pin_positions.iter().map(|p| p.1))
-        .collect();
-    let x_min = all_xs.iter().cloned().fold(f64::MAX, |a, b| a.min(b));
-    let x_max = all_xs.iter().cloned().fold(f64::MIN, |a, b| a.max(b));
-    let y_min = all_ys.iter().cloned().fold(f64::MAX, |a, b| a.min(b));
-    let y_max = all_ys.iter().cloned().fold(f64::MIN, |a, b| a.max(b));
-    let x_spread = x_max - x_min;
-    let y_spread = y_max - y_min;
-
-    let horizontal_trunk = x_spread >= y_spread;
-
-    // Build taps for non-anchor groups
-    let mut taps: Vec<TapBranch> = Vec::new();
-    let mut junction_dots: Vec<(f64, f64)> = Vec::new();
-
-    let anchor_attach_y = (anchor_local_trunk_y_min + anchor_local_trunk_y_max) / 2.0;
-
-    if horizontal_trunk {
-        // ── Horizontal trunk ──
-        // Trunk y: midpoint of all pin y positions
-        let all_ys_avg = all_ys.iter().sum::<f64>() / all_ys.len() as f64;
-        let trunk_y = all_ys_avg;
-
-        // Trunk x range: from leftmost to rightmost pin, with margin
-        let trunk_x_min = x_min - 20.0;
-        let trunk_x_max = x_max + 20.0;
-
-        for group in &pin_groups {
-            if group.box_id == anchor_id {
-                continue;
+                // Determine if member is above, right, or below
+                if (member_y - anchor_pin_y).abs() < 10.0 && member_x > junction_x {
+                    // Right: horizontal tap from junction
+                    let seg = Segment {
+                        x1: junction_x,
+                        y1: anchor_pin_y,
+                        x2: member_x,
+                        y2: member_y,
+                    };
+                    add_segment(&seg, &mut segments, &mut degree_map);
+                } else {
+                    // Above/below: vertical tap from junction
+                    let seg = Segment {
+                        x1: junction_x,
+                        y1: anchor_pin_y,
+                        x2: junction_x,
+                        y2: member_y,
+                    };
+                    add_segment(&seg, &mut segments, &mut degree_map);
+                }
             }
-            let attach_x = group.local_trunk_x;
-            taps.push(TapBranch {
-                box_id: group.box_id,
-                trunk_attach_y: 0.0,
-                trunk_attach_x: attach_x,
-                local_trunk_x: group.local_trunk_x,
-                local_trunk_y_min: group.local_trunk_y_min,
-                local_trunk_y_max: group.local_trunk_y_max,
-            });
-        }
-
-        // Junction dots: at non-endpoint x positions on the trunk
-        let mut trunk_xs: Vec<f64> = vec![anchor_local_trunk_x];
-        for tap in &taps {
-            trunk_xs.push(tap.trunk_attach_x);
-        }
-        for sym_ep in &symbol_endpoints {
-            if let Some(b) = graph.boxes.iter().find(|b| b.id == sym_ep.box_id) {
-                let pos = pin_position(b, sym_ep);
-                trunk_xs.push(pos.0);
-            }
-        }
-        trunk_xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        trunk_xs.dedup_by(|a, b| (*a - *b).abs() < 1.0);
-
-        for &x in &trunk_xs {
-            let is_endpoint = (x - trunk_x_min).abs() < 1.0 || (x - trunk_x_max).abs() < 1.0;
-            if !is_endpoint && trunk_xs.len() >= 2 {
-                junction_dots.push((x, trunk_y));
-            }
-        }
-
-        // Symbols
-        let symbols = build_all_symbols_horizontal(
-            net,
-            trunk_x_min,
-            trunk_x_max,
-            trunk_y,
-            &symbol_endpoints,
-            graph,
-        );
-
-        Some(EquiTree {
-            net_name: net.name.clone(),
-            net_kind: net.kind.clone(),
-            anchor_box_id: anchor_id,
-            horizontal_trunk: true,
-            trunk_x: 0.0,
-            trunk_y_min: 0.0,
-            trunk_y_max: 0.0,
-            trunk_y,
-            trunk_x_min,
-            trunk_x_max,
-            anchor_local_trunk_x,
-            anchor_local_trunk_y_min,
-            anchor_local_trunk_y_max,
-            taps,
-            junction_dots,
-            symbols,
-        })
-    } else {
-        // ── Vertical trunk ──
-        // Compute main trunk x: between anchor and rightmost non-anchor box
-        let rightmost_x = pin_groups
-            .iter()
-            .filter(|g| g.box_id != anchor_id)
-            .map(|g| g.local_trunk_x)
-            .fold(anchor_local_trunk_x + 100.0, |a, b| a.max(b));
-
-        let trunk_x = (anchor_local_trunk_x + rightmost_x) / 2.0;
-
-        // Trunk y range: from min of all local trunks to max
-        let trunk_y_min = pin_groups
-            .iter()
-            .map(|g| g.local_trunk_y_min)
-            .fold(f64::MAX, |a, b| a.min(b));
-        let trunk_y_max = pin_groups
-            .iter()
-            .map(|g| g.local_trunk_y_max)
-            .fold(f64::MIN, |a, b| a.max(b));
-
-        // Extend trunk for symbols
-        let (trunk_y_min, trunk_y_max) = extend_trunk_for_symbols(
-            trunk_y_min,
-            trunk_y_max,
-            trunk_x,
-            &symbol_endpoints,
-            &net.kind,
-            graph,
-        );
-
-        for group in &pin_groups {
-            if group.box_id == anchor_id {
-                continue;
-            }
-            let attach_y = (group.local_trunk_y_min + group.local_trunk_y_max) / 2.0;
-            taps.push(TapBranch {
-                box_id: group.box_id,
-                trunk_attach_y: attach_y,
-                trunk_attach_x: 0.0,
-                local_trunk_x: group.local_trunk_x,
-                local_trunk_y_min: group.local_trunk_y_min,
-                local_trunk_y_max: group.local_trunk_y_max,
-            });
-        }
-
-        // Junction dots: only at trunk positions where >=3 lines meet.
-        let mut trunk_ys: Vec<f64> = vec![anchor_attach_y];
-        for tap in &taps {
-            trunk_ys.push(tap.trunk_attach_y);
-        }
-        for sym_ep in &symbol_endpoints {
-            if let Some(b) = graph.boxes.iter().find(|b| b.id == sym_ep.box_id) {
-                let pos = pin_position(b, sym_ep);
-                trunk_ys.push(pos.1);
-            }
-        }
-        trunk_ys.sort_by(|a, b| a.partial_cmp(b).unwrap());
-        trunk_ys.dedup_by(|a, b| (*a - *b).abs() < 1.0);
-
-        for &y in &trunk_ys {
-            let is_endpoint = (y - trunk_y_min).abs() < 1.0 || (y - trunk_y_max).abs() < 1.0;
-            if !is_endpoint && trunk_ys.len() >= 2 {
-                junction_dots.push((trunk_x, y));
-            }
-        }
-
-        // Build symbols from PowerLabel endpoints and net kind
-        let symbols = build_all_symbols(
-            net,
-            trunk_x,
-            trunk_y_min,
-            trunk_y_max,
-            &symbol_endpoints,
-            graph,
-        );
-
-        Some(EquiTree {
-            net_name: net.name.clone(),
-            net_kind: net.kind.clone(),
-            anchor_box_id: anchor_id,
-            horizontal_trunk: false,
-            trunk_x,
-            trunk_y_min,
-            trunk_y_max,
-            trunk_y: 0.0,
-            trunk_x_min: 0.0,
-            trunk_x_max: 0.0,
-            anchor_local_trunk_x,
-            anchor_local_trunk_y_min,
-            anchor_local_trunk_y_max,
-            taps,
-            junction_dots,
-            symbols,
-        })
-    }
-}
-
-/// Select the anchor box: most endpoints, tiebreak by degree, then source line.
-fn select_anchor(groups: &HashMap<i64, Vec<(f64, f64)>>) -> i64 {
-    groups
-        .iter()
-        .max_by_key(|(_, positions)| positions.len())
-        .map(|(&id, _)| id)
-        .unwrap_or(0)
-}
-
-/// Compute absolute pin position from box and endpoint reference.
-fn pin_position(b: &McVecBox, ep: &EndpointRef) -> (f64, f64) {
-    if let Some(entry) = b.entry_points.iter().find(|e| e.pin_id == ep.pin_id) {
-        match entry.side {
-            EntrySide::Left => (b.x, b.y + b.h * entry.offset),
-            EntrySide::Right => (b.x + b.w, b.y + b.h * entry.offset),
-            EntrySide::Top => (b.x + b.w * entry.offset, b.y),
-            EntrySide::Bottom => (b.x + b.w * entry.offset, b.y + b.h),
         }
     } else {
-        // Fallback: use box center
-        (b.x + b.w / 2.0, b.y + b.h / 2.0)
+        // Multiple pins: vertical trunk
+        let trunk_x = anchor_right + TRUNK_GAP;
+
+        let (ext_y_min, ext_y_max) =
+            extend_trunk_for_symbols(trunk_y_min, trunk_y_max, &topo.net_kind);
+        trunk_y_min = ext_y_min;
+        trunk_y_max = ext_y_max;
+
+        // Trunk: vertical line
+        let seg = Segment {
+            x1: trunk_x,
+            y1: ext_y_min,
+            x2: trunk_x,
+            y2: ext_y_max,
+        };
+        add_segment(&seg, &mut segments, &mut degree_map);
+
+        // Teeth: horizontal from each anchor pin to trunk
+        for &y in &anchor_pin_ys {
+            let seg = Segment {
+                x1: anchor_right,
+                y1: y,
+                x2: trunk_x,
+                y2: y,
+            };
+            add_segment(&seg, &mut segments, &mut degree_map);
+        }
+
+        // Member taps: horizontal from member pin to trunk
+        for group in topo.groups.iter().skip(1) {
+            if let Some(member_box) = graph.boxes.iter().find(|b| b.id == group.box_id) {
+                let attach_y = member_box.y + member_box.h / 2.0;
+                let seg = Segment {
+                    x1: member_box.x,
+                    y1: attach_y,
+                    x2: trunk_x,
+                    y2: attach_y,
+                };
+                add_segment(&seg, &mut segments, &mut degree_map);
+            }
+        }
+    }
+
+    // ★ F4: Junction dot fix — count internal points too.
+    // add_segment only counts segment ENDPOINTS. For a comb-shaped tree, tooth
+    // endpoints that land on the trunk interior get degree=1 (only the tooth's
+    // endpoint counted). Fix: for each segment, check if any other segment's
+    // endpoint lies on its interior, and increment the degree at that point.
+    for (i, si) in segments.iter().enumerate() {
+        for (j, sj) in segments.iter().enumerate() {
+            if i == j {
+                continue;
+            }
+            for &(ex, ey) in &[(sj.x1, sj.y1), (sj.x2, sj.y2)] {
+                let ix = ex.round() as i64;
+                let iy = ey.round() as i64;
+                let sx1 = si.x1.round() as i64;
+                let sy1 = si.y1.round() as i64;
+                let sx2 = si.x2.round() as i64;
+                let sy2 = si.y2.round() as i64;
+                // Skip if this point is already an endpoint of si
+                if (ix == sx1 && iy == sy1) || (ix == sx2 && iy == sy2) {
+                    continue;
+                }
+                // Check if (ex, ey) lies on segment si
+                if point_on_segment(ex, ey, si) {
+                    *degree_map.entry((ix, iy)).or_default() += 1;
+                }
+            }
+        }
+    }
+
+    // Junction dots: degree >= 3
+    let junction_dots: Vec<(f64, f64)> = degree_map
+        .iter()
+        .filter(|(_, &deg)| deg >= 3)
+        .map(|(&(x, y), _)| (x as f64, y as f64))
+        .collect();
+
+    // Symbols
+    let symbols = build_symbols(
+        topo,
+        anchor_right + TRUNK_GAP,
+        trunk_y_min,
+        trunk_y_max,
+        anchor_right,
+        graph,
+    );
+
+    EquiTree {
+        net_name: topo.net_name.clone(),
+        net_kind: topo.net_kind.clone(),
+        segments,
+        junction_dots,
+        symbols,
     }
 }
 
-/// Compute the local trunk from actual pin positions.
-/// The trunk x is derived from the pin positions, not from edge_facing.
-fn local_trunk_from_pins(positions: &[(f64, f64)]) -> (f64, f64, f64) {
-    let xs: Vec<f64> = positions.iter().map(|(x, _)| *x).collect();
-    let ys: Vec<f64> = positions.iter().map(|(_, y)| *y).collect();
+fn add_segment(
+    seg: &Segment,
+    segments: &mut Vec<Segment>,
+    degree_map: &mut BTreeMap<(i64, i64), u8>,
+) {
+    let x1 = seg.x1.round() as i64;
+    let y1 = seg.y1.round() as i64;
+    let x2 = seg.x2.round() as i64;
+    let y2 = seg.y2.round() as i64;
 
-    let lx = xs.iter().sum::<f64>() / xs.len() as f64;
-    let y_min = ys.iter().cloned().fold(f64::MAX, |a, b| a.min(b));
-    let y_max = ys.iter().cloned().fold(f64::MIN, |a, b| a.max(b));
+    *degree_map.entry((x1, y1)).or_default() += 1;
+    *degree_map.entry((x2, y2)).or_default() += 1;
 
-    let margin = 10.0;
-    (lx, y_min - margin, y_max + margin)
+    segments.push(seg.clone());
 }
 
-/// Extend trunk y range to accommodate symbols.
-fn extend_trunk_for_symbols(
-    y_min: f64,
-    y_max: f64,
-    _trunk_x: f64,
-    symbol_endpoints: &[&EndpointRef],
-    net_kind: &NetKind,
-    graph: &McVecGraph,
-) -> (f64, f64) {
+/// ★ F4: check if a point lies on a segment (within rounding tolerance).
+fn point_on_segment(px: f64, py: f64, seg: &Segment) -> bool {
+    let x1 = seg.x1;
+    let y1 = seg.y1;
+    let x2 = seg.x2;
+    let y2 = seg.y2;
+    let eps = 0.5; // tolerance for f64 rounding
+    if (x1 - x2).abs() < eps {
+        // Vertical segment
+        (px - x1).abs() < eps && py >= y1.min(y2) - eps && py <= y1.max(y2) + eps
+    } else if (y1 - y2).abs() < eps {
+        // Horizontal segment
+        (py - y1).abs() < eps && px >= x1.min(x2) - eps && px <= x1.max(x2) + eps
+    } else {
+        false
+    }
+}
+
+fn extend_trunk_for_symbols(y_min: f64, y_max: f64, net_kind: &NetKind) -> (f64, f64) {
     let mut y_min = y_min;
     let mut y_max = y_max;
-
-    for ep in symbol_endpoints {
-        if let Some(b) = graph.boxes.iter().find(|b| b.id == ep.box_id) {
-            let (_, py) = pin_position(b, ep);
-            y_min = y_min.min(py - 20.0);
-            y_max = y_max.max(py + 20.0);
-        }
-    }
-
-    // Extend for net-kind-based symbols
     match net_kind {
         NetKind::Ground => {
-            y_max += 40.0; // room for GND symbol
+            y_max += 60.0;
         }
         NetKind::Power => {
-            y_min -= 20.0; // room for power label
+            y_min -= 20.0;
+        }
+        NetKind::Signal => {
+            y_max += 40.0;
         }
         _ => {}
     }
-
     (y_min, y_max)
 }
 
-/// Build all symbols: from PowerLabel endpoints + net-kind-based symbols.
-fn build_all_symbols(
-    net: &VizNet,
+fn build_symbols(
+    topo: &NetTopology,
     trunk_x: f64,
     trunk_y_min: f64,
     trunk_y_max: f64,
-    symbol_endpoints: &[&EndpointRef],
-    graph: &McVecGraph,
+    _anchor_right: f64,
+    _graph: &McVecGraph,
 ) -> Vec<TreeSymbol> {
     let mut symbols = Vec::new();
 
-    // Track whether we've already added each symbol type
-    let mut has_ground = false;
-    let mut has_net_label = false;
+    let is_single_pin = topo.trunk_axis == TrunkAxis::Horizontal;
 
-    // Symbols from PowerLabel endpoints
-    for ep in symbol_endpoints {
-        let Some(b) = graph.boxes.iter().find(|b| b.id == ep.box_id) else {
-            continue;
-        };
-
-        // Use net.kind to determine symbol type, NOT the PowerLabel box name
-        // Only add one symbol of each kind
-        match &net.kind {
-            NetKind::Ground if !has_ground => {
-                symbols.push(TreeSymbol {
-                    kind: TreeSymbolKind::Ground,
-                    x: trunk_x,
-                    y: trunk_y_max,
-                    label: b.name.clone(),
-                });
-                has_ground = true;
+    for term in &topo.terminals {
+        match term {
+            Terminal::Ground => {
+                if is_single_pin {
+                    // Single pin: GND at junction + 60 below
+                    let junction_x = _anchor_right + JUNCTION_GAP;
+                    let junction_y = trunk_y_min; // same as anchor_pin_y
+                    symbols.push(TreeSymbol {
+                        kind: TreeSymbolKind::Ground,
+                        x: junction_x,
+                        y: junction_y + 60.0,
+                        label: String::new(),
+                    });
+                } else {
+                    symbols.push(TreeSymbol {
+                        kind: TreeSymbolKind::Ground,
+                        x: trunk_x,
+                        y: trunk_y_max,
+                        label: String::new(),
+                    });
+                }
             }
-            NetKind::Power if !has_net_label => {
-                symbols.push(TreeSymbol {
-                    kind: TreeSymbolKind::NetLabel,
-                    x: trunk_x,
-                    y: trunk_y_min - 10.0,
-                    label: b.name.clone(),
-                });
-                has_net_label = true;
+            Terminal::NetLabel(name) => {
+                // ★ F5: bus-style labels (USB_VBUS etc.) get a circle marker
+                let is_bus = name.contains("BUS") || name.contains("_VBUS");
+                let kind = if is_bus {
+                    TreeSymbolKind::BusLabel
+                } else {
+                    TreeSymbolKind::NetLabel
+                };
+                if is_single_pin {
+                    let junction_x = _anchor_right + JUNCTION_GAP;
+                    let junction_y = trunk_y_min;
+                    symbols.push(TreeSymbol {
+                        kind,
+                        x: junction_x,
+                        y: junction_y + 60.0,
+                        label: name.clone(),
+                    });
+                } else {
+                    symbols.push(TreeSymbol {
+                        kind,
+                        x: trunk_x,
+                        y: trunk_y_min - 10.0,
+                        label: name.clone(),
+                    });
+                }
             }
-            _ if !has_net_label => {
-                symbols.push(TreeSymbol {
-                    kind: TreeSymbolKind::NetLabel,
-                    x: trunk_x,
-                    y: trunk_y_min - 10.0,
-                    label: b.name.clone(),
-                });
-                has_net_label = true;
-            }
-            _ => {}
-        }
-    }
-
-    // Net-kind-based symbols (only if no PowerLabel endpoint already provides one)
-    let has_power = symbols.iter().any(|s| s.kind == TreeSymbolKind::Power);
-
-    match &net.kind {
-        NetKind::Ground if !has_ground => {
-            symbols.push(TreeSymbol {
-                kind: TreeSymbolKind::Ground,
-                x: trunk_x,
-                y: trunk_y_max,
-                label: net.name.clone(),
-            });
-        }
-        NetKind::Power if !has_power && !has_net_label => {
-            symbols.push(TreeSymbol {
-                kind: TreeSymbolKind::Power,
-                x: trunk_x,
-                y: trunk_y_min - 10.0,
-                label: net.name.clone(),
-            });
-        }
-        NetKind::Signal if !has_net_label => {
-            if !net.name.is_empty() && !net.name.starts_with("__net") {
-                symbols.push(TreeSymbol {
-                    kind: TreeSymbolKind::NetLabel,
-                    x: trunk_x,
-                    y: trunk_y_min - 10.0,
-                    label: net.name.clone(),
-                });
+            Terminal::Port { name } => {
+                if is_single_pin {
+                    let junction_x = _anchor_right + JUNCTION_GAP;
+                    let junction_y = trunk_y_min;
+                    symbols.push(TreeSymbol {
+                        kind: TreeSymbolKind::PortLabel,
+                        x: junction_x + 140.0,
+                        y: junction_y,
+                        label: name.clone(),
+                    });
+                } else {
+                    symbols.push(TreeSymbol {
+                        kind: TreeSymbolKind::PortLabel,
+                        x: trunk_x,
+                        y: trunk_y_min - 10.0,
+                        label: name.clone(),
+                    });
+                }
             }
         }
-        NetKind::SubModuleIO => {
-            symbols.push(TreeSymbol {
-                kind: TreeSymbolKind::PortLabel,
-                x: trunk_x,
-                y: trunk_y_min - 10.0,
-                label: net.name.clone(),
-            });
-        }
-        NetKind::Bus(_) => {}
-        _ => {} // guard-failed cases: Ground/Power/Signal with existing symbols
     }
 
     symbols
 }
 
-/// Build all symbols for a horizontal trunk.
-fn build_all_symbols_horizontal(
-    net: &VizNet,
-    trunk_x_min: f64,
-    trunk_x_max: f64,
-    trunk_y: f64,
-    symbol_endpoints: &[&EndpointRef],
-    graph: &McVecGraph,
-) -> Vec<TreeSymbol> {
-    let mut symbols = Vec::new();
+// ============================================================================
+// Main entry points
+// ============================================================================
 
-    // Track whether we've already added each symbol type
-    let mut has_ground = false;
-    let mut has_net_label = false;
-
-    // Symbols from PowerLabel endpoints
-    for ep in symbol_endpoints {
-        let Some(b) = graph.boxes.iter().find(|b| b.id == ep.box_id) else {
-            continue;
-        };
-        // Use net.kind to determine symbol type, NOT the PowerLabel box name
-        // Only add one symbol of each kind
-        match &net.kind {
-            NetKind::Ground if !has_ground => {
-                symbols.push(TreeSymbol {
-                    kind: TreeSymbolKind::Ground,
-                    x: trunk_x_max,
-                    y: trunk_y,
-                    label: b.name.clone(),
-                });
-                has_ground = true;
-            }
-            NetKind::Power if !has_net_label => {
-                symbols.push(TreeSymbol {
-                    kind: TreeSymbolKind::NetLabel,
-                    x: trunk_x_min - 10.0,
-                    y: trunk_y,
-                    label: b.name.clone(),
-                });
-                has_net_label = true;
-            }
-            _ if !has_net_label => {
-                symbols.push(TreeSymbol {
-                    kind: TreeSymbolKind::NetLabel,
-                    x: trunk_x_min - 10.0,
-                    y: trunk_y,
-                    label: b.name.clone(),
-                });
-                has_net_label = true;
-            }
-            _ => {}
+/// ★ E2: Layout device layer — topology + placement.
+/// Called during the layout phase (before render). Writes x/y/w/h and
+/// PinSlots on boxes, sets geom_locked = true.
+pub fn layout_device_layer(graph: &mut McVecGraph) {
+    let topos = build_topology(graph);
+    eprintln!(
+        "[equi-tree] layout_device_layer: {} nets, {} topos, {} boxes",
+        graph.nets.len(),
+        topos.len(),
+        graph.boxes.len(),
+    );
+    for t in &topos {
+        eprintln!(
+            "[equi-tree]   topo: net='{}' anchor={} groups={} trunk={:?}",
+            t.net_name,
+            t.anchor,
+            t.groups.len(),
+            t.trunk_axis,
+        );
+    }
+    place_by_topology(graph, &topos);
+    // Log placed box positions
+    let mut placed_count = 0;
+    let mut unplaced_count = 0;
+    for b in &graph.boxes {
+        if b.geom_locked {
+            eprintln!(
+                "[equi-tree]   placed box: '{}' id={} x={:.0} y={:.0} w={:.0} h={:.0}",
+                b.name, b.id, b.x, b.y, b.w, b.h,
+            );
+            placed_count += 1;
+        } else {
+            unplaced_count += 1;
         }
     }
-
-    // Net-kind-based symbols
-    let has_power = symbols.iter().any(|s| s.kind == TreeSymbolKind::Power);
-
-    match &net.kind {
-        NetKind::Ground if !has_ground => {
-            symbols.push(TreeSymbol {
-                kind: TreeSymbolKind::Ground,
-                x: trunk_x_max,
-                y: trunk_y,
-                label: net.name.clone(),
-            });
-        }
-        NetKind::Power if !has_power && !has_net_label => {
-            symbols.push(TreeSymbol {
-                kind: TreeSymbolKind::Power,
-                x: trunk_x_min - 10.0,
-                y: trunk_y,
-                label: net.name.clone(),
-            });
-        }
-        NetKind::Signal if !has_net_label => {
-            if !net.name.is_empty() && !net.name.starts_with("__net") {
-                symbols.push(TreeSymbol {
-                    kind: TreeSymbolKind::NetLabel,
-                    x: trunk_x_min - 10.0,
-                    y: trunk_y,
-                    label: net.name.clone(),
-                });
+    // ★ Fallback: boxes not in any topology get a default position (stacked right)
+    if unplaced_count > 0 {
+        eprintln!(
+            "[equi-tree]   {} unplaced boxes — assigning fallback positions",
+            unplaced_count,
+        );
+        let mut fallback_x = 500.0;
+        let fallback_y = 100.0;
+        for b in &mut graph.boxes {
+            if !b.geom_locked && b.kind != BoxKind::PowerLabel {
+                b.x = fallback_x;
+                b.y = fallback_y;
+                b.w = 120.0;
+                b.h = 60.0;
+                b.geom_locked = true;
+                fallback_x += 160.0;
+                eprintln!(
+                    "[equi-tree]   fallback box: '{}' id={} x={:.0} y={:.0}",
+                    b.name, b.id, b.x, b.y,
+                );
             }
         }
-        NetKind::SubModuleIO => {
-            symbols.push(TreeSymbol {
-                kind: TreeSymbolKind::PortLabel,
-                x: trunk_x_min - 10.0,
-                y: trunk_y,
-                label: net.name.clone(),
-            });
-        }
-        NetKind::Bus(_) => {}
-        _ => {}
     }
+    eprintln!(
+        "[equi-tree] layout_device_layer done: {} placed, {} fallback",
+        placed_count,
+        unplaced_count,
+    );
+}
 
-    symbols
+/// Build equipotential trees for all nets in the graph (render phase, read-only).
+/// Calls build_topology → realize. Does NOT modify the graph.
+pub fn build_all_trees(graph: &McVecGraph) -> Vec<EquiTree> {
+    let topos = build_topology(graph);
+    eprintln!(
+        "[equi-tree] build_all_trees: {} nets, {} topos",
+        graph.nets.len(),
+        topos.len(),
+    );
+    let mut trees = Vec::new();
+    for t in &topos {
+        let tree = realize(t, graph);
+        eprintln!(
+            "[equi-tree]   tree: net='{}' segments={} dots={} symbols={}",
+            tree.net_name,
+            tree.segments.len(),
+            tree.junction_dots.len(),
+            tree.symbols.len(),
+        );
+        trees.push(tree);
+    }
+    trees
 }
