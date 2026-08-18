@@ -132,25 +132,21 @@ fn escape_xml_attr(s: &str) -> String {
 fn render_test_point(b: &McVecBox) -> String {
     let cx = b.x + b.w / 2.0;
     let cy = b.y + b.h / 2.0;
-    let r = b.w.min(b.h) / 2.0 * 0.7;
-    let label_x = cx + r + 8.0;
     format!(
         r##"  <g class="comp testpoint" data-id="{id}">
-    <circle cx="{cx:.1}" cy="{cy:.1}" r="{r:.1}" fill="none" stroke="#222" stroke-width="1.5"/>
-    <line x1="{x1:.1}" y1="{y1:.1}" x2="{x2:.1}" y2="{y2:.1}" stroke="#222" stroke-width="1.0"/>
-    <text x="{lx:.1}" y="{cy:.1}" font-size="10" fill="#222"
-          dominant-baseline="central">{name}</text>
+    <rect x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}"
+          fill="#fafafa" stroke="#222" stroke-width="1.5" rx="2" ry="2"/>
+    <text x="{cx:.1}" y="{cy:.1}" text-anchor="middle"
+          font-size="10" fill="#222" dominant-baseline="central">{name}</text>
   </g>
 "##,
         id = b.id,
+        x = b.x,
+        y = b.y,
+        w = b.w,
+        h = b.h,
         cx = cx,
         cy = cy,
-        r = r,
-        x1 = cx - r * 0.6,
-        y1 = cy - r * 0.6,
-        x2 = cx + r * 0.6,
-        y2 = cy + r * 0.6,
-        lx = label_x,
         name = escape_xml_attr(&b.name),
     )
 }

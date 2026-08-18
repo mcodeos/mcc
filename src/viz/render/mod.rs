@@ -94,8 +94,8 @@ impl SvgRenderer {
 "##,
         );
 
-        if graph.is_root {
-            // ── ★ P9-B: root layer block diagram rendering ──
+        if graph.layer_style == crate::vector::graph::LayerStyle::Block {
+            // ── ★ Block: root layer block diagram rendering ──
             // Render block edges instead of nets.
             svg.push_str(&render_block_edges(graph));
 
@@ -104,11 +104,18 @@ impl SvgRenderer {
                 svg.push_str(&shape::render_box(b, true));
             }
         } else {
-            // ── ★ R-N: equipotential tree rendering for non-root layers ──
+            // ── ★ Device: equipotential tree rendering for sub-layers ──
             // Each net is rendered as ONE connected orthogonal tree, not n-1 edges.
             let trees = crate::viz::layout::equipotential_tree::build_all_trees(graph);
             for tree in &trees {
                 svg.push_str(&equipotential_tree_render::render_equi_tree(tree));
+            }
+
+            // ── ★ DEBUG: temporarily render viznet too, so we can compare
+            //     tree lines vs old route lines side-by-side.
+            //     TODO: remove this once tree output is verified correct.
+            for net in &graph.nets {
+                svg.push_str(&wire::render_viznet(net));
             }
 
             // ── Zone borders (M2-3) ──
