@@ -19,7 +19,7 @@
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_mod::McModuleInst;
 use crate::instant::mc_net::ConnectionInst;
-use crate::McURI;
+use crate::semantic::common::SourcePos;
 
 /// Kind of an expansion / instantiation event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,10 +70,10 @@ pub struct ExpansionRecord {
     pub func_name: String,
     /// Call site as absolute byte offset: top-level call = statement span
     /// start; nested call = function-body line offset. None for auto-invoked
-    /// module funcs (no user call statement).
-    pub call_site: Option<(McURI, u32)>,
+    /// module funcs (no user call statement). Unified [`SourcePos`] (§7.11(3)).
+    pub call_site: Option<SourcePos>,
     /// Function definition site (source file + definition offset).
-    pub def_site: Option<(McURI, u32)>,
+    pub def_site: Option<SourcePos>,
     /// Nesting parent: None = top-level call (grouped into a statement node by
     /// `build_tree`); Some(idx) = a call re-issued during this expansion.
     pub parent: Option<usize>,
@@ -91,8 +91,8 @@ impl ExpansionRecord {
         kind: ExpansionKind,
         caller_inst: Option<String>,
         func_name: String,
-        call_site: Option<(McURI, u32)>,
-        def_site: Option<(McURI, u32)>,
+        call_site: Option<SourcePos>,
+        def_site: Option<SourcePos>,
         parent: Option<usize>,
     ) -> Self {
         Self {
@@ -116,8 +116,8 @@ impl ExpansionRecord {
 /// `call_site = None` (auto-invoke) are skipped and attach to the module node.
 #[derive(Debug, Clone)]
 pub struct StatementNode {
-    /// Statement span start (absolute offset).
-    pub call_site: (McURI, u32),
+    /// Statement span start (absolute offset). Unified [`SourcePos`] (§7.11(3)).
+    pub call_site: SourcePos,
     /// Statement source text (for display; empty until filled by verify).
     pub text: String,
     /// Top-level expansion record indices belonging to this statement.
@@ -141,8 +141,8 @@ impl ExpansionLog {
         kind: ExpansionKind,
         caller_inst: Option<String>,
         func_name: String,
-        call_site: Option<(McURI, u32)>,
-        def_site: Option<(McURI, u32)>,
+        call_site: Option<SourcePos>,
+        def_site: Option<SourcePos>,
     ) -> usize {
         let idx = self.records.len();
         let parent = self.stack.last().copied();
@@ -210,7 +210,7 @@ impl ExpansionLog {
                 }),
             }
         }
-        nodes.sort_by_key(|n| (n.call_site.0.clone(), n.call_site.1));
+        nodes.sort_by_key(|n| (n.call_site.uri.clone(), n.call_site.offset));
         nodes
     }
 

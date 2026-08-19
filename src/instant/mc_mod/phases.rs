@@ -445,8 +445,16 @@ impl McModuleInst {
                         .port_spans()
                         .get(&c.name.to_string())
                         .and_then(|v| v.first().cloned())
-                        .map(|s| (self.def_uri.clone(), s.start as u32));
-                    let def_site = Some((c.base.uri.clone(), c.base.span.start as u32));
+                        .map(|s| {
+                            crate::semantic::common::SourcePos::new(
+                                self.def_uri.clone(),
+                                s.start as u32,
+                            )
+                        });
+                    let def_site = Some(crate::semantic::common::SourcePos::new(
+                        c.base.uri.clone(),
+                        c.base.span.start as u32,
+                    ));
                     let eidx = self.expansion.begin(
                         ExpansionKind::Declare,
                         None,
@@ -478,7 +486,7 @@ impl McModuleInst {
                                         src_line: self
                                             .current_line_span
                                             .as_ref()
-                                            .map(|s| s.start / 1000),
+                                            .map(|s| (s.offset / 1000) as usize),
                                         component_name: c.name.to_string(),
                                         class_name: c.base.name.to_string(),
                                         reason,
@@ -508,8 +516,16 @@ impl McModuleInst {
                         .port_spans()
                         .get(&m.name.to_string())
                         .and_then(|v| v.first().cloned())
-                        .map(|s| (self.def_uri.clone(), s.start as u32));
-                    let def_site = Some((m.base.uri.clone(), m.base.span.start as u32));
+                        .map(|s| {
+                            crate::semantic::common::SourcePos::new(
+                                self.def_uri.clone(),
+                                s.start as u32,
+                            )
+                        });
+                    let def_site = Some(crate::semantic::common::SourcePos::new(
+                        m.base.uri.clone(),
+                        m.base.span.start as u32,
+                    ));
                     let eidx = self.expansion.begin(
                         ExpansionKind::Declare,
                         None,
@@ -598,7 +614,9 @@ impl McModuleInst {
 
             // ★ Set current line span for diagnostic position reporting.
             //   Used as fallback when NetPoint.src_pos is unavailable (e.g., E2003/E2005).
-            let line_span = line_spans.get(idx).cloned();
+            let line_span = line_spans.get(idx).map(|s| {
+                crate::semantic::common::SourcePos::new(self.def_uri.clone(), s.start as u32)
+            });
             self.current_line_span = line_span.clone();
 
             if let Err(e) = self.process_line(line) {
@@ -617,9 +635,10 @@ impl McModuleInst {
             // declareb) are attributed to the callee's line instead.
             self.current_line_span = line_span;
         }
-        // Clear after loop to avoid stale span leaking into post-line checks
+        // Clear after loop to avoid stale span leaking into post-line checks.
+        // `current_port_group` needs no reset here: every producer is RAII
+        // guarded (§7.11(2)) and restores it on exit.
         self.current_line_span = None;
-        self.current_port_group = None;
 
         // ── P2-C2: After all body lines processed, project accumulated bus members to bare ports ──
         // NOTE: These post-processing steps are now invoked from instantiate() after

@@ -339,9 +339,9 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
         if r.parent.is_some() {
             continue; // nested expansion belongs to its parent record
         }
-        if let Some((uri, off)) = &r.call_site {
-            if uri.as_str() == def_file {
-                stmt_records.entry(*off).or_default().push(i);
+        if let Some(pos) = &r.call_site {
+            if pos.uri == def_file {
+                stmt_records.entry(pos.offset).or_default().push(i);
             }
         }
     }
@@ -360,25 +360,26 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
             // No source span: engine-internal projection link (interface / bus
             // member net), legal (§5.4).
             None => untraced.push(entry.net),
-            Some((file, off)) => {
-                if *file != def_file {
+            Some(pos) => {
+                if pos.uri != def_file {
                     // Connection created while instantiating a function whose
                     // body lives in another file (e.g. `uC.i2c()`). The call
                     // site is visible in the hierarchy tree; the definition
                     // file + line here is auxiliary info only (§5.2).
-                    let line = std::fs::read_to_string(file)
+                    let line = std::fs::read_to_string(&pos.uri)
                         .ok()
-                        .map(|c| hierarchy::line_of_byte(&c, *off as usize))
+                        .map(|c| hierarchy::line_of_byte(&c, pos.offset as usize))
                         .unwrap_or(0);
                     cross_file.push(json!({
                         "net": entry.net,
                         "points": entry.points,
-                        "source": format!("{file}:{line}"),
+                        "source": format!("{}:{}", pos.uri, line),
                     }));
                 } else if content.is_some() {
                     // `source_span` carries a byte offset (decision A);
                     // convert to a line number to attribute the statement.
-                    let ln = hierarchy::line_of_byte(content.as_ref().unwrap(), *off as usize);
+                    let ln =
+                        hierarchy::line_of_byte(content.as_ref().unwrap(), pos.offset as usize);
                     match src_by_line.get(&ln) {
                         Some(&idx) => per_stmt[idx].push(entry),
                         None if conn.expansion_id.is_some() => {

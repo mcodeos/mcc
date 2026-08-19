@@ -1478,93 +1478,99 @@ impl McModuleInst {
     ) -> Result<(), InstError> {
         // ★ P9-A2: extract port_group from source code context.
         // Prefer the left member (driver side), fall back to the right member.
-        self.current_port_group = Self::extract_port_group(left_member)
+        // RAII (§7.11(2)): the group is restored on every exit path (including
+        // early `Err` returns), so it can never leak into the next connection.
+        let port_group = Self::extract_port_group(left_member)
             .or_else(|| Self::extract_port_group(right_member));
-        // ── P1-diag: detailed adjacent wiring diagnostic ─────────────────────────────────
-        let _l_kind = match left_member {
-            McPhrase::FuncCall(f) => format!(
-                "FuncCall(fn={}, caller={}, right_n={})",
-                f.func_name,
-                f.caller
-                    .as_ref()
-                    .map(|c| format!("{:?}", std::mem::discriminant(c.as_ref())))
-                    .unwrap_or("None".into()),
-                f.right.len()
-            ),
-            McPhrase::Endpoint(e) => format!("Endpoint({e:?})"),
-            McPhrase::Parallel(v) => format!("Parallel(len={})", v.len()),
-            McPhrase::Group(g) => format!("Group(opds={})", g.opds.len()),
-            _ => format!("{:?}", std::mem::discriminant(left_member)),
-        };
-        let _r_kind = match right_member {
-            McPhrase::FuncCall(f) => {
-                format!("FuncCall(fn={}, right_n={})", f.func_name, f.right.len())
-            }
-            McPhrase::Endpoint(e) => format!("Endpoint({e:?})"),
-            _ => format!("{:?}", std::mem::discriminant(right_member)),
-        };
-        let left_is_group = matches!(left_member, McPhrase::Group { .. });
-        let right_is_group = matches!(right_member, McPhrase::Group { .. });
-
-        if right_is_group {
-            let external_points = self.get_right_points(left_member)?;
-            self.connect_to_group(external_points, right_member, true)?;
-        } else if left_is_group {
-            let external_points = self.get_left_points(right_member)?;
-            self.connect_to_group(external_points, left_member, false)?;
-        } else {
-            let left_points = self.get_right_points(left_member)?;
-            let right_points = self.get_left_points(right_member)?;
-            // ── [P4-ADJ] temporary probe (commented)
-            // if matches!(left_member, McPhrase::Parallel(_))
-            //     || matches!(right_member, McPhrase::Parallel(_))
-            // {
-            //     let dl: Vec<String> = left_points.iter().map(|p| p.path.clone()).collect();
-            //     let dr: Vec<String> = right_points.iter().map(|p| p.path.clone()).collect();
-            //     eprintln!(
-            //         "[P4-ADJ] L={} R={} | get_right(L)={:?} get_left(R)={:?}",
-            //         l_kind, r_kind, dl, dr
-            //     );
-            // }
-            let trans_involved = matches!(left_member, McPhrase::Transposed(_))
-                || matches!(right_member, McPhrase::Transposed(_));
-            // ── §4 operator evaluation (eval.md §4.1 series): unified entry
-            // for shape evaluation of adjacent members ──
-            // The adjacent-pair logic of all three line.rs paths (shunt /
-            // lane-by-lane / adjacency) converges on this shape check +
-            // create_connection.
-            let lhs_shape = Shape::vvec(left_points.len());
-            let rhs_shape = Shape::vvec(right_points.len());
-            match eval_binary(ConnOp::Series, lhs_shape, rhs_shape) {
-                Ok(_) => {
-                    // Row counts match: pair the whole group
-                    // (create_connection does 1:1 / broadcast / interface expansion internally)
-                    self.create_connection(left_points, right_points, dir, None)?;
+        self.with_port_group(port_group, |this| {
+            // ── P1-diag: detailed adjacent wiring diagnostic ─────────────────────────────────
+            let _l_kind = match left_member {
+                McPhrase::FuncCall(f) => format!(
+                    "FuncCall(fn={}, caller={}, right_n={})",
+                    f.func_name,
+                    f.caller
+                        .as_ref()
+                        .map(|c| format!("{:?}", std::mem::discriminant(c.as_ref())))
+                        .unwrap_or("None".into()),
+                    f.right.len()
+                ),
+                McPhrase::Endpoint(e) => format!("Endpoint({e:?})"),
+                McPhrase::Parallel(v) => format!("Parallel(len={})", v.len()),
+                McPhrase::Group(g) => format!("Group(opds={})", g.opds.len()),
+                _ => format!("{:?}", std::mem::discriminant(left_member)),
+            };
+            let _r_kind = match right_member {
+                McPhrase::FuncCall(f) => {
+                    format!("FuncCall(fn={}, right_n={})", f.func_name, f.right.len())
                 }
-                // Transposed bridge passive (§4 deviation): row counts differ
-                // but a transposed member is involved; pair by min, hanging
-                // each pin on its corresponding lane (eval.md §4.1 node vs
-                // vector bridging semantics)
-                Err(ShapeError::RowMismatch { .. })
-                    if trans_involved && !left_points.is_empty() && !right_points.is_empty() =>
-                {
-                    let n = left_points.len().min(right_points.len());
-                    for (l, r) in left_points
-                        .into_iter()
-                        .take(n)
-                        .zip(right_points.into_iter().take(n))
+                McPhrase::Endpoint(e) => format!("Endpoint({e:?})"),
+                _ => format!("{:?}", std::mem::discriminant(right_member)),
+            };
+            let left_is_group = matches!(left_member, McPhrase::Group { .. });
+            let right_is_group = matches!(right_member, McPhrase::Group { .. });
+
+            if right_is_group {
+                let external_points = this.get_right_points(left_member)?;
+                this.connect_to_group(external_points, right_member, true)?;
+            } else if left_is_group {
+                let external_points = this.get_left_points(right_member)?;
+                this.connect_to_group(external_points, left_member, false)?;
+            } else {
+                let left_points = this.get_right_points(left_member)?;
+                let right_points = this.get_left_points(right_member)?;
+                // ── [P4-ADJ] temporary probe (commented)
+                // if matches!(left_member, McPhrase::Parallel(_))
+                //     || matches!(right_member, McPhrase::Parallel(_))
+                // {
+                //     let dl: Vec<String> = left_points.iter().map(|p| p.path.clone()).collect();
+                //     let dr: Vec<String> = right_points.iter().map(|p| p.path.clone()).collect();
+                //     eprintln!(
+                //         "[P4-ADJ] L={} R={} | get_right(L)={:?} get_left(R)={:?}",
+                //         l_kind, r_kind, dl, dr
+                //     );
+                // }
+                let trans_involved = matches!(left_member, McPhrase::Transposed(_))
+                    || matches!(right_member, McPhrase::Transposed(_));
+                // ── §4 operator evaluation (eval.md §4.1 series): unified entry
+                // for shape evaluation of adjacent members ──
+                // The adjacent-pair logic of all three line.rs paths (shunt /
+                // lane-by-lane / adjacency) converges on this shape check +
+                // create_connection.
+                let lhs_shape = Shape::vvec(left_points.len());
+                let rhs_shape = Shape::vvec(right_points.len());
+                match eval_binary(ConnOp::Series, lhs_shape, rhs_shape) {
+                    Ok(_) => {
+                        // Row counts match: pair the whole group
+                        // (create_connection does 1:1 / broadcast / interface expansion internally)
+                        this.create_connection(left_points, right_points, dir, None)?;
+                    }
+                    // Transposed bridge passive (§4 deviation): row counts differ
+                    // but a transposed member is involved; pair by min, hanging
+                    // each pin on its corresponding lane (eval.md §4.1 node vs
+                    // vector bridging semantics)
+                    Err(ShapeError::RowMismatch { .. })
+                        if trans_involved
+                            && !left_points.is_empty()
+                            && !right_points.is_empty() =>
                     {
-                        self.create_connection(vec![l], vec![r], dir, None)?;
+                        let n = left_points.len().min(right_points.len());
+                        for (l, r) in left_points
+                            .into_iter()
+                            .take(n)
+                            .zip(right_points.into_iter().take(n))
+                        {
+                            this.create_connection(vec![l], vec![r], dir, None)?;
+                        }
+                    }
+                    // Row count mismatch (non-transposed): hand to
+                    // create_connection for E2901 truncation recovery
+                    Err(_) => {
+                        this.create_connection(left_points, right_points, dir, None)?;
                     }
                 }
-                // Row count mismatch (non-transposed): hand to
-                // create_connection for E2901 truncation recovery
-                Err(_) => {
-                    self.create_connection(left_points, right_points, dir, None)?;
-                }
             }
-        }
-        Ok(())
+            Ok(())
+        })
     }
 
     /// Iter-7.1: make the internal parallel wiring of `A + B + C + ...` explicit
@@ -2178,8 +2184,17 @@ impl McModuleInst {
                             if !encoded.is_empty() {
                                 self.auto_inst_map.insert(key, encoded);
                             }
-                            self.components.extend(new_components);
-                            self.connections.extend(new_connections);
+                            // §7.9: batch-extended iterated products must not
+                            // bypass the factory — push through it so any
+                            // product that was not explicitly tagged by its
+                            // construction record still gets the current
+                            // expansion id (pre-tagged ids are preserved).
+                            for comp in new_components {
+                                self.add_component(comp);
+                            }
+                            for conn in new_connections {
+                                self.add_connection(conn);
+                            }
                         }
                         FuncCallInst::SubModule {
                             inst,
@@ -2187,7 +2202,9 @@ impl McModuleInst {
                         } => {
                             self.auto_inst_map.insert(key, inst.name.clone());
                             self.add_submodule(inst);
-                            self.connections.extend(new_connections);
+                            for conn in new_connections {
+                                self.add_connection(conn);
+                            }
                         }
                         FuncCallInst::PassThrough => {
                             // Iterated call produced nothing (every item degraded to
@@ -2620,7 +2637,9 @@ impl McModuleInst {
                                         if let Some(inst) = new_components.pop() {
                                             let inst_name = inst.name.clone();
                                             self.add_component(inst);
-                                            self.connections.extend(new_connections);
+                                            for conn in new_connections {
+                                                self.add_connection(conn);
+                                            }
                                             self.wire_builtin_twopin(
                                                 &inst_name,
                                                 &fc.params,
@@ -2698,8 +2717,14 @@ impl McModuleInst {
                         if let Some(comp) = new_components.first() {
                             self.auto_inst_map.insert(key, comp.name.clone());
                         }
-                        self.components.extend(new_components);
-                        self.connections.extend(new_connections);
+                        // §7.9: push through the factories so untagged
+                        // products still receive the current expansion id.
+                        for comp in new_components {
+                            self.add_component(comp);
+                        }
+                        for conn in new_connections {
+                            self.add_connection(conn);
+                        }
                     }
                     FuncCallInst::SubModule {
                         inst,
@@ -2707,7 +2732,9 @@ impl McModuleInst {
                     } => {
                         self.auto_inst_map.insert(key, inst.name.clone());
                         self.add_submodule(inst);
-                        self.connections.extend(new_connections);
+                        for conn in new_connections {
+                            self.add_connection(conn);
+                        }
                     }
                     FuncCallInst::PassThrough => {
                         // ── P2-2: check Endpoint return side channel ─────────────────
@@ -2863,7 +2890,8 @@ impl McModuleInst {
                                 if let Some(real_name) = reusable {
                                     self.auto_inst_map.insert(key, real_name);
                                 } else {
-                                    let (stub, _) = self.auto_name(&format!("@?{safe}"));
+                                    let (stub, _) =
+                                        self.auto_name(super::AutoNameKind::Stub, &safe);
                                     self.auto_inst_map.insert(key, stub);
                                 }
                             }

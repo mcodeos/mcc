@@ -207,7 +207,7 @@ pub fn extract_voltage_from_params(params: &[McParamValue]) -> Option<Volt> {
 // ============================================================================
 
 /// ★ M0-B-E: instance origin —— whether the device came from a declaration or a funcall
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub enum InstOrigin {
     /// Instance produced by a declaration (`RES R1(10kΩ)` etc.)
     Declared,
@@ -217,8 +217,35 @@ pub enum InstOrigin {
         /// Byte offset of the construction site in the owning file
         /// (decision A, §7.1; 0 = unknown). Convert to a line for display.
         line: u32,
+        /// Back-link to the expansion record that produced this instance
+        /// (§7.4). Not part of `PartialEq` — provenance only, does not
+        /// change semantic comparison (verify / golden depend on that).
+        expansion_id: Option<usize>,
     },
 }
+
+impl PartialEq for InstOrigin {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (InstOrigin::Declared, InstOrigin::Declared) => true,
+            (
+                InstOrigin::FuncCall {
+                    fn_name: a,
+                    line: la,
+                    ..
+                },
+                InstOrigin::FuncCall {
+                    fn_name: b,
+                    line: lb,
+                    ..
+                },
+            ) => a == b && la == lb,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for InstOrigin {}
 
 impl Default for InstOrigin {
     fn default() -> Self {
@@ -245,31 +272,16 @@ pub struct InstEntry {
     pub class_name: String,
     /// IO type (only meaningful for Port/Pin, otherwise IOType::None)
     pub io_type: IOType,
-    /// Source byte offset in the definition file (from NetPoint / AST)
-    pub src_pos: Option<i32>,
+    /// Unified source position in the definition file (from NetPoint / AST)
+    pub src_pos: Option<crate::semantic::common::SourcePos>,
     /// URI of the file where this instance was defined
     pub def_uri: String,
-    /// ★ P5: Unified source location (file_id/container_id/func_id/span).
-    pub src_loc: Option<crate::ast::ast_semantic::SourceLocation>,
     /// ★ Member role and voltage (for interface members / power pins)
     pub member_info: Option<MemberInfo>,
     /// ★ M0-B-D: not-fitted marker (from McComponentInst.nc)
     pub not_fitted: bool,
     /// ★ M0-B-E: instance origin (declaration vs funcall)
     pub origin: InstOrigin,
-}
-
-impl InstEntry {
-    /// ★ P5: Set unified source location. Call after registration when SourceLocation is available.
-    pub fn set_src_loc(&mut self, loc: crate::ast::ast_semantic::SourceLocation) {
-        self.src_loc = Some(loc);
-        if self.def_uri.is_empty() {
-            // def_uri can be derived from file_table later; leave empty for now.
-        }
-        if self.src_pos.is_none() {
-            self.src_pos = Some(loc.byte_start as i32);
-        }
-    }
 }
 
 // ============================================================================
@@ -368,7 +380,7 @@ impl InstTable {
         parent_id: Option<u32>,
         class_name: String,
         io_type: IOType,
-        src_pos: Option<i32>,
+        src_pos: Option<crate::semantic::common::SourcePos>,
         def_uri: String,
     ) -> u32 {
         // Prevent duplicate registration
@@ -446,7 +458,6 @@ impl InstTable {
             io_type,
             src_pos,
             def_uri,
-            src_loc: None,
             member_info: None,
             not_fitted: false,
             origin: InstOrigin::Declared,
@@ -858,7 +869,7 @@ impl InstTable {
                         Some(comp_id),
                         pin_func_name.clone(),
                         net_point.iotype.clone(),
-                        net_point.src_pos,
+                        net_point.src_pos.clone(),
                         inst.def_uri.to_string(),
                     );
 
@@ -967,7 +978,7 @@ impl InstTable {
                         Some(comp_id),
                         pin_func_name.clone(),
                         net_point.iotype.clone(),
-                        net_point.src_pos,
+                        net_point.src_pos.clone(),
                         inst.def_uri.to_string(),
                     );
 
@@ -1059,7 +1070,7 @@ impl InstTable {
                     Some(my_id),
                     String::new(),
                     net_point.iotype.clone(),
-                    net_point.src_pos,
+                    net_point.src_pos.clone(),
                     inst.def_uri.to_string(),
                 );
             }

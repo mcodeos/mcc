@@ -423,7 +423,7 @@ pub struct McVecBox {
     /// ★ P8-2 (G16): source span for bidirectional traceability.
     /// `(file, line)` — which source file and line declared this box.
     /// Populated by fromblock.rs from InstEntry source info.
-    pub source_span: Option<(String, u32)>,
+    pub source_span: Option<crate::semantic::common::SourcePos>,
     /// ★ C1b F1: Pin slots — single source of truth for pin positions.
     /// Set by layout, read by renderer and geometry.
     pub slots: Vec<PinSlot>,

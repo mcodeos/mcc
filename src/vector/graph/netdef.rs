@@ -135,15 +135,15 @@ pub struct VizNet {
     pub endpoints: Vec<EndpointRef>,
     /// Route result (filled by router, `None` when not routed)
     pub route: Option<Route>,
-    /// Source position in the AST (for diagnostic source-line reporting)
-    pub src_pos: Option<i32>,
+    /// Unified source position in the AST (for diagnostic source-line reporting), §7.11(3).
+    pub src_pos: Option<crate::semantic::common::SourcePos>,
     /// ★ P7-3: power net spec (None = ordinary signal net). Copied by fromblock from
     /// McVecNet.rail, resolved by viz/project.rs from port declarations
     /// (class + driver_pin + volt).
     pub rail: Option<super::super::model::RailSpec>,
     /// ★ P8-2 (G16): source span for bidirectional traceability.
     /// `(file, line)` — which source file and line created this net.
-    pub source_span: Option<(String, u32)>,
+    pub source_span: Option<crate::semantic::common::SourcePos>,
     /// ★ P9-A2: port group that produced this net.
     /// Used by R-M edge merge to group bus lanes.
     pub port_group: Option<String>,

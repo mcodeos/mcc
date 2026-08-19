@@ -86,7 +86,9 @@ impl McModuleInst {
                 .def
                 .insts
                 .declareb_def(n)
-                .map(|(_, span)| (self.def_uri.clone(), span.start as u32))
+                .map(|(_, span)| {
+                    crate::semantic::common::SourcePos::new(self.def_uri.clone(), span.start as u32)
+                })
                 // Named inline constructions (`R442::RES()`) are not in the
                 // declareb hint table: fall back to the current construction
                 // context (func-body line offset, then statement offset) so
@@ -103,14 +105,17 @@ impl McModuleInst {
             caller_name.map(|n| n.to_string()),
             type_name.clone(),
             call_site,
-            Some((comp_def.uri.clone(), comp_def.span.start as u32)),
+            Some(crate::semantic::common::SourcePos::new(
+                comp_def.uri.clone(),
+                comp_def.span.start as u32,
+            )),
         );
         let safe_type = type_name.replace('.', "_");
         let (inst_name, gen_line) = if let Some(name) = caller_name {
             // P2-7: use caller name as instance name (e.g. R442::RES(1MΩ) → R442)
             (name.to_string(), self.current_offset())
         } else {
-            self.auto_name(&safe_type)
+            self.auto_name(super::AutoNameKind::Normal, &safe_type)
         };
 
         // 2. Create the component instance with parameters
@@ -135,11 +140,8 @@ impl McModuleInst {
                         self.failed_records.push(FailedRecord {
                             module: self.name.clone(),
                             src_line: self.current_line_span.as_ref().and_then(|s| {
-                                crate::db::infra::context::lookup_line_col(
-                                    &self.def_uri,
-                                    s.start as u32,
-                                )
-                                .map(|(line, _col)| line as usize)
+                                crate::db::infra::context::lookup_line_col(&self.def_uri, s.offset)
+                                    .map(|(line, _col)| line as usize)
                             }),
                             component_name: inst_name.clone(),
                             class_name: type_name.clone(),
@@ -153,10 +155,12 @@ impl McModuleInst {
                     }
                 }
             };
-        // ★ M0-B-E: mark the funcall origin
+        // ★ M0-B-E: mark the funcall origin (back-link to the ComponentCtor
+        // expansion record, §7.4)
         inst.origin = InstOrigin::FuncCall {
             fn_name: type_name.clone(),
             line: gen_line,
+            expansion_id: Some(eidx),
         };
 
         // ── Iter-3.E3 + P4 ───────────────────────────────────────────────
@@ -379,7 +383,7 @@ impl McModuleInst {
         //    interfering with path resolution ──
         let type_name = func_name.to_string();
         let safe_type = type_name.replace('.', "_");
-        let (inst_name, _) = self.auto_name(&safe_type);
+        let (inst_name, _) = self.auto_name(super::AutoNameKind::Normal, &safe_type);
 
         // 2. Create the sub-module instance with parameters
         let mut sub_inst = McModuleInst::with_params(&inst_name, module_def, params)?;
@@ -393,7 +397,10 @@ impl McModuleInst {
             Some(inst_name.clone()),
             type_name.clone(),
             self.current_call_site(),
-            Some((sub_inst.def_uri.clone(), sub_inst.def.span.start as u32)),
+            Some(crate::semantic::common::SourcePos::new(
+                sub_inst.def_uri.clone(),
+                sub_inst.def.span.start as u32,
+            )),
         );
         self.expansion.set_sub_target(eidx, inst_name.clone());
 
@@ -1058,9 +1065,13 @@ impl McModuleInst {
             } else {
                 self.expand_node_element(&McBus::new(&boundary_name))
             };
-            // ★ P9-A2: set port_group from declared port name (e.g. "SPI", "MIC")
-            self.current_port_group = Some(declared_port_name.clone());
-            self.create_connection(left, right, ConnDir::Undirected, None)?;
+            // ★ P9-A2: port_group from the declared port name (e.g. "SPI",
+            // "MIC"). RAII (§7.11(2)): restored right after the boundary
+            // connection, so an early error cannot leak the group into the
+            // next connection.
+            self.with_port_group(Some(declared_port_name.clone()), |this| {
+                this.create_connection(left, right, ConnDir::Undirected, None)
+            })?;
 
             // ── P2-2: register boundary pin IDs as port members on the submodule ──
             // The boundary connection creates pins like mcu.10, which need to be
@@ -1082,7 +1093,6 @@ impl McModuleInst {
                 }
             }
         }
-        self.current_port_group = None;
         self.expansion.end(eidx);
         Ok(())
     }

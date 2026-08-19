@@ -110,8 +110,9 @@ pub struct NetPoint {
     /// IO direction (None for ports/labels)
     pub iotype: IOType,
 
-    /// Source position in the AST (for diagnostic source-line reporting)
-    pub src_pos: Option<i32>,
+    /// Source position in the AST (for diagnostic source-line reporting).
+    /// Unified [`SourcePos`] (uri + byte offset, §7.11(3)).
+    pub src_pos: Option<crate::semantic::common::SourcePos>,
 
     /// P2-1: bus member name (e.g. "CS", "SCLK", "MISO", "MOSI" for SPI).
     /// Used for name-based matching in create_connection.
@@ -175,8 +176,9 @@ impl NetPoint {
         }
     }
 
-    /// Set source position (for diagnostic source-line reporting)
-    pub fn with_src_pos(mut self, pos: i32) -> Self {
+    /// Set source position (for diagnostic source-line reporting).
+    /// Unified [`SourcePos`] (uri + byte offset, §7.11(3)).
+    pub fn with_src_pos(mut self, pos: crate::semantic::common::SourcePos) -> Self {
         self.src_pos = Some(pos);
         self
     }
@@ -240,8 +242,9 @@ pub struct ConnectionInst {
     pub via: Option<String>,
 
     /// ★ P9-A2: source span for bidirectional traceability.
-    /// `(file, line)` — which source file and line created this connection.
-    pub source_span: Option<(String, u32)>,
+    /// Unified [`SourcePos`] — which source file and byte offset created this
+    /// connection (§7.11(3)).
+    pub source_span: Option<crate::semantic::common::SourcePos>,
 
     /// ★ P9-A2: port group that produced this connection.
     /// For bus lanes, all lanes of the same bus share the same port_group.
@@ -333,9 +336,9 @@ impl ConnectionInst {
         self
     }
 
-    /// ★ P9-A2: Set source span for traceability
-    pub fn with_source_span(mut self, file: String, line: u32) -> Self {
-        self.source_span = Some((file, line));
+    /// ★ P9-A2: Set source span for traceability (unified [`SourcePos`]).
+    pub fn with_source_span(mut self, pos: crate::semantic::common::SourcePos) -> Self {
+        self.source_span = Some(pos);
         self
     }
 

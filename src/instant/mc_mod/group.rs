@@ -162,11 +162,14 @@ impl McModuleInst {
         // ★ P9-A2: compute source_span and port_group once for this connection
         // Decision A (§7.1): source_span carries a **byte offset**, not a line
         // number; display layers convert offset → line via the owning file.
-        let source_span: Option<(String, u32)> =
+        let source_span: Option<crate::semantic::common::SourcePos> =
             match (&self.current_func_span, &self.current_line_span) {
                 // Func-body expansion context (func may live in another file)
-                (Some((uri, off)), _) => Some((uri.to_string(), *off)),
-                (None, Some(s)) => Some((self.def_uri.clone(), s.start as u32)),
+                (Some(spos), _) => Some(spos.clone()),
+                (None, Some(s)) => Some(crate::semantic::common::SourcePos::new(
+                    self.def_uri.clone(),
+                    s.offset,
+                )),
                 (None, None) => None,
             };
         // ★ P9-A2: prefer current_port_group (set from source code context),
@@ -201,8 +204,8 @@ impl McModuleInst {
             if let Some(l) = lane {
                 conn = conn.with_lane(l);
             }
-            if let Some((ref file, line)) = source_span {
-                conn = conn.with_source_span(file.clone(), line);
+            if let Some(pos) = &source_span {
+                conn = conn.with_source_span(pos.clone());
             }
             if let Some(ref pg) = port_group {
                 conn = conn.with_port_group(pg.clone());
@@ -251,12 +254,12 @@ impl McModuleInst {
                     let fallback = self
                         .current_line_span
                         .as_ref()
-                        .map(|s| s.start as i32)
+                        .map(|s| s.offset as i32)
                         .unwrap_or(self.def.span.start as i32);
                     let pos = left_points
                         .first()
-                        .and_then(|p| p.src_pos)
-                        .unwrap_or(fallback) as u32;
+                        .and_then(|p| p.src_pos.as_ref().map(|s| s.offset))
+                        .unwrap_or(fallback as u32);
                     let len = l.len() as u32 + r.len() as u32 + 1;
                     let msg = format!(
                         "node=0 MERGED_SHORT: duplicate connection pair '{l}' ↔ '{r}' in \
@@ -322,12 +325,12 @@ impl McModuleInst {
                 let fallback = self
                     .current_line_span
                     .as_ref()
-                    .map(|s| s.start as i32)
+                    .map(|s| s.offset as i32)
                     .unwrap_or(self.def.span.start as i32);
                 let pos = left_points
                     .first()
-                    .and_then(|p| p.src_pos)
-                    .unwrap_or(fallback) as u32;
+                    .and_then(|p| p.src_pos.as_ref().map(|s| s.offset))
+                    .unwrap_or(fallback as u32);
                 let len = left_points
                     .first()
                     .map(|p| p.path.len() as u32)
@@ -464,11 +467,14 @@ impl McModuleInst {
     ) -> ConnectionInst {
         // Decision A (§7.1): source_span carries a byte offset (see the other
         // construction site in this file).
-        let source_span: Option<(String, u32)> =
+        let source_span: Option<crate::semantic::common::SourcePos> =
             match (&self.current_func_span, &self.current_line_span) {
                 // Func-body expansion context (func may live in another file)
-                (Some((uri, off)), _) => Some((uri.to_string(), *off)),
-                (None, Some(s)) => Some((self.def_uri.clone(), s.start as u32)),
+                (Some(spos), _) => Some(spos.clone()),
+                (None, Some(s)) => Some(crate::semantic::common::SourcePos::new(
+                    self.def_uri.clone(),
+                    s.offset,
+                )),
                 (None, None) => None,
             };
         // ★ P9-A2: prefer current_port_group (set from source code context),
@@ -481,8 +487,8 @@ impl McModuleInst {
         if let Some(l) = lane {
             conn = conn.with_lane(l);
         }
-        if let Some((ref file, line)) = source_span {
-            conn = conn.with_source_span(file.clone(), line);
+        if let Some(pos) = &source_span {
+            conn = conn.with_source_span(pos.clone());
         }
         if let Some(ref pg) = port_group {
             conn = conn.with_port_group(pg.clone());

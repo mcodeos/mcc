@@ -153,7 +153,7 @@ pub fn coalesce_equipotential_nets(graph: &mut McVecGraph) -> usize {
 
         let nid = idxs.iter().map(|&i| old[i].nid).min().unwrap_or(0);
         let mut merged = VizNet::new(nid, name, kind, NetRole::Signal, endpoints);
-        merged.src_pos = idxs.iter().find_map(|&i| old[i].src_pos);
+        merged.src_pos = idxs.iter().find_map(|&i| old[i].src_pos.clone());
 
         crate::vlog!(
             "[coalesce] node '{}' ← {} net(s): {:?}",
