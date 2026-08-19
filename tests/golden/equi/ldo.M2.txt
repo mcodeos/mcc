@@ -1,0 +1,40 @@
+== LAYOUT MODEL ==  layer_anchor = ldo (id=1)  nets=4
+
+nid   net         kind    region ori  anchor        plcd   src     row      span              term  terminals
+--------------------------------------------------------------------------------------------------------------
+303   GND         Ground  South  H    ldo*          yes    rail    240      (20, 140)               GND⏚
+304   GND         Ground  South  H    CAP_2         NO     —       0        (0, 0)            only  GND⏚
+301   POWER_SYS   Power   West   H    ldo*          yes    side    100      (20, 80)                ○POWER_SYS
+302   VCC         Power   East   H    ldo*          yes    side    100      (200, 260)              ○VCC
+
+nid   net         box        anc role     col  tap(x,y)        rect(x,y,w,h)            ori  pins   plcd
+--------------------------------------------------------------------------------------------------------------
+303   GND         ldo        *   —        —    (140, 240)      (80, 80, 120, 120)       ·    LLRRB  yes
+303   GND         CAP_1          Bridge   —    (20, 160)       (10, 100, 20, 60)        V    TB     yes
+304   GND         CAP_2      *   —        —    (260, 0)        (250, 100, 20, 60)       V    TB     yes
+301   POWER_SYS   ldo        *   —        —    (80, 100)       (80, 80, 120, 120)       ·    LLRRB  yes
+301   POWER_SYS   CAP_1          Drop     —    (20, 100)       (10, 100, 20, 60)        V    TB     yes
+302   VCC         ldo        *   —        —    (200, 100)      (80, 80, 120, 120)       ·    LLRRB  yes
+302   VCC         CAP_2          Drop     —    (260, 100)      (250, 100, 20, 60)       V    TB     yes
+
+
+== EQUI-TREE AUDIT ==
+  PASS  [A1] rows_fallback == 0                       due:M2
+  PASS  [A2] lane(layout) == lane(render replay)      due:M2
+  PASS  [A2b] anchor(layout) == anchor(render replay)  due:M2
+  PASS  [A3] no dangling segment endpoints            due:M0
+  PASS  [A4] two-pin passive orientation matches pins due:M3
+  skip  [A5] cols unique within a row                 due:M4
+          column model does not exist yet
+  skip  [A6] bridge endpoints share a column          due:M4
+          column model does not exist yet
+  PASS  [A7] no wire passes through a foreign box     due:M5
+  PASS  [A8] multi-tap nets carry a junction dot      due:M5
+  PASS  [A9] one ground glyph per ground net          due:M0
+  PASS  [A10] same-side rows exclusive, no foreign member due:M2
+  PASS  [A11] same row implies W/E opposite sides      due:M3
+  PASS  [A12] row bands do not overlap                 due:M3
+  PASS  [A13] no overlapping pin slots                 due:M2
+  PASS  [A14] pin labels fit inside the box            due:M2
+  PASS  [A15] ground glyphs share one band             due:M2
+
