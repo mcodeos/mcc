@@ -13,6 +13,7 @@ use super::FailedRecord;
 use super::McModuleInst;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{canonicalize_path, ConnectionInst, InstError, NetPoint, PortInst};
+use crate::instant::provenance::ExpansionKind;
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_ids::IdsSegment;
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
@@ -407,7 +408,7 @@ impl McModuleInst {
                 let dotted = self.labels.get(&format!("{prefix}.{m}")).cloned();
                 if let (Some(b), Some(d)) = (bare, dotted) {
                     let id = self.next_conn_id();
-                    self.connections.push(self.make_conn_with_provenance(
+                    self.add_connection(self.make_conn_with_provenance(
                         id,
                         vec![b, d],
                         ConnDir::Undirected,
@@ -435,6 +436,24 @@ impl McModuleInst {
         for (_name, ident) in items {
             match &ident {
                 McInstance::Component(c) => {
+                    // ── Expansion provenance: Declare (leaf record, §4.1-B5) ──
+                    // call_site = declared instance position (module port_spans);
+                    // def_site = class definition position.
+                    let call_site = self
+                        .def
+                        .insts
+                        .port_spans()
+                        .get(&c.name.to_string())
+                        .and_then(|v| v.first().cloned())
+                        .map(|s| (self.def_uri.clone(), s.start as u32));
+                    let def_site = Some((c.base.uri.clone(), c.base.span.start as u32));
+                    let eidx = self.expansion.begin(
+                        ExpansionKind::Declare,
+                        None,
+                        c.name.to_string(),
+                        call_site,
+                        def_site,
+                    );
                     let inst =
                         if c.nc {
                             McComponentInst::with_nc(&c.name.to_string(), c.base.clone())
@@ -464,21 +483,40 @@ impl McModuleInst {
                                         class_name: c.base.name.to_string(),
                                         reason,
                                     });
+                                    self.expansion.end(eidx);
                                     continue;
                                 }
                             }
                         };
-                    self.components.push(inst);
+                    self.add_component(inst);
 
                     // ── P1-C5: Execute same-name constructor func ──
+                    // (nested ComponentCtor record, parent = this Declare record)
                     if !c.params.is_empty() {
                         let inst_name = c.name.to_string();
                         let comp_def = c.base.clone();
                         let args = c.params.clone();
                         self.run_component_constructor(&inst_name, &comp_def, &args);
                     }
+                    self.expansion.end(eidx);
                 }
                 McInstance::Module(m) => {
+                    // ── Expansion provenance: Declare (leaf record, §4.1-B5) ──
+                    let call_site = self
+                        .def
+                        .insts
+                        .port_spans()
+                        .get(&m.name.to_string())
+                        .and_then(|v| v.first().cloned())
+                        .map(|s| (self.def_uri.clone(), s.start as u32));
+                    let def_site = Some((m.base.uri.clone(), m.base.span.start as u32));
+                    let eidx = self.expansion.begin(
+                        ExpansionKind::Declare,
+                        None,
+                        m.name.to_string(),
+                        call_site,
+                        def_site,
+                    );
                     let inst_name = m.name.to_string();
                     let mut inst = McModuleInst::new(&inst_name, m.base.clone());
                     // ★ Sub-module instantiation failure → record diagnostics, but keep instance
@@ -497,7 +535,8 @@ impl McModuleInst {
                         self.bind_actual_args_to_ports(&inst_name, &ports, &m.args);
                     }
                     self.merge_diagnostics_from(&inst);
-                    self.sub_modules.push(inst);
+                    self.add_submodule(inst);
+                    self.expansion.end(eidx);
                 }
                 McInstance::Bus(label) => {
                     // ── Iter-5.B cooperation point ───────────────────────────────────
@@ -816,7 +855,7 @@ impl McModuleInst {
                     let mut pts = make_ports(m.as_str(), pio.clone());
                     pts.push(arg_lanes[*ai].clone());
                     let id = self.next_conn_id();
-                    self.connections.push(self.make_conn_with_provenance(
+                    self.add_connection(self.make_conn_with_provenance(
                         id,
                         pts,
                         ConnDir::Undirected,
@@ -838,7 +877,7 @@ impl McModuleInst {
                     } else {
                         pts.push(arg_pt.clone());
                     }
-                    self.connections.push(self.make_conn_with_provenance(
+                    self.add_connection(self.make_conn_with_provenance(
                         id,
                         pts,
                         ConnDir::Undirected,
@@ -855,7 +894,7 @@ impl McModuleInst {
                     port.iotype.clone(),
                 );
                 let id = self.next_conn_id();
-                self.connections.push(self.make_conn_with_provenance(
+                self.add_connection(self.make_conn_with_provenance(
                     id,
                     vec![a, port_pt],
                     ConnDir::Undirected,
@@ -1207,6 +1246,16 @@ impl McModuleInst {
 
         // Expand body (constructor func always treated as no-return / Implicit, ignore returns)
         // ── P4-b: isolate anonymous instance entries across body lines within the same func ──
+        // ── Expansion provenance: ComponentCtor (same-name constructor func body) ──
+        // Nested under the enclosing declare / construction record when present;
+        // body products expand in the current module, tagged with this record.
+        let eidx = self.expansion.begin(
+            ExpansionKind::ComponentCtor,
+            Some(inst_name.to_string()),
+            last.clone(),
+            self.current_call_site(),
+            Self::func_def_site(&func),
+        );
         let conn_start = self.connections.len(); // ← P4 backstop start point
         let outer_auto_inst = self.auto_inst_map.clone();
         for (_li, line) in func.lines.iter().enumerate() {
@@ -1227,6 +1276,7 @@ impl McModuleInst {
             }
             self.current_func_span = saved_ctx;
         }
+        self.expansion.end(eidx);
         // ── P4 backstop: strip host-synthesized interface endpoints leaked during body processing ──
         // (flash's `flash.in ~ CAP_1.1` / `CAP_1.2 ~ flash.out` etc.)
         self.strip_host_iface_phantoms(inst_name, conn_start);

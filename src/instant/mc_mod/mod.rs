@@ -37,6 +37,7 @@ use super::mc_net::{
     line_of_offset, ConnectionInst, InstDiagLevel, InstDiagnostic, InstError, NetPoint, NetTable,
     PortInst,
 };
+use crate::instant::provenance::ExpansionKind;
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
 use crate::semantic::common::IOType;
 use crate::semantic::mc_func::McFunction;
@@ -141,6 +142,15 @@ pub struct McModuleInst {
     /// Prevents double execution when a function is both auto-invoked and
     /// explicitly called from a parent module (e.g. `mcu.i2c()`).
     pub(super) auto_invoked_funcs: HashSet<String>,
+
+    /// Expansion provenance: this module's expansion log (module-local id space).
+    /// Products tagged with `expansion_id` index into `expansion.records`.
+    pub expansion: crate::instant::provenance::ExpansionLog,
+
+    /// Expansion provenance: index into the **parent** module's `ExpansionLog`
+    /// when this sub-module was created by an expansion. None for the top-level
+    /// module / module-level creations.
+    pub expansion_id: Option<usize>,
 }
 
 /// Structured record of a failed component instantiation.
@@ -194,6 +204,8 @@ impl McModuleInst {
             failed_classes: HashSet::new(),
             failed_records: Vec::new(),
             auto_invoked_funcs: HashSet::new(),
+            expansion: crate::instant::provenance::ExpansionLog::default(),
+            expansion_id: None,
         }
     }
 
@@ -231,7 +243,58 @@ impl McModuleInst {
             failed_classes: HashSet::new(),
             failed_records: Vec::new(),
             auto_invoked_funcs: HashSet::new(),
+            expansion: crate::instant::provenance::ExpansionLog::default(),
+            expansion_id: None,
         })
+    }
+
+    // ========================================================================
+    // Unified product factories (expansion provenance tagging, §7.11)
+    // ========================================================================
+
+    /// Push a component instance, tagging it with the current expansion id.
+    /// Centralizes `expansion_id` tagging so products never bypass provenance.
+    /// Products already tagged explicitly (e.g. by a construction entry that
+    /// returns them to be pushed later) keep their tag.
+    pub(super) fn add_component(&mut self, inst: McComponentInst) {
+        let mut inst = inst;
+        if inst.expansion_id.is_none() {
+            inst.expansion_id = self.expansion.current_id();
+        }
+        self.components.push(inst);
+    }
+
+    /// Push a sub-module instance, tagging it with the current expansion id.
+    pub(super) fn add_submodule(&mut self, inst: McModuleInst) {
+        let mut inst = inst;
+        if inst.expansion_id.is_none() {
+            inst.expansion_id = self.expansion.current_id();
+        }
+        self.sub_modules.push(inst);
+    }
+
+    /// Push a connection, tagging it with the current expansion id.
+    pub(super) fn add_connection(&mut self, conn: ConnectionInst) {
+        let mut conn = conn;
+        if conn.expansion_id.is_none() {
+            conn.expansion_id = self.expansion.current_id();
+        }
+        self.connections.push(conn);
+    }
+
+    /// Current statement offset for provenance (top-level statement span start).
+    /// `(def_uri, offset)`; None when no statement is being processed.
+    pub(super) fn current_call_site(&self) -> Option<(McURI, u32)> {
+        self.current_line_span
+            .as_ref()
+            .map(|s| (self.def_uri.clone(), s.start as u32))
+    }
+
+    /// Function definition site as `(source_uri, definition offset)`.
+    pub(super) fn func_def_site(func_def: &McFunction) -> Option<(McURI, u32)> {
+        let uri = func_def.source_uri().cloned()?;
+        let off = func_def.span.as_ref().map(|sp| sp.start as u32)?;
+        Some((uri, off))
     }
 
     /// Execute instantiation
@@ -338,6 +401,15 @@ impl McModuleInst {
                 func.name,
                 func.lines.len()
             );
+            // ── Expansion provenance: AutoInvoke (call_site = None, no user
+            //    call statement; products attach to the module node) ──
+            let eidx = self.expansion.begin(
+                ExpansionKind::AutoInvoke,
+                None,
+                func.name.to_string(),
+                None,
+                Self::func_def_site(&func),
+            );
             for (li, line) in func.lines.iter().enumerate() {
                 mcc_dbg!(
                     "inst::mod",
@@ -366,6 +438,7 @@ impl McModuleInst {
                 }
                 self.current_func_span = saved_ctx;
             }
+            self.expansion.end(eidx);
             // Mark as auto-invoked to prevent double execution when
             // explicitly called from a parent module (e.g. `mcu.i2c()`).
             self.auto_invoked_funcs.insert(func.name.to_string());

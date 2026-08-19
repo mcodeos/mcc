@@ -374,7 +374,9 @@ pub struct ShowArgs {
     pub target: ShowTarget,
 
     /// Name of the entity to show (required for detail and drill targets;
-    /// name lists moved to `mcc list`)
+    /// name lists moved to `mcc list`). File-based targets (`all`, `dianlu`,
+    /// `lapper`, `ast`) treat the positional as the target file/directory
+    /// when `-F` is not given.
     pub name: Option<String>,
 
     /// Parse directly from file (doesn't depend on loaded library/project)

@@ -17,6 +17,7 @@ use super::McModuleInst;
 use crate::instant::insttab::InstOrigin;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{InstError, NetPoint};
+use crate::instant::provenance::ExpansionKind;
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_closure::McClosure;
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
@@ -73,6 +74,26 @@ impl McModuleInst {
         // the owner, causing multiple calls to share the same "DIO" label
         // → union-find short circuit.
         let type_name = comp_def.name.to_string();
+        // ── Expansion provenance: ComponentCtor (leaf record, §4.1-B6) ──
+        // call_site: named declareb constructions (`C4::CAP()`) use the declareb
+        // hint span; bare inline constructions (`CAP(0.1uF)`) use the current
+        // statement. Products are tagged explicitly before return because the
+        // caller pushes them after this function exits.
+        let call_site = match caller_name {
+            Some(n) => self
+                .def
+                .insts
+                .declareb_def(n)
+                .map(|(_, span)| (self.def_uri.clone(), span.start as u32)),
+            None => self.current_call_site(),
+        };
+        let eidx = self.expansion.begin(
+            ExpansionKind::ComponentCtor,
+            caller_name.map(|n| n.to_string()),
+            type_name.clone(),
+            call_site,
+            Some((comp_def.uri.clone(), comp_def.span.start as u32)),
+        );
         let safe_type = type_name.replace('.', "_");
         let (inst_name, gen_line) = if let Some(name) = caller_name {
             // P2-7: use caller name as instance name (e.g. R442::RES(1MΩ) → R442)
@@ -113,6 +134,7 @@ impl McModuleInst {
                             class_name: type_name.clone(),
                             reason: reason.clone(),
                         });
+                        self.expansion.end(eidx);
                         return Err(InstError::Other(format!(
                             "Failed to instantiate '{}': {}",
                             inst_name, reason
@@ -304,6 +326,15 @@ impl McModuleInst {
             }
         }
 
+        // Tag the products with this ComponentCtor record and close it. The
+        // caller pushes them after this function returns; the explicit tag
+        // survives the push (factories keep pre-tagged ids, extend keeps tags).
+        inst.expansion_id = Some(eidx);
+        for conn in &mut new_connections {
+            conn.expansion_id = Some(eidx);
+        }
+        self.expansion.end(eidx);
+
         Ok(FuncCallInst::Components {
             new_components: vec![inst],
             new_connections,
@@ -341,6 +372,19 @@ impl McModuleInst {
 
         // 2. Create the sub-module instance with parameters
         let mut sub_inst = McModuleInst::with_params(&inst_name, module_def, params)?;
+
+        // ── Expansion provenance: ModuleCall (parent-side leaf record, §4.1-B7) ──
+        // The sub-module's own interior expands on its own ExpansionLog
+        // (module-local id space, §7.9-2); `sub_target` links the parent record
+        // to the sub-module instance path.
+        let eidx = self.expansion.begin(
+            ExpansionKind::ModuleCall,
+            Some(inst_name.clone()),
+            type_name.clone(),
+            self.current_call_site(),
+            Some((sub_inst.def_uri.clone(), sub_inst.def.span.start as u32)),
+        );
+        self.expansion.set_sub_target(eidx, inst_name.clone());
 
         // 3. Recursively instantiate the sub-module interior (expand its ports,
         //    declarations, connection lines)
@@ -466,6 +510,14 @@ impl McModuleInst {
             }
         }
 
+        // Tag the products with this ModuleCall record and close it (the caller
+        // pushes them after this function returns).
+        sub_inst.expansion_id = Some(eidx);
+        for conn in &mut new_connections {
+            conn.expansion_id = Some(eidx);
+        }
+        self.expansion.end(eidx);
+
         Ok(FuncCallInst::SubModule {
             inst: sub_inst,
             new_connections,
@@ -507,6 +559,14 @@ impl McModuleInst {
             // circuits); entries from outer lines remain because they are in the
             // snapshot (preserves the chained return `X6.setup(...).XTAL`).
             let outer_auto_inst = self.auto_inst_map.clone();
+            // ── Expansion provenance: UserFunc (body expansion) ──
+            let eidx = self.expansion.begin(
+                ExpansionKind::UserFunc,
+                caller_inst_name.map(|s| s.to_string()),
+                func_def.name.to_string(),
+                self.current_call_site(),
+                Self::func_def_site(&func_def),
+            );
             for (_li, line) in func_def.lines.iter().enumerate() {
                 self.auto_inst_map = outer_auto_inst.clone();
                 // Attribute anonymous instances/connections of this body line
@@ -519,7 +579,10 @@ impl McModuleInst {
                 } else {
                     Self::substitute_line(line, &bindings, None)
                 };
-                self.process_line(&substituted)?;
+                if let Err(e) = self.process_line(&substituted) {
+                    self.expansion.end(eidx);
+                    return Err(e);
+                }
                 self.current_func_span = saved_ctx;
             }
 
@@ -544,11 +607,15 @@ impl McModuleInst {
                         } else {
                             Self::substitute_line(line, &bindings, None)
                         };
-                        self.process_line(&substituted)?;
+                        if let Err(e) = self.process_line(&substituted) {
+                            self.expansion.end(eidx);
+                            return Err(e);
+                        }
                         self.current_func_span = saved_ctx;
                     }
                 }
             }
+            self.expansion.end(eidx);
         } else {
             // Body was not parsed (lines is empty)
             mcc_dbg!(
@@ -718,6 +785,21 @@ impl McModuleInst {
         func_def: &McFunction,
         bindings: &McParamBindings,
     ) -> Result<(), InstError> {
+        // ── Expansion provenance: InstanceMethod (sub-module method) ──
+        // Parent module records the call; the body expands inside the sub-module
+        // instance (linked via `sub_target`, see design §7.3). Boundary
+        // connections (Phase B) belong to this parent record.
+        let call_site = self.current_call_site();
+        let def_site = Self::func_def_site(func_def);
+        let eidx = self.expansion.begin(
+            ExpansionKind::InstanceMethod,
+            Some(inst_name.to_string()),
+            func_def.name.to_string(),
+            call_site.clone(),
+            def_site.clone(),
+        );
+        self.expansion.set_sub_target(eidx, inst_name.to_string());
+
         // ── P2-8: skip if already auto-invoked ──
         // Module-level functions (closures) with arity=0 are auto-invoked
         // during instantiate(). When a parent module explicitly calls the
@@ -739,6 +821,10 @@ impl McModuleInst {
                     "[P2-8-SKIP] module={} sub={inst_name} func={func_name} already auto-invoked, skipping",
                     self.name
                 );
+                // Deliberate empty expansion: mark skipped so verify does not
+                // report `no_expansion` for this call (design §5.1).
+                self.expansion.mark_skipped(eidx);
+                self.expansion.end(eidx);
                 return Ok(());
             }
         }
@@ -769,8 +855,19 @@ impl McModuleInst {
             .ok_or_else(|| {
                 InstError::Other(format!("submodule '{inst_name}' not found for method"))
             })?;
-        {
+        let sub_eidx = {
             let sub = &mut self.sub_modules[idx];
+            // ── Expansion provenance: sub-module body expansion (§7.3) ──
+            // Same call site as the parent record; id space is the sub-module's
+            // own ExpansionLog. Products pushed via `sub.add_*` during body
+            // processing are tagged with this record.
+            let se = sub.expansion.begin(
+                ExpansionKind::InstanceMethod,
+                Some(inst_name.to_string()),
+                func_def.name.to_string(),
+                call_site.clone(),
+                def_site.clone(),
+            );
             // ── P2-2: register boundary formals as buses in the submodule ──
             // When a boundary formal (e.g. `spi`) is paired with a component bus
             // (e.g. `uC[SPI]`), the default broadcast behavior shorts all bus pins.
@@ -816,7 +913,8 @@ impl McModuleInst {
                 }
                 sub.current_func_span = saved_ctx;
             }
-        } // sub's mutable borrow ends here
+            se
+        }; // sub's mutable borrow ends here
 
         // ── Process conditional blocks in sub-module ──
         if !func_def.conds.is_empty() {
@@ -852,6 +950,10 @@ impl McModuleInst {
                     sub.current_func_span = saved_ctx;
                 }
             }
+        }
+        // End the sub-module body expansion record (covers Phase A + conds).
+        if let Some(sub) = self.sub_modules.get_mut(idx) {
+            sub.expansion.end(sub_eidx);
         }
 
         // Phase B: Boundary connections (in parent module self)
@@ -965,6 +1067,7 @@ impl McModuleInst {
             }
         }
         self.current_port_group = None;
+        self.expansion.end(eidx);
         Ok(())
     }
 
@@ -1169,6 +1272,15 @@ impl McModuleInst {
         // ── P4-b: Isolate anonymous instance entries for each body line in the same func ──
         let conn_start = self.connections.len(); // ← P4 backstop start point
         let _outer_auto_inst = self.auto_inst_map.clone();
+        // ── Expansion provenance: InstanceMethod (component method, body
+        //    expands at the call site on the outer module) ──
+        let eidx = self.expansion.begin(
+            ExpansionKind::InstanceMethod,
+            Some(inst_name.to_string()),
+            func_def.name.to_string(),
+            self.current_call_site(),
+            Self::func_def_site(func_def),
+        );
         for (_li, line) in func_def.lines.iter().enumerate() {
             // Do not reset auto_inst_map; let it accumulate line by line inside
             // the function body! This way components created in the previous line
@@ -1197,7 +1309,10 @@ impl McModuleInst {
                 "[RCM-DBG] module={} inst={inst_name} line={_li} expanded={expanded:?}",
                 self.name
             );
-            self.process_line(&expanded)?;
+            if let Err(e) = self.process_line(&expanded) {
+                self.expansion.end(eidx);
+                return Err(e);
+            }
             self.current_func_span = saved_ctx;
         }
         // ── P4 backstop: strip synthetic host interface endpoints leaked
@@ -1248,6 +1363,7 @@ impl McModuleInst {
             self.strip_host_iface_phantoms(inst_name, cond_conn_start);
         }
 
+        self.expansion.end(eidx);
         Ok(())
     }
 

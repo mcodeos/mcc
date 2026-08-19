@@ -474,7 +474,7 @@ pub struct ExpandMatch {
 ///    returns `None`, leaving broadcast / truncation recovery to the caller.
 ///
 /// The N:N pairing path of `create_connection` in group.rs. Replaces the
-/// P2-4/P4.2 sorted-zip implementation (eval.md §11 "与旧实现的关系").
+/// P2-4/P4.2 sorted-zip implementation (eval.md §11).
 pub fn expand_match(lhs: &[NetPoint], rhs: &[NetPoint]) -> Option<ExpandMatch> {
     if lhs.is_empty() || rhs.is_empty() {
         return None;
@@ -882,6 +882,7 @@ mod inst_scope_tests {
             nc: false,
             degraded: false,
             origin: Default::default(),
+            expansion_id: None,
         }
     }
 

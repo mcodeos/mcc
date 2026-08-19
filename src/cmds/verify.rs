@@ -15,10 +15,10 @@
 //!      together with the connections it expanded into, and every expanded
 //!      connection is checked for a traceable source line.
 
-use crate::cmds::{common, manifest};
+use crate::cmds::{common, hierarchy, manifest};
 use anyhow::Result;
 use mcc::cli::{OutputFormat, VerifyArgs};
-use mcc::{InstOrigin, McInstance, McModuleInst, Span};
+use mcc::{InstOrigin, McModuleInst, Span};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
 use std::fmt::Write as _;
@@ -71,6 +71,7 @@ pub fn run(args: &VerifyArgs) -> Result<VerifyOutcome> {
     let mut totals = VerifyTotals::default();
     let mut modules: Vec<Value> = Vec::new();
     verify_module(&inst, &top, &mut totals, &mut modules);
+    let hierarchy = hierarchy::build_hierarchy(&modules);
 
     let summary = json!({
         "modules": totals.modules,
@@ -97,7 +98,7 @@ pub fn run(args: &VerifyArgs) -> Result<VerifyOutcome> {
     let format = mcc::cli::globals().format;
     if format == OutputFormat::Text {
         let mut text = String::new();
-        render_text(&mut text, &top, &summary, &modules);
+        render_text(&mut text, &top, &summary, &modules, &hierarchy);
         let buf = text.trim_end().to_string();
         if let Some(path) = &mcc::cli::globals().output {
             std::fs::write(path, buf)?;
@@ -105,7 +106,13 @@ pub fn run(args: &VerifyArgs) -> Result<VerifyOutcome> {
             println!("{buf}");
         }
     } else {
-        let data = json!({ "type": "verify", "top": top, "summary": summary, "modules": modules });
+        let data = json!({
+            "type": "verify",
+            "top": top,
+            "summary": summary,
+            "hierarchy": hierarchy,
+            "modules": modules
+        });
         crate::output::emit(
             &data,
             format,
@@ -121,7 +128,8 @@ pub fn run(args: &VerifyArgs) -> Result<VerifyOutcome> {
 /// Recurse through one module section: compare instances and connections, then
 /// descend into sub-modules.
 fn verify_module(inst: &McModuleInst, path: &str, totals: &mut VerifyTotals, out: &mut Vec<Value>) {
-    let (inst_report, inst_counts) = compare_instances(inst);
+    let content = std::fs::read_to_string(&inst.def_uri.to_string()).ok();
+    let (inst_report, inst_counts) = compare_instances(inst, &content);
     totals.source_insts += inst_counts.0;
     totals.expanded_insts += inst_counts.1;
     totals.missing += inst_counts.2;
@@ -151,134 +159,19 @@ fn verify_module(inst: &McModuleInst, path: &str, totals: &mut VerifyTotals, out
 // Instance comparison
 // ---------------------------------------------------------------------------
 
-fn compare_instances(inst: &McModuleInst) -> (Value, (usize, usize, usize, usize, usize)) {
-    // Source-declared physical instance names. Engine-generated pseudo
-    // instances (`@RES1` auto ports), non-physical entries (List / BusRef /
-    // pins / attrs / funcs / enums) and array-form interfaces
-    // (`[VDD_3V3, GND]`, which expand to member labels instead of a bus) are
-    // not part of the instance contract. Each entry carries its source line
-    // for the `L<n>` column in the report.
-    let mut source: Vec<(String, String, u32)> = Vec::new();
-    let mut source_names: HashSet<String> = HashSet::new();
-    let content = std::fs::read_to_string(&inst.def_uri.to_string()).ok();
-    let line_of_span = |sp: &std::ops::Range<usize>| -> u32 {
-        content
-            .as_ref()
-            .map(|c| line_of_byte(c, sp.start))
-            .unwrap_or(0)
-    };
-    // Line fallbacks for entries whose declaration span is not recorded in
-    // the Pass1 inst table: module-header parameter ports (`dc{VDD_3V3,GND}`
-    // and `in [VDD_3V3, GND]` rows) carry their span in `def.params`, and
-    // inline net labels (e.g. `USB_VBUS` inside a connection statement)
-    // resolve through the expanded label NetPoint's src_pos.
-    let param_line = |name: &str| -> u32 {
-        inst.def
-            .params
-            .iter_defs_with_span()
-            .find(|(n, _)| *n == name)
-            .map(|(_, s)| line_of_span(&s))
-            .unwrap_or(0)
-    };
-    let label_line = |name: &str| -> u32 {
-        inst.get_labels()
-            .get(name)
-            .and_then(|p| p.src_pos)
-            .map(|pos| {
-                content
-                    .as_ref()
-                    .map(|c| line_of_byte(c, pos as usize))
-                    .unwrap_or(0)
-            })
-            .unwrap_or(0)
-    };
-    // Bracket-vec port members (`in [VDD_3V3, GND]::DC(3.3V)`) are stored
-    // under the whole-bracket key (`[VDD_3V3, GND]`) with no per-member
-    // span; match the member name against those keys for the declaration
-    // line of the header row.
-    let member_line = |name: &str| -> u32 {
-        inst.def
-            .insts
-            .port_spans()
-            .iter()
-            .filter_map(|(key, spans)| {
-                if !(key.starts_with('[') || key.starts_with('{')) {
-                    return None;
-                }
-                let mut members = key
-                    .trim_matches(|c| c == '[' || c == ']' || c == '{' || c == '}')
-                    .split(',')
-                    .map(str::trim);
-                members
-                    .any(|m| m == name)
-                    .then(|| spans.first().cloned())
-                    .flatten()
-            })
-            .next()
-            .map(|sp| line_of_span(&sp))
-            .unwrap_or(0)
-    };
-    for (name, mc_inst) in inst.def.insts.iter() {
-        if name.starts_with('@') || name.starts_with('[') {
-            continue;
-        }
-        let kind = match mc_inst {
-            McInstance::Component(_) => Some("component"),
-            McInstance::Module(_) => Some("module"),
-            McInstance::Interface(_) => Some("interface"),
-            McInstance::Bus(_) => Some("bus"),
-            McInstance::Label(_) => Some("label"),
-            _ => None,
-        };
-        if let Some(kind) = kind {
-            let line = inst
-                .def
-                .insts
-                .get_port_span(name)
-                .map(|sp| line_of_span(&sp))
-                .or_else(|| {
-                    let l = param_line(name);
-                    if l > 0 {
-                        Some(l)
-                    } else {
-                        None
-                    }
-                })
-                .or_else(|| {
-                    let l = label_line(name);
-                    if l > 0 {
-                        Some(l)
-                    } else {
-                        None
-                    }
-                })
-                .or_else(|| {
-                    let l = member_line(name);
-                    if l > 0 {
-                        Some(l)
-                    } else {
-                        None
-                    }
-                })
-                .unwrap_or(0);
-            source.push((name.to_string(), kind.to_string(), line));
-            source_names.insert(name.to_string());
-        }
-    }
-    // Source rows in file order: sort by the recorded declaration line so the
-    // instance list mirrors the order the parts appear in the source module.
-    // Unknown lines (0) go last; the stable sort keeps the alphabetical
-    // BTreeMap order within the same line.
-    source.sort_by_key(|(_, _, l)| if *l == 0 { u32::MAX } else { *l });
-    // Declareb instances (`C4::CAP()`) bypass `parse_declare`, so their names
-    // never enter `insts`; they are recorded in the declareb hint table and
-    // expand with a FuncCall origin.
-    let mut declareb: Vec<(String, u32)> = Vec::new();
-    for (name, (_, span)) in inst.def.insts.iter_declareb_defs() {
-        source_names.insert(name.clone());
-        declareb.push((name.clone(), line_of_span(&span)));
-    }
-    declareb.sort_by_key(|(_, l)| if *l == 0 { u32::MAX } else { *l });
+fn compare_instances(
+    inst: &McModuleInst,
+    content: &Option<String>,
+) -> (Value, (usize, usize, usize, usize, usize)) {
+    // Declared / declareb / funcall-generated families are extracted by the
+    // shared hierarchy module; the comparison below adds the expanded side
+    // (component / sub-module / label / bus instances Pass2 produced) and
+    // computes missing / extra / generated.
+    let fam = hierarchy::extract_instance_families(inst, content);
+    let source = fam.source;
+    let declareb = fam.declareb;
+    let source_names = fam.source_names;
+    let generated = fam.generated;
 
     // Expanded physical instance names. Function-generated components whose
     // name matches a source declaration are declareb instances (treated as
@@ -379,13 +272,6 @@ fn compare_instances(inst: &McModuleInst) -> (Value, (usize, usize, usize, usize
         .collect();
     extra.sort();
 
-    let mut generated: Vec<(String, u32)> = expanded
-        .iter()
-        .filter(|(_, _, origin, _)| origin == "funcall")
-        .map(|(n, _, _, l)| (n.clone(), *l))
-        .collect();
-    generated.sort_by_key(|(_, l)| if *l == 0 { u32::MAX } else { *l });
-
     let mut expanded_all: Vec<(String, String, String, u32)> = expanded.clone();
     for n in &net_labels {
         expanded_all.push((n.clone(), "label".to_string(), "derived".to_string(), 0));
@@ -393,12 +279,12 @@ fn compare_instances(inst: &McModuleInst) -> (Value, (usize, usize, usize, usize
     expanded_all.sort_by(|a, b| (a.0.clone(), a.1.clone()).cmp(&(b.0.clone(), b.1.clone())));
 
     let report = json!({
-        "source": source.iter().map(|(n, k, l)| json!({"name": n, "kind": k, "line": l})).collect::<Vec<_>>(),
-        "declareb": declareb.iter().map(|(n, l)| json!({"name": n, "line": l})).collect::<Vec<_>>(),
+        "source": source.iter().map(|(n, k, l, cl)| json!({"name": n, "kind": k, "line": l, "class": cl})).collect::<Vec<_>>(),
+        "declareb": declareb.iter().map(|(n, l, cl)| json!({"name": n, "line": l, "class": cl})).collect::<Vec<_>>(),
         "expanded": expanded_all.iter().map(|(n, k, o, l)| json!({"name": n, "kind": k, "origin": o, "line": l})).collect::<Vec<_>>(),
         "missing": missing,
         "extra": extra,
-        "generated": generated.iter().map(|(n, l)| json!({"name": n, "line": l})).collect::<Vec<_>>(),
+        "generated": generated.iter().map(|(n, l, cl)| json!({"name": n, "line": l, "class": cl})).collect::<Vec<_>>(),
     });
     let counts = (
         source.len() + declareb.len(),
@@ -426,7 +312,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
     let mut src_by_line: BTreeMap<u32, usize> = BTreeMap::new();
     if let Some(c) = &content {
         for (i, sp) in spans.iter().enumerate() {
-            src_by_line.insert(line_of_byte(c, sp.start as usize), i);
+            src_by_line.insert(hierarchy::line_of_byte(c, sp.start as usize), i);
         }
     }
 
@@ -510,16 +396,6 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
     (report, counts)
 }
 
-/// 1-based line number of a byte offset within `content`.
-fn line_of_byte(content: &str, offset: usize) -> u32 {
-    let end = offset.min(content.len());
-    content.as_bytes()[..end]
-        .iter()
-        .filter(|&&b| b == b'\n')
-        .count() as u32
-        + 1
-}
-
 /// `L<n>` column text for an instance report entry; blank when the source
 /// line is unknown (0) so the instance list stays readable.
 fn line_col(e: &Value) -> String {
@@ -549,7 +425,7 @@ fn phrase_contains_funccall(p: &mcc::McPhrase) -> bool {
 /// Line number for a source span, None when the file is unreadable.
 fn line_of_span(content: &Option<String>, sp: Option<&Span>) -> Option<u32> {
     match (content, sp) {
-        (Some(c), Some(sp)) => Some(line_of_byte(c, sp.start as usize)),
+        (Some(c), Some(sp)) => Some(hierarchy::line_of_byte(c, sp.start as usize)),
         _ => None,
     }
 }
@@ -558,7 +434,7 @@ fn line_of_span(content: &Option<String>, sp: Option<&Span>) -> Option<u32> {
 // Text rendering
 // ---------------------------------------------------------------------------
 
-fn render_text(out: &mut String, top: &str, summary: &Value, modules: &[Value]) {
+fn render_text(out: &mut String, top: &str, summary: &Value, modules: &[Value], hierarchy: &Value) {
     let inst = &summary["instances"];
     let conn = &summary["connections"];
     let problems = inst["missing"].as_u64().unwrap_or(0)
@@ -583,6 +459,12 @@ fn render_text(out: &mut String, top: &str, summary: &Value, modules: &[Value]) 
         "Result: {}",
         if problems > 0 { "MISMATCH" } else { "OK" }
     );
+    let _ = writeln!(out);
+
+    // Global module-nesting overview first, so the whole instance structure
+    // is visible before the per-module detail sections.
+    let _ = writeln!(out, "===== Hierarchy: {top} =====");
+    hierarchy::render_hierarchy_text(out, hierarchy);
     let _ = writeln!(out);
 
     for m in modules {

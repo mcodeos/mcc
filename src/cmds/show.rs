@@ -21,7 +21,7 @@ use mcc::cli::{rpcclient::RpcClient, OutputFormat, ShowArgs, ShowScope, ShowTarg
 use mcc::{McIds, McURI};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tracing::error;
 
 pub fn run(args: &ShowArgs) -> Result<()> {
@@ -189,8 +189,11 @@ fn run_local(args: &ShowArgs) -> Result<()> {
 /// `project.toml` provides the entry file and dependency libraries, or browse
 /// mode selects the unique `.mc` file declaring `module main` when no
 /// manifest exists.
+///
+/// The target path comes from `-F`, or from the positional argument for
+/// targets that take no entity name ([`target_path`]).
 fn prepare(args: &ShowArgs) {
-    let file_opt = args.file.as_deref();
+    let file_opt = target_path(args);
     crate::cmds::manifest::init_local(file_opt, &mcc::cli::globals().lib);
 
     if let Some(f) = file_opt {
@@ -206,9 +209,31 @@ fn prepare(args: &ShowArgs) {
             }
         } else {
             let actual = resolve_file(f);
-            let uri = mcc::McURI::from(actual.as_str());
+            // Absolutize so the engine does not join a relative path onto the
+            // project root (which would double the directory components).
+            let path = if Path::new(&actual).is_absolute() {
+                actual
+            } else {
+                std::env::current_dir()
+                    .map(|c| c.join(&actual).to_string_lossy().to_string())
+                    .unwrap_or(actual)
+            };
+            let uri = mcc::McURI::from(path.as_str());
             mcc::mcc_load_project(&uri);
         }
+    }
+}
+
+/// Effective target path for file-based targets: `-F` wins; otherwise the
+/// positional argument is the target for targets that take no entity name
+/// (`show all` / `show dianlu`), mirroring `show ast` / `show lapper`.
+fn target_path(args: &ShowArgs) -> Option<&str> {
+    if args.file.is_some() {
+        return args.file.as_deref();
+    }
+    match args.target {
+        ShowTarget::All | ShowTarget::Dianlu => args.name.as_deref(),
+        _ => None,
     }
 }
 
@@ -371,8 +396,8 @@ fn not_applicable(what: &str, name: &str) -> ! {
 // ============================================================================
 
 fn show_all(args: &ShowArgs) -> Result<()> {
-    let target = args.file.as_deref().map(resolve_file);
-    let scopes = resolve_scopes(args.scope, args.file.is_some());
+    let target = target_path(args).map(resolve_file);
+    let scopes = resolve_scopes(args.scope, target.is_some());
 
     let mut data = serde_json::Map::new();
     for s in &scopes {
@@ -670,7 +695,7 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
     // mode) resolves the top through the manifest / browse entry; a
     // single-file target uses --top, else the module defined in that file,
     // else the first loaded module.
-    let (entry_uri, top) = if let Some(f) = args.file.as_deref() {
+    let (entry_uri, top) = if let Some(f) = target_path(args) {
         let p = Path::new(f);
         if p.is_dir() {
             crate::cmds::common::load_target(
@@ -683,7 +708,14 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
                 std::process::exit(1);
             })
         } else {
-            (p.to_string_lossy().to_string(), None)
+            let path = if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                std::env::current_dir()
+                    .unwrap_or_else(|_| PathBuf::from("."))
+                    .join(p)
+            };
+            (path.to_string_lossy().to_string(), None)
         }
     } else {
         (String::new(), None)
@@ -704,10 +736,23 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
         std::process::exit(1);
     });
 
+    // Global module-nesting overview first (shared with `mcc verify`): every
+    // module in source order with its declared / declareb / funcall-generated
+    // instances, so the whole instance structure is visible before the
+    // per-module sections.
+    let hierarchy = crate::cmds::hierarchy::build_hierarchy(
+        &crate::cmds::hierarchy::collect_module_nodes(&inst, &top),
+    );
+
     // Text mode: hand-rendered sections (aligned with the user-facing
     // circuit view; the generic key: value fallback would bury the tree).
     if mcc::cli::globals().format == OutputFormat::Text {
         let mut lines = Vec::new();
+        lines.push(format!("===== Hierarchy: {top} ====="));
+        let mut htext = String::new();
+        crate::cmds::hierarchy::render_hierarchy_text(&mut htext, &hierarchy);
+        lines.push(htext.trim_end().to_string());
+        lines.push(String::new());
         render_dianlu_section(&inst, &top, &mut lines);
         let rendered = lines.join("\n");
         if let Some(path) = &mcc::cli::globals().output {
@@ -718,7 +763,12 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
         return Ok(());
     }
 
-    let data = json!({ "type": "dianlu", "top": top, "sections": dianlu_sections(&inst, &top) });
+    let data = json!({
+        "type": "dianlu",
+        "top": top,
+        "hierarchy": hierarchy,
+        "sections": dianlu_sections(&inst, &top),
+    });
     output(&data, args.span)
 }
 

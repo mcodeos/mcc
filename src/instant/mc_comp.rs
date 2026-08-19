@@ -53,6 +53,10 @@ pub struct McComponentInst {
 
     /// Degraded instance (instantiation failed, created as placeholder to prevent dangling pins)
     pub degraded: bool,
+
+    /// Expansion provenance: index into the owning module's `ExpansionLog`.
+    /// None = created at module top level (no active expansion).
+    pub expansion_id: Option<usize>,
 }
 
 impl McComponentInst {
@@ -69,6 +73,7 @@ impl McComponentInst {
             nc: false,
             origin: InstOrigin::Declared,
             degraded: false,
+            expansion_id: None,
         };
 
         inst.init_pins();
@@ -88,6 +93,7 @@ impl McComponentInst {
             nc: false,
             origin: InstOrigin::Declared,
             degraded: true,
+            expansion_id: None,
         }
     }
 
@@ -115,6 +121,7 @@ impl McComponentInst {
             nc,
             origin: InstOrigin::Declared,
             degraded: false,
+            expansion_id: None,
         };
 
         inst.init_pins();
@@ -134,6 +141,7 @@ impl McComponentInst {
             nc: true,
             origin: InstOrigin::Declared,
             degraded: false,
+            expansion_id: None,
         };
 
         inst.init_pins();

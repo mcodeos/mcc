@@ -89,6 +89,9 @@ pub use instant::mc_bus::McBusInst;
 pub use instant::mc_comp::McComponentInst;
 pub use instant::mc_mod::McModuleInst;
 pub use instant::mc_net::NetPoint;
+pub use instant::provenance::{
+    ExpansionKind, ExpansionLog, ExpansionRecord, ProductGroup, ProductGroups, StatementNode,
+};
 pub use semantic::common::ConnDir;
 
 // ── Query ──
