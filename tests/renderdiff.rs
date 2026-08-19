@@ -346,7 +346,7 @@ fn renderdiff_geom_double_writes_baseline() {
 ///   the `'` modifier drives it; this only pins the result).
 /// - S7: zero label overlaps across all layers (baseline was mic=1).
 /// - S8: every NC device carries the NC_ prefix (hbl: mcu513 X6,
-///   mic wm7121/dio1/dio2/CAP_1/RES_1, speaker DIO_ESD_1/2).
+///   mic wm7121/dio1/dio2/_C1/_R1, speaker _DIO_ESD1/2).
 /// - S9: zero dangling single-endpoint signal nets (baseline was 7).
 #[test]
 fn renderdiff_device_contracts_s3_to_s9_green_after_p75() {
@@ -378,6 +378,6 @@ fn renderdiff_device_contracts_s3_to_s9_green_after_p75() {
     let nc_total: usize = readings.iter().map(|r| r.g13.s8_nc_total).sum();
     assert_eq!(
         nc_total, 8,
-        "hbl has 8 NC devices (X6, wm7121, dio1, dio2, mic CAP_1/RES_1, speaker DIO_ESD_1/2)"
+        "hbl has 8 NC devices (X6, wm7121, dio1, dio2, mic _C1/_R1, speaker _DIO_ESD1/2)"
     );
 }

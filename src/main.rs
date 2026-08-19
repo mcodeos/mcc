@@ -166,6 +166,7 @@ fn main() -> ExitCode {
         | Some(Command::Query(_)) => false,
         Some(Command::Export(_)) => false,
         Some(Command::Parse(_)) | Some(Command::Check(_)) | Some(Command::Extract(_)) => false,
+        Some(Command::Verify(_)) => false,
         Some(Command::Build(_)) | Some(Command::Def(_)) | Some(Command::Erc(_)) => false,
         Some(Command::Refs(_)) | Some(Command::Convert(_)) | Some(Command::Report(_)) => false,
         None => false,
@@ -197,7 +198,8 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
         | Some(Command::Extract(_))
         | Some(Command::Show(_))
         | Some(Command::List(_))
-        | Some(Command::Build(_)) => Some(mcc::cli::globals().format),
+        | Some(Command::Build(_))
+        | Some(Command::Verify(_)) => Some(mcc::cli::globals().format),
         Some(Command::Search(a)) => {
             if a.json {
                 Some(OutputFormat::Json)
@@ -236,6 +238,10 @@ fn dispatch(cli: Cli) -> Result<ExitCode> {
                 mcc::set_trace_stdout_suppressed(true);
             }
             let outcome = cmds::check::run(&args)?;
+            Ok(ExitCode::from(outcome.exit_code.clamp(0, 255) as u8))
+        }
+        Some(Command::Verify(args)) => {
+            let outcome = cmds::verify::run(&args)?;
             Ok(ExitCode::from(outcome.exit_code.clamp(0, 255) as u8))
         }
         Some(Command::Extract(args)) => {

@@ -1113,7 +1113,7 @@ fn build_mc_vec_graph_inner(
         let mut fcall_counts: std::collections::HashMap<String, usize> =
             std::collections::HashMap::new();
         for b in &graph.boxes {
-            if let crate::instant::insttab::InstOrigin::FuncCall { ref fn_name } = b.origin {
+            if let crate::instant::insttab::InstOrigin::FuncCall { ref fn_name, .. } = b.origin {
                 *fcall_counts.entry(fn_name.clone()).or_insert(0) += 1;
             }
         }

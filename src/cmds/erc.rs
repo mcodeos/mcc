@@ -61,7 +61,7 @@ fn run_local(args: &ErcArgs) -> Result<()> {
 
     // ── Single-point nets ──
     for (name, points) in &inst.nets {
-        if name.starts_with("__net_") || name == "NC" {
+        if mcc::instant::mc_net::is_anon_net_name(name) || name == "NC" {
             continue;
         }
         if points.len() <= 1 {
@@ -102,7 +102,7 @@ fn run_local(args: &ErcArgs) -> Result<()> {
     let mut floating = 0u32;
 
     for (name, points) in &inst.nets {
-        if name.starts_with("__net_") || name.as_str() == "NC" {
+        if mcc::instant::mc_net::is_anon_net_name(name) || name.as_str() == "NC" {
             continue;
         }
         let drivers: Vec<_> = points

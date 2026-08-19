@@ -335,6 +335,10 @@ pub struct McFunction {
     pub returns: McFuncReturn,
     pub insts: McInstances,
     pub lines: Vec<McPhrase>,
+    /// Source byte offset of each body line, parallel to `lines`. Used by
+    /// Pass2 func-body expansion to attribute anonymous instance names and
+    /// connection provenance to the exact source line of the construction.
+    pub line_offsets: Vec<u32>,
     /// Conditional blocks (if/else if/else) parsed from the function body.
     /// Lines are pre-parsed into McPhrase; evaluated at instantiation time
     /// against actual parameter values.
@@ -348,6 +352,12 @@ pub struct McFunction {
 }
 
 impl McFunction {
+    /// The file this function was parsed from. `None` only if the body was
+    /// never parsed, which means there are no body lines to expand.
+    pub fn source_uri(&self) -> Option<&crate::McURI> {
+        self.uri.as_ref()
+    }
+
     pub fn new(node: &AstNode) -> Option<Self> {
         // MCAST_FUNCTION
         // |- MCAST_NAME - MCAST_PARAM (option) - MCAST_BODY
@@ -368,6 +378,7 @@ impl McFunction {
             returns: McFuncReturn::Implicit,
             insts: McInstances::new(),
             lines: Vec::new(),
+            line_offsets: Vec::new(),
             conds: Vec::new(),
             called_time: 0,
             anon_counter: 1,
@@ -499,6 +510,10 @@ impl McFunction {
                             }
                             match McPhrase::new(&subnode, &mut wrapper) {
                                 Some(net) => {
+                                    // Keep the source byte offset of this body line
+                                    // parallel to `lines` so Pass2 can attribute
+                                    // anonymous instances / connections to the exact line.
+                                    self.line_offsets.push(subnode.get_pos() as u32);
                                     self.lines.push(net);
                                 }
                                 None => {

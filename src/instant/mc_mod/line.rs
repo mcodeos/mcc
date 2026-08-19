@@ -2863,7 +2863,7 @@ impl McModuleInst {
                                 if let Some(real_name) = reusable {
                                     self.auto_inst_map.insert(key, real_name);
                                 } else {
-                                    let stub = self.auto_name(&format!("@?{safe}"));
+                                    let (stub, _) = self.auto_name(&format!("@?{safe}"));
                                     self.auto_inst_map.insert(key, stub);
                                 }
                             }

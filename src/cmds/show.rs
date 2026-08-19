@@ -763,10 +763,7 @@ fn render_dianlu_section(inst: &mcc::McModuleInst, path: &str, lines: &mut Vec<S
 
     lines.push("Connections:".to_string());
     for conn in &inst.connections {
-        let net = conn
-            .net_name
-            .clone()
-            .unwrap_or_else(|| format!("__net_{}", conn.id));
+        let net = conn.effective_net_name();
         if net == "NC" {
             continue;
         }
@@ -834,10 +831,7 @@ fn dianlu_sections(inst: &mcc::McModuleInst, path: &str) -> Vec<Value> {
         .connections
         .iter()
         .filter_map(|conn| {
-            let net = conn
-                .net_name
-                .clone()
-                .unwrap_or_else(|| format!("__net_{}", conn.id));
+            let net = conn.effective_net_name();
             if net == "NC" {
                 return None;
             }
@@ -1631,10 +1625,7 @@ pub(crate) fn nets_map(top: &str) -> BTreeMap<String, Vec<String>> {
 
     let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for conn in &inst.connections {
-        let net = conn
-            .net_name
-            .clone()
-            .unwrap_or_else(|| format!("__net_{}", conn.id));
+        let net = conn.effective_net_name();
         if net == "NC" {
             continue;
         }

@@ -11,7 +11,7 @@
 use super::expand::expand_match;
 use super::McModuleInst;
 use crate::db::diagnostic::diagnostic::{diagnostic_log, DiagnosticLevel};
-use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
+use crate::instant::mc_net::{line_of_offset, ConnectionInst, InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{ConnDir, Shape, ShapeMatcher};
@@ -160,13 +160,20 @@ impl McModuleInst {
         );
 
         // ★ P9-A2: compute source_span and port_group once for this connection
-        let source_span: Option<(String, u32)> = self.current_line_span.as_ref().and_then(|s| {
-            // Convert byte offset to line number using the thread-local LineIndex.
-            let line = crate::db::infra::context::lookup_line_col(&self.def_uri, s.start as u32)
-                .map(|(line, _col)| line)
-                .unwrap_or(1);
-            Some((self.def_uri.clone(), line))
-        });
+        let source_span: Option<(String, u32)> =
+            match (&self.current_func_span, &self.current_line_span) {
+                // Func-body expansion context (func may live in another file)
+                (Some((uri, line)), _) => Some((uri.to_string(), *line)),
+                (None, Some(s)) => {
+                    // Convert byte offset to line number. Prefer the disk-backed
+                    // cache: the parse-time thread-local LineIndex is unreliable here
+                    // because instantiation runs after parsing (stale entries can
+                    // report line 1 for out-of-range offsets).
+                    let line = line_of_offset(&self.def_uri, s.start as u32);
+                    Some((self.def_uri.clone(), line))
+                }
+                (None, None) => None,
+            };
         // ★ P9-A2: prefer current_port_group (set from source code context),
         // fall back to port_group_from_points.
         let port_group: Option<String> = self.current_port_group.clone().or_else(|| {
@@ -460,12 +467,19 @@ impl McModuleInst {
         dir: ConnDir,
         lane: Option<u16>,
     ) -> ConnectionInst {
-        let source_span: Option<(String, u32)> = self.current_line_span.as_ref().and_then(|s| {
-            let line = crate::db::infra::context::lookup_line_col(&self.def_uri, s.start as u32)
-                .map(|(line, _col)| line)
-                .unwrap_or(1);
-            Some((self.def_uri.clone(), line))
-        });
+        let source_span: Option<(String, u32)> =
+            match (&self.current_func_span, &self.current_line_span) {
+                // Func-body expansion context (func may live in another file)
+                (Some((uri, line)), _) => Some((uri.to_string(), *line)),
+                (None, Some(s)) => {
+                    // Use the disk-backed line cache: the parse-time thread-local
+                    // LineIndex is no longer on the stack when Pass2 instantiation
+                    // runs, so lookup_line_col would fall back to line 1.
+                    let line = line_of_offset(&self.def_uri, s.start as u32);
+                    Some((self.def_uri.clone(), line))
+                }
+                (None, None) => None,
+            };
         // ★ P9-A2: prefer current_port_group (set from source code context),
         // fall back to port_group_from_points (extracted from point paths).
         let port_group: Option<String> = self.current_port_group.clone().or_else(|| {

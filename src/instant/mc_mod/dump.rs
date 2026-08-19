@@ -496,11 +496,9 @@ impl McModuleInst {
             .sub_modules
             .iter()
             .filter(|s| {
-                // Names with underscore followed by digit (auto_name generated) are inline module construction products
+                // auto_name generated inline module constructions are named `_<type><n>`
                 let n = &s.name;
-                n.rsplit_once('_')
-                    .and_then(|(_, suf)| suf.parse::<u32>().ok())
-                    .is_some()
+                n.starts_with('_') && n.chars().last().is_some_and(|c| c.is_ascii_digit())
             })
             .count();
         mcc_dbg!("inst::dump", 

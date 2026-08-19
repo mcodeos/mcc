@@ -34,7 +34,7 @@ pub fn build_spice(tree: &McModuleInst, table: &InstTable, top: &str) -> (String
     let mut inst_nodes: HashMap<String, BTreeSet<String>> = HashMap::new();
 
     for (net_name, points) in &netmap {
-        if net_name == "NC" || net_name.starts_with("__net_") {
+        if net_name == "NC" || crate::instant::mc_net::is_anon_net_name(net_name) {
             continue;
         }
         let node = net_name.replace('.', "_").replace('-', "_");
@@ -56,7 +56,10 @@ pub fn build_spice(tree: &McModuleInst, table: &InstTable, top: &str) -> (String
         if node_list.len() >= 2 {
             out.push_str(&format!(
                 "{}{} {} {}\n",
-                prefix, inst, node_list[0], node_list[1]
+                prefix,
+                strip_anon_line(inst),
+                node_list[0],
+                node_list[1]
             ));
             total += 1;
         }
@@ -64,6 +67,20 @@ pub fn build_spice(tree: &McModuleInst, table: &InstTable, top: &str) -> (String
 
     out.push_str(&format!(".ENDS {}\n\n.END\n", top));
     (out, Value::Null, total)
+}
+
+/// Strip a legacy `@line` provenance suffix from an anonymous instance name
+/// (`_C1@62` -> `_C1`) for robustness; engine-generated names no longer carry
+/// it, but an `@` that is not followed by digits (e.g. the internal
+/// `@_phantom_1` isolation node) is left untouched.
+fn strip_anon_line(name: &str) -> &str {
+    if let Some(idx) = name.find('@') {
+        let rest = &name[idx + 1..];
+        if !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit()) {
+            return &name[..idx];
+        }
+    }
+    name
 }
 
 fn spice_prefix_for_class(class: &str) -> String {

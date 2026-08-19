@@ -774,7 +774,9 @@ pub(crate) fn run_erc() -> RpcResult {
         .nets
         .iter()
         .filter(|(name, points)| {
-            !name.starts_with("__net_") && points.len() <= 1 && name.as_str() != "NC"
+            !crate::instant::mc_net::is_anon_net_name(name)
+                && points.len() <= 1
+                && name.as_str() != "NC"
         })
         .map(|(name, _)| name)
         .collect();
@@ -814,7 +816,7 @@ pub(crate) fn run_erc() -> RpcResult {
     let mut floating = 0u32;
 
     for (name, points) in &inst.nets {
-        if name.starts_with("__net_") || name.as_str() == "NC" {
+        if crate::instant::mc_net::is_anon_net_name(name) || name.as_str() == "NC" {
             continue;
         }
         // Classify points: is_driver (Out, InOut, Power, Analog) vs is_load (In, ...)
@@ -961,7 +963,7 @@ pub(crate) fn extract_from_uri(entry: &Path, top: Option<&str>, target: &str) ->
                     use std::collections::BTreeMap;
                     let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
                     for conn in &inst.connections {
-                        let net = conn.net_name.clone().unwrap_or_else(|| format!("__net_{}", conn.id));
+                        let net = conn.effective_net_name();
                         if net == "NC" { continue; }
                         let bucket = nets.entry(net).or_default();
                         for p in &conn.points {

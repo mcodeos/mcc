@@ -25,3 +25,4 @@ pub mod report;
 pub mod search;
 pub mod server;
 pub mod show;
+pub mod verify;

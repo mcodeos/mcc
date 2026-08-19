@@ -350,10 +350,7 @@ pub fn print_connections(inst: &MccProjectTree, depth: usize) {
         );
         for conn in &inst.connections {
             let points: Vec<_> = conn.points.iter().map(|p| p.path.clone()).collect();
-            let net_name = conn
-                .net_name
-                .clone()
-                .unwrap_or_else(|| format!("__net_{}", conn.id));
+            let net_name = conn.effective_net_name();
             let conn_line = if points.len() >= 2 {
                 format!("{} - {}", points[0], points[1])
             } else {

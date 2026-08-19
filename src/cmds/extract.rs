@@ -145,10 +145,7 @@ fn extract_nets(uri: &McURI, _top_name: &str, ident: &McIds, args: &ExtractArgs)
     use std::collections::BTreeMap;
     let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for conn in &inst.connections {
-        let net = conn
-            .net_name
-            .clone()
-            .unwrap_or_else(|| format!("__net_{}", conn.id));
+        let net = conn.effective_net_name();
         if net == "NC" {
             continue;
         }

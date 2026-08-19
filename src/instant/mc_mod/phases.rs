@@ -566,7 +566,8 @@ impl McModuleInst {
 
             // ★ Set current line span for diagnostic position reporting.
             //   Used as fallback when NetPoint.src_pos is unavailable (e.g., E2003/E2005).
-            self.current_line_span = line_spans.get(idx).cloned();
+            let line_span = line_spans.get(idx).cloned();
+            self.current_line_span = line_span.clone();
 
             if let Err(e) = self.process_line(line) {
                 // ★ Single connection line failure doesn't interrupt, record diagnostics then continue processing subsequent lines
@@ -578,6 +579,11 @@ impl McModuleInst {
                     ),
                 );
             }
+            // ★ Restore the current line span: recursive expansions (user
+            // funcs / instance methods) overwrite it, so without this restore
+            // connections created after the recursion (e.g. a transposed
+            // declareb) are attributed to the callee's line instead.
+            self.current_line_span = line_span;
         }
         // Clear after loop to avoid stale span leaking into post-line checks
         self.current_line_span = None;
@@ -1242,6 +1248,9 @@ impl McModuleInst {
         let outer_auto_inst = self.auto_inst_map.clone();
         for (_li, line) in func.lines.iter().enumerate() {
             self.auto_inst_map = outer_auto_inst.clone();
+            // Attribute anonymous instances/connections of this body line
+            // to its exact source line in the func's own file.
+            let saved_ctx = self.enter_func_line(&func, Some(_li));
             let substituted = Self::substitute_line(line, &bindings, None);
             let prefixed = Self::prefix_instance_line_with_skip(&substituted, inst_name, &skip);
             if let Err(e) = self.process_line(&prefixed) {
@@ -1253,6 +1262,7 @@ impl McModuleInst {
                     ),
                 );
             }
+            self.current_func_span = saved_ctx;
         }
         // ── P4 backstop: strip host-synthesized interface endpoints leaked during body processing ──
         // (flash's `flash.in ~ CAP_1.1` / `CAP_1.2 ~ flash.out` etc.)

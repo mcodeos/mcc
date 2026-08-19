@@ -149,7 +149,7 @@ fn projection_main_layer_matches_pass2_golden() {
     // ── main layer GND: 4 nets merged into one (rule a), endpoints ⊆ golden main.GND's 9 points ──
     //
     // ★ Known builder non-determinism (input to P7-4/G14, not a projection defect):
-    //   visit.rs's GND label net randomly adsorbs one cluster per run —— {flash.4, CAP_1.2} (Pin cluster)
+    //   visit.rs's GND label net randomly adsorbs one cluster per run —— {flash.4, _C1.2} (Pin cluster)
     //   or {mic.dc.GND} (Label cluster); the other cluster is absent from that run's block.nets.
     //   The two shapes project to 8 / 7 points respectively; their union equals golden's 9 points
     //   (under the Pin-cluster shape, mic.dc.GND is re-added by promote at the graph layer).
@@ -167,7 +167,7 @@ fn projection_main_layer_matches_pass2_golden() {
         "mic.dc.GND",
         "speaker.USB_VBUS_1.GND",
         "flash.4",
-        "CAP_1.2",
+        "_C1.2",
     ]
     .iter()
     .map(|s| s.to_string())

@@ -135,6 +135,9 @@ pub enum Command {
     /// Syntax/semantic check, output diagnostics (corresponding to design doc §8.3)
     Check(CheckArgs),
 
+    /// Verify Pass2 expansion against Pass1 source (instances + connections, statement by statement)
+    Verify(VerifyArgs),
+
     /// Extract various targets (corresponding to design doc §9)
     Extract(ExtractArgs),
 
@@ -285,6 +288,16 @@ pub struct CheckArgs {
     /// Run pin usage checks (unused pins, conflicting pin options)
     #[arg(long)]
     pub pins: bool,
+}
+
+// ============================================================================
+// verify
+// ============================================================================
+
+#[derive(Parser, Debug)]
+pub struct VerifyArgs {
+    /// Target file or project directory to verify
+    pub target: Option<String>,
 }
 
 // ============================================================================
