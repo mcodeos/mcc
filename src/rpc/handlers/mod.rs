@@ -1435,6 +1435,76 @@ pub fn func_nets_map(func: &crate::semantic::mc_func::McFunction) -> BTreeMap<St
     nets
 }
 
+/// Natural ordering for pin IDs in the `pins` view of `show dump` / `show
+/// pins`.
+///
+/// Rule:
+///   * pure-numeric pin IDs sort first, numerically — `1, 2, ..., 9, 10,
+///     11` instead of lexicographic `1, 10, 11, 2, ...`;
+///   * non-numeric pin IDs sort after them, "naturally": letter runs
+///     compare lexically while embedded digit runs compare numerically, so
+///     `A9 < A10` and `B1 > A9`.
+fn pin_id_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    let a_numeric = !a.is_empty() && a.bytes().all(|c| c.is_ascii_digit());
+    let b_numeric = !b.is_empty() && b.bytes().all(|c| c.is_ascii_digit());
+    // Numeric IDs first, then natural comparison within each group.
+    a_numeric
+        .cmp(&b_numeric)
+        .reverse()
+        .then_with(|| natural_cmp(a, b))
+}
+
+/// Compare two strings run-by-run: digit runs numerically, every other run
+/// lexically (natural sort). `A9 < A10`, `A2 < A10`, `PA0 < PB0`.
+fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    let (ba, bb) = (a.as_bytes(), b.as_bytes());
+    let (mut ia, mut ib) = (0usize, 0usize);
+    loop {
+        if ia == ba.len() && ib == bb.len() {
+            return std::cmp::Ordering::Equal;
+        }
+        if ia == ba.len() {
+            return std::cmp::Ordering::Less;
+        }
+        if ib == bb.len() {
+            return std::cmp::Ordering::Greater;
+        }
+        if ba[ia].is_ascii_digit() && bb[ib].is_ascii_digit() {
+            // Both runs are digits: compare them numerically.
+            let (sa, sb) = (ia, ib);
+            while ia < ba.len() && ba[ia].is_ascii_digit() {
+                ia += 1;
+            }
+            while ib < bb.len() && bb[ib].is_ascii_digit() {
+                ib += 1;
+            }
+            match numeric_str_cmp(&a[sa..ia], &b[sb..ib]) {
+                std::cmp::Ordering::Equal => {}
+                ord => return ord,
+            }
+        } else {
+            match ba[ia].cmp(&bb[ib]) {
+                std::cmp::Ordering::Equal => {
+                    ia += 1;
+                    ib += 1;
+                }
+                ord => return ord,
+            }
+        }
+    }
+}
+
+/// Compare two digit-run strings numerically (`"9" < "10"`). Leading zeros
+/// are ignored so `"01"` ties with `"1"`.
+fn numeric_str_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    let ta = a.trim_start_matches('0');
+    let tb = b.trim_start_matches('0');
+    match ta.len().cmp(&tb.len()) {
+        std::cmp::Ordering::Equal => ta.cmp(tb),
+        ord => ord,
+    }
+}
+
 /// Build the pin JSON view (pins + interfaces + name/id mappings). Single
 /// implementation shared by the RPC handlers and the local CLI `show`
 /// commands so both stay in parity.
@@ -1570,9 +1640,12 @@ pub fn pins_json(pins: &crate::McPins) -> Value {
     }
 
     // For each physical pin, the interface instances that occupy it.
-    let pin_list: Vec<Value> = pins
-        .pins
-        .iter()
+    // Pins are listed in natural order (see `pin_id_cmp`) so numeric pin
+    // IDs appear in numeric sequence instead of lexicographic order.
+    let mut pin_entries: Vec<_> = pins.pins.iter().collect();
+    pin_entries.sort_by(|(a, _), (b, _)| pin_id_cmp(a, b));
+    let pin_list: Vec<Value> = pin_entries
+        .into_iter()
         .map(|(pin_id, pin)| {
             let mut desc = String::new();
             for val in pin.values.iter() {
@@ -2720,5 +2793,30 @@ mod tests {
 
         fs::remove_dir_all(&tmp).unwrap();
         crate::db::infra::init::mcb_set_project_root(&saved);
+    }
+
+    /// The `pins` view orders pin IDs naturally (see `pin_id_cmp`): numeric
+    /// IDs first in numeric order, then non-numeric IDs with embedded digit
+    /// runs compared numerically.
+    #[test]
+    fn pin_id_cmp_orders_numeric_then_natural() {
+        let mut ids = vec![
+            "10", "2", "1", "12", "11", "3", "4", "9", "5", "6", "7", "8",
+        ];
+        ids.sort_by(|a, b| pin_id_cmp(a, b));
+        assert_eq!(
+            ids,
+            vec!["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"]
+        );
+
+        // Non-numeric IDs follow: letter runs lexically, digit runs numerically.
+        let mut mixed = vec!["PA10", "A2", "B1", "PA0", "A10", "AB", "A1"];
+        mixed.sort_by(|a, b| pin_id_cmp(a, b));
+        assert_eq!(mixed, vec!["A1", "A2", "A10", "AB", "B1", "PA0", "PA10"]);
+
+        // Numeric pins come before letter pins.
+        let mut mixed2 = vec!["B", "2", "A", "1"];
+        mixed2.sort_by(|a, b| pin_id_cmp(a, b));
+        assert_eq!(mixed2, vec!["1", "2", "A", "B"]);
     }
 }

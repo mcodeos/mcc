@@ -360,3 +360,82 @@ module main
         results
     );
 }
+
+// ── Interface dynamic pins with default parameters (§2.20 + IFACE) ─────────
+//
+// An interface whose only pins are dynamic (`1:count = 1:count`) with a
+// default parameter (`count::INT = 1`) must resolve via the default when the
+// call site passes no arguments. Previously `IO::IF_GPIO()` left `count`
+// unbound, so `1:count` could not expand and the interface was treated as
+// having no top-level pins (E3180 IFACE_NO_TOPLEVEL_PINS), even though the
+// definition declared a usable default.
+
+#[test]
+fn interface_dynamic_pins_resolve_with_default_param() {
+    let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+
+    mcc::mcc_init_no_lib();
+    mcc::mcc_set_system_root(std::path::Path::new(""));
+    mcc::mcc_clear_workspace();
+
+    let uri: McURI = "/mcc/iface-default-dynamic-pins.mc".to_string();
+    mcc::mcc_load_from_string(
+        &uri,
+        r#"
+interface IF_GPIO(count::INT = 1, role = Controller)
+{
+    pins = [
+        1:count = 1:count
+    ]
+
+    role Controller {
+        name = "GPIO Controller"
+        peer = Peripheral
+    }
+
+    role Peripheral {
+        name = "GPIO Peripheral"
+        peer = Controller
+    }
+}
+
+component IF1_GPIO
+{
+    pins = [
+        1 = IO::IF_GPIO()
+    ]
+}
+
+module main
+{
+    IF1_GPIO u1
+}
+"#,
+    );
+    let result = mcc::mcc_build(&McIds::from("main"), &uri);
+    result.expect("build failed");
+
+    let diags = mcc::mcc_diagnose_all();
+    let iface_warnings: Vec<&mcc::McDiagnostic> = diags
+        .iter()
+        .filter(|d| d.code == mcc::errcodes::IFACE_NO_TOPLEVEL_PINS)
+        .collect();
+    assert!(
+        iface_warnings.is_empty(),
+        "E3180 fired for interface with default count: {:?}",
+        iface_warnings
+    );
+
+    let cmie = mcc::get_def(&McIds::from("IF1_GPIO"), &uri).expect("IF1_GPIO not found");
+    let mcc::McCMIE::Component(comp) = cmie else {
+        panic!("IF1_GPIO is not a Component");
+    };
+    // count defaults to 1 -> pin 1 registered, member name from the dynamic line
+    assert_eq!(comp.pins.count(), 1, "expected 1 pin for default count=1");
+    assert!(
+        comp.pins.pins.contains_key("1"),
+        "pin 1 should be registered, got pins: {:?}",
+        comp.pins.pins.keys().collect::<Vec<_>>()
+    );
+    drop(lock);
+}
