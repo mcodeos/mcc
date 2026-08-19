@@ -1704,13 +1704,33 @@ impl McPins {
     }
     /// Build (name, i64) bindings from an interface's constructor parameters
     /// for resolving dynamic pin ranges like `1:count`.
+    ///
+    /// Explicit integer arguments win; parameters omitted at the call site
+    /// fall back to their declared default value (e.g. `count::INT = 1`), so
+    /// a bare `IO::GPIO()` still resolves `1:count` with `count = 1`.
     fn build_interface_param_bindings(declare: &Mc2Interface) -> Vec<(String, i64)> {
+        // name -> default value string from the interface declaration
+        let defaults: std::collections::HashMap<String, String> = declare
+            .base
+            .params
+            .get_params_with_defaults()
+            .into_iter()
+            .filter_map(|(name, default)| name.get_primary_name().map(|n| (n, default)))
+            .collect();
+
         let mut bindings = Vec::new();
         let param_names = declare.base.params.names();
         for (i, param_name) in param_names.iter().enumerate() {
             if let Some(val) = declare.params.get(i) {
                 if let McParamValue::Int(int_val) = val {
                     bindings.push((param_name.clone(), int_val.value));
+                    continue;
+                }
+            }
+            // No explicit integer argument: fall back to the declared default if numeric.
+            if let Some(default) = defaults.get(param_name) {
+                if let Ok(v) = default.parse::<i64>() {
+                    bindings.push((param_name.clone(), v));
                 }
             }
         }
