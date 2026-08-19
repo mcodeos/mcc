@@ -1208,7 +1208,7 @@ module top {
 
         // The arity-0 gate must intercept: the no-arg body `A -> GND_PIN` must
         // NOT be expanded, so no single net may contain both c1.A and GND_PIN.
-        let shorted = inst.nets.values().any(|pts| {
+        let shorted = inst.nets.iter().any(|(_, pts)| {
             pts.iter().any(|p| p.path == "c1.A") && pts.iter().any(|p| p.path.ends_with("GND_PIN"))
         });
         assert!(

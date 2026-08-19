@@ -99,8 +99,8 @@ fn run_local(args: &ErcArgs) -> Result<()> {
     // ── Unconnected ports ──
     let all_paths: std::collections::HashSet<&str> = inst
         .nets
-        .values()
-        .flat_map(|pts| pts.iter())
+        .iter()
+        .flat_map(|(_, pts)| pts.iter())
         .map(|p| p.path.as_str())
         .collect();
 

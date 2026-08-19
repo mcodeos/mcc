@@ -41,15 +41,11 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::vector::graph::graphdef::RailDecoration;
-use crate::vector::graph::naming;
 use crate::vector::graph::netdef::{IoDirection, NetRole};
 use crate::vector::graph::{
-    AnchorHint, BoxKind, EndpointRef, EntryPoint, EntrySide, IoSummary, McVecBox, McVecGraph,
-    NetKind, Symbol, VizNet,
+    AnchorHint, BoxKind, EndpointRef, EntrySide, McVecBox, McVecGraph, NetKind, VizNet,
 };
 use crate::vector::model::RailClass;
-
-use super::normalize::{compute_canvas, normalize_positions};
 
 /// Whether this is a power/ground label box.
 ///
@@ -365,315 +361,15 @@ fn drop_top_passives(graph: &mut McVecGraph) {
 // Must run **after layout, before routing** (at this point boxes have coordinates, can judge "long" by span; routing hasn't run yet,
 // modifying boxes is safe). Hooked in api.rs Phase 1.8. Returns new canvas size (added label boxes, boundary needs recalculation).
 
-const NETLABEL_LONG_SPAN: f64 = 650.0; // Span over this value (px) to convert to air wire (adjustable)
-const NETLABEL_GAP: f64 = 42.0; // Distance of label from pin
-const NETLABEL_W: f64 = 14.0;
-const NETLABEL_H: f64 = 14.0;
-
-/// Pin coordinates = box edge + offset (consistent with renderer pin_position, inlined to avoid cross-module dependencies).
-fn pin_xy(b: &McVecBox, ep: &EntryPoint) -> (f64, f64) {
-    match ep.side {
-        EntrySide::Top => (b.x + b.w * ep.offset, b.y),
-        EntrySide::Bottom => (b.x + b.w * ep.offset, b.y + b.h),
-        EntrySide::Left => (b.x, b.y + b.h * ep.offset),
-        EntrySide::Right => (b.x + b.w, b.y + b.h * ep.offset),
-    }
-}
-
 /// ★ Stage 1 main entry: convert long signal nets to net label stubs. Returns `Some(new canvas)` if changed, else `None`.
-pub fn apply_net_labels(graph: &mut McVecGraph) -> Option<(f64, f64)> {
-    // 1. (box_id, pin_id) → (pin coordinates, side); record which boxes are labels/flags (PowerLabel).
-    let mut pin_pos: HashMap<(i64, i64), ((f64, f64), EntrySide)> = HashMap::new();
-    let mut label_boxes: HashSet<i64> = HashSet::new();
-    // ★ Stage A (A3): a net touching any two-pin passive must keep a real wire (never an air-wire),
-    //   otherwise a plain series R/C loop turns into unreadable dangling labels (see image2).
-    let mut passive_boxes: HashSet<i64> = HashSet::new();
-    for b in &graph.boxes {
-        if b.kind == BoxKind::PowerLabel {
-            label_boxes.insert(b.id);
-        }
-        if b.is_two_pin_passive() {
-            passive_boxes.insert(b.id);
-        }
-        for ep in &b.entry_points {
-            pin_pos.insert((b.id, ep.pin_id), (pin_xy(b, ep), ep.side.clone()));
-        }
-    }
-
-    // New box / new net ids increment from existing max value, eliminating collisions (two namespaces are independent).
-    let mut next_box = graph.boxes.iter().map(|b| b.id).max().unwrap_or(0) + 1;
-    let mut next_net = graph.nets.iter().map(|n| n.nid).max().unwrap_or(0) + 1;
-
-    let mut new_boxes: Vec<McVecBox> = Vec::new();
-    let mut new_stubs: Vec<VizNet> = Vec::new();
-    let mut drop_idx: HashSet<usize> = HashSet::new();
-
-    for (idx, net) in graph.nets.iter().enumerate() {
-        // ★ P7-5 S9: single-endpoint signal-class nets are module-boundary
-        // signals whose pseudo-endpoint was removed by the projection pass.
-        // The router gives them an empty route — they would render as
-        // nothing (dangling). Terminate the open end on a net-label stub,
-        // same style as the target figure's edge labels.
-        if net.endpoints.len() == 1 {
-            let named = matches!(net.kind, NetKind::Signal | NetKind::SubModuleIO)
-                && !net.name.is_empty()
-                && !net.name.starts_with("__net");
-            let e = &net.endpoints[0];
-            if named && !label_boxes.contains(&e.box_id) {
-                if let Some(((px, py), side)) = pin_pos.get(&(e.box_id, e.pin_id)).cloned() {
-                    let (is_gnd, lio) = if naming::is_ground(&net.name) {
-                        (true, IoDirection::Ground)
-                    } else {
-                        (false, IoDirection::Passive)
-                    };
-                    push_label_stub(
-                        &net.name,
-                        &net.kind,
-                        is_gnd,
-                        lio,
-                        e,
-                        (px, py),
-                        side,
-                        &graph.boxes,
-                        &mut next_box,
-                        &mut next_net,
-                        &mut new_boxes,
-                        &mut new_stubs,
-                    );
-                    drop_idx.insert(idx);
-                }
-            }
-            continue;
-        }
-        if !matches!(net.kind, NetKind::Signal) {
-            continue; // Only process signal nets
-        }
-        if net.endpoints.len() < 2 {
-            continue;
-        }
-        // ★ FIX: Only convert "meaningfully named" nets to air wires. Anonymous nets (__net_N / empty name) converting to labels is meaningless
-        //   —— both ends labeled __net_25 users can't read, equals making visible wires disappear (this regression root cause). Anonymous nets drawn normally.
-        if net.name.is_empty() || net.name.starts_with("__net") {
-            continue;
-        }
-        // Either endpoint already label/flag → already "labeled", don't repeat (includes sub-graph boundary ports, power flags).
-        if net
-            .endpoints
-            .iter()
-            .any(|e| label_boxes.contains(&e.box_id))
-        {
-            continue;
-        }
-        // ★ Stage A (A3): never air-wire a net that touches a two-pin passive — its pins must
-        //   be reached by real wires.
-        if net
-            .endpoints
-            .iter()
-            .any(|e| passive_boxes.contains(&e.box_id))
-        {
-            continue;
-        }
-        // ★ Stage A (A3): a net spanning only two boxes is a plain point-to-point wire, not a
-        //   long bus worth labelling — route it normally regardless of pixel span.
-        if net.box_ids().len() < 3 {
-            continue;
-        }
-        // Endpoint coordinates + span (max pairwise distance between endpoints).
-        let pts: Vec<(f64, f64)> = net
-            .endpoints
-            .iter()
-            .filter_map(|e| pin_pos.get(&(e.box_id, e.pin_id)).map(|(p, _)| *p))
-            .collect();
-        if pts.len() < 2 {
-            continue;
-        }
-        let mut span = 0.0_f64;
-        for a in 0..pts.len() {
-            for b in (a + 1)..pts.len() {
-                let d = ((pts[a].0 - pts[b].0).powi(2) + (pts[a].1 - pts[b].1).powi(2)).sqrt();
-                if d > span {
-                    span = d;
-                }
-            }
-        }
-        if span < NETLABEL_LONG_SPAN {
-            continue; // Short nets drawn normally
-        }
-
-        // ── Long signal net → one same-name label + one short stub per endpoint ──
-        let is_gnd = naming::is_ground(&net.name);
-        let lio = if is_gnd {
-            IoDirection::Ground
-        } else {
-            IoDirection::Passive
-        };
-        for e in &net.endpoints {
-            let ((px, py), side) = match pin_pos.get(&(e.box_id, e.pin_id)) {
-                Some(v) => (v.0, v.1.clone()),
-                None => continue,
-            };
-            push_label_stub(
-                &net.name,
-                &net.kind,
-                is_gnd,
-                lio,
-                e,
-                (px, py),
-                side,
-                &graph.boxes,
-                &mut next_box,
-                &mut next_net,
-                &mut new_boxes,
-                &mut new_stubs,
-            );
-        }
-        drop_idx.insert(idx);
-    }
-
-    if new_boxes.is_empty() {
-        return None;
-    }
-
-    // Apply: delete long net, add label + stub.
-    let mut i = 0usize;
-    graph.nets.retain(|_| {
-        let keep = !drop_idx.contains(&i);
-        i += 1;
-        keep
-    });
-    let n_lbl = new_boxes.len();
-    let n_drop = drop_idx.len();
-    graph.boxes.extend(new_boxes);
-    graph.nets.extend(new_stubs);
-
-    crate::vlog!(
-        "[viz::net_label] layer '{}' bid={}: {} long signal net(s) → {} label stub(s)",
-        graph.name,
-        graph.bid,
-        n_drop,
-        n_lbl
-    );
-
-    // Labels may extend past original canvas / land in negative coordinates → renormalize + recompute canvas (no routing yet, only modifying boxes is safe).
-    normalize_positions(graph);
-    Some(compute_canvas(graph))
-}
-
-/// ★ P7-5: create one net-label box + one short stub net for a single endpoint
-/// (shared by the long-net conversion and the S9 single-endpoint rescue).
-/// The label sits `NETLABEL_GAP` away from the pin along its outward side;
-/// the label's own pin faces back so the stub is a short straight line.
-/// Steps further outward while the label rect (audit-inflated) would overlap
-/// any other box — keeps the G12 collision gate at zero.
-#[allow(clippy::too_many_arguments)]
-fn push_label_stub(
-    net_name: &str,
-    net_kind: &NetKind,
-    is_gnd: bool,
-    lio: IoDirection,
-    e: &crate::vector::graph::netdef::EndpointRef,
-    (px, py): (f64, f64),
-    side: EntrySide,
-    boxes: &[McVecBox],
-    next_box: &mut i64,
-    next_net: &mut i64,
-    new_boxes: &mut Vec<McVecBox>,
-    new_stubs: &mut Vec<VizNet>,
-) {
-    let opposite = |s: EntrySide| match s {
-        EntrySide::Right => EntrySide::Left,
-        EntrySide::Left => EntrySide::Right,
-        EntrySide::Top => EntrySide::Bottom,
-        EntrySide::Bottom => EntrySide::Top,
-    };
-    // ★ P7-5 G12 guard: try the pin's outward side first, stepping further
-    // out; when blocked (e.g. the outward direction points into a
-    // neighbouring box), flip through the other three sides before giving up.
-    // The avoidance rect uses the ESTIMATED TEXT width (the 14px label box is
-    // a click target; the rendered text is wider and is what must not hit
-    // neighbouring boxes).
-    const INFLATE: f64 = 8.0;
-    let text_w = (net_name.chars().count() as f64 * 7.0).max(NETLABEL_W);
-    let rect_clear = |bx: f64, by: f64, new_boxes: &Vec<McVecBox>| {
-        let hits = |ob: &McVecBox| {
-            bx < ob.x + ob.w + INFLATE
-                && bx + text_w + INFLATE > ob.x
-                && by < ob.y + ob.h + INFLATE
-                && by + NETLABEL_H + INFLATE > ob.y
-        };
-        // Earlier labels created by this same pass are boxes too.
-        !boxes.iter().any(hits) && !new_boxes.iter().any(hits)
-    };
-    let base_rect = |s: EntrySide| match s {
-        EntrySide::Right => (px + NETLABEL_GAP, py - NETLABEL_H / 2.0),
-        EntrySide::Left => (px - NETLABEL_GAP - NETLABEL_W, py - NETLABEL_H / 2.0),
-        EntrySide::Top => (px - NETLABEL_W / 2.0, py - NETLABEL_GAP - NETLABEL_H),
-        EntrySide::Bottom => (px - NETLABEL_W / 2.0, py + NETLABEL_GAP),
-    };
-    let step_out = |s: EntrySide, bx: &mut f64, by: &mut f64| match s {
-        EntrySide::Right => *bx += NETLABEL_W + INFLATE,
-        EntrySide::Left => *bx -= NETLABEL_W + INFLATE,
-        EntrySide::Top => *by -= NETLABEL_H + INFLATE,
-        EntrySide::Bottom => *by += NETLABEL_H + INFLATE,
-    };
-    let try_sides = [side, opposite(side), EntrySide::Top, EntrySide::Bottom];
-    let mut chosen = (base_rect(side).0, base_rect(side).1, opposite(side));
-    'outer: for s in try_sides {
-        let (mut tx, mut ty) = base_rect(s);
-        for _ in 0..4 {
-            if rect_clear(tx, ty, new_boxes) {
-                chosen = (tx, ty, opposite(s));
-                break 'outer;
-            }
-            step_out(s, &mut tx, &mut ty);
-        }
-    }
-    let (bx, by, lside) = chosen;
-
-    let box_id = *next_box;
-    *next_box += 1;
-    let pin_id = box_id; // Single pin, pin_id reuses box_id for uniqueness
-
-    let mut io = IoSummary::new();
-    io.other += 1;
-    let mut lbox = McVecBox::new_v2(
-        box_id,
-        net_name.to_string(),
-        String::new(),
-        BoxKind::PowerLabel,
-        Symbol::PowerRail { is_ground: is_gnd },
-        None,
-        None,
-        1,
-        io,
-        net_name.to_string(),
-        Vec::new(),
-    );
-    lbox.x = bx;
-    lbox.y = by;
-    lbox.w = NETLABEL_W;
-    lbox.h = NETLABEL_H;
-    lbox.entry_points = vec![EntryPoint {
-        pin_id,
-        pin_name: net_name.to_string(),
-        side: lside,
-        offset: 0.5,
-    }];
-    new_boxes.push(lbox);
-
-    let eps = vec![
-        EndpointRef::with_io(box_id, pin_id, net_name.to_string(), lio),
-        e.clone(),
-    ];
-    // stub inherits original kind → SubModuleIO air wire stubs remain purple, consistent with same-name other segments visually
-    new_stubs.push(VizNet::new(
-        *next_net,
-        net_name.to_string(),
-        net_kind.clone(),
-        NetRole::Signal,
-        eps,
-    ));
-    *next_net += 1;
+///
+/// ★ R-L (discipline 28): net labels are text on wires, not boxes.
+/// PowerLabel box creation is disabled globally. Long signal nets are
+/// handled by the wire_label_split pass instead.
+pub fn apply_net_labels(_graph: &mut McVecGraph) -> Option<(f64, f64)> {
+    // ★ R-L: disabled — net labels are rendered as text on wires, not as PowerLabel boxes.
+    // The wire_label_split pass handles long-net conversion without creating boxes.
+    None
 }
 
 // ============================================================================
@@ -683,6 +379,8 @@ fn push_label_stub(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::vector::graph::netdef::IoDirection;
+    use crate::vector::graph::{EntryPoint, IoSummary, Symbol};
 
     fn mk_rail(id: i64, name: &str, is_ground: bool) -> McVecBox {
         McVecBox::new_v2(
@@ -731,13 +429,11 @@ mod tests {
         b
     }
 
+    /// ★ R-L (discipline 28): apply_net_labels is disabled. All nets are kept as-is;
+    /// PowerLabel boxes are no longer created.
     #[test]
-    fn net_label_converts_long_signal_net() {
-        // Stage A (A3): a net touching only 2 boxes is a point-to-point wire
-        // and is NOT converted to labels regardless of span.
-        // This test verifies the 3-box minimum requirement.
+    fn net_label_disabled_keeps_all_nets() {
         let mut g = McVecGraph::new(0, "main".into());
-        // A (right) at (100,50) → C (pass-through) → B (left) at (1000,50)
         g.boxes
             .push(placed(mk_mod(1, "A"), 0.0, 100.0, 11, EntrySide::Right));
         g.boxes
@@ -757,19 +453,17 @@ mod tests {
         ));
 
         let r = apply_net_labels(&mut g);
+        // R-L: always returns None, no boxes created
+        assert!(r.is_none(), "apply_net_labels is disabled, returns None");
+        assert_eq!(g.nets.len(), 1, "all nets kept as-is");
         assert!(
-            r.is_some(),
-            "Long signal net (3 boxes, span > 650) should be converted to label"
-        );
-        assert!(
-            g.nets.iter().all(|n| n.nid != 50),
-            "Original long net should be deleted"
+            g.boxes.iter().all(|x| x.kind != BoxKind::PowerLabel),
+            "no PowerLabel boxes created"
         );
     }
 
     #[test]
-    fn net_label_leaves_short_net_alone() {
-        // A right pin (100,50) ↔ B left pin (150,50): span 50 < 650 → don't touch
+    fn net_label_disabled_leaves_short_net_alone() {
         let mut g = McVecGraph::new(0, "main".into());
         g.boxes
             .push(placed(mk_mod(1, "A"), 0.0, 100.0, 11, EntrySide::Right));
@@ -787,17 +481,12 @@ mod tests {
         ));
 
         let r = apply_net_labels(&mut g);
-        assert!(r.is_none(), "Short net doesn't convert to label");
-        assert_eq!(g.nets.len(), 1, "Short net stays as is");
-        assert!(
-            g.boxes.iter().all(|x| x.kind != BoxKind::PowerLabel),
-            "Shouldn't create label boxes"
-        );
+        assert!(r.is_none(), "disabled, returns None");
+        assert_eq!(g.nets.len(), 1);
     }
 
     #[test]
-    fn net_label_skips_power_net() {
-        // Same distance, but kind=Ground → don't process (power/ground have their own flag rendering)
+    fn net_label_disabled_skips_power_net() {
         let mut g = McVecGraph::new(0, "main".into());
         g.boxes
             .push(placed(mk_mod(1, "A"), 0.0, 100.0, 11, EntrySide::Right));
@@ -813,18 +502,13 @@ mod tests {
                 EndpointRef::with_io(2, 21, "S", IoDirection::Ground),
             ],
         ));
-        assert!(
-            apply_net_labels(&mut g).is_none(),
-            "Ground net doesn't convert to label"
-        );
+        assert!(apply_net_labels(&mut g).is_none());
         assert_eq!(g.nets.len(), 1);
     }
 
-    /// ★ P7-5 S9: a single-endpoint named signal net (module boundary pseudo
-    /// endpoint removed) must be terminated on a net-label stub instead of
-    /// rendering as nothing.
+    /// ★ R-L: single-endpoint nets are no longer rescued by apply_net_labels.
     #[test]
-    fn net_label_rescues_single_endpoint_boundary_net() {
+    fn net_label_disabled_no_single_endpoint_rescue() {
         let mut g = McVecGraph::new(0, "mcu513".into());
         g.boxes
             .push(placed(mk_mod(1, "uC"), 0.0, 100.0, 11, EntrySide::Right));
@@ -837,30 +521,13 @@ mod tests {
         ));
 
         let r = apply_net_labels(&mut g);
-        assert!(r.is_some(), "single-endpoint named net gets a label stub");
-        assert!(
-            g.nets.iter().all(|n| n.nid != 50),
-            "dangling original net replaced"
-        );
-        let stub = g
-            .nets
-            .iter()
-            .find(|n| n.endpoints.len() == 2)
-            .expect("stub net connects label ↔ pin");
-        assert_eq!(stub.name, "SPK_MUTE");
-        let label = g
-            .boxes
-            .iter()
-            .find(|b| b.kind == BoxKind::PowerLabel)
-            .expect("label box created");
-        assert_eq!(label.name, "SPK_MUTE");
-        assert_eq!(stub.endpoints[0].box_id, label.id);
+        assert!(r.is_none(), "disabled, no rescue");
+        assert_eq!(g.nets.len(), 1, "net kept as-is");
     }
 
-    /// ★ P7-5 S9: an anonymous single-endpoint net stays untouched (a label
-    /// reading "__net_7" carries no information).
+    /// ★ R-L: anonymous dangling nets are left alone.
     #[test]
-    fn net_label_leaves_anonymous_dangling_net_alone() {
+    fn net_label_disabled_leaves_anonymous_dangling_net_alone() {
         let mut g = McVecGraph::new(0, "mcu513".into());
         g.boxes
             .push(placed(mk_mod(1, "uC"), 0.0, 100.0, 11, EntrySide::Right));
@@ -871,10 +538,7 @@ mod tests {
             NetRole::Signal,
             vec![EndpointRef::with_io(1, 11, "S", IoDirection::Output)],
         ));
-        assert!(
-            apply_net_labels(&mut g).is_none(),
-            "anonymous dangling net is not rescued"
-        );
+        assert!(apply_net_labels(&mut g).is_none());
         assert_eq!(g.nets.len(), 1);
     }
 

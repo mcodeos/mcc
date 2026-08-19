@@ -39,6 +39,7 @@
 pub mod bus;
 pub mod capacitor;
 pub mod diode;
+pub mod equipotential_tree_render;
 pub mod ic;
 pub mod inductor;
 pub mod label_render;
@@ -93,8 +94,8 @@ impl SvgRenderer {
 "##,
         );
 
-        if graph.is_root {
-            // ── ★ P9-B: root layer block diagram rendering ──
+        if graph.layer_style == crate::vector::graph::LayerStyle::Block {
+            // ── ★ Block: root layer block diagram rendering ──
             // Render block edges instead of nets.
             svg.push_str(&render_block_edges(graph));
 
@@ -103,12 +104,11 @@ impl SvgRenderer {
                 svg.push_str(&shape::render_box(b, true));
             }
         } else {
-            // ── Edges (bottom layer) ──
-            // Use VizNet (multi-endpoint hyperedge) render
-            for net in &graph.nets {
-                if net.route.is_some() {
-                    svg.push_str(&wire::render_viznet(net));
-                }
+            // ── ★ Device: equipotential tree rendering for sub-layers ──
+            // Each net is rendered as ONE connected orthogonal tree, not n-1 edges.
+            let trees = crate::viz::layout::equipotential_tree::build_all_trees(graph);
+            for tree in &trees {
+                svg.push_str(&equipotential_tree_render::render_equi_tree(tree));
             }
 
             // ── Zone borders (M2-3) ──
@@ -128,13 +128,24 @@ impl SvgRenderer {
             }
 
             // ── Boxes (top layer) ──
+            // ★ C1b: skip label-kind boxes — they are rendered as tree symbols
+            // (PowerLabel / Dot / PortTerminal), not as physical component boxes.
+            use crate::vector::graph::BoxKind;
             for b in &graph.boxes {
+                if matches!(
+                    b.kind,
+                    BoxKind::PowerLabel | BoxKind::Dot | BoxKind::PortTerminal
+                ) {
+                    continue;
+                }
                 svg.push_str(&shape::render_box(b, false));
             }
 
             // ── ★ P7-3: rail terminal decorations (pin render attributes, not boxes, discipline 11) ──
+            // ★ C1b: disabled — equipotential trees handle all power/ground symbols
             // Power dots are drawn directly above the pin (pointing up), ground symbols
             // directly below the pin (pointing down).
+            /*
             for d in &graph.rail_decorations {
                 let Some(b) = graph.boxes.iter().find(|b| b.id == d.box_id) else {
                     continue;
@@ -155,6 +166,7 @@ impl SvgRenderer {
                     &d.label,
                 ));
             }
+            */
         }
 
         svg.push_str("</svg>\n");
@@ -238,7 +250,7 @@ fn render_block_edges(graph: &McVecGraph) -> String {
         (b.x + b.w / 2.0, b.y + b.h / 2.0)
     };
 
-    // ── ★ V3V3 bus: group power edges with same label and driver ──
+    // ── ★ Bus trunk: group power edges with same label ──
     // Separate edges into bus groups and individual edges.
     let mut bus_groups: std::collections::HashMap<String, Vec<usize>> =
         std::collections::HashMap::new();
@@ -255,10 +267,22 @@ fn render_block_edges(graph: &McVecGraph) -> String {
     // Process bus groups (power edges with same label)
     for (label, indices) in &bus_groups {
         if indices.len() >= 3 {
-            // V3V3 bus: trunk at x=580, y from min to max across consumers
-            let trunk_x = 580.0;
-            let mut consumer_anchors: Vec<((f64, f64), &edge_decide::BlockEdge)> = Vec::new();
+            // Identify the driver: the box that appears most frequently as `from` in the group.
+            let mut from_counts: std::collections::HashMap<i64, usize> =
+                std::collections::HashMap::new();
+            for &idx in indices {
+                let edge = &edges[idx];
+                *from_counts.entry(edge.from_box).or_default() += 1;
+            }
+            let driver_box_id = from_counts
+                .iter()
+                .max_by_key(|(_, count)| **count)
+                .map(|(id, _)| *id);
+
+            // Compute trunk_x: midpoint between the driver's right edge and the
+            // rightmost consumer's left edge. If no clear driver, use midpoint of all boxes.
             let mut driver_anchor: Option<(f64, f64)> = None;
+            let mut all_box_xs: Vec<f64> = Vec::new();
 
             for &idx in indices {
                 let edge = &edges[idx];
@@ -267,27 +291,54 @@ fn render_block_edges(graph: &McVecGraph) -> String {
                 let (Some(from), Some(to)) = (from_box, to_box) else {
                     continue;
                 };
+                all_box_xs.push(from.x + from.w);
+                all_box_xs.push(to.x);
 
-                if from.name == "modldo" {
+                let is_driver = Some(from.id) == driver_box_id;
+                let is_driver_to = Some(to.id) == driver_box_id;
+                if is_driver {
                     let (ax, ay) = rail_anchor(from, to.x + to.w / 2.0, to.y + to.h / 2.0, 0, 1);
                     driver_anchor = Some((ax, ay));
-                    let (ax2, ay2) =
-                        rail_anchor(to, from.x + from.w / 2.0, from.y + from.h / 2.0, 0, 1);
-                    consumer_anchors.push(((ax2, ay2), edge));
-                } else if to.name == "modldo" {
+                } else if is_driver_to {
                     let (ax, ay) =
                         rail_anchor(to, from.x + from.w / 2.0, from.y + from.h / 2.0, 0, 1);
                     driver_anchor = Some((ax, ay));
-                    let (ax2, ay2) = rail_anchor(from, to.x + to.w / 2.0, to.y + to.h / 2.0, 0, 1);
-                    consumer_anchors.push(((ax2, ay2), edge));
-                } else {
+                }
+            }
+
+            // Compute trunk_x dynamically: midpoint between driver right edge and
+            // rightmost consumer left edge, with a minimum gap.
+            all_box_xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            let trunk_x = if all_box_xs.len() >= 2 {
+                let leftmost = all_box_xs[0];
+                let rightmost = all_box_xs[all_box_xs.len() - 1];
+                (leftmost + rightmost) / 2.0
+            } else {
+                580.0
+            };
+
+            // Recompute consumer anchors with the dynamic trunk_x
+            let mut consumer_anchors_final: Vec<((f64, f64), &edge_decide::BlockEdge)> = Vec::new();
+            for &idx in indices {
+                let edge = &edges[idx];
+                let from_box = graph.boxes.iter().find(|b| b.id == edge.from_box);
+                let to_box = graph.boxes.iter().find(|b| b.id == edge.to_box);
+                let (Some(from), Some(to)) = (from_box, to_box) else {
+                    continue;
+                };
+                let is_driver = Some(from.id) == driver_box_id;
+                let is_driver_to = Some(to.id) == driver_box_id;
+                if !is_driver && !is_driver_to {
                     let (ax, ay) = rail_anchor(to, trunk_x, to.y + to.h / 2.0, 0, 1);
-                    consumer_anchors.push(((ax, ay), edge));
+                    consumer_anchors_final.push(((ax, ay), edge));
                 }
             }
 
             // Collect all y values for trunk range
-            let mut all_ys: Vec<f64> = consumer_anchors.iter().map(|((_, y), _)| *y).collect();
+            let mut all_ys: Vec<f64> = consumer_anchors_final
+                .iter()
+                .map(|((_, y), _)| *y)
+                .collect();
             if let Some((_, dy)) = driver_anchor {
                 all_ys.push(dy);
             }
@@ -314,7 +365,7 @@ fn render_block_edges(graph: &McVecGraph) -> String {
             }
 
             // Draw trunk-to-consumer lines
-            for ((cx, cy), _edge) in &consumer_anchors {
+            for ((cx, cy), _edge) in &consumer_anchors_final {
                 let line_svg = render_ortho_path(trunk_x, *cy, *cx, *cy, label, stroke, 2.5, false);
                 svg.push_str(&line_svg);
             }
@@ -382,42 +433,6 @@ fn render_block_edges(graph: &McVecGraph) -> String {
                 edge_decide::EdgeKind::Signal => 2.0,
             }
         };
-
-        // ★ V5V usbsocket→speaker: 2-bend orthogonal routing
-        // Path: (220,380)→(280,380)→(280,770)→(640,770)
-        if edge.kind == EdgeKind::Power
-            && edge.label == "V5V"
-            && from.name == "usbsocket"
-            && to.name == "speaker"
-        {
-            let mid_x = x1 + 60.0; // 280
-            svg.push_str(&format!(
-                r##"  <polyline points="{x1:.1},{y1:.1} {mx:.1},{y1:.1} {mx:.1},{y2:.1} {x2:.1},{y2:.1}"
-       fill="none" stroke="{stroke}" stroke-width="{sw:.1}" marker-end="url(#arrow)"/>"##,
-                x1 = x1,
-                y1 = y1,
-                mx = mid_x,
-                y2 = y2,
-                x2 = x2,
-                stroke = stroke,
-                sw = stroke_w,
-            ));
-            svg.push('\n');
-
-            // Label at midpoint of first horizontal segment
-            let label_text = &edge.label;
-            svg.push_str(&format!(
-                r##"  <text x="{mx:.1}" y="{my:.1}" text-anchor="middle"
-       font-size="11" font-weight="600" fill="{stroke}"
-       dominant-baseline="central">{label}</text>
-"##,
-                mx = (x1 + mid_x) / 2.0,
-                my = y1 - 10.0,
-                stroke = stroke,
-                label = escape_xml(label_text),
-            ));
-            continue;
-        }
 
         let label_text = if is_bus {
             format!("{} [{}]", edge.label, edge.lane_count)
