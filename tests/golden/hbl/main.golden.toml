@@ -1,7 +1,9 @@
 # main golden netlist
 # Dependency adjudication: ⑥ global GND — derived via ldo.2 + same-name labels inside modules
 # Source: hbl.mc:11-59
-# ★ Note: the golden doc's speaker uses the V5V bus while the source uses V3V3; the TOML follows the golden doc.
+# ★ Submodule interface ports expand to submodule.port.member endpoints (modldo.vin.VCC,
+#   modldo.vout.GND, ...); the source wins where it differs from the golden doc
+#   (speaker's VDD_3V is on the V3V3 rail per source, not the V5V bus).
 
 [meta]
 module = "main"
@@ -45,15 +47,15 @@ origin = "us513.mc:113"
 
 [[net]]
 name = "V5V.VCC"
-points = ["usbsocket.vin.POWER_SYS", "modldo.POWER_SYS", "speaker.USB_VBUS_1.VDD_3V"]
+points = ["usbsocket.vin.POWER_SYS", "modldo.vin.VCC"]
 
 [[net]]
 name = "GND"
-points = ["usbsocket.vin.GND", "modldo.GND", "moddcdc.GND", "mcu513.GND", "mic.dc.GND", "speaker.USB_VBUS_1.GND", "flash.4", "C100n_f.2"]
+points = ["usbsocket.vin.GND", "modldo.vin.GND", "modldo.vout.GND", "moddcdc.GND", "mcu513.GND", "mic.dc.GND", "speaker.USB_VBUS_1.GND", "flash.4", "C100n_f.2"]
 
 [[net]]
 name = "V3V3.VCC"
-points = ["modldo.VCC", "moddcdc.VDD_3V3", "mcu513.VDD_3V3", "mic.dc.VDD_3V3", "speaker.VDD_3V3", "flash.8", "C100n_f.1", "R10k_cs.2", "R10k_wp.2", "R10k_hold.2"]
+points = ["modldo.vout.VCC", "moddcdc.VDD_3V3", "mcu513.VDD_3V3", "mic.dc.VDD_3V3", "speaker.USB_VBUS_1.VDD_3V", "flash.8", "C100n_f.1", "R10k_cs.2", "R10k_wp.2", "R10k_hold.2"]
 
 [[net]]
 name = "V1V2.VCC"

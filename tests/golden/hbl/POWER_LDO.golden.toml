@@ -1,6 +1,9 @@
 # POWER_LDO golden netlist
 # Dependency adjudication: ⑥ global GND — ldo.2 doubles as VIN.GND and VOUT.GND, the first bridge of global GND
 # Source: power.mc:52-72
+# ★ DC interface ports expand to port.member endpoints (vin.VCC / vin.GND / vout.VCC / vout.GND);
+#   the input/output power nets take their name from the port member, the global GND net
+#   absorbs both port GND members.
 
 [meta]
 module = "POWER_LDO"
@@ -29,16 +32,16 @@ pins = 2
 origin = "power.mc:67"
 
 [[net]]
-name = "POWER_SYS"
-points = ["port.POWER_SYS", "ldo.1", "ldo.3", "C10u.1"]
+name = "vin.VCC"
+points = ["vin.VCC", "ldo.1", "ldo.3", "C10u.1"]
 
 [[net]]
 name = "GND"
-points = ["port.GND", "ldo.2", "C10u.2", "C4u7.2"]
+points = ["vin.GND", "vout.GND", "ldo.2", "C10u.2", "C4u7.2"]
 
 [[net]]
-name = "VCC"
-points = ["port.VCC", "ldo.5", "C4u7.1"]
+name = "vout.VCC"
+points = ["vout.VCC", "ldo.5", "C4u7.1"]
 
 [[unconnected]]
 pin = "ldo.4"
