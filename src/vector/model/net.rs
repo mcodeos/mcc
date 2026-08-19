@@ -96,7 +96,7 @@ pub struct McVecNet {
     pub boundary: Option<BoundaryInfo>,
     /// ★ P9-A2: source span for bidirectional traceability.
     /// `(file, line)` — which source file and line created this net.
-    pub source_span: Option<(String, u32)>,
+    pub source_span: Option<crate::semantic::common::SourcePos>,
     /// ★ P9-A2: port group that produced this net.
     /// `None` is a legal value; do not fill with heuristics.
     pub port_group: Option<String>,

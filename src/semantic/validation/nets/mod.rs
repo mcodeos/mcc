@@ -44,7 +44,7 @@ pub struct NetCheckResult {
 
 /// Extract the best available source position from an InstEntry.
 fn entry_pos(entry: &InstEntry) -> (u32, String) {
-    let pos = entry.src_pos.unwrap_or(0) as u32;
+    let pos = entry.src_pos.as_ref().map(|p| p.offset).unwrap_or(0);
     (pos, entry.def_uri.clone())
 }
 
@@ -53,7 +53,10 @@ fn best_pos(table: &InstTable, ids: &[u32]) -> (u32, String) {
     for id in ids {
         if let Some(entry) = table.get_entry(*id) {
             if entry.src_pos.is_some() && !entry.def_uri.is_empty() {
-                return (entry.src_pos.unwrap() as u32, entry.def_uri.clone());
+                return (
+                    entry.src_pos.as_ref().map(|p| p.offset).unwrap(),
+                    entry.def_uri.clone(),
+                );
             }
         }
     }

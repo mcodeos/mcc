@@ -27,7 +27,7 @@ pub struct BlockEdge {
     pub label: String,
     pub lane_count: usize,
     pub kind: EdgeKind,
-    pub source_span: Option<(String, u32)>,
+    pub source_span: Option<crate::semantic::common::SourcePos>,
     /// ★ P9-A2: port group for edge merging.
     /// Non-empty when this edge belongs to a port group (e.g., SPI, I2C).
     pub port_group: Option<String>,
@@ -456,10 +456,10 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
     // 1. Trace edges with port_group (provenance)
     for edge in &merged {
         if let Some(ref pg) = edge.port_group {
-            if let Some((ref file, line)) = edge.source_span {
+            if let Some(ref pos) = edge.source_span {
                 eprintln!(
                     "[trace] {}: edge '{}' <- {}:{}  (port_group={})",
-                    layer, pg, file, line, pg
+                    layer, pg, pos.uri, pos.offset, pg
                 );
             } else {
                 eprintln!("[trace] {}: edge '{}'  (port_group={})", layer, pg, pg);

@@ -115,14 +115,14 @@ fn select_hub(graph: &McVecGraph, edges: &[BlockEdge]) -> i64 {
                 .iter()
                 .find(|bx| bx.id == a.0)
                 .and_then(|bx| bx.source_span.as_ref())
-                .map(|(_, l)| *l)
+                .map(|p| p.offset)
                 .unwrap_or(u32::MAX);
             let line_b = graph
                 .boxes
                 .iter()
                 .find(|bx| bx.id == b.0)
                 .and_then(|bx| bx.source_span.as_ref())
-                .map(|(_, l)| *l)
+                .map(|p| p.offset)
                 .unwrap_or(u32::MAX);
             line_a.cmp(&line_b)
         })

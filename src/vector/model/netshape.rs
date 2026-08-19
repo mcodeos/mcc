@@ -190,8 +190,8 @@ pub struct NetShape {
     /// - `M3` quotient graph decides whether an edge is an SP belt or a direct belt
     pub series_chain: Vec<i64>,
 
-    /// Source byte position that produced this net (for diagnostics)
-    pub src_pos: Option<i32>,
+    /// Unified source position that produced this net (for diagnostics), §7.11(3).
+    pub src_pos: Option<crate::semantic::common::SourcePos>,
 }
 
 impl NetShape {

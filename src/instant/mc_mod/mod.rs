@@ -115,14 +115,16 @@ pub struct McModuleInst {
     /// Current connection line's source span (for diagnostic position reporting).
     /// Updated when processing each top-level connection line in `instantiate_lines_resilient`.
     /// Used as fallback when NetPoint.src_pos is unavailable.
-    pub(super) current_line_span: Option<crate::ast::ast_semantic::Span>,
+    /// Unified [`SourcePos`] — uri + byte offset (§7.11(3)).
+    pub(super) current_line_span: Option<crate::semantic::common::SourcePos>,
 
-    /// Func-body expansion provenance `(file, line)`. Set by the func-body
+    /// Func-body expansion provenance. Set by the func-body
     /// expansion sites (user funcs / component methods / constructors / module
     /// closures) before processing each body line. Takes precedence over
     /// `current_line_span` when attributing anonymous instance names and
     /// connection source lines, because the func may live in another file.
-    pub(super) current_func_span: Option<(McURI, u32)>,
+    /// Unified [`SourcePos`] — uri + byte offset (§7.11(3)).
+    pub(super) current_func_span: Option<crate::semantic::common::SourcePos>,
 
     /// ★ P9-A2: Current port group name for provenance tracking.
     /// Set when processing a connection that involves a port group (e.g., flash.SPI, mic.MIC).
@@ -160,6 +162,47 @@ pub(crate) struct FailedRecord {
     pub component_name: String,
     pub class_name: String,
     pub reason: String,
+}
+
+/// RAII guard for the thread-local `current_uri` (context state machine
+/// migration, §7.2 / §7.11(2)): saves the previous value on construction,
+/// installs `uri`, and restores the previous value on drop — an early
+/// `return` / error can no longer leave the wrong file URI installed for
+/// later symbol / line-index lookups.
+pub(crate) struct CurrentUriGuard {
+    saved: Option<McURI>,
+}
+
+impl CurrentUriGuard {
+    pub(crate) fn new(uri: &McURI) -> Self {
+        let saved = current_uri::try_get();
+        if !uri.as_str().is_empty() {
+            current_uri::set(uri);
+        }
+        CurrentUriGuard { saved }
+    }
+}
+
+impl Drop for CurrentUriGuard {
+    fn drop(&mut self) {
+        match &self.saved {
+            Some(uri) => current_uri::set(uri),
+            None => current_uri::reset(),
+        }
+    }
+}
+
+/// Anonymous-instance naming category (§7.11(4)). The special prefixes are
+/// generated inside `auto_name`, so call sites never concatenate `@_phantom_`
+/// or `@?` strings themselves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum AutoNameKind {
+    /// Real anonymous device: reference-designator style (`_C1`, `_R2`).
+    Normal,
+    /// Internal isolation node: `@_phantom_<name>_<n>` (never a device).
+    Phantom,
+    /// Stub for an unrecognized class name: `@?<name>_<n>`.
+    Stub,
 }
 
 impl McModuleInst {
@@ -282,18 +325,21 @@ impl McModuleInst {
     }
 
     /// Current statement offset for provenance (top-level statement span start).
-    /// `(def_uri, offset)`; None when no statement is being processed.
-    pub(super) fn current_call_site(&self) -> Option<(McURI, u32)> {
+    /// Unified [`SourcePos`] (uri + byte offset, §7.11(3)); None when no
+    /// statement is being processed.
+    pub(super) fn current_call_site(&self) -> Option<crate::semantic::common::SourcePos> {
         self.current_line_span
             .as_ref()
-            .map(|s| (self.def_uri.clone(), s.start as u32))
+            .map(|s| crate::semantic::common::SourcePos::new(self.def_uri.clone(), s.offset))
     }
 
-    /// Function definition site as `(source_uri, definition offset)`.
-    pub(super) fn func_def_site(func_def: &McFunction) -> Option<(McURI, u32)> {
+    /// Function definition site (unified [`SourcePos`], §7.11(3)).
+    pub(super) fn func_def_site(
+        func_def: &McFunction,
+    ) -> Option<crate::semantic::common::SourcePos> {
         let uri = func_def.source_uri().cloned()?;
         let off = func_def.span.as_ref().map(|sp| sp.start as u32)?;
-        Some((uri, off))
+        Some(crate::semantic::common::SourcePos::new(uri, off))
     }
 
     /// Execute instantiation
@@ -304,20 +350,18 @@ impl McModuleInst {
     ///
     /// ## Flow
     /// 1. Switch `current_uri` to the file containing this module definition
+    ///    (RAII guard, §7.2 — restored on every exit path)
     /// 2. (Optional) When `MC_INST_DUMP=1` is enabled, print pass1 input snapshot
     /// 3. Phase 1: interface instantiation (ports)
     /// 4. Phase 3: declared instantiation (components / sub-modules / labels)
     /// 5. Phase 4: connection line processing
     /// 6. Net table construction
     /// 7. (Optional) When `MC_INST_DUMP=1` is enabled, print pass2 output + pass1↔pass2 diff
-    /// 8. Restore `current_uri`
     pub fn instantiate(&mut self) -> Result<(), InstError> {
         // ★ Switch current_uri to the file containing this module definition to ensure correct internal symbol resolution
-        //   Sub-modules may be defined in different files; mcb_get_cmie() depends on current_uri for context lookup
-        let saved_uri = current_uri::try_get();
-        if !self.def_uri.is_empty() {
-            current_uri::set(&self.def_uri);
-        }
+        //   Sub-modules may be defined in different files; mcb_get_cmie() depends on current_uri for context lookup.
+        //   RAII (§7.2): the guard restores the caller's URI on every exit path.
+        let _uri_guard = CurrentUriGuard::new(&self.def_uri);
 
         // ── DEBUG: pass1 input snapshot (optional) ────────────────────────────
         if dump::dump_enabled() {
@@ -357,12 +401,6 @@ impl McModuleInst {
         if dump::dump_enabled() {
             self.dump_pass2_output();
             self.dump_pass_diff();
-        }
-
-        // ★ Restore the caller's current_uri context
-        match saved_uri {
-            Some(ref uri) => current_uri::set(uri),
-            None => current_uri::reset(),
         }
 
         Ok(()) // Always return Ok — errors have been recorded to diagnostics
@@ -550,37 +588,47 @@ impl McModuleInst {
     /// generated instances with an `L<n>` column); it is 0 when the site is
     /// unknown or for internal phantom / stub types.
     ///
-    /// Internal phantom / stub types (`@_phantom_*`, `@?*`) keep their special
-    /// prefix and plain numbering — they are not real devices and their names
-    /// participate in normalize/reuse logic that must not see a `@line` suffix.
-    pub(super) fn auto_name(&mut self, type_name: &str) -> (String, u32) {
-        if type_name.starts_with('@') || type_name.starts_with('?') {
-            let counter = self
-                .auto_inst_counter
-                .entry(type_name.to_string())
-                .or_insert(0);
-            *counter += 1;
-            return (format!("{type_name}_{counter}"), 0);
+    /// Internal phantom / stub types keep their special prefix and plain
+    /// numbering — they are not real devices and their names participate in
+    /// normalize/reuse logic that must not see a `@line` suffix. The prefix
+    /// is generated here per `AutoNameKind` (§7.11(4)); call sites never
+    /// concatenate `@_phantom_` / `@?` themselves.
+    pub(super) fn auto_name(&mut self, kind: AutoNameKind, type_name: &str) -> (String, u32) {
+        match kind {
+            AutoNameKind::Normal => {
+                let prefix = Self::ref_designator_prefix(type_name);
+                let counter = {
+                    let c = self
+                        .auto_inst_counter
+                        .entry(prefix.to_string())
+                        .or_insert(0);
+                    *c += 1;
+                    *c
+                };
+                let line = self.current_offset();
+                let name = format!("_{prefix}{counter}");
+                if type_name.contains("CAP") || type_name.contains("RES") {
+                    mcc_dbg!(
+                        "inst::mod",
+                        "[AUTO-NAME] module={} type={type_name} counter={counter} name={name}",
+                        self.name
+                    );
+                }
+                (name, line)
+            }
+            AutoNameKind::Phantom => {
+                let key = format!("@_phantom_{type_name}");
+                let counter = self.auto_inst_counter.entry(key.clone()).or_insert(0);
+                *counter += 1;
+                (format!("{key}_{counter}"), 0)
+            }
+            AutoNameKind::Stub => {
+                let key = format!("@?{type_name}");
+                let counter = self.auto_inst_counter.entry(key.clone()).or_insert(0);
+                *counter += 1;
+                (format!("{key}_{counter}"), 0)
+            }
         }
-        let prefix = Self::ref_designator_prefix(type_name);
-        let counter = {
-            let c = self
-                .auto_inst_counter
-                .entry(prefix.to_string())
-                .or_insert(0);
-            *c += 1;
-            *c
-        };
-        let line = self.current_offset();
-        let name = format!("_{prefix}{counter}");
-        if type_name.contains("CAP") || type_name.contains("RES") || type_name.starts_with("@") {
-            mcc_dbg!(
-                "inst::mod",
-                "[AUTO-NAME] module={} type={type_name} counter={counter} name={name}",
-                self.name
-            );
-        }
-        (name, line)
     }
 
     /// Enter a func-body line context: attribute anonymous instances and
@@ -595,15 +643,20 @@ impl McModuleInst {
         &mut self,
         func: &McFunction,
         line_idx: Option<usize>,
-    ) -> Option<(McURI, u32)> {
+    ) -> Option<crate::semantic::common::SourcePos> {
         let prev = self.current_func_span.clone();
         let uri = func.source_uri().cloned();
         self.current_func_span = match uri {
             Some(u) => {
                 if let Some(off) = line_idx.and_then(|i| func.line_offsets.get(i)) {
-                    Some((u.clone(), *off as u32))
+                    Some(crate::semantic::common::SourcePos::new(
+                        u.clone(),
+                        *off as u32,
+                    ))
                 } else {
-                    func.span.as_ref().map(|sp| (u.clone(), sp.start as u32))
+                    func.span.as_ref().map(|sp| {
+                        crate::semantic::common::SourcePos::new(u.clone(), sp.start as u32)
+                    })
                 }
             }
             None => None,
@@ -627,14 +680,31 @@ impl McModuleInst {
         r
     }
 
+    /// Run `f` with the given `current_port_group` active and restore the
+    /// previous group on every exit (RAII §7.11(2)). The group is a
+    /// connection-time hint read by `make_conn_with_provenance`; a leaked
+    /// group would mis-attribute the *next* connection's port group, so the
+    /// save/restore must survive early returns inside `f`.
+    pub(super) fn with_port_group<R>(
+        &mut self,
+        group: Option<String>,
+        f: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let saved = self.current_port_group.take();
+        self.current_port_group = group;
+        let r = f(self);
+        self.current_port_group = saved;
+        r
+    }
+
     /// Byte offset of the current construction site for provenance (func-body
     /// line offset first, then the top-level statement span start, else 0).
     /// Consecutive constructions on the same source line are still
     /// distinguishable by offset (decision A, §7.1).
     fn current_offset(&self) -> u32 {
         match (&self.current_func_span, &self.current_line_span) {
-            (Some((_, off)), _) => *off,
-            (None, Some(s)) => s.start as u32,
+            (Some(spos), _) => spos.offset,
+            (None, Some(s)) => s.offset,
             (None, None) => 0,
         }
     }
@@ -804,7 +874,7 @@ impl McModuleInst {
                     if label_grounds.is_empty() && others.is_empty() {
                         return None;
                     }
-                    let line = c.source_span.as_ref().map(|(_, l)| *l).unwrap_or(0);
+                    let line = c.source_span.as_ref().map(|p| p.offset).unwrap_or(0);
                     Some(Touch {
                         id: c.id,
                         line,

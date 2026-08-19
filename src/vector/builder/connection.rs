@@ -40,7 +40,7 @@ pub(crate) struct ConnPair {
     /// Which two-terminal device this segment passes through
     pub via: Option<i64>,
     /// ★ P9-A2: source span for traceability
-    pub source_span: Option<(String, u32)>,
+    pub source_span: Option<crate::semantic::common::SourcePos>,
     /// ★ P9-A2: port group for edge merging
     pub port_group: Option<String>,
 }
@@ -107,7 +107,7 @@ impl ConnPair {
     /// ★ P9-A2: Set provenance metadata (source_span + port_group)
     pub(crate) fn with_meta(
         mut self,
-        source_span: Option<(String, u32)>,
+        source_span: Option<crate::semantic::common::SourcePos>,
         port_group: Option<String>,
     ) -> Self {
         self.source_span = source_span;

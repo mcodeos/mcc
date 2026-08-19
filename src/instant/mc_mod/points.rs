@@ -1305,7 +1305,7 @@ impl McModuleInst {
             if let Some(comp) = self.find_component(first_part) {
                 if (rest == "in" || rest == "out") && !comp.def.pins.names_to_id.contains_key(rest)
                 {
-                    let (isolated, _) = self.auto_name(&format!("@_phantom_{first_part}"));
+                    let (isolated, _) = self.auto_name(super::AutoNameKind::Phantom, first_part);
                     let pin = if rest == "in" { "1" } else { "2" };
                     let path = format!("{isolated}.{pin}");
                     return NetPoint::with_owner(&path, &isolated, IOType::None);
@@ -1407,7 +1407,7 @@ impl McModuleInst {
                     && !self.is_port(class_part)
                     && !self.is_bus(class_part)
                 {
-                    let (isolated, _) = self.auto_name(&format!("@_phantom_{class_part}"));
+                    let (isolated, _) = self.auto_name(super::AutoNameKind::Phantom, class_part);
                     let pin = if suffix == "in" { "1" } else { "2" };
                     let path = format!("{isolated}.{pin}");
                     // ── [P4-PHANTOM] temp probe: who's leaking CLASS.in/out ──

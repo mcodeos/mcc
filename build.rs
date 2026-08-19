@@ -31,15 +31,13 @@ fn main() {
     // 2. generate macros from header file
     generate_macros_from_header();
 
-    // 3. check zcp.sh script exists and add warning message
-    let zcp_path = PathBuf::from("mc/mcode/zcp.sh");
-    if zcp_path.exists() {
-        println!("cargo:warning=Please run 'bash mc/mcode/zcp.sh' manually to copy mcode files to your user directory.");
+    // 3. check cp.sh script exists and add warning message
+    let cp_path = PathBuf::from("mc/mcode/cp.sh");
+    if cp_path.exists() {
+        println!("cargo:warning=Please run 'bash mc/mcode/cp.sh' manually to copy mcode files to your user directory.");
         println!("cargo:warning=This step is required for the MCODE system to function correctly.");
     } else {
-        println!(
-            "cargo:warning=zcp.sh script not found. Please ensure it exists at mc/mcode/zcp.sh"
-        );
+        println!("cargo:warning=cp.sh script not found. Please ensure it exists at mc/mcode/cp.sh");
     }
 }
 

@@ -107,6 +107,39 @@ impl std::fmt::Display for McSpaceName {
 pub type McURI = String;
 
 // ============================================================================
+// SourcePos: unified source position (design: expansion-provenance.md §7.11(3))
+// ============================================================================
+
+/// Unified source position: file URI + absolute byte offset.
+///
+/// Line / column are derived on demand from the owning file's content
+/// (`line_of_byte`); they are never stored in the position itself
+/// (decision A, §7.1). Replaces the historical mixed forms
+/// `Option<i32>` / `u32` / `(McURI, u32)` across the Pass2 instantiation
+/// layer and its consumers.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SourcePos {
+    /// URI of the file that contains the position.
+    pub uri: McURI,
+    /// Absolute byte offset in that file.
+    pub offset: u32,
+}
+
+impl SourcePos {
+    pub fn new(uri: impl Into<McURI>, offset: u32) -> Self {
+        SourcePos {
+            uri: uri.into(),
+            offset,
+        }
+    }
+
+    /// Offset as `usize` for slicing / line-index lookups.
+    pub fn offset_usize(&self) -> usize {
+        self.offset as usize
+    }
+}
+
+// ============================================================================
 // UriId: global append-only URI interning (design: name-space-global.md §5.5)
 // ============================================================================
 

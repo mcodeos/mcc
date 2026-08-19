@@ -38,7 +38,7 @@ pub use crate::semantic::basic::mc_opd::McOpd;
 pub use crate::semantic::common::{
     classify_lead, classify_phrase_leads, uri_intern, uri_of_file_id, uri_resolve, ContainerInfo,
     ContainerKind, IOType, LeadKind, LookupResult, LookupSymbolKind, McCMIE, McSpaceName, McURI,
-    ScopeFilter, ScopePath, SpaceLayer, UriId,
+    ScopeFilter, ScopePath, SourcePos, SpaceLayer, UriId,
 };
 pub use crate::semantic::{
     basic::{

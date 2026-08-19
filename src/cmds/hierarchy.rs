@@ -72,13 +72,8 @@ pub fn extract_instance_families(
     let label_line = |name: &str| -> u32 {
         inst.get_labels()
             .get(name)
-            .and_then(|p| p.src_pos)
-            .map(|pos| {
-                content
-                    .as_ref()
-                    .map(|c| line_of_byte(c, pos as usize))
-                    .unwrap_or(0)
-            })
+            .and_then(|p| p.src_pos.as_ref().map(|pos| pos.offset as usize))
+            .map(|pos| content.as_ref().map(|c| line_of_byte(c, pos)).unwrap_or(0))
             .unwrap_or(0)
     };
     // Bracket-vec port members (`in [VDD_3V3, GND]::DC(3.3V)`) are stored
@@ -202,10 +197,10 @@ pub fn extract_instance_families(
                             .call_site
                             .clone()
                             .or(r.def_site.clone())
-                            .and_then(|(u, off)| {
-                                std::fs::read_to_string(u.as_str())
+                            .and_then(|pos| {
+                                std::fs::read_to_string(pos.uri.as_str())
                                     .ok()
-                                    .map(|c| line_of_byte(&c, off as usize))
+                                    .map(|c| line_of_byte(&c, pos.offset as usize))
                                     .filter(|l| *l > 0)
                             })
                             .unwrap_or(0);
