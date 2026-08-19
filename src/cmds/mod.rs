@@ -4,6 +4,7 @@
 
 pub mod build;
 pub mod check;
+pub mod common;
 pub mod config;
 pub mod convert;
 pub mod def;

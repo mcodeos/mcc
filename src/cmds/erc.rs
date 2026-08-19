@@ -10,9 +10,7 @@
 use crate::cmds::manifest;
 use anyhow::Result;
 use mcc::cli::{rpcclient::RpcClient, ErcArgs};
-use mcc::McURI;
 use serde_json::json;
-use std::path::{Path, PathBuf};
 
 pub fn run(args: &ErcArgs) -> Result<()> {
     if let Some(c) = RpcClient::probe() {
@@ -32,34 +30,14 @@ pub fn run(args: &ErcArgs) -> Result<()> {
 fn run_local(args: &ErcArgs) -> Result<()> {
     manifest::init_local(args.target.as_deref(), &mcc::cli::globals().lib);
 
+    // Unified target loading: directory → project mode (manifest-driven,
+    // browse fallback), file → loaded directly.
     if let Some(t) = &args.target {
-        let p = Path::new(t);
-        if p.is_dir() {
-            // Project mode: manifest-driven; browse fallback (§19.5 rule 3 of
-            // use-design.md) when the directory has no manifest.
-            match manifest::build_from_manifest(p, None, mcc::cli::globals().entry.as_deref()) {
-                Ok(_) => {}
-                Err(manifest_err) => {
-                    let entry =
-                        manifest::select_browse_entry(p, mcc::cli::globals().entry.as_deref())
-                            .map_err(|browse_err| {
-                                anyhow::anyhow!("{} (manifest: {:#})", browse_err, manifest_err)
-                            })?;
-                    let entry_uri = entry.to_string_lossy().to_string();
-                    mcc::mcc_load_project(&entry_uri);
-                }
-            }
-        } else {
-            let path = if p.is_absolute() {
-                p.to_path_buf()
-            } else {
-                std::env::current_dir()
-                    .unwrap_or_else(|_| PathBuf::from("."))
-                    .join(p)
-            };
-            let uri = McURI::from(path.to_string_lossy().as_ref());
-            mcc::mcc_load_project(&uri);
-        }
+        crate::cmds::common::load_target(
+            Some(t),
+            mcc::cli::globals().top.as_deref(),
+            mcc::cli::globals().entry.as_deref(),
+        )?;
     }
 
     let top = mcc::cli::globals()
@@ -68,14 +46,16 @@ fn run_local(args: &ErcArgs) -> Result<()> {
         .or_else(mcc::mcb_get_first_module_name)
         .ok_or_else(|| anyhow::anyhow!("erc: no modules found — specify --top"))?;
 
-    let uri = mcc::McURI::from(top.as_str());
-    let ident = mcc::McIds::from(top.as_str());
+    // Resolve the module's real URI (modules may live in a different file
+    // than the entry), matching `show` / `nets_map`.
+    let uri = mcc::mcb_iter_modules()
+        .iter()
+        .find(|(n, _)| *n == top)
+        .map(|(_, u)| u.clone())
+        .unwrap_or_else(|| top.clone());
 
-    let inst = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        mcc::mcc_build(&ident, &uri)
-    }))
-    .map_err(|_| anyhow::anyhow!("erc: build panicked"))?
-    .map_err(|e| anyhow::anyhow!("erc: build failed: {e}"))?;
+    let inst = crate::cmds::common::build_pass2(top.as_str(), &uri)
+        .map_err(|e| anyhow::anyhow!("erc: {e}"))?;
 
     let mut diags: Vec<serde_json::Value> = Vec::new();
 

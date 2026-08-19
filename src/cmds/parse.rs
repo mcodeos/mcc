@@ -78,45 +78,19 @@ pub fn run(args: &ParseArgs) -> Result<()> {
         mcc::mcc_load_from_string(&vuri, code);
         vuri
     } else if let Some(t) = &args.target {
-        let p = Path::new(t);
-        if p.is_dir() {
-            match manifest::build_from_manifest(
-                p,
-                mcc::cli::globals().top.as_deref(),
-                mcc::cli::globals().entry.as_deref(),
-            ) {
-                Ok((entry_uri, top)) => {
-                    forced_top = Some(top);
-                    McURI::from(entry_uri.as_str())
-                }
-                Err(_) => {
-                    // P2 (§19.5 rule 3): directory without a usable manifest —
-                    // browse-mode entry selection. One entry file plus its `use`
-                    // closure, not the whole directory (mirrors IDE auto_load).
-                    match manifest::select_browse_entry(p, mcc::cli::globals().entry.as_deref()) {
-                        Ok(entry_path) => {
-                            mcc::mcc_set_project_root(p);
-                            let entry_uri = entry_path.to_string_lossy().to_string();
-                            mcc::mcc_load_project(&entry_uri);
-                            forced_top = mcc::cli::globals()
-                                .top
-                                .clone()
-                                .or_else(|| mcc::mcb_get_module_name_by_uri(&entry_uri));
-                            McURI::from(entry_uri.as_str())
-                        }
-                        Err(e) => {
-                            return emit_error(
-                                RpcError::invalid_params(format!("{:#}", e)),
-                                args.dlog,
-                            )
-                        }
-                    }
-                }
+        match crate::cmds::common::load_target(
+            Some(t),
+            mcc::cli::globals().top.as_deref(),
+            mcc::cli::globals().entry.as_deref(),
+        ) {
+            Ok((entry_uri, top)) => {
+                // Project/browse mode resolves the top (manifest top_module,
+                // --top / --entry override, or the browse entry's module);
+                // single-file mode leaves it to resolve_top_module below.
+                forced_top = top;
+                McURI::from(entry_uri.as_str())
             }
-        } else {
-            let uri = McURI::from(t.as_str());
-            mcc::mcc_load_project(&uri);
-            uri
+            Err(e) => return emit_error(RpcError::invalid_params(format!("{:#}", e)), args.dlog),
         }
     } else {
         return emit_error(
@@ -151,12 +125,7 @@ pub fn run(args: &ParseArgs) -> Result<()> {
     builder.set_pass0(public_collect_pass0());
 
     // ── 4. Select top definition (module, component, interface, or enum) ──
-    let top_name = match forced_top
-        .clone()
-        .or_else(|| mcc::cli::globals().top.clone())
-        .or_else(|| mcc::mcb_get_module_name_by_uri(&uri))
-        .or_else(|| mcc::mcb_get_first_module_name())
-    {
+    let top_name = match crate::cmds::common::resolve_top_module(&uri, forced_top.clone()) {
         Some(n) => n,
         None => {
             // No module found — if --tree/--ast is set, still proceed to show
