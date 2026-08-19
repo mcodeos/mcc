@@ -1261,20 +1261,21 @@ impl McModuleInst {
         for (_li, line) in func.lines.iter().enumerate() {
             self.auto_inst_map = outer_auto_inst.clone();
             // Attribute anonymous instances/connections of this body line
-            // to its exact source line in the func's own file.
-            let saved_ctx = self.enter_func_line(&func, Some(_li));
-            let substituted = Self::substitute_line(line, &bindings, None);
-            let prefixed = Self::prefix_instance_line_with_skip(&substituted, inst_name, &skip);
-            if let Err(e) = self.process_line(&prefixed) {
-                self.record_warning(
-                    crate::errcodes::INST_CTOR_BODY_LINE_FAILED,
-                    crate::errcodes::format_msg(
+            // to its exact source line in the func's own file. RAII
+            // (§7.11(2)): restore happens on every exit.
+            self.with_func_line(&func, Some(_li), |this| {
+                let substituted = Self::substitute_line(line, &bindings, None);
+                let prefixed = Self::prefix_instance_line_with_skip(&substituted, inst_name, &skip);
+                if let Err(e) = this.process_line(&prefixed) {
+                    this.record_warning(
                         crate::errcodes::INST_CTOR_BODY_LINE_FAILED,
-                        &[&last, &e],
-                    ),
-                );
-            }
-            self.current_func_span = saved_ctx;
+                        crate::errcodes::format_msg(
+                            crate::errcodes::INST_CTOR_BODY_LINE_FAILED,
+                            &[&last, &e],
+                        ),
+                    );
+                }
+            });
         }
         self.expansion.end(eidx);
         // ── P4 backstop: strip host-synthesized interface endpoints leaked during body processing ──

@@ -29,8 +29,10 @@ pub struct InstanceFamilies {
     /// component class (`CAP`).
     pub declareb: Vec<(String, u32, String)>,
     /// Function-generated anonymous instances (e.g. `.Cap()` expansion) with
-    /// their construction line (0 when unknown) and component class.
-    pub generated: Vec<(String, u32, String)>,
+    /// their construction line (0 when unknown), component class, and the
+    /// caller chain (`<caller_inst>.<func_name>`, empty when none) from the
+    /// expansion record that produced them.
+    pub generated: Vec<(String, u32, String, String)>,
     /// Every name that counts as declared (source + declareb).
     pub source_names: HashSet<String>,
 }
@@ -183,16 +185,62 @@ pub fn extract_instance_families(
     declareb.sort_by_key(|(n, l, _)| (if *l == 0 { u32::MAX } else { *l }, n.clone()));
 
     // Funcall-generated anonymous components whose name does not match a
-    // source declaration (e.g. `.Cap()` expansion instances).
-    let mut generated: Vec<(String, u32, String)> = Vec::new();
+    // source declaration (e.g. `.Cap()` expansion instances). Their
+    // `InstOrigin` construction site is a byte offset (decision A, §7.1); the
+    // owning file comes from the expansion record (`call_site` / `def_site`),
+    // which also carries the caller chain (`caller_inst.func_name`) for the
+    // call-site view (§5.1 `generated`).
+    let mut generated: Vec<(String, u32, String, String)> = Vec::new();
     for comp in &inst.components {
-        if let InstOrigin::FuncCall { line, .. } = comp.origin {
+        if let InstOrigin::FuncCall { .. } = comp.origin {
             if !source_names.contains(&comp.name) {
-                generated.push((comp.name.clone(), line, comp.def.name.to_string()));
+                let (line, caller) = comp
+                    .expansion_id
+                    .and_then(|k| inst.expansion.records.get(k))
+                    .map(|r| {
+                        let line = r
+                            .call_site
+                            .clone()
+                            .or(r.def_site.clone())
+                            .and_then(|(u, off)| {
+                                std::fs::read_to_string(u.as_str())
+                                    .ok()
+                                    .map(|c| line_of_byte(&c, off as usize))
+                                    .filter(|l| *l > 0)
+                            })
+                            .unwrap_or(0);
+                        // Caller chain (§5.1 `generated`): walk the expansion
+                        // record parent chain to the top-level record so
+                        // anonymous products of a method/function call display
+                        // the whole call path (e.g. `uC.i2c() → R_PULLUP_1`),
+                        // not the innermost record (which for a nested
+                        // ComponentCtor carries no caller).
+                        let caller = (|| -> Option<String> {
+                            let mut cur = comp.expansion_id?;
+                            loop {
+                                let rec = inst.expansion.records.get(cur)?;
+                                match rec.parent {
+                                    Some(p) => cur = p,
+                                    None => {
+                                        return match (&rec.caller_inst, rec.func_name.as_str()) {
+                                            (Some(c), f) if !f.is_empty() => {
+                                                Some(format!("{c}.{f}"))
+                                            }
+                                            _ => None,
+                                        };
+                                    }
+                                }
+                            }
+                        })()
+                        .unwrap_or_default();
+                        (line, caller)
+                    })
+                    .unwrap_or((0, String::new()));
+                generated.push((comp.name.clone(), line, comp.def.name.to_string(), caller));
             }
         }
     }
-    generated.sort_by_key(|(_, l, _)| if *l == 0 { u32::MAX } else { *l });
+    generated.sort_by_key(|(_, l, _, _)| if *l == 0 { u32::MAX } else { *l });
 
     InstanceFamilies {
         source,
@@ -212,7 +260,7 @@ pub fn collect_module_nodes(inst: &McModuleInst, path: &str) -> Vec<Value> {
     let instances = json!({
         "source": fam.source.iter().map(|(n, k, l, cl)| json!({"name": n, "kind": k, "line": l, "class": cl})).collect::<Vec<_>>(),
         "declareb": fam.declareb.iter().map(|(n, l, cl)| json!({"name": n, "line": l, "class": cl})).collect::<Vec<_>>(),
-        "generated": fam.generated.iter().map(|(n, l, cl)| json!({"name": n, "line": l, "class": cl})).collect::<Vec<_>>(),
+        "generated": fam.generated.iter().map(|(n, l, cl, caller)| json!({"name": n, "line": l, "class": cl, "caller": caller})).collect::<Vec<_>>(),
     });
     let mut out = vec![json!({
         "module": path,
@@ -278,6 +326,7 @@ pub fn build_hierarchy(modules: &[Value]) -> Value {
                     "line": e["line"],
                     "class": e["class"],
                     "origin": "gen",
+                    "caller": e["caller"],
                 }));
             }
         }
@@ -395,9 +444,14 @@ fn render_hierarchy_entries(
                 let _ = writeln!(out, "{prefix}|");
             }
         } else {
+            let caller = e["caller"]
+                .as_str()
+                .filter(|c| !c.is_empty())
+                .map(|c| format!(" ({c})"))
+                .unwrap_or_default();
             let _ = writeln!(
                 out,
-                "{prefix}{branch}{ln:<line_w$}  [{origin}] {kind:<9} {name:<name_w$} {class}"
+                "{prefix}{branch}{ln:<line_w$}  [{origin}] {kind:<9} {name:<name_w$} {class}{caller}"
             );
         }
     }

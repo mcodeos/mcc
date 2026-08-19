@@ -191,20 +191,31 @@ fn compare_instances(
                 ));
             }
             InstOrigin::FuncCall { line, .. } => {
+                // Decision A (§7.1): `line` is a byte offset; convert to a
+                // 1-based line for display (best effort against this module's
+                // own file; func-body offsets into other files fall back to 0
+                // — the accurate line comes from the expansion record).
+                let ln = content.as_ref().map_or(0, |c| {
+                    if (line as usize) < c.len() {
+                        hierarchy::line_of_byte(c, line as usize)
+                    } else {
+                        0
+                    }
+                });
                 if source_names.contains(&comp.name) {
                     expanded_declared.insert(comp.name.clone());
                     expanded.push((
                         comp.name.clone(),
                         "component".to_string(),
                         "declareb".to_string(),
-                        line,
+                        ln,
                     ));
                 } else {
                     expanded.push((
                         comp.name.clone(),
                         "component".to_string(),
                         "funcall".to_string(),
-                        line,
+                        ln,
                     ));
                 }
             }
@@ -284,7 +295,7 @@ fn compare_instances(
         "expanded": expanded_all.iter().map(|(n, k, o, l)| json!({"name": n, "kind": k, "origin": o, "line": l})).collect::<Vec<_>>(),
         "missing": missing,
         "extra": extra,
-        "generated": generated.iter().map(|(n, l, cl)| json!({"name": n, "line": l, "class": cl})).collect::<Vec<_>>(),
+        "generated": generated.iter().map(|(n, l, cl, caller)| json!({"name": n, "line": l, "class": cl, "caller": caller})).collect::<Vec<_>>(),
     });
     let counts = (
         source.len() + declareb.len(),
@@ -305,8 +316,9 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
     let spans = &inst.def.line_spans;
 
     // Build a byte-offset -> line-number map from the module's own source
-    // file so expanded connections (tagged by line) can be attributed to the
-    // exact source statement that produced them.
+    // file so expanded connections (tagged by `source_span`, decision A §7.1
+    // byte offset) can be attributed to the exact source statement that
+    // produced them.
     let def_file = inst.def_uri.to_string();
     let content = std::fs::read_to_string(&def_file).ok();
     let mut src_by_line: BTreeMap<u32, usize> = BTreeMap::new();
@@ -316,10 +328,28 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
         }
     }
 
+    // Body-expansion records issued by each module statement, keyed by the
+    // statement byte offset (call_site, §4.1). Used to upgrade the `(funcall)`
+    // exemption into a real "did the call expand anything" check (§5.1).
+    let mut stmt_records: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
+    let groups =
+        inst.expansion
+            .group_products(&inst.components, &inst.sub_modules, &inst.connections);
+    for (i, r) in inst.expansion.records.iter().enumerate() {
+        if r.parent.is_some() {
+            continue; // nested expansion belongs to its parent record
+        }
+        if let Some((uri, off)) = &r.call_site {
+            if uri.as_str() == def_file {
+                stmt_records.entry(*off).or_default().push(i);
+            }
+        }
+    }
+
     let mut per_stmt: Vec<Vec<ConnEntry>> = (0..lines.len()).map(|_| Vec::new()).collect();
     let mut untraced: Vec<String> = Vec::new();
     let mut cross_file: Vec<Value> = Vec::new();
-    let mut unmatched: Vec<Value> = Vec::new();
+    let mut unattributed: Vec<Value> = Vec::new();
 
     for conn in &inst.connections {
         let entry = ConnEntry {
@@ -327,25 +357,39 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
             points: conn.points.iter().map(|p| p.path.clone()).collect(),
         };
         match &conn.source_span {
-            // No source span: engine-internal connection (e.g. auto pullup).
+            // No source span: engine-internal projection link (interface / bus
+            // member net), legal (§5.4).
             None => untraced.push(entry.net),
-            Some((file, line)) => {
+            Some((file, off)) => {
                 if *file != def_file {
                     // Connection created while instantiating a function whose
-                    // body lives in another file (e.g. `uC.i2c()`); informative.
+                    // body lives in another file (e.g. `uC.i2c()`). The call
+                    // site is visible in the hierarchy tree; the definition
+                    // file + line here is auxiliary info only (§5.2).
+                    let line = std::fs::read_to_string(file)
+                        .ok()
+                        .map(|c| hierarchy::line_of_byte(&c, *off as usize))
+                        .unwrap_or(0);
                     cross_file.push(json!({
                         "net": entry.net,
                         "points": entry.points,
                         "source": format!("{file}:{line}"),
                     }));
                 } else if content.is_some() {
-                    match src_by_line.get(line) {
+                    // `source_span` carries a byte offset (decision A);
+                    // convert to a line number to attribute the statement.
+                    let ln = hierarchy::line_of_byte(content.as_ref().unwrap(), *off as usize);
+                    match src_by_line.get(&ln) {
                         Some(&idx) => per_stmt[idx].push(entry),
-                        None => unmatched.push(json!({
+                        None if conn.expansion_id.is_some() => {
+                            // Attributed to an expansion record (its
+                            // call_site / def_site locates it); not a module
+                            // statement product, so not unattributed.
+                        }
+                        None => unattributed.push(json!({
                             "net": entry.net,
                             "points": entry.points,
-                            "file": file,
-                            "line": line,
+                            "line": ln,
                         })),
                     }
                 } else {
@@ -357,9 +401,10 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
     }
 
     // Per-statement report. A real connection statement that expanded to
-    // nothing is flagged; statements containing function calls expand inside
-    // the callee (whose body lines belong to the callee's file), so they are
-    // exempt.
+    // nothing is flagged; statements containing function calls are checked
+    // against their body-expansion records instead of being blanket-exempt
+    // (§5.1): a body-expanding record with no products is a genuine empty
+    // expansion (P2-8 `skipped` records are deliberate).
     let mut per_line: Vec<Value> = Vec::with_capacity(lines.len());
     let mut no_expansion = 0usize;
     for (i, phrase) in lines.iter().enumerate() {
@@ -368,13 +413,45 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
             .iter()
             .map(|c| json!({"net": c.net, "points": c.points}))
             .collect();
-        if conns.is_empty() && !has_funccall {
+        let stmt_off = spans.get(i).map(|sp| sp.start as u32);
+        let empty_expansion = stmt_off
+            .and_then(|off| stmt_records.get(&off))
+            .map(|recs| {
+                let body_kinds = [
+                    mcc::ExpansionKind::InstanceMethod,
+                    mcc::ExpansionKind::UserFunc,
+                    mcc::ExpansionKind::ModuleCall,
+                    mcc::ExpansionKind::BuiltinTwopin,
+                ];
+                let body: Vec<usize> = recs
+                    .iter()
+                    .copied()
+                    .filter(|&k| body_kinds.contains(&inst.expansion.records[k].kind))
+                    .collect();
+                if body.is_empty() {
+                    // Only leaf records (declare / ctor / iterated): products
+                    // exist by construction.
+                    return false;
+                }
+                body.iter().all(|&k| {
+                    let r = &inst.expansion.records[k];
+                    if r.skipped {
+                        return true; // deliberate empty expansion (P2-8)
+                    }
+                    let g = &groups.by_record[k];
+                    g.components.is_empty() && g.sub_modules.is_empty() && g.connections.is_empty()
+                })
+            })
+            .unwrap_or(false);
+        let funcall_empty = has_funccall && empty_expansion;
+        if conns.is_empty() && (!has_funccall || funcall_empty) {
             no_expansion += 1;
         }
         per_line.push(json!({
             "line": line_of_span(&content, spans.get(i)),
             "text": format!("{phrase}"),
             "funcall": has_funccall,
+            "funcall_empty": funcall_empty,
             "connections": conns,
         }));
     }
@@ -385,7 +462,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
         "per_line": per_line,
         "untraced": untraced,
         "cross_file": cross_file,
-        "unmatched": unmatched,
+        "unattributed": unattributed,
     });
     let counts = (
         lines.len(),
@@ -442,7 +519,7 @@ fn render_text(out: &mut String, top: &str, summary: &Value, modules: &[Value], 
         + conn["no_expansion"].as_u64().unwrap_or(0);
     let _ = writeln!(
         out,
-        "Verify: {top} | modules: {} | instances: source={} expanded={} missing={} extra={} generated={} | connections: statements={} expanded={} untraced={} no_expansion={}",
+        "Verify: {top} | modules: {} | instances: source={} expanded={} missing={} extra={} generated={} | connections: statements={} expanded={} no_expansion={}",
         summary["modules"],
         inst["source"],
         inst["expanded"],
@@ -451,7 +528,6 @@ fn render_text(out: &mut String, top: &str, summary: &Value, modules: &[Value], 
         inst["generated"],
         conn["statements"],
         conn["expanded"],
-        conn["untraced"],
         conn["no_expansion"],
     );
     let _ = writeln!(
@@ -534,7 +610,9 @@ fn render_module_text(out: &mut String, m: &Value) {
                 .map(|l| format!("L{l}"))
                 .unwrap_or_else(|| "?".to_string());
             let count = line["connections"].as_array().map(|a| a.len()).unwrap_or(0);
-            let flag = if line["funcall"].as_bool().unwrap_or(false) {
+            let flag = if line["funcall_empty"].as_bool().unwrap_or(false) {
+                "  <<< EMPTY EXPANSION"
+            } else if line["funcall"].as_bool().unwrap_or(false) {
                 " (funcall)"
             } else if count == 0 {
                 "  <<< NO EXPANSION"
@@ -568,26 +646,26 @@ fn render_module_text(out: &mut String, m: &Value) {
             }
         }
     }
-    if let Some(arr) = conn["untraced"].as_array() {
-        for n in arr {
-            let _ = writeln!(out, "    [untraced] [{}]", n.as_str().unwrap_or(""));
-        }
-    }
     if let Some(arr) = conn["cross_file"].as_array() {
+        // Auxiliary information only (design §5.2): the connection is fully
+        // visible under its call-site statement in the hierarchy tree; the
+        // definition file + line is context.
         for c in arr {
             let _ = writeln!(
                 out,
-                "    [cross-file] [{}] from {}",
+                "    [cross-file] [{}] def {}",
                 c["net"].as_str().unwrap_or(""),
                 c["source"].as_str().unwrap_or("")
             );
         }
     }
-    if let Some(arr) = conn["unmatched"].as_array() {
+    if let Some(arr) = conn["unattributed"].as_array() {
+        // expansion_id = None and no source statement to attribute to: should
+        // be zero; any hit is a Pass2 attribution bug (design §5.1).
         for c in arr {
             let _ = writeln!(
                 out,
-                "    [unmatched] [{}] line {}",
+                "    [unattributed] [{}] line {}",
                 c["net"].as_str().unwrap_or(""),
                 c["line"]
             );

@@ -11,7 +11,7 @@
 use super::expand::expand_match;
 use super::McModuleInst;
 use crate::db::diagnostic::diagnostic::{diagnostic_log, DiagnosticLevel};
-use crate::instant::mc_net::{line_of_offset, ConnectionInst, InstError, NetPoint};
+use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint};
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{ConnDir, Shape, ShapeMatcher};
@@ -160,18 +160,13 @@ impl McModuleInst {
         );
 
         // ★ P9-A2: compute source_span and port_group once for this connection
+        // Decision A (§7.1): source_span carries a **byte offset**, not a line
+        // number; display layers convert offset → line via the owning file.
         let source_span: Option<(String, u32)> =
             match (&self.current_func_span, &self.current_line_span) {
                 // Func-body expansion context (func may live in another file)
-                (Some((uri, line)), _) => Some((uri.to_string(), *line)),
-                (None, Some(s)) => {
-                    // Convert byte offset to line number. Prefer the disk-backed
-                    // cache: the parse-time thread-local LineIndex is unreliable here
-                    // because instantiation runs after parsing (stale entries can
-                    // report line 1 for out-of-range offsets).
-                    let line = line_of_offset(&self.def_uri, s.start as u32);
-                    Some((self.def_uri.clone(), line))
-                }
+                (Some((uri, off)), _) => Some((uri.to_string(), *off)),
+                (None, Some(s)) => Some((self.def_uri.clone(), s.start as u32)),
                 (None, None) => None,
             };
         // ★ P9-A2: prefer current_port_group (set from source code context),
@@ -467,17 +462,13 @@ impl McModuleInst {
         dir: ConnDir,
         lane: Option<u16>,
     ) -> ConnectionInst {
+        // Decision A (§7.1): source_span carries a byte offset (see the other
+        // construction site in this file).
         let source_span: Option<(String, u32)> =
             match (&self.current_func_span, &self.current_line_span) {
                 // Func-body expansion context (func may live in another file)
-                (Some((uri, line)), _) => Some((uri.to_string(), *line)),
-                (None, Some(s)) => {
-                    // Use the disk-backed line cache: the parse-time thread-local
-                    // LineIndex is no longer on the stack when Pass2 instantiation
-                    // runs, so lookup_line_col would fall back to line 1.
-                    let line = line_of_offset(&self.def_uri, s.start as u32);
-                    Some((self.def_uri.clone(), line))
-                }
+                (Some((uri, off)), _) => Some((uri.to_string(), *off)),
+                (None, Some(s)) => Some((self.def_uri.clone(), s.start as u32)),
                 (None, None) => None,
             };
         // ★ P9-A2: prefer current_port_group (set from source code context),
