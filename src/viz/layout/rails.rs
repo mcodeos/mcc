@@ -1010,7 +1010,9 @@ mod tests {
         ));
         classify_rails(&mut g, /*is_top=*/ true);
 
-        // V1V2: driver moddcdc(2) → mcu513(3, hub) 1 edge; V3V3: modldo(1) → {moddcdc(2 power domain), mcu513(3 hub)} 2 edges
+        // V1V2: driver moddcdc(2) → mcu513(3, hub) 1 edge; V3V3: modldo(1) →
+        // {moddcdc(2 power domain), mcu513(3 hub), speaker(4)} 3 edges (P9-B:
+        // root layer keeps every driver→consumer pair).
         let power_edges: Vec<&VizNet> = g
             .nets
             .iter()
@@ -1018,8 +1020,8 @@ mod tests {
             .collect();
         assert_eq!(
             power_edges.len(),
-            3,
-            "V1V2 1 edge + V3V3 2 edges = 3 driver edges"
+            4,
+            "V1V2 1 edge + V3V3 3 edges = 4 driver edges"
         );
         let v33: Vec<(i64, i64)> = power_edges
             .iter()
@@ -1031,9 +1033,10 @@ mod tests {
             "modldo→moddcdc (power domain): {v33:?}"
         );
         assert!(v33.contains(&(1, 3)), "modldo→mcu513 (hub): {v33:?}");
+        assert!(v33.contains(&(1, 4)), "modldo→speaker (P9-B): {v33:?}");
         assert!(
-            !v33.iter().any(|(_, t)| *t == 4),
-            "speaker R-3 draws no edge"
+            v33.len() == 3,
+            "exactly 3 V3V3 driver edges expected: {v33:?}"
         );
         assert!(
             g.rail_decorations.is_empty(),

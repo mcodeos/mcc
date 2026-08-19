@@ -387,24 +387,24 @@ fn compute_hub_height(
 /// Assign box coordinates matching the golden table in §4.5.
 ///
 /// Layout:
-/// ```
-///                 ┌──────────┐
-///                 │   mic    │             N
-///                 └────┬─────┘
-///  ┌────────┐    ┌─────┴────┐  ┌──────────────┐
-///  │        │    │  flash   │──┤              │
-///  │        │    └──────────┘  │              │
-///  │usbsock │───┬┌──────────┐  │   mcu513     │  ring0
-///  │        │   ││  modldo  │──┤    (hub)     │
-///  │        │   │└──────────┘  │              │
-///  └────────┘   │┌──────────┐  │              │
-///    ring2      ││ moddcdc  │──┤              │
-///               │└──────────┘  └───┬──────┬───┘
-///               │  ring1 W         │      │
-///               │                  │      │
-///               └──────────────────┘┌─────┴──┐
-///                                   │speaker │   S
-///                                   └────────┘
+/// ```text
+///                 +----------+
+///                 |   mic    |             N
+///                 +----+-----+
+///  +--------+    +-----+----+  +--------------+
+///  |        |    |  flash   |--+              |
+///  |        |    +----------+  |              |
+///  |usbsock |---+ +----------+  |   mcu513     |  ring0
+///  |        |   | |  modldo  |--+    (hub)     |
+///  |        |   | +----------+  |              |
+///  +--------+   | +----------+  |              |
+///    ring2      | | moddcdc  |--+              |
+///               | +----------+  +---+------+---+
+///               |  ring1 W         |      |
+///               |                  |      |
+///               +------------------+ +----+---+
+///                                   |speaker |   S
+///                                   +--------+
 /// ```
 fn assign_coordinates(
     graph: &mut McVecGraph,
@@ -616,10 +616,10 @@ fn setup_facade_entry_points(graph: &mut McVecGraph) {
 
     // Collect all pin specs before mutating
     // ★ P-1: only signal pins get entry_points. Rail edges use anchors (P-2).
-    let specs: Vec<(i64, Vec<(&str, EntrySide, f64)>)> = vec![
+    let specs: Vec<(&str, Vec<(&str, EntrySide, f64)>)> = vec![
         // mcu513 (hub): 4 signal pins (§4.6)
         (
-            name_to_id["mcu513"],
+            "mcu513",
             vec![
                 ("SPI", EntrySide::Left, 0.095),
                 ("MIC", EntrySide::Top, 0.5),
@@ -629,26 +629,30 @@ fn setup_facade_entry_points(graph: &mut McVecGraph) {
         ),
         // speaker: 2 signal pins
         (
-            name_to_id["speaker"],
+            "speaker",
             vec![
                 ("DAC_OUT", EntrySide::Top, 0.3),
                 ("SPK_MUTE", EntrySide::Top, 0.7),
             ],
         ),
         // flash: 1 signal pin
-        (name_to_id["flash"], vec![("SPI", EntrySide::Right, 0.5)]),
+        ("flash", vec![("SPI", EntrySide::Right, 0.5)]),
         // mic: 1 signal pin
-        (name_to_id["mic"], vec![("MIC", EntrySide::Bottom, 0.5)]),
+        ("mic", vec![("MIC", EntrySide::Bottom, 0.5)]),
         // modldo: 0 signal pins (rail only)
-        (name_to_id["modldo"], vec![]),
+        ("modldo", vec![]),
         // moddcdc: 0 signal pins (rail only)
-        (name_to_id["moddcdc"], vec![]),
+        ("moddcdc", vec![]),
         // usbsocket: 0 signal pins (rail only)
-        (name_to_id["usbsocket"], vec![]),
+        ("usbsocket", vec![]),
     ];
 
-    // Apply all specs
-    for (box_id, eps) in specs {
+    // Apply all specs; boxes missing from this graph (non-hbl fixtures) are
+    // skipped instead of panicking on the map lookup.
+    for (name, eps) in specs {
+        let Some(&box_id) = name_to_id.get(name) else {
+            continue;
+        };
         if let Some(b) = graph.boxes.iter_mut().find(|b| b.id == box_id) {
             b.entry_points = eps
                 .into_iter()
