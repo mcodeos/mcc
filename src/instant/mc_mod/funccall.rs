@@ -18,6 +18,7 @@ use super::McModuleInst;
 use crate::db::cmie::cmie::mcb_get_cmie;
 use crate::instant::mc_comp::McComponentInst;
 use crate::instant::mc_net::{ConnectionInst, InstError, NetPoint, PortInst};
+use crate::instant::provenance::ExpansionKind;
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_endpoint::McEndpoint;
 use crate::semantic::basic::mc_param::McParamValue;
@@ -589,6 +590,14 @@ impl McModuleInst {
         params: &[McParamValue],
         func_name: &str,
     ) -> Result<(), InstError> {
+        // ── Expansion provenance: BuiltinTwopin (§4.1-A3) ──
+        let eidx = self.expansion.begin(
+            ExpansionKind::BuiltinTwopin,
+            Some(inst_name.to_string()),
+            func_name.to_string(),
+            self.current_call_site(),
+            None,
+        );
         // 1. Flatten all params into a McBus list, then expand to NetPoint
         // Per-param groups are kept so Pullup/Pulldown can select the rail
         // member (VCC/VDD) instead of the ground member when the rail arg
@@ -607,7 +616,10 @@ impl McModuleInst {
             let mut series_list: Vec<(&[McPhrase], ConnDir)> = Vec::new();
             Self::collect_series_params(p, &mut series_list);
             for (elems, dir) in &series_list {
-                self.process_series_branch_inplace(elems, *dir)?;
+                if let Err(e) = self.process_series_branch_inplace(elems, *dir) {
+                    self.expansion.end(eidx);
+                    return Err(e);
+                }
             }
             // Normal expansion: for a Series param `phrase.get_left()` already
             // returns the chain's first element, consistent with the target
@@ -683,12 +695,13 @@ impl McModuleInst {
                 });
             let gnd = self.node_to_netpoint(&McBus::new("GND"));
             let id = self.next_conn_id();
-            self.connections.push(self.make_conn_with_provenance(
+            self.add_connection(self.make_conn_with_provenance(
                 id,
                 vec![pin2, gnd],
                 ConnDir::Undirected,
                 None,
             ));
+            self.expansion.end(eidx);
             return Ok(());
         }
 
@@ -727,19 +740,20 @@ impl McModuleInst {
             let rail = Self::pick_power_point(&param_groups[1]);
             if let (Some(s), Some(r)) = (sig, rail) {
                 let id1 = self.next_conn_id();
-                self.connections.push(self.make_conn_with_provenance(
+                self.add_connection(self.make_conn_with_provenance(
                     id1,
                     vec![pin1, s],
                     ConnDir::Undirected,
                     None,
                 ));
                 let id2 = self.next_conn_id();
-                self.connections.push(self.make_conn_with_provenance(
+                self.add_connection(self.make_conn_with_provenance(
                     id2,
                     vec![pin2, r],
                     ConnDir::Undirected,
                     None,
                 ));
+                self.expansion.end(eidx);
                 return Ok(());
             }
         }
@@ -747,7 +761,7 @@ impl McModuleInst {
         if is_pull {
             if let Some(t) = targets.first().cloned() {
                 let id2 = self.next_conn_id();
-                self.connections.push(self.make_conn_with_provenance(
+                self.add_connection(self.make_conn_with_provenance(
                     id2,
                     vec![pin2, t],
                     ConnDir::Undirected,
@@ -757,13 +771,14 @@ impl McModuleInst {
                 // No targets: pin2 → GND (mirror the .Cap(_) fallback)
                 let gnd = self.node_to_netpoint(&McBus::new("GND"));
                 let id2 = self.next_conn_id();
-                self.connections.push(self.make_conn_with_provenance(
+                self.add_connection(self.make_conn_with_provenance(
                     id2,
                     vec![pin2, gnd],
                     ConnDir::Undirected,
                     None,
                 ));
             }
+            self.expansion.end(eidx);
             return Ok(());
         }
 
@@ -777,7 +792,7 @@ impl McModuleInst {
                     // Pullup/Pulldown: pin1=signal (wired by outer chain), pin2=rail
                     // e.g. Pullup(_, VDD) → pin2 → VDD, pin1 left for I2C0.SCL
                     let id2 = self.next_conn_id();
-                    self.connections.push(self.make_conn_with_provenance(
+                    self.add_connection(self.make_conn_with_provenance(
                         id2,
                         vec![pin2, t1],
                         ConnDir::Undirected,
@@ -787,14 +802,14 @@ impl McModuleInst {
                     // .Cap(x) → pin1 → x, pin2 → GND
                     let gnd = self.node_to_netpoint(&McBus::new("GND"));
                     let id1 = self.next_conn_id();
-                    self.connections.push(self.make_conn_with_provenance(
+                    self.add_connection(self.make_conn_with_provenance(
                         id1,
                         vec![pin1, t1],
                         ConnDir::Undirected,
                         None,
                     ));
                     let id2 = self.next_conn_id();
-                    self.connections.push(self.make_conn_with_provenance(
+                    self.add_connection(self.make_conn_with_provenance(
                         id2,
                         vec![pin2, gnd],
                         ConnDir::Undirected,
@@ -804,14 +819,14 @@ impl McModuleInst {
             }
             Some(t2) => {
                 let id1 = self.next_conn_id();
-                self.connections.push(self.make_conn_with_provenance(
+                self.add_connection(self.make_conn_with_provenance(
                     id1,
                     vec![pin1, t1],
                     ConnDir::Undirected,
                     None,
                 ));
                 let id2 = self.next_conn_id();
-                self.connections.push(self.make_conn_with_provenance(
+                self.add_connection(self.make_conn_with_provenance(
                     id2,
                     vec![pin2, t2],
                     ConnDir::Undirected,
@@ -819,6 +834,7 @@ impl McModuleInst {
                 ));
             }
         }
+        self.expansion.end(eidx);
         Ok(())
     }
 

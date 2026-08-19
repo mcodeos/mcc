@@ -552,7 +552,7 @@ impl McModuleInst {
                         all_pts.extend(all_bridges);
                         if all_pts.len() >= 2 {
                             let id = self.next_conn_id();
-                            self.connections.push(self.make_conn_with_provenance(
+                            self.add_connection(self.make_conn_with_provenance(
                                 id,
                                 all_pts,
                                 dir,
@@ -579,7 +579,7 @@ impl McModuleInst {
                         all_pts.extend(leading.iter().cloned());
                         if all_pts.len() >= 2 {
                             let id = self.next_conn_id();
-                            self.connections.push(self.make_conn_with_provenance(
+                            self.add_connection(self.make_conn_with_provenance(
                                 id,
                                 all_pts,
                                 dir,
@@ -618,7 +618,7 @@ impl McModuleInst {
                     let mut all_pts = vec![lp.clone(), rp.clone()];
                     all_pts.extend(bridge_pins.iter().cloned());
                     let id = self.next_conn_id();
-                    self.connections.push(self.make_conn_with_provenance(
+                    self.add_connection(self.make_conn_with_provenance(
                         id,
                         all_pts,
                         dir,
@@ -1853,7 +1853,7 @@ impl McModuleInst {
                         .collect();
                     if lane.len() >= 2 {
                         let id = self.next_conn_id();
-                        self.connections.push(self.make_conn_with_provenance(
+                        self.add_connection(self.make_conn_with_provenance(
                             id,
                             lane,
                             ConnDir::Undirected,
@@ -1865,7 +1865,7 @@ impl McModuleInst {
                 // Anchor is 1 wide / indivisible (e.g. dimension mismatch degenerate path):
                 // all endpoints in the same net
                 let id = self.next_conn_id();
-                self.connections.push(self.make_conn_with_provenance(
+                self.add_connection(self.make_conn_with_provenance(
                     id,
                     left_net.clone(),
                     ConnDir::Undirected,
@@ -1890,7 +1890,7 @@ impl McModuleInst {
                         .collect();
                     if lane.len() >= 2 {
                         let id = self.next_conn_id();
-                        self.connections.push(self.make_conn_with_provenance(
+                        self.add_connection(self.make_conn_with_provenance(
                             id,
                             lane,
                             ConnDir::Undirected,
@@ -1900,7 +1900,7 @@ impl McModuleInst {
                 }
             } else {
                 let id = self.next_conn_id();
-                self.connections.push(self.make_conn_with_provenance(
+                self.add_connection(self.make_conn_with_provenance(
                     id,
                     right_net,
                     ConnDir::Undirected,
@@ -2186,7 +2186,7 @@ impl McModuleInst {
                             new_connections,
                         } => {
                             self.auto_inst_map.insert(key, inst.name.clone());
-                            self.sub_modules.push(inst);
+                            self.add_submodule(inst);
                             self.connections.extend(new_connections);
                         }
                         FuncCallInst::PassThrough => {
@@ -2619,7 +2619,7 @@ impl McModuleInst {
                                     {
                                         if let Some(inst) = new_components.pop() {
                                             let inst_name = inst.name.clone();
-                                            self.components.push(inst);
+                                            self.add_component(inst);
                                             self.connections.extend(new_connections);
                                             self.wire_builtin_twopin(
                                                 &inst_name,
@@ -2706,7 +2706,7 @@ impl McModuleInst {
                         new_connections,
                     } => {
                         self.auto_inst_map.insert(key, inst.name.clone());
-                        self.sub_modules.push(inst);
+                        self.add_submodule(inst);
                         self.connections.extend(new_connections);
                     }
                     FuncCallInst::PassThrough => {

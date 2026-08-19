@@ -10,6 +10,7 @@
 use super::funccall::FuncCallInst;
 use super::McModuleInst;
 use crate::instant::mc_net::InstError;
+use crate::instant::provenance::ExpansionKind;
 use crate::semantic::basic::mc_bus::McBus;
 use crate::semantic::basic::mc_endpoint::{McEndpoint, McInstanceRef};
 use crate::semantic::basic::mc_param::McParamValue;
@@ -139,12 +140,26 @@ impl McModuleInst {
             return Ok(Some(FuncCallInst::PassThrough));
         }
 
+        // ── Expansion provenance: Iterated (covers the per-item loop,
+        //    §4.1-A4 / B8). Per-item constructions / func calls begin their
+        //    own records nested under this one. ──
+        let eidx = self.expansion.begin(
+            ExpansionKind::Iterated,
+            None,
+            func_name.to_string(),
+            self.current_call_site(),
+            None,
+        );
+
         let mut all_components = Vec::new();
         let mut all_connections = Vec::new();
 
         for (i, item) in items.iter().enumerate() {
             // 1. Process the caller of each item (recursive instantiation)
-            self.process_line(item)?;
+            if let Err(e) = self.process_line(item) {
+                self.expansion.end(eidx);
+                return Err(e);
+            }
 
             // 2. Get item as the new left endpoints
             let item_right_pts = self.get_right_points_from_phrase(item)?;
@@ -155,13 +170,19 @@ impl McModuleInst {
             let resolved_params = Self::resolve_indexed_params(params, i, count);
 
             // 4. Call instantiate_funccall for each iterated item
-            let result = self.instantiate_funccall(
+            let result = match self.instantiate_funccall(
                 func_name,
                 &resolved_params,
                 &item_left_elems,
                 right,
                 caller.as_deref(),
-            )?;
+            ) {
+                Ok(r) => r,
+                Err(e) => {
+                    self.expansion.end(eidx);
+                    return Err(e);
+                }
+            };
 
             // ── Iter-6.S5.2-diag ──
 
@@ -178,7 +199,7 @@ impl McModuleInst {
                     new_connections,
                 } => {
                     // Iterated calls can also create sub-modules (rare, but supported)
-                    self.sub_modules.push(inst);
+                    self.add_submodule(inst);
                     all_connections.extend(new_connections);
                 }
                 FuncCallInst::PassThrough => {
@@ -196,6 +217,7 @@ impl McModuleInst {
             }
         }
 
+        self.expansion.end(eidx);
         // ── Iter-6.S5.2-diag ──
 
         if all_components.is_empty() && all_connections.is_empty() {

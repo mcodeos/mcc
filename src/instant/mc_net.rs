@@ -246,6 +246,10 @@ pub struct ConnectionInst {
     /// ★ P9-A2: port group that produced this connection.
     /// For bus lanes, all lanes of the same bus share the same port_group.
     pub port_group: Option<String>,
+
+    /// Expansion provenance: index into the owning module's `ExpansionLog`.
+    /// None = created at module top level (no active expansion).
+    pub expansion_id: Option<usize>,
 }
 
 impl ConnectionInst {
@@ -307,6 +311,7 @@ impl ConnectionInst {
             via: None,
             source_span: None,
             port_group: None,
+            expansion_id: None,
         }
     }
 

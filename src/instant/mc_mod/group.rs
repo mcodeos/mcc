@@ -355,7 +355,7 @@ impl McModuleInst {
 
             for (l, r) in m.pairs {
                 let conn = mk_conn(self.next_conn_id(), vec![l, r], dir, lane);
-                self.connections.push(conn);
+                self.add_connection(conn);
             }
         } else if left_size == 1 {
             let l = left_points
@@ -369,12 +369,12 @@ impl McModuleInst {
                 // ── P2/A2: bare submodule port expanded by peer member then per-bit zip ──
                 for (le, r) in expanded.into_iter().zip(right_points.into_iter()) {
                     let conn = mk_conn(self.next_conn_id(), vec![le, r], dir, lane);
-                    self.connections.push(conn);
+                    self.add_connection(conn);
                 }
             } else {
                 for r in right_points {
                     let conn = mk_conn(self.next_conn_id(), vec![l.clone(), r], dir, lane);
-                    self.connections.push(conn);
+                    self.add_connection(conn);
                 }
             }
         } else if right_size == 1 {
@@ -388,12 +388,12 @@ impl McModuleInst {
                 // ── P2/A2: same as above, scalar on the right ──
                 for (l, re) in left_points.into_iter().zip(expanded.into_iter()) {
                     let conn = mk_conn(self.next_conn_id(), vec![l, re], dir, lane);
-                    self.connections.push(conn);
+                    self.add_connection(conn);
                 }
             } else {
                 for l in left_points {
                     let conn = mk_conn(self.next_conn_id(), vec![l, r.clone()], dir, lane);
-                    self.connections.push(conn);
+                    self.add_connection(conn);
                 }
             }
         } else {
@@ -443,7 +443,7 @@ impl McModuleInst {
                 .take(min_size)
             {
                 let conn = mk_conn(self.next_conn_id(), vec![l, r], dir, lane);
-                self.connections.push(conn);
+                self.add_connection(conn);
             }
         }
 
@@ -515,14 +515,14 @@ impl McModuleInst {
             let id = self.next_conn_id();
             if is_ground_name(last) {
                 let gnd = self.node_to_netpoint(&McBus::new("GND"));
-                self.connections.push(self.make_conn_with_provenance(
+                self.add_connection(self.make_conn_with_provenance(
                     id,
                     vec![p.clone(), gnd],
                     ConnDir::Undirected,
                     None,
                 ));
             } else {
-                self.connections.push(self.make_conn_with_provenance(
+                self.add_connection(self.make_conn_with_provenance(
                     id,
                     vec![scalar.clone(), p.clone()],
                     ConnDir::Undirected,
