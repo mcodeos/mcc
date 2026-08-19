@@ -24,6 +24,7 @@ pub(crate) mod build;
 pub(crate) mod builder;
 pub mod cli;
 pub mod db;
+pub mod hierarchy;
 pub mod instant;
 pub(crate) mod lsp;
 pub(crate) mod query;

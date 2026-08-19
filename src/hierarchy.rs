@@ -13,7 +13,7 @@
 //! emits for its sections), [`build_hierarchy`] nests those nodes by their
 //! dot path, and [`render_hierarchy_text`] draws the ASCII tree.
 
-use mcc::{InstOrigin, McInstance, McModuleInst};
+use crate::{InstOrigin, McInstance, McModuleInst};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
@@ -453,7 +453,7 @@ fn render_hierarchy_entries(
 }
 
 /// 1-based line number of a byte offset within `content`.
-pub(crate) fn line_of_byte(content: &str, offset: usize) -> u32 {
+pub fn line_of_byte(content: &str, offset: usize) -> u32 {
     let end = offset.min(content.len());
     content.as_bytes()[..end]
         .iter()
