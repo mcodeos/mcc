@@ -155,20 +155,7 @@ impl McModuleInst {
         // Only when this line actually contains `.Cap(_)` (params empty / all `_`) shunt, go through special
         // wiring below; lines without shunt fall through to original adjacency loop → zero impact on existing paths.
         let shunt: Vec<bool> = members.iter().map(Self::is_chain_cap_shunt).collect();
-        eprintln!(
-            "[SHUNT-DETECT] module={} members={:?} shunt={:?}",
-            self.name,
-            members
-                .iter()
-                .map(|m| format!("{:?}", std::mem::discriminant(m)))
-                .collect::<Vec<_>>(),
-            shunt
-        );
         if shunt.iter().any(|&s| s) {
-            eprintln!(
-                "[SHUNT-DETECT] module={} calling wire_chain_with_shunts",
-                self.name
-            );
             self.wire_chain_with_shunts(&members, &shunt, dir);
             return Ok(());
         }

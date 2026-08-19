@@ -418,6 +418,12 @@ pub enum ShowTarget {
     Enum,
     // One net's points (Pass2, uses --top)
     Net,
+    // Whole circuit tree after instantiation (Pass2, uses --top):
+    // one section per module; same-level instances (components, labels,
+    // buses, sub-modules) and connections first, then each sub-module in
+    // its own nested section. Interface-typed buses are annotated with
+    // their interface class, e.g. `uC.UART0{TX, RX} :: UART.TTL(DCE)`.
+    Dianlu,
     // Dump LSP lapper intervals for a file (semantic tokens + symbols)
     Lapper,
     // Print AST tree for a file

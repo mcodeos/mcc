@@ -124,10 +124,6 @@ impl McModuleInst {
         inst.origin = InstOrigin::FuncCall {
             fn_name: type_name.clone(),
         };
-        eprintln!(
-            "[probe::fcall] {}::{}() origin set to FuncCall",
-            type_name, inst_name
-        );
 
         // ── Iter-3.E3 + P4 ───────────────────────────────────────────────
         // Filter out synthetic interface placeholders that mc_fcall.rs injects when
