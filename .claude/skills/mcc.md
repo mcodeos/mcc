@@ -310,6 +310,12 @@ Options: `--filter EXPR` (component/module/interface/enum), `-F/--file`,
 | `mcc show lapper -F FILE` | LSP symbol intervals + RefDefMap (goto-def debug, local) |
 | `mcc show ast -F FILE`    | AST tree (parser debug)                                  |
 
+**Pass2 circuit tree** (`--top`):
+
+| command                | output                                                                                              |
+| ---------------------- | --------------------------------------------------------------------------------------------------- |
+| `mcc show dianlu`      | whole instantiated circuit, one section per module: same-level instances (`[C]` component, `[M]` sub-module, `[L]` label, `[B]` bus) then per-connection lines; sub-modules recurse into nested sections; component interface buses are annotated with their interface class (e.g. `uC.UART0{TX, RX} :: UART.TTL(DCE)`) |
+
 > `show nets` / `show params` accept `OWNER.FUNC` (dot-qualified func inside a
 > module/component; dotted class names work too, e.g. `MCU.US513_20_F.i2c`).
 > `show nets <func>` reports func-body connection-line nets named `line_N`
@@ -325,7 +331,7 @@ Options: `--filter EXPR` (component/module/interface/enum), `-F/--file`,
 | `--scope S`                   | `all`                               | `all`         | definition layers: `file` (default) / `use` / `system` / `all`; `show all` text renders one `------ <layer> ------` section per layer |
 | `--filter EXPR`               | all/component/module/interface/enum | —             | name filter on the list (`name=RES*`, `*` / `?` wildcards)                                                                            |
 | `-F, --file FILE`             | all                                 | all           | parse directly from a file instead of the loaded library/project; anchors the `show all` / `list all` file layer                      |
-| `-t, --top NAME`              | nets                                | nets          | Pass2 top module for instantiation (auto-guesses the first module in the file if omitted)                                             |
+| `-t, --top NAME`              | nets                                | nets / dianlu | Pass2 top module for instantiation (auto-guesses the first module in the file if omitted)                                             |
 | `--type KIND`                 | —                                   | instances     | filter sub-instances by kind (component\|module\|label\|interface\|bus\|busref\|list)                                                 |
 | `--span`                      | —                                   | show all text | append `@start:end` source spans to `show all` file-layer details (hidden by default)                                                 |
 | `-l, --lib NAME` (repeatable) | all                                 | all           | load a library into scope (mcode, installed, or project)                                                                              |

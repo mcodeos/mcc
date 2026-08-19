@@ -87,6 +87,11 @@ fn rpc_mapping(args: &ShowArgs) -> Option<(&'static str, Value)> {
             }
             Some(("show.net", json!({ "name": args.name })))
         }
+        ShowTarget::Dianlu => {
+            // local-only: walks the Pass2 McModuleInst tree (sections render
+            // from live object data, no RPC method exists)
+            return None;
+        }
 
         // ── drill-down ─────────────────────────────────────────────────────
         ShowTarget::Pins => drill_rpc("show.pins", args),
@@ -154,6 +159,7 @@ fn run_local(args: &ShowArgs) -> Result<()> {
             None => need_list_hint(args, "nets"),
             Some(n) => show_net(n, args),
         },
+        ShowTarget::Dianlu => show_dianlu(args),
 
         // ── drill-down ─────────────────────────────────────────────────────
         ShowTarget::Pins => drill_pins(require_name(args), args),
@@ -630,6 +636,335 @@ fn show_net(name: &str, args: &ShowArgs) -> Result<()> {
         None => json!({ "name": name, "points": Vec::<String>::new(), "error": "net not found" }),
     };
     output(&data, args.span)
+}
+
+// ============================================================================
+// show dianlu — whole circuit tree after instantiation (Pass2)
+// ============================================================================
+
+/// `show dianlu`: instantiate the top module (--top or first module) and walk
+/// the resulting `McModuleInst` tree. Output is organized as one section per
+/// module in source order: same-level instances (components, sub-modules,
+/// labels, buses) and connections first, then each sub-module in its own
+/// nested section. Interface-typed buses are annotated with their interface
+/// class (e.g. `uC.UART0{TX, RX} :: UART.TTL(DCE)`).
+fn show_dianlu(args: &ShowArgs) -> Result<()> {
+    // Top module: --top, else the module defined in the -F target file, else
+    // the first loaded module.
+    let file_uri = args.file.as_deref().map(resolve_file);
+    let top = mcc::cli::globals()
+        .top
+        .clone()
+        .or_else(|| {
+            file_uri
+                .as_ref()
+                .and_then(|u| mcc::mcb_get_module_name_by_uri(u))
+        })
+        .or_else(mcc::mcb_get_first_module_name)
+        .unwrap_or_else(|| {
+            error!(target: "mcc::show", "no modules found\nhint: load a file with -F or use --top");
+            std::process::exit(1);
+        });
+    let uri = mcc::mcb_iter_modules()
+        .iter()
+        .find(|(n, _)| *n == top)
+        .map(|(_, u)| mcc::McURI::from(u.as_str()))
+        .unwrap_or_else(|| mcc::McURI::from(top.clone()));
+    let ident = mcc::McIds::from(top.clone());
+
+    // Guardrail: a Pass2 panic must not abort the process.
+    let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        mcc::mcc_build(&ident, &uri)
+    }));
+    let inst = match built {
+        Ok(Ok(i)) => i,
+        Ok(Err(e)) => {
+            error!(target: "mcc::show", "build failed: {}", e);
+            std::process::exit(1);
+        }
+        Err(_) => {
+            error!(target: "mcc::show", "build panicked (engine Pass2 bug)");
+            std::process::exit(1);
+        }
+    };
+
+    // Text mode: hand-rendered sections (aligned with the user-facing
+    // circuit view; the generic key: value fallback would bury the tree).
+    if mcc::cli::globals().format == OutputFormat::Text {
+        let mut lines = Vec::new();
+        render_dianlu_section(&inst, &top, &mut lines);
+        let rendered = lines.join("\n");
+        if let Some(path) = &mcc::cli::globals().output {
+            std::fs::write(path, rendered)?;
+        } else {
+            println!("{rendered}");
+        }
+        return Ok(());
+    }
+
+    let data = json!({ "type": "dianlu", "top": top, "sections": dianlu_sections(&inst, &top) });
+    output(&data, args.span)
+}
+
+/// Render one module section (text): instances then connections, recursing
+/// into sub-modules as their own sections below.
+fn render_dianlu_section(inst: &mcc::McModuleInst, path: &str, lines: &mut Vec<String>) {
+    lines.push(format!("===== Section: {path} (module) ====="));
+    lines.push("Instances:".to_string());
+
+    for comp in &inst.components {
+        lines.push(format!(
+            "  [C] {}: {} [pins: {}]",
+            comp.name,
+            comp.def.name,
+            comp_pin_labels(comp).join(", ")
+        ));
+    }
+    for sub in &inst.sub_modules {
+        lines.push(format!("  [M] {}: {}", sub.name, sub.def.name));
+    }
+
+    let mut labels: Vec<&String> = inst.get_labels().keys().collect();
+    labels.sort();
+    for label in labels {
+        lines.push(format!("  [L] {label}"));
+    }
+
+    let mut buses: Vec<&mcc::McBusInst> = inst.get_buses().values().collect();
+    buses.sort_by(|a, b| a.name.cmp(&b.name));
+    for bus in buses {
+        let mut line = format!("  [B] {}{{{}}}", bus.name, bus.members.join(", "));
+        if let Some(ty) = bus_interface_type(inst, bus) {
+            line.push_str(&format!(" :: {ty}"));
+        }
+        lines.push(line);
+    }
+    // Interface buses projected by component instances (Pass2 keeps their
+    // members as physical pins, so they are surfaced here synthetically).
+    for (name, members, ty) in comp_interface_buses(inst) {
+        lines.push(format!("  [B] {name}{{{}}} :: {ty}", members.join(", ")));
+    }
+
+    lines.push("Connections:".to_string());
+    for conn in &inst.connections {
+        let net = conn
+            .net_name
+            .clone()
+            .unwrap_or_else(|| format!("__net_{}", conn.id));
+        if net == "NC" {
+            continue;
+        }
+        let points: Vec<&str> = conn
+            .points
+            .iter()
+            .filter(|p| p.path != "NC")
+            .map(|p| p.path.as_str())
+            .collect();
+        if points.is_empty() {
+            continue;
+        }
+        lines.push(format!("  {net} : {}", points.join(" - ")));
+    }
+
+    for sub in &inst.sub_modules {
+        lines.push(String::new());
+        render_dianlu_section(sub, &format!("{path}.{}", sub.name), lines);
+    }
+}
+
+/// Build the structured (JSON/YAML) representation: one section object per
+/// module, in the same order as the text renderer.
+fn dianlu_sections(inst: &mcc::McModuleInst, path: &str) -> Vec<Value> {
+    let mut section = json!({
+        "module": path,
+        "uri": inst.def_uri.to_string(),
+        "components": inst.components.iter().map(comp_json).collect::<Vec<_>>(),
+        "sub_modules": inst.sub_modules.iter().map(|s| json!({
+            "name": s.name,
+            "class": s.def.name.to_string(),
+        })).collect::<Vec<_>>(),
+        "connections": Vec::<Value>::new(),
+    });
+
+    let mut labels: Vec<&String> = inst.get_labels().keys().collect();
+    labels.sort();
+    section["labels"] = json!(labels);
+
+    let mut buses: Vec<&mcc::McBusInst> = inst.get_buses().values().collect();
+    buses.sort_by(|a, b| a.name.cmp(&b.name));
+    section["buses"] = json!(buses
+        .iter()
+        .map(|bus| {
+            json!({
+                "name": bus.name,
+                "members": bus.members,
+                "interface": bus_interface_type(inst, bus),
+            })
+        })
+        .chain(
+            comp_interface_buses(inst)
+                .into_iter()
+                .map(|(name, members, ty)| {
+                    json!({
+                        "name": name,
+                        "members": members,
+                        "interface": Some(ty),
+                    })
+                })
+        )
+        .collect::<Vec<_>>());
+
+    let conns: Vec<Value> = inst
+        .connections
+        .iter()
+        .filter_map(|conn| {
+            let net = conn
+                .net_name
+                .clone()
+                .unwrap_or_else(|| format!("__net_{}", conn.id));
+            if net == "NC" {
+                return None;
+            }
+            let points: Vec<&str> = conn
+                .points
+                .iter()
+                .filter(|p| p.path != "NC")
+                .map(|p| p.path.as_str())
+                .collect();
+            if points.is_empty() {
+                return None;
+            }
+            Some(json!({ "net": net, "points": points }))
+        })
+        .collect();
+    section["connections"] = json!(conns);
+
+    let mut sections = vec![section];
+    for sub in &inst.sub_modules {
+        sections.extend(dianlu_sections(sub, &format!("{path}.{}", sub.name)));
+    }
+    sections
+}
+
+/// Component instance as JSON: name, class, and sorted pin labels.
+fn comp_json(comp: &mcc::McComponentInst) -> Value {
+    json!({
+        "name": comp.name,
+        "class": comp.def.name.to_string(),
+        "pins": comp_pin_labels(comp),
+    })
+}
+
+/// Preferred user-facing label per connected pin (physical id, longest alias
+/// in parentheses when a readable name exists), sorted by pin id.
+fn comp_pin_labels(comp: &mcc::McComponentInst) -> Vec<String> {
+    let mut pins: Vec<String> = comp
+        .pins
+        .keys()
+        .map(|pid| {
+            let alias = comp
+                .cond_pin_names
+                .get(pid)
+                .and_then(|names| names.iter().max_by_key(|n| n.len()).cloned())
+                .or_else(|| {
+                    comp.def
+                        .pins
+                        .pin_id_to_names
+                        .get(pid)
+                        .and_then(|names| names.iter().max_by_key(|n| n.len()).cloned())
+                });
+            match alias {
+                Some(n) if n.as_str() != pid.as_str() => format!("{pid}({n})"),
+                _ => pid.clone(),
+            }
+        })
+        .collect();
+    pins.sort_by_key(|p| {
+        p.split('(')
+            .next()
+            .and_then(|s| s.parse::<i64>().ok())
+            .unwrap_or(i64::MAX)
+    });
+    pins
+}
+
+/// Resolve an interface class annotation for a bus that projects a component
+/// interface (e.g. bus `uC.UART0` → `UART.TTL(DCE)`). Plain buses return None.
+fn bus_interface_type(inst: &mcc::McModuleInst, bus: &mcc::McBusInst) -> Option<String> {
+    let (comp_name, member) = bus.name.split_once('.')?;
+    let comp = inst.components.iter().find(|c| c.name == comp_name)?;
+    let mcc::McPinPort::Interface(iface) = comp.def.pins.names_to_id.get(member)? else {
+        return None;
+    };
+    Some(iface_type_string(iface))
+}
+
+/// Synthetic interface buses projected by component instances: Pass2 keeps
+/// interface members as physical pins, so a component binding such as
+/// `io [1:2] = UART0::UART.TTL(DCE)` never registers a bus. Surface it as
+/// `inst.IFACE{members}` with its interface class annotation. A bus that
+/// already exists (prefixed form registered by a function body) is skipped.
+fn comp_interface_buses(inst: &mcc::McModuleInst) -> Vec<(String, Vec<String>, String)> {
+    let mut out = Vec::new();
+    for comp in &inst.components {
+        for (iface_name, port) in &comp.def.pins.names_to_id {
+            let mcc::McPinPort::Interface(iface) = port else {
+                continue;
+            };
+            // Anonymous interfaces (`[VCC, GND]::DC(...)`) carry their member
+            // names inside the bracket key; surface the bus under the
+            // component name alone (e.g. `PWR{VCC, GND}`).
+            let name = if iface_name.starts_with('[') {
+                comp.name.clone()
+            } else {
+                format!("{}.{}", comp.name, iface_name)
+            };
+            if inst.get_buses().contains_key(&name) {
+                continue;
+            }
+            out.push((name, iface_member_names(iface), iface_type_string(iface)));
+        }
+    }
+    out.sort();
+    out
+}
+
+/// Interface member names in declaration order: bracket-keyed anonymous
+/// interfaces (`[VCC, GND]::DC(...)`) carry their member names inside the
+/// interface name; otherwise use the declared pin name mapping, then the
+/// interface instance members, then the interface definition's pins, then
+/// the registered chip pin IDs.
+fn iface_member_names(iface: &mcc::Mc2Interface) -> Vec<String> {
+    let name = iface.name.to_string();
+    if let Some(inner) = name.strip_prefix('[').and_then(|s| s.strip_suffix(']')) {
+        let members: Vec<String> = inner.split(',').map(|m| m.trim().to_string()).collect();
+        if !members.is_empty() {
+            return members;
+        }
+    }
+    if !iface.pin_name_mapping.is_empty() {
+        return iface.pin_name_mapping.clone();
+    }
+    let insts: Vec<String> = iface.insts.iter().map(|m| m.id.to_string()).collect();
+    if !insts.is_empty() {
+        return insts;
+    }
+    let names: Vec<String> = iface.base.pins.names_to_id.keys().cloned().collect();
+    if !names.is_empty() {
+        return names;
+    }
+    iface.registered_pins.clone()
+}
+
+/// Interface class string with params, e.g. `UART.TTL(DCE)` / `I2C(Master)`.
+fn iface_type_string(iface: &mcc::Mc2Interface) -> String {
+    let base = iface.base_name();
+    let params: Vec<String> = iface.params.iter().map(|p| p.to_string()).collect();
+    if params.is_empty() {
+        base
+    } else {
+        format!("{base}({})", params.join(", "))
+    }
 }
 
 // ============================================================================

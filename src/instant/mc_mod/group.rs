@@ -355,33 +355,16 @@ impl McModuleInst {
                 .into_iter()
                 .next()
                 .ok_or_else(|| InstError::Other("expected 1 left point".into()))?;
-            eprintln!("[P2-4-CONN-1N] module={} left_size=1 right_size={right_size} l={:?} r_paths={:?} r_members={:?}",
-                self.name, (l.path.clone(), l.member_name.clone()),
-                right_points.iter().map(|p| &p.path).collect::<Vec<_>>(),
-                right_points.iter().map(|p| &p.member_name).collect::<Vec<_>>());
             // ── P2: scalar ↔ DC bus → role-aligned, no broadcast (prevent power-to-ground short) ──
             if Self::is_dc_power_bus(&right_points) && !is_ground_name(last_seg(&l.path)) {
-                eprintln!(
-                    "[P2-4-CONN-1N] module={} is_dc_power_bus=true, connect_scalar_to_dc_bus",
-                    self.name
-                );
                 self.connect_scalar_to_dc_bus(&l, &right_points);
             } else if let Some(expanded) = self.try_member_passthrough_scalar(&l, &right_points) {
-                eprintln!(
-                    "[P2-4-CONN-1N] module={} try_member_passthrough_scalar expanded={:?}",
-                    self.name,
-                    expanded
-                        .iter()
-                        .map(|p| (p.path.clone(), p.member_name.clone()))
-                        .collect::<Vec<_>>()
-                );
                 // ── P2/A2: bare submodule port expanded by peer member then per-bit zip ──
                 for (le, r) in expanded.into_iter().zip(right_points.into_iter()) {
                     let conn = mk_conn(self.next_conn_id(), vec![le, r], dir, lane);
                     self.connections.push(conn);
                 }
             } else {
-                eprintln!("[P2-4-CONN-1N] module={} broadcast fallback", self.name);
                 for r in right_points {
                     let conn = mk_conn(self.next_conn_id(), vec![l.clone(), r], dir, lane);
                     self.connections.push(conn);
