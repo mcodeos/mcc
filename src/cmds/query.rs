@@ -18,7 +18,6 @@ use crate::output::{
 use anyhow::Result;
 use mcc::cli::{rpcclient::RpcClient, QueryArgs};
 use serde_json::{json, Value};
-use std::path::Path;
 
 pub fn run(args: &QueryArgs) -> Result<()> {
     // Pattern B: probe + rpc_mapping + fallthrough to local.
@@ -58,28 +57,14 @@ fn rpc_mapping(args: &QueryArgs) -> Option<(&'static str, Value)> {
 
 fn run_local(args: &QueryArgs) -> Result<()> {
     manifest::init_local(args.target.as_deref(), &mcc::cli::globals().lib);
+    // Unified target loading: directory → project mode (manifest-driven,
+    // browse fallback), file → loaded directly.
     if let Some(target) = &args.target {
-        let path = Path::new(target);
-        if path.is_dir() {
-            // Project mode: manifest-driven; browse fallback (§19.5 rule 3 of
-            // use-design.md) when the directory has no manifest. Passing a
-            // directory straight to mcc_load_project would treat it as an
-            // entry *file*, which is wrong.
-            match manifest::build_from_manifest(path, None, mcc::cli::globals().entry.as_deref()) {
-                Ok((_, _)) => {}
-                Err(manifest_err) => {
-                    let entry =
-                        manifest::select_browse_entry(path, mcc::cli::globals().entry.as_deref())
-                            .map_err(|browse_err| {
-                            anyhow::anyhow!("{} (manifest: {:#})", browse_err, manifest_err)
-                        })?;
-                    let entry_uri = entry.to_string_lossy().to_string();
-                    mcc::mcc_load_project(&mcc::McURI::from(entry_uri.as_str()));
-                }
-            }
-        } else {
-            mcc::mcc_load_project(&mcc::McURI::from(target.as_str()));
-        }
+        crate::cmds::common::load_target(
+            Some(target),
+            mcc::cli::globals().top.as_deref(),
+            mcc::cli::globals().entry.as_deref(),
+        )?;
     }
 
     // Compile the query expression once.

@@ -70,27 +70,13 @@ pub fn run(args: &CheckArgs) -> Result<CheckOutcome> {
                     anyhow::bail!("check: {}", e);
                 }
             };
-            match manifest::build_from_manifest(p, None, mcc::cli::globals().entry.as_deref()) {
+            match crate::cmds::common::load_target(
+                Some(t),
+                mcc::cli::globals().top.as_deref(),
+                mcc::cli::globals().entry.as_deref(),
+            ) {
                 Ok((entry_uri, _)) => McURI::from(entry_uri.as_str()),
-                Err(manifest_err) => {
-                    // No manifest (or manifest load failed) → browse mode.
-                    let entry = match manifest::select_browse_entry(
-                        p,
-                        mcc::cli::globals().entry.as_deref(),
-                    ) {
-                        Ok(e) => e,
-                        Err(browse_err) => {
-                            return fail(anyhow::anyhow!(
-                                "{} (manifest: {:#})",
-                                browse_err,
-                                manifest_err
-                            ));
-                        }
-                    };
-                    let entry_uri = entry.to_string_lossy().to_string();
-                    mcc::mcc_load_project(&entry_uri);
-                    McURI::from(entry_uri.as_str())
-                }
+                Err(e) => return fail(e),
             }
         } else {
             let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));

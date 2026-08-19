@@ -184,14 +184,31 @@ fn run_local(args: &ShowArgs) -> Result<()> {
 
 /// One-shot environment setup: init engine, load `--lib` libraries, load the
 /// target file. All handlers assume this ran, so none of them re-init.
+///
+/// A directory target is treated as project mode (mirrors `parse <dir>`):
+/// `project.toml` provides the entry file and dependency libraries, or browse
+/// mode selects the unique `.mc` file declaring `module main` when no
+/// manifest exists.
 fn prepare(args: &ShowArgs) {
     let file_opt = args.file.as_deref();
     crate::cmds::manifest::init_local(file_opt, &mcc::cli::globals().lib);
 
     if let Some(f) = file_opt {
-        let actual = resolve_file(f);
-        let uri = mcc::McURI::from(actual.as_str());
-        mcc::mcc_load_project(&uri);
+        if Path::new(f).is_dir() {
+            // Directory target: unified project/browse-mode loading.
+            if let Err(e) = crate::cmds::common::load_target(
+                Some(f),
+                mcc::cli::globals().top.as_deref(),
+                mcc::cli::globals().entry.as_deref(),
+            ) {
+                error!(target: "mcc::show", "directory target: {:#}", e);
+                std::process::exit(1);
+            }
+        } else {
+            let actual = resolve_file(f);
+            let uri = mcc::McURI::from(actual.as_str());
+            mcc::mcc_load_project(&uri);
+        }
     }
 }
 
@@ -649,44 +666,43 @@ fn show_net(name: &str, args: &ShowArgs) -> Result<()> {
 /// nested section. Interface-typed buses are annotated with their interface
 /// class (e.g. `uC.UART0{TX, RX} :: UART.TTL(DCE)`).
 fn show_dianlu(args: &ShowArgs) -> Result<()> {
-    // Top module: --top, else the module defined in the -F target file, else
-    // the first loaded module.
-    let file_uri = args.file.as_deref().map(resolve_file);
-    let top = mcc::cli::globals()
-        .top
-        .clone()
-        .or_else(|| {
-            file_uri
-                .as_ref()
-                .and_then(|u| mcc::mcb_get_module_name_by_uri(u))
-        })
-        .or_else(mcc::mcb_get_first_module_name)
-        .unwrap_or_else(|| {
-            error!(target: "mcc::show", "no modules found\nhint: load a file with -F or use --top");
-            std::process::exit(1);
-        });
+    // Top module resolution mirrors `parse`: a directory target (project
+    // mode) resolves the top through the manifest / browse entry; a
+    // single-file target uses --top, else the module defined in that file,
+    // else the first loaded module.
+    let (entry_uri, top) = if let Some(f) = args.file.as_deref() {
+        let p = Path::new(f);
+        if p.is_dir() {
+            crate::cmds::common::load_target(
+                Some(f),
+                mcc::cli::globals().top.as_deref(),
+                mcc::cli::globals().entry.as_deref(),
+            )
+            .unwrap_or_else(|e| {
+                error!(target: "mcc::show", "directory target: {:#}", e);
+                std::process::exit(1);
+            })
+        } else {
+            (p.to_string_lossy().to_string(), None)
+        }
+    } else {
+        (String::new(), None)
+    };
+    let top = crate::cmds::common::resolve_top_module(&entry_uri, top).unwrap_or_else(|| {
+        error!(target: "mcc::show", "no modules found\nhint: load a file with -F or use --top");
+        std::process::exit(1);
+    });
     let uri = mcc::mcb_iter_modules()
         .iter()
         .find(|(n, _)| *n == top)
         .map(|(_, u)| mcc::McURI::from(u.as_str()))
         .unwrap_or_else(|| mcc::McURI::from(top.clone()));
-    let ident = mcc::McIds::from(top.clone());
 
     // Guardrail: a Pass2 panic must not abort the process.
-    let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        mcc::mcc_build(&ident, &uri)
-    }));
-    let inst = match built {
-        Ok(Ok(i)) => i,
-        Ok(Err(e)) => {
-            error!(target: "mcc::show", "build failed: {}", e);
-            std::process::exit(1);
-        }
-        Err(_) => {
-            error!(target: "mcc::show", "build panicked (engine Pass2 bug)");
-            std::process::exit(1);
-        }
-    };
+    let inst = crate::cmds::common::build_pass2(&top, &uri).unwrap_or_else(|e| {
+        error!(target: "mcc::show", "{e}");
+        std::process::exit(1);
+    });
 
     // Text mode: hand-rendered sections (aligned with the user-facing
     // circuit view; the generic key: value fallback would bury the tree).
@@ -1606,23 +1622,12 @@ pub(crate) fn nets_map(top: &str) -> BTreeMap<String, Vec<String>> {
         .find(|(n, _)| n == top)
         .map(|(_, u)| mcc::McURI::from(u.as_str()))
         .unwrap_or_else(|| mcc::McURI::from(top));
-    let ident = mcc::McIds::from(top);
 
     // Guardrail: a Pass2 panic must not abort the process.
-    let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        mcc::mcc_build(&ident, &uri)
-    }));
-    let inst = match built {
-        Ok(Ok(i)) => i,
-        Ok(Err(e)) => {
-            error!(target: "mcc::show", "build failed: {}", e);
-            std::process::exit(1);
-        }
-        Err(_) => {
-            error!(target: "mcc::show", "build panicked (engine Pass2 bug)");
-            std::process::exit(1);
-        }
-    };
+    let inst = crate::cmds::common::build_pass2(top, &uri).unwrap_or_else(|e| {
+        error!(target: "mcc::show", "{e}");
+        std::process::exit(1);
+    });
 
     let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for conn in &inst.connections {

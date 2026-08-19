@@ -37,10 +37,13 @@ pub struct BuildOutcome {
 }
 
 /// Resolve the entry file given on the CLI: the positional `FILE` wins over
-/// the global `--entry` flag; both override the manifest entry.
+/// the global `--entry` flag; both override the manifest entry. A directory
+/// positional is a project-root target, not an entry file, so it is excluded
+/// here and handled by `resolve_project_root`.
 fn cli_entry(args: &BuildArgs) -> Option<String> {
-    args.file
-        .clone()
+    let positional = args.file.as_deref().filter(|f| !Path::new(f).is_dir());
+    positional
+        .map(|s| s.to_string())
         .or_else(|| mcc::cli::globals().entry.clone())
 }
 
@@ -52,9 +55,21 @@ pub fn run(args: &BuildArgs) -> Result<BuildOutcome> {
 }
 
 fn resolve_project_root(args: &BuildArgs) -> PathBuf {
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    // A directory positional is the project root itself (manifest-driven or
+    // browse fallback), like `parse <dir>` / `show -F <dir>`.
+    if let Some(f) = args.file.as_deref() {
+        let p = Path::new(f);
+        if p.is_dir() {
+            return if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                cwd.join(p)
+            };
+        }
+    }
     if let Some(entry) = cli_entry(args) {
         let entry_path = Path::new(&entry);
-        let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
         let mut search_dir = cwd.join(entry_path.parent().unwrap_or(entry_path));
         loop {
             if manifest::Manifest::find_in(&search_dir).is_some() {
