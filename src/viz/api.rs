@@ -218,32 +218,18 @@ fn render_layer_recursive(
     } else if graph.layer_style == crate::vector::graph::LayerStyle::Device {
         // ── ★ F2: Device pipeline — equipotential tree layout only ──
         crate::viz::layout::equipotential_tree::layout_device_layer(&mut graph);
-        let mut cv = super::layout::normalize::compute_canvas(&graph);
-        // ★ Trees (segments / dots / symbols) can reach beyond the box
-        // bounding box (e.g. a bus label dropped off a single-pin junction);
-        // extend the canvas so they are not clipped.
+        // ★ Content-adaptive canvas: fit every box + tree segment + symbol
+        // (including negative-x West trunks) into the `0 0 W H` SVG viewBox by
+        // shifting the content to the margin and sizing the paper to the content.
         let trees = crate::viz::layout::equipotential_tree::build_all_trees(&graph);
-        let mut tree_max_x = 0.0f64;
-        let mut tree_max_y = 0.0f64;
-        for t in &trees {
-            for s in &t.segments {
-                tree_max_x = tree_max_x.max(s.x1).max(s.x2);
-                tree_max_y = tree_max_y.max(s.y1).max(s.y2);
-            }
-            for &(jx, jy) in &t.junction_dots {
-                tree_max_x = tree_max_x.max(jx);
-                tree_max_y = tree_max_y.max(jy);
-            }
-            for sym in &t.symbols {
-                // rough text width estimate: ~7px per char at font-size 10
-                let label_w = sym.label.len() as f64 * 7.0;
-                tree_max_x = tree_max_x.max(sym.x + label_w);
-                tree_max_y = tree_max_y.max(sym.y + 24.0);
-            }
-        }
-        let margin = super::layout::normalize::CANVAS_MARGIN;
-        cv.0 = cv.0.max(tree_max_x + margin);
-        cv.1 = cv.1.max(tree_max_y + margin);
+        let cv = crate::viz::layout::equipotential_tree::fit_content_to_canvas(&mut graph, &trees);
+        crate::vlog!(
+            "[viz::api] layer {} '{}' device canvas={}x{}",
+            bid,
+            name,
+            cv.0 as i32,
+            cv.1 as i32
+        );
         cv
     } else {
         let layouter_name = candidates.first().map(|c| c.name()).unwrap_or("none");

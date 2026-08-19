@@ -120,6 +120,42 @@ pub fn render_box(b: &McVecBox, is_root: bool) -> String {
     }
 }
 
+/// ★ Reserved interface ② consumer: scale the validated custom symbol into the box, then
+/// overlay the pins.
+///
+/// The source `viewBox` is mapped into the component body using SVG's `xMidYMid meet` behavior.
+/// The pin marker (stub + number + function name + IO arrow) is still drawn by `pin_render`
+/// based on entry_points, consistent with system symbols. The custom symbol only changes the
+/// component body, not electrical anchors.
+fn render_custom_symbol(b: &McVecBox, cs: &crate::vector::graph::boxdef::CustomSymbol) -> String {
+    use super::pin_render::{render_pin, PinRenderOpts};
+    let pins: String = b
+        .entry_points
+        .iter()
+        .map(|ep| render_pin(b, ep, PinRenderOpts::for_ic()))
+        .collect();
+    format!(
+        r##"  <g class="comp custom" data-id="{id}" data-symbol-source="{src}">
+    <svg x="{x:.1}" y="{y:.1}" width="{w:.1}" height="{h:.1}"
+         viewBox="{vx:.3} {vy:.3} {vw:.3} {vh:.3}"
+         preserveAspectRatio="xMidYMid meet" overflow="hidden">{body}</svg>
+{pins}  </g>
+"##,
+        id = b.id,
+        src = escape_xml_attr(&cs.source),
+        x = b.x,
+        y = b.y,
+        w = b.w,
+        h = b.h,
+        vx = cs.view_box.min_x,
+        vy = cs.view_box.min_y,
+        vw = cs.view_box.width,
+        vh = cs.view_box.height,
+        body = cs.svg_body,
+        pins = pins,
+    )
+}
+
 fn escape_xml_attr(s: &str) -> String {
     s.replace('&', "&amp;")
         .replace('<', "&lt;")

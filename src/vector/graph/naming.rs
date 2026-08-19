@@ -268,9 +268,15 @@ pub fn is_main_chip(name: &str) -> bool {
 
 /// Derive `NetKind` from net name (replaces legacy `NetKind::classify_by_name`)
 pub fn classify_net(name: &str) -> NetKind {
-    if is_ground(name) {
+    // ★ Last-segment classification: a net like `vin.GND` / `dc.GND` /
+    // `USB_VBUS_1.GND` is a ground net even though the full name is not
+    // literally "GND"; likewise `V3V3.VCC` is a power rail. Classifying by
+    // the whole name would mark these as Signal and they would render as a
+    // plain text label instead of a ground symbol / bus label.
+    let leaf = name.rsplit('.').next().unwrap_or(name);
+    if is_ground(leaf) {
         NetKind::Ground
-    } else if is_power(name) {
+    } else if is_power(leaf) {
         NetKind::Power
     } else {
         NetKind::Signal

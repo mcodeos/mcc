@@ -82,13 +82,21 @@ fn render_symbol(sym: &TreeSymbol, net_kind: &NetKind) -> String {
             )
         }
         TreeSymbolKind::NetLabel | TreeSymbolKind::Power => {
+            // Text sits on the side away from the tree (mirror sym.dir): a label
+            // that hangs left of the trunk writes to the left, not over the tree.
+            let (tx, anchor) = if sym.dir.0 < 0.0 {
+                (sym.x - 4.0, "end")
+            } else {
+                (sym.x + 4.0, "start")
+            };
             format!(
-                r##"  <text x="{x:.1}" y="{y:.1}" text-anchor="middle"
+                r##"  <text x="{x:.1}" y="{y:.1}" text-anchor="{anchor}"
        font-size="10" font-weight="600" fill="{color}"
        dominant-baseline="central">{label}</text>
 "##,
-                x = sym.x,
+                x = tx,
                 y = sym.y,
+                anchor = anchor,
                 color = color,
                 label = escape_xml(&sym.label),
             )
@@ -105,18 +113,26 @@ fn render_symbol(sym: &TreeSymbol, net_kind: &NetKind) -> String {
             )
         }
         TreeSymbolKind::BusLabel => {
-            // Bus label: circle + text
+            // Bus label: circle + text. The text goes on the side away from the
+            // tree (opposite sym.dir.x), so a label hanging left of the trunk
+            // never writes its text over the trunk.
             let r = 6.0;
+            let (tx, anchor) = if sym.dir.0 < 0.0 {
+                (sym.x - r - 4.0, "end")
+            } else {
+                (sym.x + r + 4.0, "start")
+            };
             format!(
                 r##"  <circle cx="{x:.1}" cy="{y:.1}" r="{r:.1}" fill="none" stroke="{color}" stroke-width="1.5"/>
-  <text x="{tx:.1}" y="{y:.1}" text-anchor="start"
+  <text x="{tx:.1}" y="{y:.1}" text-anchor="{anchor}"
        font-size="10" font-weight="600" fill="{color}"
        dominant-baseline="central">{label}</text>
 "##,
                 x = sym.x,
                 y = sym.y,
                 r = r,
-                tx = sym.x + r + 4.0,
+                tx = tx,
+                anchor = anchor,
                 color = color,
                 label = escape_xml(&sym.label),
             )
