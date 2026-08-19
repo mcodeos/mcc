@@ -2,6 +2,7 @@
 //
 // Licensed under either of Apache License, Version 2.0 or MIT License at your option.
 
+use super::mc_ids::{expand_char_slice, expand_numeric_slice};
 use crate::ast::ast_node::AstNode;
 use std::fmt;
 
@@ -341,8 +342,9 @@ impl McIda {
                     // First try to convert the range to numbers
                     if let (Ok(start_num), Ok(end_num)) = (start.parse::<i64>(), end.parse::<i64>())
                     {
-                        // Generate the numeric sequence
-                        for num in start_num..=end_num {
+                        // Generate the numeric sequence in declaration order
+                        // (§11.1): 1:4 -> 1..4, 4:1 -> 4..1.
+                        for num in expand_numeric_slice(start_num, end_num) {
                             expanded.push(num.to_string());
                         }
                     } else if start.len() == 1 && end.len() == 1 {
@@ -352,8 +354,9 @@ impl McIda {
 
                         // Check if it is a letter
                         if start_char.is_alphabetic() && end_char.is_alphabetic() {
-                            // Generate the letter sequence
-                            for c in start_char..=end_char {
+                            // Generate the letter sequence in declaration
+                            // order (e.g. f:c -> f, e, d, c).
+                            for c in expand_char_slice(start_char, end_char) {
                                 expanded.push(c.to_string());
                             }
                         }

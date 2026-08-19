@@ -183,6 +183,27 @@ fn check_missing_else(acc: &mut CheckAccumulator) {
 // O3: IO type on component pin (context-dependent)
 // ============================================================================
 
+/// Find the `[`/`]` span of the first bracket group in `s`, honoring nested
+/// brackets (e.g. `[1,[2,8]]`): the returned close is the matching bracket
+/// for the first `[`, so the pair always satisfies `open < close`.
+fn first_bracket_span(s: &str) -> Option<(usize, usize)> {
+    let bs = s.find('[')?;
+    let mut depth = 0usize;
+    for (i, c) in s[bs..].char_indices() {
+        match c {
+            '[' => depth += 1,
+            ']' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some((bs, bs + i));
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
 /// Component pin definitions with IO types deserve scrutiny:
 ///   - `nc` (not-connected) on a component pin is unusual (typically on instances)
 ///   - `ps` (power supply) without associated voltage attribute
@@ -205,20 +226,22 @@ fn pin_definition_span(
                     .find('\n')
                     .unwrap_or(content.len() - line_start);
                 let line = &content[line_start..line_start + line_end_pos];
-                // Find the first bracket pair (pin IDs like [5,21]) and check for our pin_id
-                if let (Some(bs), Some(be)) = (line.find('['), line.find(']')) {
+                // Find the pin-id bracket group (e.g. [5,21] or nested
+                // [1,[2,8]]) and check for our pin_id.
+                if let Some((bs, be)) = first_bracket_span(line) {
                     if bs < be {
+                        // Strip bracket chars so grouped ids like "[2" match.
                         let id_tokens: Vec<&str> = line[bs + 1..be]
                             .split(&[',', ' ', ':'][..])
                             .filter(|s| !s.is_empty())
+                            .map(|s| s.trim_matches(|c| c == '[' || c == ']'))
                             .collect();
                         if id_tokens.contains(&pin_id) {
                             // Try to narrow to the specific pin name
                             if let Some(name) = pin_name {
                                 // Find the names bracket (second [...] in the line)
                                 if let Some(rest) = line.get(be + 1..) {
-                                    if let (Some(nbs), Some(nbe)) = (rest.find('['), rest.find(']'))
-                                    {
+                                    if let Some((nbs, nbe)) = first_bracket_span(rest) {
                                         let names_bracket = &rest[nbs + 1..nbe];
                                         // Find the exact position of this name within the names bracket
                                         let name_tokens: Vec<&str> = names_bracket

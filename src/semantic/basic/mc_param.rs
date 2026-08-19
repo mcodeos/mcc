@@ -528,6 +528,12 @@ impl McParamBinding {
 
     /// Get the member value of the parameter binding
     ///
+    /// STUB — NOT IMPLEMENTED: this function unconditionally returns `None`
+    /// (the `_idx`/`_value` locals below are unused). The member-level formal
+    /// parameter substitution it was meant to serve (subst.rs `dc24v.VCC` ->
+    /// actual member `V1`) therefore does not run and member names stay as-is.
+    /// Documented as design gap A in eval.md §11.5.
+    ///
     /// Used for parameter declarations with members like `dc24v{VCC24, GND}`,
     /// to get the corresponding member at the position of the given member name in the bound value.
     ///
@@ -691,6 +697,13 @@ impl McParamBindings {
         }
 
         // ── Iter-3.G: Set re-grouping heuristic (applied to effective positionals) ──
+        // Documented exception to the strict positional pairing of §11.3 (eval.md §11.5,
+        // design gap B): when there are more positional args than declared params and the
+        // count is an exact multiple, and every arg is simple, args are regrouped by
+        // `chunks(decl_count)` into one Set per formal param (multi-value group binding).
+        // The arg sequence keeps its written order; only the pairing granularity changes
+        // from "k-th arg <-> k-th param" to "group <-> param". Intended for decorative
+        // params (tolerance / temperature coefficient / package) declared implicitly.
         let mut positional_values = effective_pos;
         let decl_count = declares.iter().count();
         if decl_count > 0

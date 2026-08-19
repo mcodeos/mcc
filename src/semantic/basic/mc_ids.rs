@@ -8,6 +8,28 @@ use crate::ast::ast_node::AstNode;
 use crate::ast::c_macros::*;
 use crate::db::diagnostic::diagnostic::dlog_error;
 
+/// Expand a numeric slice in declaration order (eval.md §11.1: the declared
+/// direction is authoritative). An ascending declaration `1:4` yields
+/// `[1, 2, 3, 4]`; a descending declaration `4:1` yields `[4, 3, 2, 1]` —
+/// descending members must not be silently dropped.
+pub(crate) fn expand_numeric_slice(from: i64, to: i64) -> Vec<i64> {
+    if from <= to {
+        (from..=to).collect()
+    } else {
+        (to..=from).rev().collect()
+    }
+}
+
+/// Expand a letter slice in declaration order (`a:e` ascending, `e:a`
+/// descending), mirroring `expand_numeric_slice`.
+pub(crate) fn expand_char_slice(from: char, to: char) -> Vec<char> {
+    if from <= to {
+        (from..=to).collect()
+    } else {
+        (to..=from).rev().collect()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum IdsSegment {
     Int(Box<McInt>),
@@ -610,9 +632,10 @@ impl McIds {
                                 IdsSegment::Int(int) => vec![int.to_string()],
                                 IdsSegment::Ida(ida) => ida.expand(),
                                 IdsSegment::Slice { from, to } => {
-                                    let start = from.value;
-                                    let end = to.value;
-                                    (start..=end).map(|i| i.to_string()).collect()
+                                    expand_numeric_slice(from.value, to.value)
+                                        .into_iter()
+                                        .map(|i| i.to_string())
+                                        .collect()
                                 }
                                 // Other types shouldn't appear in curly braces, or need special handling
                                 _ => vec![curly_seg.to_string()],
@@ -659,9 +682,10 @@ impl McIds {
                                         IdsSegment::Ida(ida) => ida.expand(),
                                         IdsSegment::Int(int) => vec![int.to_string()],
                                         IdsSegment::Slice { from, to } => {
-                                            let start = from.value;
-                                            let end = to.value;
-                                            (start..=end).map(|i| i.to_string()).collect()
+                                            expand_numeric_slice(from.value, to.value)
+                                                .into_iter()
+                                                .map(|i| i.to_string())
+                                                .collect()
                                         }
                                         _ => vec![inner_seg.to_string()],
                                     };
@@ -684,10 +708,12 @@ impl McIds {
                         }
                     }
                     IdsSegment::Slice { from, to } => {
-                        // Handle slice, e.g., 1:10
-                        let start = from.value;
-                        let end = to.value;
-                        (start..=end).map(|i| i.to_string()).collect()
+                        // Handle slice, e.g., 1:10 (declaration order; a
+                        // descending 10:1 stays descending, §11.1).
+                        expand_numeric_slice(from.value, to.value)
+                            .into_iter()
+                            .map(|i| i.to_string())
+                            .collect()
                     }
                 }
             })
@@ -800,9 +826,10 @@ impl McIds {
                     all_groups.into_iter().flatten().collect()
                 }
             }
-            IdsSegment::Slice { from, to } => {
-                (from.value..=to.value).map(|i| i.to_string()).collect()
-            }
+            IdsSegment::Slice { from, to } => expand_numeric_slice(from.value, to.value)
+                .into_iter()
+                .map(|i| i.to_string())
+                .collect(),
         }
     }
 
@@ -892,10 +919,8 @@ impl McIds {
                         SquareItem::Id(id) => members.push(id.clone()),
                         SquareItem::Range(start, end) => {
                             if let (Ok(from), Ok(to)) = (start.parse::<i64>(), end.parse::<i64>()) {
-                                if from <= to {
-                                    for i in from..=to {
-                                        members.push(i.to_string());
-                                    }
+                                for i in expand_numeric_slice(from, to) {
+                                    members.push(i.to_string());
                                 }
                             } else {
                                 members.push(format!("{start}:{end}"));
@@ -944,12 +969,8 @@ impl McIds {
                 IdsSegment::Ida(ida) => result.extend(ida.expand()),
                 IdsSegment::Int(int_val) => result.push(int_val.to_string()),
                 IdsSegment::Slice { from, to } => {
-                    let from_val = from.value;
-                    let to_val = to.value;
-                    if from_val <= to_val {
-                        for i in from_val..=to_val {
-                            result.push(i.to_string());
-                        }
+                    for i in expand_numeric_slice(from.value, to.value) {
+                        result.push(i.to_string());
                     }
                 }
                 _ => {}
@@ -996,13 +1017,10 @@ impl McIds {
                         IdsSegment::Ida(ida) => result.extend(ida.expand()),
                         IdsSegment::Int(int_val) => result.push(int_val.to_string()),
                         IdsSegment::Slice { from, to } => {
-                            // Expand range to individual values
-                            let from_val = from.value;
-                            let to_val = to.value;
-                            if from_val <= to_val {
-                                for i in from_val..=to_val {
-                                    result.push(i.to_string());
-                                }
+                            // Expand range to individual values in declaration
+                            // order (descending stays descending, §11.1)
+                            for i in expand_numeric_slice(from.value, to.value) {
+                                result.push(i.to_string());
                             }
                         }
                         _ => {}

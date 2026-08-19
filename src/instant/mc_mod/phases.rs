@@ -8,6 +8,7 @@
 //! - Phase 3: Declared instance instantiation (components / sub-modules / labels)
 //! - Phase 4: Connection line processing entry
 
+use super::expand::pair_members_to_lanes;
 use super::FailedRecord;
 use super::McModuleInst;
 use crate::instant::mc_comp::McComponentInst;
@@ -219,13 +220,11 @@ impl McModuleInst {
                 None => IOType::InOut,
             };
 
-            // Extract bus members
-            // ── P2-4 fix: handle both Multiple and Single (curly) forms ──
+            // Extract bus members — §11: keep source declaration order.
+            // ── Handle both Multiple and Single (curly) forms ──
             let bus_members: Vec<String> = match &pd.kind {
                 McParamDeclareKind::Multiple(members) => {
-                    let mut m: Vec<String> = members.iter().map(|m| m.to_string()).collect();
-                    m.sort();
-                    m
+                    members.iter().map(|m| m.to_string()).collect()
                 }
                 McParamDeclareKind::Single(ids) => {
                     // Handle curly bracket form: vin{VCC, GND} → ["VCC", "GND"]
@@ -241,7 +240,6 @@ impl McModuleInst {
                             _ => {}
                         }
                     }
-                    members.sort();
                     members
                 }
                 _ => Vec::new(),
@@ -335,15 +333,10 @@ impl McModuleInst {
                     (members.clone(), Some(prefix), members)
                 } else {
                     // Scalar-named interface (e.g. V3V3::DC(3.3V), vin::DC(5V)):
-                    // extract members from interface type's pins, register prefix bus
+                    // extract members from interface type's pins in source
+                    // declaration order (§11.1), register prefix bus
                     // with dotted labels (e.g. V3V3.VCC, V3V3.GND).
-                    let pin_names: Vec<String> = iface
-                        .base
-                        .pins
-                        .pins
-                        .values()
-                        .filter_map(|p| p.names.first().cloned())
-                        .collect();
+                    let pin_names: Vec<String> = iface.base.pins.member_names();
                     if pin_names.len() >= 2 {
                         let port_name = iface.name.to_string();
                         (pin_names.clone(), Some(port_name), pin_names)
@@ -809,36 +802,19 @@ impl McModuleInst {
                 v
             };
 
-            // ── Case 1: Equal-width multi-member → sort by member name then zip ──
-            // P2-4: Sort both sides by member name for deterministic alignment.
-            // Without sorting, arg_lanes (from McBus member iteration order) and
-            // members (from port declaration order) may differ, causing positional
-            // zip mismatches (e.g. VCC↔GND, GND↔VDD_3V3).
+            // ── Case 1: Equal-width multi-member → §11.3 pairing ──
+            // Pair by member name first (deterministic alignment even when the
+            // arg side and the port side declare members in different order),
+            // with positional fallback for names with no partner; output in
+            // port (member) declaration order. No alphabetical re-sorting.
             if members.len() >= 2 && arg_lanes.len() == members.len() {
-                // Sort members alphabetically (already sorted by extract_port_bus_members,
-                // but sort again for safety).
-                let mut sorted_members: Vec<&String> = members.iter().collect();
-                sorted_members.sort();
-
-                // Sort arg_lanes by the last segment of the path (member name).
-                // NetPoints from expand_node_element don't have member_name set,
-                // so fall back to the last path segment.
-                let mut sorted_arg_lanes: Vec<&NetPoint> = arg_lanes.iter().collect();
-                sorted_arg_lanes.sort_by(|a, b| {
-                    let a_name = a
-                        .member_name
-                        .as_deref()
-                        .unwrap_or_else(|| a.path.rsplit('.').next().unwrap_or(&a.path));
-                    let b_name = b
-                        .member_name
-                        .as_deref()
-                        .unwrap_or_else(|| b.path.rsplit('.').next().unwrap_or(&b.path));
-                    a_name.cmp(b_name)
-                });
-
-                for (a, m) in sorted_arg_lanes.iter().zip(sorted_members.iter()) {
+                let lane_idx = pair_members_to_lanes(&members, &arg_lanes);
+                for (m, ai) in members.iter().zip(lane_idx.iter()) {
+                    if *ai == usize::MAX {
+                        continue;
+                    }
                     let mut pts = make_ports(m.as_str(), pio.clone());
-                    pts.push((*a).clone());
+                    pts.push(arg_lanes[*ai].clone());
                     let id = self.next_conn_id();
                     self.connections.push(self.make_conn_with_provenance(
                         id,
@@ -1030,31 +1006,18 @@ impl McModuleInst {
                 v
             };
 
-            // ── Case 1: Equal-width multi-member -> sort by member name then zip ──
-            // P2-4: Sort both sides by member name for deterministic alignment.
+            // ── Case 1: Equal-width multi-member → §11.3 pairing ──
+            // Pair by member name first, positional fallback for the rest;
+            // output in port (member) declaration order. No alphabetical
+            // re-sorting.
             if members.len() >= 2 && arg_lanes.len() == members.len() {
-                // Sort members alphabetically (already sorted by extract_port_bus_members,
-                // but sort again for safety).
-                let mut sorted_members: Vec<&String> = members.iter().collect();
-                sorted_members.sort();
-
-                // Sort arg_lanes by the last segment of the path (member name).
-                let mut sorted_arg_lanes: Vec<&NetPoint> = arg_lanes.iter().collect();
-                sorted_arg_lanes.sort_by(|a, b| {
-                    let a_name = a
-                        .member_name
-                        .as_deref()
-                        .unwrap_or_else(|| a.path.rsplit('.').next().unwrap_or(&a.path));
-                    let b_name = b
-                        .member_name
-                        .as_deref()
-                        .unwrap_or_else(|| b.path.rsplit('.').next().unwrap_or(&b.path));
-                    a_name.cmp(b_name)
-                });
-
-                for (a, m) in sorted_arg_lanes.iter().zip(sorted_members.iter()) {
+                let lane_idx = pair_members_to_lanes(&members, &arg_lanes);
+                for (m, ai) in members.iter().zip(lane_idx.iter()) {
+                    if *ai == usize::MAX {
+                        continue;
+                    }
                     let mut pts = make_ports(m.as_str(), pio.clone());
-                    pts.push((*a).clone());
+                    pts.push(arg_lanes[*ai].clone());
                     let id = self.next_conn_id();
                     out.push(self.make_conn_with_provenance(id, pts, ConnDir::Undirected, None));
                 }
@@ -1324,6 +1287,11 @@ impl McModuleInst {
 //                                          only expand for >=2 members)
 //
 // Returning empty `Vec` means the port is treated as a bare scalar.
+//
+// §11 (eval.md): members are returned in **source declaration order** (vector
+// order). No alphabetical normalization — downstream lane pairing aligns by
+// member name and falls back to positional zip, so declaration order is the
+// single source of truth.
 fn extract_port_bus_members(inst: &McInstance, _port_name: &str) -> Vec<String> {
     match inst {
         // Named List: `GPIO[1:2]`
@@ -1333,22 +1301,14 @@ fn extract_port_bus_members(inst: &McInstance, _port_name: &str) -> Vec<String> 
                 // Anonymous `[A, B]`: no valid prefix, don't expand
                 Vec::new()
             } else if list.member.len() >= 2 {
-                // ── P2-4 fix: sort members for deterministic ordering ──
-                let mut members = list.member.clone();
-                members.sort();
-                members
+                list.member.clone()
             } else {
                 Vec::new()
             }
         }
 
         // Curly: `name{A, B}`
-        McInstance::Bus(bus) if bus.member.len() >= 2 => {
-            // ── P2-4 fix: sort members for deterministic ordering ──
-            let mut members = bus.member.clone();
-            members.sort();
-            members
-        }
+        McInstance::Bus(bus) if bus.member.len() >= 2 => bus.member.clone(),
 
         // Interface: `[A, B]::DC()` or `dc{A, B}::DC()` or `MIC{P, N}::ADC.DIFF()`
         //
@@ -1358,7 +1318,7 @@ fn extract_port_bus_members(inst: &McInstance, _port_name: &str) -> Vec<String> 
         // (as_bus / list_members both empty). But Mc2Interface.base is the full
         // McInterface definition, its pins.pins BTreeMap's value (McPin)'s
         // `names[0]` is the original declared pin name (e.g. SPI: CS/SCLK/MISO/
-        // MOSI in BTreeMap alphabetical order = [CS, MISO, MOSI, SCLK]).
+        // MOSI in BTreeMap pinid order = declaration order for numeric pinids).
         //
         // Previously falling back to Vec::new() leaves expand_port_lanes without lanes ->
         // cross sub-module boundary degrades to scalar (1 point) -> 1-vs-N broadcast shorts N
@@ -1368,38 +1328,25 @@ fn extract_port_bus_members(inst: &McInstance, _port_name: &str) -> Vec<String> 
         // sequence as bus_members. This is consistent with the logic used by
         // derive_interface_subnames in components/mc_pins/mod.rs (same source = same order).
         McInstance::Interface(iface) => {
-            if let Some((_prefix, mut members)) = iface.name.as_bus() {
+            if let Some((_prefix, members)) = iface.name.as_bus() {
                 if members.len() >= 2 {
-                    // ── P2-4 fix: sort members for deterministic ordering ──
-                    members.sort();
                     return members;
                 }
             }
-            if let Some(mut members) = iface.name.list_members() {
+            if let Some(members) = iface.name.list_members() {
                 if members.len() >= 2 {
-                    // ── P2-4 fix: sort members for deterministic ordering ──
-                    members.sort();
                     return members;
                 }
             }
-            // Fallback: take member names from base McInterface.pins (in BTreeMap pinid order)
+            // Fallback: take member names from base McInterface.pins in source
+            // declaration order (§11.1 — the member vector order never comes
+            // from the BTreeMap pinid key order; `member_names()` reads the
+            // recorded declaration order).
             // Applies to BOTH bare interface ports (e.g. `io SPI`) and scalar named
             // ports with interface annotation (e.g. `V3V3::DC(3.3V)`, `in vin::DC(5V)`).
             // The interface type defines the members (e.g. DC → VCC, GND), and the port
             // name is just a label — the electrical members come from the interface type.
-            //
-            // ── P2-4 fix: sort members for deterministic ordering ──
-            // BTreeMap pinid order is stable but may differ from component bus
-            // member order (which is sorted alphabetically). Sorting ensures
-            // consistent zip matching when connecting two interfaces.
-            let mut pin_names: Vec<String> = iface
-                .base
-                .pins
-                .pins
-                .values()
-                .filter_map(|p| p.names.first().cloned())
-                .collect();
-            pin_names.sort();
+            let pin_names: Vec<String> = iface.base.pins.member_names();
             if pin_names.len() >= 2 {
                 return pin_names;
             }

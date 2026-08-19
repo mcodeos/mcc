@@ -51,6 +51,13 @@ pub struct McPin {
 pub struct McPins {
     pub pins: BTreeMap<String, McPin>, // all single pins table, <pinid, McPin> btreemap
 
+    /// Pin IDs in **source declaration order** (eval.md §11.1: interface member
+    /// vector order comes from the `pins` list declaration order, NOT from the
+    /// BTreeMap key order — `BTreeMap<pinid, McPin>` is lookup-only). Recorded
+    /// at first registration in `register_pin`; `member_names()` reads through
+    /// this vector so a member sequence never depends on the pinid key sort.
+    pub decl_order: Vec<String>,
+
     pub names_to_id: BTreeMap<String, McPinPort>, // all registered/exported names to pin/pins/bus/ifs table, <name, McPinPort> btreemap
 
     /// Source spans for pin names (for LSP goto-definition).
@@ -129,6 +136,7 @@ impl McPins {
     pub fn new() -> Self {
         Self {
             pins: BTreeMap::new(),
+            decl_order: Vec::new(),
             names_to_id: BTreeMap::new(),
             pin_name_spans: std::collections::HashMap::new(),
             pin_id_spans: std::collections::HashMap::new(),
@@ -147,6 +155,17 @@ impl McPins {
 
     pub fn has_dynamic_pins(&self) -> bool {
         !self.dynamic_pins.is_empty()
+    }
+
+    /// §11.1: member names in **source declaration order** (the interface
+    /// member vector order). Reads through `decl_order` — never the BTreeMap
+    /// key order, whose numeric sort would silently reorder lanes for
+    /// multi-digit or non-monotonic pin IDs.
+    pub fn member_names(&self) -> Vec<String> {
+        self.decl_order
+            .iter()
+            .filter_map(|id| self.pins.get(id).and_then(|p| p.names.first().cloned()))
+            .collect()
     }
 
     pub fn resolve_dynamic_pins(
@@ -848,11 +867,7 @@ impl McPins {
 
                         // First priority: use parsed_pins if available (from conditional evaluation with params)
                         if let Some(parsed) = &declare.parsed_pins {
-                            iface_pins = parsed
-                                .pins
-                                .values()
-                                .filter_map(|p| p.names.first().cloned())
-                                .collect();
+                            iface_pins = parsed.member_names();
                         }
 
                         // Second priority: get pins from the specified role parameter (e.g., UART.TTL(DCE))
@@ -862,17 +877,9 @@ impl McPins {
                                 // Find the matching role in base.roles
                                 for role in &declare.base.roles {
                                     if role.name.to_string() == role_name {
-                                        // Key: use pins (BTreeMap sorted by pinid) order
-                                        //   - numeric pinid (1, 2, 3...) BTreeMap order = original declaration order
-                                        //   - alphabetic pinid (A, B, AB) BTreeMap order ≠ original order,
-                                        //     but closer to original than names_to_id.keys() (alphabetic name order)
-                                        // for each pin, take names[0] as member name.
-                                        iface_pins = role
-                                            .pins
-                                            .pins
-                                            .values()
-                                            .filter_map(|p| p.names.first().cloned())
-                                            .collect();
+                                        // §11.1: role pins member names in declaration order
+                                        // (never the BTreeMap pinid key order).
+                                        iface_pins = role.pins.member_names();
                                         break;
                                     }
                                 }
@@ -881,13 +888,7 @@ impl McPins {
 
                         // Fallback: get pins from interface top-level definition
                         if iface_pins.is_empty() {
-                            iface_pins = declare
-                                .base
-                                .pins
-                                .pins
-                                .values()
-                                .filter_map(|p| p.names.first().cloned())
-                                .collect();
+                            iface_pins = declare.base.pins.member_names();
                         }
 
                         // ★ Dynamic pins: resolve parameter-based ranges like 1:count
@@ -1549,6 +1550,9 @@ impl McPins {
                 existing.is_nc = true;
             }
         } else {
+            // §11.1: record the pin ID in declaration order at first
+            // registration — the member sequence source for interfaces.
+            self.decl_order.push(pinid.to_string());
             self.pins.insert(
                 pinid.to_string(),
                 McPin {
