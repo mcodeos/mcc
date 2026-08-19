@@ -54,13 +54,16 @@ pub trait BoxShape {
 /// When `is_root` is true, sub-module boxes use root layer block-diagram styling
 /// (solid lines, centered name, no + corner).
 pub fn render_box(b: &McVecBox, is_root: bool) -> String {
+    // Missing or rejected assets retain the existing system-symbol behavior.
+    // ★ Custom symbols are user-provided and take priority even on the root
+    //   layer: P9-B's root block-diagram styling is the fallback, not the
+    //   override (fixture: svg_symbol_project expects J1/J2 on the root).
+    if let Some(cs) = &b.custom_symbol {
+        return render_custom_symbol(b, cs);
+    }
     // ★ P9-B / B4: root layer renders all boxes as block-diagram sub-modules
     if is_root {
         return render_sub_module_root(b);
-    }
-    // Missing or rejected assets retain the existing system-symbol behavior.
-    if let Some(cs) = &b.custom_symbol {
-        return render_custom_symbol(b, cs);
     }
     match b.symbol {
         Symbol::Resistor => ResistorShape.render(b),

@@ -624,7 +624,9 @@ mod tests {
         graph.nets.push(net);
 
         let candidates: Vec<Box<dyn Layouter>> = vec![Box::new(FlowLayouter::default())];
-        let result = layout_best(graph, &candidates, true, None);
+        // is_root=false so run_single reaches the Phase 2 route stage (root
+        // layers route via block edges and skip net routing entirely).
+        let result = layout_best(graph, &candidates, false, None);
 
         assert!(result.boxes.len() >= 3);
         for b in &result.boxes {
