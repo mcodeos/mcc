@@ -1108,13 +1108,12 @@ impl McModuleInst {
                             }
                             // Fall back to the interface's pin declaration order
                             // when the component has no dot-separated names for
-                            // the port.
+                            // the port (§11.1: declaration order, never BTreeMap
+                            // pinid key order).
                             if ordered.len() < 2 {
-                                for pin in iface.base.pins.pins.values() {
-                                    if let Some(first_name) = pin.names.first() {
-                                        if !ordered.contains(first_name) {
-                                            ordered.push(first_name.clone());
-                                        }
+                                for first_name in iface.base.pins.member_names() {
+                                    if !ordered.contains(&first_name) {
+                                        ordered.push(first_name);
                                     }
                                 }
                             }

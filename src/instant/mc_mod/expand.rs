@@ -448,33 +448,33 @@ pub fn resolve_inst_chain(chain: &[String], scope: &dyn InstFindInst) -> Option<
 /// §7 Expansion match result: the completed state of one matching layer.
 #[derive(Debug, Clone)]
 pub struct ExpandMatch {
-    /// The pairs (rule 1 keeps the original `lhs` order; rule 2 stable-sorts by
-    /// member name before zipping).
+    /// The pairs, kept in **lhs vector order** (§11.2 invariant 4).
     pub pairs: Vec<(NetPoint, NetPoint)>,
     /// True when, after pairing, every pair's two member names differ
     /// (signals D5 BUS_ORDER_MISMATCH). Possible only when both sides carry
-    /// non-empty member names and pairing went through rule 2.
+    /// non-empty member names and no name matched during pairing.
     pub all_members_mismatched: bool,
 }
 
-/// §7 Vector expansion matching (eval.md §7): pairs the two expanded point
-/// lists.
+/// §11.3 Vector expansion matching (eval.md §11.3): pairs the two expanded
+/// point lists, keeping both sides' declaration (vector) order.
 ///
-/// Expansion order:
+/// Pairing priority:
 /// 1. **Member-name correspondence** (preferred): every point on both sides has
-///    a non-empty, unique `member_name`, and all names can be paired one-to-one
-///    → pair by name (left-side order preserved, deterministic).
+///    a non-empty, unique `member_name` → pair by name in **lhs declaration
+///    order**; names that find no same-named rhs partner fall back to a
+///    positional zip against the remaining rhs points. The result stays in lhs
+///    vector order (no alphabetical re-sorting).
 /// 2. **Count correspondence**: both sides have the same total point count →
-///    stable-sort by member name (only when both sides are named) then zip by
-///    position; the sort removes misalignment caused by declaration-order
-///    differences and produces the D5 signal.
+///    positional zip in declaration order (§3.1). No sorting: both sides
+///    already carry their vector order. A fully name-mismatched zip signals D5.
 /// 3. **Explicit expansion `*`**: when the count structures differ, implicit
 ///    auto-expansion is **forbidden** (the §7 explicit `*` rule:
 ///    `[*cannon.UART[1:2,6], ...]` must be expanded as an explicit list) —
 ///    returns `None`, leaving broadcast / truncation recovery to the caller.
 ///
-/// Replacement implementation (P4.2): `try_match_by_member_name` + sorted zip
-/// (the N:N pairing path of `create_connection` in group.rs
+/// The N:N pairing path of `create_connection` in group.rs. Replaces the
+/// P2-4/P4.2 sorted-zip implementation (eval.md §11 "与旧实现的关系").
 pub fn expand_match(lhs: &[NetPoint], rhs: &[NetPoint]) -> Option<ExpandMatch> {
     if lhs.is_empty() || rhs.is_empty() {
         return None;
@@ -487,58 +487,74 @@ pub fn expand_match(lhs: &[NetPoint], rhs: &[NetPoint]) -> Option<ExpandMatch> {
         .iter()
         .all(|p| p.member_name.as_deref().is_some_and(|n| !n.is_empty()));
 
-    // ── Priority (1): member-name correspondence — pair by name ─────────
     // Names must be unique on both sides (duplicates → ambiguous by-name
-    // pairing; fall back to total-count correspondence).
-    if lhs_all_named && rhs_all_named && lhs.len() == rhs.len() {
-        let lhs_unique = lhs
+    // pairing; fall back to count correspondence).
+    let lhs_unique = lhs_all_named
+        && lhs
             .iter()
             .map(|p| p.member_name.as_deref().unwrap())
             .collect::<std::collections::HashSet<_>>()
             .len()
             == lhs.len();
-        let rhs_unique = rhs
+    let rhs_unique = rhs_all_named
+        && rhs
             .iter()
             .map(|p| p.member_name.as_deref().unwrap())
             .collect::<std::collections::HashSet<_>>()
             .len()
             == rhs.len();
-        if lhs_unique && rhs_unique {
-            let mut pairs = Vec::with_capacity(lhs.len());
-            let mut all_found = true;
-            for l in lhs {
-                let name = l.member_name.as_deref().unwrap();
-                match rhs.iter().find(|r| r.member_name.as_deref() == Some(name)) {
-                    Some(r) => pairs.push((l.clone(), r.clone())),
-                    None => {
-                        all_found = false;
-                        break;
-                    }
-                }
-            }
-            if all_found {
-                return Some(ExpandMatch {
-                    pairs,
-                    all_members_mismatched: false,
-                });
+
+    // ── Priority (1): member-name correspondence (§11.3 step 1) ─────────
+    if lhs.len() == rhs.len() && lhs_unique && rhs_unique {
+        let rhs_by_name: HashMap<&str, usize> = rhs
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (p.member_name.as_deref().unwrap(), i))
+            .collect();
+        let mut used = vec![false; rhs.len()];
+        let mut slots: Vec<Option<(NetPoint, NetPoint)>> = vec![None; lhs.len()];
+
+        // Pass 1: pair by member name, in lhs declaration order.
+        for (i, l) in lhs.iter().enumerate() {
+            if let Some(&j) = l.member_name.as_deref().and_then(|n| rhs_by_name.get(n)) {
+                slots[i] = Some((l.clone(), rhs[j].clone()));
+                used[j] = true;
             }
         }
+        // Pass 2: names with no partner fall back to positional zip against
+        // the remaining rhs points (lhs order preserved).
+        let mut rj = 0;
+        for (i, l) in lhs.iter().enumerate() {
+            if slots[i].is_some() {
+                continue;
+            }
+            while rj < rhs.len() && used[rj] {
+                rj += 1;
+            }
+            if rj < rhs.len() {
+                slots[i] = Some((l.clone(), rhs[rj].clone()));
+                used[rj] = true;
+                rj += 1;
+            }
+        }
+        let pairs: Vec<(NetPoint, NetPoint)> = slots.into_iter().flatten().collect();
+        let all_members_mismatched = pairs
+            .iter()
+            .all(|(l, r)| l.member_name.as_deref() != r.member_name.as_deref());
+        return Some(ExpandMatch {
+            pairs,
+            all_members_mismatched,
+        });
     }
 
-    // ── Priority (2): total-count correspondence ────────────────────────
+    // ── Priority (2): total-count correspondence — positional zip in
+    // declaration order (§11.3 step 2); feeds the D5 check when both sides
+    // are named but no name matches.
     if lhs.len() == rhs.len() {
-        let mut ls: Vec<&NetPoint> = lhs.iter().collect();
-        let mut rs: Vec<&NetPoint> = rhs.iter().collect();
-        // Both sides named → sort by member name then zip (deterministic;
-        // also feeds the D5 check).
-        if lhs_all_named && rhs_all_named {
-            ls.sort_by_key(|p| p.member_name.as_deref());
-            rs.sort_by_key(|p| p.member_name.as_deref());
-        }
-        let pairs: Vec<(NetPoint, NetPoint)> = ls
+        let pairs: Vec<(NetPoint, NetPoint)> = lhs
             .iter()
-            .zip(rs.iter())
-            .map(|(l, r)| ((*l).clone(), (*r).clone()))
+            .zip(rhs.iter())
+            .map(|(l, r)| (l.clone(), r.clone()))
             .collect();
         let all_members_mismatched = lhs_all_named
             && rhs_all_named
@@ -553,6 +569,48 @@ pub fn expand_match(lhs: &[NetPoint], rhs: &[NetPoint]) -> Option<ExpandMatch> {
 
     // ── Count mismatch: implicit auto-expansion is illegal (§7 explicit `*`) ──
     None
+}
+
+/// §11.3: Pair a port's member names (declaration order) with actual argument
+/// lanes — by name first, positional fallback for the rest (mirrors
+/// [`expand_match`] priority 1). Returns, in member order, the index into
+/// `arg_lanes` paired with each member.
+pub fn pair_members_to_lanes(members: &[String], arg_lanes: &[NetPoint]) -> Vec<usize> {
+    let mut result: Vec<usize> = Vec::with_capacity(members.len());
+    let mut used = vec![false; arg_lanes.len()];
+    // Pass 1: pair by name.
+    for m in members {
+        let hit = arg_lanes.iter().position(|a| {
+            let n = a
+                .member_name
+                .as_deref()
+                .unwrap_or_else(|| a.path.rsplit('.').next().unwrap_or(&a.path));
+            n == m.as_str()
+        });
+        match hit {
+            Some(j) if !used[j] => {
+                result.push(j);
+                used[j] = true;
+            }
+            _ => result.push(usize::MAX),
+        }
+    }
+    // Pass 2: positional fallback for names with no partner.
+    let mut rj = 0;
+    for r in result.iter_mut() {
+        if *r != usize::MAX {
+            continue;
+        }
+        while rj < arg_lanes.len() && used[rj] {
+            rj += 1;
+        }
+        if rj < arg_lanes.len() {
+            *r = rj;
+            used[rj] = true;
+            rj += 1;
+        }
+    }
+    result
 }
 
 #[cfg(test)]
@@ -603,11 +661,11 @@ mod expand_match_tests {
     #[test]
     fn by_name_skips_on_duplicate_member() {
         // Duplicate name on rhs → by-name pairing is ambiguous; fall back to
-        // total-count (sorted zip).
+        // total-count positional zip.
         let lhs = vec![pt("a.1", Some("X")), pt("a.2", Some("Y"))];
         let rhs = vec![pt("b.1", Some("X")), pt("b.2", Some("X"))];
         let m = expand_match(&lhs, &rhs).expect("falls back to total-count zip");
-        // Both sides named → sorted zip: X, Y with X, X
+        // Positional zip in declaration order: X, Y with X, X
         let got: Vec<(&str, &str)> = m
             .pairs
             .iter()
@@ -645,13 +703,73 @@ mod expand_match_tests {
         assert_eq!(got, vec![("l.VDD", "r.VDD"), ("l.GND", "r.GND")]);
     }
 
-    // ── §7 rule 2: total-count correspondence (sorted zip) ──
+    // ── §11.3 rule 1: partial name match → by-name first, positional fallback ──
 
     #[test]
-    fn total_count_sorted_zip_pairs_matching_names() {
-        // Rule 1 fails (VDD has no matching name on rhs) → rule 2:
-        // stable-sort by name then zip, aligning GND↔GND instead of pairing
-        // by declaration position.
+    fn partial_by_name_then_positional_fallback() {
+        // Only some names match (SPI-like: lhs declares SCLK/MOSI/CSN/MISO,
+        // rhs carries CS/SCLK/MISO/MOSI). Name matches are paired by name,
+        // the unmatched CSN/CS pair positionally; output stays in lhs order.
+        let lhs = vec![
+            pt("l.SCLK", Some("SCLK")),
+            pt("l.MOSI", Some("MOSI")),
+            pt("l.CSN", Some("CSN")),
+            pt("l.MISO", Some("MISO")),
+        ];
+        let rhs = vec![
+            pt("r.CS", Some("CS")),
+            pt("r.SCLK", Some("SCLK")),
+            pt("r.MISO", Some("MISO")),
+            pt("r.MOSI", Some("MOSI")),
+        ];
+        let m = expand_match(&lhs, &rhs).expect("by-name + positional fallback");
+        assert!(!m.all_members_mismatched);
+        let got: Vec<(&str, &str)> = m
+            .pairs
+            .iter()
+            .map(|(l, r)| (l.path.as_str(), r.path.as_str()))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("l.SCLK", "r.SCLK"),
+                ("l.MOSI", "r.MOSI"),
+                ("l.CSN", "r.CS"),
+                ("l.MISO", "r.MISO"),
+            ]
+        );
+    }
+
+    #[test]
+    fn partial_by_name_keeps_lhs_order_when_unmatched_first() {
+        // An unmatched lhs member in front must not reorder later name pairs.
+        let lhs = vec![
+            pt("l.A", Some("A")),
+            pt("l.X", Some("X")),
+            pt("l.B", Some("B")),
+        ];
+        let rhs = vec![
+            pt("r.B", Some("B")),
+            pt("r.A", Some("A")),
+            pt("r.C", Some("C")),
+        ];
+        let m = expand_match(&lhs, &rhs).expect("by-name + positional fallback");
+        let got: Vec<(&str, &str)> = m
+            .pairs
+            .iter()
+            .map(|(l, r)| (l.path.as_str(), r.path.as_str()))
+            .collect();
+        // A↔A, X↔C (positional), B↔B — all in lhs order.
+        assert_eq!(got, vec![("l.A", "r.A"), ("l.X", "r.C"), ("l.B", "r.B")]);
+    }
+
+    // ── §11.3 rule 2: total-count correspondence (positional zip) ──
+
+    #[test]
+    fn total_count_by_name_then_positional_fallback() {
+        // Rule 1 fires with partial matches: GND pairs by name, VDD falls
+        // back positionally to VDD_3V3; output stays in lhs declaration order
+        // (GND first). The old implementation sorted both sides and zipped.
         let lhs = vec![pt("l.GND", Some("GND")), pt("l.VDD", Some("VDD"))];
         let rhs = vec![pt("r.VDD_3V3", Some("VDD_3V3")), pt("r.GND", Some("GND"))];
         let m = expand_match(&lhs, &rhs).expect("total-count zip");
@@ -680,7 +798,7 @@ mod expand_match_tests {
 
     #[test]
     fn total_count_all_mismatched_signals_d5() {
-        // After sorting, every pair's member names differ → D5 signal.
+        // No name matches at all → every pair's member names differ → D5 signal.
         let lhs = vec![pt("l.1", Some("A")), pt("l.2", Some("B"))];
         let rhs = vec![pt("r.1", Some("C")), pt("r.2", Some("D"))];
         let m = expand_match(&lhs, &rhs).expect("total-count zip");

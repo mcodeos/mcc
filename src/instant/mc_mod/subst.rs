@@ -195,7 +195,9 @@ impl McModuleInst {
                                     }
                                 }
                             }
-                            // If no member mapping, the member name stays as-is (handled elsewhere)
+                            // `get_member_value` is a stub (always None, see eval.md §11.5
+                            // design gap A), so member-level substitution does not run and
+                            // the member name stays as-is for now.
                         }
                         new_base.member = new_members;
                     }

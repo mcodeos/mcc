@@ -265,6 +265,11 @@ fn compare_instances(inst: &McModuleInst) -> (Value, (usize, usize, usize, usize
             source_names.insert(name.to_string());
         }
     }
+    // Source rows in file order: sort by the recorded declaration line so the
+    // instance list mirrors the order the parts appear in the source module.
+    // Unknown lines (0) go last; the stable sort keeps the alphabetical
+    // BTreeMap order within the same line.
+    source.sort_by_key(|(_, _, l)| if *l == 0 { u32::MAX } else { *l });
     // Declareb instances (`C4::CAP()`) bypass `parse_declare`, so their names
     // never enter `insts`; they are recorded in the declareb hint table and
     // expand with a FuncCall origin.
@@ -273,7 +278,7 @@ fn compare_instances(inst: &McModuleInst) -> (Value, (usize, usize, usize, usize
         source_names.insert(name.clone());
         declareb.push((name.clone(), line_of_span(&span)));
     }
-    declareb.sort();
+    declareb.sort_by_key(|(_, l)| if *l == 0 { u32::MAX } else { *l });
 
     // Expanded physical instance names. Function-generated components whose
     // name matches a source declaration are declareb instances (treated as
@@ -379,7 +384,7 @@ fn compare_instances(inst: &McModuleInst) -> (Value, (usize, usize, usize, usize
         .filter(|(_, _, origin, _)| origin == "funcall")
         .map(|(n, _, _, l)| (n.clone(), *l))
         .collect();
-    generated.sort();
+    generated.sort_by_key(|(_, l)| if *l == 0 { u32::MAX } else { *l });
 
     let mut expanded_all: Vec<(String, String, String, u32)> = expanded.clone();
     for n in &net_labels {
