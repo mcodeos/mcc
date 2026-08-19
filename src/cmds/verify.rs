@@ -15,9 +15,10 @@
 //!      together with the connections it expanded into, and every expanded
 //!      connection is checked for a traceable source line.
 
-use crate::cmds::{common, hierarchy, manifest};
+use crate::cmds::{common, manifest};
 use anyhow::Result;
 use mcc::cli::{OutputFormat, VerifyArgs};
+use mcc::hierarchy;
 use mcc::{InstOrigin, McModuleInst, Span};
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
@@ -331,17 +332,86 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
     // Body-expansion records issued by each module statement, keyed by the
     // statement byte offset (call_site, §4.1). Used to upgrade the `(funcall)`
     // exemption into a real "did the call expand anything" check (§5.1).
-    let mut stmt_records: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
+    // §7.10: built via the shared `build_tree` read API instead of a
+    // hand-rolled statement aggregation.
     let groups =
         inst.expansion
             .group_products(&inst.components, &inst.sub_modules, &inst.connections);
-    for (i, r) in inst.expansion.records.iter().enumerate() {
-        if r.parent.is_some() {
-            continue; // nested expansion belongs to its parent record
+    let mut stmt_records: BTreeMap<u32, Vec<usize>> = BTreeMap::new();
+    for node in inst.expansion.build_tree() {
+        if node.call_site.uri == def_file {
+            stmt_records
+                .entry(node.call_site.offset)
+                .or_default()
+                .extend(node.expansions);
         }
-        if let Some(pos) = &r.call_site {
-            if pos.uri == def_file {
-                stmt_records.entry(pos.offset).or_default().push(i);
+    }
+
+    // §7.3 cross-module merged display: when a top-level record of this module
+    // is a sub-module method / inline-module call (`sub_target` set), the
+    // callee body expands inside the sub-module instance. Merge that
+    // sub-module body expansion (its record carries the same call_site as the
+    // parent record) into this statement so the call site shows what the call
+    // expanded — boundary connections still belong to the parent record
+    // (expansion_id), body products are listed here as auxiliary context.
+    let mut sub_expansions: BTreeMap<u32, Vec<Value>> = BTreeMap::new();
+    let mut seen_sub_conns: HashSet<String> = HashSet::new();
+    for r in inst.expansion.records.iter() {
+        if r.parent.is_some() {
+            continue;
+        }
+        let Some(sub_path) = &r.sub_target else {
+            continue;
+        };
+        let Some(pos) = &r.call_site else { continue };
+        if pos.uri != def_file {
+            continue;
+        }
+        let Some(sub) = inst
+            .sub_modules
+            .iter()
+            .find(|s| s.name.as_str() == sub_path.as_str())
+        else {
+            continue;
+        };
+        let sub_groups =
+            sub.expansion
+                .group_products(&sub.components, &sub.sub_modules, &sub.connections);
+        for (si, sr) in sub.expansion.records.iter().enumerate() {
+            if sr.parent.is_some() {
+                continue;
+            }
+            let same_site = sr
+                .call_site
+                .as_ref()
+                .map(|sp| sp.uri == pos.uri && sp.offset == pos.offset)
+                .unwrap_or(false);
+            if !same_site {
+                continue;
+            }
+            let g = &sub_groups.by_record[si];
+            for &ci in &g.connections {
+                let c = &sub.connections[ci];
+                // Same call site may map to several records (e.g. chained
+                // `mcu513.i2c().loadFlash(...)` expands both in the sub-module);
+                // dedupe identical body connections within the statement.
+                let key = format!(
+                    "{}|{}",
+                    c.effective_net_name(),
+                    c.points
+                        .iter()
+                        .map(|p| p.path.as_str())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                );
+                if !seen_sub_conns.contains(&key) {
+                    seen_sub_conns.insert(key);
+                    sub_expansions.entry(pos.offset).or_default().push(json!({
+                        "sub": sub_path,
+                        "net": c.effective_net_name(),
+                        "points": c.points.iter().map(|p| p.path.clone()).collect::<Vec<_>>(),
+                    }));
+                }
             }
         }
     }
@@ -448,12 +518,19 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
         if conns.is_empty() && (!has_funccall || funcall_empty) {
             no_expansion += 1;
         }
+        // §7.3: sub-module body expansion merged into this statement (the
+        // `sub_expansions` table is keyed by the parent call site offset).
+        let sub_conns: Vec<Value> = stmt_off
+            .and_then(|off| sub_expansions.get(&off))
+            .cloned()
+            .unwrap_or_default();
         per_line.push(json!({
             "line": line_of_span(&content, spans.get(i)),
             "text": format!("{phrase}"),
             "funcall": has_funccall,
             "funcall_empty": funcall_empty,
             "connections": conns,
+            "sub_expansions": sub_conns,
         }));
     }
 
@@ -641,6 +718,28 @@ fn render_module_text(out: &mut String, m: &Value) {
                         out,
                         "           [{}] : {}",
                         c["net"].as_str().unwrap_or(""),
+                        pts
+                    );
+                }
+            }
+            // §7.3: sub-module body expansion merged into this call site
+            // (the callee body lives inside the sub-module instance, §7.3).
+            if let Some(subs) = line["sub_expansions"].as_array() {
+                for c in subs {
+                    let pts = c["points"]
+                        .as_array()
+                        .map(|p| {
+                            p.iter()
+                                .filter_map(|x| x.as_str())
+                                .collect::<Vec<_>>()
+                                .join(" - ")
+                        })
+                        .unwrap_or_default();
+                    let _ = writeln!(
+                        out,
+                        "           [{}] (sub {}) : {}",
+                        c["net"].as_str().unwrap_or(""),
+                        c["sub"].as_str().unwrap_or(""),
                         pts
                     );
                 }

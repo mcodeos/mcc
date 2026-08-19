@@ -740,9 +740,8 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
     // module in source order with its declared / declareb / funcall-generated
     // instances, so the whole instance structure is visible before the
     // per-module sections.
-    let hierarchy = crate::cmds::hierarchy::build_hierarchy(
-        &crate::cmds::hierarchy::collect_module_nodes(&inst, &top),
-    );
+    let hierarchy =
+        mcc::hierarchy::build_hierarchy(&mcc::hierarchy::collect_module_nodes(&inst, &top));
 
     // Text mode: hand-rendered sections (aligned with the user-facing
     // circuit view; the generic key: value fallback would bury the tree).
@@ -750,7 +749,7 @@ fn show_dianlu(args: &ShowArgs) -> Result<()> {
         let mut lines = Vec::new();
         lines.push(format!("===== Hierarchy: {top} ====="));
         let mut htext = String::new();
-        crate::cmds::hierarchy::render_hierarchy_text(&mut htext, &hierarchy);
+        mcc::hierarchy::render_hierarchy_text(&mut htext, &hierarchy);
         lines.push(htext.trim_end().to_string());
         lines.push(String::new());
         render_dianlu_section(&inst, &top, &mut lines);
@@ -1121,14 +1120,59 @@ fn drill_labels(name: &str, args: &ShowArgs) -> Result<()> {
 
 fn drill_instances(name: &str, args: &ShowArgs) -> Result<()> {
     let cmie = def_or_exit(name);
-    let insts = match &cmie {
-        mcc::McCMIE::Component(c) => &c.insts,
-        mcc::McCMIE::Module(m) => &m.insts,
+    match &cmie {
+        mcc::McCMIE::Component(c) => {
+            let items = instances_json(&c.insts, args.r#type.as_deref());
+            let data = json!({ "name": name, "count": items.len(), "instances": items });
+            output(&data, args.span)
+        }
+        mcc::McCMIE::Module(_) => {
+            // Source annotations (stage 5, design §4.5): build the module so
+            // every instance carries its origin (src / decl / gen), the
+            // declaration / call-site / func-body line, and the caller chain.
+            let top = mcc::cli::globals()
+                .top
+                .clone()
+                .unwrap_or_else(|| name.to_string());
+            let uri = mcc::mcb_iter_modules()
+                .iter()
+                .find(|(n, _)| n == &top)
+                .map(|(_, u)| mcc::McURI::from(u.as_str()))
+                .unwrap_or_else(|| mcc::McURI::from(top.as_str()));
+            let inst = crate::cmds::common::build_pass2(&top, &uri).map_err(anyhow::Error::msg)?;
+            let content = std::fs::read_to_string(&inst.def_uri.to_string()).ok();
+            let fam = mcc::hierarchy::extract_instance_families(&inst, &content);
+            let mut items: Vec<Value> = Vec::new();
+            for (n, k, l, cl) in fam.source {
+                if args
+                    .r#type
+                    .as_deref()
+                    .is_none_or(|t| k.eq_ignore_ascii_case(t))
+                {
+                    items.push(json!({
+                        "name": n, "kind": k, "class": cl,
+                        "origin": "src", "line": l,
+                    }));
+                }
+            }
+            for (n, l, cl) in fam.declareb {
+                items.push(json!({
+                    "name": n, "kind": "declareb", "class": cl,
+                    "origin": "decl", "line": l,
+                }));
+            }
+            for (n, l, cl, caller) in fam.generated {
+                items.push(json!({
+                    "name": n, "kind": "component", "class": cl,
+                    "origin": "gen", "line": l, "caller": caller,
+                }));
+            }
+            items.sort_by_key(|e| e["line"].as_u64().unwrap_or(u64::MAX));
+            let data = json!({ "name": name, "count": items.len(), "instances": items });
+            output(&data, args.span)
+        }
         _ => not_applicable("instances", name),
-    };
-    let items = instances_json(insts, args.r#type.as_deref());
-    let data = json!({ "name": name, "count": items.len(), "instances": items });
-    output(&data, args.span)
+    }
 }
 
 fn drill_nets(name: &str, args: &ShowArgs) -> Result<()> {
@@ -2046,6 +2090,12 @@ fn render_drill_text(data: &Value) -> Option<String> {
             .collect();
         render_table(&["name", "iotype", "type", "members"], &rows)
     } else if let Some(arr) = data.get("instances").and_then(|v| v.as_array()) {
+        let has_origin = arr.iter().any(|i| i.get("origin").is_some());
+        let has_caller = arr.iter().any(|i| {
+            i.get("caller")
+                .and_then(|v| v.as_str())
+                .is_some_and(|c| !c.is_empty())
+        });
         let rows: Vec<Vec<String>> = arr
             .iter()
             .map(|i| {
@@ -2059,7 +2109,7 @@ fn render_drill_text(data: &Value) -> Option<String> {
                             .join(", ")
                     })
                     .unwrap_or_default();
-                vec![
+                let mut row = vec![
                     i.get("name")
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
@@ -2073,10 +2123,43 @@ fn render_drill_text(data: &Value) -> Option<String> {
                         .unwrap_or("")
                         .to_string(),
                     params,
-                ]
+                ];
+                if has_origin {
+                    let origin = i
+                        .get("origin")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let line = i
+                        .get("line")
+                        .and_then(|v| v.as_u64())
+                        .map(|l| format!("L{l}"))
+                        .unwrap_or_default();
+                    row.push(if line.is_empty() {
+                        origin
+                    } else {
+                        format!("{origin}@{line}")
+                    });
+                }
+                if has_caller {
+                    row.push(
+                        i.get("caller")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("")
+                            .to_string(),
+                    );
+                }
+                row
             })
             .collect();
-        render_table(&["name", "kind", "class", "params"], &rows)
+        let mut headers = vec!["name", "kind", "class", "params"];
+        if has_origin {
+            headers.push("origin");
+        }
+        if has_caller {
+            headers.push("caller");
+        }
+        render_table(&headers, &rows)
     } else if let Some(arr) = data.get("funcs").and_then(|v| v.as_array()) {
         let rows: Vec<Vec<String>> = arr
             .iter()

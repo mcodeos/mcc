@@ -600,29 +600,73 @@ pub fn handle_show_instances(params: Option<Value>) -> RpcResult {
     let (cmie, _) = find_def_by_name(name)
         .ok_or_else(|| JsonRpcError::custom(32112, &format!("entity not found: {name}")))?;
 
-    let insts = match &cmie {
-        crate::McCMIE::Component(c) => &c.insts,
-        crate::McCMIE::Module(m) => &m.insts,
-        _ => {
-            return Err(JsonRpcError::custom(
-                32111,
-                &format!("'{name}' does not have instances (only components and modules do)"),
-            ))
+    match &cmie {
+        crate::McCMIE::Component(c) => {
+            let items: Vec<Value> = c
+                .insts
+                .iter()
+                .filter_map(|(n, inst)| {
+                    let (kind, class) = inst_kind_class(inst);
+                    if let Some(ref t) = p.type_filter {
+                        if !kind.eq_ignore_ascii_case(t) {
+                            return None;
+                        }
+                    }
+                    Some(json!({ "name": n.to_string(), "kind": kind, "class": class }))
+                })
+                .collect();
+            Ok(json!({ "name": name, "count": items.len(), "instances": items }))
         }
-    };
-    let items: Vec<Value> = insts
-        .iter()
-        .filter_map(|(n, inst)| {
-            let (kind, class) = inst_kind_class(inst);
-            if let Some(ref t) = p.type_filter {
-                if !kind.eq_ignore_ascii_case(t) {
-                    return None;
+        crate::McCMIE::Module(_) => {
+            // Source annotations (stage 5, design §4.5): build the module so
+            // every instance carries its origin (src / decl / gen), the
+            // declaration / call-site / func-body line, and the caller chain.
+            let top = p.top.as_deref().unwrap_or(name);
+            let top_uri = crate::mcb_iter_modules()
+                .iter()
+                .find(|(n, _)| n == top)
+                .map(|(_, u)| crate::McURI::from(u.as_str()))
+                .unwrap_or_else(|| crate::McURI::from(top));
+            let ident = crate::McIds::from(top);
+            let inst = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                crate::mcc_build(&ident, &top_uri)
+            }))
+            .map_err(|_| JsonRpcError::custom(32111, "build panicked (engine Pass2 bug)"))?
+            .map_err(|e| JsonRpcError::custom(32111, &format!("build failed: {e}")))?;
+            let content = std::fs::read_to_string(&inst.def_uri.to_string()).ok();
+            let fam = crate::hierarchy::extract_instance_families(&inst, &content);
+            let mut items: Vec<Value> = Vec::new();
+            for (n, k, l, cl) in fam.source {
+                if p.type_filter
+                    .as_deref()
+                    .is_none_or(|t| k.eq_ignore_ascii_case(t))
+                {
+                    items.push(json!({
+                        "name": n, "kind": k, "class": cl,
+                        "origin": "src", "line": l,
+                    }));
                 }
             }
-            Some(json!({ "name": n.to_string(), "kind": kind, "class": class }))
-        })
-        .collect();
-    Ok(json!({ "name": name, "count": items.len(), "instances": items }))
+            for (n, l, cl) in fam.declareb {
+                items.push(json!({
+                    "name": n, "kind": "declareb", "class": cl,
+                    "origin": "decl", "line": l,
+                }));
+            }
+            for (n, l, cl, caller) in fam.generated {
+                items.push(json!({
+                    "name": n, "kind": "component", "class": cl,
+                    "origin": "gen", "line": l, "caller": caller,
+                }));
+            }
+            items.sort_by_key(|e| e["line"].as_u64().unwrap_or(u64::MAX));
+            Ok(json!({ "name": name, "count": items.len(), "instances": items }))
+        }
+        _ => Err(JsonRpcError::custom(
+            32111,
+            &format!("'{name}' does not have instances (only components and modules do)"),
+        )),
+    }
 }
 
 // === handle_show_nets (lines 3036-3091 in original) ===

@@ -13,7 +13,6 @@ pub mod explain;
 pub mod export;
 pub mod extract;
 pub mod filter;
-pub mod hierarchy;
 pub mod lib;
 pub mod list;
 pub mod manifest;
