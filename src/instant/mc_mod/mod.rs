@@ -34,8 +34,7 @@ mod subst;
 use super::mc_bus::McBusInst;
 use super::mc_comp::McComponentInst;
 use super::mc_net::{
-    line_of_offset, ConnectionInst, InstDiagLevel, InstDiagnostic, InstError, NetPoint, NetTable,
-    PortInst,
+    ConnectionInst, InstDiagLevel, InstDiagnostic, InstError, NetPoint, NetTable, PortInst,
 };
 use crate::instant::provenance::ExpansionKind;
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
@@ -419,24 +418,25 @@ impl McModuleInst {
                     std::mem::discriminant(line)
                 );
                 // Attribute anonymous instances/connections of this body line
-                // to its exact source line in the func's own file.
-                let saved_ctx = self.enter_func_line(&func, Some(li));
-                if let Err(e) = self.process_line(line) {
-                    mcc_dbg!(
-                        "inst::mod",
-                        "[P2-4-AUTO-DBG] module '{}' func '{}' line FAILED: {e}",
-                        self.name,
-                        func.name
-                    );
-                    self.record_warning(
-                        crate::errcodes::INST_FUNC_BODY_LINE_FAILED,
-                        crate::errcodes::format_msg(
+                // to its exact source line in the func's own file (RAII:
+                // `with_func_line` restores `current_func_span` on every exit).
+                self.with_func_line(&func, Some(li), |this| {
+                    if let Err(e) = this.process_line(line) {
+                        mcc_dbg!(
+                            "inst::mod",
+                            "[P2-4-AUTO-DBG] module '{}' func '{}' line FAILED: {e}",
+                            this.name,
+                            func.name
+                        );
+                        this.record_warning(
                             crate::errcodes::INST_FUNC_BODY_LINE_FAILED,
-                            &[&func.name, &e],
-                        ),
-                    );
-                }
-                self.current_func_span = saved_ctx;
+                            crate::errcodes::format_msg(
+                                crate::errcodes::INST_FUNC_BODY_LINE_FAILED,
+                                &[&func.name, &e],
+                            ),
+                        );
+                    }
+                });
             }
             self.expansion.end(eidx);
             // Mark as auto-invoked to prevent double execution when
@@ -545,10 +545,10 @@ impl McModuleInst {
     ///
     /// Real devices get a reference-designator style name: `_C1`, `_R2`,
     /// `_DIO_ESD_1`. The leading `_` keeps the engine namespace separate from
-    /// user-written names. The second return value is the 1-based source line
-    /// of the construction site (used by `mcc verify` to annotate generated
-    /// instances with an `L<n>` column); it is 0 when the site is unknown or
-    /// for internal phantom / stub types.
+    /// user-written names. The second return value is the byte offset of the
+    /// construction site (decision A, §7.1; used by `mcc verify` to annotate
+    /// generated instances with an `L<n>` column); it is 0 when the site is
+    /// unknown or for internal phantom / stub types.
     ///
     /// Internal phantom / stub types (`@_phantom_*`, `@?*`) keep their special
     /// prefix and plain numbering — they are not real devices and their names
@@ -571,7 +571,7 @@ impl McModuleInst {
             *c += 1;
             *c
         };
-        let line = self.current_line();
+        let line = self.current_offset();
         let name = format!("_{prefix}{counter}");
         if type_name.contains("CAP") || type_name.contains("RES") || type_name.starts_with("@") {
             mcc_dbg!(
@@ -583,21 +583,14 @@ impl McModuleInst {
         (name, line)
     }
 
-    /// 1-based line of the current construction site for provenance reporting
-    /// (func-body line first, then the top-level statement line, else 0).
-    fn current_line(&self) -> u32 {
-        match (&self.current_func_span, &self.current_line_span) {
-            (Some((_, l)), _) => *l,
-            (None, Some(s)) => line_of_offset(&self.def_uri, s.start as u32),
-            (None, None) => 0,
-        }
-    }
-
     /// Enter a func-body line context: attribute anonymous instances and
     /// connection provenance to the exact source line of the construction in
     /// the func's own file (per-body-line offset when available, else the
-    /// func's definition line). Returns the previous context so the caller
-    /// can restore it after processing the line.
+    /// func's definition offset). Sets `current_func_span` to the **byte
+    /// offset** (decision A, §7.1); consumers convert offset → line for
+    /// display. Returns the previous context so the caller can restore it
+    /// after processing the line — prefer [`Self::with_func_line`] instead,
+    /// which restores on all exits (including early errors).
     pub(super) fn enter_func_line(
         &mut self,
         func: &McFunction,
@@ -608,16 +601,42 @@ impl McModuleInst {
         self.current_func_span = match uri {
             Some(u) => {
                 if let Some(off) = line_idx.and_then(|i| func.line_offsets.get(i)) {
-                    Some((u.clone(), line_of_offset(&u, *off)))
+                    Some((u.clone(), *off as u32))
                 } else {
-                    func.span
-                        .as_ref()
-                        .map(|sp| (u.clone(), line_of_offset(&u, sp.start as u32)))
+                    func.span.as_ref().map(|sp| (u.clone(), sp.start as u32))
                 }
             }
             None => None,
         };
         prev
+    }
+
+    /// Run `f` with the func-body line context active and restore the
+    /// previous context on every exit (RAII §7.11(2)): early `return` /
+    /// `Err` inside `f` can no longer leak a stale `current_func_span` into
+    /// subsequent connections.
+    pub(super) fn with_func_line<R>(
+        &mut self,
+        func: &McFunction,
+        line_idx: Option<usize>,
+        f: impl FnOnce(&mut Self) -> R,
+    ) -> R {
+        let saved = self.enter_func_line(func, line_idx);
+        let r = f(self);
+        self.current_func_span = saved;
+        r
+    }
+
+    /// Byte offset of the current construction site for provenance (func-body
+    /// line offset first, then the top-level statement span start, else 0).
+    /// Consecutive constructions on the same source line are still
+    /// distinguishable by offset (decision A, §7.1).
+    fn current_offset(&self) -> u32 {
+        match (&self.current_func_span, &self.current_line_span) {
+            (Some((_, off)), _) => *off,
+            (None, Some(s)) => s.start as u32,
+            (None, None) => 0,
+        }
     }
 
     /// Take the next connection ID
