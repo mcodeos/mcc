@@ -34,10 +34,12 @@ mod subst;
 use super::mc_bus::McBusInst;
 use super::mc_comp::McComponentInst;
 use super::mc_net::{
-    ConnectionInst, InstDiagLevel, InstDiagnostic, InstError, NetPoint, NetTable, PortInst,
+    line_of_offset, ConnectionInst, InstDiagLevel, InstDiagnostic, InstError, NetPoint, NetTable,
+    PortInst,
 };
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
 use crate::semantic::common::IOType;
+use crate::semantic::mc_func::McFunction;
 use crate::semantic::module::McModule;
 use crate::{current_uri, McURI};
 use std::collections::{HashMap, HashSet};
@@ -115,6 +117,13 @@ pub struct McModuleInst {
     /// Used as fallback when NetPoint.src_pos is unavailable.
     pub(super) current_line_span: Option<crate::ast::ast_semantic::Span>,
 
+    /// Func-body expansion provenance `(file, line)`. Set by the func-body
+    /// expansion sites (user funcs / component methods / constructors / module
+    /// closures) before processing each body line. Takes precedence over
+    /// `current_line_span` when attributing anonymous instance names and
+    /// connection source lines, because the func may live in another file.
+    pub(super) current_func_span: Option<(McURI, u32)>,
+
     /// ★ P9-A2: Current port group name for provenance tracking.
     /// Set when processing a connection that involves a port group (e.g., flash.SPI, mic.MIC).
     /// Used by `make_conn_with_provenance` to tag connections with their port group.
@@ -180,6 +189,7 @@ impl McModuleInst {
             diagnostics: Vec::new(),
             bridge_passive_names: HashSet::new(),
             current_line_span: None,
+            current_func_span: None,
             current_port_group: None,
             failed_classes: HashSet::new(),
             failed_records: Vec::new(),
@@ -216,6 +226,7 @@ impl McModuleInst {
             diagnostics: Vec::new(),
             bridge_passive_names: HashSet::new(),
             current_line_span: None,
+            current_func_span: None,
             current_port_group: None,
             failed_classes: HashSet::new(),
             failed_records: Vec::new(),
@@ -327,7 +338,7 @@ impl McModuleInst {
                 func.name,
                 func.lines.len()
             );
-            for line in &func.lines {
+            for (li, line) in func.lines.iter().enumerate() {
                 mcc_dbg!(
                     "inst::mod",
                     "[P2-4-AUTO-DBG] module '{}' func '{}' processing line: {:?}",
@@ -335,6 +346,9 @@ impl McModuleInst {
                     func.name,
                     std::mem::discriminant(line)
                 );
+                // Attribute anonymous instances/connections of this body line
+                // to its exact source line in the func's own file.
+                let saved_ctx = self.enter_func_line(&func, Some(li));
                 if let Err(e) = self.process_line(line) {
                     mcc_dbg!(
                         "inst::mod",
@@ -350,6 +364,7 @@ impl McModuleInst {
                         ),
                     );
                 }
+                self.current_func_span = saved_ctx;
             }
             // Mark as auto-invoked to prevent double execution when
             // explicitly called from a parent module (e.g. `mcu.i2c()`).
@@ -437,19 +452,54 @@ impl McModuleInst {
     // ID counter / naming (small utilities reused across multiple module files)
     // ========================================================================
 
-    /// Automatically generate a unique instance name
+    /// Reference designator prefix for common inline-constructed types.
+    /// Unknown or multi-segment types (dots already replaced with `_`) fall
+    /// back to the full type name, e.g. `DIO.ESD` -> `DIO_ESD`.
+    fn ref_designator_prefix(type_name: &str) -> &str {
+        match type_name {
+            "CAP" => "C",
+            "RES" => "R",
+            "DIO" => "D",
+            "IND" => "L",
+            "XTAL" => "Y",
+            "HDR" => "J",
+            _ => type_name,
+        }
+    }
+
+    /// Automatically generate a unique instance name for an anonymous inline
+    /// construction (`CAP(0.1uF)` etc.).
     ///
-    /// Each type maintains an independent counter, generating names in `{type}_{n}` format:
-    /// - First CAP → `CAP_1`
-    /// - Second CAP → `CAP_2`
-    /// - First RES → `RES_1`
-    pub(super) fn auto_name(&mut self, type_name: &str) -> String {
-        let counter = self
-            .auto_inst_counter
-            .entry(type_name.to_string())
-            .or_insert(0);
-        *counter += 1;
-        let name = format!("{type_name}_{counter}");
+    /// Real devices get a reference-designator style name: `_C1`, `_R2`,
+    /// `_DIO_ESD_1`. The leading `_` keeps the engine namespace separate from
+    /// user-written names. The second return value is the 1-based source line
+    /// of the construction site (used by `mcc verify` to annotate generated
+    /// instances with an `L<n>` column); it is 0 when the site is unknown or
+    /// for internal phantom / stub types.
+    ///
+    /// Internal phantom / stub types (`@_phantom_*`, `@?*`) keep their special
+    /// prefix and plain numbering — they are not real devices and their names
+    /// participate in normalize/reuse logic that must not see a `@line` suffix.
+    pub(super) fn auto_name(&mut self, type_name: &str) -> (String, u32) {
+        if type_name.starts_with('@') || type_name.starts_with('?') {
+            let counter = self
+                .auto_inst_counter
+                .entry(type_name.to_string())
+                .or_insert(0);
+            *counter += 1;
+            return (format!("{type_name}_{counter}"), 0);
+        }
+        let prefix = Self::ref_designator_prefix(type_name);
+        let counter = {
+            let c = self
+                .auto_inst_counter
+                .entry(prefix.to_string())
+                .or_insert(0);
+            *c += 1;
+            *c
+        };
+        let line = self.current_line();
+        let name = format!("_{prefix}{counter}");
         if type_name.contains("CAP") || type_name.contains("RES") || type_name.starts_with("@") {
             mcc_dbg!(
                 "inst::mod",
@@ -457,7 +507,44 @@ impl McModuleInst {
                 self.name
             );
         }
-        name
+        (name, line)
+    }
+
+    /// 1-based line of the current construction site for provenance reporting
+    /// (func-body line first, then the top-level statement line, else 0).
+    fn current_line(&self) -> u32 {
+        match (&self.current_func_span, &self.current_line_span) {
+            (Some((_, l)), _) => *l,
+            (None, Some(s)) => line_of_offset(&self.def_uri, s.start as u32),
+            (None, None) => 0,
+        }
+    }
+
+    /// Enter a func-body line context: attribute anonymous instances and
+    /// connection provenance to the exact source line of the construction in
+    /// the func's own file (per-body-line offset when available, else the
+    /// func's definition line). Returns the previous context so the caller
+    /// can restore it after processing the line.
+    pub(super) fn enter_func_line(
+        &mut self,
+        func: &McFunction,
+        line_idx: Option<usize>,
+    ) -> Option<(McURI, u32)> {
+        let prev = self.current_func_span.clone();
+        let uri = func.source_uri().cloned();
+        self.current_func_span = match uri {
+            Some(u) => {
+                if let Some(off) = line_idx.and_then(|i| func.line_offsets.get(i)) {
+                    Some((u.clone(), line_of_offset(&u, *off)))
+                } else {
+                    func.span
+                        .as_ref()
+                        .map(|sp| (u.clone(), line_of_offset(&u, sp.start as u32)))
+                }
+            }
+            None => None,
+        };
+        prev
     }
 
     /// Take the next connection ID

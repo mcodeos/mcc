@@ -15,7 +15,7 @@
 use crate::semantic::common::{ConnDir, IOType};
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// Literal (unexpanded) vector reference count (R01). Counting only, non-blocking; also active in release builds.
 pub static LITERAL_POINTS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
@@ -225,7 +225,7 @@ pub struct ConnectionInst {
     /// All connected points
     pub points: Vec<NetPoint>,
 
-    /// Network name (first label owner or __net_N)
+    /// Network name (first label owner or anonymous `_net{N}`)
     pub net_name: Option<String>,
 
     /// Source connector direction (from `->` / `-` / `+`)
@@ -340,11 +340,52 @@ impl ConnectionInst {
         self
     }
 
-    /// Get effective net_name (first label owner or __net_N)
+    /// Get effective net_name (first label owner or `_net{id}`)
     pub fn effective_net_name(&self) -> String {
         self.net_name
             .clone()
-            .unwrap_or_else(|| format!("__net_{}", self.id))
+            .unwrap_or_else(|| format!("_net{}", self.id))
+    }
+}
+
+/// Whether a net name is an engine-generated anonymous net (`_net30`).
+/// Requires the `_net` prefix followed by a digit so that a
+/// user-written name like `_network` or `_net_1` is not misclassified.
+pub fn is_anon_net_name(name: &str) -> bool {
+    name.starts_with("_net") && name.as_bytes().get(4).is_some_and(|b| b.is_ascii_digit())
+}
+
+/// Convert a byte offset to a 1-based line number by reading the file from
+/// disk, cached per URI for the lifetime of the process. The parse-time
+/// thread-local `LineIndex` is no longer on the stack when Pass2 instantiation
+/// runs (after parsing), so it cannot be used for provenance line numbers.
+/// Unreadable files fall back to line 1.
+pub(crate) fn line_of_offset(uri: &crate::McURI, pos: u32) -> u32 {
+    static CACHE: OnceLock<Mutex<HashMap<String, Option<Arc<line_index::LineIndex>>>>> =
+        OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let key = uri.to_string();
+    let idx = {
+        let mut guard = cache.lock().unwrap();
+        guard
+            .entry(key.clone())
+            .or_insert_with(|| {
+                std::fs::read_to_string(&key)
+                    .ok()
+                    .map(|text| Arc::new(line_index::LineIndex::new(&text)))
+            })
+            .clone()
+    };
+    match idx {
+        Some(idx) => {
+            let max: u32 = idx.len().into();
+            if pos > max {
+                1
+            } else {
+                idx.line_col(line_index::TextSize::new(pos)).line + 1
+            }
+        }
+        None => 1,
     }
 }
 
@@ -1070,7 +1111,7 @@ impl NetTable {
                         })
                         .next()
                 })
-                .unwrap_or_else(|| format!("__net_{}", nets.len()));
+                .unwrap_or_else(|| format!("_net{}", nets.len()));
 
             nets.insert(net_name, group_points);
         }

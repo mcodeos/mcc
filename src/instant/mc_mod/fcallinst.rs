@@ -74,9 +74,9 @@ impl McModuleInst {
         // → union-find short circuit.
         let type_name = comp_def.name.to_string();
         let safe_type = type_name.replace('.', "_");
-        let inst_name = if let Some(name) = caller_name {
+        let (inst_name, gen_line) = if let Some(name) = caller_name {
             // P2-7: use caller name as instance name (e.g. R442::RES(1MΩ) → R442)
-            name.to_string()
+            (name.to_string(), self.current_line())
         } else {
             self.auto_name(&safe_type)
         };
@@ -123,6 +123,7 @@ impl McModuleInst {
         // ★ M0-B-E: mark the funcall origin
         inst.origin = InstOrigin::FuncCall {
             fn_name: type_name.clone(),
+            line: gen_line,
         };
 
         // ── Iter-3.E3 + P4 ───────────────────────────────────────────────
@@ -336,7 +337,7 @@ impl McModuleInst {
         //    interfering with path resolution ──
         let type_name = func_name.to_string();
         let safe_type = type_name.replace('.', "_");
-        let inst_name = self.auto_name(&safe_type);
+        let (inst_name, _) = self.auto_name(&safe_type);
 
         // 2. Create the sub-module instance with parameters
         let mut sub_inst = McModuleInst::with_params(&inst_name, module_def, params)?;
@@ -508,6 +509,9 @@ impl McModuleInst {
             let outer_auto_inst = self.auto_inst_map.clone();
             for (_li, line) in func_def.lines.iter().enumerate() {
                 self.auto_inst_map = outer_auto_inst.clone();
+                // Attribute anonymous instances/connections of this body line
+                // to its exact source line in the func's own file.
+                let saved_ctx = self.enter_func_line(&func_def, Some(_li));
                 // Substitute formal params -> actual args in each connection line
                 // Also substitute 'this' with caller_inst_name
                 let substituted = if bindings.is_empty() && caller_inst_name.is_none() {
@@ -516,6 +520,7 @@ impl McModuleInst {
                     Self::substitute_line(line, &bindings, None)
                 };
                 self.process_line(&substituted)?;
+                self.current_func_span = saved_ctx;
             }
 
             // ── Process conditional blocks (if/else if/else) ──
@@ -531,12 +536,16 @@ impl McModuleInst {
                 for conds in &func_def.conds {
                     let matched_lines = conds.evaluate(&params);
                     for line in matched_lines {
+                        // Conditional-block lines carry no per-line offset; fall
+                        // back to the func's definition line.
+                        let saved_ctx = self.enter_func_line(&func_def, None);
                         let substituted = if bindings.is_empty() && caller_inst_name.is_none() {
                             line.clone()
                         } else {
                             Self::substitute_line(line, &bindings, None)
                         };
                         self.process_line(&substituted)?;
+                        self.current_func_span = saved_ctx;
                     }
                 }
             }
@@ -793,6 +802,9 @@ impl McModuleInst {
             let outer = sub.auto_inst_map.clone();
             for (_li, line) in func_def.lines.iter().enumerate() {
                 sub.auto_inst_map = outer.clone();
+                // Attribute anonymous instances/connections of this body line
+                // to its exact source line in the func's own file.
+                let saved_ctx = sub.enter_func_line(func_def, Some(_li));
                 let substituted = if value_bindings.is_empty() {
                     line.clone()
                 } else {
@@ -802,6 +814,7 @@ impl McModuleInst {
                     // Sub-module's own diagnostics surface with flattening;
                     // here only log, do not abort
                 }
+                sub.current_func_span = saved_ctx;
             }
         } // sub's mutable borrow ends here
 
@@ -827,12 +840,16 @@ impl McModuleInst {
             for conds in &func_def.conds {
                 let matched_lines = conds.evaluate(&params);
                 for line in matched_lines {
+                    // Conditional-block lines carry no per-line offset; fall
+                    // back to the func's definition line.
+                    let saved_ctx = sub.enter_func_line(func_def, None);
                     let substituted = if value_bindings.is_empty() {
                         line.clone()
                     } else {
                         Self::substitute_line(line, &value_bindings, None)
                     };
                     if let Err(_e) = sub.process_line(&substituted) {}
+                    sub.current_func_span = saved_ctx;
                 }
             }
         }
@@ -1158,6 +1175,7 @@ impl McModuleInst {
             // the function body! This way components created in the previous line
             // can still be resolved correctly in subsequent lines!
             // Build ExpansionContext for this line (lifetime scoped per iteration)
+            let saved_ctx = self.enter_func_line(func_def, Some(_li));
             let expansion_ctx = self
                 .find_component(inst_name)
                 .map(|comp| ExpansionContext::new(comp, bindings, self));
@@ -1181,6 +1199,7 @@ impl McModuleInst {
                 self.name
             );
             self.process_line(&expanded)?;
+            self.current_func_span = saved_ctx;
         }
         // ── P4 backstop: strip synthetic host interface endpoints leaked
         //    during body processing ──
@@ -1206,6 +1225,9 @@ impl McModuleInst {
             for (_ci, conds) in func_def.conds.iter().enumerate() {
                 let matched_lines = conds.evaluate(&params);
                 for (_li, line) in matched_lines.iter().enumerate() {
+                    // Conditional-block lines carry no per-line offset; fall
+                    // back to the func's definition line.
+                    let saved_ctx = self.enter_func_line(func_def, None);
                     let expansion_ctx = self
                         .find_component(inst_name)
                         .map(|comp| ExpansionContext::new(comp, bindings, self));
@@ -1219,6 +1241,7 @@ impl McModuleInst {
                         Self::prefix_instance_line_with_skip(&substituted, inst_name, &skip);
                     let expanded = self.expand_bus_labels(&prefixed);
                     self.process_line(&expanded)?;
+                    self.current_func_span = saved_ctx;
                 }
             }
 

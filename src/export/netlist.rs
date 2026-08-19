@@ -13,7 +13,7 @@ pub fn build_netlist(tree: &McModuleInst, top: &str, format: u8) -> (String, Val
         .into_iter()
         .filter(|(n, _)| {
             n != "NC"
-                && !n.starts_with("__net_")
+                && !crate::instant::mc_net::is_anon_net_name(n)
                 && !n.starts_with(crate::semantic::basic::mc_bus::McBus::ERROR_PREFIX)
         })
         .collect();

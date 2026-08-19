@@ -1058,7 +1058,7 @@ impl<'a> McVecBuilder<'a> {
                 // tier 0: rail name
                 // tier 1: non-`__net_N`
                 // tier 2: other
-                let is_anon = name.starts_with("__net_");
+                let is_anon = crate::instant::mc_net::is_anon_net_name(name);
                 let tier: u8 = if looks_like_rail(name) {
                     0
                 } else if !is_anon {

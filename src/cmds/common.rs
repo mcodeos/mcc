@@ -27,14 +27,24 @@ pub fn load_target(
     };
     let p = Path::new(t);
     if p.is_dir() {
-        match manifest::build_from_manifest(p, cli_top, cli_entry) {
+        // Absolutize the root like `build` does: a relative root would make
+        // the manifest entry URI relative too, and the module registry keys
+        // on the canonical URI, so the top-module lookup would come up empty.
+        let root = if p.is_absolute() {
+            p.to_path_buf()
+        } else {
+            std::env::current_dir()
+                .unwrap_or_else(|_| PathBuf::from("."))
+                .join(p)
+        };
+        match manifest::build_from_manifest(&root, cli_top, cli_entry) {
             Ok((entry_uri, top)) => Ok((entry_uri, Some(top))),
             Err(manifest_err) => {
                 let entry_path =
-                    manifest::select_browse_entry(p, cli_entry).map_err(|browse_err| {
+                    manifest::select_browse_entry(&root, cli_entry).map_err(|browse_err| {
                         anyhow::anyhow!("{} (manifest: {:#})", browse_err, manifest_err)
                     })?;
-                mcc::mcc_set_project_root(p);
+                mcc::mcc_set_project_root(&root);
                 let entry_uri = entry_path.to_string_lossy().to_string();
                 mcc::mcc_load_project(&entry_uri);
                 let top = cli_top

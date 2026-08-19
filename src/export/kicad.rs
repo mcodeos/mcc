@@ -64,7 +64,7 @@ pub fn build_kicad_netlist(
     out.push_str("  (nets\n");
     let mut net_code: u32 = 1;
     for (net_name, points) in &netmap {
-        if net_name == "NC" || net_name.starts_with("__net_") {
+        if net_name == "NC" || crate::instant::mc_net::is_anon_net_name(net_name) {
             continue;
         }
         out.push_str(&format!(

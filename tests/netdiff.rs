@@ -434,8 +434,8 @@ fn build_actual_modules(table: &InstTable, tree: &MccProjectTree) -> Vec<ActualM
             actual_comps.iter().map(|c| c.leaf_name.clone()).collect();
 
         // ★ P2-4: filter pins by module path prefix to prevent cross-module
-        // pin leakage. Without this, a pin like `main.mic.CAP_1.1` (mic module)
-        // would normalize to `CAP_1.1` and match the main module's `CAP_1`,
+        // pin leakage. Without this, a pin like `main.mic._C1.1` (mic module)
+        // would normalize to `_C1.1` and match the main module's `_C1`,
         // polluting the main module's nets.
         //
         // Check: pin path must start with `<mod_path>.` and the remainder

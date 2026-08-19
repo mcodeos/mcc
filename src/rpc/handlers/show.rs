@@ -300,10 +300,7 @@ pub fn handle_show_net(params: Option<Value>) -> RpcResult {
     let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
 
     for conn in &inst.connections {
-        let net = conn
-            .net_name
-            .clone()
-            .unwrap_or_else(|| format!("__net_{}", conn.id));
+        let net = conn.effective_net_name();
         if net == "NC" {
             continue;
         }
@@ -664,10 +661,7 @@ pub fn handle_show_nets(params: Option<Value>) -> RpcResult {
 
     let mut nets: BTreeMap<String, Vec<String>> = BTreeMap::new();
     for conn in &inst.connections {
-        let net = conn
-            .net_name
-            .clone()
-            .unwrap_or_else(|| format!("__net_{}", conn.id));
+        let net = conn.effective_net_name();
         if net == "NC" {
             continue;
         }

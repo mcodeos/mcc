@@ -476,7 +476,7 @@ mod tests {
         assert_eq!(classify_net("GND"), NetKind::Ground);
         assert_eq!(classify_net("VSS"), NetKind::Ground);
         assert_eq!(classify_net("RX"), NetKind::Signal);
-        assert_eq!(classify_net("__net_42"), NetKind::Signal);
+        assert_eq!(classify_net("_net42@62"), NetKind::Signal);
     }
 
     // ── ★ P0-2 tests ──────────────────────────────────────────────────────

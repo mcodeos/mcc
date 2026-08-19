@@ -221,7 +221,7 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
         if unique_boxes.len() == 2 {
             // Simple two-box net: one edge
             let (from_box, to_box) = (unique_boxes[0], unique_boxes[1]);
-            let label = if net.name.starts_with("__net_") {
+            let label = if crate::instant::mc_net::is_anon_net_name(&net.name) {
                 String::new()
             } else {
                 net.name.clone()
@@ -253,7 +253,7 @@ pub fn decide_edges(graph: &McVecGraph) -> (Vec<BlockEdge>, EdgeDecideReport) {
             // Multi-box net: create edges between all pairs
             for i in 0..unique_boxes.len() {
                 for j in (i + 1)..unique_boxes.len() {
-                    let label = if net.name.starts_with("__net_") {
+                    let label = if crate::instant::mc_net::is_anon_net_name(&net.name) {
                         String::new()
                     } else {
                         net.name.clone()
