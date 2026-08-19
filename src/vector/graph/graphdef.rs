@@ -90,6 +90,15 @@ pub struct McVecGraph {
     /// hardcoding `graph.name == "main"` so the pipeline works with any
     /// top-level module name.
     pub is_root: bool,
+    /// ★ C1b: rendering style for this layer.
+    pub layer_style: LayerStyle,
+}
+
+/// ★ C1b F0: rendering style — determines which pipeline a layer uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LayerStyle {
+    Block,
+    Device,
 }
 
 /// ★ P7-4e: geometry stages (the roadmap's three stages, refined for implementation)
@@ -173,6 +182,7 @@ impl McVecGraph {
             pin_parent: HashMap::new(),
             col_pitch: 480.0,
             is_root: false,
+            layer_style: LayerStyle::Block,
         }
     }
 

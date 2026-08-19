@@ -792,8 +792,8 @@ pub(crate) fn run_erc() -> RpcResult {
     // ── Unconnected ports ──
     let all_net_paths: std::collections::HashSet<&str> = inst
         .nets
-        .values()
-        .flat_map(|pts| pts.iter())
+        .iter()
+        .flat_map(|(_, pts)| pts.iter())
         .map(|p| p.path.as_str())
         .collect();
 

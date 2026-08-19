@@ -441,6 +441,7 @@ fn collect_labels(graph: &McVecGraph) -> Vec<(LabelKey, String, f64, bool)> {
             }
             Symbol::PowerRail { .. }
             | Symbol::Dot
+            | Symbol::TestPoint
             | Symbol::Unknown
             | Symbol::PortTerminal { .. } => {}
         }

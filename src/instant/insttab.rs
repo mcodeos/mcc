@@ -1092,11 +1092,12 @@ impl InstTable {
     fn flatten_nets(&mut self, inst: &McModuleInst, module_path: &str) {
         // [P0-DET] sorted net-name order: `net_id_counter` is allocated by iteration
         // order, so HashMap order would leak into net ids (and downstream pin ids).
-        let mut net_names: Vec<&String> = inst.nets.keys().collect();
-        net_names.sort();
+        // `McModuleInst.nets` is a Vec (a module may hold multiple nets all named
+        // "GND"); it is pre-sorted deterministically by build_net_table, so just
+        // iterate in order.
+        let net_entries = inst.nets.clone();
 
-        for net_name in net_names {
-            let net_points = &inst.nets[net_name.as_str()];
+        for (net_name, net_points) in net_entries {
             let mut point_ids: Vec<u32> = Vec::new();
 
             for np in net_points {

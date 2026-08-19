@@ -130,6 +130,20 @@ fn apply_reserved_overrides(b: &mut McVecBox) {
     }
 }
 
+/// ★ C1b: extract component value from class name and symbol.
+///
+/// When the component declaration doesn't provide a value parameter,
+/// derive a sensible default from the component type:
+///   - Resistor → "0R" (default 0 ohms)
+///   - Others → None (value unavailable)
+fn extract_component_value(_class_name: &str, symbol: &Symbol) -> Option<String> {
+    if symbol == &Symbol::Resistor {
+        Some("0R".to_string())
+    } else {
+        None
+    }
+}
+
 /// ★ Reserved interface ①: query a component class's custom pin layout.
 ///
 /// Looks up the component by class_name in workspace + global tables, reads `comp.layout`
@@ -371,7 +385,7 @@ fn build_mc_vec_graph_inner(
                 // ★ P01: compute symbol / designator in one pass
                 let symbol = detect_symbol(table, id, &kind);
                 let designator = extract_designator(&name);
-                let value: Option<String> = None; // pass2 model has no value field yet, P01 leaves None
+                let value: Option<String> = extract_component_value(&class_name, &symbol);
                 crate::velog!(
                     "[graph] ✓ Component: {name} (class={class_name}, symbol={symbol}, pins={pin_count})"
                 );
@@ -834,37 +848,13 @@ fn build_mc_vec_graph_inner(
                             cursor = table.get_entry(c).and_then(|e| e.parent_id);
                         }
                         if reaches_layer {
+                            // ★ C1b F3: PowerLabel boundary labels are no longer created.
+                            // Equipotential tree rendering handles Port terminals as tree symbols.
                             crate::velog!(
-                                "[graph] ✓ Phase-E1 boundary label: '{}' (kind={:?}, hops={}) \
-                             -> label box (layer bid={})",
+                                "[graph] Phase-E1 skip boundary label: '{}' (kind={:?}) -> tree symbol",
                                 entry.path,
                                 entry.kind,
-                                hops,
-                                layer_bid
                             );
-                            // Using PowerLabel/PowerRail reuses the existing BoxKind, geometrically a
-                            // named arrow, which matches the conventional drawing of Port labels in
-                            // schematics. is_ground still uses naming::is_ground check -- GND goes to
-                            // downward triangle, others (UART0/SPI.SCLK/DAC_OUT/[VCC_1V2,GND]/...)
-                            // go to upward arrow.
-                            let is_ground = naming::is_ground(&name);
-                            let symbol = Symbol::PowerRail { is_ground };
-                            let inst_path = entry.path.clone();
-                            let scope_chain = compute_scope_chain(&inst_path);
-                            graph.boxes.push(McVecBox::new_v2(
-                                u as i64,
-                                name.clone(),
-                                String::new(),
-                                BoxKind::PowerLabel,
-                                symbol,
-                                None,
-                                None,
-                                0,
-                                IoSummary::new(),
-                                inst_path,
-                                scope_chain,
-                            ));
-                            box_ids_set.insert(u);
                             continue;
                         }
                     }

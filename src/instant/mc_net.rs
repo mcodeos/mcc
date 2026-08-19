@@ -834,6 +834,14 @@ impl NetTable {
     /// ── Iter-10: also normalize the port name ──
     pub fn register_port(&mut self, name: &str, iotype: IOType) {
         let canon = canonicalize_path(name);
+        // ★ Anonymous bracket-literal ports (`in [A, B]::DC(5V)` → name
+        // "[A, B]") carry no meaningful whole-port name — only their members
+        // do. Registering the literal name creates an orphan 1-point stub net
+        // (the body references expand to members, never the literal), e.g.
+        // `[POWER_SYS, GND] (1 pts) (stub)`. Skip it.
+        if canon.contains('[') {
+            return;
+        }
         self.port_names.insert(canon.clone());
         self.ensure_point(&canon, None, iotype.clone());
         // If normalization changed the name, also add the original name to

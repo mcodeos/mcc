@@ -5,7 +5,8 @@
 //! IC (multi-pin chip) render —— P05 redo, shows every pin
 //!
 //! Replaces the old `multi_pin.rs` (which only drew a rectangle + name).
-//! Now every `entry_point` draws a pin marker + pin number + pin name:
+//! Now every `entry_point` draws a pin marker + pin number + pin name.
+//! ★ R-C2: unconnected physical pins are drawn with NC (✕) marks.
 //!
 //! ```text
 //!       1┌──────────────┐
@@ -30,7 +31,7 @@
 use crate::vector::graph::McVecBox;
 
 use super::label_render::render_designator_and_value;
-use super::pin_render::{render_pin, PinRenderOpts};
+use super::pin_render::{render_nc_pin, render_pin, PinRenderOpts};
 use super::shape::BoxShape;
 
 pub struct IcShape;
@@ -92,12 +93,30 @@ impl BoxShape for IcShape {
                 .collect()
         };
 
+        // ★ R-C2: draw NC pins (unconnected physical pins) on the right side
+        let nc_pins: String = {
+            let nc = b.nc_pins();
+            if nc.is_empty() {
+                String::new()
+            } else {
+                let total = nc.len();
+                nc.iter()
+                    .enumerate()
+                    .map(|(i, pin)| {
+                        // Evenly space NC pins on the right side, below connected pins
+                        let offset = (i + 1) as f64 / (total + 1) as f64;
+                        render_nc_pin(b, pin, offset)
+                    })
+                    .collect()
+            }
+        };
+
         format!(
             r##"  <g class="comp ic" data-id="{id}">
     {body}
     {pin1_marker}
     {name}
-{class_svg}{stamp}{pins}  </g>
+{class_svg}{stamp}{pins}{nc_pins}  </g>
 "##,
             id = b.id,
             body = body,
@@ -106,6 +125,7 @@ impl BoxShape for IcShape {
             class_svg = class_svg,
             stamp = stamp,
             pins = pins,
+            nc_pins = nc_pins,
         )
     }
 }

@@ -27,6 +27,12 @@ use crate::vector::graph::{BoxKind, EntrySide, McVecBox, McVecGraph};
 /// Minimum spacing between boxes (overlap check + chain gap baseline)
 pub const MIN_GAP: f64 = 40.0;
 
+/// ★ R-D (discipline 30): minimum pin pitch for box sizing
+pub const PIN_PITCH: f64 = 40.0;
+
+/// ★ R-D: margin on each end of pin row
+pub const PIN_MARGIN: f64 = 20.0;
+
 // ============================================================================
 // Main API
 // ============================================================================
@@ -132,6 +138,18 @@ fn ic_size(b: &McVecBox) -> (f64, f64) {
     let h_from_side = 52.0 + max_side_v as f64 * 20.0;
     let h_from_top = 60.0 + max_side_h as f64 * 18.0;
     let h = h_from_side.max(h_from_top).max(84.0);
+
+    // ★ R-D: pin-driven floor — box must be tall enough to fit all physical pins
+    // on one edge at PIN_PITCH spacing, with margin on both ends.
+    // Formula: pin_count * PIN_PITCH + 2 * PIN_MARGIN
+    let pin_driven_h = if !b.pins.is_empty() {
+        b.pins.len() as f64 * PIN_PITCH + 2.0 * PIN_MARGIN
+    } else if b.pin_count > 0 {
+        b.pin_count as f64 * PIN_PITCH + 2.0 * PIN_MARGIN
+    } else {
+        0.0
+    };
+    let h = h.max(pin_driven_h);
 
     (w, h)
 }

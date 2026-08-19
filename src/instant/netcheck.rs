@@ -219,7 +219,7 @@ impl Report {
 
     pub fn print(&self) {
         // Use eprintln rather than velog so the report is visible under any logging configuration
-        mcc_dbg!("inst::mod", "{}", self.render());
+        eprintln!("{}", self.render());
     }
 }
 
@@ -1379,6 +1379,13 @@ fn check_r11_split_rail(table: &InstTable, idx: &Index, rep: &mut Report) {
 
     for (mod_name, rid_buckets) in &module_buckets {
         for (rid, nets) in rid_buckets {
+            // ★ Ground exemption: the netlist deliberately decomposes the GND
+            // rail into local ground nets (per writing line + reference form),
+            // so a same-name GND split is expected — do not flag it. All other
+            // power rails (VCC/VDD/...) stay strictly checked.
+            if rid == "GND" {
+                continue;
+            }
             let mut groups: BTreeSet<u32> = BTreeSet::new();
             for nid in nets {
                 groups.insert(uf_find(&mut uf, *nid));

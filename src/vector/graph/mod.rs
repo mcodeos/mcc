@@ -61,9 +61,9 @@ pub mod promote;
 
 pub use boxdef::{
     AnchorHint, BoxLabelPlacement, EntryPoint, EntrySide, IoSummary, LabelPlacementKind, McVecBox,
-    PinConstraint, PortDir, VisualRole, Wire, ZoneBorder,
+    PinConstraint, PinSlot, PortDir, VisualRole, Wire, ZoneBorder,
 };
-pub use graphdef::McVecGraph;
+pub use graphdef::{LayerStyle, McVecGraph};
 pub use json::json_escape;
 pub use kinds::{BoxKind, EdgeType, NetKind};
 pub use netdef::{EndpointRef, McVecEdge, NetRole, Point, Route, Segment, VizNet};
