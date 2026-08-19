@@ -25,7 +25,7 @@
 
 use std::collections::{HashMap, VecDeque};
 
-use crate::vector::graph::McVecGraph;
+use crate::vector::graph::{EntrySide, McVecBox, McVecGraph};
 
 use super::edge_decide::{decide_edges, BlockEdge, EdgeKind};
 
@@ -61,7 +61,7 @@ pub fn place_radial(graph: &mut McVecGraph) {
     assign_coordinates(graph, &edges, hub_id, &rings, &sectors, hub_h);
 
     // Step 6: set up facade entry_points (§4.6)
-    setup_facade_entry_points(graph);
+    setup_facade_entry_points(graph, &edges);
 
     crate::vlog!(
         "[radial] hub={} deg={} rings={:?} sectors={:?} hub_h={:.0}",
@@ -600,70 +600,220 @@ fn assign_coordinates(
 }
 
 // ============================================================================
-// Step 6: Facade entry_points setup (golden §4.6)
+// Step 6: Facade entry_points setup (§4.6)
 // ============================================================================
 
-/// Set up entry_points matching the golden table in §4.6.
+/// Normalized inset of an entry point from the edge ends [0,1] (keeps the pin
+/// stub and its label off the box corners).
+const EDGE_INSET: f64 = 0.08;
+/// Total normalized spread along the edge when several pins fan out toward the
+/// same neighbour on the same side.
+const FAN_SPAN: f64 = 0.4;
+
+/// Set up facade entry_points for the root block diagram.
 ///
-/// This replaces the coarse entry_points from phase_prepare with the correct
-/// facade pin positions for the block diagram.
-fn setup_facade_entry_points(graph: &mut McVecGraph) {
-    use crate::vector::graph::{EntryPoint, EntrySide};
+/// Entry points are derived from net/signal semantics instead of a fixed set of
+/// box names:
+///
+/// - **P-1**: only signal/bus edges yield entry points; rail edges keep their
+///   anchors and never produce an entry point.
+/// - Each signal pin **faces the neighbour it connects to**: the side is the
+///   dominant axis between the two box centres, and the offset is the
+///   projection of the neighbour's centre onto that edge.
+/// - Pins that fan out toward the **same** neighbour on the same side are
+///   spread evenly (`FAN_SPAN`) so they never overlap.
+///
+/// This is fully generic — it references no project box name.
+fn setup_facade_entry_points(graph: &mut McVecGraph, edges: &[BlockEdge]) {
+    use crate::vector::graph::EntryPoint;
 
-    // Build a name→id lookup (consume the borrow before mutation)
-    let name_to_id: std::collections::HashMap<String, i64> =
-        graph.boxes.iter().map(|b| (b.name.clone(), b.id)).collect();
+    // box_id -> Vec<(pin_name, side, neighbour_id, base_offset)>
+    let mut per_box: HashMap<i64, Vec<(String, EntrySide, i64, f64)>> = HashMap::new();
 
-    // Collect all pin specs before mutating
-    // ★ P-1: only signal pins get entry_points. Rail edges use anchors (P-2).
-    let specs: Vec<(&str, Vec<(&str, EntrySide, f64)>)> = vec![
-        // mcu513 (hub): 4 signal pins (§4.6)
-        (
-            "mcu513",
-            vec![
-                ("SPI", EntrySide::Left, 0.095),
-                ("MIC", EntrySide::Top, 0.5),
-                ("DAC_OUT", EntrySide::Bottom, 0.3),
-                ("SPK_MUTE", EntrySide::Bottom, 0.7),
-            ],
-        ),
-        // speaker: 2 signal pins
-        (
-            "speaker",
-            vec![
-                ("DAC_OUT", EntrySide::Top, 0.3),
-                ("SPK_MUTE", EntrySide::Top, 0.7),
-            ],
-        ),
-        // flash: 1 signal pin
-        ("flash", vec![("SPI", EntrySide::Right, 0.5)]),
-        // mic: 1 signal pin
-        ("mic", vec![("MIC", EntrySide::Bottom, 0.5)]),
-        // modldo: 0 signal pins (rail only)
-        ("modldo", vec![]),
-        // moddcdc: 0 signal pins (rail only)
-        ("moddcdc", vec![]),
-        // usbsocket: 0 signal pins (rail only)
-        ("usbsocket", vec![]),
-    ];
+    for edge in edges {
+        if edge.kind != EdgeKind::Signal && edge.kind != EdgeKind::Bus {
+            continue; // ★ P-1: only signal pins get entry_points. Rail edges use anchors (P-2).
+        }
+        if edge.label.is_empty() {
+            continue; // anonymous `__net_*` / unlabeled — nothing to anchor a pin by.
+        }
 
-    // Apply all specs; boxes missing from this graph (non-hbl fixtures) are
-    // skipped instead of panicking on the map lookup.
-    for (name, eps) in specs {
-        let Some(&box_id) = name_to_id.get(name) else {
+        let (Some(a), Some(b)) = (
+            graph.boxes.iter().find(|bx| bx.id == edge.from_box),
+            graph.boxes.iter().find(|bx| bx.id == edge.to_box),
+        ) else {
             continue;
         };
-        if let Some(b) = graph.boxes.iter_mut().find(|b| b.id == box_id) {
-            b.entry_points = eps
-                .into_iter()
-                .map(|(pin_name, side, offset)| EntryPoint {
-                    pin_name: pin_name.to_string(),
+
+        for (this, other) in [(a, b), (b, a)] {
+            let (side, base) = facing_side_and_offset(this, other);
+            per_box
+                .entry(this.id)
+                .or_default()
+                .push((edge.label.clone(), side, other.id, base));
+        }
+    }
+
+    // ── Pass 1: candidate entry points per box (dedup pin_name + fan-out) ──
+    // box_id -> Vec<EntryPoint>
+    let mut entries: HashMap<i64, Vec<EntryPoint>> = HashMap::new();
+    for (box_id, raw) in per_box {
+        // A net that fans out to several boxes is still one pin: keep the first name.
+        let mut seen_names: std::collections::HashSet<String> = Default::default();
+        let mut names: Vec<String> = Vec::new();
+        let mut kept: Vec<(EntrySide, i64, f64)> = Vec::new();
+        for (name, side, nid, base) in raw {
+            if seen_names.insert(name.clone()) {
+                names.push(name);
+                kept.push((side, nid, base));
+            }
+        }
+
+        // Group pin indices by (side, neighbour) so only same-target pins fan out.
+        let mut groups: HashMap<(EntrySide, i64), Vec<usize>> = HashMap::new();
+        for (i, &(side, nid, _)) in kept.iter().enumerate() {
+            groups.entry((side, nid)).or_default().push(i);
+        }
+
+        let mut eps: Vec<EntryPoint> = Vec::new();
+        for ((side, _), mut members) in groups {
+            members.sort_by(|&ia, &ib| names[ia].cmp(&names[ib])); // deterministic order
+            let base = members.iter().map(|&i| kept[i].2).sum::<f64>() / members.len() as f64;
+            let n = members.len() as f64;
+            for (idx, &i) in members.iter().enumerate() {
+                let f = if n > 1.0 {
+                    idx as f64 / (n - 1.0) // 0..=1 within the fan span
+                } else {
+                    0.5 // single pin: stay at the neighbour's projection
+                };
+                let offset =
+                    (base - FAN_SPAN / 2.0 + f * FAN_SPAN).clamp(EDGE_INSET, 1.0 - EDGE_INSET);
+                eps.push(EntryPoint {
                     pin_id: 0,
+                    pin_name: names[i].clone(),
                     side,
                     offset,
-                })
-                .collect();
+                });
+            }
         }
+        eps.sort_by(|x, y| {
+            side_order(x.side).cmp(&side_order(y.side)).then_with(|| {
+                x.offset
+                    .partial_cmp(&y.offset)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+        });
+        entries.insert(box_id, eps);
+    }
+
+    // ── Pass 2: adaptive reconciliation — the two ends of every signal edge
+    //    must share the free coordinate so the line is one straight orthogonal
+    //    segment, never a diagonal. Side-by-side boxes (pins on Left/Right
+    //    edges) share the same absolute y; stacked boxes (Top/Bottom) the same x.
+    let geom: HashMap<i64, (f64, f64, f64, f64)> = graph
+        .boxes
+        .iter()
+        .map(|b| (b.id, (b.x, b.y, b.w, b.h)))
+        .collect();
+    // (box_id, pin_name) -> reconciled absolute coordinate on the free axis.
+    let mut aligned: HashMap<(i64, String), f64> = HashMap::new();
+    for edge in edges {
+        if edge.kind != EdgeKind::Signal && edge.kind != EdgeKind::Bus || edge.label.is_empty() {
+            continue;
+        }
+        let (Some(&(ax, ay, aw, ah)), Some(&(bx, by, bw, bh))) =
+            (geom.get(&edge.from_box), geom.get(&edge.to_box))
+        else {
+            continue;
+        };
+        let (Some(from_eps), Some(to_eps)) =
+            (entries.get(&edge.from_box), entries.get(&edge.to_box))
+        else {
+            continue;
+        };
+        let fi = from_eps.iter().position(|e| e.pin_name == edge.label);
+        let ti = to_eps.iter().position(|e| e.pin_name == edge.label);
+        let (Some(fi), Some(ti)) = (fi, ti) else {
+            continue;
+        };
+        let (fs, ts) = (from_eps[fi].side, to_eps[ti].side);
+        let (f_vert, t_vert) = (
+            matches!(fs, EntrySide::Left | EntrySide::Right),
+            matches!(ts, EntrySide::Left | EntrySide::Right),
+        );
+        let (f_horz, t_horz) = (
+            matches!(fs, EntrySide::Top | EntrySide::Bottom),
+            matches!(ts, EntrySide::Top | EntrySide::Bottom),
+        );
+        if f_vert && t_vert {
+            // Horizontal connection: both ends on vertical edges → align y.
+            let mid = (ay + from_eps[fi].offset * ah + by + to_eps[ti].offset * bh) / 2.0;
+            aligned.insert((edge.from_box, edge.label.clone()), mid);
+            aligned.insert((edge.to_box, edge.label.clone()), mid);
+        } else if f_horz && t_horz {
+            // Vertical connection: both ends on horizontal edges → align x.
+            let mid = (ax + from_eps[fi].offset * aw + bx + to_eps[ti].offset * bw) / 2.0;
+            aligned.insert((edge.from_box, edge.label.clone()), mid);
+            aligned.insert((edge.to_box, edge.label.clone()), mid);
+        }
+    }
+
+    // ── Pass 3: write back, applying reconciled offsets. ──
+    for bx in &mut graph.boxes {
+        let Some(mut eps) = entries.remove(&bx.id) else {
+            continue; // Rail-only boxes (no signal edges) get no entry points.
+        };
+        for ep in eps.iter_mut() {
+            if let Some(&mid) = aligned.get(&(bx.id, ep.pin_name.clone())) {
+                let offset = match ep.side {
+                    EntrySide::Top | EntrySide::Bottom if bx.w > 0.0 => (mid - bx.x) / bx.w,
+                    EntrySide::Left | EntrySide::Right if bx.h > 0.0 => (mid - bx.y) / bx.h,
+                    _ => ep.offset,
+                };
+                ep.offset = offset.clamp(EDGE_INSET, 1.0 - EDGE_INSET);
+            }
+        }
+        bx.entry_points = eps;
+    }
+}
+
+/// Which box edge a signal leaves toward `other`, and the normalized offset
+/// along that edge pointing at `other`'s centre.
+fn facing_side_and_offset(this: &McVecBox, other: &McVecBox) -> (EntrySide, f64) {
+    let (cxa, cya) = (this.x + this.w / 2.0, this.y + this.h / 2.0);
+    let (cxb, cyb) = (other.x + other.w / 2.0, other.y + other.h / 2.0);
+    let (dx, dy) = (cxb - cxa, cyb - cya);
+
+    let side = if dx.abs() >= dy.abs() {
+        if dx > 0.0 {
+            EntrySide::Right
+        } else {
+            EntrySide::Left
+        }
+    } else if dy > 0.0 {
+        EntrySide::Bottom
+    } else {
+        EntrySide::Top
+    };
+
+    let base = if this.w <= 0.0 || this.h <= 0.0 {
+        0.5
+    } else {
+        match side {
+            EntrySide::Left | EntrySide::Right => (cyb - this.y) / this.h,
+            EntrySide::Top | EntrySide::Bottom => (cxb - this.x) / this.w,
+        }
+    };
+    (side, base)
+}
+
+/// Stable priority for entry-point ordering: Top → Right → Bottom → Left.
+fn side_order(side: EntrySide) -> u8 {
+    match side {
+        EntrySide::Top => 0,
+        EntrySide::Right => 1,
+        EntrySide::Bottom => 2,
+        EntrySide::Left => 3,
     }
 }
 
@@ -737,5 +887,198 @@ mod tests {
         assert_eq!(neighbors.len(), 2);
         assert!(neighbors.contains(&1));
         assert!(neighbors.contains(&3));
+    }
+
+    #[test]
+    fn facade_entry_points_name_agnostic() {
+        use crate::vector::graph::{BoxKind, EntryPoint, IoSummary};
+
+        // Boxes are named generically (NOT hbl names): hub "chipA" with neighbours
+        // "mem" (right), "sensor" (bottom) and a rail-only "pwr". Entry points must
+        // be derived purely from geometry + edge semantics.
+        let mut graph = McVecGraph::new(0, "test".into());
+        let mk = |id: i64, name: &str, x: f64, y: f64| {
+            let mut b = McVecBox::new(
+                id,
+                name.into(),
+                "IC".into(),
+                BoxKind::MultiPin,
+                4,
+                IoSummary::new(),
+            );
+            b.x = x;
+            b.y = y;
+            b.w = 100.0;
+            b.h = 100.0;
+            b
+        };
+        graph.boxes.push(mk(1, "chipA", 0.0, 0.0)); // center (50,50)
+        graph.boxes.push(mk(2, "mem", 300.0, 0.0)); // center (350,50)
+        graph.boxes.push(mk(3, "sensor", 0.0, 300.0)); // center (50,350)
+        graph.boxes.push(mk(4, "pwr", 600.0, 600.0)); // rail only
+
+        let edges = vec![
+            BlockEdge {
+                from_box: 1,
+                to_box: 2,
+                label: "DATA".into(),
+                lane_count: 1,
+                kind: EdgeKind::Signal,
+                source_span: None,
+                port_group: None,
+                bidirectional: false,
+            },
+            BlockEdge {
+                from_box: 1,
+                to_box: 3,
+                label: "OUT".into(),
+                lane_count: 1,
+                kind: EdgeKind::Signal,
+                source_span: None,
+                port_group: None,
+                bidirectional: false,
+            },
+            BlockEdge {
+                from_box: 3,
+                to_box: 1,
+                label: "STAT".into(),
+                lane_count: 1,
+                kind: EdgeKind::Signal,
+                source_span: None,
+                port_group: None,
+                bidirectional: false,
+            },
+            BlockEdge {
+                from_box: 4,
+                to_box: 1,
+                label: "VCC".into(),
+                lane_count: 1,
+                kind: EdgeKind::Power,
+                source_span: None,
+                port_group: None,
+                bidirectional: false,
+            },
+        ];
+
+        setup_facade_entry_points(&mut graph, &edges);
+
+        let eps_of = |name: &str| {
+            graph
+                .boxes
+                .iter()
+                .find(|b| b.name == name)
+                .unwrap()
+                .entry_points
+                .clone()
+        };
+        let find = |eps: &[EntryPoint], pin: &str| -> Option<(EntrySide, f64)> {
+            eps.iter()
+                .find(|e| e.pin_name == pin)
+                .map(|e| (e.side, e.offset))
+        };
+
+        // chipA: DATA faces right neighbour, OUT/STAT fan out on bottom.
+        let hub = eps_of("chipA");
+        assert_eq!(hub.len(), 3, "hub should have 3 signal entry points");
+        assert_eq!(find(&hub, "DATA"), Some((EntrySide::Right, 0.5)));
+        // Two pins to the single bottom neighbour are spread 0.3/0.7 (FAN_SPAN=0.4).
+        assert_eq!(find(&hub, "OUT"), Some((EntrySide::Bottom, 0.3)));
+        assert_eq!(find(&hub, "STAT"), Some((EntrySide::Bottom, 0.7)));
+
+        // mem: its single signal pin faces the hub (left).
+        let mem_eps = eps_of("mem");
+        assert_eq!(mem_eps.len(), 1);
+        assert_eq!(find(&mem_eps, "DATA"), Some((EntrySide::Left, 0.5)));
+
+        // sensor: both pins face the hub above them (top), fan 0.3/0.7.
+        let sensor_eps = eps_of("sensor");
+        assert_eq!(sensor_eps.len(), 2);
+        assert_eq!(find(&sensor_eps, "OUT"), Some((EntrySide::Top, 0.3)));
+        assert_eq!(find(&sensor_eps, "STAT"), Some((EntrySide::Top, 0.7)));
+
+        // Rail-only box gets no entry points (P-1).
+        assert!(eps_of("pwr").is_empty());
+    }
+
+    #[test]
+    fn facade_reconciles_ends_to_straight_line() {
+        use crate::vector::graph::{BoxKind, IoSummary};
+
+        // Two staggered boxes (different vertical centres): without reconciliation
+        // their signal pins would land at different absolute y and produce a
+        // diagonal line. The adaptive pass must snap both ends to the same y so
+        // the connection is a single orthogonal (horizontal) segment.
+        let mut graph = McVecGraph::new(0, "test".into());
+        let mk = |id: i64, name: &str, x: f64, y: f64| {
+            let mut b = McVecBox::new(
+                id,
+                name.into(),
+                "IC".into(),
+                BoxKind::MultiPin,
+                4,
+                IoSummary::new(),
+            );
+            b.x = x;
+            b.y = y;
+            b.w = 100.0;
+            b.h = 100.0;
+            b
+        };
+        graph.boxes.push(mk(1, "left", 0.0, 0.0)); // centre y = 50
+        graph.boxes.push(mk(2, "right", 300.0, 80.0)); // centre y = 130
+
+        let edges = vec![BlockEdge {
+            from_box: 1,
+            to_box: 2,
+            label: "DATA".into(),
+            lane_count: 1,
+            kind: EdgeKind::Signal,
+            source_span: None,
+            port_group: None,
+            bidirectional: false,
+        }];
+
+        setup_facade_entry_points(&mut graph, &edges);
+
+        let left = graph
+            .boxes
+            .iter()
+            .find(|b| b.name == "left")
+            .unwrap()
+            .entry_points
+            .iter()
+            .find(|e| e.pin_name == "DATA")
+            .unwrap();
+        let right = graph
+            .boxes
+            .iter()
+            .find(|b| b.name == "right")
+            .unwrap()
+            .entry_points
+            .iter()
+            .find(|e| e.pin_name == "DATA")
+            .unwrap();
+
+        assert_eq!(left.side, EntrySide::Right);
+        assert_eq!(right.side, EntrySide::Left);
+        let y1 = 0.0 + left.offset * 100.0;
+        let y2 = 80.0 + right.offset * 100.0;
+        assert!(
+            (y1 - y2).abs() < 1e-6,
+            "paired pins must share the same y (got {y1} vs {y2})"
+        );
+        // The naive projections would have pinned `left` near its bottom edge
+        // (offset ≈ 0.92, y ≈ 92) and `right` near its top (y ≈ 88); after the
+        // adaptive pass both sit together at y ≈ 90.
+        assert!(
+            left.offset > 0.85 && left.offset < 0.92,
+            "got {}",
+            left.offset
+        );
+        assert!(
+            right.offset > 0.08 && right.offset < 0.12,
+            "got {}",
+            right.offset
+        );
     }
 }
