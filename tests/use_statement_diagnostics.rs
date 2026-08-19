@@ -15,7 +15,8 @@ use std::process::Command;
 fn run_mcc_parse(source: &str) -> Value {
     let output = Command::new(env!("CARGO_BIN_EXE_mcc"))
         .args([
-            "parse", "--code", source, "--pass1", "--pass2", "--top", "main", "-f", "json",
+            "parse", "--code", source, "--local", "--pass1", "--pass2", "--top", "main", "-f",
+            "json",
         ])
         .output()
         .expect("run JSON parse");
@@ -86,6 +87,7 @@ fn undeclared_dependency_project_mode_keeps_undeclared_message() {
         .args([
             "parse",
             dir.to_str().expect("temp dir path"),
+            "--local",
             "--pass1",
             "--pass2",
             "--top",
@@ -158,6 +160,7 @@ fn non_project_use_lazily_loads_library() {
         .args([
             "parse",
             standalone.to_str().expect("standalone path"),
+            "--local",
             "--pass1",
             "--pass2",
             "--top",
@@ -283,6 +286,7 @@ fn alias_registers_spacename_without_collision() {
         .args([
             "parse",
             alias_user.to_str().expect("alias_user.mc path"),
+            "--local",
             "--pass1",
             "--pass2",
             "--top",

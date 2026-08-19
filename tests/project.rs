@@ -146,12 +146,12 @@ fn projection_main_layer_matches_pass2_golden() {
         );
     }
 
-    // ── main layer GND: 4 nets merged into one (rule a), endpoints ⊆ golden main.GND's 8 points ──
+    // ── main layer GND: 4 nets merged into one (rule a), endpoints ⊆ golden main.GND's 9 points ──
     //
     // ★ Known builder non-determinism (input to P7-4/G14, not a projection defect):
-    //   visit.rs's GND label net randomly adsorbs one cluster per run —— {flash.4, C1.2} (Pin cluster)
+    //   visit.rs's GND label net randomly adsorbs one cluster per run —— {flash.4, CAP_1.2} (Pin cluster)
     //   or {mic.dc.GND} (Label cluster); the other cluster is absent from that run's block.nets.
-    //   The two shapes project to 7 / 6 points respectively; their union equals golden's 8 points
+    //   The two shapes project to 8 / 7 points respectively; their union equals golden's 9 points
     //   (under the Pin-cluster shape, mic.dc.GND is re-added by promote at the graph layer).
     //   The projection layer is only responsible for: no pseudo-points, no duplicate endpoints,
     //   all six modules' GND present, no more than golden.
@@ -160,20 +160,22 @@ fn projection_main_layer_matches_pass2_golden() {
     let gnd = main_nets.iter().find(|(n, _)| n == "GND").expect("GND net");
     let golden_gnd: BTreeSet<String> = [
         "usbsocket.vin.GND",
-        "modldo.GND",
+        "modldo.vin.GND",
+        "modldo.vout.GND",
         "moddcdc.GND",
         "mcu513.GND",
         "mic.dc.GND",
         "speaker.USB_VBUS_1.GND",
         "flash.4",
-        "C1.2",
+        "CAP_1.2",
     ]
     .iter()
     .map(|s| s.to_string())
     .collect();
     for must in [
         "mcu513.GND",
-        "modldo.GND",
+        "modldo.vin.GND",
+        "modldo.vout.GND",
         "moddcdc.GND",
         "speaker.USB_VBUS_1.GND",
         "usbsocket.vin.GND",
@@ -186,12 +188,12 @@ fn projection_main_layer_matches_pass2_golden() {
     }
     assert!(
         gnd.1.iter().all(|e| golden_gnd.contains(e)),
-        "GND endpoints must not exceed golden's 8 points: {:?}",
+        "GND endpoints must not exceed golden's 9 points: {:?}",
         gnd.1
     );
     assert!(
-        (6..=8).contains(&gnd.1.len()),
-        "GND endpoints should be 6~8 (builder dual shapes), got {}",
+        (7..=9).contains(&gnd.1.len()),
+        "GND endpoints should be 7~9 (builder dual shapes), got {}",
         gnd.1.len()
     );
 
@@ -206,10 +208,10 @@ fn projection_main_layer_matches_pass2_golden() {
         v33.1
     );
     assert!(v33.1.contains("flash.8"));
-    assert!(v33.1.contains("modldo.VCC"));
+    assert!(v33.1.contains("modldo.vout.VCC"));
     assert!(v33.1.contains("moddcdc.VDD_3V3"));
     assert!(v33.1.contains("mcu513.VDD_3V3"));
-    assert!(v33.1.contains("speaker.VDD_3V3"));
+    assert!(v33.1.contains("speaker.USB_VBUS_1.VDD_3V"));
     // Rule b: mic.VDD_3V3 (Label) is normalized to mic.dc.VDD_3V3 (Port declaration side)
     assert!(
         !v33.1.contains("mic.VDD_3V3"),
@@ -228,14 +230,10 @@ fn projection_main_layer_matches_pass2_golden() {
         .expect("V5V.VCC");
     assert_eq!(
         v5.1,
-        [
-            "modldo.POWER_SYS",
-            "speaker.USB_VBUS_1.VDD_3V",
-            "usbsocket.vin.POWER_SYS"
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect::<BTreeSet<_>>()
+        ["modldo.vin.VCC", "usbsocket.vin.POWER_SYS"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<BTreeSet<_>>()
     );
 
     // ── mic layer: MIC.N stub ∪ MIC.N~0 member net (rule a specimen) ──

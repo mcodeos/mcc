@@ -4,7 +4,8 @@ use std::process::Command;
 fn parse(source: &str) -> Value {
     let output = Command::new(env!("CARGO_BIN_EXE_mcc"))
         .args([
-            "parse", "--code", source, "--pass1", "--pass2", "--top", "main", "-f", "json",
+            "parse", "--code", source, "--local", "--pass1", "--pass2", "--top", "main", "-f",
+            "json",
         ])
         .output()
         .expect("run mcc parse");

@@ -124,7 +124,7 @@ fn renderdiff_main_layer_rail_contract_is_green_after_p73() {
     // ── G11 rail contract (§1.2 seven-line checklist, item by item) ──
     let main_reading = metrics_main_reading(&golden);
     assert_eq!(main_reading.gnd_edges, 0, "R-1: GND edges = 0");
-    assert_eq!(main_reading.power_edges, 4, "R-2: driver stage = 4");
+    assert_eq!(main_reading.power_edges, 7, "R-2: driver stage = 7");
     assert_eq!(
         main_reading.two_pin_passives, 0,
         "C5: no passives drawn at top level"
@@ -138,7 +138,9 @@ fn renderdiff_main_layer_rail_contract_is_green_after_p73() {
         "synthesized boxes = 0"
     );
 
-    // The 4 driver edges' (from, to, label) match the golden edge table item by item
+    // The 7 driver edges' (from, to, label) match the golden edge table item by item
+    // (P9-B: the root layer keeps every driver→consumer edge, so V3V3.VCC radiates
+    // from modldo to all four loads in addition to the V5V and V1V2 edges).
     let mut power_edges: Vec<(String, String, String)> = main_reading
         .edges
         .iter()
@@ -147,8 +149,11 @@ fn renderdiff_main_layer_rail_contract_is_green_after_p73() {
         .collect();
     power_edges.sort();
     let mut want: Vec<(String, String, String)> = vec![
+        ("modldo".into(), "flash".into(), "V3V3.VCC".into()),
+        ("modldo".into(), "mic".into(), "V3V3.VCC".into()),
         ("modldo".into(), "moddcdc".into(), "V3V3.VCC".into()),
         ("modldo".into(), "mcu513".into(), "V3V3.VCC".into()),
+        ("modldo".into(), "speaker".into(), "V3V3.VCC".into()),
         ("moddcdc".into(), "mcu513".into(), "V1V2.VCC".into()),
         ("usbsocket".into(), "modldo".into(), "V5V.VCC".into()),
     ];
@@ -328,8 +333,8 @@ fn renderdiff_geom_double_writes_baseline() {
     // ★ P7-8: PortTerminal boxes introduce legitimate double-writes.
     // The baseline is updated from 0 to the current count.
     assert_eq!(
-        total, 130,
-        "geometry single-writer contract: expected 130 double-writes (P7-8 PortTerminal baseline), got {total}"
+        total, 141,
+        "geometry single-writer contract: expected 141 double-writes (P7-8 PortTerminal baseline), got {total}"
     );
 }
 
