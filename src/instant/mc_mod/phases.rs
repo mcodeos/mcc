@@ -17,7 +17,6 @@ use crate::semantic::basic::mc_ids::IdsSegment;
 use crate::semantic::basic::mc_param::{McParamBindings, McParamValue};
 use crate::semantic::basic::mc_param_type::{McIoTy, McParamTypeKind};
 use crate::semantic::basic::mc_paramd::McParamDeclareKind;
-use crate::semantic::basic::mc_phrase::McPhrase;
 use crate::semantic::common::{ConnDir, IOType};
 use crate::semantic::component::McComponent;
 use crate::semantic::mc_inst::McInstance;
@@ -476,15 +475,6 @@ impl McModuleInst {
                                 }
                             }
                         };
-                    if self.name.contains("513") {
-                        mcc_dbg!(
-                            "inst::mod",
-                            "[DECL-CREATE] module={} inst_name={} class={}",
-                            self.name,
-                            inst.name,
-                            inst.def.name
-                        );
-                    }
                     self.components.push(inst);
 
                     // ── P1-C5: Execute same-name constructor func ──
@@ -537,41 +527,6 @@ impl McModuleInst {
     pub(super) fn instantiate_lines_resilient(&mut self) {
         let lines = self.def.lines.clone();
         let line_spans = self.def.line_spans.clone();
-        if self.name.contains("513") || self.name.contains("moddcdc") {
-            mcc_dbg!(
-                "inst::mod",
-                "[P2-LINES] module={} total_lines={}",
-                self.name,
-                lines.len()
-            );
-            for (idx, line) in lines.iter().enumerate() {
-                let desc = match line {
-                    McPhrase::Series(inner, _) => {
-                        let inner_desc: Vec<String> = inner
-                            .iter()
-                            .map(|p| match p {
-                                McPhrase::Endpoint(_) => "Ep".into(),
-                                McPhrase::FuncCall(fc) => format!("FC({})", fc.func_name),
-                                McPhrase::Group(_) => "Grp".into(),
-                                McPhrase::Parallel(_) => "Par".into(),
-                                _ => format!("{:?}", std::mem::discriminant(p)),
-                            })
-                            .collect();
-                        format!("Series[{}]", inner_desc.join(", "))
-                    }
-                    McPhrase::Parallel(_) => "Parallel".into(),
-                    McPhrase::FuncCall(fc) => format!("FuncCall({})", fc.func_name),
-                    McPhrase::Multiple(_) => "Multiple".into(),
-                    McPhrase::Endpoint(_) => "Endpoint".into(),
-                    McPhrase::Transposed(_) => "Transposed".into(),
-                    McPhrase::Group(_) => "Group".into(),
-                    McPhrase::Closure(_) => "Closure".into(),
-                    McPhrase::Lead => "Lead".into(),
-                    _ => "Other".into(),
-                };
-                mcc_dbg!("inst::mod", "[P2-LINES]   line[{idx}]={desc}");
-            }
-        }
         for (_i, _l) in lines.iter().enumerate() {}
         for (idx, line) in lines.iter().enumerate() {
             // ── Iter-6.S4.3 ──────────────────────────────────────────────

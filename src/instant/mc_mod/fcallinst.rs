@@ -80,13 +80,6 @@ impl McModuleInst {
         } else {
             self.auto_name(&safe_type)
         };
-        if self.name.contains("513") {
-            mcc_dbg!(
-                "inst::fcall",
-                "[COMP-CREATE] module={} inst_name={inst_name} type={type_name} params={params:?}",
-                self.name
-            );
-        }
 
         // 2. Create the component instance with parameters
         // ★ P0.5-3: if any param is NC, use with_nc (skip param binding).
@@ -1211,30 +1204,12 @@ impl McModuleInst {
                 })
                 .collect();
 
-            if self.name.contains("513") {
-                mcc_dbg!(
-                    "inst::fcall",
-                    "[COND-EVAL] func={} conds_count={} params={params:?}",
-                    func_def.name,
-                    func_def.conds.len()
-                );
-            }
-
             // Record connection start for cond block phantom stripping
             let cond_conn_start = self.connections.len();
 
-            for (ci, conds) in func_def.conds.iter().enumerate() {
+            for (_ci, conds) in func_def.conds.iter().enumerate() {
                 let matched_lines = conds.evaluate(&params);
-                if self.name.contains("513") {
-                    mcc_dbg!(
-                        "inst::fcall",
-                        "[COND-EVAL] func={} cond[{}] matched {} lines",
-                        func_def.name,
-                        ci,
-                        matched_lines.len()
-                    );
-                }
-                for (li, line) in matched_lines.iter().enumerate() {
+                for (_li, line) in matched_lines.iter().enumerate() {
                     let expansion_ctx = self
                         .find_component(inst_name)
                         .map(|comp| ExpansionContext::new(comp, bindings, self));
@@ -1247,15 +1222,6 @@ impl McModuleInst {
                     let prefixed =
                         Self::prefix_instance_line_with_skip(&substituted, inst_name, &skip);
                     let expanded = self.expand_bus_labels(&prefixed);
-                    if self.name.contains("513") {
-                        mcc_dbg!(
-                            "inst::fcall",
-                            "[COND-PROC] func={} cond[{}] line[{}] expanded={expanded:?}",
-                            func_def.name,
-                            ci,
-                            li
-                        );
-                    }
                     self.process_line(&expanded)?;
                 }
             }

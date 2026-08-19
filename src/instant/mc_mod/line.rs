@@ -30,22 +30,6 @@ enum LaneItem<'a> {
 impl McModuleInst {
     /// Process connection line - accepts McPhrase
     pub(super) fn process_line(&mut self, phrase: &McPhrase) -> Result<(), InstError> {
-        // ── P2-7 debug ──
-        if self.name.contains("513") || self.name.contains("moddcdc") || self.name == "X6" {
-            let desc = match phrase {
-                McPhrase::Series(_, _) => "Series",
-                McPhrase::Parallel(_) => "Parallel",
-                McPhrase::FuncCall(_) => "FuncCall",
-                McPhrase::Multiple(_) => "Multiple",
-                McPhrase::Endpoint(_) => "Endpoint",
-                McPhrase::Transposed(_) => "Transposed",
-                McPhrase::Group(_) => "Group",
-                McPhrase::Closure(_) => "Closure",
-                McPhrase::Lead => "Lead",
-                McPhrase::Member(_, _) => "Member",
-            };
-            mcc_dbg!("inst::mod", "[PROC-LINE] module={} desc={desc}", self.name);
-        }
         // ── G4: Skip lines referencing failed components ──
         // If any FuncCall in the phrase references a class whose instantiation
         // previously failed, skip the entire line to avoid ghost pins.
@@ -138,13 +122,6 @@ impl McModuleInst {
                     } else {
                         McPhrase::Series(vec![item.clone(), fc_clone], dir)
                     };
-                    if self.name.contains("513") {
-                        mcc_dbg!(
-                            "inst::mod",
-                            "[P2-5-PAIR] module='{}' item={item:?} pair={pair:?}",
-                            self.name
-                        );
-                    }
                     if let Err(e) = self.process_line(&pair) {
                         self.record_warning(
                             crate::errcodes::INST_BUILTIN_TWOPIN_EXPAND_FAILED,
@@ -1306,12 +1283,6 @@ impl McModuleInst {
                 // losing the XTAL member name and causing all XTAL pins to merge
                 // into one net instead of lane-by-lane matching.
                 let result = vec![McPhrase::Member(inner.clone(), member_ep.clone())];
-                if self.name == "mcu" {
-                    mcc_dbg!(
-                        "inst::mod",
-                        "[P2-4-PTM] Member kept: inner={inner:?}, member_ep={member_ep:?}"
-                    );
-                }
                 result
             }
         }
@@ -1658,50 +1629,6 @@ impl McModuleInst {
                 opd_lefts.push(Vec::new());
                 opd_rights.push(Vec::new());
                 continue;
-            }
-            // ── Diagnostic: print opd phrase form ──────────────────────────────
-            let opd_kind = match opd {
-                McPhrase::Endpoint(McEndpoint::Single(ir)) => match &ir.base {
-                    McInstance::Label(s) => format!("Label('{s}')"),
-                    McInstance::Bus(b) => format!("Bus('{}', mem={:?})", b.name, b.member),
-                    McInstance::Component(c) => {
-                        format!("Component('{}', class='{}')", c.name, c.base.name)
-                    }
-                    McInstance::Module(m) => format!("Module('{}')", m.name),
-                    McInstance::Interface(i) => format!("Interface('{}')", i.name),
-                    McInstance::List(l) => format!("List('{}')", l.name),
-                    McInstance::Unresolved { class_name } => format!("?{class_name}"),
-                    McInstance::BusRef { component, bus } => {
-                        format!("BusRef(c={component},b={bus})")
-                    }
-                    McInstance::Pins => "Pins".into(),
-                    McInstance::PinId(id) => format!("PinId('{id}')"),
-                    McInstance::Attr(a) => format!("Attr({a})"),
-                    McInstance::Func(f) => format!("Func({})", f.name),
-                    McInstance::EnumVal { value_name, .. } => {
-                        format!("EnumVal({value_name})")
-                    }
-                },
-                McPhrase::Endpoint(McEndpoint::Node { input, output }) => {
-                    format!("Node(in={},out={})", input.len(), output.len())
-                }
-                McPhrase::Endpoint(McEndpoint::List(_)) => "Endpoint(List)".to_string(),
-                McPhrase::FuncCall(fc) => format!("FuncCall('{}')", fc.func_name),
-                McPhrase::Parallel(v) => format!("Parallel(len={})", v.len()),
-                McPhrase::Multiple(v) => format!("Multiple(len={})", v.len()),
-                McPhrase::Group(g) => format!("Group(opds={})", g.opds.len()),
-                McPhrase::Transposed(_) => "Transposed".to_string(),
-                McPhrase::Closure(_) => "Closure".to_string(),
-                McPhrase::Lead => "Lead".to_string(),
-                McPhrase::Member(_, _) => "Member".to_string(),
-                McPhrase::Series(_, _) => "Series".to_string(),
-            };
-            if self.name.contains("513") {
-                mcc_dbg!(
-                    "inst::mod",
-                    "[PAR-INT] module={} opd[{_idx}] kind={opd_kind}",
-                    self.name
-                );
             }
             // ── Use the same rule as try_connect_adjacent to get endpoints ───────────
             // i.e. call self.get_left_points / get_right_points (top-level version,
@@ -2227,24 +2154,6 @@ impl McModuleInst {
                 }
             }
             McPhrase::FuncCall(ref fc) => {
-                if self.name.contains("moddcdc") {
-                    let caller_desc = fc
-                        .caller
-                        .as_ref()
-                        .map(|c| match c.as_ref() {
-                            McPhrase::FuncCall(inner) => format!("FuncCall({})", inner.func_name),
-                            McPhrase::Endpoint(_) => "Endpoint".into(),
-                            _ => format!("{:?}", std::mem::discriminant(c.as_ref())),
-                        })
-                        .unwrap_or_else(|| "None".into());
-                    mcc_dbg!("inst::mod",
-                        "[PMI-FC] module={} func_name={} has_caller={} caller_desc={caller_desc} params={:?}",
-                        self.name,
-                        fc.func_name,
-                        fc.caller.is_some(),
-                        fc.params.iter().map(|p| format!("{:?}", p)).collect::<Vec<_>>(),
-                    );
-                }
                 // First check if it's an iterated call
                 if let Some(iterated_result) = self.check_and_expand_iterated_call(
                     &fc.caller,
@@ -2370,20 +2279,6 @@ impl McModuleInst {
                 // recursively expands the setup body —— which is exactly the
                 // fix target.
                 if let Some(caller_line) = &fc.caller {
-                    if self.name.contains("moddcdc") {
-                        let caller_desc = match caller_line.as_ref() {
-                            McPhrase::FuncCall(inner) => format!("FuncCall({})", inner.func_name),
-                            McPhrase::Endpoint(_) => "Endpoint".into(),
-                            McPhrase::Series(_, _) => "Series".into(),
-                            _ => format!("{:?}", std::mem::discriminant(caller_line.as_ref())),
-                        };
-                        mcc_dbg!(
-                            "inst::mod",
-                            "[PMI-CALLER] module={} func_name={} caller={caller_desc}",
-                            self.name,
-                            fc.func_name
-                        );
-                    }
                     match caller_line.as_ref() {
                         McPhrase::FuncCall(_)
                         | McPhrase::Endpoint(_)
@@ -2798,24 +2693,9 @@ impl McModuleInst {
                 // duplicate components (e.g. CAP_6/CAP_7 alongside CAP_4/CAP_5
                 // in XTAL setup).
                 if self.auto_inst_map.contains_key(&key) {
-                    if self.name.contains("513") {
-                        mcc_dbg!("inst::mod",
-                            "[P2-9-DEDUP] module={} key={key} already in auto_inst_map, skipping re-instantiation",
-                            self.name
-                        );
-                    }
                     return Ok(());
                 }
 
-                if self.name.contains("moddcdc") {
-                    mcc_dbg!(
-                        "inst::mod",
-                        "[FC-DISPATCH] module={} func_name={} caller={}",
-                        self.name,
-                        fc.func_name,
-                        fc.caller.is_some()
-                    );
-                }
                 let result = self.instantiate_funccall(
                     &fc.func_name,
                     &fc.params,
@@ -2830,20 +2710,6 @@ impl McModuleInst {
                     } => {
                         if let Some(comp) = new_components.first() {
                             self.auto_inst_map.insert(key, comp.name.clone());
-                        }
-                        if self.name.contains("513")
-                            || self.name.contains("moddcdc")
-                            || self.name == "speaker"
-                        {
-                            for c in &new_components {
-                                mcc_dbg!(
-                                    "inst::mod",
-                                    "[LINE-CREATE] module={} inst_name={} class={}",
-                                    self.name,
-                                    c.name,
-                                    c.def.name
-                                );
-                            }
                         }
                         self.components.extend(new_components);
                         self.connections.extend(new_connections);

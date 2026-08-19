@@ -494,22 +494,6 @@ impl McModuleInst {
         }
 
         self.nets = table.into_nets();
-
-        // P2-4-US513-DEBUG
-        if self.name == "mcu513" {
-            mcc_dbg!("inst::mod", "[P2-4-US513] build_net_table for mcu513:");
-            let mut net_names: Vec<&String> = self.nets.keys().collect();
-            net_names.sort();
-            for net_name in net_names {
-                let points = &self.nets[net_name];
-                mcc_dbg!(
-                    "inst::mod",
-                    "[P2-4-US513]   net '{}': {:?}",
-                    net_name,
-                    points.iter().map(|p| p.path.clone()).collect::<Vec<_>>()
-                );
-            }
-        }
     }
 }
 

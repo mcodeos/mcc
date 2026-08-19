@@ -230,12 +230,6 @@ impl McModuleInst {
                 // First try the regular alias (ESD→DIO.ESD etc.), no caller gating
                 let standard_alias =
                     crate::vector::graph::naming::canonicalize_class_alias(&raw_name);
-                if self.name == "speaker" {
-                    mcc_dbg!("inst::fcall", 
-                        "[FUNCALL-ALIAS] module={} func_name={raw_name} cmie_raw_is_some={} standard_alias={standard_alias:?}",
-                        self.name, cmie_raw.is_some()
-                    );
-                }
                 // Then try the bare-call-specific alias (PULLUP/PULLDOWN→RES), only
                 // enabled when caller is not FuncCall (i.e. not chain-method form)
                 let bare_alias = if !caller_is_funccall {
@@ -248,34 +242,13 @@ impl McModuleInst {
                         let canon_ids =
                             crate::semantic::basic::mc_ids::McIds::from(canonical.as_str());
                         let uri = current_uri::get();
-                        if self.name == "speaker" {
-                            mcc_dbg!(
-                                "inst::fcall",
-                                "[FUNCALL-ALIAS] canonical={canonical} uri={uri}",
-                            );
-                        }
                         let result = mcb_get_cmie(&canon_ids, &uri);
-                        if self.name == "speaker" {
-                            mcc_dbg!(
-                                "inst::fcall",
-                                "[FUNCALL-ALIAS] cmie_result_is_some={}",
-                                result.is_some()
-                            );
-                        }
                         result
                     }
                     None => None,
                 }
             }
         };
-        if self.name.contains("moddcdc") || self.name == "speaker" {
-            mcc_dbg!(
-                "inst::fcall",
-                "[FUNCALL-DISP] module={} func_name={func_name} cmie_found={}",
-                self.name,
-                cmie.is_some()
-            );
-        }
         if let Some(cmie) = cmie {
             match cmie {
                 McCMIE::Component(comp_def) => {
