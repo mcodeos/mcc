@@ -8,7 +8,10 @@ use crate::db::infra::mc_code::McCode;
 use crate::{McSpaceName, McURI};
 use dashmap;
 use std::collections::HashSet;
+use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Mutex;
 use tracing::{trace, warn};
 
 use crate::build::pass1::canonicalize_project_uri;
@@ -96,6 +99,64 @@ pub fn mcb_add_from_string(uri: &McURI, content: &str) {
     }
 }
 
+// === System-library loading progress (interactive terminals only) ===
+
+/// Library name currently being loaded (set by `mcb_load_lib`).
+pub(crate) static CURRENT_LIB_NAME: Mutex<Option<String>> = Mutex::new(None);
+
+/// Number of files parsed so far in the current system-library load.
+static LIB_FILES_PARSED: AtomicUsize = AtomicUsize::new(0);
+
+/// Characters written by the last progress line, for precise line clearing.
+static LAST_PROGRESS_LEN: AtomicUsize = AtomicUsize::new(0);
+
+/// Set (or clear) the library name reported by the loading progress line.
+pub(crate) fn set_current_lib(name: Option<String>) {
+    *CURRENT_LIB_NAME.lock().unwrap() = name;
+    LIB_FILES_PARSED.store(0, Ordering::Relaxed);
+    LAST_PROGRESS_LEN.store(0, Ordering::Relaxed);
+}
+
+/// Print a single self-overwriting progress line to stderr while a system
+/// library is parsed file by file. A carriage return keeps everything on one
+/// line; each new file overwrites the previous one. Active only on
+/// interactive terminals so piped / CI / JSON-RPC output stays clean.
+pub(crate) fn print_lib_progress(path: &str) {
+    if !std::io::stderr().is_terminal() {
+        return;
+    }
+    let n = LIB_FILES_PARSED.fetch_add(1, Ordering::Relaxed) + 1;
+    let name = CURRENT_LIB_NAME
+        .lock()
+        .unwrap()
+        .clone()
+        .unwrap_or_else(|| "lib".to_string());
+    // Keep the line readable: show the path tail (ASCII-safe char slicing).
+    let shown = if path.chars().count() > 60 {
+        let tail: String = path.chars().skip(path.chars().count() - 60).collect();
+        format!("...{tail}")
+    } else {
+        path.to_string()
+    };
+    let line = format!("loading lib {name}: {n} {shown} ...");
+    let len = line.chars().count();
+    eprint!("\r{line}");
+    let _ = std::io::stderr().flush();
+    LAST_PROGRESS_LEN.store(len, Ordering::Relaxed);
+}
+
+/// Clear the progress line (overwrite with spaces) once the library load ends.
+pub(crate) fn clear_lib_progress() {
+    if !std::io::stderr().is_terminal() {
+        return;
+    }
+    let len = LAST_PROGRESS_LEN.load(Ordering::Relaxed);
+    if len > 0 {
+        eprint!("\r{}\r", " ".repeat(len));
+        let _ = std::io::stderr().flush();
+    }
+}
+
 // === pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li ===
 /// Recursively load project files and all their dependencies
 ///
@@ -134,6 +195,12 @@ pub fn mcb_add_recursive(uri: &McURI, loaded: &mut HashSet<String>, is_system_li
             return;
         }
     };
+
+    // Single-line progress on interactive terminals while a system library
+    // (e.g. mcode) is parsed file by file.
+    if is_system_lib {
+        print_lib_progress(&file_str);
+    }
 
     // 3. Create and parse file
     let mut mcfile = match McCode::new(&file_str, is_system_lib) {

@@ -217,7 +217,10 @@ pub fn mcb_load_lib(name: &str, root: &Path) -> bool {
     // Recursively load all dependencies (is_system=true)
     let uri = entry_file.to_string_lossy().to_string();
     let mut loaded = HashSet::new();
+    crate::build::loader::set_current_lib(Some(name.to_string()));
     crate::build::loader::mcb_add_recursive(&uri, &mut loaded, true);
+    crate::build::loader::clear_lib_progress();
+    crate::build::loader::set_current_lib(None);
 
     debug!(
         target: "mcc::lib",
