@@ -263,33 +263,38 @@ impl McModuleInst {
     ///      wire_builtin_twopin `targets.is_empty()` branch).
     ///
     /// This way decoupling cap is truly "bridging rails", no longer treated as series element double-connecting pin2 to short.
+    ///
+    /// Order (vector-circuit semantic order, §11): a **single pass over the
+    /// members in evaluation order** — each non-shunt member pairs a
+    /// pass-through with its previous non-shunt neighbor, and each shunt cap
+    /// is wired at its own evaluation position (left-associative evaluation:
+    /// the cap element is evaluated before the far-side element, §9 chaining).
+    /// Connection creation order therefore mirrors the semantic evaluation
+    /// (`[V3V3,GND] -> CAP.Cap(_) -> [VCC,VSS]`: cap pins from step 1 before
+    /// the far-side pass-through from step 2), not the literal text order of
+    /// "all pass-throughs first, then all caps".
     fn wire_chain_with_shunts(&mut self, members: &[McPhrase], shunt: &[bool], dir: ConnDir) {
-        // 1. non-shunt members serialized by adjacency (skip shunt, pass-through)
-        let non_shunt: Vec<&McPhrase> = members
-            .iter()
-            .zip(shunt.iter())
-            .filter(|(_, &s)| !s)
-            .map(|(m, _)| m)
-            .collect();
-        for pair in non_shunt.windows(2) {
-            let lp = self.shunt_chain_points(pair[0], true);
-            let rp = self.shunt_chain_points(pair[1], false);
-            if let Err(e) = self.create_connection(lp, rp, dir, None) {
-                self.record_warning(
-                    crate::errcodes::INST_SHUNT_PROCESS_FAILED,
-                    crate::errcodes::format_msg(
-                        crate::errcodes::INST_SHUNT_PROCESS_FAILED,
-                        &[&format!("pass-through across the shunt failed: {e}")],
-                    ),
-                );
-            }
-        }
-
-        // 2. each shunt cap: pin1 ~ rail
+        let mut last_non_shunt: Option<&McPhrase> = None;
         for (k, m) in members.iter().enumerate() {
             if !shunt[k] {
+                // non-shunt member: pass-through with the previous non-shunt neighbor
+                if let Some(prev) = last_non_shunt {
+                    let lp = self.shunt_chain_points(prev, true);
+                    let rp = self.shunt_chain_points(m, false);
+                    if let Err(e) = self.create_connection(lp, rp, dir, None) {
+                        self.record_warning(
+                            crate::errcodes::INST_SHUNT_PROCESS_FAILED,
+                            crate::errcodes::format_msg(
+                                crate::errcodes::INST_SHUNT_PROCESS_FAILED,
+                                &[&format!("pass-through across the shunt failed: {e}")],
+                            ),
+                        );
+                    }
+                }
+                last_non_shunt = Some(m);
                 continue;
             }
+
             // ── P2-11: Process the shunt member first to create the component ──
             // process_member_internal creates the CAP component and wires pin2→GND.
             // Without this, get_left_points returns empty because the component
@@ -543,7 +548,7 @@ impl McModuleInst {
             // Single series element (or none): the main gap loop below is
             // `0..n-1`, so it naturally no-ops; chain-head / chain-tail
             // bridges are still handled by the leading / trailing branches,
-            // keeping their source writing order (§11 strict vector order).
+            // keeping their semantic position (§11 strict vector order).
 
             // Wire series elements in order. Bridge pins at position i+1 are
             // attached to the net between series[i] and series[i+1].
@@ -600,10 +605,10 @@ impl McModuleInst {
                 };
 
                 if !bridge_pins.is_empty() {
-                    // §11 strict vector order: bridge pins belong to the gap
-                    // between the left and right series elements, so they are
-                    // inserted between them — the expanded point order must
-                    // match the source writing order
+                    // §11 strict vector order: the bridge is a series element
+                    // between the left and right elements, so its pins belong
+                    // in the gap — the expanded point order must match the
+                    // chain evaluation order
                     // (`A -> CAP' -> B` → `A.1, CAP.1, B.1`, not `A.1, B.1, CAP.1`).
                     let mut all_pts = vec![lp.clone()];
                     all_pts.extend(bridge_pins.iter().cloned());
