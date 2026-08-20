@@ -1,6 +1,7 @@
 // Copyright (c) 2026 MCode
 //! BOM (Bill of Materials) export
 
+use crate::export::for_each_module;
 use crate::McModuleInst;
 use serde_json::{json, Value};
 use std::collections::{BTreeMap, BTreeSet};
@@ -82,21 +83,20 @@ fn collect_component_instances(inst: &McModuleInst) -> Vec<(String, String)> {
 }
 
 fn collect_components_in_inst(inst: &McModuleInst, out: &mut BTreeSet<(String, String)>) {
-    for conn in &inst.connections {
-        for np in &conn.points {
-            if let Some((instance, _pin)) = np.path.rsplit_once('.') {
-                if !instance.is_empty() && !instance.starts_with("__") {
-                    let prefix = instance
-                        .chars()
-                        .next()
-                        .map(|c| c.to_ascii_uppercase().to_string())
-                        .unwrap_or_else(|| "?".into());
-                    out.insert((prefix, instance.to_string()));
+    for_each_module(inst, &mut |m| {
+        for conn in &m.connections {
+            for np in &conn.points {
+                if let Some((instance, _pin)) = np.path.rsplit_once('.') {
+                    if !instance.is_empty() && !instance.starts_with("__") {
+                        let prefix = instance
+                            .chars()
+                            .next()
+                            .map(|c| c.to_ascii_uppercase().to_string())
+                            .unwrap_or_else(|| "?".into());
+                        out.insert((prefix, instance.to_string()));
+                    }
                 }
             }
         }
-    }
-    for sub in &inst.sub_modules {
-        collect_components_in_inst(sub, out);
-    }
+    });
 }

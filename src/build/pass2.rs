@@ -4,6 +4,7 @@
 
 use crate::build::pass1::canonicalize_project_uri;
 use crate::db::cmie::tables as workspace;
+use crate::db::infra::init::uri_equivalent;
 use crate::instant::mc_mod::McModuleInst;
 use crate::ParserResult;
 use crate::{McSpaceName, McURI};
@@ -31,12 +32,7 @@ pub fn mcb_query<'a>(uri: &McURI) -> Option<ParserResult> {
     }
 
     for entry in binding.iter() {
-        let key = entry.key();
-        if key.ends_with(uri)
-            || uri.ends_with(key)
-            || key.ends_with(&canonical_uri)
-            || canonical_uri.ends_with(key)
-        {
+        if uri_equivalent(entry.key(), uri.as_str(), &canonical_uri) {
             return Some(ParserResult {
                 sem_tokens: entry.tokens.clone(),
                 sem_symbols: entry.symbols.clone(),
@@ -76,12 +72,13 @@ pub(crate) fn mcb_pass2(entry: &McSpaceName) -> Result<MccProjectTree, Box<dyn E
             target_module_def = def;
         } else {
             // 2. Suffix match fallback ("main.mc" vs "/abs/path/to/main.mc")
+            let entry_uri = entry.uri.as_uri();
+            let canonical_entry = canonicalize_project_uri(&McURI::from(entry_uri.as_ref()));
             let suffix = binding
                 .iter()
                 .find(|e| {
                     e.key().ident == entry.ident
-                        && (e.key().uri.ends_with(entry.uri.as_uri().as_ref())
-                            || entry.uri.ends_with(e.key().uri.as_uri().as_ref()))
+                        && uri_equivalent(&e.key().uri.as_uri(), &entry_uri, &canonical_entry)
                 })
                 .map(|e| (e.key().uri.to_string(), e.value().clone()));
 

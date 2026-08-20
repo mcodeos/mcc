@@ -15,6 +15,23 @@ use crate::{McIds, McModuleInst, McURI};
 use serde_json::Value;
 use std::panic;
 
+// === pub fn for_each_module(inst: &McModuleInst, f: &mut impl FnMut(&McModuleInst)) { ===
+/// Depth-first pre-order walk of a module instance tree
+/// (consistency-convergence.md §2.5).
+///
+/// Visits the module itself first, then recurses into each sub-module. The
+/// exporters (bom / kicad / netlist) previously each wrote their own
+/// `for sub in &inst.sub_modules { recurse }`; they now share this single
+/// walker. Exporters that need the flat component table (`InstTable
+/// get_components`) keep that view — it carries per-instance class names that
+/// the module tree does not store.
+pub fn for_each_module(inst: &McModuleInst, f: &mut impl FnMut(&McModuleInst)) {
+    f(inst);
+    for sub in &inst.sub_modules {
+        for_each_module(sub, f);
+    }
+}
+
 /// Kind of export.
 pub fn kind_from_str(s: &str) -> u8 {
     match s {

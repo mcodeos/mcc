@@ -307,19 +307,56 @@ pub fn mcb_unload_lib(name: &str) -> bool {
         .collect();
 
     // Remove all definitions with this uri prefixes in system tables and workspace tables
-    remove_by_uris(&global::mcc_components, &uris);
-    remove_by_uris(&global::mcc_modules, &uris);
-    remove_by_uris(&global::mcc_interfaces, &uris);
-    remove_by_uris(&global::mcc_enums, &uris);
-    remove_by_uris(&global::mcc_defines, &uris);
-    remove_by_uris(&workspace::WORKSPACE.components, &uris);
-    remove_by_uris(&workspace::WORKSPACE.modules, &uris);
-    remove_by_uris(&workspace::WORKSPACE.interfaces, &uris);
-    remove_by_uris(&workspace::WORKSPACE.enums, &uris);
-    remove_by_uris(&workspace::WORKSPACE.defines, &uris);
+    clear_state(ClearScope::Lib, Some(&uris));
 
     info!(target: "mcc::lib", name = name, "unloaded");
     true
+}
+
+/// Scope of a state clear (consistency-convergence.md §2.4).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum ClearScope {
+    /// Full reset: loaded libs, global tables, and the active workspace.
+    Full,
+    /// Active workspace only.
+    Active,
+    /// Unload one library: remove its definitions from global and workspace
+    /// tables (requires the library's uri set).
+    Lib,
+}
+
+/// Single state-clear entry point (consistency-convergence.md §2.4).
+///
+/// Replaces the hand-maintained clear lists in `mcb_init`, `clear_active`,
+/// and `mcb_unload_lib` that overlapped on the same tables.
+pub fn clear_state(scope: ClearScope, uris: Option<&HashSet<String>>) {
+    match scope {
+        ClearScope::Full => {
+            mcc_blibs.clear();
+            global::mcc_components.clear();
+            global::mcc_modules.clear();
+            global::mcc_interfaces.clear();
+            global::mcc_enums.clear();
+            global::mcc_defines.clear();
+            workspace::WORKSPACE.clear_active();
+        }
+        ClearScope::Active => {
+            workspace::WORKSPACE.clear_active();
+        }
+        ClearScope::Lib => {
+            let uris = uris.expect("ClearScope::Lib requires the library uri set");
+            remove_by_uris(&global::mcc_components, uris);
+            remove_by_uris(&global::mcc_modules, uris);
+            remove_by_uris(&global::mcc_interfaces, uris);
+            remove_by_uris(&global::mcc_enums, uris);
+            remove_by_uris(&global::mcc_defines, uris);
+            remove_by_uris(&workspace::WORKSPACE.components, uris);
+            remove_by_uris(&workspace::WORKSPACE.modules, uris);
+            remove_by_uris(&workspace::WORKSPACE.interfaces, uris);
+            remove_by_uris(&workspace::WORKSPACE.enums, uris);
+            remove_by_uris(&workspace::WORKSPACE.defines, uris);
+        }
+    }
 }
 
 /// List all loaded system libraries in memory.

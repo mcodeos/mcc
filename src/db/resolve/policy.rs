@@ -15,6 +15,7 @@ use super::use_chain_reaches;
 use crate::ast::ast_semantic::McSemSymbols;
 use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
+use crate::db::infra::init::interface_lookup;
 use crate::semantic::common::{uri_intern, UriId};
 use crate::{McCMIE, McIds, McSpaceName, McURI};
 use tracing::trace;
@@ -118,11 +119,8 @@ fn lookup_cmie_by_kind(cmie_kind: u8, space_name: &McSpaceName) -> Option<McCMIE
             .or_else(|| global::mcc_modules.get(space_name))
             .map(|m| McCMIE::Module(m.clone()))
             .or_else(|| find_in_table_scoped(1, &name_str, |u| *u == space_name.uri)),
-        2 => workspace::WORKSPACE
-            .interfaces
-            .get(space_name)
-            .or_else(|| global::mcc_interfaces.get(space_name))
-            .map(|i| McCMIE::Interface(i.clone()))
+        2 => interface_lookup(space_name)
+            .map(|i| McCMIE::Interface(i))
             .or_else(|| find_in_table_scoped(2, &name_str, |u| *u == space_name.uri)),
         3 => global::mcc_enums
             .get(space_name)

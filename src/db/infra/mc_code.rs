@@ -205,9 +205,7 @@ impl McCode {
             return None;
         }
 
-        let canonical_uri = std::fs::canonicalize(Path::new(uri))
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| uri.clone());
+        let canonical_uri = crate::build::pass1::canonicalize_project_uri(uri);
         Some(McCode {
             mcbase: base
                 || crate::db::infra::libmgr::file_is_system_library(Path::new(&canonical_uri)),
@@ -246,9 +244,7 @@ impl McCode {
 
     /// Create McCode from an in-memory string (no disk file dependency)
     pub fn new_from_string(uri: &McURI, content: &str) -> Option<Self> {
-        let canonical_uri = std::fs::canonicalize(Path::new(uri))
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_else(|_| uri.clone());
+        let canonical_uri = crate::build::pass1::canonicalize_project_uri(uri);
         Some(McCode {
             mcbase: crate::db::infra::libmgr::file_is_system_library(Path::new(&canonical_uri)),
             uri: uri.clone(),
@@ -817,13 +813,7 @@ impl McCode {
     pub fn parse_nsp(&mut self) {
         // Check whether prj_mcodes already has the file's built spacenames
         // If yes, reuse existing spacenames and uselist to avoid rebuilding
-        let canonical_uri = {
-            let path_buf = PathBuf::from(self.uri.clone());
-            path_buf
-                .canonicalize()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|_| self.uri.clone())
-        };
+        let canonical_uri = crate::build::pass1::canonicalize_project_uri(&self.uri);
 
         // Check whether prj_mcodes already has the file and spacenames are built
         if let Some(existing) = workspace::WORKSPACE.mcodes.get(&canonical_uri) {
@@ -1094,13 +1084,7 @@ impl McCode {
     ///    with their spacenames computed
     pub fn parse_nsp_from_deps(&mut self) {
         // Early exit: check if spacenames already computed in workspace
-        let canonical_uri = {
-            let path_buf = PathBuf::from(self.uri.clone());
-            path_buf
-                .canonicalize()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|_| self.uri.clone())
-        };
+        let canonical_uri = crate::build::pass1::canonicalize_project_uri(&self.uri);
 
         if let Some(existing) = workspace::WORKSPACE.mcodes.get(&canonical_uri) {
             if !existing.spacenames.is_empty() {

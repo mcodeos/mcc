@@ -1,6 +1,7 @@
 // Copyright (c) 2026 MCode
 //! KiCad s-expression netlist export (M8)
 
+use crate::export::for_each_module;
 use crate::instant::insttab::InstTable;
 use crate::McModuleInst;
 use serde_json::Value;
@@ -86,16 +87,15 @@ pub fn build_kicad_netlist(
 }
 
 fn collect_instances_from_tree(inst: &McModuleInst, out: &mut BTreeSet<String>) {
-    for conn in &inst.connections {
-        for np in &conn.points {
-            if let Some((inst_name, _pin)) = np.path.rsplit_once('.') {
-                if !inst_name.starts_with("__") {
-                    out.insert(inst_name.to_string());
+    for_each_module(inst, &mut |m| {
+        for conn in &m.connections {
+            for np in &conn.points {
+                if let Some((inst_name, _pin)) = np.path.rsplit_once('.') {
+                    if !inst_name.starts_with("__") {
+                        out.insert(inst_name.to_string());
+                    }
                 }
             }
         }
-    }
-    for sub in &inst.sub_modules {
-        collect_instances_from_tree(sub, out);
-    }
+    });
 }

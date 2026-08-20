@@ -30,6 +30,7 @@ use std::sync::Arc;
 
 use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
+use crate::db::infra::init::interface_lookup;
 use crate::query::lookup::ContainerRef;
 use crate::semantic::basic::mc_ids::McIds;
 use crate::semantic::basic::mc_paramd::McParamDeclares;
@@ -727,11 +728,7 @@ fn cmie_by_kind(kind: u8, space_name: &McSpaceName) -> Option<McCMIE> {
             .get(space_name)
             .or_else(|| global::mcc_modules.get(space_name))
             .map(|m| McCMIE::Module(m.clone())),
-        2 => workspace::WORKSPACE
-            .interfaces
-            .get(space_name)
-            .or_else(|| global::mcc_interfaces.get(space_name))
-            .map(|i| McCMIE::Interface(i.clone())),
+        2 => interface_lookup(space_name).map(McCMIE::Interface),
         3 => workspace::WORKSPACE
             .enums
             .get(space_name)

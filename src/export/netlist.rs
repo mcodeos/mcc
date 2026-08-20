@@ -1,6 +1,7 @@
 // Copyright (c) 2026 MCode
 //! Netlist export
 
+use crate::export::for_each_module;
 use crate::McModuleInst;
 use crate::NetPoint;
 use serde_json::{json, Value};
@@ -36,18 +37,17 @@ pub fn build_netlist(tree: &McModuleInst, top: &str, format: u8) -> (String, Val
 }
 
 pub fn collect_nets(inst: &McModuleInst, out: &mut BTreeMap<String, Vec<String>>) {
-    for (name, points) in &inst.nets {
-        for np in points {
-            let pt = pin_label(np);
-            let entry = out.entry(name.clone()).or_default();
-            if !entry.contains(&pt) {
-                entry.push(pt);
+    for_each_module(inst, &mut |m| {
+        for (name, points) in &m.nets {
+            for np in points {
+                let pt = pin_label(np);
+                let entry = out.entry(name.clone()).or_default();
+                if !entry.contains(&pt) {
+                    entry.push(pt);
+                }
             }
         }
-    }
-    for sub in &inst.sub_modules {
-        collect_nets(sub, out);
-    }
+    });
 }
 
 fn pin_label(np: &NetPoint) -> String {
