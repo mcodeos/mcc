@@ -21,7 +21,7 @@ use mcc::cli::{OutputFormat, VerifyArgs};
 use mcc::hierarchy;
 use mcc::{InstOrigin, McModuleInst, Span};
 use serde_json::{json, Value};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -312,6 +312,73 @@ fn compare_instances(
 // Connection comparison
 // ---------------------------------------------------------------------------
 
+/// Build one expansion-record tree node for the in-place funcall expansion:
+/// the record's label, its direct products (connections + generated
+/// components + sub-modules), the merged sub-module body connections (when
+/// this record is a sub-target call), and its nested child records.
+///
+/// Returns `None` when the record produced nothing (no products, no merged
+/// sub-module body, no children): Pass2 can emit a duplicated empty record
+/// for a builtin twopin call (e.g. `.Cap(GND)` double-dispatch), which would
+/// otherwise render as a bare noise label.
+fn record_tree_node(
+    idx: usize,
+    groups: &mcc::ProductGroups,
+    inst: &McModuleInst,
+    sub_conns: Vec<Value>,
+) -> Option<Value> {
+    let r = &inst.expansion.records[idx];
+    let conns: Vec<Value> = groups.by_record[idx]
+        .connections
+        .iter()
+        .map(|&ci| {
+            let c = &inst.connections[ci];
+            json!({
+                "net": c.effective_net_name(),
+                "points": c.points.iter().map(|p| p.path.clone()).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    let comps: Vec<Value> = groups.by_record[idx]
+        .components
+        .iter()
+        .map(|&ci| {
+            let c = &inst.components[ci];
+            json!({
+                "name": c.name,
+                "class": hierarchy::comp_class_raw(&c.def.name.to_string(), &c.raw_params),
+            })
+        })
+        .collect();
+    let subs: Vec<Value> = groups.by_record[idx]
+        .sub_modules
+        .iter()
+        .map(|&si| json!({"name": inst.sub_modules[si].name}))
+        .collect();
+    let children: Vec<Value> = r
+        .children
+        .iter()
+        .filter_map(|&ci| record_tree_node(ci, groups, inst, Vec::new()))
+        .collect();
+    if conns.is_empty()
+        && comps.is_empty()
+        && subs.is_empty()
+        && sub_conns.is_empty()
+        && children.is_empty()
+    {
+        return None;
+    }
+    Some(json!({
+        "label": r.func_name,
+        "kind": r.kind.name(),
+        "connections": conns,
+        "components": comps,
+        "sub_modules": subs,
+        "sub_connections": sub_conns,
+        "children": children,
+    }))
+}
+
 fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usize)) {
     let lines = &inst.def.lines;
     let spans = &inst.def.line_spans;
@@ -355,8 +422,11 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
     // expanded — boundary connections still belong to the parent record
     // (expansion_id), body products are listed here as auxiliary context.
     let mut sub_expansions: BTreeMap<u32, Vec<Value>> = BTreeMap::new();
+    // Same merged body connections keyed by the parent record index, so the
+    // nested expansion tree can attach them under the sub-target record.
+    let mut sub_by_record: HashMap<usize, Vec<Value>> = HashMap::new();
     let mut seen_sub_conns: HashSet<String> = HashSet::new();
-    for r in inst.expansion.records.iter() {
+    for (ri, r) in inst.expansion.records.iter().enumerate() {
         if r.parent.is_some() {
             continue;
         }
@@ -406,11 +476,16 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
                 );
                 if !seen_sub_conns.contains(&key) {
                     seen_sub_conns.insert(key);
-                    sub_expansions.entry(pos.offset).or_default().push(json!({
+                    let entry = json!({
                         "sub": sub_path,
                         "net": c.effective_net_name(),
                         "points": c.points.iter().map(|p| p.path.clone()).collect::<Vec<_>>(),
-                    }));
+                    });
+                    sub_expansions
+                        .entry(pos.offset)
+                        .or_default()
+                        .push(entry.clone());
+                    sub_by_record.entry(ri).or_default().push(entry);
                 }
             }
         }
@@ -524,6 +599,37 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
             .and_then(|off| sub_expansions.get(&off))
             .cloned()
             .unwrap_or_default();
+        // Nested in-place expansion tree for funcall statements: products are
+        // grouped by expansion record (not by source line), so func-body
+        // connections whose span falls on non-statement lines (e.g. a
+        // component method body in the definition file) show up at the call
+        // site instead of being dropped. The merged sub-module body
+        // connections attach under the first sub-target record.
+        let tree: Vec<Value> = if has_funccall {
+            stmt_off
+                .and_then(|off| stmt_records.get(&off))
+                .map(|recs| {
+                    let mut used_sub = false;
+                    recs.iter()
+                        .filter_map(|&idx| {
+                            let attach_sub =
+                                !used_sub && inst.expansion.records[idx].sub_target.is_some();
+                            if attach_sub {
+                                used_sub = true;
+                            }
+                            let sub = if attach_sub {
+                                sub_by_record.get(&idx).cloned().unwrap_or_default()
+                            } else {
+                                Vec::new()
+                            };
+                            record_tree_node(idx, &groups, inst, sub)
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
         per_line.push(json!({
             "line": line_of_span(&content, spans.get(i)),
             "text": format!("{phrase}"),
@@ -531,6 +637,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
             "funcall_empty": funcall_empty,
             "connections": conns,
             "sub_expansions": sub_conns,
+            "tree": tree,
         }));
     }
 
@@ -623,6 +730,119 @@ fn render_text(out: &mut String, top: &str, summary: &Value, modules: &[Value], 
 
     for m in modules {
         render_module_text(out, m);
+    }
+}
+
+/// One branch of the in-place funcall expansion tree: a plain leaf line or a
+/// nested record node whose own products / children render recursively.
+enum Branch<'a> {
+    Leaf(String),
+    Node { label: String, node: &'a Value },
+}
+
+/// Net + points joined key used to dedupe a connection across the record
+/// tree and the flat call-site product list.
+fn conn_key(c: &Value) -> String {
+    let pts: Vec<&str> = c["points"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|p| p.as_str()).collect())
+        .unwrap_or_default();
+    format!("{}|{}", c["net"].as_str().unwrap_or(""), pts.join(","))
+}
+
+/// `[net] : a - b` text of a connection value.
+fn conn_text(c: &Value) -> String {
+    let pts: Vec<&str> = c["points"]
+        .as_array()
+        .map(|a| a.iter().filter_map(|p| p.as_str()).collect())
+        .unwrap_or_default();
+    format!(
+        "[{}] : {}",
+        c["net"].as_str().unwrap_or(""),
+        pts.join(" - ")
+    )
+}
+
+/// Collect every connection key inside a record node (its own products plus
+/// all nested children), so flat call-site products are not duplicated.
+fn collect_conn_keys(node: &Value, out: &mut HashSet<String>) {
+    if let Some(conns) = node["connections"].as_array() {
+        for c in conns {
+            out.insert(conn_key(c));
+        }
+    }
+    if let Some(subs) = node["sub_connections"].as_array() {
+        for c in subs {
+            out.insert(conn_key(c));
+        }
+    }
+    if let Some(children) = node["children"].as_array() {
+        for c in children {
+            collect_conn_keys(c, out);
+        }
+    }
+}
+
+/// Render a list of tree branches with `|--` / `|` / `` `--`` connectors,
+/// matching the hierarchy tree style. `prefix` is the indentation before the
+/// branch stems (the statement line's continuation column).
+fn render_branches(out: &mut String, prefix: &str, branches: &[Branch]) {
+    let n = branches.len();
+    for (i, b) in branches.iter().enumerate() {
+        let last = i + 1 == n;
+        let (stem, cont) = if last {
+            ("`-- ", "    ")
+        } else {
+            ("|-- ", "|   ")
+        };
+        match b {
+            Branch::Leaf(text) => {
+                let _ = writeln!(out, "{prefix}{stem}{text}");
+            }
+            Branch::Node { label, node } => {
+                let _ = writeln!(out, "{prefix}{stem}{label}");
+                let mut children: Vec<Branch> = Vec::new();
+                // Nested expansion records first (what the call created), then
+                // the record's own components, then its wiring — matches the
+                // top level where tree nodes precede leftover flat products.
+                for c in node["children"].as_array().into_iter().flatten() {
+                    let label = c["label"].as_str().unwrap_or("");
+                    children.push(Branch::Node {
+                        label: if label.is_empty() {
+                            c["kind"].as_str().unwrap_or("").to_string()
+                        } else {
+                            label.to_string()
+                        },
+                        node: c,
+                    });
+                }
+                if let Some(comps) = node["components"].as_array() {
+                    for c in comps {
+                        children.push(Branch::Leaf(format!(
+                            "{} {}",
+                            c["name"].as_str().unwrap_or(""),
+                            c["class"].as_str().unwrap_or("")
+                        )));
+                    }
+                }
+                if let Some(conns) = node["connections"].as_array() {
+                    for c in conns {
+                        children.push(Branch::Leaf(conn_text(c)));
+                    }
+                }
+                if let Some(subs) = node["sub_connections"].as_array() {
+                    for c in subs {
+                        let sub = c["sub"].as_str().unwrap_or("");
+                        let mut t = conn_text(c);
+                        // mark as merged sub-module body (auxiliary context)
+                        t = t.replace("]", format!("] (sub {sub})").as_str());
+                        children.push(Branch::Leaf(t));
+                    }
+                }
+                let child_prefix = format!("{prefix}{cont}");
+                render_branches(out, &child_prefix, &children);
+            }
+        }
     }
 }
 
@@ -740,6 +960,37 @@ fn render_module_text(out: &mut String, m: &Value) {
                 line["text"].as_str().unwrap_or(""),
                 flag
             );
+            // In-place expansion tree (funcall statements): record nodes carry
+            // the nested expansion (func bodies, generated components, merged
+            // sub-module bodies); call-site boundary products not covered by a
+            // record are appended as first-level branches.
+            if let Some(tree) = line["tree"].as_array().filter(|t| !t.is_empty()) {
+                let mut used: HashSet<String> = HashSet::new();
+                for node in tree {
+                    collect_conn_keys(node, &mut used);
+                }
+                let mut branches: Vec<Branch> = Vec::new();
+                for node in tree {
+                    let label = node["label"].as_str().unwrap_or("");
+                    branches.push(Branch::Node {
+                        label: if label.is_empty() {
+                            node["kind"].as_str().unwrap_or("").to_string()
+                        } else {
+                            label.to_string()
+                        },
+                        node,
+                    });
+                }
+                if let Some(conns) = line["connections"].as_array() {
+                    for c in conns {
+                        if !used.contains(&conn_key(c)) {
+                            branches.push(Branch::Leaf(conn_text(c)));
+                        }
+                    }
+                }
+                render_branches(out, "           ", &branches);
+                continue;
+            }
             if let Some(conns) = line["connections"].as_array() {
                 for c in conns {
                     let pts = c["points"]

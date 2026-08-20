@@ -50,7 +50,7 @@ fn iface_class(i: &crate::Mc2Interface) -> String {
 /// (source view, argument order preserved): `RES(0R, R0603)`. `NC` modifiers
 /// (e.g. `wm7121(NC)`) are dropped; a class without remaining arguments
 /// renders the empty parentheses (`LPA4871()`).
-fn comp_class_raw(base: &str, params: &[crate::McParamValue]) -> String {
+pub fn comp_class_raw(base: &str, params: &[crate::McParamValue]) -> String {
     let vals: Vec<String> = params
         .iter()
         .filter(|p| !matches!(p, crate::McParamValue::NC(_)))
