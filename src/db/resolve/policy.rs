@@ -19,7 +19,6 @@ use crate::db::infra::init::interface_lookup;
 use crate::semantic::common::{uri_intern, UriId};
 use crate::{McCMIE, McIds, McSpaceName, McURI};
 use tracing::trace;
-
 /// URI-scoped string-level match in one kind's tables (workspace, then global).
 ///
 /// The exact-key lookups can miss when `name` was rebuilt from a string:
@@ -198,13 +197,21 @@ impl Resolver {
 
         // ① RefDefMap resolution (P3 + P4)
         if let Some(ref map) = sem.ref_def_map {
-            // §6.3: search all scopes in name_to_declare_id for ClassRef entries
+            // §6.3: search all scopes in name_to_declare_id for ClassRef entries.
+            // ★ P0: use the reverse name index instead of a linear scan over
+            // the whole `name_to_declare_id` table (was ~340us/call on the
+            // mcode library's symbol table).
             let decl_id = sem
                 .local_table
-                .name_to_declare_id
-                .iter()
-                .find(|((_fid, _cid, _fnid, n), _)| n.as_str() == name_str)
-                .map(|(_, (id, _))| *id);
+                .name_to_declare_ids
+                .get(&name_str)
+                .and_then(|scopes| scopes.first())
+                .and_then(|(fid, cid, fnid)| {
+                    sem.local_table
+                        .name_to_declare_id
+                        .get(&(*fid, *cid, *fnid, name_str.clone()))
+                        .map(|(id, _)| *id)
+                });
             let id_hit = decl_id.and_then(|did| {
                 map.get(
                     crate::ast::ast_semantic::SymbolKind::ClassRef,
@@ -238,7 +245,8 @@ impl Resolver {
         }
 
         // ② P3: the referencing file's own definitions by exact key.
-        if let Some(cmie) = Self::resolve_own_file(from_uri, name) {
+        let own_hit = Self::resolve_own_file(from_uri, name);
+        if let Some(cmie) = own_hit {
             return Some(cmie);
         }
 
@@ -250,7 +258,8 @@ impl Resolver {
         // the same P4 visibility rule (see visibility.rs); when the map
         // exists it is authoritative and ① already covered P4.
         if sem.ref_def_map.is_none() {
-            if let Some(cmie) = Self::resolve_use_chain(from_uri, name) {
+            let chain_hit = Self::resolve_use_chain(from_uri, name);
+            if let Some(cmie) = chain_hit {
                 return Some(cmie);
             }
         }

@@ -3005,6 +3005,10 @@ impl McCode {
             sem.local_table
                 .name_to_declare_id
                 .retain(|(fid, _, _, _), _| *fid != file_id);
+            // ★ P0: prune the reverse name index in sync with the retain above.
+            for scopes in sem.local_table.name_to_declare_ids.values_mut() {
+                scopes.retain(|(fid, _, _)| *fid != file_id);
+            }
             sem.local_table
                 .scope_index
                 .retain(|_, (fid, _, _)| *fid != file_id);

@@ -105,6 +105,11 @@ pub struct LocalSymbolTable {
     /// Replaces (McURI, scope_str, name) triple with ID-based key.
     pub name_to_declare_id: HashMap<(u32, u32, u32, String), (DeclareId, SourceLocation)>,
 
+    /// ★ P0: reverse name index — name → scope keys in registration order.
+    /// Turns the linear `name_to_declare_id.iter().find(|..| name)` class-ref
+    /// lookup in `Resolver::resolve_class_locked` into an O(1) index hit.
+    pub name_to_declare_ids: HashMap<String, Vec<(u32, u32, u32)>>,
+
     /// ★ Parallel index: scope string → (file_id, container_id, func_id).
     /// For scope-based lookups (e.g. "mod.sub.i2c" → IDs) without parsing scope strings.
     pub scope_index: HashMap<String, (u32, u32, u32)>,
@@ -123,6 +128,7 @@ impl LocalSymbolTable {
             declare_inst_id_counter: DeclareId { _raw: 0 },
             inst_id_counter: ReferenceId { _raw: 0 },
             name_to_declare_id: HashMap::new(), // ★ LSP
+            name_to_declare_ids: HashMap::new(),
             scope_index: HashMap::new(),
             inst_id_to_span: HashMap::new(),
             inst_id_to_declare_inst: HashMap::new(),
@@ -176,10 +182,25 @@ impl LocalSymbolTable {
             self.assign_declare_id()
         };
         if let Some(n) = name {
+            let existed = self.name_to_declare_id.contains_key(&(
+                loc.file_id,
+                loc.container_id,
+                loc.func_id,
+                n.clone(),
+            ));
             self.name_to_declare_id.insert(
-                (loc.file_id, loc.container_id, loc.func_id, n),
+                (loc.file_id, loc.container_id, loc.func_id, n.clone()),
                 (declare_id, loc),
             );
+            // ★ P0: keep the reverse name index in sync (only on first
+            // registration for this scope key; overwrites reuse the id).
+            if !existed {
+                self.name_to_declare_ids.entry(n).or_default().push((
+                    loc.file_id,
+                    loc.container_id,
+                    loc.func_id,
+                ));
+            }
         }
         // Populate scope_index for scope-based lookups
         if !scope_key.is_empty() {
