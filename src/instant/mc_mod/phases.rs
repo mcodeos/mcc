@@ -464,7 +464,7 @@ impl McModuleInst {
                     );
                     let inst =
                         if c.nc {
-                            McComponentInst::with_nc(&c.name.to_string(), c.base.clone())
+                            McComponentInst::with_nc(&c.name.to_string(), c.base.clone(), &c.params)
                         } else if c.params.is_empty() {
                             McComponentInst::new(&c.name.to_string(), c.base.clone())
                         } else {

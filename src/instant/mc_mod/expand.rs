@@ -875,6 +875,7 @@ mod inst_scope_tests {
                 span: crate::ast::ast_semantic::Span { start: 0, end: 0 },
             }),
             params: McParamBindings::new(),
+            raw_params: Vec::new(),
             pins: HashMap::new(),
             cond_pin_names: HashMap::new(),
             cond_attrs: Vec::new(),

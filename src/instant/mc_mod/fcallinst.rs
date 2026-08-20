@@ -126,7 +126,7 @@ impl McModuleInst {
         let has_nc = params.iter().any(|p| matches!(p, McParamValue::NC(_)));
         let mut inst =
             if has_nc {
-                McComponentInst::with_nc(&inst_name, comp_def.clone())
+                McComponentInst::with_nc(&inst_name, comp_def.clone(), params)
             } else {
                 match McComponentInst::with_params(&inst_name, comp_def.clone(), params) {
                     Ok(inst) => inst,

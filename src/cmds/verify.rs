@@ -643,19 +643,51 @@ fn render_module_text(out: &mut String, m: &Value) {
         .max()
         .map(|w| w + 1)
         .unwrap_or(13);
+    // The class column (same rendering as the Hierarchy tree) is appended
+    // after the kind marker; marker and class widths keep all rows aligned.
+    let mark_w = {
+        let kind = inst["source"]
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|e| e["kind"].as_str().map(|k| k.chars().count()))
+                    .max()
+                    .unwrap_or(0)
+            })
+            .unwrap_or(0);
+        kind.max("(declareb)".len()).max("(funcall)".len()) + 1
+    };
+    let class_w = ["source", "declareb", "generated"]
+        .iter()
+        .filter_map(|k| inst.get(k).and_then(|v| v.as_array()))
+        .flatten()
+        .filter_map(|e| e["class"].as_str())
+        .map(|c| c.chars().count())
+        .max()
+        .map(|w| w + 1)
+        .unwrap_or(0);
     if let Some(arr) = inst["source"].as_array() {
         for e in arr {
             let ln = line_col(e);
             let name = e["name"].as_str().unwrap_or("");
             let kind = e["kind"].as_str().unwrap_or("");
-            let _ = writeln!(out, "    {ln:<5}[src]  {name:<name_w$} {kind}");
+            let class = e["class"].as_str().unwrap_or("");
+            let _ = writeln!(
+                out,
+                "    {ln:<5}[src]  {name:<name_w$}{kind:<mark_w$}{class:<class_w$}"
+            );
         }
     }
     if let Some(arr) = inst["declareb"].as_array() {
         for e in arr {
             let ln = line_col(e);
             let name = e["name"].as_str().unwrap_or("");
-            let _ = writeln!(out, "    {ln:<5}[decl] {name:<name_w$} (declareb)");
+            let class = e["class"].as_str().unwrap_or("");
+            let mark = "(declareb)";
+            let _ = writeln!(
+                out,
+                "    {ln:<5}[decl] {name:<name_w$}{mark:<mark_w$}{class:<class_w$}"
+            );
         }
     }
     if let Some(arr) = inst["missing"].as_array() {
@@ -672,7 +704,12 @@ fn render_module_text(out: &mut String, m: &Value) {
         for e in arr {
             let ln = line_col(e);
             let name = e["name"].as_str().unwrap_or("");
-            let _ = writeln!(out, "    {ln:<5}[gen]  {name:<name_w$} (funcall)");
+            let class = e["class"].as_str().unwrap_or("");
+            let mark = "(funcall)";
+            let _ = writeln!(
+                out,
+                "    {ln:<5}[gen]  {name:<name_w$}{mark:<mark_w$}{class:<class_w$}"
+            );
         }
     }
 

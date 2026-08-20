@@ -37,6 +37,45 @@ pub struct InstanceFamilies {
     pub source_names: HashSet<String>,
 }
 
+/// Interface type as `Base(params)` (e.g. `DC(5V)`), matching the `show
+/// ports` rendering (show.rs `port_type_members`). A class without arguments
+/// still renders the parentheses: `DC()`.
+fn iface_class(i: &crate::Mc2Interface) -> String {
+    let base = i.base_name();
+    let params: Vec<String> = i.params.iter().map(|p| p.to_string()).collect();
+    format!("{base}({})", params.join(", "))
+}
+
+/// Component class with its written parameter list from the Pass1 instance
+/// (source view, argument order preserved): `RES(0R, R0603)`. `NC` modifiers
+/// (e.g. `wm7121(NC)`) are dropped; a class without remaining arguments
+/// renders the empty parentheses (`LPA4871()`).
+fn comp_class_raw(base: &str, params: &[crate::McParamValue]) -> String {
+    let vals: Vec<String> = params
+        .iter()
+        .filter(|p| !matches!(p, crate::McParamValue::NC(_)))
+        .map(|p| p.to_string())
+        .collect();
+    format!("{base}({})", vals.join(", "))
+}
+
+/// Interface binding of a module-header bus port, from its parameter
+/// declaration: `module SPEAKER_M(USB_VBUS_1{VDD_3V, GND}::DC(3.3V))` renders
+/// the bus row's class column as `DC(3.3V)`. The `McBus` instance itself does
+/// not carry the `::IFACE(args)` binding — it lives in the module's parameter
+/// declaration table. Returns `None` for buses without a binding.
+fn bus_class(def: &crate::McModule, name: &str) -> Option<String> {
+    def.params
+        .iter()
+        .find(|d| {
+            d.get_primary_name()
+                .map(|p| p.split(['{', '[']).next() == Some(name))
+                .unwrap_or(false)
+        })
+        .and_then(|d| d.interface_annotation())
+        .map(|(class, args)| format!("{class}({})", args.join(", ")))
+}
+
 /// Extract the declared / declareb / funcall-generated instance families of
 /// one module. Source-declared physical instance names are the contract;
 /// engine-generated pseudo instances (`@RES1` auto ports), non-physical
@@ -110,10 +149,13 @@ pub fn extract_instance_families(
             continue;
         }
         let (kind, class) = match mc_inst {
-            McInstance::Component(c) => (Some("component"), Some(c.base.name.to_string())),
+            McInstance::Component(c) => (
+                Some("component"),
+                Some(comp_class_raw(&c.base.name.to_string(), &c.params)),
+            ),
             McInstance::Module(m) => (Some("module"), Some(m.base.name.to_string())),
-            McInstance::Interface(_) => (Some("interface"), None),
-            McInstance::Bus(_) => (Some("bus"), None),
+            McInstance::Interface(i) => (Some("interface"), Some(iface_class(i))),
+            McInstance::Bus(_) => (Some("bus"), bus_class(&inst.def, &name)),
             McInstance::Label(_) => (Some("label"), None),
             _ => (None, None),
         };
@@ -164,7 +206,12 @@ pub fn extract_instance_families(
     let comp_class: HashMap<String, String> = inst
         .components
         .iter()
-        .map(|c| (c.name.clone(), c.def.name.to_string()))
+        .map(|c| {
+            (
+                c.name.clone(),
+                comp_class_raw(&c.def.name.to_string(), &c.raw_params),
+            )
+        })
         .collect();
     let mut declareb: Vec<(String, u32, String)> = Vec::new();
     for (name, (_, span)) in inst.def.insts.iter_declareb_defs() {
@@ -231,7 +278,12 @@ pub fn extract_instance_families(
                         (line, caller)
                     })
                     .unwrap_or((0, String::new()));
-                generated.push((comp.name.clone(), line, comp.def.name.to_string(), caller));
+                generated.push((
+                    comp.name.clone(),
+                    line,
+                    comp_class_raw(&comp.def.name.to_string(), &comp.raw_params),
+                    caller,
+                ));
             }
         }
     }
