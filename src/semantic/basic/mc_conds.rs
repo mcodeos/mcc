@@ -625,16 +625,16 @@ impl McConds {
             return Some(n);
         }
 
-        let re_pattern = r"^(-?[\d.]+)([a-zA-Z]*)$";
-        if let Ok(re) = regex::Regex::new(re_pattern) {
-            if let Some(caps) = re.captures(s) {
-                if let Ok(n) = caps.get(1).unwrap().as_str().parse::<f64>() {
-                    return Some(n);
-                }
-            }
-        }
-
-        None
+        // Compile the unit-suffix pattern once and reuse it. Compiling a regex
+        // on every call was the dominant cost of interface condition evaluation
+        // (~90us per call on the mcode library), dwarfing the actual matching.
+        static NUMBER_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+        let re = NUMBER_RE.get_or_init(|| {
+            regex::Regex::new(r"^(-?[\d.]+)([a-zA-Z]*)$").expect("valid unit-suffix number regex")
+        });
+        re.captures(s)
+            .and_then(|caps| caps.get(1))
+            .and_then(|m| m.as_str().parse::<f64>().ok())
     }
 }
 

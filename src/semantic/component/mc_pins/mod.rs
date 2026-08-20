@@ -344,8 +344,8 @@ impl McPins {
             // H3 (deferred): track line index for overlap detection
             // self.current_line_idx = self.pin_ranges.len();
             // H3: record pin range
-            self.pin_ranges
-                .push((pin_span.clone(), format!("{:?}", pnode.get_type())));
+            let fmt_type = format!("{:?}", pnode.get_type());
+            self.pin_ranges.push((pin_span.clone(), fmt_type));
             // MCAST_PIN_LINE
             // |-MCAST_IOTYPE (option) - MCAST_PIN_ID - MCAST_PIN_NAMES - MCAST_ATT_VALUES (option)
             let subnodes = pnode.get_sub_node().expect(MISSING_SUBNODE);
@@ -370,7 +370,8 @@ impl McPins {
                         // pin names after `=`.  Use the first child to get the
                         // span of just the pin ID itself.
                         if let Some(child) = subnode.get_sub_node() {
-                            if let Some(ids) = child.to_string() {
+                            let ids = child.to_string();
+                            if let Some(ids) = ids {
                                 let span = (child.get_pos() as usize)
                                     ..((child.get_pos() + child.get_len()) as usize);
                                 self.pin_id_spans.insert(ids, span.clone());

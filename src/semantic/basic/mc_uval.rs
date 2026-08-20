@@ -7,7 +7,6 @@ use crate::{
     ast::{ast_node::AstNode, c_macros::*},
     McIds,
 };
-use regex::Regex;
 
 #[derive(PartialEq, Eq, Hash, Debug, Clone)]
 pub enum McUnit {
@@ -321,7 +320,14 @@ impl std::fmt::Debug for McUnitValue {
 }
 
 fn extract_value_and_unit<'a>(node: &'a AstNode, data: &'a str) -> Option<(f64, &'a str)> {
-    let re = Regex::new(r"^([±+\-]?\d*\.?\d+(?:[eE][+\-]?\d+)?)(.*)$").unwrap();
+    // Compile the unit-value regex once instead of on every call — the
+    // pattern is constant, so caching it avoids the regex compile cost on
+    // the hot path (763+ calls per library load).
+    static UVAL_RE: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    let re = UVAL_RE.get_or_init(|| {
+        regex::Regex::new(r"^([±+\-]?\d*\.?\d+(?:[eE][+\-]?\d+)?)(.*)$")
+            .expect("valid unit-value number regex")
+    });
 
     let Some(captures) = re.captures(data) else {
         dlog_error(
