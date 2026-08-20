@@ -14,6 +14,7 @@ use std::sync::Arc;
 
 use crate::build::pass1::canonicalize_project_uri;
 use crate::db::cmie::cmie::mcb_get_cmie;
+use crate::db::infra::init::uri_equivalent;
 // === pub fn unified_lookup(class_name: &str, from_uri: &McURI) -> Option<(McURI, Span ===
 /// Unified lookup for pass1/pass2 and F12 — returns (uri, span) for goto-def.
 /// Reuses Tier 1–4 resolution from mcb_get_cmie.
@@ -1069,10 +1070,7 @@ pub fn mcb_get_module_with_diagnostics(
         .iter()
         .find(|e| {
             e.key().ident == *class_name
-                && (e.key().uri == canonical_uri
-                    || e.key().uri == uri.as_str()
-                    || e.key().uri.ends_with(canonical_uri.as_str())
-                    || canonical_uri.ends_with(e.key().uri.as_uri().as_ref()))
+                && uri_equivalent(&e.key().uri.as_uri(), uri.as_str(), &canonical_uri)
         })
         .map(|e| e.value().clone());
     if let Some(module) = fallback {

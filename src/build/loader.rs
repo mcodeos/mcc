@@ -251,13 +251,7 @@ pub fn mcb_remove(uri: &McURI) {
 
     let extra_keys: Vec<String> = binding
         .iter()
-        .filter(|entry| {
-            let key = entry.key();
-            key.ends_with(uri)
-                || uri.ends_with(key)
-                || key.ends_with(&canonical_uri)
-                || canonical_uri.ends_with(key)
-        })
+        .filter(|entry| uri_equivalent(entry.key(), uri.as_str(), &canonical_uri))
         .map(|entry| entry.key().clone())
         .collect();
     for key in extra_keys {

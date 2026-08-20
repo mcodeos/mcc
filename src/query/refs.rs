@@ -5,6 +5,7 @@
 use crate::ast::ast_semantic::{DeclareId, Span};
 use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
+use crate::db::infra::init::interface_lookup;
 use crate::refdef::types::CmieKind;
 use crate::semantic::common::McSpaceName;
 use crate::McIds;
@@ -529,9 +530,7 @@ pub(crate) fn cmie_kind_for(def_uri: &str, name: &str) -> u8 {
     {
         return CmieKind::Module as u8;
     }
-    if workspace::WORKSPACE.interfaces.contains_key(&space)
-        || global::mcc_interfaces.contains_key(&space)
-    {
+    if interface_lookup(&space).is_some() {
         return CmieKind::Interface as u8;
     }
     if workspace::WORKSPACE.enums.contains_key(&space) || global::mcc_enums.contains_key(&space) {

@@ -4,6 +4,9 @@
 
 use crate::db::cmie::tables as workspace;
 use crate::db::infra::global;
+use crate::db::infra::init::iter_interfaces;
+use crate::db::infra::init::mcb_canonicalize_uri;
+use crate::db::infra::init::uri_equivalent;
 use crate::McURI;
 
 // === pub fn mcb_module_count() -> usize { ===
@@ -25,13 +28,11 @@ pub fn mcb_get_first_module_name() -> Option<String> {
 // === pub fn mcb_get_module_name_by_uri(uri: &McURI) -> Option<String> { ===
 /// Get module name by matching URI suffix
 pub fn mcb_get_module_name_by_uri(uri: &McURI) -> Option<String> {
+    let canonical = mcb_canonicalize_uri(uri);
     workspace::WORKSPACE
         .modules
         .iter()
-        .find(|entry| {
-            entry.key().uri.ends_with(uri.as_str())
-                || uri.ends_with(entry.key().uri.as_uri().as_ref())
-        })
+        .find(|entry| uri_equivalent(&entry.key().uri.as_uri(), uri.as_str(), &canonical))
         .map(|entry| entry.key().ident.to_string())
 }
 
@@ -120,11 +121,9 @@ pub fn mcb_iter_components_with_span() -> Vec<(String, String, [usize; 2])> {
 // === pub fn mcb_iter_interfaces() -> Vec<(String, String)> { ===
 /// Iterate all registered project interface definitions.
 pub fn mcb_iter_interfaces() -> Vec<(String, String)> {
-    let mut items: Vec<(String, String)> = workspace::WORKSPACE
-        .interfaces
+    let mut items: Vec<(String, String)> = iter_interfaces()
         .iter()
-        .chain(global::mcc_interfaces.iter())
-        .map(|entry| (entry.key().ident.to_string(), entry.key().uri.to_string()))
+        .map(|(space, _)| (space.ident.to_string(), space.uri.to_string()))
         .collect();
     items.sort_by(|a, b| a.0.cmp(&b.0));
     items
@@ -133,15 +132,13 @@ pub fn mcb_iter_interfaces() -> Vec<(String, String)> {
 // === pub fn mcb_iter_interfaces_with_span() -> Vec<(String, String, [usize; 2])> { ===
 /// Like `mcb_iter_interfaces` but includes source span for LSP goto-def.
 pub fn mcb_iter_interfaces_with_span() -> Vec<(String, String, [usize; 2])> {
-    let mut items: Vec<_> = workspace::WORKSPACE
-        .interfaces
+    let mut items: Vec<_> = iter_interfaces()
         .iter()
-        .chain(global::mcc_interfaces.iter())
-        .map(|entry| {
-            let span = &entry.value().span;
+        .map(|(space, iface)| {
+            let span = &iface.span;
             (
-                entry.key().ident.to_string(),
-                entry.key().uri.to_string(),
+                space.ident.to_string(),
+                space.uri.to_string(),
                 [span.start, span.end],
             )
         })
