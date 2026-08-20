@@ -2,6 +2,8 @@
 
 MCC is a Rust-based compiler and visualization tool for MCode design files. It provides a command-line interface for parsing, analyzing, and rendering circuit/module designs into interactive SVG visualizations.
 
+MCode is an industrial-grade circuit programming language aimed at precise and efficient circuit programming. MCC is the compiler and visualization toolchain for that language, built around this design tenet.
+
 ## Features
 
 - **Parsing & Analysis**: Parse `.mc` design files and perform syntax/semantic checks
