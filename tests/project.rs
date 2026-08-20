@@ -284,8 +284,11 @@ fn projection_audit_md_is_written() {
         md.contains("| c | main | V5V.VCC | main.V5V.VCC"),
         "should have the rule c pseudo-endpoint record:\n{md}"
     );
+    // ★ M6.5: `build_mc_vec` now re-partitions sub-module ground nets from the
+    //   pass2 `split_ground_nets` grouping, so the mic layer carries more nets
+    //   into the projection (12 → 8) than the old merged-ground baseline (5 → 4).
     assert!(
-        md.contains("| mic | 5 | 4 |"),
-        "the layer summary table should contain mic 5→4:\n{md}"
+        md.contains("| mic | 12 | 8 |"),
+        "the layer summary table should contain mic 12→8:\n{md}"
     );
 }

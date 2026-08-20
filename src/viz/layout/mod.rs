@@ -24,6 +24,7 @@ pub mod components;
 pub mod edge_decide;
 pub mod entry_points;
 pub mod equi_audit;
+pub mod equi_column;
 pub mod equipotential_tree;
 pub mod facade;
 pub mod flow;
