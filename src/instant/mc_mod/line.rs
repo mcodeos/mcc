@@ -1582,8 +1582,9 @@ impl McModuleInst {
                             this.create_connection(vec![l], vec![r], dir, None)?;
                         }
                     }
-                    // Row count mismatch (non-transposed): hand to
-                    // create_connection for E2901 truncation recovery
+                    // Row count mismatch (non-transposed): a genuine vector
+                    // alignment error — create_connection records E4007 and
+                    // still pairs by min so the netlist stays buildable.
                     Err(_) => {
                         this.create_connection(left_points, right_points, dir, None)?;
                     }
@@ -1753,8 +1754,8 @@ impl McModuleInst {
             l.len() == r.len() && l.iter().zip(r.iter()).all(|(a, b)| a.path == b.path)
         };
 
-        // 4) Whether dimension mismatch needs a zip-mismatch warning
-        let mut dim_mismatch_warned = false;
+        // 4) Whether dimension mismatch needs a zip-mismatch error
+        let mut dim_mismatch_reported = false;
 
         for i in 0..lines.len() {
             if i == anchor_idx {
@@ -1837,22 +1838,21 @@ impl McModuleInst {
                 left_net.extend(lp.iter().cloned());
                 right_net.extend(rp.iter().cloned());
             } else {
-                // Dimension mismatch (double-end but different widths): degrade
-                // to "merge all to left net" + warning
-                if !dim_mismatch_warned {
-                    self.record_warning(
-                        crate::errcodes::CONN_PARALLEL_DIM_MISMATCH,
+                // Dimension mismatch (double-end but different widths): a
+                // row-count mismatch that slipped past Pass1 (e.g. dynamic
+                // pins / interface expansion). Upgraded from a warning to an
+                // error (vec-dianlu.md §5.1 left-alignment); the operand is
+                // still merged into the anchor's left net so the netlist
+                // stays buildable.
+                if !dim_mismatch_reported {
+                    self.record_error(
+                        crate::errcodes::CONN_PARALLEL_SHAPE_MISMATCH,
                         crate::errcodes::format_msg(
-                            crate::errcodes::CONN_PARALLEL_DIM_MISMATCH,
-                            &[
-                                &anchor_dim as &dyn std::fmt::Display,
-                                &i as &dyn std::fmt::Display,
-                                &lp.len() as &dyn std::fmt::Display,
-                                &rp.len() as &dyn std::fmt::Display,
-                            ],
+                            crate::errcodes::CONN_PARALLEL_SHAPE_MISMATCH,
+                            &[],
                         ),
                     );
-                    dim_mismatch_warned = true;
+                    dim_mismatch_reported = true;
                 }
                 left_net.extend(lp.iter().cloned());
                 left_net.extend(rp.iter().cloned());

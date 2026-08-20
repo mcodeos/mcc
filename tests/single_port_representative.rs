@@ -1,9 +1,10 @@
 // Copyright (c) 2026 MCode
 //
-// Integration tests for §4 single-port representative rule (eval.md §4 note).
+// Integration tests for §4 single-port representative rule (vec-dianlu.md §5.2).
 //
-// Rule: `+` / `-` / `<-` take operand 1 as representative, `->` takes operand 2.
-// Verified end-to-end through Pass2 connection anchoring:
+// The shape-level `representative` (common.rs) only names the single-point
+// label; the physical pairing is done independently by Pass2. These tests
+// verify the Pass2 anchoring end-to-end:
 //   `+`  → wire_parallel_internal anchors opd[0] (op1)
 //   `-`  → Series chain head is opd1 (op1)
 //   `<-` → Series(RtoL) swaps to [opd2, opd1], op1 lands on the chain tail

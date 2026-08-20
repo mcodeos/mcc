@@ -363,13 +363,6 @@ pub const SYMBOL_NOT_FOUND: u32 = 2172;
 // Pass2: vector shape validation (2900-2949)
 // ============================================================================
 
-/// Shape row count mismatch (eval.md §3) recovered by broadcast/truncation.
-/// Emitted at Pass2 instantiation when the §3 matching constraint table
-/// rejects the pair (1-row vs N-row / N vs M) but the generator still
-/// recovers (broadcast fan-out / truncate by min). Not emitted for legal
-/// group semantics (DC power bus role-aligned / interface member passthrough).
-pub const CONN_SHAPE_ROW_MISMATCH_RECOVERED: u32 = 2901;
-
 /// Transpose operand shape out of range (eval.md §5.5): only 1*1 / 1*2 / 2*1 / 2*2
 /// are transposable. Emitted at Pass1 (McPhrase) when the operand's derived row
 /// count is known and >= 3 (e.g. `[A, B, C]'`), i.e. the operator would "merge"
@@ -609,14 +602,8 @@ pub const CONN_LEFT_ARROW_SHAPE_MISMATCH: u32 = 4002;
 /// The transpose operator is not allowed at this position.
 pub const CONN_CANNOT_TRANSPOSE: u32 = 4003;
 
-/// An instance with 3+ pins cannot directly participate in a '+' operation.
-pub const CONN_PARALLEL_INVALID: u32 = 4004;
-
 /// Shape mismatch in a parallel connection.
 pub const CONN_PARALLEL_SHAPE_MISMATCH: u32 = 4005;
-
-/// An instance with 3+ pins cannot directly participate in a '-' operation.
-pub const CONN_SERIES_INVALID: u32 = 4006;
 
 /// Shape mismatch in a -> connection.
 pub const CONN_SERIES_SHAPE_MISMATCH: u32 = 4007;
@@ -674,9 +661,6 @@ pub const CURLY_RIGHT_EMPTY: u32 = 4024;
 
 /// Cannot convert the curly-member result to a bus.
 pub const CURLY_NOT_BUS: u32 = 4025;
-
-/// Groups with different branch counts cannot connect.
-pub const GROUP_BRANCH_COUNT_MISMATCH: u32 = 4026;
 
 // ============================================================================
 // Pass2: netlist heuristics (D-series / layout) (4050-4099)
@@ -869,12 +853,6 @@ pub const INST_LANE_FUNCCALL_FAILED: u32 = 4162;
 
 /// Failed to instantiate a Transposed member during lane-by-lane wiring.
 pub const INST_LANE_TRANSPOSED_FAILED: u32 = 4163;
-
-/// Connection shape mismatch; truncated to the smaller side.
-pub const CONN_SHAPE_MISMATCH_TRUNCATED: u32 = 4164;
-
-/// Parallel '+' operand dimension mismatch; operand merged into the anchor's left net.
-pub const CONN_PARALLEL_DIM_MISMATCH: u32 = 4165;
 
 /// Group connection shape mismatch; truncated by branch count.
 pub const CONN_GROUP_SHAPE_MISMATCH: u32 = 4166;
@@ -1422,9 +1400,7 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(CONN_TRANSPOSE_SIZE_MISMATCH, "Transposed connection size mismatch.", "Transposed connection size mismatch"),
     entry!(CONN_LEFT_ARROW_SHAPE_MISMATCH, "Shape mismatch in a <- connection.", "Shape mismatch in a <- connection"),
     entry!(CONN_CANNOT_TRANSPOSE, "The transpose operator is not allowed at this position.", "Cannot transpose"),
-    entry!(CONN_PARALLEL_INVALID, "An instance with 3+ pins cannot directly participate in a '+' operation.", "Instance with 3+ pins cannot directly participate in `+` operation. Use `->` for pass-through connection or `::` for type annotation."),
     entry!(CONN_PARALLEL_SHAPE_MISMATCH, "Shape mismatch in a parallel connection.", "Shape mismatch in parallel connection"),
-    entry!(CONN_SERIES_INVALID, "An instance with 3+ pins cannot directly participate in a '-' operation.", "Instance with 3+ pins cannot directly participate in `-` operation. Use `->` for pass-through connection."),
     entry!(CONN_SERIES_SHAPE_MISMATCH, "Shape mismatch in a -> connection.", "Shape mismatch in -> connection"),
     entry!(CONN_OPERATOR_UNSUPPORTED, "The operator is not supported in connection lines; use '+' for parallel, '-' / '->' for series.", "node={0} Operator '{1}' is not supported in connection lines; use '+' for parallel, '-' / '->' for series"),
     entry!(PHRASE_AST_TYPE_UNEXPECTED, "Unexpected AST node type in a phrase.", "node={0} Unexpected AST node type {1} in McPhrase::new"),
@@ -1444,7 +1420,6 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(CURLY_LEFT_EMPTY, "Curly-member construction: left member list is empty.", "Curly-member construction: left member list is empty."),
     entry!(CURLY_RIGHT_EMPTY, "Curly-member construction: right member list is empty.", "Curly-member construction: right member list is empty."),
     entry!(CURLY_NOT_BUS, "Cannot convert the curly-member result to a bus.", "Cannot convert the curly-member result to a bus."),
-    entry!(GROUP_BRANCH_COUNT_MISMATCH, "Groups with different branch counts cannot connect.", "Groups with different branch counts cannot connect."),
     // ---- section ----
     entry!(GHOST_PORT_BOX, "A box has a placeholder pin not mapped to any real component pin.", "GHOST_PORT: box '{0}' (id={1}) has placeholder pin '{2}' (id={3}) that is not mapped to any real component pin. The component declared only an estimated pin count (pins = N) without actual pin definitions."),
     entry!(NET_MERGED_SHORT, "Multiple points resolve to the same node — possible short circuit (E2003).", "MERGED_SHORT: net '{0}' (module '{1}') has {2} point(s) resolving to the same node (id={3}). Paths: {4}. This may indicate a bracket expansion duplicate or a port declared without bit width causing signal merging."),
@@ -1508,14 +1483,11 @@ static ALL_CODES: &[ErrorCodeInfo] = &[
     entry!(INST_FUNC_BODY_LINE_FAILED, "A module-level function body line failed.", "Module-level function '{0}' body line failed: {1}"),
     entry!(INST_LANE_FUNCCALL_FAILED, "Failed to instantiate a FuncCall during lane-by-lane wiring.", "Failed to instantiate FuncCall in lane-by-lane wiring: {0}"),
     entry!(INST_LANE_TRANSPOSED_FAILED, "Failed to instantiate a Transposed member during lane-by-lane wiring.", "Failed to instantiate Transposed in lane-by-lane: {0}"),
-    entry!(CONN_SHAPE_MISMATCH_TRUNCATED, "Connection shape mismatch; truncated to the smaller side.", "Shape mismatch: left={0}, right={1}, truncating to min({2})"),
-    entry!(CONN_SHAPE_ROW_MISMATCH_RECOVERED, "Vector shape row mismatch (eval.md §3) recovered by truncation.", "Vector shape mismatch: left {0} vs right {1}, truncating to min({2})"),
     entry!(SHAPE_TRANSPOSE_LIMIT, "Transpose operand must be 1*1 / 1*2 / 2*1 / 2*2 (eval.md §5.5).", "Transpose operand has {0} rows; only 1*1, 1*2, 2*1 or 2*2 shapes can be transposed."),
     entry!(SHAPE_REVERSE_NOOP, "Reverse `^` has no effect on a vector (parallel / transposed) operand (eval.md §9).", "Reverse `^` on '{0}' has no effect: a vector operand (parallel or transposed) carries no order to reverse."),
     entry!(SHAPE_EXPAND_DIM_MISMATCH, "Vector expansion dimension mismatch (eval.md §7 rule 3); implicit auto-expansion forbidden.", "Vector expansion dimension mismatch: left {0} rows vs right {1} rows. {2}"),
     entry!(SHAPE_INST_3PIN_PLUSMINUS, "Instance with 3+ pins cannot directly participate in `+`/`-`; only 1x1/1x2 instances can (veccircuit.md).", "Instance '{0}' with {1} pins cannot directly participate in `+`/`-`. Use `->` for a pass-through connection."),
     entry!(SHAPE_INCOMPLETE, "NetShape missing; fell back to the deprecated connection_type() inference (stage 3).", "SHAPE_INCOMPLETE: net '{0}' has no NetShape provenance; fell back to connection_type() inference."),
-    entry!(CONN_PARALLEL_DIM_MISMATCH, "Parallel '+' operand dimension mismatch; operand merged into the anchor's left net.", "Parallel '+' operand dimension mismatch (anchor={0}x1, opd[{1}]={2}x1 left / {3}x1 right): merging operand into anchor's left net."),
     entry!(CONN_GROUP_SHAPE_MISMATCH, "Group connection shape mismatch; truncated by branch count.", "Group shape mismatch: {0} external points vs {1} group points ({2} branches), truncating"),
     entry!(INST_INPUT_PIN_COUNT_MISMATCH, "Component input pin count mismatch in a function call.", "Component '{0}' ({1}) input pin count mismatch: {2} connections vs {3} input pins"),
     entry!(INST_OUTPUT_PIN_COUNT_MISMATCH, "Component output pin count mismatch in a function call.", "Component '{0}' ({1}) output pin count mismatch: {2} connections vs {3} output pins"),

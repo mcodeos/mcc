@@ -265,8 +265,7 @@ fn reverse_noop_hint_on_parallel_operand() {
 }
 
 /// E2905 (SHAPE_INST_3PIN_PLUSMINUS): an instance with 3+ pins cannot directly
-/// participate in `+` / `-` (veccircuit.md inst constraint). The dedicated
-/// code replaces the old generic CONN_PARALLEL_INVALID / CONN_SERIES_INVALID.
+/// participate in `+` / `-` (veccircuit.md inst constraint).
 #[test]
 fn inst_3pin_plusminus_rejected_with_dedicated_code() {
     let lock = TEST_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
@@ -283,11 +282,6 @@ fn inst_3pin_plusminus_rejected_with_dedicated_code() {
     assert!(
         codes.contains(&mcc::errcodes::SHAPE_INST_3PIN_PLUSMINUS),
         "E2905 not emitted for 3+ pin instance in `+`; got codes: {codes:?}"
-    );
-    // The old generic codes are no longer used for this case.
-    assert!(
-        !codes.contains(&mcc::errcodes::CONN_PARALLEL_INVALID),
-        "CONN_PARALLEL_INVALID should be replaced by E2905; got codes: {codes:?}"
     );
 
     // 3-pin instance directly participating in `-`.
