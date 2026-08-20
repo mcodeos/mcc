@@ -105,6 +105,24 @@ pub(crate) fn mcb_pass2(entry: &McSpaceName) -> Result<MccProjectTree, Box<dyn E
 
     crate::current_uri::set(&matched_uri);
 
+    // ★ Line indices for instantiation: `create_connection` converts the
+    // statement byte offset to a real line number via `lookup_line_col`, which
+    // searches the thread-local line-index stack. That stack is only populated
+    // during parsing (LineIndexGuard in pass1.rs); without it every connection
+    // resolved to line 1 during Pass2. Push guards for all loaded files so
+    // source_span lines (and the GND group names) are real. Auto-popped on drop.
+    let _line_index_guards: Vec<_> = workspace::WORKSPACE
+        .mcodes
+        .iter()
+        .filter_map(|entry| {
+            let (uri, mcfile) = (entry.key(), entry.value());
+            mcfile
+                .line_index
+                .as_ref()
+                .map(|idx| crate::db::infra::context::LineIndexGuard::new(uri.clone(), idx.clone()))
+        })
+        .collect();
+
     inst.instantiate()
         .map_err(|e| -> Box<dyn Error> { Box::new(e) })?;
 

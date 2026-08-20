@@ -82,9 +82,11 @@ fn render_symbol(sym: &TreeSymbol, net_kind: &NetKind) -> String {
             )
         }
         TreeSymbolKind::NetLabel | TreeSymbolKind::Power => {
-            // Text sits on the side away from the tree (mirror sym.dir): a label
-            // that hangs left of the trunk writes to the left, not over the tree.
-            let (tx, anchor) = if sym.dir.0 < 0.0 {
+            // M3.5 (R1): text side comes from `text_side` (net region), NOT from
+            // `dir` — after M1 flipped the trunks horizontal, `pick_stub_dir`
+            // prefers down/up so `dir.0` was always 0.0 and labels always wrote
+            // right (a West symbol's text ran back along the trunk into the IC).
+            let (tx, anchor) = if sym.text_side < 0.0 {
                 (sym.x - 4.0, "end")
             } else {
                 (sym.x + 4.0, "start")
@@ -102,22 +104,31 @@ fn render_symbol(sym: &TreeSymbol, net_kind: &NetKind) -> String {
             )
         }
         TreeSymbolKind::PortLabel => {
+            // M3.5 (R1): honour `text_side` like the other labels, so A17's
+            // bbox estimate matches what is actually drawn (a centered "middle"
+            // anchor would extend half a label width to both sides and let A17
+            // go false-green for a PortLabel pressed against another glyph).
+            let (tx, anchor) = if sym.text_side < 0.0 {
+                (sym.x - 4.0, "end")
+            } else {
+                (sym.x + 4.0, "start")
+            };
             format!(
-                r##"  <text x="{x:.1}" y="{y:.1}" text-anchor="middle"
+                r##"  <text x="{x:.1}" y="{y:.1}" text-anchor="{anchor}"
        font-size="10" font-weight="600" fill="#7B1FA2"
        dominant-baseline="central">{label}</text>
 "##,
-                x = sym.x,
+                x = tx,
                 y = sym.y,
+                anchor = anchor,
                 label = escape_xml(&sym.label),
             )
         }
         TreeSymbolKind::BusLabel => {
-            // Bus label: circle + text. The text goes on the side away from the
-            // tree (opposite sym.dir.x), so a label hanging left of the trunk
-            // never writes its text over the trunk.
+            // M3.5 (R1): text side from `text_side` (net region), not `dir.0`
+            // (see the NetLabel branch above).
             let r = 6.0;
-            let (tx, anchor) = if sym.dir.0 < 0.0 {
+            let (tx, anchor) = if sym.text_side < 0.0 {
                 (sym.x - r - 4.0, "end")
             } else {
                 (sym.x + r + 4.0, "start")

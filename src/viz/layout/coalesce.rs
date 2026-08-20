@@ -377,4 +377,43 @@ mod tests {
         );
         assert_eq!(g.nets.len(), n);
     }
+
+    /// ★ M6.0: distinct per-consumer ground nets must NEVER coalesce, even when
+    /// they all touch the SAME physical ground pin. If coalesce folded them,
+    /// the decoupling caps would short together on one node. The M6 guard is a
+    /// proof that Power/Ground nets are structurally excluded from union-find
+    /// (`coalesce.rs` skips `NetKind::Power | NetKind::Ground` before keying).
+    #[test]
+    fn ground_and_power_nets_never_merge() {
+        fn rail(nid: i64, name: &str, kind: NetKind, eps: &[(i64, i64)]) -> VizNet {
+            VizNet::new(
+                nid,
+                name.into(),
+                kind,
+                NetRole::Signal,
+                eps.iter()
+                    .map(|&(b, p)| EndpointRef::new(b, p, format!("p{p}")))
+                    .collect(),
+            )
+        }
+        let mut g = McVecGraph::new(1, "main".into());
+        g.boxes.push(passive(1, "C1", "CAP", Symbol::Capacitor));
+        g.boxes.push(passive(2, "C2", "CAP", Symbol::Capacitor));
+        g.boxes.push(passive(3, "C3", "CAP", Symbol::Capacitor));
+        g.boxes.push(term(101, "gnd", 0));
+        // Three GND nets sharing the SAME ground pin (101, 6).
+        g.nets
+            .push(rail(0, "GND", NetKind::Ground, &[(1, 12), (101, 6)]));
+        g.nets
+            .push(rail(1, "GND", NetKind::Ground, &[(2, 22), (101, 6)]));
+        g.nets
+            .push(rail(2, "GND", NetKind::Ground, &[(3, 32), (101, 6)]));
+        let before = g.nets.len();
+        assert_eq!(
+            coalesce_equipotential_nets(&mut g),
+            0,
+            "ground nets must never merge"
+        );
+        assert_eq!(g.nets.len(), before, "all three GND nets must survive");
+    }
 }

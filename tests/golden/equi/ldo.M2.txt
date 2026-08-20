@@ -2,20 +2,20 @@
 
 nid   net         kind    region ori  anchor        plcd   src     row      span              term  terminals
 --------------------------------------------------------------------------------------------------------------
-303   GND         Ground  South  H    ldo*          yes    rail    240      (20, 140)               GND⏚
+303   GND         Ground  South  H    ldo*          yes    rail    300      (40, 140)               GND⏚
 304   GND         Ground  South  H    CAP_2         NO     —       0        (0, 0)            only  GND⏚
-301   POWER_SYS   Power   West   H    ldo*          yes    side    100      (20, 80)                ○POWER_SYS
-302   VCC         Power   East   H    ldo*          yes    side    100      (200, 260)              ○VCC
+301   POWER_SYS   Power   West   H    ldo*          yes    side    100      (40, 80)                ○POWER_SYS
+302   VCC         Power   East   H    ldo*          yes    side    100      (200, 240)              ○VCC
 
 nid   net         box        anc role     col  tap(x,y)        rect(x,y,w,h)            ori  pins   plcd
 --------------------------------------------------------------------------------------------------------------
-303   GND         ldo        *   —        —    (140, 240)      (80, 80, 120, 120)       ·    LLRRB  yes
-303   GND         CAP_1          Bridge   —    (20, 160)       (10, 100, 20, 60)        V    TB     yes
-304   GND         CAP_2      *   —        —    (260, 0)        (250, 100, 20, 60)       V    TB     yes
-301   POWER_SYS   ldo        *   —        —    (80, 100)       (80, 80, 120, 120)       ·    LLRRB  yes
-301   POWER_SYS   CAP_1          Drop     —    (20, 100)       (10, 100, 20, 60)        V    TB     yes
-302   VCC         ldo        *   —        —    (200, 100)      (80, 80, 120, 120)       ·    LLRRB  yes
-302   VCC         CAP_2          Drop     —    (260, 100)      (250, 100, 20, 60)       V    TB     yes
+303   GND         ldo        *   —        —    (140, 300)      (80, 80, 120, 140)       V    LLRRB  yes
+303   GND         CAP_1          Bridge   —    (40, 180)       (30, 120, 20, 60)        V    TB     yes
+304   GND         CAP_2      *   —        —    (240, 0)        (230, 20, 20, 60)        V    BT     yes
+301   POWER_SYS   ldo        *   —        —    (80, 100)       (80, 80, 120, 140)       V    LLRRB  yes
+301   POWER_SYS   CAP_1          Drop     —    (40, 120)       (30, 120, 20, 60)        V    TB     yes
+302   VCC         ldo        *   —        —    (200, 100)      (80, 80, 120, 140)       V    LLRRB  yes
+302   VCC         CAP_2          Drop     —    (240, 80)       (230, 20, 20, 60)        V    BT     yes
 
 
 == EQUI-TREE AUDIT ==
@@ -28,7 +28,7 @@ nid   net         box        anc role     col  tap(x,y)        rect(x,y,w,h)    
           column model does not exist yet
   skip  [A6] bridge endpoints share a column          due:M4
           column model does not exist yet
-  PASS  [A7] no wire passes through a foreign box     due:M5
+  PASS  [A7] no wire passes through a foreign box     due:M3
   PASS  [A8] multi-tap nets carry a junction dot      due:M5
   PASS  [A9] one ground glyph per ground net          due:M0
   PASS  [A10] same-side rows exclusive, no foreign member due:M2
@@ -37,4 +37,13 @@ nid   net         box        anc role     col  tap(x,y)        rect(x,y,w,h)    
   PASS  [A13] no overlapping pin slots                 due:M2
   PASS  [A14] pin labels fit inside the box            due:M2
   PASS  [A15] ground glyphs share one band             due:M2
+  PASS  [A16] ground net count conserved               due:M6
+  PASS  [A17] symbol text overlaps no box / foreign wire due:M3_5
+  PASS  [A18] no wire runs collinear with a box edge   due:M3_5
+  PASS  [A21] same-row members do not collide          due:M4
+  PASS  [A22] cross-row member sits in both trunk spans due:M4
+  PASS  [A23] shunt sits next to its decoupled pin     due:M4
+  PASS  [A24] same-side members do not cross           due:M5
+  PASS  [A25] label text clears foreign member boxes   due:M5
+  PASS  [A26] shunt up/down balance on a row           due:M5
 
