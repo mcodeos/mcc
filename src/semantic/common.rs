@@ -562,81 +562,61 @@ pub fn print_backtrace(label: &str) {
 // Pure function implementation with no dependencies, reused by the
 // semantic / instant / vector layers.
 // Semantics source: docs-new/concepts/vector-circuit/eval.md
-//   - §1 shape system (1*1 / 1*2 / N*1 / N*2 / N*M / unknown)
-//   - §3 connection matching constraint table (row counts must match) + connection result table
+//   - §1 shape system (rows; a single-sided port is always a column vector)
+//   - §3 connection matching constraint table (row counts must match)
+//
+// `Shape` carries only the row count: the shape layer sees each operand's
+// *single-sided* port (left or right), which is always a column vector `N*1`
+// (vec-dianlu.md §8.3). The `1*2` row vector is not "flattened" — left/right
+// ports are passed and matched separately. `cols` was a redundant second
+// field (always 1 on the evaluation path) and was removed.
 
-/// Vector shape (rows × cols), matching the eval.md §1 shape system.
+/// Vector shape: the row count of a single-sided port (column vector `N*1`).
 ///
 /// | Shape | Name | Constructor |
 /// |---|---|---|
-/// | `1*1` | Node | [`Shape::node`] |
-/// | `1*2` | Row vector HVector | [`Shape::hvec`] |
-/// | `N*1` | Column vector VVector | [`Shape::vvec`] |
-/// | `N*2` | Node-instance combination | [`Shape::node_inst`] |
-/// | `N*M` | Interface shape | [`Shape::iface`] |
+/// | `1*1` | Node (single point) | [`Shape::node`] |
+/// | `N*1` | Column vector | [`Shape::vvec`] |
 ///
 /// The unknown shape (not yet determined in Pass1, e.g. a FuncCall return value)
 /// uses [`Shape::unknown`] (a `rows == 0` sentinel) and is treated as connectable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Shape {
     pub rows: usize,
-    pub cols: usize,
 }
 
 impl Shape {
-    pub fn new(rows: usize, cols: usize) -> Self {
-        Self { rows, cols }
+    pub fn new(rows: usize) -> Self {
+        Self { rows }
     }
 
     /// 1*1 node (single point: label / single pin)
     pub fn node() -> Self {
-        Self { rows: 1, cols: 1 }
-    }
-
-    /// 1*2 row vector (default shape for 2-pin devices)
-    pub fn hvec() -> Self {
-        Self { rows: 1, cols: 2 }
+        Self { rows: 1 }
     }
 
     /// N*1 column vector (`[VCC, GND]`, `TestPoint[1,2]`)
     pub fn vvec(rows: usize) -> Self {
-        Self { rows, cols: 1 }
-    }
-
-    /// N*2 node-instance combination (N stacked row vectors of 2-pin devices, `res[1:2]`)
-    pub fn node_inst(rows: usize) -> Self {
-        Self { rows, cols: 2 }
-    }
-
-    /// N*M interface shape (`mcu.SPI`)
-    pub fn iface(rows: usize, cols: usize) -> Self {
-        Self { rows, cols }
+        Self { rows }
     }
 
     /// Unknown shape (unresolved / undetermined in Pass1)
     pub fn unknown() -> Self {
-        Self { rows: 0, cols: 0 }
+        Self { rows: 0 }
     }
 
     pub fn is_unknown(&self) -> bool {
         self.rows == 0
     }
 
-    /// Single row (1*1 or 1*2)
+    /// Single row (1*1 node)
     pub fn is_row(&self) -> bool {
         self.rows == 1
     }
 
-    /// Multiple rows (N*1 / N*2 / N*M)
+    /// Multiple rows (N*1 column vector)
     pub fn is_multi_row(&self) -> bool {
         self.rows >= 2
-    }
-
-    /// N*M interface shape: rows ≥ 2 and cols ≥ 3.
-    /// `N*2` (cols == 2) is a "node-instance combination" ([`Shape::node_inst`]),
-    /// not an interface shape.
-    pub fn is_interface(&self) -> bool {
-        self.rows >= 2 && self.cols >= 3
     }
 }
 
@@ -645,7 +625,7 @@ impl std::fmt::Display for Shape {
         if self.is_unknown() {
             write!(f, "?")
         } else {
-            write!(f, "{}*{}", self.rows, self.cols)
+            write!(f, "{}*1", self.rows)
         }
     }
 }
@@ -653,10 +633,8 @@ impl std::fmt::Display for Shape {
 /// Connection matching result (eval.md §3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct MatchedShape {
-    /// Result shape: rows unchanged, columns take the larger of the two (§3 connection result table)
+    /// Result shape: rows unchanged (the single-sided port stays `rows*1`)
     pub shape: Shape,
-    /// `N*M` ↔ `N*M` becomes an interface operation
-    pub interface_op: bool,
 }
 
 /// Shape matching error.
@@ -675,29 +653,19 @@ impl ShapeMatcher {
     /// Rules (eval.md §3):
     /// - Either side unknown (`rows == 0`) → pass; the result takes the other side's shape;
     /// - Row counts differ → [`ShapeError::RowMismatch`] (e.g. `1*1` vs `N*1`);
-    /// - Row counts match → rows unchanged, columns take the larger:
-    ///   `1*1 +- 1*2 = 1*2`, `N*1 +- N*2 = N*2`;
-    /// - Both sides are `N*M` → the result carries the `interface_op` flag (becomes an interface operation).
+    /// - Row counts match → rows unchanged (the single-sided port stays `rows*1`).
     pub fn match_shape(lhs: Shape, rhs: Shape) -> Result<MatchedShape, ShapeError> {
         if lhs.is_unknown() {
-            return Ok(MatchedShape {
-                shape: rhs,
-                interface_op: false,
-            });
+            return Ok(MatchedShape { shape: rhs });
         }
         if rhs.is_unknown() {
-            return Ok(MatchedShape {
-                shape: lhs,
-                interface_op: false,
-            });
+            return Ok(MatchedShape { shape: lhs });
         }
         if lhs.rows != rhs.rows {
             return Err(ShapeError::RowMismatch { lhs, rhs });
         }
-        let interface_op = lhs.is_interface() && rhs.is_interface();
         Ok(MatchedShape {
-            shape: Shape::new(lhs.rows, lhs.cols.max(rhs.cols)),
-            interface_op,
+            shape: Shape::new(lhs.rows),
         })
     }
 }
@@ -717,16 +685,21 @@ pub enum ConnOp {
     Parallel,
 }
 
-/// §4 single-port (1*1) representative rule: `+`/`-`/`<-` take **operand 1**, `->` takes **operand 2**.
+/// §4 single-port (1*1) representative rule (vec-dianlu.md §5.2): the series
+/// operators `-`/`->` both extend rightward and take **operand 2** (right
+/// end); `<-` extends leftward and takes **operand 1**; parallel `+` merges
+/// onto the left main and takes **operand 1**.
 ///
 /// Where it lands:
 /// - `+`: Pass2 `wire_parallel_internal` anchors on opd[0] ("take operand 1");
-/// - `->`: `MCAST_OPD_RIGHTARROW` calls `set_right_out` on the chain tail as the output end.
-pub fn representative(dir: ConnDir, lhs: Shape, rhs: Shape) -> Shape {
-    if dir == ConnDir::LtoR {
-        rhs
-    } else {
-        lhs
+/// - `-`/`->`: the series chain head/tail, output end is the right operand;
+/// - `<-`: the RtoL chain target is the left operand.
+pub fn representative(op: ConnOp, dir: ConnDir, lhs: Shape, rhs: Shape) -> Shape {
+    match (op, dir) {
+        // Series `-` and `->` both extend rightward: take the right operand.
+        (ConnOp::Series, ConnDir::LtoR | ConnDir::Undirected) => rhs,
+        // Series `<-` extends leftward; parallel `+` merges onto the left main.
+        (ConnOp::Series, ConnDir::RtoL) | (ConnOp::Parallel, _) => lhs,
     }
 }
 
@@ -735,8 +708,10 @@ pub fn representative(dir: ConnDir, lhs: Shape, rhs: Shape) -> Shape {
 ///
 /// The four shape-level sub-tables (§4.1-4.4) converge with the §3 connection
 /// result table on the same rule: row counts must match (otherwise
-/// [`ShapeError::RowMismatch`]), columns take the larger of the two:
-/// `1*1 +- 1*2 = 1*2`, `N*1 +- N*2 = N*2`, `N*2 +- N*2 = N*2`.
+/// [`ShapeError::RowMismatch`]); the single-sided port keeps its row count.
+/// The old `1*2` / `N*2` result distinctions do not exist at the shape layer —
+/// each operand's left/right ports are passed separately as column vectors
+/// (vec-dianlu.md §8.3), and the shape of the connection is always `N*1`.
 ///
 /// The sub-tables only differ in the "anchor/splice structure" (e.g. `vector vs
 /// node` returns `newNode{vector, node-right}`), which is materialized by the
@@ -749,9 +724,10 @@ pub fn representative(dir: ConnDir, lhs: Shape, rhs: Shape) -> Shape {
 /// - Pass2: `try_connect_adjacent` (the unified entry for adjacent evaluation on
 ///   the three paths in line.rs).
 pub fn eval_binary(op: ConnOp, lhs: Shape, rhs: Shape) -> Result<Shape, ShapeError> {
-    // §4.1-4.4 shape convergence: `-`/`+`/`->`/`<-` all follow "rows unchanged,
-    // columns take the larger"; op only provides semantic annotation (anchor/pairing
-    // strategy is materialized in the Pass2 callers), the result here is identical.
+    // §4.1-4.4 shape convergence: `-`/`+`/`->`/`<-` all require matching row
+    // counts and keep the row count; op only provides semantic annotation
+    // (anchor/pairing strategy is materialized in the Pass2 callers), the
+    // result here is identical.
     debug_assert!(
         matches!(op, ConnOp::Series | ConnOp::Parallel),
         "unexpected operator"
@@ -863,23 +839,6 @@ mod shape_tests {
             ShapeMatcher::match_shape(Shape::node(), Shape::node()),
             Ok(MatchedShape {
                 shape: Shape::node(),
-                interface_op: false,
-            })
-        );
-        // 1*1 vs 1*2 → 1*2
-        assert_eq!(
-            ShapeMatcher::match_shape(Shape::node(), Shape::hvec()),
-            Ok(MatchedShape {
-                shape: Shape::hvec(),
-                interface_op: false,
-            })
-        );
-        // 1*2 vs 1*2 → 1*2
-        assert_eq!(
-            ShapeMatcher::match_shape(Shape::hvec(), Shape::hvec()),
-            Ok(MatchedShape {
-                shape: Shape::hvec(),
-                interface_op: false,
             })
         );
     }
@@ -892,23 +851,6 @@ mod shape_tests {
             ShapeMatcher::match_shape(lhs, Shape::vvec(4)),
             Ok(MatchedShape {
                 shape: Shape::vvec(4),
-                interface_op: false,
-            })
-        );
-        // N*1 vs N*2 → N*2
-        assert_eq!(
-            ShapeMatcher::match_shape(lhs, Shape::node_inst(4)),
-            Ok(MatchedShape {
-                shape: Shape::node_inst(4),
-                interface_op: false,
-            })
-        );
-        // N*2 vs N*2 → N*2
-        assert_eq!(
-            ShapeMatcher::match_shape(Shape::node_inst(4), Shape::node_inst(4)),
-            Ok(MatchedShape {
-                shape: Shape::node_inst(4),
-                interface_op: false,
             })
         );
     }
@@ -923,36 +865,8 @@ mod shape_tests {
                 rhs: Shape::vvec(4),
             })
         );
-        // 1*2 vs N*1 → ❌
-        assert_eq!(
-            ShapeMatcher::match_shape(Shape::hvec(), Shape::vvec(3)),
-            Err(ShapeError::RowMismatch {
-                lhs: Shape::hvec(),
-                rhs: Shape::vvec(3),
-            })
-        );
-        // N*2 vs 1*1 → ❌
-        assert_eq!(
-            ShapeMatcher::match_shape(Shape::node_inst(2), Shape::node()),
-            Err(ShapeError::RowMismatch {
-                lhs: Shape::node_inst(2),
-                rhs: Shape::node(),
-            })
-        );
         // Different N row counts are also rejected (3*1 vs 4*1)
         assert!(ShapeMatcher::match_shape(Shape::vvec(3), Shape::vvec(4)).is_err());
-    }
-
-    #[test]
-    fn match_interface_op_flag() {
-        // N*M ↔ N*M → interface operation
-        let iface = Shape::iface(4, 4);
-        let m = ShapeMatcher::match_shape(iface, iface).unwrap();
-        assert!(m.interface_op);
-        assert_eq!(m.shape, iface);
-        // N*M ↔ N*1 matches normally (no interface-op flag)
-        let m2 = ShapeMatcher::match_shape(iface, Shape::vvec(4)).unwrap();
-        assert!(!m2.interface_op);
     }
 
     #[test]
@@ -962,14 +876,12 @@ mod shape_tests {
             ShapeMatcher::match_shape(Shape::unknown(), Shape::vvec(4)),
             Ok(MatchedShape {
                 shape: Shape::vvec(4),
-                interface_op: false,
             })
         );
         assert_eq!(
             ShapeMatcher::match_shape(Shape::node(), Shape::unknown()),
             Ok(MatchedShape {
                 shape: Shape::node(),
-                interface_op: false,
             })
         );
         // Both sides unknown → returns unknown
@@ -977,7 +889,6 @@ mod shape_tests {
             ShapeMatcher::match_shape(Shape::unknown(), Shape::unknown()),
             Ok(MatchedShape {
                 shape: Shape::unknown(),
-                interface_op: false,
             })
         );
     }
@@ -988,22 +899,10 @@ mod shape_tests {
     fn result_table_matches_spec() {
         let cases = [
             (Shape::node(), Shape::node(), Shape::node()), // 1*1 +- 1*1 = 1*1
-            (Shape::node(), Shape::hvec(), Shape::hvec()), // 1*1 +- 1*2 = 1*2
-            (Shape::hvec(), Shape::hvec(), Shape::hvec()), // 1*2 +- 1*2 = 1*2
             (
                 Shape::vvec(4),
                 Shape::vvec(4),
                 Shape::vvec(4), // N*1 +- N*1 = N*1
-            ),
-            (
-                Shape::vvec(4),
-                Shape::node_inst(4),
-                Shape::node_inst(4), // N*1 +- N*2 = N*2
-            ),
-            (
-                Shape::node_inst(4),
-                Shape::node_inst(4),
-                Shape::node_inst(4), // N*2 +- N*2 = N*2
             ),
         ];
         for (l, r, expected) in cases {
@@ -1020,13 +919,8 @@ mod shape_tests {
     #[test]
     fn shape_classifiers() {
         assert!(Shape::node().is_row());
-        assert!(Shape::hvec().is_row());
         assert!(!Shape::vvec(4).is_row());
         assert!(Shape::vvec(4).is_multi_row());
-        assert!(Shape::iface(4, 3).is_interface());
-        assert!(Shape::iface(4, 4).is_interface());
-        assert!(!Shape::node_inst(4).is_interface()); // N*2 (cols == 2) is a node-instance combination, not an N*M interface shape
-        assert!(!Shape::vvec(4).is_interface());
         assert!(Shape::unknown().is_unknown());
         assert_eq!(format!("{}", Shape::vvec(4)), "4*1");
         assert_eq!(format!("{}", Shape::unknown()), "?");
@@ -1038,25 +932,15 @@ mod shape_tests {
     #[test]
     fn eval_series_ok_and_rejected() {
         for op in [ConnOp::Series] {
-            // 1*1 - 1*2 = 1*2 (§4.1 node vs vector → newNode{node-left, vector})
+            // 1*1 - 1*1 = 1*1
             assert_eq!(
-                eval_binary(op, Shape::node(), Shape::hvec()),
-                Ok(Shape::hvec())
+                eval_binary(op, Shape::node(), Shape::node()),
+                Ok(Shape::node())
             );
-            // 1*2 - 1*2 = 1*2 (§4.1 vector vs vector → direct splice, returns the right vector)
+            // N*1 - N*1 = N*1
             assert_eq!(
-                eval_binary(op, Shape::hvec(), Shape::hvec()),
-                Ok(Shape::hvec())
-            );
-            // N*1 - N*2 = N*2 (§4.1 vector vs vector)
-            assert_eq!(
-                eval_binary(op, Shape::vvec(4), Shape::node_inst(4)),
-                Ok(Shape::node_inst(4))
-            );
-            // N*2 - N*2 = N*2
-            assert_eq!(
-                eval_binary(op, Shape::node_inst(4), Shape::node_inst(4)),
-                Ok(Shape::node_inst(4))
+                eval_binary(op, Shape::vvec(4), Shape::vvec(4)),
+                Ok(Shape::vvec(4))
             );
             // Row counts differ → ❌ (1*1 vs N*1)
             assert_eq!(
@@ -1072,15 +956,15 @@ mod shape_tests {
     /// §4.2 parallel `+`: row constraints and result shape match series (the left operand is the anchor).
     #[test]
     fn eval_parallel_ok_and_rejected() {
-        // R101 + R102 = [R101.1, R101.2] (returns the left vector shape)
+        // R101 + R102 = 1*1 (single-port pair, left operand is the anchor)
         assert_eq!(
-            eval_binary(ConnOp::Parallel, Shape::hvec(), Shape::hvec()),
-            Ok(Shape::hvec())
+            eval_binary(ConnOp::Parallel, Shape::node(), Shape::node()),
+            Ok(Shape::node())
         );
-        // N*2 + N*2 = N*2
+        // N*1 + N*1 = N*1
         assert_eq!(
-            eval_binary(ConnOp::Parallel, Shape::node_inst(3), Shape::node_inst(3)),
-            Ok(Shape::node_inst(3))
+            eval_binary(ConnOp::Parallel, Shape::vvec(3), Shape::vvec(3)),
+            Ok(Shape::vvec(3))
         );
         // Row counts differ → ❌
         assert!(eval_binary(ConnOp::Parallel, Shape::vvec(2), Shape::vvec(3)).is_err());
@@ -1095,28 +979,40 @@ mod shape_tests {
                 Ok(Shape::vvec(4))
             );
             assert_eq!(
-                eval_binary(op, Shape::hvec(), Shape::unknown()),
-                Ok(Shape::hvec())
+                eval_binary(op, Shape::node(), Shape::unknown()),
+                Ok(Shape::node())
             );
         }
     }
 
-    /// §4 single-port representative rule: `+`/`-`/`<-` take **operand 1**, `->` takes **operand 2**.
+    /// §4 single-port representative rule (vec-dianlu.md §5.2):
+    /// - series `-`/`->` extend rightward → take **operand 2**;
+    /// - series `<-` extends leftward → take **operand 1**;
+    /// - parallel `+` merges onto the left main → take **operand 1**.
     ///
     /// Representative-side shape (for a 1*1 single port):
-    /// - `->` ([`ConnDir::LtoR`]) → op2; the output end of `VEXT -> power.v1v3` is power.v1v3;
-    /// - `-`/`+` ([`ConnDir::Undirected`]) → op1; the head of the `VEXT - power.v1v3` chain is VEXT;
-    /// - `<-` ([`ConnDir::RtoL`]) → op1; the target net of `DC.PVCC24 <- Diode(...)` is DC.PVCC24.
+    /// - `->` (Series + LtoR) → op2; the output end of `VEXT -> power.v1v3` is power.v1v3;
+    /// - `-` (Series + Undirected) → op2; the tail of the `VEXT - power.v1v3` chain is power.v1v3;
+    /// - `+` (Parallel) → op1; the main of `VEXT + power.v1v3` is VEXT;
+    /// - `<-` (Series + RtoL) → op1; the target net of `DC.PVCC24 <- Diode(...)` is DC.PVCC24.
     #[test]
     fn representative_rule() {
         let lhs = Shape::node(); // 1*1
-        let rhs = Shape::hvec(); // 1*2
-                                 // `->` (LtoR): result takes operand 2
-        assert_eq!(representative(ConnDir::LtoR, lhs, rhs), rhs);
-        // `-` / `+` (Undirected): result takes operand 1
-        assert_eq!(representative(ConnDir::Undirected, lhs, rhs), lhs);
-        // `<-` (RtoL): result takes operand 1
-        assert_eq!(representative(ConnDir::RtoL, lhs, rhs), lhs);
+        let rhs = Shape::vvec(2); // 2*1, distinct from lhs
+                                  // `->` (Series + LtoR): result takes operand 2
+        assert_eq!(representative(ConnOp::Series, ConnDir::LtoR, lhs, rhs), rhs);
+        // `-` (Series + Undirected): result takes operand 2, same as `->` (§5.2)
+        assert_eq!(
+            representative(ConnOp::Series, ConnDir::Undirected, lhs, rhs),
+            rhs
+        );
+        // `+` (Parallel): result takes operand 1 (left main)
+        assert_eq!(
+            representative(ConnOp::Parallel, ConnDir::Undirected, lhs, rhs),
+            lhs
+        );
+        // `<-` (Series + RtoL): result takes operand 1
+        assert_eq!(representative(ConnOp::Series, ConnDir::RtoL, lhs, rhs), lhs);
     }
 
     /// §4 representative rule for equal single ports (1*1 +- 1*1): both sides agree, no shape difference.
@@ -1124,9 +1020,11 @@ mod shape_tests {
     fn representative_equal_single_ports() {
         let lhs = Shape::node();
         let rhs = Shape::node();
-        for dir in [ConnDir::Undirected, ConnDir::LtoR, ConnDir::RtoL] {
-            assert_eq!(representative(dir, lhs, rhs), lhs);
-            assert_eq!(representative(dir, lhs, rhs), rhs);
+        for op in [ConnOp::Series, ConnOp::Parallel] {
+            for dir in [ConnDir::Undirected, ConnDir::LtoR, ConnDir::RtoL] {
+                assert_eq!(representative(op, dir, lhs, rhs), lhs);
+                assert_eq!(representative(op, dir, lhs, rhs), rhs);
+            }
         }
     }
 

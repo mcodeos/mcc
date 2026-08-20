@@ -146,7 +146,7 @@ impl McModuleInst {
         // → §3 allows 1:1 pairing (by-name / sorted zip); different row count
         // → §3 rejects, handled by the recovery branch below: 1:N broadcast
         // (group / DC bus / interface expansion semantics) or
-        // N:M truncation (genuine misalignment → E2901 diagnostic).
+        // N:M truncation (genuine misalignment → E4007 diagnostic).
         let lhs_shape = Shape::vvec(left_size);
         let rhs_shape = Shape::vvec(right_size);
         let shape_match = ShapeMatcher::match_shape(lhs_shape, rhs_shape);
@@ -396,19 +396,15 @@ impl McModuleInst {
                 }
             }
         } else {
-            // §3 row count mismatch (N×1 vs M×1, N, M ≥ 2): downgraded to a
-            // warning, truncated to min.
-            // No longer silently truncated — E2901 explicitly reports both shapes.
-            self.record_warning(
-                crate::errcodes::CONN_SHAPE_ROW_MISMATCH_RECOVERED,
-                crate::errcodes::format_msg(
-                    crate::errcodes::CONN_SHAPE_ROW_MISMATCH_RECOVERED,
-                    &[
-                        &lhs_shape as &dyn std::fmt::Display,
-                        &rhs_shape as &dyn std::fmt::Display,
-                        &left_size.min(right_size) as &dyn std::fmt::Display,
-                    ],
-                ),
+            // §3 row count mismatch (N×1 vs M×1, N, M ≥ 2): a genuine vector
+            // alignment error. Pass1 checks the phrase-layer shape, but dynamic
+            // pins / FuncCall returns / interface expansion can still surface a
+            // mismatch here — upgraded from a truncation warning to E4007
+            // (vec-dianlu.md §5.1 left-alignment). Still paired by min so the
+            // netlist stays buildable.
+            self.record_error(
+                crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
+                crate::errcodes::format_msg(crate::errcodes::CONN_SERIES_SHAPE_MISMATCH, &[]),
             );
             // ── P5: E2904 (expand dim mismatch, eval.md §7 rule 3) ─────────
             // When both sides carry named members, the mismatch is a

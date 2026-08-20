@@ -1562,6 +1562,13 @@ impl McPhrase {
                         );
                         Some(opd1)
                     }
+                    // §6.3: reversing a node swaps its left/right ports (the
+                    // single-element Series wrapper below would be a no-op).
+                    opd1 @ McPhrase::Endpoint(McEndpoint::Node { .. }) => {
+                        let mut node = opd1;
+                        node.reverse();
+                        Some(node)
+                    }
                     opd1 => {
                         let mut phrases = vec![opd1];
                         phrases.reverse();
@@ -1654,17 +1661,46 @@ impl McPhrase {
                     return None;
                 }
 
+                // §5.1 parallel `+` is left-aligned: the left ports must always
+                // match one-to-one.
+                // A transpose bridge (`XTAL{X1,X2} + R442'`) defers the
+                // alignment to Pass2: a transposed operand's effective width is
+                // its whole point list, which the phrase layer cannot express
+                // as a row count (see `is_connectable`).
+                let trans_bridge = matches!(opd1, McPhrase::Transposed(_))
+                    || matches!(opd2, McPhrase::Transposed(_));
                 if !is_connectable(
                     ConnOp::Parallel,
                     ConnDir::Undirected,
                     &opd1.get_left(),
                     &opd2.get_left(),
-                ) || !is_connectable(
-                    ConnOp::Parallel,
-                    ConnDir::Undirected,
-                    &opd1.get_right(),
-                    &opd2.get_right(),
+                    trans_bridge,
                 ) {
+                    dlog_error(
+                        crate::errcodes::CONN_PARALLEL_SHAPE_MISMATCH,
+                        node,
+                        &crate::errcodes::format_msg(
+                            crate::errcodes::CONN_PARALLEL_SHAPE_MISMATCH,
+                            &[],
+                        ),
+                    );
+                    return None;
+                }
+                // The right ports only need to align when BOTH sides carry an
+                // independent right port (row vector / node, left != right).
+                // When only one side does (single node / column vector, left ==
+                // right), the right side merges into the result without
+                // alignment (vec-dianlu.md §5.1).
+                if opd1.get_left() != opd1.get_right()
+                    && opd2.get_left() != opd2.get_right()
+                    && !is_connectable(
+                        ConnOp::Parallel,
+                        ConnDir::Undirected,
+                        &opd1.get_right(),
+                        &opd2.get_right(),
+                        trans_bridge,
+                    )
+                {
                     dlog_error(
                         crate::errcodes::CONN_PARALLEL_SHAPE_MISMATCH,
                         node,
@@ -1775,11 +1811,14 @@ impl McPhrase {
                 }
 
                 // §4.1 series evaluation: opd1.right ↔ opd2.left (- is Undirected, take op1)
+                let trans_bridge = matches!(opd1, McPhrase::Transposed(_))
+                    || matches!(opd2, McPhrase::Transposed(_));
                 if !is_connectable(
                     ConnOp::Series,
                     ConnDir::Undirected,
                     &opd1.get_right(),
                     &opd2.get_left(),
+                    trans_bridge,
                 ) {
                     dlog_error(
                         crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
@@ -1838,11 +1877,14 @@ impl McPhrase {
                 let (opd1, opd2) = infer_shape_and_upgrade(opd1, opd2, context);
 
                 // §4.3 series evaluation: opd1.right ↔ opd2.left (-> is LtoR, take op2)
+                let trans_bridge = matches!(opd1, McPhrase::Transposed(_))
+                    || matches!(opd2, McPhrase::Transposed(_));
                 if !is_connectable(
                     ConnOp::Series,
                     ConnDir::LtoR,
                     &opd1.get_right(),
                     &opd2.get_left(),
+                    trans_bridge,
                 ) {
                     dlog_error(
                         crate::errcodes::CONN_SERIES_SHAPE_MISMATCH,
@@ -1918,17 +1960,20 @@ impl McPhrase {
                 let (opd2, opd1) = infer_shape_and_upgrade(opd2, opd1, context);
 
                 // §4.4 series evaluation (leftward): opd2.right ↔ opd1.left (<- is RtoL, take op1)
+                let trans_bridge = matches!(opd2, McPhrase::Transposed(_))
+                    || matches!(opd1, McPhrase::Transposed(_));
                 if !is_connectable(
                     ConnOp::Series,
                     ConnDir::RtoL,
                     &opd2.get_right(),
                     &opd1.get_left(),
+                    trans_bridge,
                 ) {
                     dlog_error(
-                        crate::errcodes::NAME_DEF_NOT_FOUND_LABEL_FALLBACK,
+                        crate::errcodes::CONN_LEFT_ARROW_SHAPE_MISMATCH,
                         node,
                         &crate::errcodes::format_msg(
-                            crate::errcodes::NAME_DEF_NOT_FOUND_LABEL_FALLBACK,
+                            crate::errcodes::CONN_LEFT_ARROW_SHAPE_MISMATCH,
                             &[],
                         ),
                     );
@@ -2593,6 +2638,10 @@ impl McPhrase {
             }
             McPhrase::Member(ref mut phrase, _) => {
                 phrase.reverse();
+            }
+            // §6.3: reversing a node swaps its left/right ports.
+            McPhrase::Endpoint(McEndpoint::Node { input, output }) => {
+                std::mem::swap(input, output);
             }
             _ => {}
         }
@@ -3511,7 +3560,7 @@ fn shape_of_bus_list(elems: &[McBus]) -> Shape {
         return Shape::unknown();
     }
     let rows: usize = elems.iter().map(|e| e.size()).sum();
-    Shape::new(rows.max(1), 1)
+    Shape::new(rows.max(1))
 }
 
 /// Pass1 transpose safety guard (eval.md §5.5): the operand being transposed may only
@@ -3552,14 +3601,24 @@ fn check_transpose_allowed(opd: &McPhrase) -> Result<(), usize> {
 /// single-port (1*1) representative side is determined by [`representative`]
 /// per the §4 notes.
 ///
-/// Three wildcards are kept:
+/// Wildcards kept:
 /// - Empty set (unresolved FuncCall return value) → pass;
 /// - `<error` placeholder marker → pass;
-/// - Single point (1 row) with an undetermined shape (possibly a 1*1 node / broadcast
-///   anchor / interface awaiting expansion) → pass; the real shape is validated
-///   in Pass2. For single-port (both sides 1 row), the representative side is
-///   additionally recorded per the §4 notes.
-fn is_connectable(op: ConnOp, dir: ConnDir, lhs: &[McBus], rhs: &[McBus]) -> bool {
+/// - Series single point (1 row) vs N-row → pass: a single point broadcasts to
+///   the other side's rows at Pass2 (group / DC bus / interface expansion
+///   semantics), so only a genuine N:M mismatch (both sides ≥ 2 rows) is
+///   rejected here.
+/// - Parallel single point (1 row) vs N-row (N ≥ 2) → **row-count mismatch**,
+///   reported by the operator handlers (E4005) unless `trans_bridge` is set
+///   (transposed operand, aligned at Pass2) — the §5.1 left-alignment rule.
+///   For single-port (both sides 1 row), the representative side is recorded.
+fn is_connectable(
+    op: ConnOp,
+    dir: ConnDir,
+    lhs: &[McBus],
+    rhs: &[McBus],
+    trans_bridge: bool,
+) -> bool {
     // Empty shape means "unknown/unresolved" (e.g. FuncCall return value), treated as connectable
     if lhs.is_empty() || rhs.is_empty() {
         return true;
@@ -3585,16 +3644,28 @@ fn is_connectable(op: ConnOp, dir: ConnDir, lhs: &[McBus], rhs: &[McBus]) -> boo
         mcc_dbg!(
             "sem::conds",
             "[vec] single-port representative: dir={dir:?} lhs={lhs_shape} rhs={rhs_shape} rep={rep}",
-            rep = representative(dir, lhs_shape, rhs_shape)
+            rep = representative(op, dir, lhs_shape, rhs_shape)
         );
         return true;
     }
 
-    // A single point (1 row) has an undetermined shape at the phrase stage (it may
-    // be a 1*1 node, a broadcast anchor, or an interface awaiting expansion), so it
-    // stays a pass (the original wildcard semantics); the real shape is validated
-    // in Pass2.
-    if lhs_shape.rows <= 1 || rhs_shape.rows <= 1 {
+    // A single point (1 row) has an undetermined shape at the phrase stage (it
+    // may be a 1*1 node, a broadcast anchor, or an interface awaiting
+    // expansion). For series it stays a pass — Pass2 materializes the
+    // broadcast (the original wildcard semantics, relied on by real examples
+    // like `X -> [A, B]` fan-out); for parallel it is a §5.1 left-alignment
+    // row-count mismatch that must be reported (Gap 1, e.g. `1*1 + N*1`).
+    //
+    // `trans_bridge` keeps the parallel single-point pass for transpose
+    // bridges: a transposed operand's effective width is its whole point list
+    // (e.g. `R442'` is a 2*1 bridge), which get_left() at the phrase stage
+    // cannot express as a row count — the alignment is materialized by Pass2
+    // (implicit-transpose pairing / pair-by-min).
+    if op == ConnOp::Parallel {
+        if trans_bridge && (lhs_shape.rows <= 1 || rhs_shape.rows <= 1) {
+            return true;
+        }
+    } else if lhs_shape.rows <= 1 || rhs_shape.rows <= 1 {
         return true;
     }
 

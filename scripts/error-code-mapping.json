@@ -286,20 +286,6 @@
       "desc": "Failed to instantiate a Transposed member during lane-by-lane wiring."
     },
     {
-      "old": 920,
-      "site": "group.rs",
-      "new": 4164,
-      "name": "CONN_SHAPE_MISMATCH_TRUNCATED",
-      "desc": "Connection shape mismatch; truncated to the smaller side."
-    },
-    {
-      "old": 921,
-      "site": "line.rs",
-      "new": 4165,
-      "name": "CONN_PARALLEL_DIM_MISMATCH",
-      "desc": "Parallel '+' operand dimension mismatch; operand merged into the anchor's left net."
-    },
-    {
       "old": 922,
       "site": "group.rs",
       "new": 4166,
@@ -861,13 +847,6 @@
     },
     {
       "old": 1151,
-      "site": "mc_phrase.rs:parallel-invalid",
-      "new": 4004,
-      "name": "CONN_PARALLEL_INVALID",
-      "desc": "An instance with 3+ pins cannot directly participate in a '+' operation."
-    },
-    {
-      "old": 1151,
       "site": "mc_phrase.rs:parallel-shape",
       "new": 4005,
       "name": "CONN_PARALLEL_SHAPE_MISMATCH",
@@ -879,13 +858,6 @@
       "new": 4001,
       "name": "CONN_TRANSPOSE_SIZE_MISMATCH",
       "desc": "Transposed connection size mismatch."
-    },
-    {
-      "old": 1154,
-      "site": "mc_phrase.rs",
-      "new": 4006,
-      "name": "CONN_SERIES_INVALID",
-      "desc": "An instance with 3+ pins cannot directly participate in a '-' operation."
     },
     {
       "old": 1155,
@@ -1047,13 +1019,6 @@
       "new": 3008,
       "name": "PIN_EXPR_TYPE_MISMATCH",
       "desc": "Pin expression node has an unexpected type."
-    },
-    {
-      "old": 1220,
-      "site": "mc_phrase.rs",
-      "new": 4026,
-      "name": "GROUP_BRANCH_COUNT_MISMATCH",
-      "desc": "Groups with different branch counts cannot connect."
     },
     {
       "old": 1300,
@@ -2751,24 +2716,6 @@
         "desc": "Failed to instantiate a Transposed member during lane-by-lane wiring."
       }
     ],
-    "920": [
-      {
-        "old": 920,
-        "site": "group.rs",
-        "new": 4164,
-        "name": "CONN_SHAPE_MISMATCH_TRUNCATED",
-        "desc": "Connection shape mismatch; truncated to the smaller side."
-      }
-    ],
-    "921": [
-      {
-        "old": 921,
-        "site": "line.rs",
-        "new": 4165,
-        "name": "CONN_PARALLEL_DIM_MISMATCH",
-        "desc": "Parallel '+' operand dimension mismatch; operand merged into the anchor's left net."
-      }
-    ],
     "922": [
       {
         "old": 922,
@@ -3422,13 +3369,6 @@
     "1151": [
       {
         "old": 1151,
-        "site": "mc_phrase.rs:parallel-invalid",
-        "new": 4004,
-        "name": "CONN_PARALLEL_INVALID",
-        "desc": "An instance with 3+ pins cannot directly participate in a '+' operation."
-      },
-      {
-        "old": 1151,
         "site": "mc_phrase.rs:parallel-shape",
         "new": 4005,
         "name": "CONN_PARALLEL_SHAPE_MISMATCH",
@@ -3442,15 +3382,6 @@
         "new": 4001,
         "name": "CONN_TRANSPOSE_SIZE_MISMATCH",
         "desc": "Transposed connection size mismatch."
-      }
-    ],
-    "1154": [
-      {
-        "old": 1154,
-        "site": "mc_phrase.rs",
-        "new": 4006,
-        "name": "CONN_SERIES_INVALID",
-        "desc": "An instance with 3+ pins cannot directly participate in a '-' operation."
       }
     ],
     "1155": [
@@ -3656,15 +3587,6 @@
         "new": 3008,
         "name": "PIN_EXPR_TYPE_MISMATCH",
         "desc": "Pin expression node has an unexpected type."
-      }
-    ],
-    "1220": [
-      {
-        "old": 1220,
-        "site": "mc_phrase.rs",
-        "new": 4026,
-        "name": "GROUP_BRANCH_COUNT_MISMATCH",
-        "desc": "Groups with different branch counts cannot connect."
       }
     ],
     "1300": [

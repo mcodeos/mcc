@@ -20,7 +20,7 @@ use std::{convert::From, iter::Iterator};
 /// Both forms resolve to the same internal representation (`McBus`). Which form is
 /// used in source code is a stylistic choice; the parser normalises both to the same
 /// AST and the Display/Debug output uses `{}` notation.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct McBus {
     pub(crate) name: String,
     pub(crate) member: Vec<String>,
