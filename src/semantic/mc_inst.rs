@@ -356,6 +356,26 @@ impl McInstances {
             .unwrap_or(LabelKind::Explicit)
     }
 
+    /// Whether `name` is a declared port / label: header ports and `label`
+    /// statements carry a real IOType (In/Out/InOut/Power/Analog/Return/
+    /// Label), while names created inline by a connection phrase have
+    /// IOType::None. `verify`/hierarchy use this to tell the declared origin
+    /// of a label/bus/interface instance from the inline one.
+    pub fn is_port_io_type(&self, name: &str) -> bool {
+        matches!(
+            self.insts.get(name).map(|(t, _)| t),
+            Some(
+                IOType::In
+                    | IOType::Out
+                    | IOType::InOut
+                    | IOType::Power
+                    | IOType::Analog
+                    | IOType::Return
+                    | IOType::Label
+            )
+        )
+    }
+
     pub fn contains(&self, name: &str) -> bool {
         self.insts.contains_key(name)
     }

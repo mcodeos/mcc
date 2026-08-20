@@ -57,6 +57,7 @@ impl McModuleInst {
         external_points: Vec<NetPoint>,
         group_member: &McPhrase,
         external_is_left: bool, // true: external -> group, false: group -> external
+        dir: ConnDir,
     ) -> Result<(), InstError> {
         let (left_match, right_match) = Self::check_group_broadcast(group_member);
 
@@ -75,7 +76,7 @@ impl McModuleInst {
         // Check whether connection can be made
         if external_size == 1 {
             // Single point broadcasts to all branches
-            self.create_connection(external_points, group_points, ConnDir::Undirected, None)?;
+            self.create_connection(external_points, group_points, dir, None)?;
         } else if external_size == branch_count {
             // External point count equals branch count, per-branch connection
             // This needs special handling: each external point connects to its corresponding branch
@@ -96,10 +97,10 @@ impl McModuleInst {
                     );
                 }
             }
-            self.create_connection(external_points, group_points, ConnDir::Undirected, None)?;
+            self.create_connection(external_points, group_points, dir, None)?;
         } else if external_size == group_size {
             // Point counts match exactly, connect one-to-one
-            self.create_connection(external_points, group_points, ConnDir::Undirected, None)?;
+            self.create_connection(external_points, group_points, dir, None)?;
         } else {
             // ★ Degraded to warning: connect as much as possible, truncate by min
             self.record_warning(
@@ -116,7 +117,7 @@ impl McModuleInst {
             let min_size = external_size.min(group_size);
             let ext_trunc: Vec<NetPoint> = external_points.into_iter().take(min_size).collect();
             let grp_trunc: Vec<NetPoint> = group_points.into_iter().take(min_size).collect();
-            self.create_connection(ext_trunc, grp_trunc, ConnDir::Undirected, None)?;
+            self.create_connection(ext_trunc, grp_trunc, dir, None)?;
         }
 
         Ok(())

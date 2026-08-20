@@ -505,13 +505,11 @@ impl McModuleInst {
                     }
                 }
             }
-            // trailing bridges (after last series element) — attach to last gap
-            if !pending_bridges.is_empty() && !bridges_at.is_empty() {
-                let last = bridges_at
-                    .last_mut()
-                    .ok_or_else(|| InstError::Other("bridges_at unexpectedly empty".into()))?;
-                last.extend(std::mem::take(&mut pending_bridges));
-            }
+            // Trailing bridges (collected after the last series element) stay
+            // in `pending_bridges`; §11 strict vector order: a chain-tail
+            // bridge (`A -> CAP'`) is written after the last series element,
+            // so its pins attach after that element's right points — not into
+            // the last gap.
 
             // Instantiate FuncCall elements before resolving points.
             // When lane-by-lane wiring skips the normal process_member_internal
@@ -542,27 +540,10 @@ impl McModuleInst {
                 }
             }
 
-            if series_elems.len() < 2 {
-                // Single series element: attach bridge pins directly to it
-                let all_bridges: Vec<NetPoint> = bridges_at.iter().flatten().cloned().collect();
-                if !all_bridges.is_empty() && series_elems.len() == 1 {
-                    let pts = self.get_left_points(series_elems[0]).unwrap_or_default();
-                    if let Some(lp) = Self::pick_lane_point(&pts, lane) {
-                        let mut all_pts = vec![lp];
-                        all_pts.extend(all_bridges);
-                        if all_pts.len() >= 2 {
-                            let id = self.next_conn_id();
-                            self.add_connection(self.make_conn_with_provenance(
-                                id,
-                                all_pts,
-                                dir,
-                                Some(lane as u16),
-                            ));
-                        }
-                    }
-                }
-                continue;
-            }
+            // Single series element (or none): the main gap loop below is
+            // `0..n-1`, so it naturally no-ops; chain-head / chain-tail
+            // bridges are still handled by the leading / trailing branches,
+            // keeping their source writing order (§11 strict vector order).
 
             // Wire series elements in order. Bridge pins at position i+1 are
             // attached to the net between series[i] and series[i+1].
@@ -571,12 +552,16 @@ impl McModuleInst {
 
             // ── P2-7: handle leading bridges (bridges_at[0]) ──
             // Attach leading bridges to the first series element's left points.
+            // §11 strict vector order: a chain-head bridge (`CAP' -> A`) is
+            // written before A, so its pins come first: `CAP.1 -> A.left`,
+            // not `A.left -> CAP.1`.
             if let Some(leading) = bridges_at.first() {
                 if !leading.is_empty() {
                     let first_left = self.get_left_points(series_elems[0]).unwrap_or_default();
                     if let Some(lp) = Self::pick_lane_point(&first_left, lane) {
-                        let mut all_pts = vec![lp.clone()];
+                        let mut all_pts = Vec::with_capacity(leading.len() + 1);
                         all_pts.extend(leading.iter().cloned());
+                        all_pts.push(lp);
                         if all_pts.len() >= 2 {
                             let id = self.next_conn_id();
                             self.add_connection(self.make_conn_with_provenance(
@@ -615,8 +600,14 @@ impl McModuleInst {
                 };
 
                 if !bridge_pins.is_empty() {
-                    let mut all_pts = vec![lp.clone(), rp.clone()];
+                    // §11 strict vector order: bridge pins belong to the gap
+                    // between the left and right series elements, so they are
+                    // inserted between them — the expanded point order must
+                    // match the source writing order
+                    // (`A -> CAP' -> B` → `A.1, CAP.1, B.1`, not `A.1, B.1, CAP.1`).
+                    let mut all_pts = vec![lp.clone()];
                     all_pts.extend(bridge_pins.iter().cloned());
+                    all_pts.push(rp.clone());
                     let id = self.next_conn_id();
                     self.add_connection(self.make_conn_with_provenance(
                         id,
@@ -626,6 +617,30 @@ impl McModuleInst {
                     ));
                 } else {
                     self.create_connection(vec![lp], vec![rp], dir, Some(lane as u16))?;
+                }
+            }
+
+            // ── M11.4: handle trailing bridges (after the last series element) ──
+            // §11 strict vector order: a chain-tail bridge (`A -> CAP'`) is
+            // written after the last series element, so its pins follow that
+            // element's right points: `B.right -> CAP.1`.
+            if !pending_bridges.is_empty() {
+                if let Some(last_elem) = series_elems.last() {
+                    let last_right = self.get_right_points(last_elem).unwrap_or_default();
+                    if let Some(rp) = Self::pick_lane_point(&last_right, lane) {
+                        let mut all_pts = Vec::with_capacity(pending_bridges.len() + 1);
+                        all_pts.push(rp);
+                        all_pts.extend(pending_bridges.iter().cloned());
+                        if all_pts.len() >= 2 {
+                            let id = self.next_conn_id();
+                            self.add_connection(self.make_conn_with_provenance(
+                                id,
+                                all_pts,
+                                dir,
+                                Some(lane as u16),
+                            ));
+                        }
+                    }
                 }
             }
         }
@@ -1511,10 +1526,10 @@ impl McModuleInst {
 
             if right_is_group {
                 let external_points = this.get_right_points(left_member)?;
-                this.connect_to_group(external_points, right_member, true)?;
+                this.connect_to_group(external_points, right_member, true, dir)?;
             } else if left_is_group {
                 let external_points = this.get_left_points(right_member)?;
-                this.connect_to_group(external_points, left_member, false)?;
+                this.connect_to_group(external_points, left_member, false, dir)?;
             } else {
                 let left_points = this.get_right_points(left_member)?;
                 let right_points = this.get_left_points(right_member)?;

@@ -47,9 +47,24 @@ struct VerifyTotals {
 }
 
 /// One expanded connection, shown under the source statement that produced it.
+#[derive(Clone)]
 struct ConnEntry {
     net: String,
     points: Vec<String>,
+    /// Source connector direction, rendered as the separator between points
+    /// (`->` for LtoR, `<-` for RtoL, `-` for undirected).
+    dir: String,
+}
+
+/// Join connection endpoints with the separator that reflects the source
+/// connector direction: `->` (LtoR), `<-` (RtoL), `-` (undirected).
+fn render_conn_points(points: &[&str], dir: &str) -> String {
+    let sep = match dir {
+        "LtoR" => " -> ",
+        "RtoL" => " <- ",
+        _ => " - ",
+    };
+    points.join(sep)
 }
 
 pub fn run(args: &VerifyArgs) -> Result<VerifyOutcome> {
@@ -291,7 +306,9 @@ fn compare_instances(
     expanded_all.sort_by(|a, b| (a.0.clone(), a.1.clone()).cmp(&(b.0.clone(), b.1.clone())));
 
     let report = json!({
-        "source": source.iter().map(|(n, k, l, cl)| json!({"name": n, "kind": k, "line": l, "class": cl})).collect::<Vec<_>>(),
+        "source": source.iter().map(|(n, k, l, cl, o)| json!({
+            "name": n, "kind": k, "line": l, "class": cl, "origin": o,
+        })).collect::<Vec<_>>(),
         "declareb": declareb.iter().map(|(n, l, cl)| json!({"name": n, "line": l, "class": cl})).collect::<Vec<_>>(),
         "expanded": expanded_all.iter().map(|(n, k, o, l)| json!({"name": n, "kind": k, "origin": o, "line": l})).collect::<Vec<_>>(),
         "missing": missing,
@@ -336,6 +353,7 @@ fn record_tree_node(
             json!({
                 "net": c.effective_net_name(),
                 "points": c.points.iter().map(|p| p.path.clone()).collect::<Vec<_>>(),
+                "dir": format!("{:?}", c.dir),
             })
         })
         .collect();
@@ -480,6 +498,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
                         "sub": sub_path,
                         "net": c.effective_net_name(),
                         "points": c.points.iter().map(|p| p.path.clone()).collect::<Vec<_>>(),
+                        "dir": format!("{:?}", c.dir),
                     });
                     sub_expansions
                         .entry(pos.offset)
@@ -494,12 +513,17 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
     let mut per_stmt: Vec<Vec<ConnEntry>> = (0..lines.len()).map(|_| Vec::new()).collect();
     let mut untraced: Vec<String> = Vec::new();
     let mut cross_file: Vec<Value> = Vec::new();
+    // Cross-file body connections attributed to a declaration line (e.g. a
+    // component constructor body defined in another file): grouped by the
+    // declaration line, rendered under that statement (§5.1 declare view).
+    let mut declare_conns: BTreeMap<u32, Value> = BTreeMap::new();
     let mut unattributed: Vec<Value> = Vec::new();
 
     for conn in &inst.connections {
         let entry = ConnEntry {
             net: conn.effective_net_name(),
             points: conn.points.iter().map(|p| p.path.clone()).collect(),
+            dir: format!("{:?}", conn.dir),
         };
         match &conn.source_span {
             // No source span: engine-internal projection link (interface / bus
@@ -508,9 +532,61 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
             Some(pos) => {
                 if pos.uri != def_file {
                     // Connection created while instantiating a function whose
-                    // body lives in another file (e.g. `uC.i2c()`). The call
-                    // site is visible in the hierarchy tree; the definition
-                    // file + line here is auxiliary info only (§5.2).
+                    // body lives in another file (e.g. `uC.i2c()`). Attribute
+                    // it to the statement that triggered the call: walk the
+                    // expansion record parent chain to the top-level record
+                    // and use its call site (the declaring statement in this
+                    // module). When that statement is a declaration line (not
+                    // a connection statement, so absent from `src_by_line`),
+                    // the connection is collected per declaration line for
+                    // the `declare_conns` block; otherwise it falls back to
+                    // the cross-file section (§5.2).
+                    let mut cur = conn.expansion_id;
+                    let mut top_call: Option<&mcc::SourcePos> = None;
+                    while let Some(c) = cur {
+                        if let Some(r) = inst.expansion.records.get(c) {
+                            if r.parent.is_none() {
+                                top_call = r.call_site.as_ref();
+                                break;
+                            }
+                            cur = r.parent;
+                        } else {
+                            break;
+                        }
+                    }
+                    let mut attributed = false;
+                    if let Some(tc) = top_call {
+                        if tc.uri == def_file {
+                            if let Some(c) = &content {
+                                let ln = hierarchy::line_of_byte(c, tc.offset as usize);
+                                if let Some(&idx) = src_by_line.get(&ln) {
+                                    per_stmt[idx].push(entry.clone());
+                                    attributed = true;
+                                } else {
+                                    declare_conns.entry(ln).or_insert_with(|| {
+                                        let text = c
+                                            .lines()
+                                            .nth(ln.saturating_sub(1) as usize)
+                                            .unwrap_or("")
+                                            .trim()
+                                            .to_string();
+                                        json!({"line": ln, "text": text, "conns": []})
+                                    })["conns"]
+                                        .as_array_mut()
+                                        .unwrap()
+                                        .push(json!({
+                                            "net": entry.net.clone(),
+                                            "points": entry.points.clone(),
+                                            "dir": entry.dir.clone(),
+                                        }));
+                                    attributed = true;
+                                }
+                            }
+                        }
+                    }
+                    if attributed {
+                        continue;
+                    }
                     let line = std::fs::read_to_string(&pos.uri)
                         .ok()
                         .map(|c| hierarchy::line_of_byte(&c, pos.offset as usize))
@@ -518,6 +594,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
                     cross_file.push(json!({
                         "net": entry.net,
                         "points": entry.points,
+                        "dir": entry.dir,
                         "source": format!("{}:{}", pos.uri, line),
                     }));
                 } else if content.is_some() {
@@ -535,6 +612,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
                         None => unattributed.push(json!({
                             "net": entry.net,
                             "points": entry.points,
+                            "dir": entry.dir,
                             "line": ln,
                         })),
                     }
@@ -557,7 +635,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
         let has_funccall = phrase_contains_funccall(phrase);
         let conns: Vec<Value> = per_stmt[i]
             .iter()
-            .map(|c| json!({"net": c.net, "points": c.points}))
+            .map(|c| json!({"net": c.net, "points": c.points, "dir": c.dir}))
             .collect();
         let stmt_off = spans.get(i).map(|sp| sp.start as u32);
         let empty_expansion = stmt_off
@@ -647,6 +725,7 @@ fn compare_connections(inst: &McModuleInst) -> (Value, (usize, usize, usize, usi
         "per_line": per_line,
         "untraced": untraced,
         "cross_file": cross_file,
+        "declare_conns": declare_conns.into_values().collect::<Vec<_>>(),
         "unattributed": unattributed,
     });
     let counts = (
@@ -728,9 +807,136 @@ fn render_text(out: &mut String, top: &str, summary: &Value, modules: &[Value], 
     hierarchy::render_hierarchy_text(out, hierarchy);
     let _ = writeln!(out);
 
+    // Per-module instance report right after the hierarchy tree: for every
+    // level, the expected count (declared source + declareb) against the
+    // actual expanded count, so a layer missing instances stands out before
+    // the per-module detail sections.
+    render_instance_report(out, modules);
+
+    // Blank line between the report and the first per-module section.
+    let _ = writeln!(out);
+
     for m in modules {
         render_module_text(out, m);
     }
+}
+
+/// Per-module counts, all in the same "visible in the hierarchy tree" terms:
+/// `expected` = declared source + declareb, `expanded` = expected plus
+/// funcall-generated anonymous components (every row the tree shows for that
+/// module). Derived labels / buses and connection net names are connection
+/// projections, not instances, so they are not counted. `missing` / `extra`
+/// are the actual mismatch lists (`extra` only counts components/modules that
+/// appear without a declaration). Per-kind columns (`comp`/`mod`/`ifs`/`bus`/
+/// `lbl`) show `expected/expanded` as a pair, so the source of any gap is
+/// visible on the module row itself.
+fn render_instance_report(out: &mut String, modules: &[Value]) {
+    let _ = writeln!(out);
+    let _ = writeln!(out, "===== Instance Report =====");
+    let _ = writeln!(
+        out,
+        "  {:<28} {:>9} {:>9} {:>8} {:>6}  {:>6} {:>6} {:>6} {:>6} {:>6}",
+        "module", "expected", "expanded", "missing", "extra", "comp", "mod", "ifs", "bus", "lbl"
+    );
+    let mut total_expected = 0usize;
+    let mut total_expanded = 0usize;
+    let mut total_missing = 0usize;
+    let mut total_extra = 0usize;
+    let mut total_kinds: BTreeMap<&str, usize> = BTreeMap::new();
+    let mut total_kinds_exp: BTreeMap<&str, usize> = BTreeMap::new();
+    for m in modules {
+        let path = m["module"].as_str().unwrap_or("");
+        let depth = path.matches('.').count();
+        let src = m["instances"]["source"]
+            .as_array()
+            .map(|a| a.len())
+            .unwrap_or(0);
+        let decl = m["instances"]["declareb"]
+            .as_array()
+            .map(|a| a.len())
+            .unwrap_or(0);
+        let gen = m["instances"]["generated"]
+            .as_array()
+            .map(|a| a.len())
+            .unwrap_or(0);
+        let missing = m["instances"]["missing"]
+            .as_array()
+            .map(|a| a.len())
+            .unwrap_or(0);
+        let extra = m["instances"]["extra"]
+            .as_array()
+            .map(|a| a.len())
+            .unwrap_or(0);
+        let label = format!("{}{path}", "  ".repeat(depth));
+        // Per-kind counts in tree terms: declared (source + declareb,
+        // declareb is always a component) against expanded (declared plus
+        // funcall-generated anonymous components).
+        let mut expected_by_kind: BTreeMap<&str, usize> = BTreeMap::new();
+        if let Some(arr) = m["instances"]["source"].as_array() {
+            for e in arr {
+                let k = e["kind"].as_str().unwrap_or("");
+                *expected_by_kind.entry(k).or_default() += 1;
+            }
+        }
+        *expected_by_kind.entry("component").or_default() += decl;
+        let mut expanded_by_kind = expected_by_kind.clone();
+        *expanded_by_kind.entry("component").or_default() += gen;
+        let pair = |k: &str| -> String {
+            let exp = expected_by_kind.get(k).copied().unwrap_or(0);
+            let act = expanded_by_kind.get(k).copied().unwrap_or(0);
+            if exp == 0 && act == 0 {
+                "-".to_string()
+            } else {
+                format!("{exp}/{act}")
+            }
+        };
+        for (k, v) in &expected_by_kind {
+            *total_kinds.entry(k).or_default() += *v;
+        }
+        for (k, v) in &expanded_by_kind {
+            *total_kinds_exp.entry(k).or_default() += *v;
+        }
+        let _ = writeln!(
+            out,
+            "  {label:<28} {:>9} {:>9} {:>8} {:>6}  {:>6} {:>6} {:>6} {:>6} {:>6}",
+            src + decl,
+            src + decl + gen,
+            missing,
+            extra,
+            pair("component"),
+            pair("module"),
+            pair("interface"),
+            pair("bus"),
+            pair("label"),
+        );
+        total_expected += src + decl;
+        total_expanded += src + decl + gen;
+        total_missing += missing;
+        total_extra += extra;
+    }
+    let total_pair = |k: &str| -> String {
+        let exp = total_kinds.get(k).copied().unwrap_or(0);
+        let act = total_kinds_exp.get(k).copied().unwrap_or(0);
+        if exp == 0 && act == 0 {
+            "-".to_string()
+        } else {
+            format!("{exp}/{act}")
+        }
+    };
+    let _ = writeln!(
+        out,
+        "  {:<28} {:>9} {:>9} {:>8} {:>6}  {:>6} {:>6} {:>6} {:>6} {:>6}",
+        "TOTAL",
+        total_expected,
+        total_expanded,
+        total_missing,
+        total_extra,
+        total_pair("component"),
+        total_pair("module"),
+        total_pair("interface"),
+        total_pair("bus"),
+        total_pair("label"),
+    );
 }
 
 /// One branch of the in-place funcall expansion tree: a plain leaf line or a
@@ -750,7 +956,8 @@ fn conn_key(c: &Value) -> String {
     format!("{}|{}", c["net"].as_str().unwrap_or(""), pts.join(","))
 }
 
-/// `[net] : a - b` text of a connection value.
+/// `[net] : a -> b` text of a connection value, honoring the retained
+/// source direction (`LtoR`/`RtoL`/`Undirected`, see §11 strict vector order).
 fn conn_text(c: &Value) -> String {
     let pts: Vec<&str> = c["points"]
         .as_array()
@@ -759,7 +966,7 @@ fn conn_text(c: &Value) -> String {
     format!(
         "[{}] : {}",
         c["net"].as_str().unwrap_or(""),
-        pts.join(" - ")
+        render_conn_points(&pts, c["dir"].as_str().unwrap_or(""))
     )
 }
 
@@ -800,6 +1007,38 @@ fn render_branches(out: &mut String, prefix: &str, branches: &[Branch]) {
                 let _ = writeln!(out, "{prefix}{stem}{text}");
             }
             Branch::Node { label, node } => {
+                // Single-product leaf record (e.g. `RES` creating only `_R1`):
+                // collapse the record label and its component into one line
+                // instead of a two-level stub. The record label is dropped:
+                // for a construction leaf it always equals the component
+                // class, so `|-- RES _R1 RES(10kΩ)` reads as the product
+                // `|-- _R1 RES(10kΩ)`.
+                let single_comp = node["components"]
+                    .as_array()
+                    .map(|a| a.len() == 1)
+                    .unwrap_or(false)
+                    && !node["connections"]
+                        .as_array()
+                        .map_or(false, |a| !a.is_empty())
+                    && !node["sub_connections"]
+                        .as_array()
+                        .map_or(false, |a| !a.is_empty())
+                    && !node["children"].as_array().map_or(false, |a| !a.is_empty());
+                if single_comp {
+                    let c = &node["components"][0];
+                    let class = c["class"].as_str().unwrap_or("");
+                    let _ = writeln!(
+                        out,
+                        "{prefix}{stem}{}{}",
+                        c["name"].as_str().unwrap_or(""),
+                        if class.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" {class}")
+                        },
+                    );
+                    continue;
+                }
                 let _ = writeln!(out, "{prefix}{stem}{label}");
                 let mut children: Vec<Branch> = Vec::new();
                 // Nested expansion records first (what the call created), then
@@ -865,17 +1104,24 @@ fn render_module_text(out: &mut String, m: &Value) {
         .unwrap_or(13);
     // The class column (same rendering as the Hierarchy tree) is appended
     // after the kind marker; marker and class widths keep all rows aligned.
+    // Markers carry the origin suffix (`comp.s` / `comp.b` / `comp.f`).
     let mark_w = {
         let kind = inst["source"]
             .as_array()
             .map(|a| {
                 a.iter()
-                    .filter_map(|e| e["kind"].as_str().map(|k| k.chars().count()))
+                    .filter_map(|e| {
+                        e["kind"].as_str().map(|k| {
+                            hierarchy::kind_text(k, e["origin"].as_str().unwrap_or("src")).len()
+                        })
+                    })
                     .max()
                     .unwrap_or(0)
             })
             .unwrap_or(0);
-        kind.max("(declareb)".len()).max("(funcall)".len()) + 1
+        kind.max(hierarchy::kind_text("declareb", "decl").len())
+            .max(hierarchy::kind_text("component", "gen").len())
+            + 1
     };
     let class_w = ["source", "declareb", "generated"]
         .iter()
@@ -890,7 +1136,10 @@ fn render_module_text(out: &mut String, m: &Value) {
         for e in arr {
             let ln = line_col(e);
             let name = e["name"].as_str().unwrap_or("");
-            let kind = e["kind"].as_str().unwrap_or("");
+            let kind = hierarchy::kind_text(
+                e["kind"].as_str().unwrap_or(""),
+                e["origin"].as_str().unwrap_or("src"),
+            );
             let class = e["class"].as_str().unwrap_or("");
             let _ = writeln!(
                 out,
@@ -903,7 +1152,7 @@ fn render_module_text(out: &mut String, m: &Value) {
             let ln = line_col(e);
             let name = e["name"].as_str().unwrap_or("");
             let class = e["class"].as_str().unwrap_or("");
-            let mark = "(declareb)";
+            let mark = hierarchy::kind_text("declareb", "decl");
             let _ = writeln!(
                 out,
                 "    {ln:<5}[decl] {name:<name_w$}{mark:<mark_w$}{class:<class_w$}"
@@ -925,7 +1174,7 @@ fn render_module_text(out: &mut String, m: &Value) {
             let ln = line_col(e);
             let name = e["name"].as_str().unwrap_or("");
             let class = e["class"].as_str().unwrap_or("");
-            let mark = "(funcall)";
+            let mark = hierarchy::kind_text("component", "gen");
             let _ = writeln!(
                 out,
                 "    {ln:<5}[gen]  {name:<name_w$}{mark:<mark_w$}{class:<class_w$}"
@@ -945,11 +1194,13 @@ fn render_module_text(out: &mut String, m: &Value) {
                 .map(|l| format!("L{l}"))
                 .unwrap_or_else(|| "?".to_string());
             let count = line["connections"].as_array().map(|a| a.len()).unwrap_or(0);
+            // Function-call statements carry no marker: a visible tree is the
+            // expansion itself, and a funcall without a tree may still expand
+            // into the cross-file section (the no_expansion counter already
+            // exempts funcalls unless the body genuinely produced nothing).
             let flag = if line["funcall_empty"].as_bool().unwrap_or(false) {
                 "  <<< EMPTY EXPANSION"
-            } else if line["funcall"].as_bool().unwrap_or(false) {
-                " (funcall)"
-            } else if count == 0 {
+            } else if count == 0 && !line["funcall"].as_bool().unwrap_or(false) {
                 "  <<< NO EXPANSION"
             } else {
                 ""
@@ -996,10 +1247,10 @@ fn render_module_text(out: &mut String, m: &Value) {
                     let pts = c["points"]
                         .as_array()
                         .map(|p| {
-                            p.iter()
-                                .filter_map(|x| x.as_str())
-                                .collect::<Vec<_>>()
-                                .join(" - ")
+                            render_conn_points(
+                                &p.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>(),
+                                c["dir"].as_str().unwrap_or(""),
+                            )
                         })
                         .unwrap_or_default();
                     let _ = writeln!(
@@ -1017,10 +1268,10 @@ fn render_module_text(out: &mut String, m: &Value) {
                     let pts = c["points"]
                         .as_array()
                         .map(|p| {
-                            p.iter()
-                                .filter_map(|x| x.as_str())
-                                .collect::<Vec<_>>()
-                                .join(" - ")
+                            render_conn_points(
+                                &p.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>(),
+                                c["dir"].as_str().unwrap_or(""),
+                            )
                         })
                         .unwrap_or_default();
                     let _ = writeln!(
@@ -1028,6 +1279,39 @@ fn render_module_text(out: &mut String, m: &Value) {
                         "           [{}] (sub {}) : {}",
                         c["net"].as_str().unwrap_or(""),
                         c["sub"].as_str().unwrap_or(""),
+                        pts
+                    );
+                }
+            }
+        }
+    }
+    if let Some(arr) = conn["declare_conns"].as_array() {
+        // Cross-file body connections attributed to a declaration statement
+        // (e.g. a component constructor body defined in another file):
+        // rendered under that declaration line like a normal statement, so
+        // `FLASH.GD25Q32E flash(V3V3)` shows the connections its constructor
+        // func produced.
+        for e in arr {
+            let ln = e["line"]
+                .as_u64()
+                .map(|l| format!("L{l}"))
+                .unwrap_or_default();
+            let _ = writeln!(out, "    {ln:<6} {}", e["text"].as_str().unwrap_or(""));
+            if let Some(conns) = e["conns"].as_array() {
+                for c in conns {
+                    let pts = c["points"]
+                        .as_array()
+                        .map(|p| {
+                            render_conn_points(
+                                &p.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>(),
+                                c["dir"].as_str().unwrap_or(""),
+                            )
+                        })
+                        .unwrap_or_default();
+                    let _ = writeln!(
+                        out,
+                        "           [{}] : {}",
+                        c["net"].as_str().unwrap_or(""),
                         pts
                     );
                 }
