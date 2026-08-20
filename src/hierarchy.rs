@@ -23,8 +23,11 @@ use std::path::Path;
 /// per-module instance report and by the hierarchy tree.
 pub struct InstanceFamilies {
     /// Declared physical instances (component / module / interface / bus /
-    /// label) with kind, source line and class, sorted by declaration line.
-    pub source: Vec<(String, String, u32, Option<String>)>,
+    /// label) with kind, source line, class and origin (`port` = carries an
+    /// IOType, `src` = explicit but iotype-less declaration such as a module
+    /// parameter or bracket port member, `inline` = net name created by a
+    /// connection phrase), sorted by line.
+    pub source: Vec<(String, String, u32, Option<String>, String)>,
     /// Declareb instances (`C1::CAP()`) with their declaration line and
     /// component class (`CAP`).
     pub declareb: Vec<(String, u32, String)>,
@@ -76,6 +79,55 @@ fn bus_class(def: &crate::McModule, name: &str) -> Option<String> {
         .map(|(class, args)| format!("{class}({})", args.join(", ")))
 }
 
+/// Kind abbreviation shared by `verify` and the hierarchy tree: full Pass1
+/// kind names map to 3-4 char tokens (`comp` / `mod` / `ifs` / `lbl` / `bus`)
+/// so the type column stays short.
+pub fn kind_abbrev(kind: &str) -> &str {
+    match kind {
+        "component" | "declareb" => "comp",
+        "module" => "mod",
+        "interface" => "ifs",
+        "label" => "lbl",
+        "bus" => "bus",
+        _ => kind,
+    }
+}
+
+/// Type token with its origin suffix for one combined column: declared
+/// source (`comp.s`), declareb (`comp.b`) and funcall-generated (`comp.f`)
+/// entities are distinguishable; labels / buses / interfaces show whether
+/// they are real IOType ports (`lbl.p`), iotype-less explicit declarations
+/// such as module parameters or bracket port members (`lbl.s`), or created
+/// inline by a connection phrase (`lbl.i`).
+pub fn kind_text(kind: &str, origin: &str) -> String {
+    let base = kind_abbrev(kind);
+    let suffix = match origin {
+        "port" => ".p",
+        "src" | "declared" => ".s",
+        "decl" | "declareb" => ".b",
+        "gen" | "funcall" => ".f",
+        "inline" => ".i",
+        _ => "",
+    };
+    format!("{base}{suffix}")
+}
+
+/// Whether `name` is a member of a bracket port declared in the module header
+/// (e.g. `VDD_3V3` inside `in [VDD_3V3, GND]::DC(3.3V)`). Such members are
+/// stored as whole-bracket keys (`[VDD_3V3, GND]`) in the insts port-spans
+/// table and count as explicitly declared ports, unlike inline net names.
+fn is_bracket_port_member(inst: &McModuleInst, name: &str) -> bool {
+    inst.def.insts.port_spans().iter().any(|(key, _)| {
+        if !(key.starts_with('[') || key.starts_with('{')) {
+            return false;
+        }
+        key.trim_matches(|c| c == '[' || c == ']' || c == '{' || c == '}')
+            .split(',')
+            .map(str::trim)
+            .any(|m| m == name)
+    })
+}
+
 /// Extract the declared / declareb / funcall-generated instance families of
 /// one module. Source-declared physical instance names are the contract;
 /// engine-generated pseudo instances (`@RES1` auto ports), non-physical
@@ -87,7 +139,7 @@ pub fn extract_instance_families(
     inst: &McModuleInst,
     content: &Option<String>,
 ) -> InstanceFamilies {
-    let mut source: Vec<(String, String, u32, Option<String>)> = Vec::new();
+    let mut source: Vec<(String, String, u32, Option<String>, String)> = Vec::new();
     let mut source_names: HashSet<String> = HashSet::new();
     let line_of_span = |sp: &std::ops::Range<usize>| -> u32 {
         content
@@ -160,6 +212,20 @@ pub fn extract_instance_families(
             _ => (None, None),
         };
         if let Some(kind) = kind {
+            // Components and modules are always declared explicitly. Labels /
+            // buses / interfaces carry three origins: `port` when the name has
+            // a real IOType (in/out/io/ps header port or `label` statement),
+            // `src` for iotype-less but explicit declarations (module
+            // parameters and bracket port members), and `inline` for names
+            // created solely by a connection phrase (§5.1).
+            let origin = match kind {
+                "component" | "module" => "src",
+                _ if inst.def.insts.is_port_io_type(&name) => "port",
+                _ if inst.def.params.is_defined(&name) || is_bracket_port_member(inst, &name) => {
+                    "src"
+                }
+                _ => "inline",
+            };
             let line = inst
                 .def
                 .insts
@@ -190,7 +256,13 @@ pub fn extract_instance_families(
                     }
                 })
                 .unwrap_or(0);
-            source.push((name.to_string(), kind.to_string(), line, class));
+            source.push((
+                name.to_string(),
+                kind.to_string(),
+                line,
+                class,
+                origin.to_string(),
+            ));
             source_names.insert(name.to_string());
         }
     }
@@ -198,7 +270,7 @@ pub fn extract_instance_families(
     // instance list mirrors the order the parts appear in the source module.
     // Unknown lines (0) go last; the stable sort keeps the alphabetical
     // BTreeMap order within the same line.
-    source.sort_by_key(|(_, _, l, _)| if *l == 0 { u32::MAX } else { *l });
+    source.sort_by_key(|(_, _, l, _, _)| if *l == 0 { u32::MAX } else { *l });
     // Declareb instances (`C1::CAP()`) bypass `parse_declare`, so their names
     // never enter `insts`; they are recorded in the declareb hint table and
     // expand with a FuncCall origin, so the component class comes from the
@@ -251,26 +323,31 @@ pub fn extract_instance_families(
                                     .filter(|l| *l > 0)
                             })
                             .unwrap_or(0);
-                        // Caller chain (§5.1 `generated`): walk the expansion
-                        // record parent chain to the top-level record so
-                        // anonymous products of a method/function call display
-                        // the whole call path (e.g. `uC.i2c() → R_PULLUP_1`),
-                        // not the innermost record (which for a nested
-                        // ComponentCtor carries no caller).
+                        // Caller chain (§5.1 `generated`): walk up the expansion
+                        // record parent chain and keep the *outermost* record
+                        // that carries both a caller instance and a function
+                        // name — the whole call path. For a component
+                        // constructor body this is the ComponentCtor record
+                        // nested under the component's Declare record
+                        // (`flash.GD25Q32E`); for a method call it is the
+                        // InstanceMethod record (`uC.power`, `X6.setup`).
+                        // Starting at the component's own record and taking
+                        // the innermost caller would instead report the leaf
+                        // construction (`R442.RES`) and miss the enclosing
+                        // method (`X6.setup`).
                         let caller = (|| -> Option<String> {
                             let mut cur = comp.expansion_id?;
+                            let mut best: Option<String> = None;
                             loop {
                                 let rec = inst.expansion.records.get(cur)?;
+                                if let (Some(c), f) = (&rec.caller_inst, rec.func_name.as_str()) {
+                                    if !f.is_empty() {
+                                        best = Some(format!("{c}.{f}"));
+                                    }
+                                }
                                 match rec.parent {
                                     Some(p) => cur = p,
-                                    None => {
-                                        return match (&rec.caller_inst, rec.func_name.as_str()) {
-                                            (Some(c), f) if !f.is_empty() => {
-                                                Some(format!("{c}.{f}"))
-                                            }
-                                            _ => None,
-                                        };
-                                    }
+                                    None => return best,
                                 }
                             }
                         })()
@@ -305,7 +382,9 @@ pub fn collect_module_nodes(inst: &McModuleInst, path: &str) -> Vec<Value> {
     let content = std::fs::read_to_string(&inst.def_uri.to_string()).ok();
     let fam = extract_instance_families(inst, &content);
     let instances = json!({
-        "source": fam.source.iter().map(|(n, k, l, cl)| json!({"name": n, "kind": k, "line": l, "class": cl})).collect::<Vec<_>>(),
+        "source": fam.source.iter().map(|(n, k, l, cl, o)| json!({
+            "name": n, "kind": k, "line": l, "class": cl, "origin": o,
+        })).collect::<Vec<_>>(),
         "declareb": fam.declareb.iter().map(|(n, l, cl)| json!({"name": n, "line": l, "class": cl})).collect::<Vec<_>>(),
         "generated": fam.generated.iter().map(|(n, l, cl, caller)| json!({"name": n, "line": l, "class": cl, "caller": caller})).collect::<Vec<_>>(),
     });
@@ -350,7 +429,7 @@ pub fn build_hierarchy(modules: &[Value]) -> Value {
                     "kind": e["kind"],
                     "line": e["line"],
                     "class": e["class"],
-                    "origin": "src",
+                    "origin": e["origin"].as_str().unwrap_or("src"),
                 }));
             }
         }
@@ -470,8 +549,13 @@ fn render_hierarchy_entries(
             .map(|l| format!("L{l}"))
             .unwrap_or_default();
         let origin = e["origin"].as_str().unwrap_or("");
+        // Origin tags are right-padded to a fixed width so the name / class
+        // columns align across rows regardless of the token length; `inline`
+        // is abbreviated to `inl` to keep the tag at most 6 chars wide.
+        let origin_disp = if origin == "inline" { "inl" } else { origin };
+        let origin_tag = format!("{:<6}", format!("[{origin_disp}]"));
         let name = e["name"].as_str().unwrap_or("");
-        let kind = e["kind"].as_str().unwrap_or("");
+        let kind = kind_text(e["kind"].as_str().unwrap_or(""), origin);
         let class = e["class"].as_str().unwrap_or("");
         if let Some(sub) = e.get("module") {
             let sub_uri = sub["uri"].as_str().unwrap_or("");
@@ -481,7 +565,7 @@ fn render_hierarchy_entries(
                 .unwrap_or_else(|| sub_uri.to_string());
             let _ = writeln!(
                 out,
-                "{prefix}{branch}{ln:<line_w$}  [{origin}] {kind:<9} {name:<name_w$} {class}  ({sub_file})"
+                "{prefix}{branch}{ln:<line_w$}  {origin_tag} {kind:<7} {name:<name_w$} {class}  ({sub_file})"
             );
             render_hierarchy_entries(out, sub, &format!("{prefix}{cont}  "), name_w, line_w);
             // One blank line after each sub-module subtree so sibling module
@@ -498,7 +582,7 @@ fn render_hierarchy_entries(
                 .unwrap_or_default();
             let _ = writeln!(
                 out,
-                "{prefix}{branch}{ln:<line_w$}  [{origin}] {kind:<9} {name:<name_w$} {class}{caller}"
+                "{prefix}{branch}{ln:<line_w$}  {origin_tag} {kind:<7} {name:<name_w$} {class}{caller}"
             );
         }
     }

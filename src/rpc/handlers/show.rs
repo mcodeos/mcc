@@ -636,14 +636,14 @@ pub fn handle_show_instances(params: Option<Value>) -> RpcResult {
             let content = std::fs::read_to_string(&inst.def_uri.to_string()).ok();
             let fam = crate::hierarchy::extract_instance_families(&inst, &content);
             let mut items: Vec<Value> = Vec::new();
-            for (n, k, l, cl) in fam.source {
+            for (n, k, l, cl, o) in fam.source {
                 if p.type_filter
                     .as_deref()
                     .is_none_or(|t| k.eq_ignore_ascii_case(t))
                 {
                     items.push(json!({
                         "name": n, "kind": k, "class": cl,
-                        "origin": "src", "line": l,
+                        "origin": o, "line": l,
                     }));
                 }
             }

@@ -825,7 +825,12 @@ fn render_dianlu_section(inst: &mcc::McModuleInst, path: &str, lines: &mut Vec<S
         if points.is_empty() {
             continue;
         }
-        lines.push(format!("  {net} : {}", points.join(" - ")));
+        let sep = match conn.dir {
+            mcc::ConnDir::LtoR => " -> ",
+            mcc::ConnDir::RtoL => " <- ",
+            _ => " - ",
+        };
+        lines.push(format!("  {net} : {}", points.join(sep)));
     }
 
     for sub in &inst.sub_modules {
@@ -893,7 +898,11 @@ fn dianlu_sections(inst: &mcc::McModuleInst, path: &str) -> Vec<Value> {
             if points.is_empty() {
                 return None;
             }
-            Some(json!({ "net": net, "points": points }))
+            Some(json!({
+                "net": net,
+                "points": points,
+                "dir": format!("{:?}", conn.dir),
+            }))
         })
         .collect();
     section["connections"] = json!(conns);
@@ -1143,7 +1152,7 @@ fn drill_instances(name: &str, args: &ShowArgs) -> Result<()> {
             let content = std::fs::read_to_string(&inst.def_uri.to_string()).ok();
             let fam = mcc::hierarchy::extract_instance_families(&inst, &content);
             let mut items: Vec<Value> = Vec::new();
-            for (n, k, l, cl) in fam.source {
+            for (n, k, l, cl, o) in fam.source {
                 if args
                     .r#type
                     .as_deref()
@@ -1151,7 +1160,7 @@ fn drill_instances(name: &str, args: &ShowArgs) -> Result<()> {
                 {
                     items.push(json!({
                         "name": n, "kind": k, "class": cl,
-                        "origin": "src", "line": l,
+                        "origin": o, "line": l,
                     }));
                 }
             }
