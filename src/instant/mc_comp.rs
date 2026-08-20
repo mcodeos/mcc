@@ -33,6 +33,12 @@ pub struct McComponentInst {
     /// Parameter bindings
     pub params: McParamBindings,
 
+    /// Raw parameter values exactly as written at the call/declaration site
+    /// (argument order, NC modifiers included). Display helpers render the
+    /// class name from this list instead of the re-grouped bindings; empty
+    /// for instances created without a parameter list.
+    pub raw_params: Vec<McParamValue>,
+
     /// Pin instances (pin_name -> NetPoint)
     pub pins: HashMap<String, NetPoint>,
 
@@ -66,6 +72,7 @@ impl McComponentInst {
             name: name.to_string(),
             def: def.clone(),
             params: McParamBindings::new(),
+            raw_params: Vec::new(),
             pins: HashMap::new(),
             cond_pin_names: HashMap::new(),
             cond_attrs: Vec::new(),
@@ -86,6 +93,7 @@ impl McComponentInst {
             name: name.to_string(),
             def,
             params: McParamBindings::new(),
+            raw_params: Vec::new(),
             pins: HashMap::new(),
             cond_pin_names: HashMap::new(),
             cond_attrs: Vec::new(),
@@ -114,6 +122,7 @@ impl McComponentInst {
             name: name.to_string(),
             def: def.clone(),
             params,
+            raw_params: param_values.to_vec(),
             pins: HashMap::new(),
             cond_pin_names: HashMap::new(),
             cond_attrs: Vec::new(),
@@ -128,12 +137,14 @@ impl McComponentInst {
         Ok(inst)
     }
 
-    /// Create a component instance with NC status
-    pub fn with_nc(name: &str, def: Arc<McComponent>) -> Self {
+    /// Create a component instance with NC status. The raw parameter list is
+    /// kept for display purposes even though binding is skipped (P0.5-3).
+    pub fn with_nc(name: &str, def: Arc<McComponent>, param_values: &[McParamValue]) -> Self {
         let mut inst = Self {
             name: name.to_string(),
             def: def.clone(),
             params: McParamBindings::new(),
+            raw_params: param_values.to_vec(),
             pins: HashMap::new(),
             cond_pin_names: HashMap::new(),
             cond_attrs: Vec::new(),

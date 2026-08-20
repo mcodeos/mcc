@@ -440,6 +440,11 @@ impl fmt::Display for LayoutView {
         )?;
         writeln!(out, "{}", "-".repeat(110))?;
         for n in &self.nets {
+            let row_glyph = if n.terminal_only {
+                String::new()
+            } else {
+                row_src_glyph(&n.row_source)
+            };
             writeln!(
                 out,
                 "{:<5} {:<11} {:<7} {:<6} {:<4} {:<13} {:<6} {:<7} {:<8} {:<17} {:<5} {}",
@@ -457,11 +462,7 @@ impl fmt::Display for LayoutView {
                     13
                 ),
                 if n.anchor_placed { "yes" } else { "NO" },
-                if n.terminal_only {
-                    "—"
-                } else {
-                    &row_src_glyph(&n.row_source)
-                },
+                if n.terminal_only { "—" } else { &row_glyph },
                 opt_f(n.row),
                 format!("({}, {})", f(n.span.0), f(n.span.1)),
                 if n.terminal_only { "only" } else { "" },
