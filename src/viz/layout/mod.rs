@@ -37,6 +37,7 @@ pub mod passive_inline;
 pub mod pin_place;
 pub mod radial;
 pub mod rails;
+pub mod rank;
 pub mod select;
 pub mod size;
 pub mod sp_model;
