@@ -54,20 +54,18 @@ pub trait BoxShape {
 /// When `is_root` is true, sub-module boxes use root layer block-diagram styling
 /// (solid lines, centered name, no + corner).
 pub fn render_box(b: &McVecBox, is_root: bool) -> String {
-    // Missing or rejected assets retain the existing system-symbol behavior.
-    // ★ Custom symbols are user-provided and take priority even on the root
-    //   layer: P9-B's root block-diagram styling is the fallback, not the
-    //   override (fixture: svg_symbol_project expects J1/J2 on the root).
-    if let Some(cs) = &b.custom_symbol {
-        return render_custom_symbol(b, cs);
-    }
-    // ★ P9-B / B4: root layer renders all boxes as block-diagram sub-modules
+    // Root (block) layer: user-provided custom symbols take priority over the
+    // P9-B block-diagram fallback (fixture: svg_symbol_project expects J1/J2 on
+    // the root).
     if is_root {
+        if let Some(cs) = &b.custom_symbol {
+            return render_custom_symbol(b, cs);
+        }
         return render_sub_module_root(b);
     }
-    // ★ R-S (discipline 26): package / partno do not participate in symbol selection.
-    // Symbol is determined by device category, not by custom SVG from manifest.
-    // custom_symbol is kept in the data model for reference only (attribute table).
+    // Device layers: the symbol is determined by device category, not by a
+    // custom SVG from the manifest (R-S discipline 26) — usbsock & co. render as
+    // their rectangular multi-pin device, not as a pictographic icon.
     match b.symbol {
         Symbol::Resistor => ResistorShape.render(b),
         Symbol::Capacitor | Symbol::PolarCapacitor => CapacitorShape.render(b),
